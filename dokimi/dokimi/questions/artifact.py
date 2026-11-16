@@ -230,8 +230,9 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
     :func:`dokimi.utils.read_json_input`: an unreadable, non-UTF-8 or non-JSON file raises
     :class:`~dokimi.utils.InputError` ``<flag> <path>: <reason>``. Without it the read is bare.
     """
+    # the raw value goes to the reader: ``Path("")`` is ``.``, which would hide an empty path
+    raw = json.loads(Path(path).read_text(encoding="utf-8")) if flag is None else read_json_input(path, flag=flag)
     path = Path(path)
-    raw = json.loads(path.read_text(encoding="utf-8")) if flag is None else read_json_input(path, flag=flag)
     data, bare_list = _records(raw, path)
     data = _drop_v1_open_nulls(data, _v1_open_nulls()[0])
     current = SCHEMA_VERSIONS[KIND]

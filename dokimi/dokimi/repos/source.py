@@ -408,7 +408,7 @@ def default_cache_dir() -> Path:
 def cache_path(url: str, cache_dir: Path) -> Path:
     """Stable per-URL clone directory: readable slug plus a hash of the full URL."""
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", url.rstrip("/").rsplit("/", 1)[-1]) or "repo"
-    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha256(url.encode("utf-8", "surrogateescape")).hexdigest()[:12]
     return cache_dir / f"{slug.removesuffix('.git')}-{digest}.git"
 
 

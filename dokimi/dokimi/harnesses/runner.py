@@ -571,4 +571,4 @@ def _safe_id(value: str) -> str:
     name = value.replace("/", "_").replace(":", "_").replace(" ", "_")
     if not re.search(r'[\\<>"|?*]', name):
         return name
-    return re.sub(r'[\\<>"|?*]', "_", name) + "-" + hashlib.sha256(value.encode()).hexdigest()[:8]
+    return re.sub(r'[\\<>"|?*]', "_", name) + "-" + hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()[:8]

@@ -70,6 +70,7 @@ def replay_hint(reason: str = "spend_cap") -> str:
 
     if response_cache_active():
         rerun = ("a higher --max-usd" if reason == "spend_cap"
+                 else "the error fixed," if reason == "permanent_error"
                  else "the model priced, or without --max-usd,")
         return (f". Rerun with {rerun} and the same {RESPONSE_CACHE_ENV}: the calls "
                 "already paid for replay at $0 (a cut-off or unusable reply is asked again)")

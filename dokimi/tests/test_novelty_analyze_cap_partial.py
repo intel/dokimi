@@ -352,18 +352,17 @@ def test_no_replay_is_promised_when_the_cache_dir_is_read_only(tmp_path, monkeyp
 
 
 def test_no_replay_is_promised_when_a_cache_write_failed_on_a_full_disk(tmp_path, monkeypatch):
-    from pathlib import Path
-
     from dokimi import caching
 
     cache = tmp_path / "cache"
     cache.mkdir()
     monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(cache))
 
-    def disk_full(self, *args, **kwargs):
+    def disk_full(fd, *args, **kwargs):  # the atomic write opens its tmp file with os.fdopen
+        os.close(fd)
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(Path, "write_text", disk_full)
+    monkeypatch.setattr(os, "fdopen", disk_full)
     caching.store_response("k", "text", UsageRecord(cost_usd=0.5))
     monkeypatch.undo()
     monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(cache))
