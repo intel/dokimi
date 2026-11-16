@@ -426,70 +426,77 @@ def _class_names(body: list[ast.stmt]) -> dict[str, ast.expr | None]:
     return {name: value if count.get(name) == 1 else None for name, value in bound.items()}
 
 
-def _inline_constants(tree: ast.Module) -> ast.Module:
-    """``tree`` with each read of a module-level constant replaced by a copy of its value.
-
-    A name assigned more than once, read in its own value or bound to a call that skips
-    (``pytest.importorskip``), is left alone, and so is a name a function binds itself
-    (parameter or local). The copy takes the line of the read it replaces."""
+def _module_constants(tree: ast.Module) -> dict[str, ast.expr]:
+    """The module-level names that are constants: assigned once, never changed in place, no effects."""
     targets = [t.id for node in tree.body for t in _targets(node) if isinstance(t, ast.Name)]
     # A name whose container is changed in place (``pytestmark.append``) is not a constant.
     owners = {n.func.value.id for n in ast.walk(tree) if isinstance(n, ast.Call)
               and isinstance(n.func, ast.Attribute) and n.func.attr in MUTATORS and isinstance(n.func.value, ast.Name)}
-    consts = {node.targets[0].id: node.value for node in tree.body
+    return {node.targets[0].id: node.value for node in tree.body
               if isinstance(node, ast.Assign) and len(node.targets) == 1
               and isinstance(node.targets[0], ast.Name) and targets.count(node.targets[0].id) == 1
               and node.targets[0].id not in owners and not _effects(node.value)
               and not any(isinstance(n, ast.Name) and n.id == node.targets[0].id
                           for n in ast.walk(node.value))}
 
-    class Inline(ast.NodeTransformer):
-        def __init__(self) -> None:
-            self.shadowed: set[str] = set()  # names a function around the read binds
-            self.cls: dict[str, ast.expr | None] = {}  # names the class body around the read binds: value or None
 
-        def visit_Name(self, node: ast.Name) -> ast.AST:
-            if not isinstance(node.ctx, ast.Load):
-                return node
-            if node.id in self.cls:
-                value = self.cls[node.id]
-            elif node.id in consts and node.id not in self.shadowed:
-                value = consts[node.id]
-            else:
-                return node
-            if value is None:
-                return node
-            copied = copy.deepcopy(value)
-            for sub in ast.walk(copied):
-                ast.copy_location(sub, node)
-            return copied
+class _InlineConstants(ast.NodeTransformer):
+    def __init__(self, consts: dict[str, ast.expr]) -> None:
+        self.consts = consts
+        self.shadowed: set[str] = set()  # names a function around the read binds
+        self.cls: dict[str, ast.expr | None] = {}  # names the class body around the read binds: value or None
 
-        def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
-            # A class-body name binds for the reads after its assignment only: method bodies never see it,
-            # and a decorator above a later assignment reads the module's constant.
-            node.decorator_list = [self.visit(d) for d in node.decorator_list]
-            node.bases = [self.visit(b) for b in node.bases]
-            outer = self.cls
-            for i, stmt in enumerate(node.body):
-                self.cls = _class_names(node.body[:i])
-                node.body[i] = self.visit(stmt)
-            self.cls = outer
+    def visit_Name(self, node: ast.Name) -> ast.AST:
+        if not isinstance(node.ctx, ast.Load):
             return node
-
-        def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.AST:
-            node.decorator_list = [self.visit(d) for d in node.decorator_list]
-            local = {a.arg for a in ast.walk(node.args) if isinstance(a, ast.arg)}
-            local |= {n.id for n in ast.walk(node) if isinstance(n, ast.Name)
-                      and isinstance(n.ctx, (ast.Store, ast.Del))}
-            outer, self.shadowed = self.shadowed, self.shadowed | local
-            outer_cls, self.cls = self.cls, {}
-            node.body = [self.visit(stmt) for stmt in node.body]
-            self.shadowed, self.cls = outer, outer_cls
+        if node.id in self.cls:
+            value = self.cls[node.id]
+        elif node.id in self.consts and node.id not in self.shadowed:
+            value = self.consts[node.id]
+        else:
             return node
+        if value is None:
+            return node
+        copied = copy.deepcopy(value)
+        for sub in ast.walk(copied):
+            ast.copy_location(sub, node)
+        return copied
 
-        visit_FunctionDef = visit_AsyncFunctionDef = _function
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
+        # A class-body name binds for the reads after its assignment only: method bodies never see it,
+        # and a decorator above a later assignment reads the module's constant.
+        node.decorator_list = [self.visit(d) for d in node.decorator_list]
+        node.bases = [self.visit(b) for b in node.bases]
+        outer = self.cls
+        for i, stmt in enumerate(node.body):
+            self.cls = _class_names(node.body[:i])
+            node.body[i] = self.visit(stmt)
+        self.cls = outer
+        return node
 
-    return Inline().visit(tree)
+    def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.AST:
+        node.decorator_list = [self.visit(d) for d in node.decorator_list]
+        local = {a.arg for a in ast.walk(node.args) if isinstance(a, ast.arg)}
+        local |= {n.id for n in ast.walk(node) if isinstance(n, ast.Name)
+                  and isinstance(n.ctx, (ast.Store, ast.Del))}
+        outer, self.shadowed = self.shadowed, self.shadowed | local
+        outer_cls, self.cls = self.cls, {}
+        node.body = [self.visit(stmt) for stmt in node.body]
+        self.shadowed, self.cls = outer, outer_cls
+        return node
+
+    visit_FunctionDef = visit_AsyncFunctionDef = _function
+
+
+def _inline_constants(tree: ast.Module) -> ast.Module:
+    """``tree`` with each read of a module-level constant replaced by a copy of its value.
+
+    A name assigned more than once, read in its own value or bound to a call that skips
+    (``pytest.importorskip``), is left alone, and so is a name a function binds itself
+    (parameter or local). The copy takes the line of the read it replaces."""
+    consts = _module_constants(tree)
+
+    return _InlineConstants(consts).visit(tree)
 
 
 def _collect(body: list[ast.stmt], prefix: str, skips: int, marks: list[ast.expr],

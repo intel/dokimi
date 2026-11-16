@@ -703,7 +703,8 @@ def test_a_constant_read_through_a_method_is_still_inlined():
 @pytest.mark.parametrize("tolerance", ["(-1) ** 0.5", str(10 ** 400), "10 ** 400", "1e400"])
 def test_a_tolerance_that_is_not_a_real_number_is_read_without_an_error(tolerance):
     base = "import pytest\n\n\ndef test_a():\n    assert f() == pytest.approx(1, rel=1e-3)\n"
-    assert isinstance(ctn.compare(base, base.replace("rel=1e-3", f"rel={tolerance}")), list)
+    found = ctn.compare(base, base.replace("rel=1e-3", f"rel={tolerance}"))
+    assert [what for _, _, what in found] == ["loosens a tolerance"]
 
 
 def test_a_range_too_long_to_count_is_read_without_an_error():
