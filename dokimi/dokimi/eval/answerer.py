@@ -22,7 +22,6 @@ from dokimi.defaults import (
     DEFAULT_RETRIEVAL_TOP_K,
 )
 from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE, check_caller_provider
-from dokimi.novelty.routing_stop import is_run_wide
 from dokimi.metrics.usage import UsageRecord, to_record
 
 from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
@@ -167,7 +166,7 @@ class Answerer:
                 )
             except Exception as e:  # noqa: BLE001 - the failure is stored on the pair and reported
                 failure = e
-                if is_run_wide(e):  # every later call would fail too: queued questions are not paid for
+                if getattr(e, "run_wide", False) is True:  # a CLI usage limit or login: queued questions are not paid for
                     stop.set()
                 pair = {
                     "question_id": q_id,
@@ -206,6 +205,10 @@ class Answerer:
                 f.result()  # wait for completion
 
         answers = [results[i] for i in sorted(results)]
+        self._print_summary(answers, n)
+        return answers
+
+    def _print_summary(self, answers: List[Dict[str, Any]], n: int) -> None:
         if len(answers) < n:
             print(f"  Stopped: {n - len(answers)} of {n} questions not asked (run-wide error)", flush=True)
         ok_with = sum(1 for a in answers if a.get("with_docs"))
@@ -218,7 +221,6 @@ class Answerer:
         print(f"  Baseline:     {ok_without}/{n}", flush=True)
         if errors:
             print(f"  Errors:       {errors}", flush=True)
-        return answers
     
     def _generate_answer_pair(
         self,

@@ -22,8 +22,6 @@ from dokimi.caching import is_empty_reply
 from dokimi.utils import question_id  # re-exported: callers import it from here
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
-from dokimi.novelty.client import SpendCapReached
-from dokimi.novelty.routing_stop import stop_if_run_wide
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
@@ -31,7 +29,7 @@ from dokimi.eval.arm_summary import (
     cell_values, cost_summary, empty_reply_cell, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
-from dokimi.eval.question_text import question_text_of, require_question_texts
+from dokimi.eval.question_text import ground_truth_from_topics, question_text_of, require_question_texts
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
@@ -77,32 +75,6 @@ ANSWER_PROMPT_PLAIN = """Answer the following user question. Be specific and inc
 
 MAX_CONTEXT_CHARS = 15_000
 
-# Curated golden sets carry verified answer statements in ``expected_topics``,
-# which are usable as judge ground truth. Auto-generated sets put short keyword
-# labels in the same field (measured: ~14-19 chars/topic, versus 78-207 for the
-# golden sets), and grading a full answer against bare keywords would penalise
-# correct answers. Only promote topics that are prose-length.
-MIN_GROUND_TRUTH_TOPIC_CHARS = 40
-
-
-def _ground_truth_from_topics(q: Dict[str, Any]) -> Optional[str]:
-    """Build judge ground truth from ``expected_topics``, when they are substantive.
-
-    Returns ``None`` for keyword-style topics so that such questions keep using
-    the ungrounded rubric rather than being scored against a word list.
-    """
-    topics = q.get("expected_topics") or []
-    if not isinstance(topics, list):
-        return None
-    statements = [str(t).strip() for t in topics if str(t).strip()]
-    if not statements:
-        return None
-    mean_len = sum(len(s) for s in statements) / len(statements)
-    if mean_len < MIN_GROUND_TRUTH_TOPIC_CHARS:
-        return None
-    return "\n".join(f"- {s}" for s in statements)
-
-
 def _static_arm_kind(treatment: Treatment) -> Dict[str, Any]:
     """The ``arm_kind`` metadata of a treatment whose ``prepare()`` never returned."""
     t = getattr(treatment, "inner", treatment)  # a plugin wrapper
@@ -111,7 +83,6 @@ def _static_arm_kind(treatment: Treatment) -> Dict[str, Any]:
         return {"arm_kind": "combined",
                 "treatments": [{"name": s.name, **_static_arm_kind(s)} for s in subs]}
     return {"arm_kind": getattr(t, "arm_kind", None)}
-
 
 
 def _refuse_session_records(recs: Sequence[Record]) -> None:
@@ -246,8 +217,10 @@ class ArmRunner:
                 return
             try:
                 rec = self._answer_question(library_name, library_id, q)
-            except SpendCapReached as exc:
-                stop.set()
+            except Exception as exc:
+                if getattr(exc, "run_wide", False) is not True:
+                    raise
+                stop.set()  # a CLI usage limit or login: the questions not yet started are not asked
                 print(f"Stopped: {exc}", flush=True)
                 return
             with lock:
@@ -312,7 +285,7 @@ class ArmRunner:
             rec["expected_skill"] = q["expected_skill"]
         ground_truth = q.get("ground_truth_chunk")
         if not ground_truth and self.grounded_from_topics:
-            ground_truth = _ground_truth_from_topics(q)
+            ground_truth = ground_truth_from_topics(q)
         if ground_truth:
             rec["ground_truth_chunk"] = ground_truth
         return rec
@@ -398,7 +371,8 @@ class ArmRunner:
             )
         except Exception as exc:
             logger.exception("Arm %s answer generation failed", treatment.name)
-            stop_if_run_wide(exc)  # a run-wide error ends the run; the question is not kept
+            if getattr(exc, "run_wide", False) is True:
+                raise  # run() stops the run; the question is not kept
             return {"error": f"generation_failed: {exc}", "answer": None,
                     "metadata": cfg_metadata}
 
