@@ -8,8 +8,10 @@ This is the registry of issue #94 §2.4 (stage F1a). A leaf adds a registry flag
 The contract test in ``tests/test_cli_flags.py`` runs in ratchet mode: a
 spelling that is neither canonical here nor on ``tests/data/cli_flags_allowlist.txt``
 fails the build, and so does a banned synonym whose concept has a canonical spelling,
-unless that spelling is on the allowlist. The check looks at spellings only: an option's
-type and action are not compared with ``kind``.
+unless that spelling is on the allowlist. The same test also compares every use of a canonical
+spelling with its registry row: switch or value (``kind``), metavar (``value``), choices and
+type (``kind``). ``meaning_clashes`` in ``tests/test_cli_flags.py`` says what is compared; a
+flag's repeatability is not compared.
 
 A concept is one row of the §2.4 audit. Its ``canonical`` spellings are the ones new
 commands use. ``banned`` lists the synonyms the audit found for it. A banned spelling
@@ -114,7 +116,7 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="context-framing",
         help="the context preamble a novelty measurement puts before the artifact",
-        canonical=(Flag("--context-framing", "reference|neutral", "text",
+        canonical=(Flag("--context-framing", "reference|neutral", "choice",
                         meaning="neutral says the text may be irrelevant (the placebo-abstention control)"),),
     ),
     Concept(
