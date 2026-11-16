@@ -301,7 +301,7 @@ class GapFiller:
                     })
                 filled[level] = len(texts[:count])
                 logger.info(f"  Generated {filled[level]}/{count} for {level}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - logged; that level is filled with 0
                 logger.error(f"Gap fill failed for {level}: {exc}")
                 filled[level] = 0
 

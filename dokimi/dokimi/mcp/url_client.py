@@ -125,14 +125,14 @@ class URLClient(MCPClient):
         try:
             resp = httpx.head(self.url, timeout=self.timeout, follow_redirects=True)
             return 200 <= resp.status_code < 300
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - logged at debug; a connection check answers False
             logger.debug(f"URLClient.check_connection failed: {exc}")
             return False
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
     def _cache_key(self) -> str:
-        return hashlib.sha256(self.url.encode()).hexdigest()
+        return hashlib.sha256(self.url.encode("utf-8", "surrogateescape")).hexdigest()
 
     def _fetch(self) -> str:
         """Fetch URL (with optional caching). Returns cleaned plain text."""
