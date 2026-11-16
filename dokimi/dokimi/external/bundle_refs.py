@@ -53,8 +53,8 @@ _FOLDER_DEST = re.compile(
     re.MULTILINE,
 )
 SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names a file from the skill root
-# A path prefix that names the skill root or the current folder: ``./scripts/``, ``../scripts/``, ``${CLAUDE_SKILL_DIR}/scripts/``.
-_PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\.\.?/)")
+# A path prefix that names the skill root or the current folder: ``./scripts/``, ``${CLAUDE_SKILL_DIR}/scripts/``. A ``../`` leaves the skill, so it stays.
+_PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\./)")
 # A backslash before ``_``, ``*`` or ``~`` may escape it (``my\_script.py``); see :func:`_matchable` for both readings.
 _ESCAPED = re.compile(r"\\([_*~])")
 
@@ -129,21 +129,56 @@ def _target(folder: str, link: str) -> str:
     return posixpath.normpath(posixpath.join(folder, link)).lower()
 
 
-def _named(rel: str, text: str, links: set[str]) -> bool:
-    """Whether ``text`` names the file ``rel``: its path, its file name, or a folder above it named alone.
-    A link to the skill root (``./``) names every file.
+_RUN = re.compile(r"[\w.-]+")  # a file name is a run of these, or the start of one up to a dot
+
+
+class _Mentions:
+    """The file names one text mentions, found in one pass over it: a search of a megabyte text per candidate is
+    quadratic. ``names`` are the file names asked about; a file name that is not made of :data:`_RUN` characters
+    is searched with :func:`_mentions`, and so is every folder name.
+    """
+
+    def __init__(self, text: str, names: set[str]):
+        self.text = text
+        self.found: set[str] = set()
+        self.folders: dict[str, bool] = {}
+        longest = max(map(len, names), default=0)  # a dot past it cannot end a name: a run of dots stays linear
+        for run in set(_RUN.findall(text)):  # a name is a run, or a run up to a dot that no word character follows
+            if run in names:
+                self.found.add(run)
+            dot = run.find(".")
+            while dot != -1 and dot <= longest:
+                if dot + 1 == len(run) or not _WORD.match(run[dot + 1]):
+                    if run[:dot] in names:
+                        self.found.add(run[:dot])
+                dot = run.find(".", dot + 1)
+
+    def file(self, name: str) -> bool:
+        if _RUN.fullmatch(name) is None:
+            return _mentions(name, self.text, ".-")
+        return name in self.found
+
+    def folder(self, needle: str) -> bool:
+        if needle not in self.folders:
+            self.folders[needle] = _mentions(needle, self.text, "./-")
+        return self.folders[needle]
+
+
+def _named(rel: str, mentions: _Mentions, links: set[str]) -> bool:
+    """Whether the text names the file ``rel``: its file name, or a folder above it named alone. A link to the
+    skill root (``./``) names every file.
 
     Case is ignored (``FORMS.md`` names ``forms.md``). ``links`` are the link destinations of
     ``SKILL.md`` and of the documents read so far, as files from the skill root (escapes and
-    percent-encoding decoded), lowercased.
+    percent-encoding decoded), lowercased. A name that is in the path (``scripts/a.py``) is in the file name too.
     """
     parts = rel.lower().split("/")
     if "." in links or "/".join(parts) in links or any("/".join(parts[:i]) in links for i in range(1, len(parts))):
         return True  # a link to the file, or a folder link to an ancestor
-    if _mentions("/".join(parts), text, ".-") or _mentions(parts[-1], text, ".-"):
+    if mentions.file(parts[-1]):
         return True
     # A folder named alone (``references/``), not as the start of another file's path (``scripts/a.py``).
-    return any(_mentions("/".join(parts[:i]) + "/", text, "./-") for i in range(1, len(parts)))
+    return any(mentions.folder("/".join(parts[:i]) + "/") for i in range(1, len(parts)))
 
 
 _RELATIVE = re.compile(r"(?<![\w./-])((?:\.\.?/)+)")
@@ -161,6 +196,8 @@ def _from_folder(text: str, folder: str) -> str:
         base = folder
         for part in match.group(1).split("/")[:-1]:
             if part == "..":
+                if base == ".":
+                    return match.group(0)  # above the skill root: outside the skill, names nothing
                 base = posixpath.dirname(base) or "."
         return "" if base == "." else base + "/"
 
@@ -217,9 +254,11 @@ def _named_closure(
     docs_read = 0
     incomplete = len(docs) > WALK_MAX_FILES
     candidates = list(dict.fromkeys(files + docs))
+    names = {rel.lower().rsplit("/", 1)[-1] for rel in candidates}
     unseen = text  # the text no candidate has been checked against yet: a candidate is only new against it
     while True:
-        new = [rel for rel in candidates if rel not in named_files and _named(rel, unseen, linked)]
+        mentions = _Mentions(unseen, names)
+        new = [rel for rel in candidates if rel not in named_files and _named(rel, mentions, linked)]
         if not new:
             break
         unseen = ""

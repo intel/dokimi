@@ -269,8 +269,16 @@ def test_a_named_document_past_the_read_cap_is_not_judged(tmp_path, monkeypatch)
     review = _review_with_texts(
         tmp_path,
         "Read [a](docs/a.md), [b](docs/b.md), [c](docs/c.md).\n",
-        {"docs/a.md": "A.\n", "docs/b.md": "B.\n", "docs/c.md": "Run `scripts/run.py`.\n", "scripts/run.py": "x\n"},
+        {
+            "docs/a.md": "A.\n",
+            "docs/b.md": "B.\n",
+            "docs/c.md": "Run `scripts/run.py`.\n",
+            "scripts/run.py": "x\n",
+            "scripts/other.py": "x\n",
+        },
     )
+    # The third document is past the cap, so the search is incomplete and nothing is claimed. With ``>`` it would be
+    # read, name ``scripts/run.py`` and leave ``scripts/other.py`` unnamed: the claim this test must not make.
     assert _unreferenced(review) == []
 
 
@@ -372,21 +380,38 @@ def test_a_named_symlinked_document_gives_no_claim(tmp_path):
     assert _unreferenced(review) == []
 
 
+@pytest.mark.parametrize(
+    ("body", "texts"),
+    [
+        # ``../`` from the skill root leaves the skill: it names nothing inside it
+        ("Helpers live in ../scripts/.\n", {}),
+        # from a nested folder, two levels up is above the skill root too
+        ("Read [g](references/g.md).\n", {"references/g.md": "Run the tools in ../../scripts/.\n"}),
+    ],
+)
+def test_a_folder_written_above_the_skill_root_names_no_bundled_folder(tmp_path, body, texts):
+    texts = {**texts, "scripts/unused.py": "x\n"}
+    review = _review_with_texts(tmp_path, body, texts)
+    [message] = _unreferenced(review)
+    assert message.startswith("1 of ")  # the nested case also counts the document it names
+    assert "(scripts/unused.py)" in message
+
+
 def test_a_bundle_with_many_files_and_large_documents_is_judged_quickly(tmp_path):
     import time
 
     from dokimi.external.bundle_refs import unreferenced_message
     from dokimi.external.validate import _link_files
 
-    # Only the bundle search is timed, in CPU time: a shared CI runner under load runs several times slower.
-    # The bound is loose; the quadratic scan this guards against took minutes on the same input.
+    # Only the bundle search is timed, in CPU time, and the bound is loose: a loaded runner is several times slower.
+    # A search per file took 32 s on this input; the name lookup takes about 2 s.
     docs = {
-        f"docs/d{i:02d}.md": "filler line for the document\n" * 2000 + f"Run `scripts/s{i:02d}.py`.\n"
-        for i in range(30)
+        f"docs/d{i:02d}.md": "filler line for the document\n" * 7500 + f"Run `scripts/s{i:02d}.py`.\n"
+        for i in range(50)
     }
     texts = dict(docs)
-    texts.update({f"scripts/s{i:02d}.py": "x\n" for i in range(30)})
-    texts.update({f"scripts/u{i:03d}.py": "x\n" for i in range(300)})
+    texts.update({f"scripts/s{i:02d}.py": "x\n" for i in range(50)})
+    texts.update({f"scripts/u{i:04d}.py": "x\n" for i in range(1900)})
     body = "See " + ", ".join(docs) + ".\n"
     skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body=body)
     for rel, text in texts.items():
@@ -398,8 +423,8 @@ def test_a_bundle_with_many_files_and_large_documents_is_judged_quickly(tmp_path
     message = unreferenced_message(skill_dir / "SKILL.md", links, at_root=False, doc_links=_link_files)
     elapsed = time.process_time() - started
     assert message is not None
-    assert "300 of 360" in message  # 30 documents, 30 scripts they name, and 300 they do not
-    assert elapsed < 30
+    assert "1900 of 2000" in message  # 50 documents, 50 scripts they name, and 1900 they do not
+    assert elapsed < 10
 
 
 def test_a_document_named_by_a_hidden_file_name_is_read(tmp_path):
