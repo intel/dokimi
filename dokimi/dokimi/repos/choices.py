@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from .probes import command_stages, command_words
+from .probes import command_stages, command_words, split_redirects
 from .shell_split import split_script
 
 ACTS = ("install", "import", "use", "remove")
@@ -44,7 +44,7 @@ _VALUE_OPTIONS = frozenset({
 
 def validate_candidates(raw: Any, where: str = "--candidates") -> dict[str, dict[str, tuple[str, ...]]]:
     """A ``{id: {act: [names]}}`` mapping as ``{id: {act: (names,)}}``; ``ValueError`` names what is wrong."""
-    if raw is None:
+    if raw is None or raw == {}:
         raise ValueError(f"{where}: the file names no candidate")
     if not isinstance(raw, Mapping):
         raise ValueError(f"{where}: expected a mapping of candidate to acts, got {type(raw).__name__}")
@@ -114,23 +114,27 @@ def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str
     ``&&`` (rc 0 then means each ran), and not in a pipeline (the last stage's code). A ``;``, ``||`` or ``&`` part may
     have failed or never run, so its install gives no choice."""
     parts = split_script(str(event.get("text", "")))
-    if any(part.after not in ("", "&&") for part in parts):
+    if any(p.after not in ("", "&&") for p in parts[:-1]) or any(p.after not in ("", "&&", ";") for p in parts[-1:]):
         return []
     found: dict[tuple[str, str], None] = {}
     for part, *_ in parts:
+        if part.startswith("("):  # a subshell: its exit code is not the command's own
+            continue
         stages, _inner = command_stages(part)
         if len(stages) > 1:  # a pipeline reports its last stage's exit code
             continue
         words = stages[0] if stages else []
-        if words[:1] in (["exit"], ["exec"]):  # exit or exec: no later part runs
+        views = list(command_words(words))
+        if any(view[:1] == ["exit"] for view in views):  # no later part runs
             break
-        call = next(filter(None, map(_package_call, command_words(words))), None)
-        if call is None:
-            continue
-        act, packages = call
-        for cid, acts in candidates.items():
-            if _wanted(acts, act) & set(packages):
-                found[(cid, act)] = None
+        call = next(filter(None, map(_package_call, views)), None)
+        if call is not None:
+            act, packages = call
+            for cid, acts in candidates.items():
+                if _wanted(acts, act) & set(packages):
+                    found[(cid, act)] = None
+        if any(view[:1] == ["exec"] for view in views):  # the shell is replaced by the call above: no later part runs
+            break
     return [_choice(event, cid, act, None) for cid, act in found]
 
 
@@ -161,7 +165,7 @@ def _choice(event: dict[str, Any], cid: str, act: str, path: str | None) -> dict
 def _imports(name: str, text: str) -> bool:
     """``from name import ...``, or ``import name`` among the comma-separated modules of an ``import`` line; a
     statement may follow another on its line after a ``;`` or a ``:``, a ``\\`` continues a line, a comment is no code."""
-    text = re.sub(r"\\\n[ \t]*", " ", re.sub(r"#[^\n]*", "", text))
+    text = re.sub(r"\\\n[ \t]*", " ", _code(text))
     if re.search(rf"(?:^|[;:])[ \t]*from\s+{re.escape(name)}(?!\w)", text, re.M):
         return True
     for line in re.finditer(r"(?:^|[;:])[ \t]*import\s+([^\n;]+)", text, re.M):
@@ -170,6 +174,29 @@ def _imports(name: str, text: str) -> bool:
             if module == name or module.startswith(name + "."):
                 return True
     return False
+
+
+def _code(text: str) -> str:
+    """The text without its comments and the insides of its string literals (a quote left open runs to its line's end,
+    or to the end of a triple-quoted one: an edit may add only part of a file)."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "#":
+            while i < n and text[i] != "\n":
+                i += 1
+        elif c in "'\"":
+            quote = text[i:i + 3] if text[i:i + 3] == c * 3 else c
+            i += len(quote)
+            while i < n and not text.startswith(quote, i) and not (len(quote) == 1 and text[i] == "\n"):
+                i += 2 if text[i] == "\\" else 1
+            i += len(quote) if text.startswith(quote, i) else 0
+            out.append(" ")
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def _calls(name: str, text: str) -> bool:
@@ -191,7 +218,7 @@ def _package_call(words: list[str]) -> tuple[str, list[str]] | None:
         return None
     names: list[str] = []
     skip = False
-    for word in rest[1:]:
+    for word in split_redirects(rest[1:])[0]:  # ``> scipy`` names an output file, not a package
         if skip:
             skip = False
         elif word.startswith("-"):
@@ -208,10 +235,13 @@ def _manager_rest(words: list[str]) -> list[str]:
     head = posixpath.basename(words[0].replace("\\", "/")).casefold().removesuffix(".exe")
     if _PYTHON.fullmatch(head) and words[1:3] == ["-m", "pip"]:
         return words[3:]
-    if head == "uv" and words[1:2] == ["pip"]:
-        return words[2:]
-    if head == "uv" and words[1:2] in (["add"], ["remove"]):  # uv's project verbs: ``uv add`` installs a requirement
-        return words[1:]
+    if head == "uv":
+        rest = words[1:]
+        while rest and rest[0].startswith("-"):  # ``uv --quiet add``
+            rest = rest[1:]
+        if rest[:1] == ["pip"]:
+            return rest[1:]
+        return rest if rest[:1] in (["add"], ["remove"]) else []  # uv's project verbs: ``uv add`` installs a requirement
     if _PIP.fullmatch(head) or head in ("conda", "mamba", "poetry"):
         return words[1:]
     return []
@@ -219,5 +249,5 @@ def _manager_rest(words: list[str]) -> list[str]:
 
 def _package(word: str) -> str:
     """A requirement's name as the package manager compares it: no version, extras or URL; case and ``-_.`` folded."""
-    name = _REQUIREMENT_END.split(word, maxsplit=1)[0]
+    name = _REQUIREMENT_END.split(word, maxsplit=1)[0].strip()
     return re.sub(r"[-_.]+", "-", name).casefold()

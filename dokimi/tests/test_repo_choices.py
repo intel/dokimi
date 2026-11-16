@@ -200,6 +200,13 @@ def test_a_denied_install_gives_no_choice():
     "pip install --index-url scikit-learn-intelex numpy",
     "conda install --name scikit-learn-intelex numpy",
     "exit 0 && pip install scikit-learn-intelex",
+    "pip install numpy > scikit-learn-intelex",
+    "pip install numpy 2>scikit-learn-intelex",
+    "pip uninstall numpy > scikit-learn-intelex",
+    "exec pip install numpy && pip install scikit-learn-intelex",
+    "exec true && pip install scikit-learn-intelex",
+    "FOO=1 exec true && pip install scikit-learn-intelex",
+    "echo \\| pip install scikit-learn-intelex",
 ])
 def test_a_command_that_installs_nothing_the_candidate_names_gives_no_choice(command):
     assert _choices(with_choices(_bash_rc(command, rc=0), SKLEARN, [])) == []
@@ -214,6 +221,10 @@ def test_a_command_that_installs_nothing_the_candidate_names_gives_no_choice(com
     "python.exe -m pip install scikit-learn-intelex",
     "pip install --target lib scikit-learn-intelex",
     "echo '|' && pip install scikit-learn-intelex",
+    "exec pip install scikit-learn-intelex",
+    "uv --quiet add scikit-learn-intelex",
+    "pip install numpy 2>&1 > /dev/null scikit-learn-intelex",
+    "pip install 'scikit-learn-intelex >= 1.0'",
 ])
 def test_a_wrapped_or_option_laden_install_still_gives_its_choice(command):
     assert _choices(with_choices(_bash_rc(command, rc=0), SKLEARN, [])) == [("sklearn", "install", None)]
@@ -228,6 +239,10 @@ def test_a_wrapped_or_option_laden_install_still_gives_its_choice(command):
     ("from sklearnexx import y\n", False),
     ("import sklearnex.patches\n", True),
     ("import sklearnexx\n", False),
+    ('s = "#"; import sklearnex\n', True),
+    ('"""\nimport sklearnex\n"""\n', False),
+    ("s = 'import sklearnex'\n", False),
+    ('s = "a\\"b"; import sklearnex\n', True),
 ])
 def test_an_import_is_read_from_code_not_from_a_comment(text, found):
     event = {"t": 1.0, "kind": "edit", "path": "a.py", "rc": 0}
@@ -253,3 +268,8 @@ def test_use_matches_a_dotted_name_only_at_a_name_boundary():
 def test_a_bad_candidate_config_is_refused_with_what_is_wrong(raw, message):
     with pytest.raises(ValueError, match=message):
         validate_candidates(raw, "candidates")
+
+
+def test_an_exec_of_a_removal_gives_its_choice():
+    assert _choices(with_choices(_bash_rc("exec pip uninstall -y scikit-learn-intelex", rc=0), SKLEARN, [])) == [
+        ("sklearn", "remove", None)]

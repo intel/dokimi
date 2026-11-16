@@ -54,11 +54,16 @@ _WRAPPER_VALUES = {"sudo": frozenset({"-u", "-g", "-h", "-p", "-r", "-t", "-C", 
                    "nice": frozenset({"-n", "--adjustment"}), "exec": frozenset({"-a"}),
                    "time": frozenset({"-f", "-o", "--format", "--output"})}  # options that take the next word
 _PATTERN_READERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is a pattern or script
-_READER_VALUES = {"head": {"-n", "-c"}, "tail": {"-n", "-c"}, "grep": {"-e", "-f", "-m", "-A", "-B", "-C"},
-                  "egrep": {"-e", "-f", "-m", "-A", "-B", "-C"}, "fgrep": {"-e", "-f", "-m", "-A", "-B", "-C"},
-                  "rg": {"-e", "-f", "-m", "-A", "-B", "-C", "-g", "-t", "-T"}, "sed": {"-e", "-f", "-l"},
-                  "awk": {"-F", "-v", "-f"}}  # options that take the next word
-_PATTERN_OPTIONS = frozenset({"-e", "--regexp"})  # the pattern or script comes from the option, not the first operand
+_GREP_VALUES = {"-e", "-f", "-m", "-A", "-B", "-C", "--regexp", "--file", "--max-count", "--after-context",
+                "--before-context", "--context"}
+_READER_VALUES = {"head": {"-n", "-c", "--lines", "--bytes"}, "tail": {"-n", "-c", "--lines", "--bytes"},
+                  "grep": _GREP_VALUES, "egrep": _GREP_VALUES, "fgrep": _GREP_VALUES,
+                  "rg": _GREP_VALUES | {"-g", "-t", "-T", "--glob", "--type", "--type-not"},
+                  "sed": {"-e", "-f", "-l", "--expression", "--file", "--line-length"},
+                  "awk": {"-F", "-v", "-f", "--file", "--assign", "--field-separator"}}  # options that take the next word
+_PATTERN_OPTIONS = frozenset({"-e", "-f", "--regexp", "--file", "--expression"})  # the pattern, script or a file of it comes from the option, not the first operand
+_REDIRECT = re.compile(r"[<>&]*[<>][<>&]*")
+_OPERATOR = "\0"  # marks a word that is a shell operator, as against a quoted ``'>'``
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
@@ -182,32 +187,58 @@ def _matching(command: str, probes: Sequence[Probe]) -> list[Probe]:
 
 def _pipelines(script: str) -> Iterator[list[list[str]]]:
     """Each pipeline of the script as its stages' words; the commands of its ``$( )`` and backtick substitutions too."""
-    for part, _after, _in_subshell, _outer in split_script(_without_heredocs(script)):
+    never = False  # the part after ``true ||`` never runs; one after any other command may
+    for part, after, _in_subshell, _outer in split_script(_without_heredocs(script)):
+        skipped, never = never, after == "||" and part.strip() in ("true", ":")
+        if skipped:
+            continue
         stages, inner = command_stages(part)
         for body in inner:
             yield from _pipelines(body)
         if stages:
             yield stages
-        for stage in stages:  # ``bash -lc 'nproc'``: the script a shell runs is a script of its own
-            if len(stage) > 2 and _program(stage[0]) in _SHELLS and _SHELL_C.fullmatch(stage[1]):
-                yield from _pipelines(stage[2])
+        for stage in stages:  # ``sudo bash -lc 'nproc'``: the script a shell runs is a script of its own
+            for rest in command_words(stage):
+                if len(rest) > 2 and _program(rest[0]) in _SHELLS and _SHELL_C.fullmatch(rest[1]):
+                    yield from _pipelines(rest[2])
 
 
 def _without_heredocs(script: str) -> str:
-    """The script without the bodies of its heredocs, which are data (``cat <<EOF > run.sh``) unless a shell reads them."""
+    """The script without the bodies of its heredocs, which are data (``cat <<EOF > run.sh``) unless a shell reads them;
+    the ``$( )`` and backtick substitutions of an unquoted body ran, so they stay."""
     if "<<" not in script:
         return script
-    lines, out, end = script.split("\n"), [], None
-    for line in lines:
+    out: list[str] = []
+    end: str | None = None
+    body: list[str] = []
+    expands = False
+    for line in script.split("\n"):
         if end is not None:
             if line.strip() == end:
-                end = None
+                out.extend(_expansions("\n".join(body)) if expands else [])
+                end, body = None, []
+            else:
+                body.append(line)
             continue
         out.append(line)
         m = _HEREDOC.search(line)
         if m and not _SHELL_LINE.match(line):
-            end = m.group(2)
+            end, expands = m.group(2), not m.group(1)
     return "\n".join(out)
+
+
+def _expansions(body: str) -> list[str]:
+    """The ``$( )`` and backtick substitutions of an unquoted heredoc body, as text."""
+    found: list[str] = []
+    i = 0
+    while i < len(body):
+        if body[i] == "\\":
+            i += 1
+        elif body[i] in "$`" and (sub := _substitution(body, i)):
+            found.append(body[i:sub[1] + 1])
+            i = sub[1]
+        i += 1
+    return found
 
 
 def command_stages(part: str) -> tuple[list[list[str]], list[str]]:
@@ -217,6 +248,7 @@ def command_stages(part: str) -> tuple[list[list[str]], list[str]]:
     bodies: list[str] = []
     word: list[str] = []
     started = False  # a quoted empty string is a word
+    bare = True  # the word so far has no quote or escape in it
     quote, i = "", 0
     while i < len(part):
         c = part[i]
@@ -224,11 +256,11 @@ def command_stages(part: str) -> tuple[list[list[str]], list[str]]:
             end = part.find("'", i + 1)
             end = len(part) if end < 0 else end
             word.append(part[i + 1:end])
-            started = True
+            started, bare = True, False
             i = end
-        elif c == "\\" and part[i + 1:i + 2] in ("$", "`", '"'):
-            word.append(part[i + 1])  # an escaped ``$(`` is text; any other backslash is a path separator
-            started = True
+        elif c == "\\" and (part[i + 1:i + 2] in ("$", "`", '"') or (not quote and part[i + 1:i + 2] in tuple("|;&<>()"))):
+            word.append(part[i + 1])  # an escaped ``$(`` or ``|`` is text; any other backslash is a path separator
+            started, bare = True, False
             i += 1
         elif c in "$`" and (sub := _substitution(part, i)):
             bodies.append(sub[0])
@@ -236,13 +268,16 @@ def command_stages(part: str) -> tuple[list[list[str]], list[str]]:
         elif c == quote:
             quote = ""
         elif c == '"' and not quote:
-            quote, started = c, True
+            quote, started, bare = c, True, False
         elif quote or c not in " \t\n" + "".join(_PUNCT):
             word.append(c)
             started = True
         else:
+            if c in "<>" and bare and "".join(word).isdigit():  # ``2>file``: the 2 names a descriptor, it is no word
+                word.clear()
+                started = False
             _end_word(stages, word, started)
-            started = False
+            started, bare = False, True
             i = _operator(part, i, stages)
         i += 1
     _end_word(stages, word, started)
@@ -280,8 +315,25 @@ def _operator(part: str, i: int, stages: list[list[str]]) -> int:
     if "|" in run:
         stages.append([])
     elif run and run not in _SEPARATORS and not set(run) <= set("()"):
-        stages[-1].append(run)
+        stages[-1].append(_OPERATOR + run)
     return i
+
+
+def split_redirects(words: Sequence[str]) -> tuple[list[str], list[str]]:
+    """The words without their redirections (an operator and its target), and the targets of ``<`` redirections: the
+    files the command reads."""
+    plain: list[str] = []
+    reads: list[str] = []
+    i = 0
+    while i < len(words):
+        if words[i].startswith(_OPERATOR) and _REDIRECT.fullmatch(words[i][1:]):
+            if words[i] == _OPERATOR + "<" and i + 1 < len(words):
+                reads.append(words[i + 1])
+            i += 2
+            continue
+        plain.append(words[i])
+        i += 1
+    return plain, reads
 
 
 def _views(words: list[str]) -> Iterator[Stage]:
@@ -328,13 +380,13 @@ def _operands(program: str, args: tuple[str, ...]) -> list[str]:
     """The files a reading command names: not its options, their values, or the pattern ``grep`` and ``sed`` search for."""
     values = _READER_VALUES.get(program, ())
     needs_pattern = program in _PATTERN_READERS
-    files: list[str] = []
+    plain, files = split_redirects(args)
     i = 0
-    while i < len(args):
-        word = args[i]
-        if word in _PATTERN_OPTIONS and needs_pattern:
-            needs_pattern = False
+    while i < len(plain):
+        word = plain[i]
         if word.startswith("-") and len(word) > 1:
+            if needs_pattern and (word.split("=", 1)[0] if word.startswith("--") else word[:2]) in _PATTERN_OPTIONS:
+                needs_pattern = False
             i += 2 if word in values else 1
             continue
         if needs_pattern:

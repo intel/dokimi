@@ -275,6 +275,16 @@ def _probes(command: str) -> list[str]:
     "python -c 'print(\"os.cpu_count()\")'",
     "python -c '# os.cpu_count()\nprint(1)'",
     "python -c 'x = os.cpu_count'",
+    "echo \\| nproc",
+    "cat README > /etc/os-release",
+    "cat README >> /etc/os-release",
+    "cat README 2>/etc/os-release",
+    "grep --regexp /proc/cpuinfo README",
+    "grep --regexp=/proc/cpuinfo README",
+    "grep -f patterns README /proc/cpuinfo.bak",
+    "cat <<'EOF'\n$(nproc)\nEOF",
+    "true || nproc",
+    ": || nproc",
 ])
 def test_text_the_shell_does_not_run_gives_no_probe(command):
     assert _probes(command) == []
@@ -282,6 +292,21 @@ def test_text_the_shell_does_not_run_gives_no_probe(command):
 
 @pytest.mark.parametrize(("command", "found"), [
     ("make -j$(nproc --ignore=$(printf 1))", ["nproc"]),
+    ("sudo -n bash -c 'nproc'", ["nproc"]),
+    ("time bash -lc 'nproc'", ["nproc"]),
+    ("cat <<EOF\n$(nproc)\nEOF", ["nproc"]),
+    ("cat <<EOF\nthe cores: `nproc`\nEOF", ["nproc"]),
+    ("cat < /etc/os-release", ["/etc/os-release"]),
+    ("cat README > out.txt < /etc/os-release", ["/etc/os-release"]),
+    ("grep -f patterns /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep '>' /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("false || nproc", ["nproc"]),
+    ("grep '1'>/dev/null /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep 1>/dev/null cores /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep \"<\" /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep --file patterns /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("sed -f script.sed /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep -n cores /proc/cpuinfo 2>/dev/null", ["/proc/cpuinfo"]),
     ('make -j"$(nproc)"', ["nproc"]),
     ("make -j`nproc`", ["nproc"]),
     ("bash <<EOF\nnproc\nEOF", ["nproc"]),
