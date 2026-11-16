@@ -125,6 +125,18 @@ def test_refine_writes_no_set_with_shared_ids(tmp_path, monkeypatch, capsys, ext
     assert not out.exists() and calls == []
 
 
+def test_a_second_gap_fill_does_not_reuse_the_first_ones_ids(monkeypatch):
+    from dokimi.questions.refiner import GapFiller
+
+    monkeypatch.setattr("dokimi.questions.refiner.llm_call", lambda *a, **k: json.dumps(["Q1?", "Q2?"]))
+    first = [{"id": "gap_advanced_000", "question": "Q0?", "difficulty": "advanced"},
+             {"id": "gap_advanced_002", "question": "Q9?", "difficulty": "advanced"}]
+
+    new, _ = GapFiller("oneTBB").fill(first, gaps={"advanced": 2})
+
+    assert [q["id"] for q in new] == ["gap_advanced_001", "gap_advanced_003"]
+
+
 def test_answers_generate_exits_2_on_shared_ids_before_any_answer(tmp_path, monkeypatch):
     path = tmp_path / "q.json"
     path.write_text(json.dumps([{"question_id": "a", "text": "x"}, {"question_id": "a", "text": "y"}]),

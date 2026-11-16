@@ -267,6 +267,7 @@ class GapFiller:
         """
         new_questions: List[Dict[str, Any]] = []
         filled: Dict[str, int] = {}
+        taken = {str(q["id"]) for q in questions if "id" in q}
 
         for level, count in gaps.items():
             if count <= 0:
@@ -290,9 +291,9 @@ class GapFiller:
                 raw = llm_call(prompt, model=self.model, provider=self.provider,
                                api_key=self.api_key)
                 texts = extract_json_array(raw)
-                for i, text in enumerate(texts[:count]):
+                for text in texts[:count]:
                     new_questions.append({
-                        "id": f"gap_{level}_{i:03d}",
+                        "id": _free_id(f"gap_{level}", taken),
                         "question": text.strip(),
                         "difficulty": level,
                         "persona": "generated",
@@ -309,6 +310,15 @@ class GapFiller:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _free_id(prefix: str, taken: set) -> str:
+    """The first ``<prefix>_NNN`` not in ``taken``, added to it: a set filled twice keeps its ids unique (#687)."""
+    n = 0
+    while f"{prefix}_{n:03d}" in taken:
+        n += 1
+    taken.add(f"{prefix}_{n:03d}")
+    return f"{prefix}_{n:03d}"
+
 
 def _count_difficulty(questions: List[Dict[str, Any]]) -> Dict[str, int]:
     counts: Dict[str, int] = {"beginner": 0, "intermediate": 0, "advanced": 0}
