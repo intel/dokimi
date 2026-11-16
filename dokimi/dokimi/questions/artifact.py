@@ -213,6 +213,19 @@ def _explain(path: Path, data: dict, errors: list[str]) -> str:
             f"dokimi/schemas/{SCHEMA_VERSIONS[KIND]}.json, or drop the record.")
 
 
+def _refuse_shared_ids(path: Path, records: list[dict]) -> None:
+    """Raise when two records share an id: v2 declares it unique within the set (#687).
+
+    Ids are compared as strings, as :attr:`dokimi.records.Record.key` keys answers by them.
+    """
+    counts = Counter(str(q["id"]) for q in records)
+    dupes = sorted(qid for qid, n in counts.items() if n > 1)
+    if dupes:
+        raise ArtifactValidationError(
+            f"duplicate question ids in {path}: {', '.join(map(repr, dupes))}; give each record "
+            f"an id of its own (or `question_id` in a v1 set), or drop the repeated record")
+
+
 def load_questions(path: Path | str, *, validate: bool = True, flag: str | None = None) -> QuestionSet:
     """Read a question set in any shape this framework has read, and return it as questions.v2.
 
@@ -223,7 +236,7 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
 
     With ``validate`` the upgraded set must be a valid v2 artifact, or
     :class:`~dokimi.artifacts.ArtifactValidationError` names each failing record and the fix; so
-    must a ``schema_version`` this reader does not know. A set that is not a list of questions at
+    must a ``schema_version`` this reader does not know, and ids two records share. A set that is not a list of questions at
     all (e.g. ``{"questions": {...}}``) is refused either way.
 
     With ``flag`` (the option the file was given to) the file is read by
@@ -257,6 +270,7 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
         errors = schema_errors(current, artifact)
         if errors:
             raise ArtifactValidationError(_explain(path, artifact, errors))
+        _refuse_shared_ids(path, artifact["questions"])
         matched = None if bare_list else schema_version_for(KIND, data)
         source_version = matched if matched and not schema_errors(matched, data) else None
         if source_version is None and not bare_list and not seen:

@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -475,7 +474,7 @@ def _load_questions(path: str) -> list[dict]:
     positional ``q0000`` (``_``-prefixed past any id already in the set). Every question needs
     its own id: the judge's context is keyed by it, and the arm runner falls back to
     ``"unknown_q"``; with a shared key the judge cannot tell which question's treatment
-    material belongs to which answer. Duplicated ids are refused, since there is no right
+    material belongs to which answer. The reader refuses duplicated ids, since there is no right
     answer to which question they mean.
     """
     from dokimi.questions.artifact import load_questions
@@ -487,7 +486,6 @@ def _load_questions(path: str) -> list[dict]:
         # The records reader refuses any other id, so a run with one would be paid for and lost.
         if qid is not None and (isinstance(qid, bool) or not isinstance(qid, (str, int))):
             raise ValueError(f"{path}: questions[{i}]: id must be a string or an integer, got {qid!r}")
-    _refuse_duplicate_ids(ids, path)
     print(f"Loaded {len(questions)} questions from {path}")
     return questions
 
@@ -514,14 +512,6 @@ def _refuse_external_trigger_set(path: str) -> None:
             f"{path} is a {fmt} trigger set, not a questions set; convert it with "
             f"`dokimi eval triggers generate --catalog <skills> --trigger-set {path}{target} "
             f"--format questions --out q.json`, then run the skill-catalog: arm on q.json")
-
-
-def _refuse_duplicate_ids(ids: list, path: str) -> None:
-    """Raise on a repeated id."""
-    counts = Counter(qid for qid in ids if qid is not None)
-    dupes = sorted(qid for qid, n in counts.items() if n > 1)
-    if dupes:
-        raise ValueError(f"duplicate question ids in {path}: {', '.join(map(repr, dupes[:5]))}")
 
 
 def _with_named_cell(config: ArmsRunConfig, matrix_cells: str | None,

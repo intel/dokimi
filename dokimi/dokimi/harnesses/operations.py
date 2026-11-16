@@ -53,10 +53,7 @@ def _read_jsonl(path: Path) -> list[OperationRecord]:
         line = line.strip()
         if not line:
             continue
-        try:
-            out.append(_op_from_dict(json.loads(line)))
-        except json.JSONDecodeError:
-            out.append(OperationRecord(type="log_parse_error", name=path.name, status="error"))
+        out.append(_parse_record(line, path.name))
     return out
 
 
@@ -65,12 +62,20 @@ def _parse_markers(text: str) -> list[OperationRecord]:
     for line in text.splitlines():
         if _MARKER not in line:
             continue
-        payload = line.split(_MARKER, 1)[1].strip()
-        try:
-            out.append(_op_from_dict(json.loads(payload)))
-        except json.JSONDecodeError:
-            out.append(OperationRecord(type="log_parse_error", name="marker", status="error"))
+        out.append(_parse_record(line.split(_MARKER, 1)[1].strip(), "marker"))
     return out
+
+
+def _parse_record(text: str, source: str) -> OperationRecord:
+    """The operation in ``text``, a JSON object; anything else is a ``log_parse_error`` named ``source``."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return OperationRecord(type="log_parse_error", name=source, status="error")
+    if not isinstance(data, dict):  # the documented shape is an object (#687)
+        return OperationRecord(type="log_parse_error", name=source, status="error",
+                               metadata={"error": f"expected a JSON object, got {type(data).__name__}"})
+    return _op_from_dict(data)
 
 
 def _parse_keyword_lines(text: str, stream: str) -> list[OperationRecord]:
