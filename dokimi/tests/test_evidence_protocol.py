@@ -182,9 +182,13 @@ def test_the_rollup_and_scorecard_cells_carry_the_judge(tmp_path: Path):
     assert (cell["judge_model"], cell["judge_provider"], cell["judge_context"]) == ("j", "jp", "ctx")
 
 
-def test_conformance_fixtures_are_valid_json_files():
-    for path in sorted(CONFORMANCE.glob("*.json")):
-        json.loads(path.read_text(encoding="utf-8"))
+def test_the_conformance_fixtures_are_the_four_documented_ones_and_carry_the_digest_they_state():
+    names = sorted(path.name for path in CONFORMANCE.glob("*.json"))
+    assert names == ["judge_snapshot_newer.json", "judge_snapshot_older.json",
+                     "verdict_with_rule.json", "verdict_without_rule.json"]
+    for name in names:
+        protocol = json.loads((CONFORMANCE / name).read_text(encoding="utf-8"))["results"][0]["protocol"]
+        assert protocol["digest"] == protocol_digest(protocol["resolved"])
 
 
 # --- self-review round 1 --------------------------------------------------------------------------
