@@ -331,7 +331,7 @@ class QuestionValidator:
             
             return score
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; the score is marked unscored, not graded
             logger.error(f"Validation failed for question: {question_text[:50]}... — {e}")
             return {"relevance": 100, "answerability": 100, "specificity": 100,
                     "aggregate": 100, "unscored": True,

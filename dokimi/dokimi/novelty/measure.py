@@ -24,8 +24,10 @@ Three isolation rules are enforced in code rather than documented:
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from typing import Any
 
 from dokimi.utils import InputError
 from .atoms import Atom
@@ -33,6 +35,7 @@ from .client import LLMClient, SpendCapReached, parse_json_object, same_client
 from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,
                        reversal_paired)
 from .probes import Probe
+from .routing_stop import PERMANENT_REASON, stop_if_run_wide
 
 # Judge verdict scale. Deliberately finer than the collapses below so a rater
 # disagreement is visible as a confusion rather than hidden inside a boolean.
@@ -377,13 +380,14 @@ def run_measurement(
             )
         except SpendCapReached as exc:  # a call with no price: its paid reply is kept, ungraded
             return _unpriced_answer_run(probe, arm, exc, stops, ungraded)
-        except Exception as exc:  # a provider failure is a missing datum, not a wrong answer
+        except Exception as exc:  # noqa: BLE001 - a provider failure is a missing datum, not a wrong answer
+            stop_if_run_wide(exc)  # but one every later call meets stops the measurement (#708)
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
             answered = False
         else:
             try:
-                verdict = _grade(probe, response, judge)
+                verdict = _grade_unless_stopped(stops, probe, response, judge)
             except SpendCapReached as exc:
                 return _capped_grade_run(probe, arm, response, confidence, exc, stops, ungraded)
         run = ProbeRun(
@@ -403,12 +407,34 @@ def run_measurement(
             return None
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        answered = list(pool.map(guarded, jobs))
+        answered = list(pool.map(_not_after_permanent_stop(stops, guarded), jobs))
     runs = [run for run in answered if run is not None]
     stop = (stops[0].reason, str(stops[0])) if stops else None
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
                          not_run=len(jobs) - len(runs), ungraded=len(ungraded), stop=stop,
                          probes=list(probes))
+
+
+def _held_permanent_stop(stops: list[SpendCapReached]) -> SpendCapReached | None:
+    """The first run-wide provider error among ``stops``, or None (#708)."""
+    return next((held for held in stops if held.reason == PERMANENT_REASON), None)
+
+
+def _grade_unless_stopped(stops: list[SpendCapReached], probe: Probe, response: str, judge: LLMClient) -> str:
+    """:func:`_grade`, unless another worker met a run-wide error while this answer was in flight:
+    then that stop is raised and the caller keeps the answer ungraded, with no more judge calls (#708)."""
+    if (held := _held_permanent_stop(stops)) is not None:
+        raise held
+    return _grade(probe, response, judge)
+
+
+def _not_after_permanent_stop(stops: list[SpendCapReached], job: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """``job``, which is not run (``None``) once a run-wide provider error is among ``stops`` (#708)."""
+
+    def run(item: Any) -> Any:
+        return None if _held_permanent_stop(stops) else job(item)
+
+    return run
 
 
 def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float | None,
@@ -530,7 +556,8 @@ def _grade(probe: Probe, response: str, judge: LLMClient) -> str:
     )
     try:
         raw = judge.json_object(prompt, usable=_names_a_verdict).get("verdict")
-    except Exception:
+    except Exception:  # noqa: BLE001 - a failed judge call is the ERRORED verdict, not a wrong one
+        stop_if_run_wide()  # raises a permanent stop; any other failure is an ERRORED grade
         return ERRORED
     verdict = raw.strip() if isinstance(raw, str) else ""
     if not verdict:
@@ -548,7 +575,7 @@ def _reply_verdict(reply: str | None) -> str | None:
         return None
     try:
         value = parse_json_object(reply)
-    except Exception:
+    except ValueError:  # an unparseable reply names no verdict
         return None
     return value["verdict"] if _names_a_verdict(value) else None
 
