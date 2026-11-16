@@ -238,10 +238,10 @@
           "type": "string"
         },
         "version": {
-          "description": "The author's revision of this question: a string (e.g. `2.1`) or an integer; absent means unknown. Any value loads: a malformed one is a warning at load (dokimi.provenance), and no generator writes it."
+          "description": "The author's revision of this question: a string (e.g. `2.1`) or an integer; absent means unknown. Any value loads: a malformed one is a warning at load and is kept as written (dokimi.provenance); no generator writes it."
         },
         "provenance": {
-          "description": "Where the question came from and how far it has been checked: `source` (hand-written, generated:<tool>@<version>, imported:<format>), `reviewed_by`, `status` (candidate, validated, frozen). Every key is optional; absent is unknown. Any value loads: a malformed one is a warning at load and reads as unknown (dokimi.provenance)."
+          "description": "Where the question came from and how far it has been checked: `source` (hand-written, generated:<tool>@<version>, imported:<format>), `reviewed_by`, `status` (candidate, validated, frozen). Every key is optional; absent is unknown. Any value loads: a malformed one is a warning at load and is kept as written (dokimi.provenance)."
         }
       }
     }
