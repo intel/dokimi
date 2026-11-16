@@ -5,7 +5,9 @@
     `"1"` count as one) is refused, naming the ids, before any answer is paid for: commands
     that take `--questions` exit 2. So does `benchmark run` on such a cached
     `questions/<product>.json`, one the schema refuses or one that is not JSON (a run cut short),
-    saying to fix or delete it (`--force-regen`), where it ended in a traceback (exit 5). No
+    saying to fix or delete it (`--force-regen`), and on a `--questions-root` golden set with
+    shared ids or that is not JSON, as `benchmark preflight` already did, where it ended in a
+    traceback (exit 5). No
     command writes such a set any more: `questions refine`
     keeps it at `<name>.rejected` (exit 2 with `--fill-gaps`, before any model call; else 1). A
     pipeline run gives a generated question whose id the custom or earlier set already has a

@@ -175,6 +175,24 @@ def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path,
     assert reason.format(cache=cache) in err and "(benchmark run: --force-regen)" in err
 
 
+def test_benchmark_run_on_a_golden_set_with_shared_ids_exits_2(tmp_path, monkeypatch, capsys):
+    """``benchmark preflight`` refuses this set (``_check_golden_set``); ``run`` refuses it too."""
+    root = tmp_path / "root"
+    root.mkdir()
+    golden = root / "onetbb_golden.json"
+    golden.write_text(json.dumps([{"id": "q_001", "question": "A?"}, {"id": "q_001", "question": "B?"}]),
+                      encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", "run", "--library", "onetbb",
+                                     "--out-dir", str(tmp_path / "out"), "--questions-root", str(root)])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    err = capsys.readouterr().err
+    assert exc_info.value.code == 2 and "Traceback" not in err
+    assert f"Error: the golden set, {golden}, cannot be used: duplicate question ids in {golden}: 'q_001'" in err
+
+
 def test_answers_generate_exits_2_on_shared_ids_before_any_answer(tmp_path, monkeypatch):
     path = tmp_path / "q.json"
     path.write_text(json.dumps([{"question_id": "a", "text": "x"}, {"question_id": "a", "text": "y"}]),

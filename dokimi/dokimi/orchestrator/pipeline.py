@@ -591,8 +591,10 @@ class EvaluationPipeline:
         if not (path and path.exists()):
             return []
         refuse_device(path, "--custom-questions")
-        flag = None if getattr(self, "golden_pinned", False) else "--custom-questions"  # a golden set's read is lenient
-        custom_questions = load_questions_payload(path, flag)
+        if getattr(self, "golden_pinned", False):  # the golden set of --questions-root: no flag to name
+            custom_questions = _read_input_set(path, "the golden set")
+        else:
+            custom_questions = load_questions_payload(path, "--custom-questions")
         output = getattr(self, "questions_path", None)
         own_output = output is not None and Path(path).resolve() == Path(output).resolve()
         for q in custom_questions:  # records read from the file, not the file
