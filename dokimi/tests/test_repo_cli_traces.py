@@ -554,7 +554,9 @@ def test_codex_incomplete_command_is_recorded_with_rc_null():
         {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}},
     )
     t = convert("codex-json", raw, None)
-    assert [e for e in t.events if e["kind"] != "turn"] == [{"t": None, "kind": "command", "text": "make build", "rc": None}]
+    steps = [e for e in t.events if e["kind"] != "turn"]  # the turn event is accounting, not the command
+    assert len(steps) == 1
+    assert steps[0] == {"t": None, "kind": "command", "text": "make build", "rc": None}
 
 
 def test_codex_failed_command_does_not_count_as_a_read():
