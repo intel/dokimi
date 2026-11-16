@@ -171,7 +171,8 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
   `summary.per_arm` (judged arms) holds each condition's own average; `run_metadata.summary`
   (eval) and `reference_scoring.summary` (arms graded by reference) hold its pass rate.
 - `report eval` on a knowledge run writes a one-condition page: one row for
-  `without_docs (knowledge)` (questions, scored, mean, lowest, highest), the same row by
+  `without_docs (knowledge)` (questions, scored, mean, lowest, highest), or for the arm's
+  name on a one-arm `arms.v1` file (route B), the same row by
   difficulty, the lowest-scoring questions, and every question with its score. A paired run
   keeps the paired report. Each question's diagnosis is `⚪ One condition (no delta)`, not
   insufficient data, and `eval score pointwise` gives the per-condition score the same way.
