@@ -99,6 +99,17 @@ def test_docs_compare_reads_a_saved_snapshot_and_one_from_before_the_envelope(tm
     assert cmp["diff"]["score"] == old["summary"]["score"] > 0
 
 
+@pytest.mark.parametrize("blocked", ["current.json", "current.md"])
+def test_an_unwritable_output_exits_2_and_the_other_one_is_still_written(tmp_path, monkeypatch, capsys, blocked):
+    """Neither file of a docs check run is lost to the other one's write error (review of #829)."""
+    (tmp_path / blocked).mkdir()
+    assert _check(monkeypatch, tmp_path, tmp_path / "current.json") == 2
+
+    assert f"Error: cannot write {tmp_path / blocked}" in capsys.readouterr().err
+    kept = ({"current.json", "current.md"} - {blocked}).pop()
+    assert (tmp_path / kept).is_file()
+
+
 def test_a_snapshot_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
     """A manifest time that is not text (a writer bug) is refused; the markdown report is written by then, as
     `report eval` writes its markdown before its sidecar (review of #829)."""

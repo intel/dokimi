@@ -59,8 +59,11 @@ def cmd_run(args: argparse.Namespace) -> None:
     out_md = Path(args.out_md).resolve()
 
     result = _run_or_exit(root, spec_path)
-    with exit_on_rejected("docs_run"):  # the report first: a refused snapshot still leaves the run's report
-        _write_outputs(((write_run_report, result, out_md), (save_snapshot, result, out_json)))
+    with exit_on_rejected("docs_run"):
+        try:
+            _write_outputs(((save_snapshot, result, out_json),))
+        finally:  # a refused or unwritable snapshot still leaves the run's report
+            _write_outputs(((write_run_report, result, out_md),))
     print(json.dumps(result["summary"], indent=2))
 
     # Strict mode: check hard gate and critical bands
