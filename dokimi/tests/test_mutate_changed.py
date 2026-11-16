@@ -665,3 +665,14 @@ def test_a_survivor_is_inconclusive_only_in_the_module_whose_test_file_did_not_r
     for m in report["mutants"]:
         status[m["path"]].add(m["status"])
     assert status == {"dokimi/dokimi/zz.py": {"survived"}, "dokimi/dokimi/yy.py": {"inconclusive"}}
+
+
+def test_covering_tests_lists_a_timed_out_file_as_not_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "coverage", types.SimpleNamespace())
+
+    def pytest_run(cwd: Path, args: list[str], timeout: float, env: dict[str, str] | None = None) -> tuple[int, str]:
+        return -1, "timeout"
+
+    monkeypatch.setattr(mc, "_pytest", pytest_run)
+    tests = ["tests/test_slow.py", "tests/test_after.py"]
+    assert mc.covering_tests(tmp_path, tests, [], 60) == ({}, [], tests)
