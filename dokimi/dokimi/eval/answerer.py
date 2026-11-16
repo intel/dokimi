@@ -149,7 +149,7 @@ class Answerer:
         lock = threading.Lock()
         completed = [0]
 
-        stop = threading.Event()  # set by a failed save: queued questions are skipped, not paid for
+        stop = threading.Event()  # set by a failed save or a run-wide error: queued questions are skipped
 
         def _process(idx: int, q: Dict) -> None:
             if stop.is_set():
