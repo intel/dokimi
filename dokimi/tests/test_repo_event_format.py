@@ -120,6 +120,8 @@ def test_a_reader_skips_a_kind_it_does_not_know():
     base = [{"t": 1.0, "kind": "command", "text": "ls", "rc": 0}]
     assert process_metrics([*base, future], lambda _: False)["tool_calls"] == process_metrics(base, lambda _: False)["tool_calls"]
     assert process_metrics([*base, future], lambda _: False)["commands"] == 1
+    tool = {"t": 2.0, "kind": "tool", "name": "Skill", "skill": "lint-fix"}
+    assert process_metrics([tool], lambda _: False)["tool_calls"] == 1
 
 
 def test_unversioned_and_converted_give_the_same_process_metrics():
