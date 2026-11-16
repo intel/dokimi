@@ -94,7 +94,7 @@ from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
-from .findings import Finding, SkillReview
+from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
 from .listing import in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
 from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, skill_format

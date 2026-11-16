@@ -11,6 +11,7 @@ Before this, every ``.opencode`` SKILL.md that did not follow the Agent Skills s
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -184,3 +185,31 @@ def test_the_unsupported_host_keeps_the_unrestricted_bash_warning_for_strict(tmp
     assert ("warn", "allowed-tools-unrestricted-bash") in _codes(row)
     assert ("note", "unsupported-skill-format") in _codes(row)
     assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--strict"]) == 1
+
+
+def test_the_scan_root_being_the_host_directory_keeps_the_host(tmp_path, capsys):
+    # Scanning .opencode itself: the host is the root's own name, so the plain-Markdown skill is a warning, not an error.
+    host = tmp_path / ".opencode"
+    path = _write(tmp_path, ".opencode/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
+    assert skill_format(path, host) == FORMAT_OPENCODE
+    row = _rows(host, capsys)["skills/quantum"]
+    assert row["error"] is None
+    assert row["state"] == "warn"
+
+
+def test_the_validate_module_still_exports_the_names_it_defined(tmp_path):
+    # The records moved to external/findings.py; code that imports them from validate must keep working.
+    from dokimi.external import findings
+    from dokimi.external import validate
+
+    assert validate.Finding is findings.Finding
+    assert validate.SkillReview is findings.SkillReview
+    assert validate.state_of is findings.state_of
+
+
+def test_a_relative_skills_root_reads_the_same_host_as_an_absolute_one(tmp_path, monkeypatch):
+    # The verdict must not depend on how the root is spelled: `--root skills` from inside .opencode, or the absolute path.
+    _write(tmp_path, ".opencode/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
+    monkeypatch.chdir(tmp_path / ".opencode")
+    assert skill_format(Path("skills/quantum/SKILL.md"), Path("skills")) == FORMAT_OPENCODE
+    assert skill_format(Path("skills/quantum/SKILL.md"), Path("skills").absolute()) == FORMAT_OPENCODE

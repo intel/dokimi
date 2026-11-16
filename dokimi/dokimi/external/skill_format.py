@@ -70,11 +70,19 @@ def skill_format(skill_md: Path, root: Optional[Path] = None) -> str:
 
     ``root`` is None, or the skill's own directory (a skill reviewed alone): then the whole path is read.
     """
-    if root is not None and Path(root).resolve() == skill_md.parent.resolve():
+    # Both paths absolute, so the verdict does not depend on how the root was spelled (`--root skills` or a full path).
+    skill_md = skill_md.absolute()
+    if root is not None:
+        root = Path(root).absolute()
+    if root is not None and root.resolve() == skill_md.parent.resolve():
         root = None
     if root is not None and Path(root).name in SKILL_DIR_NAMES:
         # A scan of a skills directory itself (.opencode/skills): the host directory above it is the format's marker.
         root = Path(root).parent.parent
+    elif root is not None and Path(root).name.startswith(".") and \
+            next(iter(_parts(skill_md, root)), "") in SKILL_DIR_NAMES:
+        # A scan of a host directory itself (.opencode): the host is the root's own name, read from its parent.
+        root = Path(root).parent
     dirs = _parts(skill_md, root)
     for i, part in enumerate(dirs):
         if part == OPENCODE_DIR and i + 1 < len(dirs) and dirs[i + 1] in SKILL_DIR_NAMES:
