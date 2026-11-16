@@ -348,6 +348,41 @@ def test_an_escaped_paren_bracket_or_pipe_stays_in_a_destination():
     assert online_checks.extract_urls("[x](https://x.dev/p\\\\)") == ["https://x.dev/p\\"]
 
 
+def test_a_pipe_in_an_angle_delimited_url_is_part_of_it_outside_a_table_row():
+    assert online_checks.extract_urls("<https://acme.dev/a|b>") == ["https://acme.dev/a|b"]
+    assert online_checks.extract_urls("[a](<https://acme.dev/a|b>)") == ["https://acme.dev/a|b"]
+    assert online_checks.extract_urls("see https://acme.dev/a|b now") == ["https://acme.dev/a"]
+    # A GFM table splits its row at an unescaped "|" before it reads links: the pipe ends the URL there.
+    assert online_checks.extract_urls("| <https://acme.dev/a|b> | x |") == ["https://acme.dev/a"]
+    assert online_checks.extract_urls("  | [a](<https://acme.dev/a|b>) | x |") == ["https://acme.dev/a"]
+
+
+def test_an_angle_destination_keeps_its_spaces_and_is_probed_with_the_path_encoded(tmp_path):
+    assert online_checks.extract_urls("[a](<https://acme.dev/x y>)") == ["https://acme.dev/x y"]
+    assert online_checks.extract_urls("[a](<https://acme.dev/x y)z>)") == ["https://acme.dev/x y)z"]
+    assert online_checks.extract_urls("[a](<https://acme.dev/x >)") == ["https://acme.dev/x "]  # a trailing blank is part of it
+    assert online_checks.extract_urls("[a](<https://acme.dev/x y)") == ["https://acme.dev/x"]  # no ">" closes it: read as a bare URL
+    assert online_checks.extract_urls("<https://acme.dev/x y>") == ["https://acme.dev/x"]  # an autolink holds no space
+    assert [online_checks.extract_urls(f"[a](<https://acme.dev/x{b}\\{c}z>)") for b in ("", " y") for c in "<>"] == [["https://acme.dev/x<z"], ["https://acme.dev/x>z"], ["https://acme.dev/x y<z"], ["https://acme.dev/x y>z"]]  # an escaped bracket neither ends nor stops it, blank or not
+    assert online_checks.extract_urls("[a](<https://acme.dev/x<z>)") == []  # an unescaped "<" is a template
+    web = Web({"https://acme.dev/x%20y": 404})
+    root = _one_skill(tmp_path, "See [a](<https://acme.dev/x y>).\n")
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == ["link-dead"]
+    assert {seen for _, seen in web.requests} == {"https://acme.dev/x%20y"}
+    trailing = Web({"https://acme.dev/x%20": 404})
+    [review] = _reviews(_one_skill(tmp_path / "t", "See [a](<https://acme.dev/x >).\n"), trailing)
+    assert _codes(review) == ["link-dead"]
+    assert {seen for _, seen in trailing.requests} == {"https://acme.dev/x%20"}
+    [review] = _reviews(_one_skill(tmp_path / "e", "See [a](<https://acme.dev/x y\\>z>).\n"), escaped := Web({"https://acme.dev/x%20y%3Ez": 404}))
+    assert _codes(review) == ["link-dead"] and {seen for _, seen in escaped.requests} == {"https://acme.dev/x%20y%3Ez"}
+
+
+def test_an_unbalanced_closing_bracket_ends_the_url_after_a_balanced_pair():
+    assert online_checks.extract_urls("[see https://acme.dev/a[b]c] for more") == ["https://acme.dev/a[b]c"]
+
+
 def test_a_backslash_in_an_autolink_is_not_decoded_and_a_hash_after_a_command_word_is_prose():
     # Self-review: CommonMark has no escapes inside an autolink; and "npm (see #setup)" is prose, not an install.
     assert online_checks.extract_urls("<https://x.dev/a\\_b>") == ["https://x.dev/a\\_b"]

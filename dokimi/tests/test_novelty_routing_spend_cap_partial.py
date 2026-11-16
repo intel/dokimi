@@ -104,7 +104,7 @@ def test_a_call_with_no_price_also_leaves_the_partial_result(tmp_path, monkeypat
     with pytest.raises(SystemExit, match="no price is known"):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
-    assert payload["partial"]["reason"] == "spend_cap" and payload["partial"]["calls_done"] == 1
+    assert payload["partial"]["reason"] == "no_price" and payload["partial"]["calls_done"] == 1
     # The reply came back and was paid for, so it is scored, not lost; no further call is made.
     row = payload["model"]["per_query"][0]
     assert "error" not in row and row["picked"] is not None

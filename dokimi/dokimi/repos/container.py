@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Protocol
 
 from dokimi import docker_cmd, process
-from dokimi.container_policy import ContainerPolicy
+from dokimi.container_policy import Group, repo_container_policy
 from dokimi.docker_cmd import (  # noqa: F401  (re-exported: the names callers have always imported from here)
     BUILD_TIMEOUT_S,
     INFRA_EXIT,
@@ -124,21 +124,22 @@ class DockerRunner:
     def argv(self, spec: ContainerSpec) -> list[str]:
         if spec.network not in NETWORKS:
             raise ContainerError(f"unknown network {spec.network!r} (known: {', '.join(NETWORKS)})")
-        flags = ContainerPolicy(network=spec.network, init=True, no_new_privileges=True, cap_drop_all=True,
-                                pids_limit=docker_cmd.PIDS_LIMIT)
-        out = [self.docker, "run", "--rm", *flags.init_argv(), *flags.hardening_argv(), *flags.pids_argv(),
-               *flags.network_argv(), "-w", spec.workdir]
-        if spec.name:
-            out += ["--name", spec.name]
+        policy = repo_container_policy(spec.network)
         user = spec.user or host_user()
-        if user:
-            out += ["--user", user]
         try:
-            out += docker_cmd.mount_args((m.host, m.container, m.read_only) for m in spec.mounts)
+            mounts = docker_cmd.mount_args((m.host, m.container, m.read_only) for m in spec.mounts)
         except ValueError as exc:
             raise ContainerError(str(exc)) from exc
-        out += docker_cmd.env_args(spec.env, spec.pass_env)
-        return [*out, "--entrypoint", "", spec.image, *spec.argv]
+        layout: list[Group | list[str]] = [
+            ["--rm"], "init", "hardening", "pids", "network",
+            ["-w", spec.workdir],
+            ["--name", spec.name] if spec.name else [],
+            ["--user", user] if user else [],
+            mounts,
+            docker_cmd.env_args(spec.env, spec.pass_env),
+            ["--entrypoint", ""],
+        ]
+        return [self.docker, *docker_cmd.run_spec(policy, layout, spec.image, spec.argv)]
 
     def run(self, spec: ContainerSpec, *, stdout: Path, stderr: Path, timeout_s: float) -> ContainerResult:
         for m in spec.mounts:

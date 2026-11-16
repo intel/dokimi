@@ -283,6 +283,8 @@ def judge_value(
         prompt=lambda chunk: _VALUE_PROMPT.format(task=task, statements=_numbered(chunk)),
         parse=extract_json_array, check=_judge_check,
     )
+    if result.stop:  # a run-wide provider error ends the classification as a cap stop does (#708)
+        raise result.stop
     report.retried_batches += result.retried_batches
     report.unusable_retries += result.unusable_retries
     report.calls += result.calls
@@ -364,6 +366,8 @@ def detect_conflicts(
         prompt=lambda chunk: _CONFLICT_PROMPT.format(statements=_numbered(chunk)),
         parse=_conflict_rows, min_size=2, check=_conflict_check,
     )
+    if result.stop:
+        raise result.stop
     report.retried_batches += result.retried_batches
     report.unusable_retries += result.unusable_retries
     report.calls += result.calls
