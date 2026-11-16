@@ -393,7 +393,9 @@ values are possible:
 A `—` is not a null result. A constant shift is not a `—`: eight pairs that all
 gain +20 have p = 2/2^8 = 0.0078 and the interval [+20, +20]. Cohen's d_z is
 descriptive (no verdict reads it) and renders `—` there, where it is *unbounded*
-rather than negligible; it is 0.0 when every delta is 0.
+rather than negligible; it is 0.0 when every delta is 0. "Constant" is judged at the
+deltas' own scale (spread under 1e-9 of the larger of the mean and the sd), so deltas
+of 1e-12 that differ get a d_z.
 
 The 95% CI inverts the same sign-flip test: it is every shift theta at which the
 test on the deltas minus theta does not reject at 5%, so it excludes zero exactly
@@ -403,7 +405,8 @@ count again, so both ends are open (`null`, printed `-inf` / `+inf`) at 5 or
 fewer pairs and bounded from 6 on. Six or more pairs that all tie get the
 interval [0, 0] with no p and a `—`: nothing speaks against 0, and every other
 shift moves all the pairs to one side, which the test rejects, as it does every
-shift but +20 for eight +20 pairs. `ci_method` is `sign_flip_inversion`; an
+shift but +20 for eight +20 pairs. An end of deltas near
+1.8e308 that the search puts past the float maximum is the maximum, never `inf`. `ci_method` is `sign_flip_inversion`; an
 `arms.json` written before this method holds `student_t`, `percentile_bootstrap`
 or `degenerate` there, and `p_ttest` (with `p_wilcoxon`, `n_wilcoxon`) instead of
 `p`, and the report still renders it.

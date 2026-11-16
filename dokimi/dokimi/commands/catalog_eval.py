@@ -121,14 +121,14 @@ def _replace_receipts(out: Path, staged: Path, backup: Path) -> None:
     shutil.rmtree(backup, ignore_errors=True)
 
 
-def _write_error(out: Path, error: Exception) -> None:
-    """Invalidate earlier success after an input error without inventing a measured plan."""
+def _write_error(out: Path, kind: str, message: str) -> None:
+    """Invalidate earlier success after a failure without inventing a measured plan."""
     with _workdir(out) as work:
         staged = Path(work) / "new"
         staged.mkdir()
-        message = str(error).replace("<", "&lt;").replace(">", "&gt;")
+        message = message.replace("<", "&lt;").replace(">", "&gt;")
         (staged / "report.md").write_text(
-            f"# Catalog static evaluation\n\nInput error: {message}\n\n"
+            f"# Catalog static evaluation\n\n{kind}: {message}\n\n"
             "No valid result was produced. Earlier success receipts were removed.\n",
             encoding="utf-8", errors="backslashreplace")
         _replace_receipts(out, staged, Path(work) / "old")
@@ -175,13 +175,21 @@ def cmd_catalog_eval(args: argparse.Namespace) -> None:
         plan, result = receipts(report)
         report["plan_digest"] = result["plan_digest"]
         _write(out, report, plan, result)
-    except (OSError, ValueError) as exc:
+    except Exception as exc:  # every failure must replace an earlier PASS, then propagate
+        input_error = isinstance(exc, (OSError, ValueError))
         if output_valid:
             try:
-                _write_error(out, exc)
+                if input_error:
+                    _write_error(out, "Input error", str(exc))
+                else:
+                    _write_error(out, "Internal error", f"{type(exc).__name__}: {exc}")
             except OSError as write_exc:
-                raise InputError(f"catalog eval: {exc}; cannot invalidate earlier receipts: {write_exc}") from write_exc
-        raise InputError(f"catalog eval: {exc}") from exc
+                if input_error:
+                    raise InputError(f"catalog eval: {exc}; cannot invalidate earlier receipts: {write_exc}") from write_exc
+                exc.add_note(f"cannot invalidate earlier receipts: {write_exc}")
+        if input_error:
+            raise InputError(f"catalog eval: {exc}") from exc
+        raise
     print(f"Static catalog checks: {report['status']}; receipts: {out}")
     if report["status"] != "pass":
         raise SystemExit(1)

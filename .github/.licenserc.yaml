@@ -45,6 +45,7 @@ header:
     - 'dokimi/requirements.lock.txt'
     - 'dokimi/requirements-docs.lock.txt'
     - 'dokimi/requirements-ci.lock.txt'
+    - 'dokimi/requirements-conda-lock.lock.txt'
     - 'dokimi/requirements-mutation.lock.txt'
     - 'dokimi/requirements-fuzz.lock.txt'
     - 'dokimi/fuzz/corpus/**'
