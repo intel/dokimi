@@ -11,7 +11,6 @@ from typing import List, Dict, Optional
 
 from dokimi.mcp.context7 import MIN_DOC_CHARS
 from dokimi.mcp.utils import read_cache_text, write_cache_text
-from dokimi.utils import key_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +97,7 @@ class RagasSeedExtractor:
             ["parallel_for", "task_arena", "flow_graph", "tbb::blocked_range", ...]
         """
         cache_key = hashlib.sha256(
-            key_bytes(f"{library_id}:{max_topics}:{max_tokens}")
+            f"{library_id}:{max_topics}:{max_tokens}".encode("utf-8", "surrogatepass")
         ).hexdigest()
 
         # Cache hit?

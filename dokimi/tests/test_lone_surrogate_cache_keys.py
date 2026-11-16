@@ -34,20 +34,16 @@ def test_key_bytes_keeps_utf8_and_escaped_bytes_and_tags_a_high_surrogate():
     assert key_bytes("\udced\udca0\udc80") != key_bytes("\ud800")  # the escaped bytes of U+D800 are another text
 
 
+def test_key_bytes_tags_a_low_surrogate_below_the_escape_range_too():
+    assert key_bytes("\udc41") == b"\0sp\xed\xb1\x81"
+    assert key_bytes("\ud800\udcff") == b"\0sp\xed\xa0\x80\xed\xb3\xbf"  # the escaped byte is surrogatepass-encoded too
+
+
 def test_key_bytes_of_a_high_surrogate_and_of_the_text_that_looked_like_its_tag_differ():
     assert key_bytes("\ud800") == b"\0sp\xed\xa0\x80"
     assert key_bytes("\0sp\udced\udca0\udc80") == b"\0e\0sp\xed\xa0\x80"
     assert key_bytes("\0s\udced\udca0\udc80") != key_bytes("\ud800")
     assert key_bytes("\0e") == b"\0e\0e"
-
-
-def test_context7_cache_does_not_replay_a_high_surrogate_entry_for_the_text_that_looked_like_its_tag(tmp_path):
-    assert _context7_hit(tmp_path, "\ud800", "q", _sha(key_bytes("\ud800:q:8000")))["cached"] is True
-    from dokimi.mcp import MCPConnectionError
-    from dokimi.mcp.context7 import Context7Client
-
-    with pytest.raises(MCPConnectionError):  # not the stored entry: the NUL in the id makes the fetch itself fail
-        Context7Client(cache_dir=tmp_path).get_library_docs("\0sp\udced\udca0\udc80", "q")
 
 
 class _FixedClock:
@@ -123,11 +119,26 @@ def test_context7_cache_key_of_a_utf8_library_and_query_is_unchanged(tmp_path):
 
 
 def test_context7_cache_key_of_a_library_id_with_a_non_utf8_byte_is_a_digest(tmp_path):
-    assert _context7_hit(tmp_path, "org/n\udcff", "q", _sha(b"org/n\xff:q:8000"))["cached"] is True
+    assert _context7_hit(tmp_path, "org/n\udcff", "q", _sha(b"org/n\xed\xb3\xbf:q:8000"))["cached"] is True
 
 
 def test_context7_cache_key_of_a_query_with_a_high_surrogate_is_a_digest(tmp_path):
-    assert _context7_hit(tmp_path, "org/x", HIGH, _sha(b"\0sporg/x:n\xed\xa0\x80:8000"))["cached"] is True
+    assert _context7_hit(tmp_path, "org/x", HIGH, _sha(b"org/x:n\xed\xa0\x80:8000"))["cached"] is True
+
+
+def test_context7_cache_key_of_a_nul_led_library_id_is_unchanged(tmp_path):
+    assert _context7_hit(tmp_path, "\0org/x", "q", _sha(b"\0org/x:q:8000"))["cached"] is True
+
+
+def test_context7_cache_keeps_a_library_id_apart_from_the_escaped_bytes_it_encodes_as(tmp_path):
+    from dokimi.mcp.context7 import Context7Client
+
+    plain, escaped = _sha("café:q:8000".encode()), _sha(b"caf\xed\xb3\x83\xed\xb2\xa9:q:8000")
+    (tmp_path / f"{plain}.txt").write_text("A" + DOCS, encoding="utf-8")
+    (tmp_path / f"{escaped}.txt").write_text("B" + DOCS, encoding="utf-8")
+    client = Context7Client(cache_dir=tmp_path)
+    assert client.get_library_docs("café", "q")[0]["content"].startswith("A")
+    assert client.get_library_docs("caf\udcc3\udca9", "q")[0]["content"].startswith("B")
 
 
 def _topics_hit(tmp_path: Path, library_id: str, key: str) -> list[str]:
@@ -143,11 +154,15 @@ def test_topics_cache_key_of_a_utf8_library_id_is_unchanged(tmp_path):
 
 
 def test_topics_cache_key_of_a_library_id_with_a_non_utf8_byte_is_a_digest(tmp_path):
-    assert _topics_hit(tmp_path, "local:n\udcff", _sha(b"local:n\xff:3:8000")) == ["parallel_for"]
+    assert _topics_hit(tmp_path, "local:n\udcff", _sha(b"local:n\xed\xb3\xbf:3:8000")) == ["parallel_for"]
 
 
 def test_topics_cache_key_of_a_library_id_with_a_high_surrogate_is_a_digest(tmp_path):
-    assert _topics_hit(tmp_path, "local:" + HIGH, _sha(b"\0splocal:n\xed\xa0\x80:3:8000")) == ["parallel_for"]
+    assert _topics_hit(tmp_path, "local:" + HIGH, _sha(b"local:n\xed\xa0\x80:3:8000")) == ["parallel_for"]
+
+
+def test_topics_cache_key_of_a_nul_led_library_id_is_unchanged(tmp_path):
+    assert _topics_hit(tmp_path, "\0org/x", _sha(b"\0org/x:3:8000")) == ["parallel_for"]
 
 
 def _set_hash(*texts: str) -> str:
