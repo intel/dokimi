@@ -52,6 +52,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tracks", (
         "dokimi.config_check", "dokimi.context", "dokimi.coverage", "dokimi.dashboard",
         "dokimi.datasets_export", "dokimi.eval_coverage", "dokimi.explore", "dokimi.external", "dokimi.harnesses",
+        "dokimi.memory",
         "dokimi.novelty", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
         "dokimi.runner", "dokimi.runs", "dokimi.schema_check", "dokimi.schema_compat",
         "dokimi.skill_coverage",

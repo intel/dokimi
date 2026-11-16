@@ -64,6 +64,7 @@ from dokimi.provenance import UNKNOWN, status_of
 from dokimi.utils import same_model
 
 from .grading import SCORE_BOUND, read_grade_json
+from .batch_ledger import recorded_execution
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
 from .useful import useful_line, useful_summary
@@ -176,6 +177,8 @@ def _check_cell(path: Path, rec: dict[str, Any]) -> None:
     for key in ("task", "arm", "model"):
         if not isinstance(rec.get(key), str):
             raise CellFileError(f"{path} has no usable `{key}`")
+    if "batch" in rec and not isinstance(rec["batch"], str):
+        raise CellFileError(f"{path} has no usable `batch`")
 
 
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -211,6 +214,20 @@ def _task_status(cell_dir: Path) -> str:
         return UNKNOWN
 
 
+def refuse_mixed_executions(cells: list[dict[str, Any]], where: str) -> None:
+    """One (batch, arm, model) ran with one execution: a ``--force`` run that stopped part way, or a harness
+    binary replaced mid-batch, leaves two, and pooling them would blend two setups in one row."""
+    seen: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    for rec in cells:
+        ran = recorded_execution(rec).get("id")
+        seen[(rec.get("batch", ""), rec["arm"], rec["model"])].add(ran if isinstance(ran, str) else "unrecorded")
+    for (batch, arm, model), ids in sorted(seen.items()):
+        if len(ids) > 1:
+            raise CellFileError(f"{batch or where}: the cells of arm {arm}, model {model} ran with executions "
+                                f"{', '.join(sorted(ids))}; rerun every arm and model of the batch with --force and the batch's --task and "
+                                "--reps, so every cell has one execution, or use another --batch")
+
+
 def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
     """Cells the runner did not run on a host that missed their task's ``host`` requirements."""
     out = []
@@ -225,6 +242,8 @@ def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
 
 def summarize(batch_dir: Path) -> dict[str, Any]:
     cells, missing = load_cells(batch_dir)
+    # one directory is one batch: the rows below pool by task, arm and model, so the batch name cannot split them
+    refuse_mixed_executions([{**c, "batch": ""} for c in cells], str(batch_dir))
     groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for rec in cells:
         groups[(rec["task"], rec["arm"], rec["model"])].append(rec)
