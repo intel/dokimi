@@ -184,6 +184,16 @@ def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_p
     assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]) == 1
 
 
+@pytest.mark.parametrize("text", ["---\nNote: this is prose.\n\n# Deck Builder\n\nBuilds decks from text.\n",
+                                   "---\nNote: this is prose.\n---\n\n# Deck Builder\n\nBuilds decks from text.\n"])
+def test_a_rule_then_a_colon_line_keeps_the_loader_error(tmp_path, text):
+    # A line with a colon after the rule opens a YAML block: the loader's error stands, with no plain-Markdown hint.
+    _plain(tmp_path, "deck", text)
+    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
+    assert "not-a-skill-no-frontmatter" not in codes
+    assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]) == 1
+
+
 @pytest.mark.parametrize("text", ["---\n\n# Deck Builder\n\nBuilds decks from text.\n",
                                    "---\n\n# Deck Builder\n\nBuilds decks from text.\n---\n",
                                    "---\n\n# Deck Builder\n\nBuilds decks from text.\n\nUsage: run deck.\n",
