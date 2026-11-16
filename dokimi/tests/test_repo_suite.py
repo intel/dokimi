@@ -444,3 +444,18 @@ def test_a_moved_hash_shaped_floating_branch_is_resolved_again_not_from_the_warm
     git(root, "branch", "-f", "abcdef0", moved)
     found = resolve_suite(suite, {"t1": moved}, cache)
     assert found.pins == {"sc": moved} and found.gaps == {}
+
+
+def test_a_parent_base_the_warm_cache_of_a_remote_lacks_is_fetched_not_a_gap(tmp_path):
+    root, sha = _scaffold(tmp_path)
+    suite = parse_suite(_raw(repos={"sc": f"file://{root}@{sha}"}))
+    cache = tmp_path / "cache"
+    assert resolve_suite(suite, {"t1": sha}, cache).gaps == {}  # warms the cache at the pin
+    git(root, "checkout", "-q", "-b", "other")
+    for name in ("parent", "child"):
+        write(root, "src/more.py", f"X = '{name}'\n")
+        git(root, "add", "-A")
+        git(root, "commit", "-qm", name)
+    child = git(root, "rev-parse", "HEAD")
+    found = resolve_suite(suite, {"t1": f"{child}^"}, cache)
+    assert found.gaps == {} and "t1" in found.git_dirs

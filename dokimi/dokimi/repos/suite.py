@@ -150,9 +150,10 @@ def _resolve_base(source: RepoSource, git_dir: Path, base: str) -> str:
     try:
         return resolve_rev(git_dir, base)
     except SourceError:
-        if not source.remote or not _SHA_RE.match(base):
+        commit = re.split(r"[\^~]", base, maxsplit=1)[0]  # a parent (``<sha>^``) is fetched by its commit
+        if not source.remote or not _SHA_RE.match(commit):
             raise
-    process.git("-C", str(git_dir), "fetch", "origin", "--", base)  # a failure leaves the miss below
+    process.git("-C", str(git_dir), "fetch", "origin", "--", commit)  # a failure leaves the miss below
     return resolve_rev(git_dir, base)
 
 
