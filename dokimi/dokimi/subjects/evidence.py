@@ -18,6 +18,7 @@ from pathlib import PurePath
 from typing import Any
 
 from dokimi import __version__
+from dokimi.eval.comparison_verdict import decide
 from dokimi.eval.sign_flip import ALPHA, METHOD
 from dokimi.subjects.evidence_check import build_protocol, comparability
 
@@ -157,6 +158,5 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
 
 def _verdict(delta: float | None, sig: dict[str, Any]) -> str:
     """``improved``/``regressed`` only on a corrected significant delta; else ``inconclusive``."""
-    if delta is None or sig.get("significant_adjusted") is not True:  # a string "false" is not a verdict
-        return "inconclusive"
-    return "improved" if delta > 0 else "regressed" if delta < 0 else "inconclusive"
+    # a string "false" is not a verdict: only the corrected flag being True counts
+    return decide(delta, sig.get("significant_adjusted") is True).value
