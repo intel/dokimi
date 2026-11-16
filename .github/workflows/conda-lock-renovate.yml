@@ -9,18 +9,8 @@ on:
   push:
     branches:
       - 'renovate/**'
-    # The inputs of ci/lock.py: config.yml's test list, the recipe with its conda_build_config.yaml,
-    # the three scripts, and the hash-locked py-rattler it installs.
-    paths:
-      - 'ci/config.yml'
-      - 'ci/lock.py'
-      - 'ci/hooks.py'
-      - 'ci/matrix.py'
-      - 'conda-recipe/**'
-      - 'dokimi/requirements-conda-lock.lock.txt'
-      # A Renovate rebuild on a newer main drops the lock commit: the diff between the old and new tips then changes only ci/conda-lock.
-      - 'ci/conda-lock/**'
-      - '.github/workflows/conda-lock-renovate.yml'
+    # No `paths` filter: a Renovate rebuild onto a newer main that changes an unrelated file (the old and new tips differ only there)
+    # drops the lock commit, or loses the push of a run in flight, and must still start a solve. A current lock ends the run at the push step.
 
 permissions:
   contents: read
@@ -60,7 +50,7 @@ jobs:
         run: python ci/lock.py
 
       # A push made with GITHUB_TOKEN starts no workflows, so CONDA_LOCK_TOKEN (an app or fine-grained token) is required.
-      # The lock commit starts this workflow again (ci/conda-lock is in `paths`); the job's `if` skips it.
+      # The lock commit starts this workflow again (every push does); the job's `if` skips it.
       - name: Push the re-solved locks to the branch
         env:
           GH_TOKEN: ${{ secrets.CONDA_LOCK_TOKEN }}

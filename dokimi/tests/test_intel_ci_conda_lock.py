@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import ast
 import datetime
-import glob
 import importlib.util
 import json
 import os
@@ -514,39 +513,15 @@ def _push_step() -> dict:
     return next(s for s in _renovate_workflow()["jobs"]["resolve"]["steps"] if s.get("name") == _PUSH_STEP)
 
 
-def _covered(path: str, patterns: list[str]) -> bool:
-    return any(path.startswith(p.removesuffix("**")) if p.endswith("/**") else path == p for p in patterns)
+def test_the_renovate_workflow_runs_on_every_push_to_renovate_branches() -> None:
+    """#682: a Renovate branch is re-solved on every push, with no path filter; a fork cannot push there, so no pull_request_target.
 
-
-def test_the_renovate_workflow_runs_on_a_push_to_renovate_branches_for_every_input_of_lock_py(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    """#682: a Renovate branch that changes a lock input is re-solved; a fork cannot push there, so no pull_request_target."""
+    A filter on the inputs of lock.py misses a rebuild onto a newer main that changes only an unrelated file, while the run in flight loses its push.
+    """
     workflow = _renovate_workflow()
     triggers = workflow["on"] if "on" in workflow else workflow[True]  # YAML 1.1 reads a bare `on` as True
     assert list(triggers) == ["push"]
-    assert triggers["push"]["branches"] == ["renovate/**"]
-    paths = triggers["push"]["paths"]
-    for pattern in paths:
-        assert glob.glob(pattern, root_dir=_REPO, recursive=True), f"{pattern} matches nothing"
-    lock = _script("lock", monkeypatch)
-    read: list[Path] = []
-    real = lock.hooks.read_yaml
-
-    def record(path: Path) -> object:
-        read.append(path)
-        return real(path)
-
-    monkeypatch.setattr(lock.hooks, "read_yaml", record)
-    lock.specs("3.12")
-    inputs = [Path(str(m.__file__)) for m in (lock, lock.hooks, lock.matrix)]
-    inputs += [*read, lock.recipe().parent / "conda_build_config.yaml"]
-    installed = next(s for s in workflow["jobs"]["resolve"]["steps"] if s.get("name") == "Install py-rattler")["run"]
-    requirements = re.search(r"-r (\S+)$", installed)
-    assert requirements
-    inputs.append(_REPO / requirements.group(1))
-    assert len(read) == 2
-    assert [p.as_posix() for p in inputs if not _covered(p.relative_to(_REPO).as_posix(), paths)] == []
-    assert _covered(".github/workflows/conda-lock-renovate.yml", paths)
+    assert triggers["push"] == {"branches": ["renovate/**"]}
 
 
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("git") is None, reason="runs the step's bash with git")
@@ -628,44 +603,6 @@ def test_renovate_ignores_the_author_the_lock_commit_is_made_as() -> None:
     assert ignored and email in re.findall(r'"([^"]+)"', ignored.group(1))
 
 
-@pytest.mark.skipif(sys.platform == "win32" or shutil.which("git") is None, reason="builds a repository with git")
-def test_a_renovate_rebuild_that_drops_the_lock_commit_starts_the_resolve(tmp_path: Path) -> None:
-    """The push filter compares the old and new tips: a rebuild on a newer main changes only ci/conda-lock there."""
-    git_bin = str(shutil.which("git"))
-    env = {"HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "PATH": "/usr/bin:/bin"}
-
-    def git(*args: str) -> str:
-        return subprocess.run([git_bin, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
-                              cwd=tmp_path, env=env, capture_output=True, text=True, check=True).stdout.strip()
-
-    def write(name: str, text: str) -> None:
-        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / name).write_text(text, encoding="utf-8")
-
-    git("init", "-q", "-b", "main")
-    write("ci/config.yml", "mypy 1\n")
-    write("ci/conda-lock/linux-64-py3.12.txt", "mypy 1\n")
-    write("README.md", "a\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", "main")
-    git("checkout", "-q", "-b", "renovate/mypy-2.x")
-    write("ci/config.yml", "mypy 2\n")
-    git("commit", "-q", "-am", "bump mypy")
-    write("ci/conda-lock/linux-64-py3.12.txt", "mypy 2\n")
-    git("commit", "-q", "-am", "ci(conda-lock): re-solve the Intel CI conda locks")
-    old_tip = git("rev-parse", "HEAD")
-    git("checkout", "-q", "main")
-    write("README.md", "b\n")
-    git("commit", "-q", "-am", "main moves")
-    git("checkout", "-q", "-B", "renovate/mypy-2.x")  # the rebuild: the same pin, no lock commit
-    write("ci/config.yml", "mypy 2\n")
-    git("commit", "-q", "-am", "bump mypy")
-    changed = git("diff", "--name-only", old_tip, "HEAD").splitlines()
-    assert "ci/config.yml" not in changed and "ci/conda-lock/linux-64-py3.12.txt" in changed
-    paths = _renovate_workflow()["on" if "on" in _renovate_workflow() else True]["push"]["paths"]
-    assert [p for p in changed if _covered(p, paths)] == ["ci/conda-lock/linux-64-py3.12.txt"]
-
-
 def _job_runs(condition: str, repository: str, email: str, message: str) -> bool:
     """Evaluates the job's `if:` for the few operators it uses (&&, !, ==, startsWith, dotted names)."""
     github = {"repository": repository, "event": {"head_commit": {"author": {"email": email}, "message": message}}}
@@ -694,7 +631,7 @@ def _job_runs(condition: str, repository: str, email: str, message: str) -> bool
     return bool(value(ast.parse(source.strip(), mode="eval").body))
 
 def test_the_resolve_job_skips_only_its_own_lock_commit() -> None:
-    """The lock commit starts the workflow again (ci/conda-lock is a path): it must not solve twice, a rebuild must."""
+    """The lock commit starts the workflow again: it must not solve twice, a rebuild must."""
     job = _renovate_workflow()["jobs"]["resolve"]
     commit = re.search(r'git commit -q -s -m "([^"]+)"', _push_step()["run"])
     committer = re.search(r'git config user\.email "([^"]+)"', _push_step()["run"])
