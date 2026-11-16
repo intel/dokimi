@@ -1003,6 +1003,44 @@ python cli.py skill novelty analyze --artifact skill:s --model M \
   --context-framing neutral
 ```
 
+### Test-retest noise of the headline score
+
+The noise floor above is per run: it is the flip rate of the baseline answers against themselves.
+It does not say how far the headline `k0` score of one skill moves when the whole pipeline runs
+again (extraction, sampling and judging all redrawn). For that, run the same items twice and
+compare:
+
+```bash
+# run 1: the usual sweep
+python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 0 --out-dir runs/a/$S ...
+# run 2: the retest, another seed and a fresh cache, so no call is replayed
+python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 2 \
+  --cache-dir runs/cache-retest --out-dir runs/b/$S ...
+# the floor, pairwise comparisons, no model calls
+python cli.py skill novelty retest --baseline runs/a --retest runs/b --out-dir runs/retest
+```
+
+`retest` pairs the baseline run and the retest by artifact ref and writes `retest.md` and `retest.json`. Its
+statistics are over `k0.lenient` by default (`--scoring strict` for the strict one):
+
+- **Noise floor** = 1.96 × the sample standard deviation of `second − first`. A difference
+  between two single-run scores smaller than the floor is not evidence of a difference.
+- **Pearson r** between the two runs, the **mean |diff|** and the **mean shift** (second −
+  first). A shift moves every item alike, so it does not reorder items, but it does move a
+  score against a score from another run.
+- **Comparisons below the floor**: pairs of items whose first-run scores differ by less than
+  the floor. They are listed in `retest.json`.
+
+Items that appear in one run only, have no usable score, or are partial runs are left out and
+named as warnings. A retest with the same seed, or with another model, warns: it measures
+nothing of the seed.
+
+Corpus evidence (11-09, 10 S2 skills, Haiku 5.5, triage, $0.21 per run): r = 0.86, mean |diff|
+0.10, mean shift +0.067. The floor is about 0.21: the S2 gap between copy strata (0.66 against
+0.34) is well above it, but 26 of the 45 pairs of those ten skills are below it. Use at least two
+runs per item before reading a per-skill difference under 0.2. The retest costs one full run
+per item, so the cost is the sweep again; there is no default, because it is a choice of spend.
+
 ## Provenance, judge vendors, a second judge, reversal both ways
 
 Every `novelty analyze` and `novelty probe` JSON carries a `provenance` block, so a quoted
