@@ -12,5 +12,5 @@
   that fetch is now run again, and finds the refs current. A partial clone
   left by a killed run is removed by a later clone of that URL once it is
   older than the clone timeout (30 minutes), also when the clone is already
-  cached; one that cannot be removed is logged, and so is a partial the
-  losing run cannot remove, which then uses the other run's clone.
+  cached; one that cannot be removed is logged. A losing run that cannot
+  remove its own partial logs it too and uses the other run's clone.
