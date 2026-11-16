@@ -115,3 +115,27 @@ def test_the_text_output_names_the_repo_shares(tmp_path, capsys):
     assert "# rates per skill and per repo (2 repos, each repo counted once):" in out
     # Per skill 1 of 2 is warn; per repo big has none and small all, so the repo share is also 50%.
     assert "#   warn: 50.0% of skills, 50.0% per repo (1 skills)" in out
+
+
+def test_a_dotdot_in_a_relpath_names_the_same_repo(tmp_path):
+    _repo(tmp_path, "repo")
+    (tmp_path / "repo" / "extra").mkdir()
+    tally = RateTally(tmp_path)
+    for row in (_row("repo/a", "warn"), _row("repo/extra/../b", "ok"), _row("repo/c", "ok")):
+        tally.add(row)
+
+    summary = tally.summary()
+    assert summary["repos"] == 1
+    assert summary["states"]["warn"] == {"skills": 1, "rate": 0.3333, "repo_rate": 0.3333}
+
+
+def test_an_absolute_relpath_under_a_relative_root_names_its_repo(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _repo(tmp_path, "catalog/a")
+    _repo(tmp_path, "catalog/b")
+    tally = RateTally(Path("catalog"))
+    for rel in (str(tmp_path / "catalog/a/s1"), str(tmp_path / "catalog/a/s2"), "b/t1"):
+        tally.add(_row(rel, "ok"))
+
+    assert sorted(tally.skills) == ["a", "b"]
+

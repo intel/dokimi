@@ -13,6 +13,7 @@ entry, or the scanned root itself when none does.
 
 from __future__ import annotations
 
+import os
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Optional
@@ -26,6 +27,7 @@ class RateTally:
 
     def __init__(self, root: Path) -> None:
         self.root = root
+        self._abs_root = Path(os.path.abspath(root))
         self.skills: Counter[str] = Counter()  # repo -> skills
         self.states: dict[str, Counter[str]] = defaultdict(Counter)  # state -> repo -> skills
         self.codes: dict[str, Counter[str]] = defaultdict(Counter)  # code -> repo -> skills with the code
@@ -40,11 +42,20 @@ class RateTally:
             self.codes[code][repo] += 1
 
     def _repo(self, relpath: Optional[str]) -> str:
-        parts = tuple(part for part in (relpath or "").split("/") if part not in ("", "."))
+        """The row's repo key: its nearest ``.git`` ancestor under the root, or ``.``.
+
+        The path is normalised lexically against the root first, so a ``..`` or an absolute path under a
+        relative root names its repo the same way as the plain relative path. Symlinks are not resolved.
+        """
+        if not relpath:
+            return "."
+        rel = os.path.relpath(os.path.join(self._abs_root, relpath), self._abs_root)
+        parts = tuple(part for part in rel.split(os.sep) if part not in ("", "."))
         for end in range(len(parts), 0, -1):
             prefix = parts[:end]
             if prefix not in self._repos:
-                self._repos[prefix] = "/".join(prefix) if (self.root.joinpath(*prefix) / ".git").exists() else ""
+                is_repo = (self._abs_root.joinpath(*prefix) / ".git").exists()
+                self._repos[prefix] = "/".join(prefix) if is_repo else ""
             if self._repos[prefix]:
                 return self._repos[prefix]
         return "."
