@@ -49,10 +49,12 @@ DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
 
 _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep", "egrep", "fgrep", "awk", "tac",
                       "strings", "wc", "rg"})
-_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice"})  # each runs the command after it
+_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice", "env"})  # each runs the command after it
+_INFO_OPTIONS = frozenset({"--help", "--version", "-V"})  # a wrapper given one prints text and runs nothing
 _WRAPPER_VALUES = {"sudo": frozenset({"-u", "-g", "-h", "-p", "-r", "-t", "-C", "-D", "-R", "-T", "-U"}),
                    "nice": frozenset({"-n", "--adjustment"}), "exec": frozenset({"-a"}),
-                   "time": frozenset({"-f", "-o", "--format", "--output"})}  # options that take the next word
+                   "time": frozenset({"-f", "-o", "--format", "--output"}),
+                   "env": frozenset({"-u", "-C", "--unset", "--chdir"})}  # options that take the next word
 _PATTERN_READERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is a pattern or script
 _GREP_VALUES = {"-e", "-f", "-m", "-A", "-B", "-C", "--regexp", "--file", "--max-count", "--after-context",
                 "--before-context", "--context"}
@@ -134,7 +136,8 @@ def with_probes(events: list[dict[str, Any]], probes: Sequence[Probe]) -> list[d
     for event in events:
         out.append(event)
         if event.get("kind") == "command":
-            out.extend(_probe_event(event, probe) for probe in _matching(str(event.get("text", "")), probes))
+            if not event.get("denied"):  # a denied command ran nothing
+                out.extend(_probe_event(event, probe) for probe in _matching(str(event.get("text", "")), probes))
     return out
 
 
@@ -187,13 +190,13 @@ def _matching(command: str, probes: Sequence[Probe]) -> list[Probe]:
 
 def _pipelines(script: str) -> Iterator[list[list[str]]]:
     """Each pipeline of the script as its stages' words; the commands of its ``$( )`` and backtick substitutions too."""
-    ok = False  # the list so far succeeded (its last part ran ``true``): a part after ``||`` never runs
+    status: bool | None = None  # the exit status of the last part that ran; None when it is not known
     before = ""  # the operator before this part
     for part, after, _in_subshell, _outer in split_script(_without_heredocs(script)):
-        skipped, before = before == "||" and ok, after
-        if skipped:
+        skipped, before = (before == "||" and status is True) or (before == "&&" and status is False), after
+        if skipped:  # a part after ``||`` that succeeded, or after ``&&`` that failed, never runs
             continue
-        ok = part.strip() in ("true", ":")
+        status = {"true": True, ":": True, "false": False}.get(part.strip())
         stages, inner = command_stages(part)
         for body in inner:
             yield from _pipelines(body)
@@ -203,6 +206,14 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
             for rest in command_words(stage):
                 if len(rest) > 2 and _program(rest[0]) in _SHELLS and _SHELL_C.fullmatch(rest[1]):
                     yield from _pipelines(rest[2])
+        if any(_ends_shell(stage) for stage in stages):  # what follows an ``exit`` or a replacing ``exec`` never runs
+            return
+
+
+def _ends_shell(stage: list[str]) -> bool:
+    """Whether a simple command ends the shell: ``exit``, or ``exec`` with a program (``exec -l`` has none)."""
+    views = list(command_words(split_redirects(stage)[0]))
+    return any(_program(view[0]) == "exit" for view in views) or any(_program(view[0]) == "exec" for view in views[:-1])
 
 
 def _without_heredocs(script: str) -> str:
@@ -215,9 +226,10 @@ def _without_heredocs(script: str) -> str:
     body: list[str] = []
     expands = False
     head, at = 0, 0  # the line that opens the heredoc, and where its operator starts on it
+    strip_tabs = False  # ``<<-``: the terminator may be indented with tabs, and only those
     for line in script.split("\n"):
         if end is not None:
-            if line.strip() == end:
+            if (line.lstrip("\t") if strip_tabs else line) == end:
                 if expands:  # before the operator: a comment after it on the opening line would hide them
                     found = "".join(f"{text} " for text in _expansions("\n".join(body)))
                     out[head] = out[head][:at] + found + out[head][at:]
@@ -226,10 +238,20 @@ def _without_heredocs(script: str) -> str:
                 body.append(line)
             continue
         out.append(line)
-        m = _HEREDOC.search(line)
+        m = _opener(line)
         if m and not _SHELL_LINE.match(line):
             end, expands, head, at = m.group(2), not m.group(1), len(out) - 1, m.start()
+            strip_tabs = m.group(0).startswith("<<-")
     return "\n".join(out)
+
+
+def _opener(line: str) -> re.Match[str] | None:
+    """The first heredoc operator of a line that is not inside quotes (``echo "<<EOF"`` opens none)."""
+    for m in _HEREDOC.finditer(line):
+        before = line[:m.start()]
+        if before.count('"') % 2 == 0 and before.count("'") % 2 == 0:
+            return m
+    return None
 
 
 def _expansions(body: str) -> list[str]:
@@ -305,7 +327,7 @@ def _substitution(part: str, i: int) -> tuple[str, int] | None:
     """The body of the ``$( )`` or backtick substitution at ``i`` and the index of its last character; ``None``
     where ``$`` or a backtick starts none."""
     if part[i] == "$":
-        if part[i + 1:i + 2] != "(":
+        if part[i + 1:i + 2] != "(" or part[i + 2:i + 3] == "(":  # ``$((`` is arithmetic: it runs no command
             return None
         end = substitution_end(part, i + 2)
         return part[i + 2:end - 1], end - 1
@@ -349,7 +371,11 @@ def split_redirects(words: Sequence[str]) -> tuple[list[str], list[str]]:
 
 def _views(words: list[str]) -> Iterator[Stage]:
     """The command a simple command runs: its own program, then the command each wrapper (``time``, ``sudo``...) runs."""
-    for rest in command_words(words):
+    views = list(command_words(words))
+    for k, rest in enumerate(views):
+        later = [v for v in views[k + 1:] if not v[0].startswith(_OPERATOR)]  # a redirection is no command
+        if _program(rest[0]) == "env" and later:  # ``env FOO=1 nproc`` runs ``nproc``, not a probe of ``env``
+            continue
         yield _head(rest[0], rest[1:])
 
 
@@ -368,6 +394,8 @@ def command_words(words: list[str]) -> Iterator[list[str]]:
             return
         i += 1
         while i < len(words) and words[i].startswith("-") and len(words[i]) > 1:
+            if words[i] in _INFO_OPTIONS or (wrapper == "command" and words[i] == "-v"):  # looks up or prints: runs nothing
+                return
             i += 2 if words[i] in _WRAPPER_VALUES.get(wrapper, ()) else 1
 
 
@@ -440,5 +468,5 @@ def _in_order(want: tuple[Stage, ...], pipeline: list[list[Stage]]) -> bool:
 def _stage_runs(want: Stage, views: list[Stage]) -> bool:
     """Whether one of the views is the wanted program with every wanted word among its words, any case."""
     program, words = want
-    return any(prog == program and all(w.casefold() in {a.casefold() for a in args} for w in words)
+    return any(prog == program and all(w.casefold() in {a.casefold() for a in split_redirects(args)[0]} for w in words)
                 for prog, args in views)

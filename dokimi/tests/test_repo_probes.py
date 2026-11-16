@@ -361,3 +361,40 @@ def test_a_python_probe_needs_a_call_on_a_name_boundary():
 ])
 def test_the_shell_structure_decides_which_probe_runs(command, patterns):
     assert _probes(command) == patterns
+
+
+def _probed(text: str, **event: object) -> list[tuple[str, str]]:
+    from dokimi.repos.probes import probes_for, with_probes
+
+    events = [{"t": 0.0, "kind": "command", "text": text, "rc": 0, **event}]
+    return [(e["target"], e["pattern"]) for e in with_probes(events, probes_for(None)) if e["kind"] == "probe"]
+
+
+@pytest.mark.parametrize("text, event", [
+    ("nproc", {"denied": True}),  # a denied command ran nothing
+    ("true || echo skipped || nproc", {}),
+    ("command -v nproc", {}),  # ``command -v`` only looks the program up
+    ("sudo --help nproc", {}),  # ``--help`` prints text and runs nothing
+    ("false && nproc", {}),
+    ("exit 0; nproc", {}),
+    ("exec true && nproc", {}),  # exec replaces the shell: nothing after it runs
+    ("cat <<EOF\n EOF\nnproc\nEOF", {}),  # a leading space does not end an unquoted heredoc
+    ("echo $((nproc + 1))", {}),  # arithmetic, not a command substitution
+    ("pip --version > list", {}),  # a redirection target is no pattern word
+])
+def test_a_command_that_runs_nothing_probed_gives_no_probe(text, event):
+    assert not [p for p in _probed(text, **event) if p[0] == "cpu" or p[1] in ("pip list",)]
+
+
+@pytest.mark.parametrize("text", ["exec -l && nproc", "env FOO=1 nproc", "echo \"<<EOF\"\nnproc\nEOF",
+                                  "cat <<EOF\n$(nproc)\nEOF"])
+def test_a_command_that_runs_the_probe_gives_the_probe(text):
+    assert ("cpu", "nproc") in _probed(text)
+
+
+def test_env_runs_its_program_not_an_env_probe():
+    assert ("env", "env") not in _probed("env FOO=1 python train.py")
+    assert ("env", "env") not in _probed("env -i python train.py")
+    assert ("env", "env") in _probed("env | grep X")
+    assert ("env", "env") in _probed("env > f")
+    assert ("env", "printenv") in _probed("printenv")
