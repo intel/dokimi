@@ -180,6 +180,22 @@ def mutants_for(path: str, src: str, lines: set[int]) -> list[Mutant]:
     return out
 
 
+def continuation_lines(src: str, lines: set[int], mutated: set[int]) -> set[int]:
+    """Changed lines inside a multi-line expression that no mutant starts on, as ``+ b)`` in ``x = (a`` / ``+ b)``.
+
+    Docstrings, comments, blank lines and string literals are not listed: they hold no code a test could run.
+    """
+    tree = ast.parse(src)
+    skip = _docstring_lines(tree)
+    spanned: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.expr) and not isinstance(node, (ast.Constant, ast.JoinedStr)):
+            spanned.update(range(node.lineno + 1, (node.end_lineno or node.lineno) + 1))
+    text = src.splitlines()
+    return {n for n in lines if n in spanned and n not in mutated and n not in skip
+            and text[n - 1].strip() and not text[n - 1].lstrip().startswith("#")}
+
+
 def apply(src: str, m: Mutant) -> str:
     """``src`` with the mutant's span replaced; columns are UTF-8 byte offsets."""
     # Split after each \n only: splitlines also breaks on other Unicode line breaks, which ast does not count.
@@ -376,6 +392,9 @@ def run(args: argparse.Namespace) -> int:
             continue
         report["files"][path] = {"changed_lines": len(lines), "mutants_possible": len(ms)}
         all_mutants += ms
+        conts = continuation_lines(src, lines, {m.line for m in ms})
+        if conts:
+            report["uncovered_lines"].setdefault(path, set()).update(conts)
     if not all_mutants:
         report["note"] = "no mutable changed lines in the dokimi package"
         return _finish(report, args, t0, 0)

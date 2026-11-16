@@ -676,3 +676,11 @@ def test_covering_tests_lists_a_timed_out_file_as_not_run(tmp_path: Path, monkey
     monkeypatch.setattr(mc, "_pytest", pytest_run)
     tests = ["tests/test_slow.py", "tests/test_after.py"]
     assert mc.covering_tests(tmp_path, tests, [], 60) == ({}, [], tests)
+
+
+def test_a_changed_continuation_line_with_no_mutant_is_listed_uncovered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Line 3 (`+ a)`) continues the BinOp that starts on line 2: no mutant starts there, so only the uncovered list can show it.
+    src = "def f(a):\n    x = (a\n         + a)\n    return x\n"
+    tests = "from dokimi.zz import f\n\n\ndef test_f():\n    assert f(1) == 2\n"
+    _, report = _mutation_run(tmp_path, monkeypatch, src, tests, {})
+    assert 3 in report["uncovered_lines"]["dokimi/dokimi/zz.py"]
