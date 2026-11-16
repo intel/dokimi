@@ -568,9 +568,9 @@ def _error_result(harness_id: str, task: TaskSpec, output_dir: Path, exc: Except
 
 
 def _safe_id(value: str) -> str:
-    """A directory name for a harness id. Characters Windows refuses, and a lone surrogate the file system cannot encode (U+D800..U+DC7F), become ``_`` and add a digest of the id, so ids that differ only in them stay apart."""
+    """A directory name for a harness id. Characters Windows refuses, and a lone surrogate the file system cannot encode (U+D800..U+DC7F and U+DD00..U+DFFF; only U+DC80..U+DCFF map to a byte), become ``_`` and add a digest of the id, so ids that differ only in them stay apart."""
     name = value.replace("/", "_").replace(":", "_").replace(" ", "_")
-    refused = r'[\\<>"|?*\ud800-\udc7f]'
+    refused = r'[\\<>"|?*\ud800-\udc7f\udd00-\udfff]'
     if not re.search(refused, name):
         return name
     return re.sub(refused, "_", name) + "-" + hashlib.sha256(key_bytes(value)).hexdigest()[:8]

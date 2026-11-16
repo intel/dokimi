@@ -349,6 +349,18 @@ def test_harness_directory_name_of_an_id_with_a_high_surrogate_is_a_directory_na
     assert _safe_id("n\ud801") != name
 
 
+def test_harness_directory_name_of_an_id_with_a_low_surrogate_above_the_escape_range(tmp_path):
+    from dokimi.harnesses.runner import _safe_id
+
+    name = _safe_id("n\udd00?")
+    assert name == "n__-" + _sha(b"\0spn\xed\xb4\x80?")[:8]
+    (tmp_path / name).mkdir()
+    bare = _safe_id("n\udfff")
+    assert bare == "n_-" + _sha(b"\0spn\xed\xbf\xbf")[:8]
+    (tmp_path / bare).mkdir()
+    assert _safe_id("n\udc80") == "n\udc80"  # maps to a byte: unchanged
+
+
 def test_skill_reach_token_of_a_nul_led_salt_is_the_key_bytes_of_the_salt():
     from dokimi.repos.skill_reach import token
 
