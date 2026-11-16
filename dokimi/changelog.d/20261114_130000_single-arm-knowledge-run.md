@@ -9,5 +9,5 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Fixed
 
-- **`arms run --harness <task harness>` is refused** — a task-harness label (`codex`, `claude-code`, `copilot`, `terminal-bench:*`, `docker-*`, `benchflow*`) stamped answers that the model behind `--provider` produced. It now exits 2 and points to `--provider claude-cli` or dropping `--harness`.
+- **`arms run --harness <task harness>` is refused** — a task-harness label (`codex`, `claude-code`, `copilot`, `command:*`, `terminal-bench:*`, `docker-*`, `benchflow*`) stamped answers that the model behind `--provider` produced. It now exits 2 and points to `--provider claude-cli` or dropping `--harness`.
 - **`answers generate --doc-source none` no longer prints a `Context arm` line** — with no retrieval there is no context arm to count.
