@@ -10,8 +10,12 @@ from collections import Counter
 
 
 def partial_record(message: str, calls_done: int, calls_planned: int,
-                   reason: str = "spend_cap") -> dict:
-    """The marker of a result cut short by ``--max-usd`` or a permanent error: what ran, of what was planned."""
+                   reason: str) -> dict:
+    """The marker of a result cut short by ``--max-usd``, an unpriced call or a permanent error.
+
+    ``reason`` is the stop reason the router gives: ``spend_cap``, ``no_price`` or ``permanent_error``.
+    It says what ran, of what was planned.
+    """
     return {"reason": reason, "calls_done": calls_done, "calls_planned": calls_planned,
             "message": message}
 
