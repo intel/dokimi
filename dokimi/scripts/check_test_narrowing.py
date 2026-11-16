@@ -72,6 +72,7 @@ API_DEFAULTS = {
     "allclose": {"rtol": 1e-5, "atol": 1e-8},
     "assert_allclose": {"rtol": 1e-7, "atol": 0.0},
 }
+NUMPY_ISCLOSE = {"rtol": 1e-5, "atol": 1e-8}  # numpy.isclose; a call of it is read with numpy's keywords and defaults
 # Methods that change a list, dict or set in place: a name whose method is called this way is not a constant.
 MUTATORS = {"append", "extend", "insert", "remove", "pop", "clear", "update", "add", "discard", "setdefault"}
 _ARITHMETIC = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
@@ -244,7 +245,9 @@ def _read_tolerances(call: ast.Call, shape: Shape, context: str | None = None) -
         tolerances[str(kw.arg)] = math.inf if number is None else number
     if api == "approx" and "abs" in given and not any(kw.arg == "rel" for kw in named):
         tolerances["rel"] = 0.0  # pytest.approx with abs alone: the relative part is unset, so it is 0
-    for kind, default in API_DEFAULTS.get(api, {}).items():
+    numpy_call = isinstance(call.func, ast.Attribute) and _name(call.func.value) in {"np", "numpy"}
+    defaults = NUMPY_ISCLOSE if api == "isclose" and (numpy_call or given & {"rtol", "atol"}) else API_DEFAULTS.get(api, {})
+    for kind, default in defaults.items():  # a numpy.isclose call takes numpy's defaults, not math's
         tolerances.setdefault(kind, default)
     others = [kw for kw in call.keywords if kw not in named]
     own = ast.dump(ast.Call(call.func, call.args, others))
@@ -406,24 +409,23 @@ def _scope_skips(body: list[ast.stmt]) -> int:
     for stmt in body:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
-        if _pytestmark_change(stmt):
-            total += _skips_in(stmt)
-        else:
+        if not _pytestmark_change(stmt):
             total += _effects(stmt)
-    return total
+    # Only the marks the final pytestmark holds: an assignment replaces the marks set before it.
+    return total + sum(_skips_in(mark) for mark in _scope_marks(body))
 
 
-def _collection_off(stmt: ast.stmt) -> str | None:
-    """"" when ``stmt`` is ``__test__ = False`` (its body is not collected), the name when it is
-    ``name.__test__ = False`` (that def or class is not), else None."""
+def _collection_set(stmt: ast.stmt) -> tuple[str, bool] | None:
+    """``("", value)`` for ``__test__ = value`` on a body, ``(name, value)`` for ``name.__test__ = value``
+    on a def or class, else None."""
     if not (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
-            and isinstance(stmt.value, ast.Constant) and stmt.value.value is False):
+            and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, bool)):
         return None
     target = stmt.targets[0]
     if isinstance(target, ast.Name) and target.id == "__test__":
-        return ""
+        return "", stmt.value.value
     if isinstance(target, ast.Attribute) and target.attr == "__test__" and isinstance(target.value, ast.Name):
-        return target.value.id
+        return target.value.id, stmt.value.value
     return None
 
 
@@ -528,7 +530,11 @@ def _collect(body: list[ast.stmt], prefix: str, skips: int, marks: list[ast.expr
              found: dict[str, Shape]) -> None:
     """Add the tests of a module or class body to ``found`` under their dotted names. Each inherits the
     skips and the parametrize marks of its scopes (``skips`` and ``marks`` are those above the body)."""
-    off = {_collection_off(stmt) for stmt in body} - {None}
+    last: dict[str, bool] = {}  # the last __test__ assignment of each name decides, as pytest reads it
+    for stmt in body:
+        if (setting := _collection_set(stmt)) is not None:
+            last[setting[0]] = setting[1]
+    off = {key for key, value in last.items() if not value}
     if "" in off:
         return  # __test__ = False: pytest collects none of this body
     skips += _scope_skips(body)

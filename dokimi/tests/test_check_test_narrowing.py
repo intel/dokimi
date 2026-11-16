@@ -740,3 +740,20 @@ def test_an_isclose_with_no_keywords_replacing_an_exact_comparison_is_a_loosenin
 def test_a_range_too_long_to_count_is_read_without_an_error():
     base = "import pytest\n\n\n@pytest.mark.parametrize('x', range(10 ** 19))\ndef test_a(x):\n    assert x\n"
     assert ctn.compare(base, base.replace("10 ** 19", "1e400")) == []
+
+
+def test_a_numpy_isclose_with_zero_tolerances_replacing_an_exact_comparison_is_no_loosening():
+    base = "def test_a(v):\n    assert v() == 1.0\n"
+    head = "import numpy as np\n\n\ndef test_a(v):\n    assert np.isclose(v(), 1.0, rtol=0, atol=0)\n"
+    assert ctn.compare(base, head) == []
+
+
+def test_a_pytestmark_overwritten_before_the_test_adds_no_skip():
+    base = "import pytest\n\npytestmark = pytest.mark.skip\npytestmark = []\n\n\ndef test_a(v):\n    assert v() == 1.0\n"
+    head = base.replace("pytestmark = []\n", "", 1)
+    assert [what for _, _, what in ctn.compare(base, head)] == ["adds a skip or xfail"]
+
+
+def test_a_test_flag_restored_later_in_the_module_is_collected():
+    base = "__test__ = True\n\n\ndef test_a(v):\n    assert v() == 1.0\n"
+    assert ctn.compare(base, "__test__ = False\n" + base) == []
