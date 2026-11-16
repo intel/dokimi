@@ -597,3 +597,8 @@ def test_a_span_in_a_destination_that_is_no_link_is_still_code(mem):
 def test_text_after_a_closed_title_leaves_the_link_live(mem):
     (mem / "MEMORY.md").write_text('- [A](a.md) [B](b.md) [a]\n\n[a]: a.md "x" see [Y](missing.md)\nsaid "hi"\n')
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [3]
+
+
+def test_link_in_a_title_on_the_next_line_is_text(mem):
+    (mem / "MEMORY.md").write_text('[A][g]\n\n[g]:\n  a.md "[X](missing.md)"\n')
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []

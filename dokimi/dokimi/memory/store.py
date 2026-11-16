@@ -39,7 +39,7 @@ _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:")  # two letters or more, so a d
 _LIST_ITEM = re.compile(r" *(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
 _BLOCK_START = re.compile(r" {0,3}(?:#{1,6}(?:[ \t]|$)|>)")
 _BACKTICK_RUN = re.compile(r"(?<!`)`+(?!`)")
-_ANGLE_LINK = re.compile(r"\]\(" + _WS + r"<[^<>\n]*>(?:\s+(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)))?" + _WS + r"\)")  # a ``<...>`` destination
+_ANGLE_LINK = re.compile(r"\]\(" + _WS + r"<[^<>\n]*>(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?" + _WS + r"\)")  # the title grammar of _MD_LINK
 _TITLE_CLOSED = re.compile(r"[ \t]+(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*$")
 
 
@@ -111,8 +111,7 @@ class MemoryStore:
         text = "\n".join(lines)
         starts = [m.start() for m in re.finditer("\n", text)]  # a link may run over a line break: find its line by offset
         begin = [0, *(s + 1 for s in starts)]
-        titles = [(begin[k] + d.end(2), begin[k] + d.end()) for k, d in defs.items()  # a closed title holds no link
-                  if d.end() <= len(lines[k]) and _TITLE_CLOSED.match(lines[k][d.end(2):])]
+        titles = _title_spans(lines, begin, defs)  # a closed title holds no link
         for m in _MD_LINK.finditer(text):
             if _has_opener(text, m.start()) and not any(lo <= m.start() < hi for lo, hi in titles):
                 found.append((bisect_right(starts, m.start()) + 1, m.group(1), True))
@@ -205,6 +204,17 @@ def _code_span(line: str, pos: int) -> re.Match | None:
             return m
         pos = m.start() + 1
     return None
+
+
+def _title_spans(lines: list[str], begin: list[int], defs: dict[int, re.Match]) -> list[tuple[int, int]]:
+    """The offsets in the joined text of each definition's title, for a title closed on its line or the next."""
+    out = []
+    for k, d in defs.items():
+        joined = d.end() > len(lines[k])  # the destination, and so the title, is on line k + 1
+        rest = ("\n".join(lines[k:k + 2]) if joined else lines[k])[d.end(2):]
+        if _TITLE_CLOSED.match(rest):
+            out.append((begin[k] + d.end(2), begin[k] + d.end()))
+    return out
 
 
 def _angle_link_at(line: str, pos: int) -> re.Match | None:
