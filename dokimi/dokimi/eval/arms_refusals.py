@@ -52,6 +52,22 @@ def refuse_cli_arms(config: ArmsRunConfig, treatments: list) -> None:
                          "does not have: use an API provider for a session")
 
 
+#: Harness labels of the agent CLIs (``tasks run``, ``repo run``): each one runs an agent CLI to do a task.
+_TASK_HARNESS_NAMES = frozenset({"command", "codex", "codex-review", "claude-code", "copilot", "copilot-review", "terminal-bench"})
+_TASK_HARNESS_PREFIXES = ("docker-", "benchflow")
+
+
+def refuse_task_harness(config: ArmsRunConfig) -> None:
+    """A task harness label is refused before any answer: arms runs answer through ``--provider``, so the label
+    would stamp answers that no such harness produced. Asks for a Claude CLI answerer instead (docs/knowledge-runs.md).
+    """
+    name = config.harness.split(":", 1)[0]
+    if name in _TASK_HARNESS_NAMES or name.startswith(_TASK_HARNESS_PREFIXES):
+        raise InputError(f"--harness {config.harness} names a task harness (an agent CLI that runs executable tasks), "
+                         "but arms run answers through --provider. To answer through Claude Code's CLI use "
+                         "--provider claude-cli --model sonnet; otherwise drop --harness")
+
+
 def refuse_cli_cell_model(matrix_cell) -> None:
     """A matrix cell sets provider and model after the parse-time model gate has read only --model."""
     from dokimi import llm_cli

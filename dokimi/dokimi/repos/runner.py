@@ -41,6 +41,7 @@ import subprocess
 import sys
 import threading
 import uuid
+from collections import Counter
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -399,6 +400,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     that cell's error."""
     validate_tasks(tasks)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
+    _refuse_shared_cells(cells)
     check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
@@ -564,6 +566,21 @@ def _read_batch_spend(batch_dir: Path, capped: bool = True) -> float:
 
 def _write_batch_spend(batch_dir: Path, spent: float) -> None:
     batch_ledger.write_json(batch_dir / "_eval" / SPEND_FILE, {"spent_usd": spent})
+
+
+def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> None:
+    """Refuse a plan naming one cell directory twice, or two names one case-insensitive volume maps to one
+    directory: with --jobs 2 both would run in it and mix their files (or one would delete the other's)."""
+    names = Counter(cell_name(t.id, a, o.model, r) for t, a, o, r in cells)
+    problems = [f"cell {name} is planned {names[name]} times" for name in sorted(names) if names[name] > 1]
+    by_fold: dict[str, list[str]] = {}
+    for name in names:
+        by_fold.setdefault(name.casefold(), []).append(name)
+    problems += [f"cells {' and '.join(sorted(group))} are one directory on a case-insensitive volume"
+                 for group in by_fold.values() if len(group) > 1]
+    if problems:
+        raise ValueError("; ".join(problems) + " (a repeated --task or --model, two --model strings with one name "
+                         "on disk, or names that differ only in case); give each once")
 
 
 UNSUPPORTED_FILE = "unsupported.json"
