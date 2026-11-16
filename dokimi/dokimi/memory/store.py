@@ -39,6 +39,7 @@ _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:")  # two letters or more, so a d
 _LIST_ITEM = re.compile(r" *(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
 _BLOCK_START = re.compile(r" {0,3}(?:#{1,6}(?:[ \t]|$)|>)")
 _BACKTICK_RUN = re.compile(r"(?<!`)`+(?!`)")
+_ANGLE_LINK = re.compile(r"\]\(" + _WS + r"<[^<>\n]*>(?:\s+(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)))?" + _WS + r"\)")  # a ``<...>`` destination
 _TITLE_CLOSED = re.compile(r"[ \t]+(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*$")
 
 
@@ -110,7 +111,8 @@ class MemoryStore:
         text = "\n".join(lines)
         starts = [m.start() for m in re.finditer("\n", text)]  # a link may run over a line break: find its line by offset
         begin = [0, *(s + 1 for s in starts)]
-        titles = [(begin[k] + d.end(2), begin[k] + d.end()) for k, d in defs.items()]  # a definition's title holds no link
+        titles = [(begin[k] + d.end(2), begin[k] + d.end()) for k, d in defs.items()  # a closed title holds no link
+                  if d.end() <= len(lines[k]) and _TITLE_CLOSED.match(lines[k][d.end(2):])]
         for m in _MD_LINK.finditer(text):
             if _has_opener(text, m.start()) and not any(lo <= m.start() < hi for lo, hi in titles):
                 found.append((bisect_right(starts, m.start()) + 1, m.group(1), True))
@@ -205,15 +207,17 @@ def _code_span(line: str, pos: int) -> re.Match | None:
     return None
 
 
-def _in_angle_destination(line: str, pos: int) -> bool:
-    """Whether ``pos`` lies in a ``](<...>)`` destination, where a backtick is literal text and opens no span."""
-    return re.search(r"\]\([ \t]*<[^>]*$", line[:pos]) is not None and ">" in line[pos:]
+def _angle_link_at(line: str, pos: int) -> re.Match | None:
+    """The ``](<...>)`` link on ``line`` whose destination holds ``pos``: a backtick there is text, and opens no span."""
+    i = line.rfind("](", 0, pos)
+    m = _ANGLE_LINK.match(line, i) if i >= 0 else None
+    return m if m and m.end() > pos else None
 
 
 def _unpaired_run(line: str) -> re.Match | None:
     """The first backtick run left on ``line`` whose first backtick is not escaped and not in a ``<...>`` destination."""
     return next((m for m in _BACKTICK_RUN.finditer(line)
-                 if not _escaped(line, m.start()) and not _in_angle_destination(line, m.start())), None)
+                 if not _escaped(line, m.start()) and _angle_link_at(line, m.start()) is None), None)
 
 
 def _open_span(lines: list[str], i: int, line: str, run: re.Match | None) -> tuple[str, str]:
@@ -291,8 +295,8 @@ def _blank_inline(line: str, closes_ahead: bool, pos: int = 0) -> tuple[str, str
         if code is None and start < 0:
             return line, "", _unpaired_run(line)
         if code is not None and (start < 0 or code.start() < start):
-            if _in_angle_destination(line, code.start()):  # the destination is literal up to its `>`
-                pos = line.index(">", code.start()) + 1
+            if (link := _angle_link_at(line, code.start())) is not None:  # a backtick in the destination is text
+                pos = link.end()
                 continue
             line = line[:code.start()] + " " * (code.end() - code.start()) + line[code.end():]
             pos = code.end()

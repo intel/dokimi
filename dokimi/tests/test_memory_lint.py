@@ -587,3 +587,13 @@ def test_code_span_after_an_angle_destination_is_still_code(mem):
     (mem / "a`b.md").write_text(_entry("ab"))
     (mem / "MEMORY.md").write_text("- [A](a.md) [B](<a`b.md>) see `[X](missing.md)`\n")
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_a_span_in_a_destination_that_is_no_link_is_still_code(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md)\n- [T](<a `[Y](missing.md)` b> c\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_text_after_a_closed_title_leaves_the_link_live(mem):
+    (mem / "MEMORY.md").write_text('- [A](a.md) [B](b.md) [a]\n\n[a]: a.md "x" see [Y](missing.md)\nsaid "hi"\n')
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [3]
