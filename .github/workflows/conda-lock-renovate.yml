@@ -18,6 +18,8 @@ on:
       - 'ci/matrix.py'
       - 'conda-recipe/**'
       - 'dokimi/requirements-conda-lock.lock.txt'
+      # A Renovate rebuild on a newer main drops the lock commit: the diff between the old and new tips then changes only ci/conda-lock.
+      - 'ci/conda-lock/**'
       - '.github/workflows/conda-lock-renovate.yml'
 
 permissions:
@@ -30,8 +32,11 @@ concurrency:
 jobs:
   resolve:
     name: Re-solve the Intel CI conda locks
-    # A fork has no use for the push.
-    if: github.repository == 'intel/dokimi'
+    # A fork has no use for the push. This workflow's own lock commit (github-actions[bot], this message) is skipped: it needs no second solve.
+    if: >-
+      github.repository == 'intel/dokimi'
+      && !(github.event.head_commit.author.email == '41898282+github-actions[bot]@users.noreply.github.com'
+      && startsWith(github.event.head_commit.message, 'ci(conda-lock): re-solve the Intel CI conda locks'))
     runs-on: ${{ vars.GH_CI_RUNNER || 'intel-ubuntu-latest' }}
     timeout-minutes: 20
     permissions:
@@ -55,7 +60,7 @@ jobs:
         run: python ci/lock.py
 
       # A push made with GITHUB_TOKEN starts no workflows, so CONDA_LOCK_TOKEN (an app or fine-grained token) is required.
-      # The lock commit changes only ci/conda-lock, which `paths` leaves out: it starts Intel CI, not this workflow again.
+      # The lock commit starts this workflow again (ci/conda-lock is in `paths`); the job's `if` skips it.
       - name: Push the re-solved locks to the branch
         env:
           GH_TOKEN: ${{ secrets.CONDA_LOCK_TOKEN }}

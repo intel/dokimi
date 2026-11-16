@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime
 import glob
 import importlib.util
@@ -625,3 +626,83 @@ def test_renovate_ignores_the_author_the_lock_commit_is_made_as() -> None:
     config = (_REPO / ".github" / "renovate.json5").read_text(encoding="utf-8")
     ignored = re.search(r"^\s*gitIgnoredAuthors:\s*\[(.*)\],$", config, re.M)
     assert ignored and email in re.findall(r'"([^"]+)"', ignored.group(1))
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("git") is None, reason="builds a repository with git")
+def test_a_renovate_rebuild_that_drops_the_lock_commit_starts_the_resolve(tmp_path: Path) -> None:
+    """The push filter compares the old and new tips: a rebuild on a newer main changes only ci/conda-lock there."""
+    git_bin = str(shutil.which("git"))
+    env = {"HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "PATH": "/usr/bin:/bin"}
+
+    def git(*args: str) -> str:
+        return subprocess.run([git_bin, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                              cwd=tmp_path, env=env, capture_output=True, text=True, check=True).stdout.strip()
+
+    def write(name: str, text: str) -> None:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+
+    git("init", "-q", "-b", "main")
+    write("ci/config.yml", "mypy 1\n")
+    write("ci/conda-lock/linux-64-py3.12.txt", "mypy 1\n")
+    write("README.md", "a\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "main")
+    git("checkout", "-q", "-b", "renovate/mypy-2.x")
+    write("ci/config.yml", "mypy 2\n")
+    git("commit", "-q", "-am", "bump mypy")
+    write("ci/conda-lock/linux-64-py3.12.txt", "mypy 2\n")
+    git("commit", "-q", "-am", "ci(conda-lock): re-solve the Intel CI conda locks")
+    old_tip = git("rev-parse", "HEAD")
+    git("checkout", "-q", "main")
+    write("README.md", "b\n")
+    git("commit", "-q", "-am", "main moves")
+    git("checkout", "-q", "-B", "renovate/mypy-2.x")  # the rebuild: the same pin, no lock commit
+    write("ci/config.yml", "mypy 2\n")
+    git("commit", "-q", "-am", "bump mypy")
+    changed = git("diff", "--name-only", old_tip, "HEAD").splitlines()
+    assert "ci/config.yml" not in changed and "ci/conda-lock/linux-64-py3.12.txt" in changed
+    paths = _renovate_workflow()["on" if "on" in _renovate_workflow() else True]["push"]["paths"]
+    assert [p for p in changed if _covered(p, paths)] == ["ci/conda-lock/linux-64-py3.12.txt"]
+
+
+def _job_runs(condition: str, repository: str, email: str, message: str) -> bool:
+    """Evaluates the job's `if:` for the few operators it uses (&&, !, ==, startsWith, dotted names)."""
+    github = {"repository": repository, "event": {"head_commit": {"author": {"email": email}, "message": message}}}
+    source = re.sub(r"startsWith\(([^,]+),\s*", r"(\1).startswith(", condition)
+    source = source.replace("&&", " and ").replace("!(", " not (")
+    source = re.sub(r"(?<![\w.@'])github\.([\w.]+)", lambda m: "github" + "".join(f"[{k!r}]" for k in m.group(1).split(".")), source)
+
+    def value(node: ast.AST) -> object:
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.Name):
+            return github
+        if isinstance(node, ast.Subscript):
+            return value(node.value)[value(node.slice)]  # type: ignore[index]
+        if isinstance(node, ast.BoolOp):
+            results = [bool(value(v)) for v in node.values]
+            return all(results) if isinstance(node.op, ast.And) else any(results)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return not value(node.operand)
+        if isinstance(node, ast.Compare) and isinstance(node.ops[0], ast.Eq):
+            return value(node.left) == value(node.comparators[0])
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "startswith":
+            return str(value(node.func.value)).startswith(str(value(node.args[0])))
+        raise AssertionError(f"unsupported expression {ast.dump(node)}")
+
+    return bool(value(ast.parse(source.strip(), mode="eval").body))
+
+def test_the_resolve_job_skips_only_its_own_lock_commit() -> None:
+    """The lock commit starts the workflow again (ci/conda-lock is a path): it must not solve twice, a rebuild must."""
+    job = _renovate_workflow()["jobs"]["resolve"]
+    commit = re.search(r'git commit -q -s -m "([^"]+)"', _push_step()["run"])
+    committer = re.search(r'git config user\.email "([^"]+)"', _push_step()["run"])
+    assert commit and committer
+    bot, message = committer.group(1), commit.group(1)
+    condition = " ".join(job["if"].split())
+    assert _job_runs(condition, "intel/dokimi", bot, message) is False
+    assert _job_runs(condition, "intel/dokimi", "renovate@example.com", "bump mypy") is True
+    assert _job_runs(condition, "intel/dokimi", bot, "something else") is True
+    assert _job_runs(condition, "intel/dokimi", "renovate@example.com", message) is True
+    assert _job_runs(condition, "someone/fork", "renovate@example.com", "bump mypy") is False
