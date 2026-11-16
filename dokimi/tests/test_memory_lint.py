@@ -618,3 +618,8 @@ def test_backticks_in_an_angle_destination_stay_literal_when_the_opener_is_above
 def test_an_opener_inside_a_code_span_above_does_not_open_the_destination(mem):
     (mem / "a.md").write_text(_entry("a", body="`[`\nx](<q `tomorrow` r>) z"))
     assert [f.rule for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []
+
+
+def test_a_whitespace_line_ends_the_paragraph_for_an_angle_opener(mem):
+    (mem / "a.md").write_text(_entry("a", body="[\n   \nx](<q `tomorrow` r>) z"))
+    assert [f.rule for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []

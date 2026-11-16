@@ -231,9 +231,9 @@ def _angle_link_end(line: str, pos: int, before: str = "") -> int | None:
 
 
 def _paragraph_above(out: list[str], i: int) -> str:
-    """The blanked lines above ``i`` in its paragraph, joined: the text ``index_targets`` sees before the line."""
+    """The blanked lines above ``i`` in its paragraph, joined: a blank line, raw or blanked, ends it."""
     k = i
-    while k > 0 and out[k - 1]:
+    while k > 0 and out[k - 1].strip():
         k -= 1
     return "\n".join(out[k:i])
 
