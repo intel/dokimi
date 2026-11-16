@@ -115,6 +115,17 @@ def test_the_symbol_check_attaches_to_atoms_naming_a_prefix_and_keeps_tool_check
     assert "meta" not in atoms[1]
 
 
+def test_a_tool_named_symbols_keeps_its_check_when_the_symbol_check_is_replaced(tmp_path):
+    tool = identifiers_check("symbols", "  --verbose  Print more\n")
+    atoms = [{"statement": "Call cblas_ddot, then run symbols --verbose", "question": "q",
+              "answer": "a"}]
+    add_checks(atoms, [tool, _check(tmp_path)])
+    add_checks(atoms, [_check(tmp_path)])  # a re-run replaces the symbol check only
+    sources = [c["source"] for c in atoms[0]["meta"]["grading"]["checks"]]
+    assert sorted(s.get("kind", "tool:" + s.get("tool", "")) for s in sources) == [
+        "symbols", "tool:symbols"]
+
+
 def test_each_input_is_pinned_by_the_sha256_of_its_bytes(tmp_path):
     check = _check(tmp_path)
     inputs = check["source"]["inputs"]

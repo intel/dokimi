@@ -183,10 +183,13 @@ def _mention_of(check: dict) -> str:
     return _mention(source["tool"])
 
 
-def _source_of(check: dict) -> str:
-    """The source a check replaces on re-run: its tool's name, or ``symbols`` for a symbol check."""
+def _source_of(check: dict) -> tuple[str, str]:
+    """The source a check replaces on re-run: ``("symbols", "")`` for a symbol check, else
+    ``("tool", <its name>)``. The tuple keeps a tool named ``symbols`` apart from the symbol check."""
     source = check.get("source") or {}
-    return "symbols" if source.get("kind") == "symbols" else str(source.get("tool"))
+    if source.get("kind") == "symbols":
+        return ("symbols", "")
+    return ("tool", str(source.get("tool")))
 
 
 def add_checks(atoms: list[dict], checks: list[dict]) -> int:

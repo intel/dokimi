@@ -79,8 +79,9 @@ A C API has no `--help`, so its check reads names instead. `--prefix` (a C ident
 `--header` declares it and no `--library` exports it, and an ordinary word is never read. A
 header's names are every prefixed identifier of its code (comments and strings aside), so a
 name a macro expands to counts too; a header's `#include` of another header is not followed, so
-pass each header. A `--header` or `--library` set with no prefixed name is refused, so a wrong
-file cannot veto every name. Key verification works the same way: a key naming `LAPACKE_dgesvv`
+pass each header. The sources together are refused when no file in them has a prefixed name, so a wrong
+file set cannot veto every name. One file with no prefixed name adds nothing and is not
+reported, so a wrong `--library` next to correct headers is not caught. Key verification works the same way: a key naming `LAPACKE_dgesvv`
 is `not_found`.
 
 ```bash
