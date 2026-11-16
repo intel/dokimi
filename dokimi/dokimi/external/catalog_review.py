@@ -30,7 +30,8 @@ def review_skill_dir(path: Path | str) -> SkillReview:
     *path* is ``link-escapes-skill``, as when the skill is installed alone. Every SKILL.md the scan finds
     below *path* is loaded to find its own, and the other bodies are discarded (eager; lazy loading is #434).
 
-    A skill that does not load gets one ``error`` finding (``not-loaded``) with the loader's
+    A skill that does not load gets one ``error`` finding: its review's own (``not-a-skill-no-frontmatter``
+    for plain Markdown, ``frontmatter-parse`` for broken YAML), else ``not-loaded`` with the loader's
     message. Raises ``ValueError`` when *path* is not a directory or holds no ``SKILL.md``.
     """
     skill_dir = Path(path)

@@ -105,7 +105,7 @@ use; the budget.
    (`python cli.py skill novelty analyze --estimate-only`).
 3. Diagnose: which parts of the skill add knowledge the model lacks, which
    repeat what it knows, which conflict with it
-   (`python cli.py skill novelty analyze`, then `python cli.py novelty view`).
+   (`python cli.py skill novelty analyze`, then `python cli.py skill novelty view`).
 4. Form hypotheses: cut what adds nothing, protect what carries routing and
    negative constraints, add what the tasks need and the skill lacks.
 5. Change the skill (`python cli.py skill shorten` proposes cuts with the
@@ -785,7 +785,7 @@ the settings that produced it, the spend, and the stated limits.
 | Operation | Command | Notes |
 |---|---|---|
 | Content novelty of a skill | `python cli.py skill novelty analyze` | Estimate with `--estimate-only`; cap with `--max-usd`; output `novelty.json` |
-| Re-render saved novelty | `python cli.py novelty view` | No model calls |
+| Re-render saved novelty | `python cli.py skill novelty view` | No model calls |
 | Skill routing | `python cli.py skill routing` | Free without `--model` |
 | Guidance reach | `python cli.py repo reach` | Plan with `--dry-run`; cap with `--budget` |
 | Context window of a run | `python cli.py trace inspect` | Reads an existing trace |
