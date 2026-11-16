@@ -358,6 +358,8 @@ def test_a_python_probe_needs_a_call_on_a_name_boundary():
     ("echo \"a\\\\\" | nproc", ["nproc"]),  # inside double quotes too: the closing quote is found, the pipe is real
     ("echo \\| nproc", []),
     ("cat >$(printf /tmp/probe.log) /etc/os-release", ["/etc/os-release"]),  # the file is the operand, not the target
+    ("cat <<-EOF\n\tEOF\nnproc", ["nproc"]),  # ``<<-`` takes a tab-indented terminator: the body ends there
+    ("cat <<-EOF\n  EOF\nnproc\nEOF", []),  # a space does not indent a ``<<-`` terminator: nproc is data
 ])
 def test_the_shell_structure_decides_which_probe_runs(command, patterns):
     assert _probes(command) == patterns
