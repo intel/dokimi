@@ -309,6 +309,11 @@ def test_error_text_is_scrubbed_of_paths_and_truncated():
     ("missing C:\\Users\\O'Connor\\private.txt", "missing <path>"),
     ("cannot open \\\\server\\users\\O'Connor\\file", "cannot open <path>"),
     ("cannot open path:/home/jdoe/private", "cannot open path:<path>"),
+    ("cannot open /home/Jane Doe/private", "cannot open <path>"),
+    ("cannot open /home/Jane Doe/private: Permission denied", "cannot open <path>"),
+    ("cannot open /home/张三/private", "cannot open <path>"),
+    ("no such file ~/Jane Doe/x", "no such file <path>"),
+    ("see https://example.com/a b", "see https://example.com/a b"),
     ("host probe exited 1 in ghcr.io/intel/dokimi-grader:1 (python3 -c): boom",
      "host probe exited 1 in ghcr.io/intel/dokimi-grader:1 (python3 -c): boom"),
 ])
