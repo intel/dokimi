@@ -22,6 +22,7 @@ from dokimi.commands.catalog_scan import (
     is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row,
     unrestricted_and_risky,
 )
+from dokimi.external.catalog_rates import RateTally, text_lines
 from dokimi.utils import InputError
 
 
@@ -59,6 +60,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     unchecked = 0
     failed = False
     ignore = frozenset(args.ignore or ())
+    rates = RateTally(root)
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
         if only is not None and skill.name != only:
             continue
@@ -66,11 +68,13 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         counts[row["state"]] += 1
         plain += is_plain_markdown(row)
         unchecked += not_checked(row)
+        rates.add(row)
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
         if not skill.loaded or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
+    report["rates"] = rates.summary()
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
@@ -81,6 +85,8 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
             print_skill_row(row)
         _print_strict_reasons(report["skills"], args.strict)
         _print_online(online)
+        for line in text_lines(report["rates"]):
+            print(line)
         print()
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
