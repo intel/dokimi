@@ -111,8 +111,8 @@ def test_an_unwritable_output_exits_2_and_the_other_one_is_still_written(tmp_pat
 
 
 def test_a_snapshot_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
-    """A manifest time that is not text (a writer bug) is refused; the markdown report is written by then, as
-    `report eval` writes its markdown before its sidecar (review of #829)."""
+    """A manifest time that is not text (a writer bug) is refused; the markdown report is still written, as
+    `report eval` keeps its markdown when the sidecar is refused (review of #829)."""
     from dokimi.runner import run as run_mod
 
     build = run_mod.build_run_manifest
