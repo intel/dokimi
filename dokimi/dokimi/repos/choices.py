@@ -251,6 +251,6 @@ def _manager_rest(words: list[str]) -> list[str]:
 
 
 def _package(word: str) -> str:
-    """A requirement's name as the package manager compares it: no version, extras or URL; case and ``-_.`` folded."""
-    name = _REQUIREMENT_END.split(word, maxsplit=1)[0].strip()
+    """A requirement's name as the package manager compares it: no channel, version, extras or URL; case and ``-_.`` folded."""
+    name = _REQUIREMENT_END.split(word.rpartition("::")[2], maxsplit=1)[0].strip()
     return re.sub(r"[-_.]+", "-", name).casefold()

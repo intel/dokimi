@@ -336,5 +336,13 @@ def test_exec_with_a_program_still_gives_its_install():
     assert _choice_of("exec pip install scipy") == [("scipy", "install", None)]
 
 
+@pytest.mark.parametrize("text", [
+    "conda install -y conda-forge::scipy",  # the channel prefix is not part of the package's name
+    "conda install -y conda-forge::scipy>=1.11",
+])
+def test_a_conda_channel_prefix_still_names_the_package(text):
+    assert _choice_of(text) == [("scipy", "install", None)]
+
+
 def test_a_missing_exit_code_gives_no_choice():
     assert _choice_of("pip install scipy", rc=None) == []
