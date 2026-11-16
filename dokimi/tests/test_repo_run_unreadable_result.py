@@ -97,7 +97,7 @@ def test_a_cell_whose_result_cannot_be_written_exits_5_and_the_other_cells_still
     assert exit_.value.code == 5
     out = capsys.readouterr().out
     assert "✗ fix_add__guidance-raw__m-1__r1: cannot write result.json: disk full" in out
-    assert "2 ran" in out
+    assert "2 ran, 0 already done, 1 crashed" in out
 
 
 def test_a_batch_spend_file_that_cannot_be_written_exits_5(setup, monkeypatch, capsys):
