@@ -14,7 +14,7 @@ the weekly schedule resolve the latest builds instead. Only builds at least
 
 It solves with py-rattler, which conda's solver cannot do: conda has no option
 that leaves out the builds newer than a date. Usage, from a Python with
-py-rattler and PyYAML (the version .github/workflows/conda-lock.yml installs):
+py-rattler and PyYAML (the versions dokimi/requirements-conda-lock.lock.txt pins):
   python ci/lock.py [--python 3.14 ...] [--min-age-days 7]
 """
 

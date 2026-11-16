@@ -29,7 +29,7 @@ def _accepts(parse: Callable[[str], Any]) -> Callable[[str], bool]:
     def parses(raw: str) -> bool:
         try:
             return parse(raw) is not None
-        except Exception:
+        except Exception:  # noqa: BLE001 - a cache predicate: any parse failure means do not cache
             return False
     return parses
 
