@@ -14,19 +14,38 @@ both carry one run's noise each.
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from pathlib import Path
 
+from dokimi.eval.stats import pearson
 from dokimi.utils import InputError
 
 NOISE_Z = 1.96  # two-sided 95%
+SMALL_SAMPLE_N = 10  # below this many items the floor is a rough guide, not a bound
 SCORINGS = ("lenient", "strict")
 FILE_NAME = "novelty.json"
+NAMED = 5  # refs named in a warning before the rest are counted
+SMALL_SAMPLE_CAVEAT = (
+    f"- Caveat: fewer than {SMALL_SAMPLE_N} items. The spread of a few differences is itself "
+    "rough (two items give one degree of freedom): read the floor as an order of magnitude."
+)
+
+
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
 
 
 def _score(artifact: dict, scoring: str) -> float | None:
-    value = (artifact.get("k0") or {}).get(scoring)
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    value = _dict(artifact.get("k0")).get(scoring)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _named(refs: list[str]) -> str:
+    more = f" and {len(refs) - NAMED} more" if len(refs) > NAMED else ""
+    return ", ".join(refs[:NAMED]) + more
 
 
 def load_runs(path: Path) -> dict[str, dict]:
@@ -41,7 +60,9 @@ def load_runs(path: Path) -> dict[str, dict]:
             artifact = json.loads(file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise InputError(f"cannot read {file}: {exc}") from exc
-        ref = (artifact.get("artifact") or {}).get("ref")
+        if not isinstance(artifact, dict) or not isinstance(artifact.get("artifact"), dict):
+            raise InputError(f"{file} is not a novelty artifact (no artifact block)")
+        ref = artifact["artifact"].get("ref")
         if not ref:
             raise InputError(f"{file} has no artifact ref; it is not a novelty artifact")
         if ref in runs:
@@ -50,12 +71,42 @@ def load_runs(path: Path) -> dict[str, dict]:
     return runs
 
 
+def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
+    """What makes two runs of one item a poor retest: the same seed, another model, calls
+    replayed from the response cache, or settings that differ beyond the seed."""
+    config_a, config_b = _dict(a.get("run_config")), _dict(b.get("run_config"))
+    seed = config_a.get("seed")
+    warnings = []
+    if seed is not None and seed == config_b.get("seed"):
+        warnings.append(f"{ref}: both runs used seed {seed}; a retest needs another seed")
+    if a.get("model") != b.get("model"):
+        warnings.append(f"{ref}: the runs used different models ({a.get('model')} and {b.get('model')})")
+    for label, run in (("first", a), ("second", b)):
+        replayed = _dict(run.get("cost")).get("replayed_calls") or 0
+        if replayed:
+            warnings.append(
+                f"{ref}: the {label} run replayed {replayed} call(s) from the response "
+                "cache (DOKIMI_RESPONSE_CACHE); a retest needs fresh calls"
+            )
+    differing = sorted(
+        key for key in config_a.keys() | config_b.keys()
+        if key != "seed" and config_a.get(key) != config_b.get(key)
+    )
+    if differing:
+        warnings.append(
+            f"{ref}: the runs used other settings ({', '.join(differing)}); "
+            "two cells compare only if these match"
+        )
+    return warnings
+
+
 def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> dict:
     """Pair the two runs item by item.
 
     Returns ``pairs`` (ref, first, second, seeds, models), ``unmatched`` (refs in one run
     only), ``unscored`` (refs with no usable score in one run or the other) and ``warnings``
-    for a retest that does not vary what it should: the same seed, or another model.
+    for a retest that does not vary what it should: the same seed, another model, calls
+    replayed from the response cache, or a ``run_config`` that differs beyond the seed.
     """
     pairs, unmatched, unscored, warnings = [], [], [], []
     for ref in sorted(first.keys() | second.keys()):
@@ -67,39 +118,27 @@ def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> 
         if score_a is None or score_b is None or a.get("partial") or b.get("partial"):
             unscored.append(ref)
             continue
-        seed_a, seed_b = (
-            (a.get("run_config") or {}).get("seed"),
-            (b.get("run_config") or {}).get("seed"),
-        )
-        if seed_a is not None and seed_a == seed_b:
-            warnings.append(f"{ref}: both runs used seed {seed_a}; a retest needs another seed")
-        if a.get("model") != b.get("model"):
-            warnings.append(
-                f"{ref}: the runs used different models ({a.get('model')} and {b.get('model')})"
-            )
+        warnings.extend(_pair_warnings(ref, a, b))
+        config_a, config_b = _dict(a.get("run_config")), _dict(b.get("run_config"))
         pairs.append(
             {
                 "ref": ref,
                 "first": score_a,
                 "second": score_b,
-                "seeds": [seed_a, seed_b],
+                "seeds": [config_a.get("seed"), config_b.get("seed")],
                 "models": [a.get("model"), b.get("model")],
             }
         )
     if unmatched:
-        warnings.append(f"{len(unmatched)} item(s) appear in one run only and are left out")
+        warnings.append(
+            f"{len(unmatched)} item(s) appear in one run only and are left out: {_named(unmatched)}"
+        )
     if unscored:
-        warnings.append(f"{len(unscored)} item(s) have no usable {scoring} score or a partial run")
+        warnings.append(
+            f"{len(unscored)} item(s) have no usable {scoring} score or a partial run: "
+            f"{_named(unscored)}"
+        )
     return {"pairs": pairs, "unmatched": unmatched, "unscored": unscored, "warnings": warnings}
-
-
-def _pearson(xs: list[float], ys: list[float]) -> float | None:
-    if len(xs) < 3:
-        return None
-    try:
-        return round(statistics.correlation(xs, ys), 4)
-    except statistics.StatisticsError:  # one run scored every item the same
-        return None
 
 
 def retest_summary(pairs: list[dict], scoring: str = "lenient") -> dict:
@@ -131,8 +170,9 @@ def retest_summary(pairs: list[dict], scoring: str = "lenient") -> dict:
         "mean_abs_diff": round(sum(abs(d) for d in diffs) / n, 4) if n else None,
         "mean_shift": round(sum(diffs) / n, 4) if n else None,
         "sd_diff": sd,
-        "pearson_r": _pearson(first, second),
+        "pearson_r": pearson(first, second) if n >= 3 else None,
         "floor": floor,
+        "small_sample": n < SMALL_SAMPLE_N,
         "n_comparisons": n * (n - 1) // 2,
         "n_below_floor": len(below),
         "below_floor": below,
@@ -165,6 +205,8 @@ def render_markdown(summary: dict, *, warnings: list[str]) -> str:
             "- A shift applies to every item alike, so it does not reorder items; it does move a "
             "score against a score from another run.",
         ]
+        if summary["small_sample"]:
+            lines.append(SMALL_SAMPLE_CAVEAT)
     lines += ["", "| item | run 1 | run 2 | diff |", "|---|---|---|---|"]
     for item in summary["items"]:
         lines.append(

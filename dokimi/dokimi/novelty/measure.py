@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
+from dokimi.eval.stats import pearson
 from dokimi.utils import InputError
 from .atoms import Atom
 from .client import LLMClient, SpendCapReached, parse_json_object, same_client
@@ -236,7 +237,7 @@ class MeasureResult:
             return None
         xs = [float(r.confidence) for r in rows]  # type: ignore[arg-type]
         ys = [1.0 if r.correct("lenient") else 0.0 for r in rows]
-        return _pearson(xs, ys)
+        return pearson(xs, ys)
 
     def checks_summary(self) -> dict | None:
         """The judge against the program checks, on the runs whose probe had any.
@@ -776,15 +777,3 @@ def shuffle_text(text: str, *, seed: int = 0) -> str:
     bodies = [s.text for s in spans]
     rng.shuffle(bodies)
     return "\n\n".join(bodies)
-
-
-def _pearson(xs: list[float], ys: list[float]) -> float | None:
-    n = len(xs)
-    mean_x, mean_y = sum(xs) / n, sum(ys) / n
-    dx = [x - mean_x for x in xs]
-    dy = [y - mean_y for y in ys]
-    den = (sum(d * d for d in dx) ** 0.5) * (sum(d * d for d in dy) ** 0.5)
-    if den == 0:
-        return None
-    return round(sum(a * b for a, b in zip(dx, dy, strict=True)) / den, 4)
-

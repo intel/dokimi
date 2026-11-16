@@ -541,7 +541,8 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
 
 def cmd_novelty_retest(args: argparse.Namespace) -> None:
     """Noise floor from a retest: the same items analysed again with another seed and a fresh cache."""
-    from dokimi.novelty.retest import load_runs, pair_runs, render_markdown, retest_summary
+    from dokimi.novelty.retest import (SMALL_SAMPLE_N, load_runs, pair_runs, render_markdown,
+                                       retest_summary)
 
     paired = pair_runs(load_runs(Path(args.baseline)), load_runs(Path(args.retest)), args.scoring)
     if not paired["pairs"]:
@@ -556,6 +557,8 @@ def cmd_novelty_retest(args: argparse.Namespace) -> None:
               f"items; Pearson r {summary['pearson_r']}; mean |diff| {summary['mean_abs_diff']:.3f}; "
               f"mean shift {summary['mean_shift']:+.3f}; "
               f"{summary['n_below_floor']} of {summary['n_comparisons']} comparisons below the floor.")
+        if summary["small_sample"]:
+            print(f"Caveat: fewer than {SMALL_SAMPLE_N} items; read the floor as an order of magnitude.")
     for warning in paired["warnings"]:
         print(f"WARNING: {warning}", file=sys.stderr)
     if args.out_dir:

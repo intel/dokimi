@@ -1013,8 +1013,9 @@ compare:
 ```bash
 # run 1: the usual sweep
 python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 0 --out-dir runs/a/$S ...
-# run 2: the retest, another seed and a fresh cache, so no call is replayed
-python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 2 \
+# run 2: the retest, another seed, a fresh --cache-dir (the retention verdicts) and no response
+# cache: DOKIMI_RESPONSE_CACHE=0 (or unset) so that no answer is replayed
+DOKIMI_RESPONSE_CACHE=0 python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 2 \
   --cache-dir runs/cache-retest --out-dir runs/b/$S ...
 # the floor, pairwise comparisons, no model calls
 python cli.py skill novelty retest --baseline runs/a --retest runs/b --out-dir runs/retest
@@ -1032,14 +1033,29 @@ statistics are over `k0.lenient` by default (`--scoring strict` for the strict o
   the floor. They are listed in `retest.json`.
 
 Items that appear in one run only, have no usable score, or are partial runs are left out and
-named as warnings. A retest with the same seed, or with another model, warns: it measures
-nothing of the seed.
+named as warnings (the first five by ref, the rest counted). Warnings also name a retest that
+does not vary what it should:
 
-Corpus evidence (11-09, 10 S2 skills, Haiku 5.5, triage, $0.21 per run): r = 0.86, mean |diff|
-0.10, mean shift +0.067. The floor is about 0.21: the S2 gap between copy strata (0.66 against
-0.34) is well above it, but 26 of the 45 pairs of those ten skills are below it. Use at least two
-runs per item before reading a per-skill difference under 0.2. The retest costs one full run
-per item, so the cost is the sweep again; there is no default, because it is a choice of spend.
+- the same seed, or another model;
+- calls served from the response cache: `cost.replayed_calls` above zero in either run. A
+  replayed answer is the baseline's answer again, so the floor shrinks toward zero;
+- a `run_config` that differs in any key other than `seed` (`max_atoms`, `arms`, `paraphrases`,
+  `tier`, `prompts_sha256`, ...). Such cells do not compare, and the floor inflates.
+
+The retention verdicts of `--cache-dir` are memoized on disk and are not counted in
+`replayed_calls`, so a retest must not reuse the baseline's `--cache-dir` either.
+
+A baseline or retest is read from a file named `novelty.json`: a run saved under another name
+(for example `analyze --out-json foo.json`) is not read, and the item shows up as unmatched.
+
+Below ten items the floor is a rough guide: `retest.md` and the stdout say so. With two items the
+spread has one degree of freedom.
+
+Corpus evidence (2026-11-09, 10 S2 skills, triage; the ten pairs are pinned as `S2_RETEST` in
+`tests/test_novelty_retest.py`): r = 0.86, mean |diff| 0.10, mean shift +0.067, floor about 0.21.
+26 of the 45 pairs of those ten skills are below that floor. Use at least two runs per item before
+reading a per-skill difference under 0.2. The retest costs one full run per item, so the cost is
+the sweep again; there is no default, because it is a choice of spend.
 
 ## Provenance, judge vendors, a second judge, reversal both ways
 

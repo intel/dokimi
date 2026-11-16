@@ -3,8 +3,8 @@
 
 """Test-retest noise of the novelty score: the floor, the pairing, and the command that reports it.
 
-The corpus pairs are the ten S2 skills of the 11-09 retest (REPORT.md, S3m section): the first
-run used seed 0, the retest seed 2 and a fresh cache. No model is called here.
+The corpus pairs are the ten S2 skills of the 2026-11-09 retest, pinned as ``S2_RETEST``: the
+first run used seed 0, the retest seed 2 and a fresh cache. No model is called here.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from dokimi.novelty.retest import load_runs, pair_runs, render_markdown, retest_
 from dokimi.utils import InputError
 from tests.cli_paths import novelty_argv
 
-# (seed 0, seed 2) headline lenient K0 of the ten S2 skills, from out/s3m_summary.txt.
+# (seed 0, seed 2) headline lenient K0 of the ten S2 skills (the 2026-11-09 retest).
 S2_RETEST = [
     (0.33, 0.2),
     (0.16, 0.32),
@@ -38,12 +38,13 @@ def _pairs(scores):
     return [{"ref": f"skill:/s/{i}", "first": a, "second": b} for i, (a, b) in enumerate(scores)]
 
 
-def _artifact(ref, lenient, *, seed=0, model="m", partial=False):
+def _artifact(ref, lenient, *, seed=0, model="m", partial=False, replayed=0, config=None):
     doc = {
         "artifact": {"ref": ref},
         "k0": {"lenient": lenient, "strict": lenient / 2},
         "model": model,
-        "run_config": {"seed": seed},
+        "run_config": {"seed": seed, **(config or {})},
+        "cost": {"replayed_calls": replayed},
     }
     if partial:
         doc["partial"] = {"reason": "cap"}
@@ -67,7 +68,8 @@ def test_the_s2_retest_reproduces_the_reported_noise_numbers():
     # A single-run difference of 0.2 is inside the noise: 1.96 x the spread of the diffs.
     assert summary["floor"] == pytest.approx(0.21, abs=0.01)
     assert summary["n_comparisons"] == 45
-    assert summary["n_below_floor"] == len(summary["below_floor"]) > 0
+    assert summary["n_below_floor"] == 26  # the docs quote 26 of the 45 pairs
+    assert summary["small_sample"] is False
 
 
 def test_a_comparison_below_the_floor_is_flagged_and_one_above_is_not():
@@ -79,6 +81,13 @@ def test_a_comparison_below_the_floor_is_flagged_and_one_above_is_not():
     assert ("skill:/s/0", "skill:/s/1") in flagged
     assert ("skill:/s/0", "skill:/s/2") not in flagged
     assert ("skill:/s/1", "skill:/s/2") not in flagged
+
+
+def test_a_gap_exactly_at_the_floor_is_not_below_it():
+    # sd of the diffs 0.102 gives a floor of 0.1999; the first-run gap is also 0.1999.
+    summary = retest_summary(_pairs([(0.0, 0.0), (0.1999, 0.34415)]))
+    assert summary["floor"] == pytest.approx(0.1999)
+    assert summary["n_below_floor"] == 0
 
 
 def test_identical_runs_measure_no_noise():
@@ -121,7 +130,46 @@ def test_pairing_reports_seed_model_partial_and_unmatched_items():
     assert "seed 0" in text  # item a: the same seed in both runs
     assert "different models" in text
     assert "one run only" in text
+    assert "skill:/s/only-first" in text  # the unmatched ref is named, not only counted
+    assert "skill:/s/c" in text  # the unscored ref is named too
     assert "partial" in text
+
+
+def test_a_retest_that_replayed_cached_calls_warns_and_names_the_item():
+    first = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=0)}
+    second = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=2, replayed=400)}
+    text = " ".join(pair_runs(first, second, "lenient")["warnings"])
+    assert "skill:/s/a" in text
+    assert "replayed 400" in text
+
+
+def test_a_replay_in_the_baseline_warns_too():
+    first = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=0, replayed=3)}
+    second = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=2)}
+    text = " ".join(pair_runs(first, second, "lenient")["warnings"])
+    assert "replayed 3" in text
+
+
+def test_a_run_config_difference_other_than_seed_warns_and_names_the_keys():
+    first = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=0, config={"max_atoms": 12, "arms": ["full"]})}
+    second = {"skill:/s/a": _artifact("skill:/s/a", 0.6, seed=2, config={"max_atoms": 20, "arms": ["full"]})}
+    text = " ".join(pair_runs(first, second, "lenient")["warnings"])
+    assert "max_atoms" in text
+    assert "arms" not in text  # the keys that match are not named
+
+
+def test_a_seed_only_change_gives_no_warning():
+    first = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=0, config={"max_atoms": 12})}
+    second = {"skill:/s/a": _artifact("skill:/s/a", 0.6, seed=2, config={"max_atoms": 12})}
+    assert pair_runs(first, second, "lenient")["warnings"] == []
+
+
+def test_a_non_finite_score_is_unscored_not_a_crash():
+    first = {"skill:/s/a": _artifact("skill:/s/a", float("nan"))}
+    second = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=2)}
+    paired = pair_runs(first, second, "lenient")
+    assert paired["unscored"] == ["skill:/s/a"]
+    assert paired["pairs"] == []
 
 
 def test_a_run_with_a_repeated_ref_is_refused(tmp_path):
@@ -136,6 +184,20 @@ def test_a_run_with_a_repeated_ref_is_refused(tmp_path):
 
 def test_a_directory_without_novelty_output_is_refused(tmp_path):
     with pytest.raises(InputError, match="no novelty.json"):
+        load_runs(tmp_path)
+
+
+def test_a_run_saved_under_another_name_is_not_read(tmp_path):
+    (tmp_path / "foo.json").write_text(json.dumps(_artifact("skill:/s/foo", 0.5)), encoding="utf-8")
+    with pytest.raises(InputError, match="no novelty.json"):
+        load_runs(tmp_path)
+
+
+@pytest.mark.parametrize("body", ["[]", '"text"', '{"artifact": "x"}'])
+def test_a_novelty_file_that_is_not_an_object_with_a_ref_is_refused(tmp_path, body):
+    (tmp_path / "x").mkdir()
+    (tmp_path / "x" / "novelty.json").write_text(body, encoding="utf-8")
+    with pytest.raises(InputError, match="not a novelty artifact"):
         load_runs(tmp_path)
 
 
@@ -182,6 +244,12 @@ def test_the_report_says_when_the_floor_is_not_measured():
     assert "Noise floor not measured" in render_markdown(summary, warnings=[])
 
 
+def test_a_floor_from_few_items_carries_a_small_sample_caveat():
+    summary = retest_summary(_pairs([(0.3, 0.4), (0.5, 0.45)]))
+    assert summary["small_sample"] is True
+    assert "fewer than 10 items" in render_markdown(summary, warnings=[])
+
+
 def _run_retest(tmp_path, baseline, retest, *extra):
     args = build_parser().parse_args(
         [*novelty_argv("retest"), "--baseline", str(baseline), "--retest", str(retest), *extra]
@@ -196,6 +264,13 @@ def test_the_command_says_when_one_item_gives_no_floor_and_names_the_warnings(tm
     captured = capsys.readouterr()
     assert "Noise floor not measured: 1 item" in captured.out
     assert "both runs used seed 0" in captured.err  # the same seed warns, not a silent pass
+
+
+def test_the_command_prints_the_small_sample_caveat_with_the_floor(tmp_path, capsys):
+    first = _write_runs(tmp_path / "a", {f"skill:/s/{i}": _artifact(f"skill:/s/{i}", a) for i, a in enumerate([0.3, 0.5])})
+    second = _write_runs(tmp_path / "b", {f"skill:/s/{i}": _artifact(f"skill:/s/{i}", b, seed=2) for i, b in enumerate([0.4, 0.45])})
+    _run_retest(tmp_path, first, second)
+    assert "fewer than 10 items" in capsys.readouterr().out
 
 
 def test_the_command_refuses_runs_with_no_item_in_common(tmp_path):
