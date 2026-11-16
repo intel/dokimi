@@ -327,6 +327,14 @@ def _one_probe():
     return atoms[:1], probes[:1], answerer
 
 
+def test_the_novelty_schema_declares_the_judge_panel_block():
+    import json
+    from pathlib import Path
+
+    schema = Path(__file__).resolve().parents[1] / "dokimi" / "schemas" / "novelty.v1.json"
+    assert "judge_panel" in json.loads(schema.read_text(encoding="utf-8"))["properties"]
+
+
 def test_a_panel_stopped_before_every_judge_voted_still_records_the_panel():
     atoms, probes, answerer = _one_probe()
     first = _capped_judge("j1", WO, priced=True)
