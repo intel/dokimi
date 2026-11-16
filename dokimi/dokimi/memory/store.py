@@ -205,9 +205,15 @@ def _code_span(line: str, pos: int) -> re.Match | None:
     return None
 
 
+def _in_angle_destination(line: str, pos: int) -> bool:
+    """Whether ``pos`` lies in a ``](<...>)`` destination, where a backtick is literal text and opens no span."""
+    return re.search(r"\]\([ \t]*<[^>]*$", line[:pos]) is not None and ">" in line[pos:]
+
+
 def _unpaired_run(line: str) -> re.Match | None:
-    """The first backtick run left on ``line`` whose first backtick is not escaped."""
-    return next((m for m in _BACKTICK_RUN.finditer(line) if not _escaped(line, m.start())), None)
+    """The first backtick run left on ``line`` whose first backtick is not escaped and not in a ``<...>`` destination."""
+    return next((m for m in _BACKTICK_RUN.finditer(line)
+                 if not _escaped(line, m.start()) and not _in_angle_destination(line, m.start())), None)
 
 
 def _open_span(lines: list[str], i: int, line: str, run: re.Match | None) -> tuple[str, str]:
@@ -285,8 +291,10 @@ def _blank_inline(line: str, closes_ahead: bool, pos: int = 0) -> tuple[str, str
         if code is None and start < 0:
             return line, "", _unpaired_run(line)
         if code is not None and (start < 0 or code.start() < start):
-            if not re.search(r"\]\([ \t]*<[^>]*$", line[:code.start()]):  # backticks in an angle destination are literal
-                line = line[:code.start()] + " " * (code.end() - code.start()) + line[code.end():]
+            if _in_angle_destination(line, code.start()):  # the destination is literal up to its `>`
+                pos = line.index(">", code.start()) + 1
+                continue
+            line = line[:code.start()] + " " * (code.end() - code.start()) + line[code.end():]
             pos = code.end()
             continue
         end = line.find("-->", start + 2)  # from the second dash: <!--> and <!---> are complete comments too

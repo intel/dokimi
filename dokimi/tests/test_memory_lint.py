@@ -575,3 +575,15 @@ def test_backticks_in_an_angle_destination_are_literal(mem):
     (mem / "topic`v2`.md").write_text(_entry("t"))
     (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [Topic](<topic`v2`.md>)\n")
     assert _rules(mem) == []
+
+
+def test_backtick_in_an_angle_destination_opens_no_span_on_the_next_line(mem):
+    (mem / "topic`v2`.md").write_text(_entry("t"))
+    (mem / "MEMORY.md").write_text("- [A](a.md)\n- [Topic](<topic`v2`.md>)\nsee `[Y](missing.md)` ok\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_code_span_after_an_angle_destination_is_still_code(mem):
+    (mem / "a`b.md").write_text(_entry("ab"))
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](<a`b.md>) see `[X](missing.md)`\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
