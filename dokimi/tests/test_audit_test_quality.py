@@ -49,6 +49,14 @@ def _ratchet_errors(path: Path) -> list[str]:
 _cached_ratchet_errors = functools.cache(_ratchet_errors)
 
 
+def test_the_cache_audits_the_file_it_is_asked_for(tmp_path):
+    other = tmp_path / "test_other.py"
+    other.write_text("def test_x():\n    build()\n", encoding="utf-8")
+    assert _ratchet_errors(other)
+    assert _cached_ratchet_errors(other) == _ratchet_errors(other)
+    assert _cached_ratchet_errors(Path(__file__)) == []
+
+
 def test_the_scan_finds_the_test_files():
     # A scan that finds nothing would pass every check below.
     assert atq.TESTS / Path(__file__).name in FILES
