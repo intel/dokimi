@@ -23,6 +23,7 @@ RENOVATE_LOCKS = (
     "requirements-docs.lock.txt",
     "requirements-mutation.lock.txt",
     "requirements-fuzz.lock.txt",
+    "requirements-conda-lock.lock.txt",
 )
 # Installed together with --require-hashes (ci.yml, docs.yml, .agent-eval/Dockerfile,
 # make dev), so a pin both carry has to be the same version.
@@ -42,6 +43,7 @@ HASHED_LOCKS = (
     "requirements-docs.lock.txt",
     "requirements-mutation.lock.txt",
     "requirements-fuzz.lock.txt",
+    "requirements-conda-lock.lock.txt",
 )
 # Where the stacked locks are installed: CI's Pythons, and make dev on any OS.
 ENVIRONMENTS = [
@@ -193,6 +195,81 @@ def test_tools_lock_has_every_requested_pin() -> None:
             )
 
 
+def test_conda_lock_tool_lock_is_the_compile_of_its_input() -> None:
+    """conda-lock.yml's job holds a write token: the lock holds exactly the input's pins, nothing transitive and unhashed."""
+    requested = pins("requirements-conda-lock.txt")
+    assert set(requested) == {"py-rattler", "pyyaml"}, requested
+    assert pins("requirements-conda-lock.lock.txt") == requested
+    assert header_command("requirements-conda-lock.lock.txt")[3] == "requirements-conda-lock.txt"
+
+
+def _conda_lock_install_step() -> str:
+    workflow = yaml.safe_load((ROOT.parent / ".github/workflows/conda-lock.yml").read_text(encoding="utf-8"))
+    (run,) = [s["run"] for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Install py-rattler"]
+    return run
+
+
+def test_conda_lock_job_installs_its_tools_from_the_hashed_lock() -> None:
+    """The job runs from the repo root, so the path is repo-relative; --no-deps keeps pip from resolving past the lock."""
+    args = _conda_lock_install_step().split()
+    assert "--require-hashes" in args and "--no-deps" in args, args
+    lock = args[args.index("-r") + 1]
+    assert lock == "dokimi/requirements-conda-lock.lock.txt"
+    assert (ROOT.parent / lock).is_file()
+
+
+CONDA_LOCK_INSTALL = re.compile(r"\bpip3?\s+install\b.*(?:rattler|requirements-conda-lock)")
+
+
+def _unhashed_conda_lock_installs(text: str) -> list[str]:
+    """Lines that `pip install` py-rattler or the conda-lock tool input (not only its lock) without --require-hashes."""
+    lines = text.replace("\\\n", " ").splitlines()
+    return [line.strip() for line in lines if CONDA_LOCK_INSTALL.search(line) and "--require-hashes" not in line]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "pip install py-rattler",
+        "pip3 install py-rattler==0.9",
+        "pip install -r dokimi/requirements-conda-lock.txt",
+        "python -m pip3 install -r dokimi/requirements-conda-lock.txt",
+    ],
+)
+def test_unhashed_conda_lock_install_is_found(line: str) -> None:
+    assert _unhashed_conda_lock_installs(f"run: {line}\n") == [f"run: {line}"]
+
+
+def test_hashed_conda_lock_install_is_not_flagged() -> None:
+    hashed = "run: pip3 install --require-hashes --no-deps -r dokimi/requirements-conda-lock.lock.txt"
+    assert _unhashed_conda_lock_installs(hashed) == []
+
+
+def test_no_workflow_installs_py_rattler_without_hashes() -> None:
+    """A `pip install` of py-rattler or its input file, in conda-lock.yml or a later workflow, must carry --require-hashes."""
+    unhashed = []
+    for path in sorted((ROOT.parent / ".github/workflows").glob("*.y*ml")):
+        unhashed += [(path.name, line) for line in _unhashed_conda_lock_installs(path.read_text(encoding="utf-8"))]
+    assert not unhashed, unhashed
+
+
+def _renovate_file_patterns() -> list[str]:
+    text = (ROOT.parent / ".github" / "renovate.json5").read_text(encoding="utf-8")
+    return re.findall(r"managerFilePatterns:\s*\[([^\]]*)\]", text)
+
+
+def test_renovate_recompiles_the_conda_lock_tool_lock() -> None:
+    """The pip-compile manager reads the lock (and re-runs its header); no regex manager reads the pins out of conda-lock.yml."""
+    patterns = _renovate_file_patterns()
+    (pip_compile,) = [p for p in patterns if "lock" in p and "requirements" in p]
+    regex = re.search(r'"/(.*)/"', pip_compile)
+    assert regex, pip_compile
+    pattern = re.compile(regex[1].replace("\\\\", "\\"))
+    assert pattern.search("dokimi/requirements-conda-lock.lock.txt")
+    assert not pattern.search("dokimi/requirements-conda-lock.txt")
+    assert not [p for p in patterns if "conda-lock" in p and "requirements" not in p], patterns
+
+
 @pytest.mark.parametrize(("base", "name"), STACKED_LOCKS)
 def test_stacked_lock_pins_agree(base: str, name: str) -> None:
     """A refresh of one lock alone makes `pip install -r <base> -r <name>` unresolvable."""
@@ -284,3 +361,9 @@ def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
     assert len(exempt) == 1, exempt
     assert 'matchManagers: ["github-actions"]' in exempt[0]
     assert 'matchUpdateTypes: ["replacement"]' in exempt[0]
+
+
+def test_security_md_names_every_audited_lock() -> None:
+    """SECURITY.md says which locks pip-audit covers: every renovated lock is listed."""
+    text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    assert [lock for lock in RENOVATE_LOCKS if f"`{lock}`" not in text] == []

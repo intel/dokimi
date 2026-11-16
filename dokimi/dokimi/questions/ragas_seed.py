@@ -145,7 +145,7 @@ class RagasSeedExtractor:
                 max_tokens=max_tokens,
             )
             return "\n\n".join(c["content"] for c in chunks)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; no seed docs
             logger.error("Failed to fetch docs for %s: %s", library_id, e)
             return ""
 
@@ -174,7 +174,7 @@ class RagasSeedExtractor:
             # Clean, drop blank and non-string entries (a null is not the topic "None"), deduplicate
             topics = list(dict.fromkeys(t.strip() for t in topics if isinstance(t, str) and t.strip()))
             return topics[:max_topics]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; falls back to the heuristic extractor
             logger.error("LLM topic extraction failed: %s — falling back to heuristic", e)
             return self._extract_heuristic(docs, library_name, max_topics)
 

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 try:
     from sentence_transformers import SentenceTransformer, util
     SENTENCE_TRANSFORMERS_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001 - importing torch can raise more than ImportError
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 
