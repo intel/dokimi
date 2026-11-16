@@ -507,6 +507,15 @@ def test_broken_or_looping_resource_link_never_looks_like_empty_package(tmp_path
     assert "unsafe-path" in codes(report)
 
 
+def test_the_eval_inventory_keeps_the_load_error_not_the_plain_markdown_hint(tmp_path):
+    skill(tmp_path)
+    (tmp_path / "skills" / "alpha" / "SKILL.md").write_text("# Alpha\n\nInspect safely.\n", encoding="utf-8")
+    report = evaluate(tmp_path)
+    found = [f["code"] for f in report["problems"]]
+    assert found.count("skill-load") == 1
+    assert "not-a-skill-no-frontmatter" not in found
+
+
 def test_dirty_loader_read_is_refused_instead_of_getting_a_stale_digest(tmp_path, monkeypatch):
     import dokimi.external.catalog_eval_inventory as inventory
 

@@ -3,55 +3,61 @@ Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Dokimi: measure what actually helps an agent
+# Dokimi: find out what helps your agent
 
-Source on GitHub: [intel/dokimi](https://github.com/intel/dokimi).
+Dokimi evaluates skills, documentation and repository instructions. Check that the content is usable, compare agent outcomes with and without it, and use the evidence to decide what to improve.
 
-**Proof, not popularity: find out whether your agent's skills, docs and `AGENTS.md` actually work.**
+![One context change compared on the same tasks](assets/features/01-does-the-context-help.webp)
 
-![The same eval set runs on agent A as it is and on agent B with one change; the same grader scores both, and the difference with its p-value decides](assets/readme/ab-test.png)
+## Start with your task
 
-## What it is
+| You want to… | Start here | First result |
+|---|---|---|
+| Write, improve or assess a skill | [Skill authors and reviewers](start/skills.md) | Packaging findings and a plan for measuring usefulness |
+| Make a repository work better with coding agents | [Repository maintainers](start/repositories.md) | Guidance findings, then loading and task evidence |
+| Compare context, models or harnesses | [Evaluators and researchers](start/experiments.md) | A controlled comparison with explicit limits |
+| Run checks through an agent or CI | [Agents and automation](start/automation.md) | Recorded checks, accountable costs and actionable results |
+| Extend Dokimi itself | [Contributors](start/contributors.md) | A route to the right extension guide and checks |
 
-An AI agent is its model plus the context it is given: skills, instructions,
-product docs, MCP servers, a repository's own `AGENTS.md`. All of that is cheap
-to write and easy to over-claim, and marketplaces rank it by popularity, which
-buries niche expert tooling such as HPC and numerical libraries.
+New installation? [Start here](start/README.md). Looking for a specific capability? Browse the [feature tree](features/README.md).
 
-Dokimi treats context like an experiment. It runs the same questions, coding
-tasks or repository tasks with and without one change, grades both the same
-way (an LLM judge for answers, tests in Docker for code), and reports the
-difference with paired statistics, per model. An artifact ships with the
-scorecard that earned it.
+## Understand the result
 
-> **dokimi** — Greek *δοκιμή*, "test, proof". An artifact does not get trusted
-> because it was written or because it is popular; it gets trusted because it
-> passed a test that could have failed.
+A static check finds structural problems. A loading check establishes what reached the agent. A knowledge probe diagnoses what the context adds. A task comparison measures outcomes on the tested work. These answer different questions; a pass in one does not establish a pass in the others.
 
-![1. Does it help? Ship it or cut it. 2. Which parts help? Edit it. 3. Does guidance land? Fix the repo](assets/readme/three-questions.png)
+[Read results and choose the next step](start/results.md) · [Measurement concepts](what-it-measures.md) · [Methods and evidence](methodology.md)
 
-## Which parts help: novelty
+## Explore further
 
-A single delta says whether a skill helps, not which of its parts do. Dokimi
-splits the skill (or any document, such as an `AGENTS.md`) into individual
-claims and asks the model about each one twice: without the skill and with
-it. A different model grades both answers. Every claim lands in one of four
-outcomes:
+- [Feature tree](features/README.md): 39 illustrated capabilities, each with its own scope and availability.
+- [All guides](documentation-index.md): the complete document index.
+- [CLI reference](https://intel.github.io/dokimi/reference/cli/): commands and options generated from code.
+- [Source and contribution guidance](https://github.com/intel/dokimi).
 
-![A 2x2 grid. Wrong without, right with: added, keep it. Right without and with: redundant, cut it for this model. Wrong both times: still missing, rewrite it. Right without, wrong with: degraded, fix it first](assets/readme/novelty-outcomes.png)
+The illustrations explain examples, not measured results. Feature cards distinguish implemented functionality from proposed extensions. A source checkout reports the last release number, so confirm a development feature with `dokimi <command> --help`, not `--version`.
 
-The outcomes are painted back onto the skill's own text, so the author sees
-what to keep, cut, rewrite and fix, line by line ([more on novelty](skill-novelty.md)):
+<a id="what-it-is"></a>
+<a id="which-parts-help-novelty"></a>
+<a id="shorten-the-skill-without-losing-what-matters"></a>
+<a id="are-the-evals-good-enough"></a>
+<a id="what-measuring-shows"></a>
+<a id="what-can-be-compared-arms"></a>
+<a id="example-results"></a>
+<a id="explore"></a>
 
-![A SKILL.md with each line coloured by its outcome: added (keep), redundant (cut), degraded (fix), still missing (rephrase), and protected safety clauses (never cut)](assets/readme/annotated-skill.png)
+How the evaluation flows, what each part answers and why it matters: [how the evaluation works](how-evaluation-works.md).
 
-## Shorten the skill without losing what matters
+Earlier overview topics now live in [measurement concepts](what-it-measures.md), [results](start/results.md), and the [complete guide index](documentation-index.md).
 
-The same outcomes drive shortening. Dokimi proposes shorter versions of the
-skill under different strategies (by value per token, or with every safety
-clause pinned) and token budgets, and scores each candidate on tokens,
-knowledge kept and safety clauses kept. Different strategies cut different
-lines:
+<a id="dokimi-measure-what-actually-helps-an-agent"></a>
+<a id="content-novelty-which-parts-help"></a>
+<a id="repositories-as-subjects-does-the-repos-own-guidance-land"></a>
+<a id="documentation-index"></a>
+<a id="user-journeys"></a>
+<a id="using-dokimi"></a>
+<a id="content-novelty"></a>
+<a id="repository-evaluation"></a>
+<a id="extending-dokimi"></a>
 
 ![One skill, three shortening strategies. Safety-pinned at a 75% budget keeps 96% of the knowledge in 66% of the tokens. By value at a 50% budget keeps 92% of the knowledge in 21% of the tokens but only 16% of the safety clauses. Safety-pinned at a 50% budget keeps every safety clause and 81% of the knowledge in 60% of the tokens](assets/readme/shortening-strategies.png)
 
@@ -424,3 +430,5 @@ code.
   documents (PDF, HTML, …) via Docling, installed with the optional `ocr` extra.
 - [research-register.md](research-register.md) — the register of Dokimi's own
   ideas, experiments (negative ones included), findings and decisions.
+
+[Features in development](development/README.md) describes the work underway and its limits; [known limitations](development/limitations.md) helps interpret current results.

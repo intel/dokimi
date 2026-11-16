@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`novelty view`: an unreadable or invalid --novelty or --atoms file exits 2 with a message naming it."""
+"""`skill novelty view`: an unreadable or invalid --novelty or --atoms file exits 2 with a message naming it."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from tests.test_novelty_atoms_input import _WRONG_SHAPES
 
 def _view(novelty, atoms, out):
     args = build_parser().parse_args([
-        "novelty", "view", "--novelty", str(novelty), "--atoms", str(atoms),
+        "skill", "novelty", "view", "--novelty", str(novelty), "--atoms", str(atoms),
         "--format", "md", "--out", str(out),
     ])
     args.func(args)
@@ -28,11 +28,11 @@ def _as_reasons(reason):
 
 
 def _err(tmp_path, novelty, atoms, capsys):
-    """Run `novelty view` through cli.main, as a user does, and return what it printed."""
+    """Run `skill novelty view` through cli.main, as a user does, and return what it printed."""
     from dokimi import cli
 
     out = tmp_path / "annotated.md"
-    argv = ["dokimi", "novelty", "view", "--novelty", str(novelty), "--atoms", str(atoms),
+    argv = ["dokimi", "skill", "novelty", "view", "--novelty", str(novelty), "--atoms", str(atoms),
             "--format", "md", "--out", str(out)]
     with mock.patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
         cli.main()

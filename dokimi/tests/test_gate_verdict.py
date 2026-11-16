@@ -6,6 +6,8 @@
 import dataclasses
 import typing
 
+import pytest
+
 from dokimi.gate.regression import detect_regressions
 from dokimi.gate.trust_gate import trust_label
 from dokimi.gate.verdict import Check, Verdict
@@ -50,3 +52,17 @@ def test_check_severity_and_level_are_literal_types():
 
 def test_verdict_has_no_multirun_std_field():
     assert "multirun_std" not in {f.name for f in dataclasses.fields(Verdict)}
+
+
+def test_require_raises_key_error_for_a_check_the_gate_did_not_run():
+    # a lookup the gate never filled is a KeyError, not None: callers that require a check fail loudly
+    with pytest.raises(KeyError) as raised:
+        Verdict(checks=[]).require("score")
+
+    assert raised.value.args == ("score",)
+
+
+def test_require_returns_the_first_check_with_that_name():
+    first, second = Check("score", passed=False), Check("score", passed=True)
+
+    assert Verdict(checks=[first, second]).require("score") is first
