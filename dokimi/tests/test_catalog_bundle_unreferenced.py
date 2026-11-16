@@ -361,6 +361,29 @@ def test_a_named_document_over_the_read_cap_gives_no_claim(tmp_path, monkeypatch
     assert _unreferenced(review) == []
 
 
+def test_a_named_word_list_of_350_kib_is_read_whole(tmp_path):
+    # Under the 1 MiB read cap: the list names no script, so the script it does not name is reported.
+    review = _review_with_texts(
+        tmp_path,
+        "It reads data/words.txt.\n",
+        {"data/words.txt": "abcdefg\n" * 44800, "scripts/unused.py": "x\n"},  # exactly 350 KiB
+    )
+    [message] = _unreferenced(review)
+    assert "(scripts/unused.py)" in message
+
+
+def test_a_named_document_over_the_read_cap_is_said_to_be_truncated(tmp_path):
+    # Over 1 MiB the document is not read, so no claim is made, and the note names the file and says it was truncated.
+    review = _review_with_texts(
+        tmp_path,
+        "It reads data/words.txt.\n",
+        {"data/words.txt": "abcdefg\n" * 150000, "scripts/unused.py": "x\n"},
+    )
+    assert _unreferenced(review) == []
+    [note] = [f for f in review.findings if f.code == "bundle-file-unchecked"]
+    assert "data/words.txt" in note.message and "truncated" in note.message
+
+
 def test_a_named_document_that_is_not_utf8_gives_no_claim(tmp_path):
     skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body="See bad.md.\n")
     (skill_dir / "bad.md").write_bytes(b"\xff\xfeRun scripts/run.py\n")

@@ -41,13 +41,13 @@ TEST_STEM = re.compile(r"test_.*|.*_test|.*\.(?:test|spec)")  # test_build.py, b
 WALK_MAX_FILES = 2000  # a skill with more files is a checkout, not a bundle: it is not checked
 EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
-DOC_MAX_BYTES = 256 * 1024
+DOC_MAX_BYTES = 1024 * 1024  # a named document past this is truncated: it is not read, so no claim is made
 DOCS_READ_MAX = 50
 # Why the search cannot see every name: the note says it, and no count is given.
 SEARCH_OVER_CAP = f"the bundle has over {WALK_MAX_FILES} files"
 SEARCH_READ_CAP = f"more than {DOCS_READ_MAX} named documents"
 SEARCH_UNLISTED = "a folder cannot be listed"
-SEARCH_UNREADABLE = f"a named document is over {DOC_MAX_BYTES // 1024} KiB, not UTF-8, a symlink or a FIFO"
+SEARCH_UNREADABLE = "a named document is not UTF-8, a symlink or a FIFO"
 # Documents whose text names no file the agent needs for the task: a changelog or a notice that mentions a script does not.
 NON_REFERENCE_STEMS = frozenset({"changelog", "contributing", "notice"})
 # The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
@@ -227,6 +227,17 @@ def _matchable(text: str, folder: str = ".") -> str:
     return _PATH_PREFIX.sub("", _from_folder(both, folder))
 
 
+def _over_cap(path: Path) -> bool:
+    """A named document past :data:`DOC_MAX_BYTES`: it is truncated, so its names are not read."""
+    try:
+        return (
+            path.suffix.lower() in DOC_SUFFIXES and not path.is_symlink() and path.is_file()
+            and path.stat().st_size > DOC_MAX_BYTES
+        )
+    except OSError:
+        return False
+
+
 def _read_doc(path: Path) -> Optional[str]:
     """The text of a named document: "" for a file that is not a document, None for a document that cannot be
     read (a symlink, a FIFO or another non-file, over :data:`DOC_MAX_BYTES`, not UTF-8), whose names are unknown."""
@@ -274,6 +285,12 @@ def _named_closure(
             if docs_read >= DOCS_READ_MAX:
                 if PurePosixPath(rel).suffix.lower() in DOC_SUFFIXES:
                     incomplete = incomplete or SEARCH_READ_CAP
+                continue
+            if _over_cap(skill_dir / rel):  # truncated: the note names the file, and nothing is claimed
+                incomplete = incomplete or (
+                    f"{rel} is over the {DOC_MAX_BYTES // 1024} KiB read cap, so it was truncated "
+                    "and its names are not read"
+                )
                 continue
             more = _read_doc(skill_dir / rel)
             if more is None:  # named, but its text cannot be read: what it names is unknown
