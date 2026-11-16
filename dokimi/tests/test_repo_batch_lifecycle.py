@@ -246,3 +246,53 @@ def test_compare_with_a_model_refuses_only_a_mixed_row_of_that_model(setup):
         compare([b1], "guidance:none", ["guidance:bridge"], models=["m-2"])
     with pytest.raises(CellFileError, match="arm guidance:bridge, model m-2 ran with executions"):
         compare([b1], "guidance:none", ["guidance:bridge"])
+
+
+_CTRL_C_DRIVER = """
+import os, signal, sys, threading
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from repo_eval_fixture import FakeRunner, fake_harness, make_repo
+from dokimi import cli
+from dokimi.repos import runner as repo_runner
+tmp = Path(sys.argv[2])
+root, _ = make_repo(tmp)
+exe, profile = fake_harness(tmp)
+fake = FakeRunner()
+import dokimi.repos.container as container
+container.DockerRunner = lambda *a, **k: fake
+os.environ["FAKE_ACTION"] = "fix"
+both, real = threading.Barrier(2), repo_runner.run_cell
+def run_cell(ctx, task, arm, rep, *args, **kwargs):
+    if rep <= 2:
+        both.wait(30)
+        if rep == 1:
+            os.kill(os.getpid(), signal.SIGINT)
+    return real(ctx, task, arm, rep, *args, **kwargs)
+repo_runner.run_cell = run_cell
+signal.signal(signal.SIGINT, signal.default_int_handler)
+out = tmp / "runs"
+sys.argv = ["dokimi", "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
+            str(profile), "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out-dir", str(out),
+            "--cache-root", str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw",
+            "--task", "fix_add", "--reps", "5", "--jobs", "2"]
+cli.main()
+"""
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SIGINT to the own process is POSIX")
+def test_ctrl_c_makes_the_repo_run_process_exit_nonzero(tmp_path):
+    # P6 of cfg/fixed.cfg: an interrupted run never exits 0, so a script cannot read it as a full batch.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    tests = Path(__file__).parent
+    env = {k: v for k, v in os.environ.items() if not k.startswith("DOKIMI_")}
+    env |= {"HOME": str(tmp_path), "PYTHONPATH": os.pathsep.join([str(tests.parent), env.get("PYTHONPATH", "")])}
+    proc = subprocess.run([sys.executable, "-c", _CTRL_C_DRIVER, str(tests), str(tmp_path)],
+                          capture_output=True, text=True, timeout=50, env=env, cwd=tmp_path)
+    assert proc.returncode in (130, -signal.SIGINT), (proc.returncode, proc.stderr[-2000:])
+    assert "KeyboardInterrupt" in proc.stderr
+    done = sorted(p.parent.name for p in (tmp_path / "runs" / "b1").glob("*/result.json"))
+    assert done == [f"fix_add__guidance-raw__m-1__r{r}" for r in (1, 2)]  # the running cells end, no queued one starts
