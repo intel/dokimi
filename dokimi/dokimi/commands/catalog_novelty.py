@@ -85,7 +85,7 @@ def _dirname(key: str) -> str:
     return f"{readable}-{hashlib.sha256(key.encode('utf-8')).hexdigest()[:8]}"
 
 
-def _fingerprint(args: argparse.Namespace) -> dict[str, Any]:
+def _fingerprint(args: argparse.Namespace, placebo_text: Optional[str]) -> dict[str, Any]:
     """The settings a measured row was made under; a resumed run keeps a row only when these are unchanged."""
     from dokimi.commands.novelty import _settings
     from dokimi.novelty import cost
@@ -103,6 +103,10 @@ def _fingerprint(args: argparse.Namespace) -> dict[str, Any]:
         "resource_roles": args.resource_roles,
         "no_paraphrase": args.no_paraphrase,
         "no_reversal": args.no_reversal,
+        "allow_self_judge": args.allow_self_judge,
+        "max_file_words": args.max_file_words,
+        "max_resource_words": args.max_resource_words,
+        "placebo_text": hashlib.sha256(placebo_text.encode("utf-8")).hexdigest() if placebo_text else None,
     }
     return json.loads(json.dumps(fingerprint, default=str))
 
@@ -226,11 +230,15 @@ def _review_one(item: _Item, *, args: argparse.Namespace, run_cap: "SpendCap", p
     if result.partial:
         return row("partial", reason=result.partial["reason"], message=result.partial["message"])
     measured = measured_fields(result.artifact)
-    if measured["new_lenient"] is None:
+    # k0 reads 0.0 when no baseline probe answered, so a zero pair count is the signal, not the share.
+    if measured["new_lenient"] is None or not measured["n_paired"]:
         return row("error", reason="no_pairs", message="no probe was paired, so there is no share")
     novelty_json = out_dir / _dirname(item.key) / "novelty.json"
-    save_artifact("novelty", result.artifact, novelty_json)
-    novelty_json.with_suffix(".md").write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
+    try:
+        save_artifact("novelty", result.artifact, novelty_json)
+        novelty_json.with_suffix(".md").write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
+    except (OSError, ValueError) as exc:  # the paid analysis is done: a failed write is this skill's error
+        return row("error", reason="error", message=f"could not save its novelty file: {exc}")
     return row("ok", measured=measured, novelty_json=str(novelty_json))
 
 
@@ -264,7 +272,7 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
     items = _items(root, args.limit)
     if not items:
         raise InputError(f"no SKILL.md under {root}")
-    fingerprint = _fingerprint(args)
+    fingerprint = _fingerprint(args, placebo_text)
     kept, todo, others = _plan(items, jsonl, args, fingerprint)
     print(f"# catalog novelty: {len(items)} skills under {root}; {len(kept)} measured and kept, "
           f"{len(todo)} to run", file=sys.stderr)

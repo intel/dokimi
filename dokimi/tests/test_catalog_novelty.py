@@ -168,3 +168,52 @@ def test_a_narrower_resume_keeps_the_paid_rows_of_the_skills_it_does_not_select(
     _sweep(root, out, "--max-usd", "5", "--resume", "--limit", "1")
     after = {r["key"]: r for r in _rows(out / "sweep.jsonl")}
     assert after == before  # other-skill is outside this run's --limit: its paid row stays
+
+
+def test_a_skill_with_no_paired_probe_is_an_error_not_a_share_of_one(tmp_path, monkeypatch):
+    """The baseline arm answered nothing: k0 is 0.0 by default, so the new share reads 1.0 unless no pair is checked."""
+    from types import SimpleNamespace
+
+    import dokimi.artifacts as artifacts
+    import dokimi.commands.catalog_novelty as catalog_novelty
+    import dokimi.novelty.report as report
+
+    artifact = {"k0": {"lenient": 0.0, "strict": 0.0}, "paired": {"lenient": {"n_paired": 0}},
+                "artifact": {"tokens": 100}}
+    monkeypatch.setattr(catalog_novelty, "_analyze_skill",
+                        lambda *a, **k: SimpleNamespace(partial=None, artifact=artifact))
+    monkeypatch.setattr(artifacts, "save_artifact", lambda kind, art, path: path.parent.mkdir(parents=True))
+    monkeypatch.setattr(report, "render_novelty_markdown", lambda artifact: "")
+    root, out = _root(tmp_path, names=("accel-tuning",)), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    [row] = _rows(out / "sweep.jsonl")
+    assert row["status"] == "error" and row["reason"] == "no_pairs"
+    assert row["new_lenient"] is None
+
+
+def test_a_save_that_fails_is_that_skills_error_row_and_the_sweep_goes_on(tmp_path, monkeypatch):
+    import dokimi.artifacts as artifacts
+
+    real_save = artifacts.save_artifact
+
+    def save(kind, artifact, path, *a, **k):
+        if "accel-tuning" in str(path):
+            raise OSError("disk full")
+        return real_save(kind, artifact, path, *a, **k)
+
+    monkeypatch.setattr(artifacts, "save_artifact", save)
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")  # must not raise: one skill's save is its row's error
+    rows = {r["key"]: r for r in _rows(out / "sweep.jsonl")}
+    assert rows["accel-tuning"]["status"] == "error"
+    assert "disk full" in rows["accel-tuning"]["message"]
+    assert rows["other-skill"]["status"] == "ok"
+
+
+@pytest.mark.parametrize("flag", [["--max-file-words", "100"], ["--max-resource-words", "100"]])
+def test_resume_runs_again_the_rows_measured_under_other_input_limits(tmp_path, capsys, flag):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    capsys.readouterr()
+    _sweep(root, out, "--max-usd", "5", "--resume", *flag)
+    assert "0 measured and kept, 2 to run" in capsys.readouterr().err
