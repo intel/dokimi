@@ -72,7 +72,8 @@ def test_a_registry_whose_products_is_not_a_mapping_is_named_in_the_warning(tmp_
     ([{"id": "b", "question": "x"}, {"id": "a", "question": "y"}, {"id": "b", "question": "z"},
       {"id": "a", "question": "w"}], "'a', 'b'"),
     ([{"id": 1, "question": "x"}, {"id": "1", "question": "y"}], "'1'"),
-], ids=["v1-question_id", "v2-id", "int-and-str"])
+    ([{"id": f"q{i}", "question": "x"} for i in range(7)] * 2, "'q0', 'q1', 'q2', 'q3', 'q4' and 2 more;"),
+], ids=["v1-question_id", "v2-id", "int-and-str", "seven-shown-as-five"])
 def test_a_set_whose_records_share_an_id_is_refused_naming_the_ids(tmp_path, records, ids):
     path = tmp_path / "q.json"
     path.write_text(json.dumps({"questions": records}), encoding="utf-8")

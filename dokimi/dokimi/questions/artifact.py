@@ -39,6 +39,7 @@ from dokimi.artifacts import (
     SCHEMA_VERSIONS,
     SUPERSEDED_VERSIONS,
     ArtifactValidationError,
+    listed_ids,
     save_artifact,
     schema_errors,
     schema_version_for,
@@ -219,7 +220,7 @@ def _refuse_shared_ids(path: Path, artifact: dict) -> None:
     dupes = shared_question_ids(artifact)
     if dupes:
         raise ArtifactValidationError(
-            f"duplicate question ids in {path}: {', '.join(map(repr, dupes))}; give each record "
+            f"duplicate question ids in {path}: {listed_ids(dupes)}; give each record "
             f"an id of its own (or `question_id` in a v1 set), or drop the repeated record")
 
 

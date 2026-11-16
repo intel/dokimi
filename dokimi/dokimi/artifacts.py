@@ -231,13 +231,19 @@ def shared_question_ids(data: dict) -> list[str]:
     return sorted(qid for qid, n in counts.items() if n > 1)
 
 
+def listed_ids(ids: list[str]) -> str:
+    """The first five of ``ids`` for a message, and how many more there are."""
+    shown = ", ".join(map(repr, ids[:5]))
+    return shown + (f" and {len(ids) - 5} more" if len(ids) > 5 else "")
+
+
 def summary_errors(kind: str, data: dict) -> list[str]:
     """What the schema file of ``kind`` leaves unchecked: a finished ``novelty`` record (one without
     ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks;
     a ``questions`` set may not give two records one id (:func:`shared_question_ids`)."""
     if kind == "questions":
         shared = shared_question_ids(data)
-        return [f"questions: duplicate question ids {', '.join(map(repr, shared))}"] if shared else []
+        return [f"questions: duplicate question ids {listed_ids(shared)}"] if shared else []
     if kind != "novelty" or "status" in data:
         return []
     return [f"<root>: {name!r} is a required property"
