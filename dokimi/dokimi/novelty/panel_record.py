@@ -70,7 +70,7 @@ def panel_record(measure_result, rule: str, answerer_model: str | None = None) -
     run, which records no panel.
     """
     runs = measure_result.runs
-    judges: list[str] = []
+    judges: list[str] = list(measure_result.judges)
     for run in runs:
         for model in run.judge_verdicts or {}:
             if model not in judges:

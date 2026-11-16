@@ -327,6 +327,18 @@ def _one_probe():
     return atoms[:1], probes[:1], answerer
 
 
+def test_a_panel_stopped_before_every_judge_voted_still_records_the_panel():
+    atoms, probes, answerer = _one_probe()
+    first = _capped_judge("j1", WO, priced=True)
+    second = _capped_judge("j2", CC, priced=False)
+    result = run_measurement(atoms, probes, "t", answerer=answerer, judge=first, panel=(second,),
+                             aggregate="unanimous", concurrency=1)
+    assert result.stop is not None
+    rec = panel_record(result, "unanimous")
+    assert rec is not None
+    assert rec["judges"] == ["j1", "j2"] and rec["rule"] == "unanimous"
+
+
 def test_an_unpriced_judge_stopping_a_panel_does_not_decide_the_verdict():
     atoms, probes, answerer = _one_probe()
     first = _capped_judge("j1", WO, priced=True)

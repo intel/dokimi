@@ -185,6 +185,8 @@ class MeasureResult:
     stop: tuple[str, str] | None = None
     # The probes answered, kept so a second judge can regrade a subset (``judge2``).
     probes: list[Probe] = field(default_factory=list)
+    # The configured judge models, judge first: a panel stopped before every judge voted still names all of them.
+    judges: tuple[str, ...] = ()
 
     def paired(self, scoring: str) -> dict:
         """The 2×2 for one scoring (see :func:`paired_outcomes`)."""
@@ -422,7 +424,7 @@ def run_measurement(
     stop = (stops[0].reason, str(stops[0])) if stops else None
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
                          not_run=len(jobs) - len(runs), ungraded=len(ungraded), stop=stop,
-                         probes=list(probes))
+                         probes=list(probes), judges=tuple(j.model for j in judges))
 
 
 def _held_permanent_stop(stops: list[SpendCapReached]) -> SpendCapReached | None:
