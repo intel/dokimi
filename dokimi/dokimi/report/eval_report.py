@@ -191,7 +191,6 @@ def _answers_by_id(answers_path: str) -> dict[str, Record]:
     A missing answers file means no answers in the sidecar. A record that cannot be
     read drops only itself, with a warning naming it.
     """
-    import sys
     from pathlib import Path
 
     try:
