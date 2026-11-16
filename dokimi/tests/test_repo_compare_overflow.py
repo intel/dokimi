@@ -8,10 +8,11 @@ from __future__ import annotations
 import math
 import sys
 
+import numpy as np
 import pytest
 
 from dokimi.eval.finite_delta import checked_delta, checked_mean
-from dokimi.repos.compare import CompareError, _pair, _round, sign_flip_summary
+from dokimi.repos.compare import CompareError, _inconclusive_note, _pair, _round, sign_flip_summary
 from dokimi.repos.compare_reach import min_detectable
 
 
@@ -95,6 +96,26 @@ def test_mde_of_a_large_spread_is_rounded_without_overflowing():
 @pytest.mark.filterwarnings("error")
 def test_min_detectable_past_the_range_is_inf_without_a_warning():
     assert min_detectable(sys.float_info.max, 3) == math.inf
+
+
+def test_min_detectable_of_no_task_is_nan():
+    assert math.isnan(min_detectable(0.5, 0))
+
+
+@pytest.mark.filterwarnings("error")
+def test_round_of_a_numpy_scalar_near_the_range_does_not_warn():
+    assert _round(np.float64(1.0e307)) == 1.0e307
+
+
+def test_inconclusive_note_prints_a_large_mde_in_scientific_notation():
+    row = sign_flip_summary([_task(1.0e307), _task(-1.0e307)] * 6)
+    note = _inconclusive_note({**row, "measure": "gate"}, 1)
+    assert "about ±9.276e+306 (12 tasks)" in note
+
+
+def test_inconclusive_note_keeps_three_decimals_for_a_small_mde():
+    row = {"measure": "gate", "n_tasks": 6, "delta": {"lo": -1.0, "hi": 1.0}, "mde": 123456.7891}
+    assert "about ±123456.789 (6 tasks)" in _inconclusive_note(row, 1)
 
 
 @pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])

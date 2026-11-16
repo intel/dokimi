@@ -672,11 +672,12 @@ def _inconclusive_note(r: dict[str, Any], family: int) -> str | None:
         return None
     head = f"  {r['measure']} inconclusive: the interval includes 0; "
     if r["mde"] is not None:
+        mde = f"{r['mde']:.3f}" if r["mde"] < 1e6 else f"{r['mde']:.3e}"  # a figure near the float range is no 300-digit string
         return head + (f"an uncorrected t-test estimate puts the effect 80% power detects at this spread at about "
-                       f"±{r['mde']:.3f} ({r['n_tasks']} tasks), before Holm and not for the sign-flip test")
+                       f"±{mde} ({r['n_tasks']} tasks), before Holm and not for the sign-flip test")
     changed, holm = r["up"] + r["down"], r["p_holm_floor"]
     if r["p"] is None or (floor := min_sign_flip_p(changed)) < ALPHA and holm < ALPHA:
-        return None  # every delta tied, or no spread
+        return None  # every delta tied, no spread, or an mde beyond the float range
     if floor >= ALPHA:
         return head + (f"with {changed} changed task{'' if changed == 1 else 's'} the sign-flip p cannot go below "
                        f"{floor:.4g}: no effect can reach p < {ALPHA} here")

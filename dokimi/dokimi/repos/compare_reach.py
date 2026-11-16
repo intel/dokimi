@@ -22,7 +22,9 @@ def min_detectable(sd: float, n: int) -> float:
     detects with :data:`POWER` over ``n`` tasks of spread ``sd``, a planning figure: not the power of the sign-flip
     test nor of the Holm-corrected decision. The quantiles are t at ``n - 1`` degrees of freedom, those of the
     planning figure: a row's interval inverts the sign-flip test and has no quantiles (:mod:`dokimi.eval.sign_flip`).
-    The arithmetic is on Python floats: a spread whose product leaves the float range gives ``inf``, no warning."""
+    The arithmetic is on Python floats: a spread whose product leaves the float range gives ``inf``, no warning; no task (``n == 0``) gives ``nan``."""
+    if n == 0:
+        return math.nan
     df = n - 1
     quantiles = float(sp_stats.t.ppf(1 - ALPHA / 2, df)) + float(sp_stats.t.ppf(POWER, df))
     return quantiles * float(sd) / math.sqrt(n)
