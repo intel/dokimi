@@ -51,17 +51,17 @@ pair of the ``dokimi:review_replay`` cells, from ``grade.json``
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import math
-
 from dokimi.measure import as_float, is_number
 from dokimi.utils import same_model
 
+from .batch_ledger import recorded_execution
 from .grading import SCORE_BOUND, read_grade_json
 from .host import fingerprint_id
 from .process_counts import process_line, process_means
@@ -195,6 +195,8 @@ def _check_cell(path: Path, rec: dict[str, Any]) -> None:
         if not isinstance(rec.get(key), str):
             raise CellFileError(f"{path} has no usable `{key}`")
     _check_host_fields(path, rec)
+    if "batch" in rec and not isinstance(rec["batch"], str):
+        raise CellFileError(f"{path} has no usable `batch`")
 
 
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -216,6 +218,20 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     done = {r["cell"] for r in finished}
     unsupported = {p.parent.name for p in batch_dir.glob(f"*/{UNSUPPORTED_FILE}")}
     return finished, sorted((planned | started) - done - unsupported)
+
+
+def refuse_mixed_executions(cells: list[dict[str, Any]], where: str) -> None:
+    """One (batch, arm, model) ran with one execution: a ``--force`` run that stopped part way, or a harness
+    binary replaced mid-batch, leaves two, and pooling them would blend two setups in one row."""
+    seen: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    for rec in cells:
+        ran = recorded_execution(rec).get("id")
+        seen[(rec.get("batch", ""), rec["arm"], rec["model"])].add(ran if isinstance(ran, str) else "unrecorded")
+    for (batch, arm, model), ids in sorted(seen.items()):
+        if len(ids) > 1:
+            raise CellFileError(f"{batch or where}: the cells of arm {arm}, model {model} ran with executions "
+                                f"{', '.join(sorted(ids))}; rerun every arm and model of the batch with --force and the batch's --task and "
+                                "--reps, so every cell has one execution, or use another --batch")
 
 
 def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
@@ -282,6 +298,8 @@ def _row_missing(missing_by: dict[tuple[str, str, str, str | None], int], unplac
 
 def summarize(batch_dir: Path) -> dict[str, Any]:
     cells, missing = load_cells(batch_dir)
+    # one directory is one batch: the rows below pool by task, arm and model, so the batch name cannot split them
+    refuse_mixed_executions([{**c, "batch": ""} for c in cells], str(batch_dir))
     # One row per (task, arm, model) and host fingerprint: cells run on different hosts never pool in a row.
     groups: dict[tuple[str, str, str, str | None], list[dict[str, Any]]] = defaultdict(list)
     for rec in cells:

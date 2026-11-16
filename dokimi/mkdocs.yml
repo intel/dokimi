@@ -133,6 +133,7 @@ nav:
       - coding-harnesses.md
       - subscription-backends.md
       - answer-formats.md
+      - knowledge-runs.md
       - context-window.md
       - memory.md
       - session-prefilter.md
