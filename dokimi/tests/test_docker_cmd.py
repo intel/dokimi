@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import os
 import signal
+import sys
 import threading
 from pathlib import Path
 
@@ -245,3 +246,33 @@ def test_no_docker_argv_is_spelled_outside_the_module():
                 if isinstance(first, ast.Constant) and first.value == "docker":
                     spelled.append(f"{path.relative_to(package)}:{node.lineno}")
     assert not spelled, f"spell docker through dokimi.docker_cmd.argv: {spelled}"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo") or sys.platform == "win32", reason="needs a FIFO and a POSIX shell")
+def test_a_fifo_output_with_a_reader_finishes_when_docker_exits(tmp_path):
+    # The run holds the FIFO's writers through docker's start. Reading the FIFO back while they are open waits for
+    # an EOF that only the run's return sends, so a real run must not hang here (the fake runner above never reads).
+    fake = tmp_path / "docker"
+    fake.write_text("#!/bin/sh\necho started\n", encoding="utf-8")
+    fake.chmod(0o755)
+    fifo = tmp_path / "o"
+    os.mkfifo(fifo)
+    got, done = [], []
+
+    def read():
+        with open(fifo, "rb") as stream:
+            got.append(stream.read())
+
+    def run():
+        spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000")
+        done.append(DockerRunner(docker=str(fake), runner=run_real).run(spec, stdout=fifo, stderr=tmp_path / "e",
+                                                                        timeout_s=10))
+
+    reader = threading.Thread(target=read, daemon=True)
+    worker = threading.Thread(target=run, daemon=True)
+    reader.start()
+    worker.start()
+    worker.join(20)
+    assert done, "a run with a FIFO output and a reader did not finish after docker exited"
+    reader.join(5)
+    assert got == [b"started\n"]

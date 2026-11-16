@@ -61,6 +61,7 @@ import dataclasses
 import os
 import selectors
 import signal
+from stat import S_ISFIFO
 import subprocess
 import sys
 import threading
@@ -396,7 +397,10 @@ class _Spool:
 
 
 def _read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
-    """A spooled stream's bounded head and tail, read back without loading the whole file."""
+    """A spooled stream's bounded head and tail, read back without loading the whole file. A FIFO is not read back:
+    its reader is at the other end, and a read here waits for every writer to close, the caller's included."""
+    if S_ISFIFO(os.stat(path).st_mode):
+        return b"", False
     with open(path, "rb") as fh:
         size = os.fstat(fh.fileno()).st_size
         if limit is None or size <= limit:
