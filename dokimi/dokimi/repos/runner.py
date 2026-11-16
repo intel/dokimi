@@ -274,6 +274,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
         started = bool(transcript.events) or transcript.result_seen  # else the agent never started
+        no_trace = not started and not transcript.is_error and not transcript.errors  # nothing the harness wrote
+        if no_trace and result.returncode != 0 and not result.timed_out:
+            # the harness failed before its first line: a crash of the machinery, not a verdict on the cell
+            raise CellCrash(f"the harness exited {result.returncode} before its first trace line",
+                            float(agent["charged_usd"]))
         if started:
             events = transcript.events
             useful_events = None if transcript.dropped_lines else events
@@ -296,6 +301,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
+    except CellCrash:  # the harness failed before its trace: the cell is not graded, it has no result
+        raise
     except Exception as exc:  # noqa: BLE001  # the grade run failed to start, or the host failed around it
         # What the agent left behind (a read-only .git, a hostile trace) can break any host step after it.
         # Excluding the run would favour arms that break workspaces (contract §4.2): it fails the task.
@@ -340,7 +347,8 @@ def _is_infra(exc: BaseException) -> bool:
 
 
 class CellCrash(Exception):
-    """A cell whose agent ran but whose ``result.json`` could not be written: its cost still counts."""
+    """A cell whose agent ran but whose ``result.json`` could not be written, or whose harness exited nonzero before
+    any trace line (no result is written, so the next run runs the cell again): its cost still counts."""
 
     def __init__(self, message: str, charged_usd: float):
         super().__init__(message)

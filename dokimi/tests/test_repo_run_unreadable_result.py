@@ -113,3 +113,16 @@ def test_a_batch_spend_file_that_cannot_be_written_exits_5(setup, monkeypatch, c
     assert exit_.value.code == 5
     captured = capsys.readouterr()
     assert "3 ran, 0 already done, 3 crashed" in captured.out  # one spend error per charged cell
+
+
+def test_a_harness_that_exits_nonzero_before_any_trace_is_a_crash_exit_5(setup, monkeypatch, capsys):
+    """A nonzero exit with no trace is the harness failing, not a verdict on the agent: exit 5, no result.json, so
+    the next run executes the cell again (flipping the CellCrash for it must fail this test)."""
+    monkeypatch.setenv("FAKE_ACTION", "silent")
+    with pytest.raises(SystemExit) as exit_:
+        _run(setup)
+    assert exit_.value.code == 5
+    assert not list((setup["out"] / "b1").glob("fix_add__*/result.json"))
+    out = capsys.readouterr().out
+    assert "0 ran, 0 already done, 3 crashed" in out  # the three reps of the cell
+    assert "the harness exited 1 before its first trace line" in out
