@@ -146,3 +146,18 @@ def test_an_unchanged_pair_of_large_values_does_not_loosen_the_sums_of_the_small
     assert lo is not None and hi is not None and 0 < lo <= hi  # p(0) is below ALPHA: the interval excludes 0
     # the shifted test: the unchanged pair is a tie at theta 0, and the sums of the 8 small deltas have the small slack
     assert ShiftTest(deltas, eps=tie_widths(mags, 9)).p(0.0) == alone
+
+
+def test_an_unchanged_pair_of_large_values_does_not_pull_the_interval_off_the_shift_the_small_pairs_accept():
+    treatment, baseline = [1e-12] * 8 + [1.0], [0.0] * 8 + [1.0]
+    deltas, mags = [t - b for t, b in zip(treatment, baseline, strict=True)], pair_magnitudes(treatment, baseline)
+    p = sign_flip_p(deltas, magnitudes=mags, exact=True)
+    alone = sign_flip_interval(deltas[:8], p, rounded=False, magnitudes=mags[:8])
+    assert alone == (1e-12, 1e-12)
+    # the mean of all nine deltas, 8.9e-13, is a shift the test rejects; the ends are those of the eight pairs alone
+    assert sign_flip_interval(deltas, p, rounded=False, magnitudes=mags) == alone
+
+
+def test_a_pair_of_zeros_takes_the_width_of_the_largest_value_among_the_pairs():
+    assert tie_widths([0.0, 1.0], 2) == [EPS, EPS]
+    assert tie_widths([0.0, 2e-12], 2) == [EPS * 2e-12, EPS * 2e-12]

@@ -264,6 +264,9 @@ def _scaled_back(end: float | None, k: int) -> float | None:
 def _ends(deltas: list[float], p_zero: float | None, seed: int, eps: float | Sequence[float], tol: float,
           unit: float = 1.0) -> tuple[float | None, float | None]:
     test, mean = ShiftTest(deltas, seed, eps=eps), math.fsum(deltas) / len(deltas)
+    if test.changed and not _accepts(test.p(mean)):
+        # tied deltas pull the mean off the shift the test accepts: start from the mean of the changed ones
+        mean = math.fsum(test.d[:test.changed].tolist()) / test.changed
     zero_inside, low, high = p_zero is None or p_zero >= ALPHA, min(*deltas, 0.0), max(*deltas, 0.0)
     # far is one unit (1, or the scale of tiny values) past the extreme, or twice it from one unit on:
     # 1e16 + 1.0 rounds back onto 1e16, all tied

@@ -372,7 +372,7 @@ with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
 unless the values of its pair are below 1: float noise in a delta scales with the
 values subtracted, so a pair whose larger value is m below 1 ties within 1e-9 times m
 (a score of 0.3 against 0.1 + 0.2 is a tie; 1e-12 against 0 is a change, as 1e-3 against 0
-is). Each pair keeps its own width whatever the other deltas are. So over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
+is). Each pair keeps its own width whatever the other deltas are, except a pair of zeros, which takes the width of the largest value among all the pairs (at most 1). So over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
 data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed.
 An arm under that floor can never be significant, so it stays out of the
 multiplier, as a `repo compare` row does: it counts in `family_size` but not in
