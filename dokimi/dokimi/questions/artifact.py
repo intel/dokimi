@@ -42,6 +42,7 @@ from dokimi.artifacts import (
     save_artifact,
     schema_errors,
     schema_version_for,
+    shared_question_ids,
 )
 from dokimi.questions.normalizer import canonical_question, record_id
 from dokimi.utils import question_id, read_json_input
@@ -70,8 +71,8 @@ def upgrade_questions(data: dict) -> dict:
 def save_questions_artifact(data: dict, path: Path | str) -> dict:
     """Write ``data`` as a current-version questions artifact; return exactly what was written.
 
-    Records may still use v1's ``text``; it is renamed to ``question``. Validation, the
-    ``.rejected`` copy on failure and the atomic write are :func:`save_artifact`'s.
+    Records may still use v1's ``text``; it is renamed to ``question``. Validation (two records
+    with one id included), the ``.rejected`` copy on failure and the atomic write are :func:`save_artifact`'s.
     """
     return save_artifact(KIND, upgrade_questions(data), path)
 
@@ -213,13 +214,9 @@ def _explain(path: Path, data: dict, errors: list[str]) -> str:
             f"dokimi/schemas/{SCHEMA_VERSIONS[KIND]}.json, or drop the record.")
 
 
-def _refuse_shared_ids(path: Path, records: list[dict]) -> None:
-    """Raise when two records share an id: v2 declares it unique within the set (#687).
-
-    Ids are compared as strings, as :attr:`dokimi.records.Record.key` keys answers by them.
-    """
-    counts = Counter(str(q["id"]) for q in records)
-    dupes = sorted(qid for qid, n in counts.items() if n > 1)
+def _refuse_shared_ids(path: Path, artifact: dict) -> None:
+    """Raise when two records share an id (:func:`~dokimi.artifacts.shared_question_ids`)."""
+    dupes = shared_question_ids(artifact)
     if dupes:
         raise ArtifactValidationError(
             f"duplicate question ids in {path}: {', '.join(map(repr, dupes))}; give each record "
@@ -270,7 +267,7 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
         errors = schema_errors(current, artifact)
         if errors:
             raise ArtifactValidationError(_explain(path, artifact, errors))
-        _refuse_shared_ids(path, artifact["questions"])
+        _refuse_shared_ids(path, artifact)
         matched = None if bare_list else schema_version_for(KIND, data)
         source_version = matched if matched and not schema_errors(matched, data) else None
         if source_version is None and not bare_list and not seen:

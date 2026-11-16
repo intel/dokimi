@@ -43,6 +43,7 @@ import os
 import re
 import secrets
 import threading
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -220,9 +221,23 @@ def schema_errors(schema: str | Path, instance: Any) -> list[str]:
     ]
 
 
+def shared_question_ids(data: dict) -> list[str]:
+    """The ids two or more records of a ``questions`` payload share, compared as strings, as
+    :attr:`dokimi.records.Record.key` joins answers by them; questions.v2 declares an id unique (#687)."""
+    records = data.get("questions")
+    if not isinstance(records, list):
+        return []
+    counts = Counter(str(q["id"]) for q in records if isinstance(q, dict) and "id" in q)
+    return sorted(qid for qid, n in counts.items() if n > 1)
+
+
 def summary_errors(kind: str, data: dict) -> list[str]:
     """What the schema file of ``kind`` leaves unchecked: a finished ``novelty`` record (one without
-    ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks."""
+    ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks;
+    a ``questions`` set may not give two records one id (:func:`shared_question_ids`)."""
+    if kind == "questions":
+        shared = shared_question_ids(data)
+        return [f"questions: duplicate question ids {', '.join(map(repr, shared))}"] if shared else []
     if kind != "novelty" or "status" in data:
         return []
     return [f"<root>: {name!r} is a required property"

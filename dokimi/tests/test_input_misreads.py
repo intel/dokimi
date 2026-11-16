@@ -4,8 +4,8 @@
 """Three readers refuse an input they would otherwise misread (the Low items of #687).
 
 - products.yaml: a null ``products:`` no longer hides the legacy ``libraries:`` mapping.
-- A question set whose records share an id is refused: questions.v2 declares ``id``
-  "Identifier, unique within the set" (``dokimi/schemas/questions.v2.json``).
+- A question set whose records share an id is refused, read or written: questions.v2 declares
+  ``id`` "Identifier, unique within the set" (``dokimi/schemas/questions.v2.json``).
 - A ``DOKIMI_OP`` marker or operations.jsonl line that is JSON but not the object
   docs/coding-harnesses.md "Operation Telemetry" asks for is a ``log_parse_error``, not a crash.
 
@@ -23,10 +23,11 @@ import pytest
 import yaml
 
 import dokimi.eval
+from dokimi import cli
 from dokimi.artifacts import ArtifactValidationError
 from dokimi.commands import answers
 from dokimi.harnesses.operations import load_operations
-from dokimi.questions.artifact import load_questions
+from dokimi.questions.artifact import load_questions, save_questions_artifact
 from dokimi.registry import ProductRegistry
 
 from tests.cli_refusal import refusal
@@ -89,6 +90,39 @@ def test_refine_still_reads_a_set_with_shared_ids(tmp_path):
                     encoding="utf-8")
 
     assert [q["question"] for q in load_questions(path, validate=False).questions] == ["x", "y"]
+
+
+SHARED = [{"id": "a", "question": "How do I configure the parallel reduction in oneTBB for floats?"},
+          {"id": "a", "question": "What is the difference between task_arena and task_group in oneTBB?"}]
+
+
+def test_a_set_with_shared_ids_is_not_written_but_kept_as_rejected(tmp_path):
+    out = tmp_path / "q.json"
+
+    with pytest.raises(ArtifactValidationError, match="duplicate question ids 'a'"):
+        save_questions_artifact({"questions": SHARED}, out)
+
+    assert not out.exists()
+    assert [q["question"] for q in json.loads((tmp_path / "q.json.rejected").read_text())["questions"]] == [
+        q["question"] for q in SHARED]
+
+
+@pytest.mark.parametrize("extra,code", [((), 1), (("--fill-gaps",), 2)], ids=["refine", "fill-gaps"])
+def test_refine_writes_no_set_with_shared_ids(tmp_path, monkeypatch, capsys, extra, code):
+    """With ``--fill-gaps`` the set is refused before the first paid call."""
+    path, out = tmp_path / "q.json", tmp_path / "out.json"
+    path.write_text(json.dumps(SHARED), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr("dokimi.questions.refiner.llm_call", lambda *a, **k: calls.append(a) or "[]")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "questions", "refine", "--product", "oneTBB",
+                                     "--questions", str(path), "--output", str(out), *extra])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == code
+    assert "duplicate question ids 'a'" in capsys.readouterr().err
+    assert not out.exists() and calls == []
 
 
 def test_answers_generate_exits_2_on_shared_ids_before_any_answer(tmp_path, monkeypatch):
