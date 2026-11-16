@@ -61,8 +61,15 @@ def check_sum_range(values: Sequence[float], error: type[Exception] = OverflowEr
 
 
 def checked_mean(values: Sequence[float], error: type[Exception] = OverflowError, where: str = "") -> float:
-    """``sum(values) / len(values)`` after :func:`check_sum_range`."""
+    """The mean of ``values`` after :func:`check_sum_range`, with an exactly rounded sum (``math.fsum``).
+
+    The result does not depend on the Python version: ``sum`` of floats compensates from 3.12 on and
+    adds left to right before, so deltas that cancel left a rounding residue there. Integers only are
+    summed exactly as integers, since ``math.fsum`` would first round each to a float.
+    """
     check_sum_range(values, error, where)
     if _has_non_finite_float(*values):  # they decide; finite values summed first could overflow and cancel a -inf
         return sum(v for v in values if isinstance(v, float) and not math.isfinite(v)) / len(values)
-    return sum(values) / len(values)
+    if all(isinstance(v, int) for v in values):
+        return sum(values) / len(values)
+    return math.fsum(values) / len(values)
