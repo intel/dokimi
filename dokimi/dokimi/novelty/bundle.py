@@ -247,7 +247,7 @@ class Bundle:
         the same bytes of the same files.
         """
         rows = "\n".join(f"{item.path}:{item.sha256}" for item in self.files)
-        return "sha256:" + hashlib.sha256(rows.encode("utf-8")).hexdigest()
+        return "sha256:" + hashlib.sha256(rows.encode("utf-8", "surrogateescape")).hexdigest()
 
     def _counts(self) -> dict:
         """The record's raw counts, from which every coverage figure is derived."""

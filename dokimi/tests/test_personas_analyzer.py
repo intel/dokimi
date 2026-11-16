@@ -309,3 +309,13 @@ def test_create_minimal_analysis():
     assert analysis["issues_analysis"] == {"common_questions": [], "common_labels": [], "sample_issues": []}
     assert analysis["api_patterns"] == []
     assert analysis["topics"] == []
+
+
+def test_a_failed_label_fetch_is_logged_and_skipped(caplog):
+    analyzer = PersonaAnalyzer()
+    repo = Mock()
+    repo.get_issues.side_effect = RuntimeError("rate limited")
+    with caplog.at_level("WARNING", logger="dokimi.personas.analyzer"):
+        analyzer._analyze_issues(repo)
+    assert [r.exc_info is not None for r in caplog.records
+            if "not fetched" in r.getMessage()] == [True] * 4

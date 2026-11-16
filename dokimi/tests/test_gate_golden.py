@@ -70,7 +70,7 @@ def _strict(root: Path, future: dict, strict: bool, extra: dict | None = None) -
                 code: object = 0
             except SystemExit as exc:
                 code = exc.code
-            except Exception as exc:  # a bad spec surfaces as the named input error, not a traceback
+            except Exception as exc:  # noqa: BLE001 - a bad spec surfaces as the named input error, not a traceback
                 code = f"{type(exc).__name__}: {exc}"
     finally:
         for p in patches:

@@ -1985,7 +1985,7 @@ pattern. Other slow shapes pass and can still take long on
 a long claim, such as `maintenance/.*a.*a.*a.*b`. When `.pre-commit-config.yaml` or one of those
 workflows was not read, the reason of a claim that stays `unresolved` here also
 names it, as `<file> was not read (<why>)` after the rest, in tree order and once
-even when the Action note above names it too. A link or path into a submodule is `unresolved`. A
+even when the Action note above names it too. A link or path into a submodule is `unresolved`, and so is a bare name that matches only a submodule (`mod/` for `third_party/mod`). A pinned snapshot's submodules are its `.gitmodules` paths and every gitlink it holds, declared or not. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other
 ref is tried at each slash, shortest first, and the link is `ok` if some
@@ -2349,7 +2349,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   CLI gets SIGTERM, which it passes to the container, and 10 s to stop it;
   then the CLI's process group is killed, the container is killed by name,
   and the cell is still graded. `--max-batch-usd` starts no new cell
-  once that much has been spent.
+  once the batch has spent that much, earlier invocations included (kept in
+  `_eval/spend.json`), counting the budget of each cell in flight.
 - Every container runs with `--security-opt no-new-privileges`, `--cap-drop
   ALL` and a `--pids-limit`, as the caller's uid and gid.
 - `--agent-network` is required while the egress proxy is missing: it gives the

@@ -106,7 +106,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
 
         print(f"\n📊 View full report: cat {results['steps']['report']['path']}")
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - top-level: prints the traceback and exits 1
         print(f"\n❌ Pipeline failed: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()

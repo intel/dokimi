@@ -104,7 +104,7 @@ def test_a_call_with_no_price_also_leaves_the_partial_result(tmp_path, monkeypat
     with pytest.raises(SystemExit, match="no price is known"):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
-    assert payload["partial"]["reason"] == "spend_cap" and payload["partial"]["calls_done"] == 1
+    assert payload["partial"]["reason"] == "no_price" and payload["partial"]["calls_done"] == 1
     # The reply came back and was paid for, so it is scored, not lost; no further call is made.
     row = payload["model"]["per_query"][0]
     assert "error" not in row and row["picked"] is not None
@@ -815,3 +815,13 @@ def test_a_partial_single_run_rates_its_selections_over_the_calls_it_made(tmp_pa
     hits = sum(1 for row in model["per_query"] if row.get("correct"))
     assert model["n_calls"] == 2
     assert model["selection_rate"] == round(hits / 2, 4)
+
+
+def test_a_file_marked_partial_by_status_alone_is_a_partial_result_to_write_over(tmp_path):
+    from dokimi.commands.novelty_routing_report import _is_partial_file, save_result
+
+    marked = tmp_path / "routing.json"
+    marked.write_text('{"status": "partial"}', encoding="utf-8")
+    assert _is_partial_file(marked)
+    assert save_result({}, marked, {"partial": PARTIAL}) == marked
+    assert json.loads(marked.read_text(encoding="utf-8"))["partial"] == PARTIAL

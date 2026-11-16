@@ -28,7 +28,14 @@ from dokimi.novelty.classify import (
     judge_value,
 )
 from dokimi.novelty.client import LLMClient
-from dokimi.novelty.retention import ABSENT, CONTRADICTED, RETAINED, RetentionOracle, _key
+from dokimi.novelty.retention import (
+    ABSENT,
+    CONTRADICTED,
+    RETAINED,
+    RetentionOracle,
+    _key,
+    lexical_overlap,
+)
 
 
 def _atoms(n: int) -> list[Atom]:
@@ -378,6 +385,17 @@ def test_a_lexical_only_run_does_not_store_a_placeholder_for_a_later_llm_run(tmp
     result = llm.verdict(atom, text)
     assert (result.verdict, result.method) == (RETAINED, "llm")
     assert len(calls) == 1
+
+
+def test_a_lexical_only_placeholder_carries_the_rounded_lexical_score():
+    atom = Atom(statement="alpha beta gamma delta epsilon zeta eta", question="q", answer="a",
+                span_ids=("s1",))
+    text = "alpha beta gamma theta iota"
+    score = lexical_overlap(atom.statement, text)
+    assert 0.25 < score < 0.85 and score != round(score, 4)
+    result = RetentionOracle(client=None).verdict(atom, text)
+    assert (result.verdict, result.method) == (ABSENT, "lexical")
+    assert result.score == round(score, 4) == 0.4286
 
 
 def test_a_lexical_only_run_does_not_replay_a_verdict_an_llm_run_stored(tmp_path):
