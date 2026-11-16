@@ -99,21 +99,23 @@ flag before it starts. An agentic arm (`agent:`, `skill-agent:`, `skill-catalog:
 refused on it too, because the CLI runs one prompt with no tools. A knowledge run has
 neither, so that refusal does not affect this page.
 
-`--provider codex-cli` and `--provider copilot-cli` answer through the OpenAI Codex CLI and
-the GitHub Copilot CLI the same way, on both routes. Each CLI must be installed and signed
-in (`codex login`, or Copilot's own login). `python cli.py backends` lists what dokimi can see,
-with no model call:
+`--provider copilot-cli` answers through the GitHub Copilot CLI the same way, on both routes.
+`--provider codex-cli` answers through the OpenAI Codex CLI on a comparison, but not on a
+knowledge run: Codex has no switch that turns its own tools off, so `--doc-source none` and
+`arms run --arms baseline` refuse it before any call (exit 2). Use `copilot-cli` or `claude-cli`
+for a knowledge run. Each CLI must be installed and signed in (`codex login`, or Copilot's own
+login). `python cli.py backends` lists what dokimi can see, with no model call:
 
 ```bash
-python cli.py answers generate --product demo --questions questions/demo.json \
-  --doc-source none --provider codex-cli --model gpt-5.5 --output knowledge/demo-codex.json
 python cli.py answers generate --product demo --questions questions/demo.json \
   --doc-source none --provider copilot-cli --model claude-sonnet-4.5 --output knowledge/demo-copilot.json
 ```
 
 The model name is passed to the CLI as given; dokimi does not check it against the CLI's
-catalogue. Both are answering-only: no tools, no conversation. Pass `--judge-model` and
-`--judge-provider` for an API judge, as the judge runs on an API provider. See
+catalogue. Both are answering-only: no conversation. `copilot-cli` runs with no tools
+(`--available-tools ""`). `codex-cli` has no switch for its tools, so it is refused on a knowledge
+run. Pass `--judge-model` and `--judge-provider` for an API judge, as the judge runs on an API
+provider. See
 [subscription-backends.md](subscription-backends.md) for the login and the per-call costs.
 
 Isolation, per call, is the same idea as for `claude-cli`: a fixed empty work directory under
@@ -121,7 +123,8 @@ dokimi's cache, outside any repository (`GIT_CEILING_DIRECTORIES` stops the sear
 no user instructions, rules, or project docs read from it.
 
 - **`codex-cli`** runs `codex exec --json --ephemeral --ignore-user-config --ignore-rules
-  --skip-git-repo-check --sandbox read-only` with the prompt on stdin. The system text goes
+  --skip-git-repo-check --sandbox read-only` with the prompt on stdin. `--sandbox read-only`
+  limits writes, not file reads or shell commands, so this is not a no-tools route. The system text goes
   by a temporary file as the model instructions, and the project doc size is set to 0, so no
   `AGENTS.md` is read. Its API key and base-URL variables are removed from the environment, so
   the login is what answers; `CODEX_HOME` is kept. Token counts come from the event stream.
@@ -143,7 +146,7 @@ Codex and Copilot take no temperature or seed, so `arms run` refuses either flag
 does for `claude-cli`. An agentic arm is refused on all three, for the same reason.
 
 **Task harnesses are not answering routes.** `codex`, `claude-code`, `copilot`,
-`terminal-bench:*`, `benchflow*` and `docker-*` name agent-CLI harnesses (`tasks run`,
+`command:*`, `terminal-bench:*`, `benchflow*` and `docker-*` name agent-CLI harnesses (`tasks run`,
 `repo run`; see [coding-harnesses.md](coding-harnesses.md)): they run an agent in a sandbox
 against executable tasks. `arms run --harness codex` is refused for that reason, because the
 label would stamp answers that the model behind `--provider` produced. Use `--provider

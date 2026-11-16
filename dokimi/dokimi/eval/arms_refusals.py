@@ -37,12 +37,25 @@ def _is_agentic_arm(treatment) -> bool:
     return isinstance(inner, (MCPAgentTreatment, SkillAgentTreatment, SkillCatalogTreatment))
 
 
+#: CLI providers that have no switch to turn their tools off, so a knowledge run (no docs) cannot use them.
+NO_TOOL_OFF_PROVIDERS = frozenset({"codex-cli"})
+
+
+def refuse_knowledge_provider(provider: str) -> None:
+    """Refused before any answer: a knowledge run has no tools, and this provider cannot be told to have none."""
+    if provider in NO_TOOL_OFF_PROVIDERS:
+        raise InputError(f"--provider {provider} has no switch that turns its tools off, so it cannot answer "
+                         "a knowledge run (no docs): use --provider claude-cli or copilot-cli")
+
+
 def refuse_cli_arms(config: ArmsRunConfig, treatments: list) -> None:
     """Refused before any answer: a CLI provider runs one prompt, with no tools and no conversation."""
     from dokimi import llm_cli
 
     if llm_cli.backend(config.provider) is None:
         return
+    if [t.name for t in treatments] == ["baseline"]:
+        refuse_knowledge_provider(config.provider)
     agentic = [t.name for t in treatments if _is_agentic_arm(t)]
     if agentic:
         raise InputError(f"--provider {config.provider} runs one prompt with no tools, so it cannot run "

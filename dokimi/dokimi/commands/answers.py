@@ -10,6 +10,8 @@ from pathlib import Path
 
 from dokimi.llm import CALLER_CHOICES
 from dokimi.commands.evaluate import _require_ragas, _run_ragas_eval
+from dokimi.eval.arms_refusals import refuse_knowledge_provider
+from dokimi.records import KNOWLEDGE_INTENT, PAIRED_INTENT
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -91,6 +93,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     context7_id = getattr(args, "context7_id", None)
     if doc_source == "none":
         # Baseline only: imported evals (`eval import`) are asked without doc context.
+        refuse_knowledge_provider(args.provider)
         mcp_client, library_id = None, args.product
     else:
         mcp_client = create_doc_source_client(doc_source)
@@ -116,6 +119,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
         debug_retrieval=args.debug_retrieval
     )
 
+    answerer.run_intent = KNOWLEDGE_INTENT if doc_source == "none" else PAIRED_INTENT
     output_path = _output_path(args)
     try:
         answers = answerer.generate_answers(

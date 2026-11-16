@@ -203,6 +203,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
             "judge_model": args.judge_model,
             "judge_provider": args.judge_provider,
             "evaluator_independence_warning": same_model_warning,
+            **({"run_intent": run.meta["run_intent"]} if run.meta.get("run_intent") else {}),
         },
     )
 

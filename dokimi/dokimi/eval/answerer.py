@@ -68,6 +68,9 @@ class Answerer:
     - Baseline: answer from LLM knowledge only.
     """
     
+    #: The run's intent, stamped on the answers file (``knowledge`` or ``paired``); ``None`` is a legacy file.
+    run_intent: Optional[str] = None
+
     def __init__(
         self,
         mcp_client=None,
@@ -443,6 +446,7 @@ class Answerer:
         return {
             "generated_at": self._get_timestamp(),
             "method_version": ANSWERING_METHOD_VERSION,
+            **({"run_intent": self.run_intent} if self.run_intent else {}),
             "model": self.model,
             "provider": self.provider,
             "total_questions": len(answers),

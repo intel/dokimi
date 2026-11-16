@@ -351,3 +351,60 @@ def test_report_eval_on_a_paired_run_still_uses_the_paired_report(tmp_path):
     write_eval_report(str(eval_path), str(out))
     text = out.read_text(encoding="utf-8")
     assert "## Lowest-scoring questions" not in text and "## Summary" in text
+
+
+def _retrieval_missed_doc() -> dict:
+    """A paired run whose retrieval found nothing for any question: the context arm is a placeholder."""
+    doc = _eval_doc({"q1": 80.0, "q2": 40.0})
+    for item in doc["evaluations"]:
+        item["with_docs"] = {"answer": None, "aggregate": None}
+        item["retrieval_hit"] = False
+    return doc
+
+
+def test_a_paired_run_whose_retrieval_always_missed_is_not_a_knowledge_report(tmp_path):
+    eval_path = tmp_path / "eval" / "missed.json"
+    eval_path.parent.mkdir()
+    eval_path.write_text(json.dumps(_retrieval_missed_doc()), encoding="utf-8")
+    out = tmp_path / "report" / "missed.md"
+    write_eval_report(str(eval_path), str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "(knowledge)" not in text and "## Summary" in text
+
+
+def test_a_run_stamped_as_paired_is_not_a_knowledge_report_even_with_one_condition(tmp_path):
+    doc = _eval_doc({"q1": 80.0, "q2": 40.0})
+    doc["run_metadata"]["run_intent"] = "paired"
+    eval_path = tmp_path / "eval" / "stamped.json"
+    eval_path.parent.mkdir()
+    eval_path.write_text(json.dumps(doc), encoding="utf-8")
+    out = tmp_path / "report" / "stamped.md"
+    write_eval_report(str(eval_path), str(out))
+    assert "(knowledge)" not in out.read_text(encoding="utf-8")
+
+
+def test_a_run_stamped_as_knowledge_is_a_knowledge_report(tmp_path):
+    doc = _eval_doc({"q1": 80.0, "q2": 40.0})
+    doc["run_metadata"]["run_intent"] = "knowledge"
+    eval_path = tmp_path / "eval" / "knowledge.json"
+    eval_path.parent.mkdir()
+    eval_path.write_text(json.dumps(doc), encoding="utf-8")
+    out = tmp_path / "report" / "knowledge.md"
+    write_eval_report(str(eval_path), str(out))
+    assert "| `without_docs` (knowledge) | 2 | 2 |" in out.read_text(encoding="utf-8")
+
+
+def test_an_answers_file_of_a_knowledge_run_stamps_its_run_intent(tmp_path):
+    from unittest import mock
+
+    from dokimi.cli import build_parser
+
+    questions = tmp_path / "questions.json"
+    questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "What?"}]}), encoding="utf-8")
+    out = tmp_path / "answers.json"
+    args = build_parser().parse_args(["answers", "generate", "--product", "oneTBB", "--questions",
+                                      str(questions), "--doc-source", "none", "--provider", "amazon-bedrock",
+                                      "--model", "claude-haiku-5-5", "--output", str(out)])
+    with mock.patch("dokimi.eval.answerer.Answerer.generate_answers", return_value=[]):
+        args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["run_intent"] == "knowledge"

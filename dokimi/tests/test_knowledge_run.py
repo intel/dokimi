@@ -186,3 +186,37 @@ def test_the_harness_refusal_reaches_the_cli_with_exit_2(tmp_path, fake_llm):
     assert "task harness" in outcome.err
     assert "--provider claude-cli --model sonnet" in outcome.err
     assert fake_llm.requests == []
+
+
+# --- codex-cli has no tool-off switch, so it cannot answer a knowledge run ----------------------
+
+
+def test_codex_cli_refuses_a_one_arm_knowledge_run_before_any_call(cli_runner):
+    config = ArmsRunConfig(product="oneTBB", model="gpt-5.5", provider="codex-cli",
+                              judge_model="claude-sonnet-5-5", judge_provider="amazon-bedrock")
+    with pytest.raises(InputError, match="codex-cli.*knowledge run"):
+        prepare_arms(config, ["baseline"], QUESTIONS[:1])
+    assert cli_runner.calls == []
+
+
+def test_codex_cli_answers_an_arms_run_with_a_docs_arm(cli_runner):
+    """Only the knowledge run is refused: with retrieval the codex answers are a comparison arm."""
+    from dokimi.eval.arms_refusals import refuse_cli_arms
+
+    config = ArmsRunConfig(product="oneTBB", model="gpt-5.5", provider="codex-cli",
+                              judge_model="claude-sonnet-5-5", judge_provider="amazon-bedrock")
+    treatments = [type("T", (), {"name": n})() for n in ("baseline", "docs")]
+    refuse_cli_arms(config, treatments)
+    assert cli_runner.calls == []
+
+
+def test_codex_cli_refuses_an_answers_knowledge_run_with_exit_2(tmp_path, cli_runner):
+    args = build_parser().parse_args(["answers", "generate", "--product", "oneTBB", "--questions",
+                                      str(_write_questions(tmp_path)), "--doc-source", "none",
+                                      "--provider", "codex-cli", "--model", "gpt-5.5",
+                                      "--output", str(tmp_path / "answers.json")])
+    with refusal() as outcome:
+        args.func(args)
+    assert outcome.code == 2
+    assert "codex-cli" in outcome.err and "knowledge run" in outcome.err
+    assert cli_runner.calls == []

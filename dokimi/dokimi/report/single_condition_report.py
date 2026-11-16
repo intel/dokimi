@@ -15,7 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
-from dokimi.records import Record, held_conditions, is_single_condition, records
+from dokimi.records import Record, held_conditions, is_knowledge_run, is_single_condition, records
 from dokimi.report.eval_report import (
     DIFFICULTY_ORDER,
     _answers_by_id,
@@ -158,7 +158,7 @@ def write_eval_report(eval_path: str, out_path: str, qa_json_out: Optional[str] 
     """``report eval``: the one-condition page for a knowledge run, else :func:`eval_report.generate_report`."""
     data = _load_eval(eval_path)
     evals = records(data["evaluations"], source=eval_path, kind="evaluations")
-    if not is_single_condition(evals):
+    if not (is_single_condition(evals) and is_knowledge_run(evals, data)):
         return generate_report(eval_path, out_path, qa_json_out)
     meta = data.get("run_metadata", {})
     library = os.path.basename(eval_path).replace(".json", "")
