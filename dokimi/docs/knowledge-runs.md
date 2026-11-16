@@ -113,7 +113,7 @@ python cli.py answers generate --product demo --questions questions/demo.json \
 
 The model name is passed to the CLI as given; dokimi does not check it against the CLI's
 catalogue. Both are answering-only: no conversation. `copilot-cli` runs with no tools
-(`--available-tools ""`). `codex-cli` has no switch for its tools, so it is refused on a knowledge
+(`--available-tools __none__`). `codex-cli` has no switch for its tools, so it is refused on a knowledge
 run. Pass `--judge-model` and `--judge-provider` for an API judge, as the judge runs on an API
 provider. See
 [subscription-backends.md](subscription-backends.md) for the login and the per-call costs.
@@ -131,7 +131,7 @@ no user instructions, rules, or project docs read from it.
   Cost is not computed: a login is not billed per call.
 - **`copilot-cli`** runs `copilot -p <prompt> -s` with no custom instructions, no built-in
   MCP servers, no remote session, no auto-update, no questions to the user, and no tools
-  (`--available-tools ""`). It has no system-prompt flag, so the system text is prepended to
+  (`--available-tools __none__`). It has no system-prompt flag, so the system text is prepended to
   the prompt, and the prompt is one command-line argument: a prompt over 100,000 bytes is
   refused before the call. GitHub token and BYOK provider variables are removed from the
   environment. The text output carries no token counts, so the record shows none and no cost.
