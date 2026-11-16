@@ -231,19 +231,21 @@ def test_a_losing_partial_clone_with_read_only_entries_is_removed(tmp_path, monk
                 d.chmod(0o755)
 
 
-def test_a_partial_clone_that_cannot_be_removed_raises(tmp_path, monkeypatch):
+def test_a_losing_partial_that_cannot_be_removed_is_logged_and_the_winners_clone_used(tmp_path, monkeypatch, caplog):
     url, cache = "file:///nonexistent/origin.git", tmp_path / "cache"
     git_dir = cache_path(url, cache)
     _publish_first_while_cloning(git_dir, monkeypatch)
 
     def refuse(path, *args, **kwargs):
-        if kwargs.get("ignore_errors"):  # a removal that swallows the error leaves the partial and raises nothing
+        if kwargs.get("ignore_errors"):  # a removal that swallows the error leaves the partial and logs nothing
             return
         raise PermissionError(13, "denied", str(path))
 
     monkeypatch.setattr(source.shutil, "rmtree", refuse)
-    with pytest.raises(PermissionError):
-        ensure_clone(url, cache)
+    with caplog.at_level("WARNING", logger=source.__name__):
+        assert ensure_clone(url, cache) == git_dir
+    left = [p for p in cache.iterdir() if p != git_dir]
+    assert len(left) == 1 and f"cannot remove the partial clone {left[0]}" in caplog.text
 
 
 def test_a_failed_rename_onto_a_directory_with_no_head_raises(tmp_path, monkeypatch):

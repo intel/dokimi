@@ -522,13 +522,16 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
         except OSError as exc:  # the clone's own error is the one to report
             log.warning("cannot remove the partial clone %s: %s", tmp, exc)
         raise
-    _remove_tree(tmp)
+    try:
+        _remove_tree(tmp)  # still there only when the rename lost: the winner's clone is in place
+    except OSError as exc:  # a later clone's sweep removes it once it is stale
+        log.warning("cannot remove the partial clone %s: %s", tmp, exc)
     return git_dir
 
 
 def _remove_tree(path: Path) -> None:
     """Delete ``path``, also when it holds read-only entries (Git's object files on Windows); raise when it is
-    still there: a partial clone left in the cache would stay for good."""
+    still there, so the caller can say which partial clone is left in the cache."""
     if path.is_symlink():  # a link left at the name: its target is not ours to change
         path.unlink()
         return
