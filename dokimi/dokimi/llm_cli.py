@@ -332,6 +332,8 @@ def _codex_parse(done: process.Completed, model: str, provider: str) -> CliResul
         elif event.get("type") == "turn.failed":
             error = event.get("error")
             failed = str(error.get("message") if isinstance(error, dict) else error or "turn failed")
+    if not failed and done.returncode == 0 and not (text or "").strip():
+        failed = "no reply text"  # an empty, blank or null agent message is a failed call, not an answer
     if failed or done.returncode != 0 or text is None:
         raise _codex_error(done, failed)
     prompt = int(usage.get("input_tokens") or 0)  # includes the cached part, which cached_input_tokens counts again

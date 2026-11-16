@@ -80,12 +80,30 @@ def test_codex_runs_read_only_with_no_user_config_and_the_prompt_on_stdin(run, m
 
 
 def test_codex_system_text_goes_by_file_as_base_instructions(run):
-    run.answers.append(reply(CODEX_OK))
+    seen = []
+
+    def answer(call):
+        override = [a for a in call.argv if a.startswith("model_instructions_file=")]
+        assert len(override) == 1
+        path = Path(json.loads(override[0].split("=", 1)[1]))
+        seen.append((path.name, path.read_text()))
+        return reply(CODEX_OK)
+
+    run.handler = answer
     llm_cli.call("codex-cli", model="gpt-5.5", prompt="q", system="Only this.")
-    override = [a for a in run.calls[0].argv if a.startswith("model_instructions_file=")]
-    assert len(override) == 1
-    path = json.loads(override[0].split("=", 1)[1])
-    assert Path(path).name == "system-prompt.txt"  # the call's temp file, removed after the call
+    assert seen == [("system-prompt.txt", "Only this.")]  # the call's temp file, removed after the call
+
+
+@pytest.mark.parametrize("text", ["", "   ", None])
+def test_codex_blank_agent_message_is_a_failed_call_not_an_answer(run, text):
+    blank = "\n".join([
+        json.dumps({"type": "item.completed", "item": {"id": "i1", "type": "agent_message", "text": text}}),
+        json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 0}}),
+    ])
+    run.answers.append(reply(blank))
+    with pytest.raises(llm_cli.CliCallError, match="no reply text") as info:
+        llm_cli.call("codex-cli", model="gpt-5.5", prompt="q")
+    assert info.value.retryable is False
 
 
 def test_codex_runs_in_its_fixed_empty_work_dir_outside_any_repository(run, cache):
