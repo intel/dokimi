@@ -465,9 +465,8 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
             return copied
 
         def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
-            # A class body's names are read in the class body and in its method decorators, not in a method body,
-            # and a read sees only the names the body bound before it: a decorator above a later assignment
-            # still reads the module's constant.
+            # A class-body name binds for the reads after its assignment only: method bodies never see it,
+            # and a decorator above a later assignment reads the module's constant.
             node.decorator_list = [self.visit(d) for d in node.decorator_list]
             node.bases = [self.visit(b) for b in node.bases]
             outer = self.cls
