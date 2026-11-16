@@ -165,3 +165,16 @@ def test_http_transport_works_across_mcp_versions(monkeypatch, http_attrs, strea
     _fake_mcp(monkeypatch, http_attrs, streams)
     client = MCPProtocolClient(transport="http", url="http://x/mcp")
     assert client._list_tool_names() == ["get-library-docs"]
+
+
+def test_a_failed_tool_list_is_logged_and_the_name_is_used(caplog):
+    client = MCPProtocolClient(transport="http", url="http://127.0.0.1:9")
+
+    def down():
+        raise RuntimeError("server down")
+
+    client._list_tool_names = down
+    with caplog.at_level("ERROR", logger="dokimi.mcp.mcp_protocol"):
+        assert client.resolve_library_id("react") == "react"
+    assert [r.exc_info is not None for r in caplog.records
+            if "listing MCP tools failed" in r.getMessage()] == [True]

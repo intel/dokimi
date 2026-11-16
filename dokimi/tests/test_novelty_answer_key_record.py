@@ -141,7 +141,7 @@ def test_a_copied_or_pickled_record_keeps_the_absent_marker_and_its_verdict(tmp_
     def outcome(record):
         try:
             return ("ok", entry_point_only(record, [], []))
-        except Exception as exc:  # the verdict, not the type, must not depend on a copy
+        except Exception as exc:  # noqa: BLE001 - the verdict, not the type, must not depend on a copy
             return (type(exc).__name__, str(exc))
 
     assert outcome(copy.deepcopy(key)) == outcome(key)

@@ -563,19 +563,30 @@ def audit_source(source: str, file: str = "<source>") -> list[Audit]:
     return audits
 
 
-def audit_tree(tests_dir: pathlib.Path = TESTS) -> tuple[list[Audit], int]:
-    """``(flagged audits, test functions seen)`` for every test file under *tests_dir*.
+def collected_files(tests_dir: pathlib.Path = TESTS) -> list[pathlib.Path]:
+    """Every file pytest collects under *tests_dir*, sorted: ``test_*.py`` and ``*_test.py``."""
+    return sorted({*tests_dir.rglob("test_*.py"), *tests_dir.rglob("*_test.py")})
 
-    Both of pytest's default file patterns, ``test_*.py`` and ``*_test.py``.
-    """
+
+def relative_name(path: pathlib.Path) -> str:
+    """*path* as the keys and reports name it: relative to the project when it is inside."""
+    try:
+        return path.resolve().relative_to(PROJECT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def audit_file(path: pathlib.Path) -> list[Audit]:
+    """Every test function of one file, flagged or not."""
+    return audit_source(path.read_text(encoding="utf-8"), relative_name(path))
+
+
+def audit_tree(tests_dir: pathlib.Path = TESTS) -> tuple[list[Audit], int]:
+    """``(flagged audits, test functions seen)`` for every test file under *tests_dir*."""
     flagged: list[Audit] = []
     total = 0
-    for path in sorted({*tests_dir.rglob("test_*.py"), *tests_dir.rglob("*_test.py")}):
-        try:
-            rel = path.resolve().relative_to(PROJECT).as_posix()
-        except ValueError:
-            rel = path.as_posix()
-        results = audit_source(path.read_text(encoding="utf-8"), rel)
+    for path in collected_files(tests_dir):
+        results = audit_file(path)
         total += len(results)
         flagged.extend(r for r in results if r.flags)
     return flagged, total

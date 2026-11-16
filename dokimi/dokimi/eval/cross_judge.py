@@ -360,7 +360,7 @@ def score_measure(
             return (qid, arm), float(
                 scorer(library, question, answer, (ground_truth or {}).get(qid), context)
             ), None
-        except Exception as exc:  # an unscored answer drops out of the pairing, it does not kill the run
+        except Exception as exc:  # noqa: BLE001 - an unscored answer drops out of the pairing, it does not kill the run
             return (qid, arm), None, _reason(exc)
 
     if not stored_flags:
