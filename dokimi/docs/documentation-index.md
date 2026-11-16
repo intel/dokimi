@@ -102,6 +102,9 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   enabled vs disabled arms, novel vs known content, and repositories.
 - [reviewing.md](reviewing.md) — review a skill or a repository's agent setup,
   cheapest step first, with costs and how to read the results.
+- [memory.md](memory.md) — check an agent's memory directory (Claude Code auto
+  memory) with `dokimi memory lint`: index links and load limit, frontmatter,
+  wikilinks, undated relative dates. No LLM call.
 
 ## Content novelty
 
