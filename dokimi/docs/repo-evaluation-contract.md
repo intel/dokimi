@@ -337,11 +337,14 @@ tasks:
   task must be a task of `tasks` (§2), or the run stops before any cell.
 - Each repository is `<url>@<rev>` or a local `<path>@<rev>`, as in §1.1. The
   revision must be a full commit SHA. A branch, tag or other ref is refused
-  unless the run passes `--allow-floating-suite-revs`; it is then resolved once
-  when the run starts, and the batch pin (`_eval/batch.json`, key `suite`)
-  records the commits, so a resumed batch reuses them. The pin also records the
-  suite file's path, the task-to-repository mapping and the repository locations (key `suite_plan`): a
-  resume with another suite file, or without `--suite`, is refused.
+  unless the run passes `--allow-floating-suite-revs`; it is resolved again
+  when each run starts, and the batch pin (`_eval/batch.json`, key `suite`)
+  records the commits. A resume is refused with `use another --batch` when the
+  revision now resolves to another commit: the batch does not follow a
+  moved branch or tag, and it does not reuse a later commit. The pin also
+  records the suite file's path, the task-to-repository mapping and the
+  repository locations (key `suite_plan`): a resume with another suite file, or
+  without `--suite`, is refused.
 - A repository that cannot be opened, or a base that is not a commit of it,
   leaves that task's cells unsupported (§9): `unsupported.json` gives the reason,
   and `repo report` counts the cells neither as failed nor as missing. A cell
