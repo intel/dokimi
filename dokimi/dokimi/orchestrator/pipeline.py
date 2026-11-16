@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K,
                              answers_method_version as answers_method_version_of)
+from dokimi.artifacts import ArtifactValidationError
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
 from dokimi.utils import InputError, read_json_input, refuse_device, same_evaluator
@@ -563,7 +564,11 @@ class EvaluationPipeline:
             reused = load_questions_payload(path, "--questions-from")
         elif (not self.force_regen) and self.questions_path.exists():
             path = self.questions_path
-            reused = load_questions_payload(path)
+            try:
+                reused = load_questions_payload(path)
+            except ArtifactValidationError as exc:  # an earlier run's cache: a bad input, exit 2
+                raise InputError(f"{exc}\n(the cached set of an earlier run: fix it, or pass --force-regen "
+                                 "to generate a new one)") from exc
         else:
             self._custom_questions = self._load_custom_questions()
             return None

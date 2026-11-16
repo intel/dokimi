@@ -153,6 +153,23 @@ def test_a_merge_renumbers_a_generated_id_a_kept_record_has():
     assert new[0]["id"] == "q_001"
 
 
+def test_benchmark_run_on_a_cache_with_shared_ids_exits_2_naming_force_regen(tmp_path, monkeypatch, capsys):
+    """A cache main's ``--force-regen`` wrote with two ``q_001``: an input error, not a traceback."""
+    cache = tmp_path / "questions" / "onetbb.json"
+    cache.parent.mkdir()
+    cache.write_text(json.dumps({"questions": [{"id": "q_001", "question": "A?"},
+                                               {"id": "q_001", "question": "B?"}]}), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", "run", "--library", "onetbb",
+                                     "--out-dir", str(tmp_path)])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    err = capsys.readouterr().err
+    assert exc_info.value.code == 2 and "Traceback" not in err
+    assert f"Error: duplicate question ids in {cache}: 'q_001'" in err and "pass --force-regen" in err
+
+
 def test_answers_generate_exits_2_on_shared_ids_before_any_answer(tmp_path, monkeypatch):
     path = tmp_path / "q.json"
     path.write_text(json.dumps([{"question_id": "a", "text": "x"}, {"question_id": "a", "text": "y"}]),
