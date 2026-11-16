@@ -41,7 +41,7 @@ import subprocess
 import sys
 import threading
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
@@ -431,6 +431,18 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         if rec is not None and not rec.get("skipped"):
             _log_cell(log, name, rec)
 
+    _run_cells(cells, one, jobs)
+    return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
+            "errors": state["errors"], "budget_stopped": state["budget_stopped"],
+            "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
+            "spent_usd": round(state["this_run"], 6), "batch_spent_usd": round(state["spent"], 6)}
+
+
+KILL_RETRY_S = 2.0
+
+
+def _run_cells(cells: list[Any], one: Callable[[Any], None], jobs: int) -> None:
+    """Run every cell in worker threads. A Ctrl-C reaches this main thread only: see _stop_on_interrupt."""
     pool = ThreadPoolExecutor(max(1, jobs))
     futures: list[Future[None]] = []  # filled as cells are submitted: an interrupt may land in the middle
     try:
@@ -443,13 +455,6 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         raise
     finally:
         pool.shutdown(wait=True)
-    return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
-            "errors": state["errors"], "budget_stopped": state["budget_stopped"],
-            "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
-            "spent_usd": round(state["this_run"], 6), "batch_spent_usd": round(state["spent"], 6)}
-
-
-KILL_RETRY_S = 2.0
 
 
 def _stop_on_interrupt(pool: ThreadPoolExecutor, futures: list[Future[None]]) -> None:
