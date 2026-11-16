@@ -181,7 +181,7 @@ def _blank_blocks(lines: list[str]) -> list[str]:
         if hidden and not pos:
             out.append(" " * len(line))
             continue
-        line, comment, run = _blank_inline(line, close_ahead[i], pos, _paragraph_above(out, i))
+        line, comment, run = _blank_inline(line, close_ahead[i], pos, _paragraph_above(lines, out, i))
         line, span = _open_span(lines, i, line, run)
         out.append(line)
     return out
@@ -230,10 +230,10 @@ def _angle_link_end(line: str, pos: int, before: str = "") -> int | None:
     return m.end() - len(head) if m and m.end() > p else None
 
 
-def _paragraph_above(out: list[str], i: int) -> str:
-    """The blanked lines above ``i`` in its paragraph, joined: a blank line, raw or blanked, ends it."""
+def _paragraph_above(lines: list[str], out: list[str], i: int) -> str:
+    """The blanked lines above ``i`` in its paragraph, joined. A raw blank line ends it; a line blanked to spaces does not."""
     k = i
-    while k > 0 and out[k - 1].strip():
+    while k > 0 and lines[k - 1].strip():
         k -= 1
     return "\n".join(out[k:i])
 

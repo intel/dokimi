@@ -623,3 +623,9 @@ def test_an_opener_inside_a_code_span_above_does_not_open_the_destination(mem):
 def test_a_whitespace_line_ends_the_paragraph_for_an_angle_opener(mem):
     (mem / "a.md").write_text(_entry("a", body="[\n   \nx](<q `tomorrow` r>) z"))
     assert [f.rule for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []
+
+
+def test_a_line_blanked_to_spaces_does_not_end_the_angle_paragraph(mem):
+    (mem / "MEMORY.md").write_text("- [\n  `x`\n  b](<topic`v2`.md>)\n")
+    (mem / "topic`v2`.md").write_text(_entry("topic"))
+    assert [f.rule for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
