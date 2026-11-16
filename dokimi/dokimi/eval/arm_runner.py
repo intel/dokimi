@@ -22,6 +22,8 @@ from dokimi.caching import is_empty_reply
 from dokimi.utils import question_id  # re-exported: callers import it from here
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
+from dokimi.novelty.client import SpendCapReached
+from dokimi.novelty.routing_stop import stop_if_run_wide
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
@@ -237,9 +239,17 @@ class ArmRunner:
         results: Dict[int, Dict[str, Any]] = {}
         lock = threading.Lock()
         done = [0]
+        stop = threading.Event()  # set by a run-wide error: questions not yet started are not asked
 
         def _process(idx: int, q: Dict[str, Any]) -> None:
-            rec = self._answer_question(library_name, library_id, q)
+            if stop.is_set():
+                return
+            try:
+                rec = self._answer_question(library_name, library_id, q)
+            except SpendCapReached as exc:
+                stop.set()
+                print(f"Stopped: {exc}", flush=True)
+                return
             with lock:
                 results[idx] = rec
                 done[0] += 1
@@ -252,7 +262,7 @@ class ArmRunner:
             for f in as_completed(futures):
                 f.result()
 
-        return [results[i] for i in range(n)]
+        return [results[i] for i in sorted(results)]
 
     def _answer_question(
         self, library_name: str, library_id: Optional[str], q: Dict[str, Any]
@@ -388,6 +398,7 @@ class ArmRunner:
             )
         except Exception as exc:
             logger.exception("Arm %s answer generation failed", treatment.name)
+            stop_if_run_wide(exc)  # a run-wide error ends the run; the question is not kept
             return {"error": f"generation_failed: {exc}", "answer": None,
                     "metadata": cfg_metadata}
 
