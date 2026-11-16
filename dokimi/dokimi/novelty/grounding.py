@@ -175,26 +175,39 @@ def _require_valid_gradings(atoms: list[dict]) -> None:
             raise InputError(f"atom {atom.get('id')}: invalid grading: {'; '.join(problems)}")
 
 
-def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
-    """Attach each tool's check to the atoms that name the tool; how many atoms changed.
+def _mention_of(check: dict) -> str:
+    """What an atom must name for ``check`` to attach: a tool's command line, or a symbol prefix."""
+    source = check.get("source") or {}
+    if source.get("kind") == "symbols":
+        return str(check["within"])
+    return _mention(source["tool"])
 
-    An atom that does not name the tool gets no check: its answers would rarely carry the
-    tool's command line, and a check that never fires is noise in the report. A check for
-    the same tool already on the atom is replaced, so re-running refreshes the snapshot.
+
+def _source_of(check: dict) -> str:
+    """The source a check replaces on re-run: its tool's name, or ``symbols`` for a symbol check."""
+    source = check.get("source") or {}
+    return "symbols" if source.get("kind") == "symbols" else str(source.get("tool"))
+
+
+def add_checks(atoms: list[dict], checks: list[dict]) -> int:
+    """Attach each check to the atoms that name its tool or prefix; how many atoms changed.
+
+    An atom that names none gets no check: its answers would rarely carry the tool's command
+    line, and a check that never fires is noise in the report. A check from the same source
+    already on the atom is replaced, so re-running refreshes the snapshot.
     """
     _require_valid_gradings(atoms)
     changed = 0
     for atom in atoms:
         text = " ".join(str(atom.get(k, "")) for k in ("statement", "question", "answer"))
-        mine = [c for c, tool in zip(checks, tools, strict=True)
-                if re.search(_mention(tool), text)]
+        mine = [c for c in checks if re.search(_mention_of(c), text)]
         if not mine:
             continue
         meta = atom["meta"] = atom.get("meta") or {}
         grading = meta["grading"] = meta.get("grading") or {"checks": []}
+        replaced = {_source_of(m) for m in mine}
         kept = [c for c in grading.get("checks", [])
-                if not (c.get("type") == "identifiers"
-                        and (c.get("source") or {}).get("tool") in {m["source"]["tool"] for m in mine})]
+                if not (c.get("type") == "identifiers" and _source_of(c) in replaced)]
         grading["checks"] = kept + mine
         changed += 1
     return changed

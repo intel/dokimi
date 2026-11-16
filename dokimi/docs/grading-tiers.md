@@ -67,15 +67,25 @@ with the docs, not knowledge of the skill) and is still a model grading free tex
 | Roles: a failed `veto` gives `wrong_other`; a `sufficient` check decides; `evidence` is recorded only; an abstention is never overruled into a pass | `measure.py` `resolve_verdict` |
 | `judge_verdict`, `verdict_source`, `checks` on each checked run; a record-level `checks` block (`checked_runs`, `overruled`, `vetoed`, `judge_passed_vetoed`, `decided`, `judge_agreed`) | `measure.py` `ProbeRun`, `MeasureResult.checks_summary`, `report.py` |
 | `identifiers` check: every identifier the answer names (long options by default, inside `within`) is in `known`; `--no-x` counts when `--x` is known and the check sets `negations: true` or the help lists `--[no-]x`. Two words and an option after a command read as another command, so `and add --x` after it is not checked. `role` and `tier` validated on every check | `dokimi/eval/reference_checks.py` |
-| `skill novelty ground --atoms A --tool "perf report" [--tool ...]`: runs the tool's `--help`, writes an `identifiers` veto with the help's sha256 into the atoms that name the tool | `dokimi/novelty/grounding.py`, `commands/novelty_ground.py` |
+| `skill novelty ground --atoms A --tool "perf report" [--tool ...]`: runs the tool's `--help`, writes an `identifiers` veto with the help's sha256 into the atoms that name the tool. `--header PATH` (glob ok) and `--library PATH` with `--prefix cblas_` (repeatable) do the same for a C API: the prefixed names a header declares, and the exported symbols of a shared library (`nm -D --defined-only`), each input pinned by its sha256 | `dokimi/novelty/grounding.py`, `novelty/symbols.py`, `commands/novelty_ground.py` |
 | Key verification: the same command writes `meta.key_status` on each checked atom (`verified`, `not_found` with the `missing` names, `unverifiable` when the key names no option or one of its checks could not finish) and prints the counts. A `not_found` is a review flag, not an error | `grounding.py` `verify_keys` |
 
 A `--tool` check applies only where the tool's name is followed directly by an option, so a
 `perf` check does not judge `perf report --stdio`: give each subcommand as its own `--tool`.
 An answer that names no option of the tool passes the veto.
 
+A C API has no `--help`, so its check reads names instead. `--prefix` (a C identifier ending in
+`_`, repeatable) says which names are checked: an answer's `cblas_dgemmx` is vetoed when no
+`--header` declares it and no `--library` exports it, and an ordinary word is never read. A
+header's names are every prefixed identifier of its code (comments and strings aside), so a
+name a macro expands to counts too; a header's `#include` of another header is not followed, so
+pass each header. A `--header` or `--library` set with no prefixed name is refused, so a wrong
+file cannot veto every name. Key verification works the same way: a key naming `LAPACKE_dgesvv`
+is `not_found`.
+
 ```bash
 python cli.py skill novelty ground --atoms atoms.json --tool "perf report" --tool "perf record" --tool-version 6.17
+python cli.py skill novelty ground --atoms atoms.json --header "include/mkl_*.h" --library libmkl_rt.so --prefix cblas_ --prefix LAPACKE_
 python cli.py skill novelty probe --artifact skill:linux-perf --atoms atoms.json --out probes.json
 ```
 

@@ -1672,9 +1672,12 @@
               "allow_abbrev": true,
               "params": [
                 {"key": "--atoms", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": true, "type": null},
+                {"key": "--header", "action": "_AppendAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
                 {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null},
+                {"key": "--library", "action": "_AppendAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
                 {"key": "--out", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
-                {"key": "--tool", "action": "_AppendAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": true, "type": null},
+                {"key": "--prefix", "action": "_AppendAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
+                {"key": "--tool", "action": "_AppendAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
                 {"key": "--tool-version", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null}
               ],
               "path": "dokimi skill novelty ground",
