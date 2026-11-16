@@ -243,7 +243,25 @@ directory name when the H1 has none, or `my-skill` when neither has one. The sum
 (`3 error, of them 2 plain Markdown with no frontmatter`).
 A `---` block with a `name:` or `description:` line in the first 20 lines, or that opens with a YAML key
 (any, `title:` included), keeps the loader's error and gets no hint. So does a block of blank lines between two `---` lines.
-A block that opens with a `[` or `{` that is not a Markdown link also keeps the loader's error. A `---` rule, or a block with no YAML key and no such opener, is plain Markdown and gets this finding.
+A block that opens with a `[` or `{` that is not a Markdown link also keeps the loader's error.
+
+### Skill formats
+
+The catalog check reads the host from the path below the scanned root (`skill_format` in
+`dokimi/external/skill_format.py`). The Agent Skills spec applies to `.claude`, `.codex`, `.gemini`,
+`.github` and `.agents` skill directories, and to a `skills/` directory with no host. Two cases have
+their own rules:
+
+- **OpenCode** (`.opencode/skills/`, and the singular `.opencode/skill/`, which the OpenCode docs do
+  not list): frontmatter is optional and the ID comes from the path, so a `SKILL.md` with no frontmatter
+  is not an error. It gets one `warn`, `opencode-no-description`, because OpenCode does not advertise a
+  skill without a description, and dokimi reads only a skill with one. A name that is not kebab-case is
+  a `warn` (`name-format`), and a name that differs from the directory or a description over 1024
+  characters is not a finding. Source: https://opencode.ai/docs/skills/
+- **A `.<tool>/skills/` directory dokimi holds no spec for** (for example `.kiro/skills/`): the
+  frontmatter and description checks do not run, and one `note`, `unsupported-skill-format`, says so.
+  Safety and content checks still run.
+ A `---` rule, or a block with no YAML key and no such opener, is plain Markdown and gets this finding.
 
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the

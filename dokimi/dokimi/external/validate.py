@@ -25,7 +25,9 @@ follow the Agent Skills spec:
   5000 tokens (characters / 4) is a ``warn`` (``body-too-large``).
 - A file with no frontmatter at all does not load, and its load error says "no frontmatter"
   rather than "missing a description" (see the loader). Its one finding is
-  ``not-a-skill-no-frontmatter`` (``error``, see :mod:`dokimi.external.no_frontmatter`).
+  ``not-a-skill-no-frontmatter`` (``error``, see :mod:`dokimi.external.no_frontmatter`), except under
+  OpenCode or a host with no known spec: ``opencode-no-description`` or ``unsupported-skill-format``
+  (see :mod:`dokimi.external.skill_format`).
 
 Identical copies: of the skills whose ``SKILL.md`` bytes are the same, the one
 nearest the root (fewest path parts, ties to path order) is the original, the
@@ -78,9 +80,8 @@ import math
 import os
 import re
 from collections import Counter
-from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence
 from urllib.parse import unquote
 
 import yaml
@@ -93,8 +94,10 @@ from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
+from .findings import Finding, SkillReview
 from .listing import in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
+from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, skill_format
 from .script_checks import script_findings
 from .paths import _exists, _in_checkout, _inside, _resolved
 from .skill_markdown import QUOTE_MARK_RE, link_pieces, outside_fences
@@ -171,10 +174,12 @@ FINDING_CODES = (
     "name-missing",
     "not-a-skill-no-frontmatter",
     "not-loaded",
+    "opencode-no-description",
     "package-not-found",
     "path-escapes-skill",
     "path-missing",
     "unreadable",
+    "unsupported-skill-format",
     "permission-bypass-flag",
     "pipe-to-shell",
     "script-crlf",
@@ -182,20 +187,6 @@ FINDING_CODES = (
     "script-syntax",
 )
 
-
-@dataclass
-class Finding:
-    """One check that did not pass: ``level`` is ``note``, ``warn`` or ``error``."""
-
-    level: str
-    code: str
-    message: str
-
-
-def state_of(findings: Iterable[Finding]) -> str:
-    """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
-    levels = {f.level for f in findings}
-    return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
 
 
 def name_risky_commands(findings: list[Finding]) -> list[Finding]:
@@ -211,21 +202,6 @@ def name_risky_commands(findings: list[Finding]) -> list[Finding]:
     ]
 
 
-@dataclass
-class SkillReview:
-    """What :func:`review_skills` found for one loaded skill."""
-
-    findings: list[Finding] = field(default_factory=list)
-    disable_model_invocation: bool = False
-    content_sha256: Optional[str] = None
-    duplicate_of: Optional[str] = (
-        None  # the skill directory of the earlier copy, relative to the catalog root
-    )
-
-    @property
-    def state(self) -> str:
-        """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
-        return state_of(self.findings)
 
 
 def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
@@ -286,29 +262,35 @@ def _tool_findings(allowed: object) -> list[Finding]:
     return findings
 
 
-def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[Finding], bool]:
+def _frontmatter_findings(
+    skill: Skill, *, at_root: bool = False, fmt: str = FORMAT_AGENT_SKILL
+) -> tuple[list[Finding], bool]:
     """The spec checks on the frontmatter of ``skill``, and its ``disable-model-invocation`` flag.
 
     ``at_root``: the ``SKILL.md`` sits directly in the scanned root, so its directory name is the
     name of a checkout, which says nothing about the skill; the name/directory comparison is skipped.
+    ``fmt`` ``opencode``: OpenCode's rules (``skill_format``): ``name`` is optional and a display
+    label, so no name/directory or missing-name finding, no description cap, and a bad name is a warning.
     """
     meta, parse_error = _strict_meta(skill.path.read_text(encoding="utf-8"))
     if parse_error is not None:
         return [parse_error], False
+    opencode = fmt == FORMAT_OPENCODE
     dir_name = _dir_name_of(skill.path.parent)
     findings: list[Finding] = []
     declared = str(meta.get("name") or "").strip()
     if not declared:
-        findings.append(
-            Finding(
-                "warn",
-                "name-missing",
-                "no name in the frontmatter"
-                + ("" if at_root else f"; the directory name {dir_name!r} is used"),
+        if not opencode:  # OpenCode falls back to the path-derived ID without a warning
+            findings.append(
+                Finding(
+                    "warn",
+                    "name-missing",
+                    "no name in the frontmatter"
+                    + ("" if at_root else f"; the directory name {dir_name!r} is used"),
+                )
             )
-        )
     else:
-        if declared != dir_name and not at_root:
+        if declared != dir_name and not at_root and not opencode:
             findings.append(
                 Finding(
                     "error",
@@ -323,10 +305,12 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
         if len(declared) > NAME_MAX:
             problems.append(f"is {len(declared)} characters; the limit is {NAME_MAX}")
         if problems:
+            # OpenCode states the kebab-case rule only for the path-derived ID, and does not enforce it: a warning.
             findings.append(
-                Finding("error", "name-format", f"name {declared!r} {' and '.join(problems)}")
+                Finding("warn" if opencode else "error", "name-format",
+                        f"name {declared!r} {' and '.join(problems)}")
             )
-    if len(skill.description) > DESCRIPTION_MAX:
+    if len(skill.description) > DESCRIPTION_MAX and not opencode:  # OpenCode documents no description cap
         findings.append(
             Finding(
                 "error",
@@ -426,12 +410,19 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     unquoted = ["> quoted" if QUOTE_MARK_RE.match(line) else line for line in lines]  # a quoted example is prose too: text, not a key
     if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(unquoted)):
         return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
+    fmt = skill_format(candidate, entry.source_root)
     if first.strip() != "---" or not _opens_frontmatter(unquoted):  # a rule or prose, not a broken block
+        loaded = format_findings(fmt)  # OpenCode loads a file with no frontmatter; a host with no spec gets a note
+        if loaded:
+            return SkillReview(findings=loaded)
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
         hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
         return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)])
-    _, parse_error = _strict_meta(text)
-    return None if parse_error is None else SkillReview(findings=[parse_error])
+    meta, parse_error = _strict_meta(text)
+    if parse_error is not None:
+        return SkillReview(findings=[parse_error])
+    gap = format_findings(fmt, meta)
+    return SkillReview(findings=gap) if gap else None
 
 
 def _relative_to_root(path: Path, root: Path) -> str:
@@ -725,7 +716,10 @@ def review_skills(
         skill = entry.skill
         try:  # any read of SKILL.md after it loaded: an error row, not a crash
             at_root = skill.path.parent.resolve() == entry.source_root.resolve()
-            findings, hidden = _frontmatter_findings(skill, at_root=at_root)
+            fmt = skill_format(skill.path, entry.source_root)
+            findings, hidden = _frontmatter_findings(skill, at_root=at_root, fmt=fmt)
+            if fmt == FORMAT_UNSUPPORTED:  # no spec to hold the frontmatter and description to: one note
+                findings = format_findings(fmt)
             review = SkillReview(findings=findings, disable_model_invocation=hidden)
             review.findings += _bundle_findings(skill, entry.source_root)
             review.findings += _body_findings(skill)
@@ -740,7 +734,7 @@ def review_skills(
             ]
             review.findings += [Finding(*item) for item in script_findings(
                 skill.path.parent, checkout=None if standalone else entry.source_root)]
-            if not hidden:
+            if not hidden and fmt != FORMAT_UNSUPPORTED:
                 review.findings += _description_findings(skill)
             review.content_sha256 = _skill_digest(skill)
         except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:  # the unreadable row

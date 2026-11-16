@@ -33,10 +33,14 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
     findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
     from dokimi.external.catalog_review import entry_relpath
-    from dokimi.external.validate import name_risky_commands, state_of
+    from dokimi.external.skill_format import not_a_failed_load
+    from dokimi.external.findings import state_of
+    from dokimi.external.validate import name_risky_commands
 
     kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
-    state = "error" if not skill.loaded else state_of(kept)
+    # An unloaded SKILL.md that is plain Markdown under OpenCode or an unsupported host is a warning or a note here, not a failed load (skill_format).
+    exempt = not skill.loaded and not_a_failed_load([f.code for f in kept])
+    state = "error" if not skill.loaded and not exempt else state_of(kept)
     return {
         "name": skill.name,
         "manifest_status": None if skill.status is None else str(skill.status),
@@ -44,7 +48,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "relpath": entry_relpath(skill),
         "nested_in": nested_in,
         "state": state,
-        "error": skill.error,
+        "error": None if exempt else skill.error,
         "disable_model_invocation": bool(review and review.disable_model_invocation),
         "content_sha256": review.content_sha256 if review else None,
         "skill_sha256": skill_dir_digest(skill, outputs),
@@ -100,9 +104,12 @@ def _continued(message: str) -> str:
     return message.replace("\n", "\n    ")
 
 
+NOT_CHECKED_CODES = ("description-when-not-checked", "unsupported-skill-format")  # the notes that say a skill was not read
+
+
 def not_checked(row: dict) -> bool:
-    """Whether an ``ok`` row is only ok because the check did not read it (a ``description-when-not-checked`` note)."""
-    return row["state"] == "ok" and any(f["code"] == "description-when-not-checked" for f in row["findings"])
+    """Whether an ``ok`` row is only ok because the check did not read it (a ``NOT_CHECKED_CODES`` note)."""
+    return row["state"] == "ok" and any(f["code"] in NOT_CHECKED_CODES for f in row["findings"])
 
 
 def ok_text(ok: int, unchecked: int) -> str:
@@ -117,7 +124,7 @@ def print_skill_row(row: dict) -> None:
         state = "ok"
     elif row["state"] == "ok":
         # A "not checked" note: the skill was not read, so it is not a pass and the state does not say ok.
-        note = next(f for f in row["findings"] if f["code"] == "description-when-not-checked")
+        note = next(f for f in row["findings"] if f["code"] in NOT_CHECKED_CODES)
         state = f"note: {note['message']}"
     else:
         worst = next(f for f in row["findings"] if f["level"] == row["state"])
@@ -225,7 +232,7 @@ class _Tally:
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
-        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
+        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):  # row error: None for a skill_format exemption
             self.failed = True
         reason = strict_reason(row) if self.strict else None
         if reason is not None:
