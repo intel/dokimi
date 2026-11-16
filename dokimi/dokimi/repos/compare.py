@@ -111,7 +111,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.context.consistency import Run, run_from_events
-from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_row, within
+from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_row, tie_tolerance, within  # noqa: F401
 from dokimi.eval.stats import correct_family
 from dokimi.eval.finite_delta import checked_delta, checked_mean
 from dokimi.utils import same_model
@@ -491,18 +491,22 @@ def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float |
     if failed and any(failed):
         return None  # its 0 is not a measurement, at either end (a score.max of 0 would read it as the top)
 
+    # a tie is as wide as the vector it is read on: the pairs' values for a score, their deltas for a move
+    value_tol = tie_tolerance([v for p in pairs for v in (p["baseline"], p["treatment"])])
+    delta_tol = tie_tolerance([p["treatment"] - p["baseline"] for p in pairs])
+
     def at_top(value: float, top: float | None) -> bool:
-        return top is not None and value >= top - EPS
+        return top is not None and value >= top - value_tol
 
     # score.max is what the oracle must reach, not a bound: a pair that moved past it is an effect, not a top
-    base_top = [at_top(p["baseline"], b) and abs(p["treatment"] - p["baseline"]) <= EPS
+    base_top = [at_top(p["baseline"], b) and abs(p["treatment"] - p["baseline"]) <= delta_tol
                 for p, (b, _) in zip(pairs, tops, strict=True)]
     if all(base_top) and all(at_top(p["treatment"], t) for p, (_, t) in zip(pairs, tops, strict=True)):
         return "ceiling"
-    if all(abs(p["baseline"]) <= EPS and abs(p["treatment"]) <= EPS for p in pairs):
+    if all(abs(p["baseline"]) <= value_tol and abs(p["treatment"]) <= value_tol for p in pairs):
         return "floor"
     if (len(pairs) >= 2 and base_top.count(False) <= 1
-            and all(p["treatment"] >= p["baseline"] - EPS for p in pairs)):
+            and all(p["treatment"] >= p["baseline"] - delta_tol for p in pairs)):
         return "near_ceiling"
     return None
 
@@ -588,6 +592,7 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
         raise CompareError("the deltas of the tasks are too large to test: a sum or a spread of them leaves the float range") from exc
     p, lo, hi = row["p"], row["ci_lo"], row["ci_hi"]
     reachable = min_sign_flip_p(row["n_changed"]) < ALPHA  # else no effect can be detected
+    tol = tie_tolerance(deltas)
     return {
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
@@ -597,11 +602,11 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
-        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS and reachable else None,
+        "mde": _round(min_detectable(sd, len(deltas))) if sd > tol and reachable else None,
         "interval_p_disagree": p is not None and includes_zero(lo, hi) == (p < ALPHA),
-        "up": sum(d > EPS for d in deltas),
-        "down": sum(d < -EPS for d in deltas),
-        "tied": sum(abs(d) <= EPS for d in deltas),
+        "up": sum(d > tol for d in deltas),
+        "down": sum(d < -tol for d in deltas),
+        "tied": sum(abs(d) <= tol for d in deltas),
         "tasks": [{**p, "baseline": _round(p["baseline"]), "treatment": _round(p["treatment"]),
                    "delta": _round(p["delta"])} for p in pairs],
     }
@@ -626,7 +631,8 @@ def format_compare(summary: dict[str, Any]) -> str:
                          f"{r['up']}/{r['down']}/{r['tied']}")
         for r in rows:
             if r["measure"] in PRIMARY:
-                moved = [t for t in r["tasks"] if abs(t["delta"]) > EPS]
+                tol = tie_tolerance([t["delta"] for t in r["tasks"]])
+                moved = [t for t in r["tasks"] if abs(t["delta"]) > tol]
                 if moved:
                     lines.append(f"  {r['measure']} changed: " + ", ".join(
                         f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))

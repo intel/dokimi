@@ -65,7 +65,16 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.eval.finite_delta import check_sum_range, checked_delta
-from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, round_mean, sign_flip_row, within
+from dokimi.eval.sign_flip import (  # noqa: F401  (EPS stays importable from here)
+    ALPHA,
+    EPS,
+    METHOD,
+    min_sign_flip_p,
+    round_mean,
+    sign_flip_row,
+    tie_tolerance,
+    within,
+)
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 #: Checked without importing scipy, whose OpenBLAS starts a thread per core
@@ -569,7 +578,7 @@ def _describe_deltas(
 ) -> Dict[str, Any]:
     """Effect size, the sign-flip p, and the interval that inverts it, for a delta vector.
 
-    ``p`` is the two-sided sign-flip p over the deltas not within ``EPS`` of 0
+    ``p`` is the two-sided sign-flip p over the deltas not within ``tie_tolerance`` of 0
     (:func:`dokimi.eval.sign_flip.sign_flip_p`, exact up to 16 of them, Monte
     Carlo from ``seed`` above), left unrounded for the caller to correct and
     then :func:`_finalize`. Correcting an already-rounded p multiplies its
@@ -608,7 +617,8 @@ def _describe_deltas(
         p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
         p, lo, hi, shown_lo, shown_hi = None, None, None, None, None
-    n_changed = sum(1 for x in d if abs(x) > EPS)
+    tol = tie_tolerance(d)
+    n_changed = sum(1 for x in d if abs(x) > tol)
 
     return {
         "n": len(d),

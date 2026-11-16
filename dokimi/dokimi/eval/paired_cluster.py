@@ -35,6 +35,7 @@ import math
 from collections.abc import Hashable, Sequence
 from typing import Any, Dict, List, Optional, Tuple
 
+from dokimi.eval.sign_flip import EPS, tie_tolerance
 from dokimi.eval.stats import bootstrap_ci
 
 #: Fewest clusters with a usable pair before an interval is reported at all.
@@ -43,8 +44,9 @@ MIN_CLUSTERS = 10
 #: Bootstrap resamples; the same default as :func:`dokimi.eval.stats.bootstrap_ci`.
 DEFAULT_RESAMPLES = 10_000
 
-#: Tolerance for comparing a bound with ``-margin``, so float noise does not flip a verdict.
-_EPS = 1e-9
+#: Tolerance for comparing a bound with ``-margin``, so float noise does not flip a verdict; the cap of
+#: :func:`~dokimi.eval.sign_flip.tie_tolerance`, which scales it down for bounds that are all below it.
+_EPS = EPS
 
 #: Display precision of the delta and its bounds; the status is decided on unrounded values.
 DISPLAY_DIGITS = 4
@@ -183,9 +185,10 @@ def _verdict(lo: float, hi: float, margin: Optional[float]) -> Optional[str]:
     """Non-inferiority status of the interval ``[lo, hi]`` against ``-margin``."""
     if margin is None:
         return None
-    if hi < -margin - _EPS:
+    eps = tie_tolerance([lo, hi, margin])  # float slack at the scale of the bounds: _EPS, less below it
+    if hi < -margin - eps:
         return "inferior"
     # A zero-width interval has no spread estimate, so it cannot show non-inferiority.
-    if lo > -margin + _EPS and hi - lo > _EPS:
+    if lo > -margin + eps and hi - lo > eps:
         return "noninferior"
     return "inconclusive"
