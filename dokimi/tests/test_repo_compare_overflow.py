@@ -91,6 +91,20 @@ def test_checked_mean_sums_exactly_whatever_the_python_version():
     assert checked_mean([1, 1e16, 1.0, -1e16]) == 0.5  # sum() starts on an int and loses its compensation: 0.25
 
 
+def test_checked_mean_refuses_a_total_that_only_the_exact_sum_sees_beyond_the_range(monkeypatch):
+    def left_to_right(values, start=0):  # what sum() does before Python 3.12
+        total = start
+        for v in values:
+            total += v
+        return total
+
+    monkeypatch.setattr("dokimi.eval.finite_delta.sum", left_to_right, raising=False)
+    values = [float.fromhex("0x1.fffffffffffffp+1023"), 2.0**969, 2.0**969]
+    assert math.isfinite(left_to_right(values))  # the rounded total stays finite
+    with pytest.raises(CompareError, match=r"task 't': the sum of the magnitudes .* float range"):
+        checked_mean(values, CompareError, "task 't'")
+
+
 def test_checked_mean_keeps_the_exact_mean_of_integers():
     assert checked_mean([2**60 + 1, 1, -(2**60)]) == 2 / 3  # fsum would round the first to a float: 1 / 3
     assert checked_mean([2**60 + 1, 2**60 + 1]) == float(2**60 + 1)

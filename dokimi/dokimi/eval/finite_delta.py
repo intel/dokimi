@@ -54,8 +54,9 @@ def check_sum_range(values: Sequence[float], error: type[Exception] = OverflowEr
     addition is safe for the sign patterns of a sign-flip test: they are refused.
     """
     try:
-        refused = not math.isfinite(sum(abs(v) for v in values)) and all(math.isfinite(v) for v in values)
-    except OverflowError:  # an integer sum too large for a float: ``isfinite`` cannot read it
+        # fsum is exact: ``sum`` before 3.12 rounds small terms away and stays finite where the exact total does not
+        refused = not math.isfinite(math.fsum(abs(v) for v in values)) and all(math.isfinite(v) for v in values)
+    except OverflowError:  # an exact sum or an integer too large for a float: ``fsum`` or ``isfinite`` cannot read it
         refused = not _has_non_finite_float(*values)
     if refused:
         raise error(f"{where}{': ' if where else ''}the sum of the magnitudes of the values leaves the float range")
