@@ -186,8 +186,15 @@ class _Flags:
         return values[0] if values else None
 
     def config(self, key: str) -> str | None:
-        """The value of ``key`` in a ``-c key=value`` (or ``--config``) override."""
-        for word in (self.values("-c") or []) + (self.values("--config") or []):
-            if word.startswith(key + "="):
-                return word[len(key) + 1:].strip("\"'")
-        return None
+        """The value of ``key`` in the last ``-c key=value`` (or ``--config``) override on the line: Codex
+        applies them in order, so a later one replaces an earlier one, whichever spelling it uses."""
+        found = None
+        for i, word in enumerate(self._argv):
+            if word not in ("-c", "--config") or i in self._attached:
+                continue
+            for j, item in enumerate(self._argv[i + 1:], i + 1):
+                if item.startswith("-") and j not in self._attached:
+                    break
+                if item.startswith(key + "="):
+                    found = item[len(key) + 1:].strip("\"'")
+        return found

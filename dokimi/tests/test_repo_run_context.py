@@ -451,3 +451,15 @@ def test_a_quoted_codex_effort_override_is_recorded_without_its_quotes():
     argv = ["codex", "exec", "-c", 'model_reasoning_effort="high"', "--json", "--", "task"]
 
     assert _build("codex", CODEX_LINES, argv)["effort"] == "high"
+
+
+@pytest.mark.parametrize(
+    "argv, effort",
+    [
+        (["codex", "exec", "-c", "model_reasoning_effort=low", "-c", "model_reasoning_effort=high", "--", "t"], "high"),
+        (["codex", "exec", "-c", "model_reasoning_effort=high", "--config", "model_reasoning_effort=low", "--", "t"], "low"),
+        (["codex", "exec", "--config", "model_reasoning_effort=low", "-c", "model_reasoning_effort=high", "--", "t"], "high"),
+    ],
+)
+def test_the_last_codex_effort_override_on_the_line_is_the_one_applied(argv, effort):
+    assert _build("codex", CODEX_LINES, argv)["effort"] == effort
