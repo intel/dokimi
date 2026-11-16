@@ -36,7 +36,7 @@
       "p_value": 0.004,
       "product": "oneTBB",
       "protocol": {
-        "digest": "sha256:79edd29b1fa49fb8d90ce01893879c4d6b61813d8c54199c5023021501263210",
+        "digest": "sha256:e43084f2c2980e45beb24e17459d8e48188c63bab7b45df7616e912959f4c774",
         "id": "dokimi.awareness",
         "resolved": {
           "alpha": 0.05,

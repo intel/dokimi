@@ -108,6 +108,18 @@
               "string",
               "null"
             ]
+          },
+          "judge_temperature": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "judge_prompt_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": true

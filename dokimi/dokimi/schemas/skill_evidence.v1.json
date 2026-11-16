@@ -296,6 +296,10 @@
                   "string",
                   "null"
                 ]
+              },
+              "p_decimals": {
+                "type": "integer",
+                "description": "places p_value is rounded to; within that of alpha a verdict cannot be recomputed"
               }
             }
           },

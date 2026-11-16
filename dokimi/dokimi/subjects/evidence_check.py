@@ -29,13 +29,28 @@ PROTOCOL_VERSION = "1"
 #: A value that names a moving target rather than one snapshot. Matched as a whole trailing token,
 #: so ``claude-sonnet-5-5`` is resolved and ``claude-sonnet-latest`` / ``gpt:default`` are not.
 _ALIAS = re.compile(r"(?:^|[-_.:@/])(?:latest|default|auto|stable|current)$", re.IGNORECASE)
+#: Bare family names a harness resolves to whatever it ships today (dokimi's own claude-cli judges
+#: default to ``opus``/``sonnet``); a dated or versioned id is a snapshot.
+_FLOATING = re.compile(r"^(?:claude|opus|sonnet|haiku|gpt-4o|gpt-4o-mini|gpt-4|gpt-5|o1|o3|o4-mini)$",
+                       re.IGNORECASE)
 
 VERDICTS = ("improved", "regressed", "inconclusive")
 
 
+def _normal(value: Any) -> Any:
+    # An integral float is written as an int, so 0 and 0.0 (or 3 and 3.0) are one measurement.
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, Mapping):
+        return {str(k): _normal(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normal(v) for v in value]
+    return value
+
+
 def canonical_json(value: Any) -> bytes:
-    """Sorted keys, no whitespace, UTF-8, no NaN: the bytes the protocol digest is taken over."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    """Sorted keys, no whitespace, UTF-8, no NaN, integral floats as ints: the bytes the digest is over."""
+    return json.dumps(_normal(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False,
                       allow_nan=False).encode("utf-8")
 
 
@@ -44,7 +59,15 @@ def protocol_digest(resolved: Mapping[str, Any]) -> str:
 
 
 def is_alias(value: Any) -> bool:
-    return isinstance(value, str) and bool(_ALIAS.search(value.strip()))
+    """A moving target: an alias suffix, a bare family name, or either anywhere inside a nested value."""
+    if isinstance(value, str):
+        text = value.strip()
+        return bool(_ALIAS.search(text) or _FLOATING.match(text.rsplit("/", 1)[-1]))
+    if isinstance(value, Mapping):
+        return any(is_alias(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(is_alias(v) for v in value)
+    return False
 
 
 def build_protocol(inputs: Mapping[str, Any]) -> dict[str, Any]:
@@ -61,7 +84,7 @@ def build_protocol(inputs: Mapping[str, Any]) -> dict[str, Any]:
             unresolved.append(key)
         elif is_alias(value):
             unresolved.append(key)
-            aliases[key] = value
+            aliases[key] = value if isinstance(value, str) else canonical_json(value).decode("utf-8")
         else:
             resolved[key] = value
     protocol: dict[str, Any] = {
@@ -90,6 +113,8 @@ def recompute_verdict(result: Mapping[str, Any]) -> str | None:
     if rule.get("basis") != "p_adjusted" or not _number(alpha) or not isinstance(better_up, bool):
         return None
     delta, p = result.get("delta"), result.get("p_value")
+    if _number(p) and _near_alpha(p, alpha, rule.get("p_decimals")):
+        return None  # the rounded p cannot say which side of alpha the unrounded one was on
     if not _number(delta) or not _number(p) or p >= alpha or delta == 0:
         return "inconclusive"
     return "improved" if (delta > 0) == better_up else "regressed"
@@ -111,7 +136,12 @@ def comparability(result: Mapping[str, Any]) -> list[str]:
             reasons.append("verdict without metric_spec.higher_is_better")
         if not reasons:
             expected = recompute_verdict(result)
-            if expected is None:
+            rule = result["verdict_rule"]
+            p = result.get("p_value")
+            if expected is None and _number(p) and _number(rule.get("alpha")) and _near_alpha(
+                    p, rule["alpha"], rule.get("p_decimals")):
+                reasons.append("p_value is within its rounding of alpha: the verdict cannot be recomputed")
+            elif expected is None:
                 reasons.append("verdict_rule cannot be applied")
             elif expected != result.get("verdict"):
                 reasons.append(f"verdict {result.get('verdict')!r} does not follow verdict_rule ({expected!r})")
@@ -163,6 +193,12 @@ def mark_against(results: Iterable[Mapping[str, Any]],
 def _resolved(protocol: Mapping[str, Any]) -> Mapping[str, Any]:
     resolved = protocol.get("resolved")
     return resolved if isinstance(resolved, Mapping) else {}
+
+
+def _near_alpha(p: float, alpha: float, decimals: Any) -> bool:
+    if not isinstance(decimals, int) or isinstance(decimals, bool):
+        return False
+    return abs(p - alpha) <= 0.5 * 10 ** -decimals + 1e-12
 
 
 def _number(value: Any) -> bool:

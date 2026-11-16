@@ -86,6 +86,9 @@ def _baseline_arm(cell: dict[str, Any], per_arm: dict[str, Any]) -> str | None:
     return candidates[0] if len(candidates) == 1 else None
 
 
+#: The places ``stats._round_p`` rounds ``p_adjusted`` to before it reaches the scorecard.
+P_DECIMALS = 4
+
 #: What ``METRIC`` is: a 0-100 judge score per answer.
 METRIC_SPEC = {"id": METRIC, "unit": "score_points", "range": [0, 100],
                "higher_is_better": True, "judged": True}
@@ -98,9 +101,14 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
     sig = row.get("significance") or {}
     delta = sig.get("delta_mean") if sig else None
     correction = sig.get("correction")
-    judge = cell.get("judge_snapshot") or cell.get("judge_model")
+    judge = cell.get("judge_model")
+    sampling = cell.get("judge_sampling")
+    if sampling is None and cell.get("judge_temperature") is not None:
+        sampling = {"temperature": cell.get("judge_temperature")}
     # The rule the verdict below applies, so a consumer can recompute it from delta and p_value.
-    rule = {"basis": "p_adjusted", "alpha": ALPHA, "test": METHOD, "correction": correction}
+    # p_value is p_adjusted rounded to P_DECIMALS; within that rounding of alpha it cannot be recomputed.
+    rule = {"basis": "p_adjusted", "alpha": ALPHA, "test": METHOD, "correction": correction,
+            "p_decimals": P_DECIMALS}
     # Only resolved values enter the digest; what the scorecard does not record stays unresolved.
     protocol = build_protocol({
         "eval_set_digest": (suite or {}).get("question_set_hash"),
@@ -108,7 +116,7 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
         "judge_model": judge,
         "judge_provider": cell.get("judge_provider"),
         "judge_context": cell.get("judge_context"),
-        "judge_sampling": cell.get("judge_sampling"),
+        "judge_sampling": sampling,
         "judge_prompt_sha256": cell.get("judge_prompt_sha256"),
         "repeats": cell.get("repeats"),
         "test": METHOD,

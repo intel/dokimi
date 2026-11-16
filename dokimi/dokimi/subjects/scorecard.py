@@ -63,6 +63,8 @@ def build_subject_scorecard(
                 "judge_model": cell.get("judge_model"),
                 "judge_provider": cell.get("judge_provider"),
                 "judge_context": cell.get("judge_context"),
+                "judge_temperature": cell.get("judge_temperature"),
+                "judge_prompt_sha256": cell.get("judge_prompt_sha256"),
                 "plugin_set": cell.get("plugin_set"),
                 "summary": cell.get("summary", {}),
                 "cost_summary": cell.get("cost_summary", {}),

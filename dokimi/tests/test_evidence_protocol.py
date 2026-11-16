@@ -59,7 +59,7 @@ def test_fixture_two_judge_snapshots_give_two_digests_and_the_newer_is_not_compa
 def test_the_digest_is_sha256_of_sorted_compact_utf8_json():
     resolved = {"repeats": 3, "judge_model": "j-2026", "judge_sampling": {"temperature": 0.0}}
     expected = hashlib.sha256(
-        b'{"judge_model":"j-2026","judge_sampling":{"temperature":0.0},"repeats":3}').hexdigest()
+        b'{"judge_model":"j-2026","judge_sampling":{"temperature":0},"repeats":3}').hexdigest()
 
     assert protocol_digest(resolved) == "sha256:" + expected
     assert build_protocol(resolved)["digest"] == "sha256:" + expected
@@ -185,3 +185,45 @@ def test_the_rollup_and_scorecard_cells_carry_the_judge(tmp_path: Path):
 def test_conformance_fixtures_are_valid_json_files():
     for path in sorted(CONFORMANCE.glob("*.json")):
         json.loads(path.read_text(encoding="utf-8"))
+
+
+# --- self-review round 1 --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("bare", ["opus", "sonnet", "haiku", "gpt-4o", "gpt-4o-mini"])
+def test_a_bare_family_name_is_an_alias(bare):
+    assert build_protocol({"judge_model": bare})["unresolved"] == ["judge_model"]
+
+
+def test_an_alias_nested_in_a_value_is_unresolved():
+    protocol = build_protocol({"judge_sampling": {"model": "x-latest", "temperature": 0.0}})
+    assert protocol["unresolved"] == ["judge_sampling"]
+
+
+def test_an_integral_float_and_an_int_give_one_digest():
+    assert protocol_digest({"t": 0, "r": 3}) == protocol_digest({"t": 0.0, "r": 3.0})
+
+
+def test_a_p_value_within_rounding_of_alpha_is_not_a_contradiction():
+    result = {**_fixture("verdict_with_rule.json"), "p_value": 0.05}
+    result["verdict_rule"] = {**result["verdict_rule"], "p_decimals": 4}
+
+    assert recompute_verdict(result) is None
+    assert comparability(result) == ["p_value is within its rounding of alpha: the verdict cannot be recomputed"]
+
+
+def test_the_exporter_keeps_the_judge_temperature_and_prompt_hash_the_run_recorded(tmp_path: Path):
+    from test_subjects_evidence import _scorecard
+    from dokimi.eval.matrix_rollup import build_matrix_rollup
+
+    arms = {"baseline_arm": "none", "judge_temperature": 0.0, "judge_prompt_sha256": "e" * 64}
+    rollup = build_matrix_rollup(library_name="l", out_dir=tmp_path, compute_plugin_deltas=False,
+                                 cell_artifacts=[("c1", tmp_path / "c1.json", arms)])
+    assert rollup["cells"][0]["judge_temperature"] == 0.0
+    assert rollup["cells"][0]["judge_prompt_sha256"] == "e" * 64
+
+    scorecard = _scorecard()
+    scorecard["cells"][0].update({"judge_temperature": 0.0, "judge_prompt_sha256": "e" * 64})
+    [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+    assert skill["protocol"]["resolved"]["judge_sampling"] == {"temperature": 0}
+    assert skill["protocol"]["resolved"]["judge_prompt_sha256"] == "e" * 64
+    assert skill["verdict_rule"]["p_decimals"] == 4
