@@ -258,3 +258,13 @@ def test_no_change_is_ok_even_with_zero_tolerance():
 
     assert not unchanged.has_warnings and not unchanged.has_critical
     assert _score(dropped).level == "CRITICAL"
+
+
+@pytest.mark.parametrize("key", ["score", "coverage"])
+def test_a_nan_delta_grades_critical_not_ok(key):
+    """NaN compares false with every threshold, so it used to grade OK and pass. No NaN is a measurement the gate passes."""
+    result = detect_regressions({key: float("nan")}, {})
+
+    found = _score(result) if key == "score" else _metrics(result)[0]
+    assert (found.level, found.passed) == ("CRITICAL", False)
+    assert result.has_critical and result.status == "FAIL"

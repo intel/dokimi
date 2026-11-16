@@ -73,6 +73,7 @@ from .batch_ledger import (  # re-exported: the names callers and tests take fro
 )
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
+from . import run_context
 from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
@@ -238,6 +239,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     env.update({k: v for k, v in harness_env.items() if k not in _HOST_ONLY_ENV and k not in passed})
     env["DOKIMI_HOOK_LOG"] = f"{CONFIG_DIR}/hook.log"
     opts.profile.write_config(rd / "config", {"config_dir": CONFIG_DIR, "support_dir": SUPPORT_DIR})
+    config_sha = run_context.config_digests(rd, opts.profile, present)  # before the agent can change them
     argv = opts.profile.argv(prompt=opts.profile.prompt(str(task.raw["prompt"])), model=opts.model,
                              tools=opts.tools, delegation=opts.delegation, max_turns=int(caps["max_turns"]),
                              budget_usd=caps["budget_usd"], bin_path=bin_in, present=present)
@@ -285,6 +287,9 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             first_prompt_tokens=transcript.first_prompt_tokens,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
+        run_context.save(rd, run_context.build(opts.profile, model=opts.model, harness_version=opts.harness_version,
+                                               argv=argv, transcript=transcript, config_sha256=config_sha),
+                         agent["trace_errors"])
         if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record
             process = _process_or_null(ctx, events, agent["trace_errors"], transcript.unknown_reads)
         if meta.get("skills") and started:
