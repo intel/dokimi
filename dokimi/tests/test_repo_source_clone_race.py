@@ -7,6 +7,7 @@ own partial directory, and the one that loses the rename uses the winner's clone
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -152,7 +153,8 @@ def test_a_branch_fetch_that_lost_a_ref_to_another_run_is_run_again(tmp_path, mo
             return real(gd, *args, **kwargs)
         except SourceError as exc:
             if kwargs.get("env", process.GIT_ENV).resolve().get("LC_ALL", "C") != "C":  # git as translated
-                raise SourceError(str(exc).replace("cannot lock ref", "konnte Referenz nicht sperren")) from exc
+                raise SourceError(re.sub("|".join(map(re.escape, source._REF_LOST)), "Referenz nicht sperrbar",
+                                         str(exc))) from exc
             raise
         finally:
             held.unlink()
@@ -267,7 +269,7 @@ def test_a_branch_fetch_that_keeps_losing_its_ref_raises_after_the_last_try(tmp_
 
     monkeypatch.setattr(source, "_git", count_fetches)
     monkeypatch.setattr(source.time, "sleep", lambda s: None)
-    with pytest.raises(SourceError, match="cannot lock ref"):
+    with pytest.raises(SourceError, match="|".join(map(re.escape, source._REF_LOST))):  # whichever text this git prints
         ensure_rev(git_dir, "topic")
     assert len(fetches) == source._FETCH_TRIES
 
