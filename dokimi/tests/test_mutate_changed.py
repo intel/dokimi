@@ -625,9 +625,9 @@ def test_the_covering_pass_asks_pytest_for_the_passed_ids(tmp_path: Path, monkey
 
 
 def test_apply_splices_a_mutant_on_its_own_line_past_a_unicode_line_separator() -> None:
-    src = 'S = " "\ndef f(x):\n    return x == 1\n'
+    src = 'S = "\u2028"\ndef f(x):\n    return x == 1\n'
     (m,) = [m for m in mc.mutants_for("x.py", src, {3}) if m.op == "flip-compare"]
-    assert mc.apply(src, m) == 'S = " "\ndef f(x):\n    return x != 1\n'
+    assert mc.apply(src, m) == 'S = "\u2028"\ndef f(x):\n    return x != 1\n'
 
 
 def test_a_survivor_is_inconclusive_only_in_the_module_whose_test_file_did_not_run(
