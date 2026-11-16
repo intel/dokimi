@@ -24,7 +24,7 @@ try:
     nav_part = nav[nav.find("\nnav:"):] if "\nnav:" in nav else ""
     m["in_mkdocs_nav"] = PAGE in nav_part
     # The index is docs/documentation-index.md since the feature guide; the task base still has it in docs/README.md.
-    index = "".join(Path(f).read_text(encoding="utf-8") for f in ("docs/documentation-index.md", "docs/README.md") if Path(f).exists())
+    index = Path("docs/documentation-index.md" if Path("docs/documentation-index.md").exists() else "docs/README.md").read_text(encoding="utf-8")
     m["in_docs_index"] = bool(re.search(r"\]\(\.?/?" + re.escape(PAGE) + r"\)", index))
 except Exception as exc:  # a broken workspace fails the checks, it does not crash the grader
     print(f"check error: {exc}")
