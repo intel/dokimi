@@ -132,6 +132,31 @@ def test_run_that_never_started_kills_nothing():
     assert fake.argvs() == []
 
 
+def test_run_whose_setup_fails_before_docker_starts_kills_nothing(tmp_path):
+    # The named container may belong to someone else: a run that never reached docker must not kill it.
+    def missing_dir(call):
+        raise FileNotFoundError(call.argv[0])
+
+    def invalid_timeout(call):
+        raise ValueError("timeout must be positive")
+
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000")
+    for answer, timeout_s, stdout in [(missing_dir, 5, tmp_path / "gone" / "o"), (invalid_timeout, 0, tmp_path / "o")]:
+        fake = FakeRunner(answer)
+        with pytest.raises((FileNotFoundError, ValueError)):
+            DockerRunner(runner=fake).run(spec, stdout=stdout, stderr=tmp_path / "e", timeout_s=timeout_s)
+        assert ("docker", "kill", "dokimi-x") not in fake.argvs()
+
+
+def test_run_with_a_missing_mount_kills_nothing(tmp_path):
+    fake = FakeRunner()
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000",
+                         mounts=[Mount(tmp_path / "absent", "/eval/run")])
+    with pytest.raises(ContainerError, match="mount source does not exist"):
+        DockerRunner(runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    assert fake.argvs() == []
+
+
 def test_docker_runner_argv_refuses_a_comma_as_a_container_error():
     spec = ContainerSpec(image="img", argv=["true"], mounts=[Mount(Path("/x,y"), "/eval/run")])
     with pytest.raises(ContainerError, match="cannot contain ','"):

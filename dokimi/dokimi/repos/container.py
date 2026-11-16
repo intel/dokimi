@@ -159,11 +159,11 @@ class DockerRunner:
         try:
             result = run_process(argv, env=process.Env.inherit(), stdout=stdout, stderr=stderr,
                                  timeout_s=timeout_s, on_timeout=stop, runner=self.runner)
-        except BaseException:
+        except KeyboardInterrupt:
             # Ctrl-C reaches only the CLI's group: a container that ignores SIGTERM outlives it.
             try:
                 stop()
-            except BaseException:  # noqa: BLE001 - a second Ctrl-C must not hide the first
+            except BaseException:  # noqa: BLE001, S110 - a second Ctrl-C must not hide the first
                 pass
             raise
         if docker_cmd.failed_to_start(result.returncode, result.timed_out):
