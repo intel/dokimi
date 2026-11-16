@@ -181,7 +181,7 @@ def _blank_blocks(lines: list[str]) -> list[str]:
         if hidden and not pos:
             out.append(" " * len(line))
             continue
-        line, comment, run = _blank_inline(line, close_ahead[i], pos, _paragraph_above(lines, i))
+        line, comment, run = _blank_inline(line, close_ahead[i], pos, _paragraph_above(out, i))
         line, span = _open_span(lines, i, line, run)
         out.append(line)
     return out
@@ -230,12 +230,12 @@ def _angle_link_end(line: str, pos: int, before: str = "") -> int | None:
     return m.end() - len(head) if m and m.end() > p else None
 
 
-def _paragraph_above(lines: list[str], i: int) -> str:
-    """The raw lines above ``i`` in its paragraph, joined: the context an opener may come from."""
+def _paragraph_above(out: list[str], i: int) -> str:
+    """The blanked lines above ``i`` in its paragraph, joined: the text ``index_targets`` sees before the line."""
     k = i
-    while k > 0 and lines[k - 1].strip():
+    while k > 0 and out[k - 1]:
         k -= 1
-    return "\n".join(lines[k:i])
+    return "\n".join(out[k:i])
 
 
 def _unpaired_run(line: str, before: str = "") -> re.Match | None:
