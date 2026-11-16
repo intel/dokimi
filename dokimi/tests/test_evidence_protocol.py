@@ -121,6 +121,16 @@ def test_a_verdict_that_contradicts_its_rule_is_non_comparable():
     assert comparability(result) == ["verdict 'improved' does not follow verdict_rule ('inconclusive')"]
 
 
+def test_a_p_value_or_alpha_outside_the_probability_range_cannot_give_a_verdict():
+    # p = -0.004 is below alpha, so it used to read "improved" and pass comparability with no reason.
+    base = _fixture("verdict_with_rule.json")
+    for result in ({**base, "p_value": -0.004}, {**base, "p_value": 1.5},
+                   {**base, "verdict_rule": {**base["verdict_rule"], "alpha": 1.5}}):
+        assert recompute_verdict(result) is None
+        assert "verdict_rule cannot be applied" in comparability(result)
+        assert compare(result, base)
+
+
 def test_lower_is_better_turns_a_negative_delta_into_improved():
     result = _fixture("verdict_with_rule.json")
     result["metric_spec"]["higher_is_better"] = False

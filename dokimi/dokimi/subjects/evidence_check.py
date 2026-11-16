@@ -115,9 +115,13 @@ def recompute_verdict(result: Mapping[str, Any]) -> str | None:
     alpha, better_up = _num(rule.get("alpha")), spec.get("higher_is_better")
     if rule.get("basis") != "p_adjusted" or alpha is None or not isinstance(better_up, bool):
         return None
+    if not 0 < alpha < 1:
+        return None  # alpha is a probability: outside (0, 1) the rule says nothing about a verdict
     if not _valid_decimals(rule.get("p_decimals"), allow_none=True):
         return None  # an unsupported rounding precision: the rule cannot be applied
     delta, p = _num(result.get("delta")), _num(result.get("p_value"))
+    if p is not None and not 0 <= p <= 1:
+        return None  # a p-value is a probability: an out-of-range one cannot be on either side of alpha
     if p is not None and _near_alpha(p, alpha, rule.get("p_decimals")):
         return None  # the rounded p cannot say which side of alpha the unrounded one was on
     if delta is None or p is None or p >= alpha or delta == 0:
