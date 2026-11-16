@@ -54,6 +54,9 @@ def build_subject_scorecard(
             cells.append({
                 "product": run["product"],
                 "questions": run["questions"],
+                # The digest of this run's own question file: a suite with one file per product
+                # measures a different set in each cell, and suite.question_set_hash covers them all.
+                "questions_digest": _digest_values((run["questions"],)),
                 "matrix_cell": cell.get("matrix_cell"),
                 "artifact": cell.get("artifact"),
                 "model": cell.get("model"),

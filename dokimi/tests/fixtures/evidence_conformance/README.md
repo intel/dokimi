@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # skill_evidence.v1 conformance fixtures
 
 Each file is a valid `skill_evidence.v1` document with one result. A consumer passes when:

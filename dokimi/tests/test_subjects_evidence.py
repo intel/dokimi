@@ -312,3 +312,32 @@ def test_the_scorecard_cells_carry_the_baseline_arm_of_the_rollup(tmp_path: Path
                          "rollup": rollup}],
         out_dir=tmp_path)
     assert scorecard["cells"][0]["baseline_arm"] == "none"
+
+
+def test_a_scorecard_keeps_the_test_it_recorded_and_an_unrecorded_one_is_unresolved():
+    from dokimi.subjects.evidence import build_skill_evidence
+
+    scorecard = _scorecard()
+    significance = scorecard["cells"][0]["summary"]["per_arm"]["skill:s"]["significance"]
+    significance["ci_method"] = "student_t"
+    [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+    assert skill["verdict_rule"]["test"] == skill["protocol"]["resolved"]["test"] == "student_t"
+
+    del significance["ci_method"]
+    [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+    assert skill["verdict_rule"]["test"] is None and "test" in skill["protocol"]["unresolved"]
+
+
+def test_a_cell_of_a_two_question_set_suite_is_resolved_only_by_its_own_digest():
+    from dokimi.subjects.evidence import build_skill_evidence
+
+    scorecard = _scorecard()
+    scorecard["suite"]["questions"] = ["q.json", "r.json"]
+
+    def skill_protocol() -> dict:
+        [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+        return skill["protocol"]
+
+    assert "eval_set_digest" in skill_protocol()["unresolved"]
+    scorecard["cells"][0]["questions_digest"] = "sha256:" + "e" * 64
+    assert skill_protocol()["resolved"]["eval_set_digest"] == "sha256:" + "e" * 64

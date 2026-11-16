@@ -231,3 +231,110 @@ def test_the_exporter_keeps_the_judge_temperature_and_prompt_hash_the_run_record
     assert skill["protocol"]["resolved"]["judge_sampling"] == {"temperature": 0}
     assert skill["protocol"]["resolved"]["judge_prompt_sha256"] == "e" * 64
     assert skill["verdict_rule"]["p_decimals"] == 4
+
+
+# --- regressions: what a result states must be what its protocol resolved ----------------------
+
+def _with(result: dict, **changes) -> dict:
+    return {**result, **changes}
+
+
+def test_a_stated_judge_or_rule_value_the_protocol_does_not_resolve_is_non_comparable():
+    base = _fixture("verdict_with_rule.json")
+    judge = _with(base, judge_model="claude-sonnet-5-5-20261101")
+    alpha = _with(base, verdict_rule={**base["verdict_rule"], "alpha": 0.01})
+
+    assert compare(judge, base) == ["result: judge_model differs from protocol.resolved.judge_model"]
+    assert compare(alpha, base) == ["result: verdict_rule.alpha differs from protocol.resolved.alpha"]
+
+
+def test_a_metric_unit_or_range_change_is_non_comparable_with_or_without_a_protocol():
+    base = _fixture("verdict_with_rule.json")
+    reason = ["metric specification differs (unit, range or direction)"]
+    unit = _with(base, metric_spec={**base["metric_spec"], "unit": "percent"})
+    span = _with(base, metric_spec={**base["metric_spec"], "range": [0, 1]})
+    bare = {k: v for k, v in base.items() if k != "protocol"}
+
+    assert compare(unit, base) == reason
+    assert compare(span, base) == reason
+    assert compare(_with(bare, metric_spec={**bare["metric_spec"], "unit": "percent"}), bare) == reason
+
+
+def test_a_protocol_on_one_side_only_is_non_comparable_in_either_order():
+    base = _fixture("verdict_with_rule.json")
+    bare = {k: v for k, v in base.items() if k != "protocol"}
+    reason = ["protocol on one side only: the fallback fields cannot stand for its inputs"]
+
+    assert compare(base, bare) == compare(bare, base) == reason
+
+
+def test_an_input_the_protocol_leaves_out_is_unresolved():
+    base = _fixture("verdict_with_rule.json")
+    partial = _with(base, protocol=build_protocol({"judge_model": base["judge_model"]}))
+
+    [reason] = compare(partial, partial)
+    assert reason.startswith("protocol inputs not resolved: ")
+    assert "alpha" in reason and "repeats" in reason and "judge_model" not in reason
+
+
+@pytest.mark.parametrize("decimals", [-1000, 1000, True])
+def test_an_unsupported_rounding_precision_is_non_comparable_not_a_crash(decimals):
+    base = _fixture("verdict_with_rule.json")
+    bad = _with(base, verdict_rule={**base["verdict_rule"], "p_decimals": decimals})
+
+    assert recompute_verdict(bad) is None
+    assert "verdict_rule cannot be applied" in comparability(bad)
+    assert compare(bad, base) and mark_against([bad], base)[0]["comparable"] is False
+
+
+def test_without_protocols_a_judge_provider_difference_is_non_comparable():
+    a = {k: v for k, v in _fixture("verdict_with_rule.json").items() if k != "protocol"}
+
+    assert compare(_with(a, judge_provider="anthropic"), a) == ["judge_provider differs"]
+
+
+def test_a_judged_cell_carries_its_judge_fields_into_the_scorecard(tmp_path: Path):
+    from dokimi.subjects import build_subject_scorecard, load_subject
+
+    (tmp_path / "subject.toml").write_text(
+        '[subject]\nid = "s"\nkind = "doc-source"\nref = "local:docs"\n\n'
+        '[suite]\nproducts = ["p"]\nquestions = ["q.json"]\n', encoding="utf-8")
+    cell = {"matrix_cell": "c1", "judge_model": "j", "judge_provider": "jp", "judge_context": "ctx"}
+    judged = {**cell, "judge_temperature": 0.0, "judge_prompt_sha256": "sha256:" + "d" * 64}
+    scorecard = build_subject_scorecard(
+        load_subject(tmp_path / "subject.toml"), out_dir=tmp_path,
+        awareness_runs=[{"product": "p", "questions": "q.json", "matrix_rollup": "m.json",
+                         "rollup": {"cells": [judged]}}])
+    carried = scorecard["cells"][0]
+    assert {key: value for key, value in carried.items() if key.startswith("judge_")} == {
+        key: value for key, value in judged.items() if key.startswith("judge_")}
+
+
+def test_each_cell_of_a_two_question_set_suite_carries_the_digest_of_its_own_set(tmp_path: Path):
+    from dokimi.subjects import build_subject_scorecard, load_subject
+    from dokimi.subjects.scorecard import _digest_values
+
+    (tmp_path / "subject.toml").write_text(
+        '[subject]\nid = "s"\nkind = "doc-source"\nref = "local:docs"\n\n'
+        '[suite]\nproducts = ["p", "q"]\nquestions = ["a.json", "b.json"]\n', encoding="utf-8")
+    (tmp_path / "a.json").write_text('["one"]', encoding="utf-8")
+    (tmp_path / "b.json").write_text('["two"]', encoding="utf-8")
+    runs = [{"product": product, "questions": name, "matrix_rollup": "m.json",
+             "rollup": {"cells": [{"matrix_cell": product}]}}
+            for product, name in (("p", "a.json"), ("q", "b.json"))]
+    scorecard = build_subject_scorecard(load_subject(tmp_path / "subject.toml"), out_dir=tmp_path,
+                                        awareness_runs=runs)
+    first, second = scorecard["cells"]
+    assert first["questions_digest"] == _digest_values(("a.json",))
+    assert second["questions_digest"] == _digest_values(("b.json",))
+    assert scorecard["suite"]["question_set_hash"] not in (first["questions_digest"], second["questions_digest"])
+
+
+def test_a_non_finite_p_or_delta_gives_no_direction():
+    base = _fixture("verdict_with_rule.json")
+    huge = 10 ** 400  # valid JSON, too large for a float
+    for changes in ({"p_value": float("nan")}, {"delta": float("nan")}, {"p_value": float("inf")},
+                    {"delta": huge}, {"p_value": huge}):
+        bad = _with(base, **changes)
+        assert recompute_verdict(bad) == "inconclusive", changes
+        comparability(bad)  # must not raise

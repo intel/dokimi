@@ -19,7 +19,7 @@ from typing import Any
 
 from dokimi import __version__
 from dokimi.eval.comparison_verdict import decide
-from dokimi.eval.sign_flip import ALPHA, METHOD
+from dokimi.eval.sign_flip import ALPHA
 from dokimi.subjects.evidence_check import build_protocol, comparability
 
 #: The arm metric the awareness summary carries per arm (``summary.per_arm[arm]``).
@@ -95,6 +95,16 @@ METRIC_SPEC = {"id": METRIC, "unit": "score_points", "range": [0, 100],
                "higher_is_better": True, "judged": True}
 
 
+def _eval_set_digest(cell: dict[str, Any], suite: dict[str, Any] | None) -> str | None:
+    """The digest of the question set this cell measured; the suite's only when one set serves every cell."""
+    if cell.get("questions_digest") is not None:
+        return cell["questions_digest"]
+    questions = (suite or {}).get("questions") or []
+    if len(questions) == 1:
+        return (suite or {}).get("question_set_hash")
+    return None
+
+
 def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
             suite: dict[str, Any] | None = None) -> dict[str, Any]:
     # Every statistic is the paired test's, so n, delta, CI and p describe the same questions.
@@ -106,13 +116,16 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
     sampling = cell.get("judge_sampling")
     if sampling is None and cell.get("judge_temperature") is not None:
         sampling = {"temperature": cell.get("judge_temperature")}
+    # The recorded ci_method, not the current implementation's constant: a historical scorecard keeps
+    # the method it ran. Unrecorded, it is None and the protocol lists it as unresolved.
+    test = sig.get("ci_method")
     # The rule the verdict below applies, so a consumer can recompute it from delta and p_value.
     # p_value is p_adjusted rounded to P_DECIMALS; within that rounding of alpha it cannot be recomputed.
-    rule = {"basis": "p_adjusted", "alpha": ALPHA, "test": METHOD, "correction": correction,
+    rule = {"basis": "p_adjusted", "alpha": ALPHA, "test": test, "correction": correction,
             "p_decimals": P_DECIMALS}
     # Only resolved values enter the digest; what the scorecard does not record stays unresolved.
     protocol = build_protocol({
-        "eval_set_digest": (suite or {}).get("question_set_hash"),
+        "eval_set_digest": _eval_set_digest(cell, suite),
         "metric": METRIC,
         "judge_model": judge,
         "judge_provider": cell.get("judge_provider"),
@@ -120,7 +133,7 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
         "judge_sampling": sampling,
         "judge_prompt_sha256": cell.get("judge_prompt_sha256"),
         "repeats": cell.get("repeats"),
-        "test": METHOD,
+        "test": test,
         "correction": correction,
         "alpha": ALPHA,
         "ci_confidence": sig.get("ci_confidence"),

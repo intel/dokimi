@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from typing import Any, Iterable, Mapping
 
@@ -31,7 +32,7 @@ PROTOCOL_VERSION = "1"
 _ALIAS = re.compile(r"(?:^|[-_.:@/])(?:latest|default|auto|stable|current)$", re.IGNORECASE)
 #: Bare family names a harness resolves to whatever it ships today (dokimi's own claude-cli judges
 #: default to ``opus``/``sonnet``); a dated or versioned id is a snapshot.
-_FLOATING = re.compile(r"^(?:claude|opus|sonnet|haiku|gpt-4o|gpt-4o-mini|gpt-4|gpt-5|o1|o3|o4-mini)$",
+_FLOATING = re.compile(r"^(?:claude|opus|sonnet|haiku|gpt-4o(?:-mini)?|gpt-4|gpt-5|o1|o3|o4-mini)$",
                        re.IGNORECASE)
 
 VERDICTS = ("improved", "regressed", "inconclusive")
@@ -109,13 +110,15 @@ def recompute_verdict(result: Mapping[str, Any]) -> str | None:
     spec = result.get("metric_spec")
     if not isinstance(rule, Mapping) or not isinstance(spec, Mapping):
         return None
-    alpha, better_up = rule.get("alpha"), spec.get("higher_is_better")
-    if rule.get("basis") != "p_adjusted" or not _number(alpha) or not isinstance(better_up, bool):
+    alpha, better_up = _num(rule.get("alpha")), spec.get("higher_is_better")
+    if rule.get("basis") != "p_adjusted" or alpha is None or not isinstance(better_up, bool):
         return None
-    delta, p = result.get("delta"), result.get("p_value")
-    if _number(p) and _near_alpha(p, alpha, rule.get("p_decimals")):
+    if not _valid_decimals(rule.get("p_decimals"), allow_none=True):
+        return None  # an unsupported rounding precision: the rule cannot be applied
+    delta, p = _num(result.get("delta")), _num(result.get("p_value"))
+    if p is not None and _near_alpha(p, alpha, rule.get("p_decimals")):
         return None  # the rounded p cannot say which side of alpha the unrounded one was on
-    if not _number(delta) or not _number(p) or p >= alpha or delta == 0:
+    if delta is None or p is None or p >= alpha or delta == 0:
         return "inconclusive"
     return "improved" if (delta > 0) == better_up else "regressed"
 
@@ -126,36 +129,68 @@ def comparability(result: Mapping[str, Any]) -> list[str]:
     A non-comparable result can still be listed. It is not "neutral": it says nothing either way.
     """
     reasons: list[str] = []
-    spec = result.get("metric_spec") if isinstance(result.get("metric_spec"), Mapping) else {}
+    stated = result.get("metric_spec")
+    spec: Mapping[str, Any] = stated if isinstance(stated, Mapping) else {}
     if result.get("verdict") is not None:
-        if not isinstance(result.get("verdict_rule"), Mapping):
-            reasons.append("verdict without verdict_rule")
-        if not spec.get("unit"):
-            reasons.append("verdict without metric_spec.unit")
-        if not isinstance(spec.get("higher_is_better"), bool):
-            reasons.append("verdict without metric_spec.higher_is_better")
-        if not reasons:
-            expected = recompute_verdict(result)
-            rule = result["verdict_rule"]
-            p = result.get("p_value")
-            if expected is None and _number(p) and _number(rule.get("alpha")) and _near_alpha(
-                    p, rule["alpha"], rule.get("p_decimals")):
-                reasons.append("p_value is within its rounding of alpha: the verdict cannot be recomputed")
-            elif expected is None:
-                reasons.append("verdict_rule cannot be applied")
-            elif expected != result.get("verdict"):
-                reasons.append(f"verdict {result.get('verdict')!r} does not follow verdict_rule ({expected!r})")
+        reasons += _verdict_reasons(result, spec)
     if spec.get("judged") is not False and not result.get("judge_model"):
         reasons.append("judged result without judge_model")
     protocol = result.get("protocol")
     if isinstance(protocol, Mapping) and isinstance(protocol.get("resolved"), Mapping):
         if protocol_digest(protocol["resolved"]) != protocol.get("digest"):
             reasons.append("protocol.digest does not match protocol.resolved")
+        reasons += _disagreements(result, protocol["resolved"])
     return reasons
 
 
+def _disagreements(result: Mapping[str, Any], resolved: Mapping[str, Any]) -> list[str]:
+    """Stated fields whose value is not the one the protocol resolved. An absent field is no statement:
+    its own check (a judged result without a judge, a verdict without a rule) reports it."""
+    stated = [(key, result.get(key)) for key in _AGREES]
+    rule = result.get("verdict_rule")
+    if isinstance(rule, Mapping):
+        stated += [(f"verdict_rule.{key}", rule.get(key)) for key in _RULE_AGREES]
+    out = []
+    for field, value in stated:
+        key = field.rsplit(".", 1)[-1]
+        if value is not None and key in resolved and resolved[key] != value:
+            out.append(f"{field} differs from protocol.resolved.{key}")
+    return out
+
+
+def _verdict_reasons(result: Mapping[str, Any], spec: Mapping[str, Any]) -> list[str]:
+    reasons = []
+    if not isinstance(result.get("verdict_rule"), Mapping):
+        reasons.append("verdict without verdict_rule")
+    if not spec.get("unit"):
+        reasons.append("verdict without metric_spec.unit")
+    if not isinstance(spec.get("higher_is_better"), bool):
+        reasons.append("verdict without metric_spec.higher_is_better")
+    if reasons or not isinstance(result.get("verdict_rule"), Mapping):
+        return reasons
+    expected = recompute_verdict(result)
+    rule = result["verdict_rule"]
+    p, alpha = _num(result.get("p_value")), _num(rule.get("alpha"))
+    if expected is None and p is not None and alpha is not None and _near_alpha(
+            p, alpha, rule.get("p_decimals")):
+        return ["p_value is within its rounding of alpha: the verdict cannot be recomputed"]
+    if expected is None:
+        return ["verdict_rule cannot be applied"]
+    if expected != result.get("verdict"):
+        return [f"verdict {result.get('verdict')!r} does not follow verdict_rule ({expected!r})"]
+    return []
+
+
 #: Without a protocol on both sides, the fields that must be equal instead.
-_FALLBACK_KEYS = ("harness", "judge_model", "metric", "verdict_rule")
+_FALLBACK_KEYS = ("harness", "judge_model", "judge_provider", "metric", "verdict_rule")
+#: The inputs a ``dokimi.awareness`` version 1 protocol names; one it leaves out is unresolved.
+REQUIRED_INPUTS = ("alpha", "ci_confidence", "correction", "eval_set_digest", "judge_context",
+                   "judge_model", "judge_prompt_sha256", "judge_provider", "judge_sampling", "metric",
+                   "repeats", "test")
+#: Fields a result states that its protocol resolves too: a digest over the resolved inputs cannot
+#: catch a result that states another value for them.
+_AGREES = ("judge_model", "judge_provider", "metric")
+_RULE_AGREES = ("alpha", "correction", "test")
 
 
 def compare(result: Mapping[str, Any], reference: Mapping[str, Any]) -> list[str]:
@@ -164,20 +199,38 @@ def compare(result: Mapping[str, Any], reference: Mapping[str, Any]) -> list[str
     reasons += [f"reference: {r}" for r in comparability(reference)]
     if result.get("metric") != reference.get("metric"):
         reasons.append("metric differs")
+    if result.get("metric_spec") != reference.get("metric_spec"):
+        reasons.append("metric specification differs (unit, range or direction)")
     mine, theirs = result.get("protocol"), reference.get("protocol")
     if isinstance(mine, Mapping) and isinstance(theirs, Mapping):
-        if (mine.get("id"), mine.get("version")) != (theirs.get("id"), theirs.get("version")):
-            reasons.append("protocol id or version differs")
-        elif mine.get("digest") != theirs.get("digest"):
-            changed = sorted(k for k in set(_resolved(mine)) | set(_resolved(theirs))
-                             if _resolved(mine).get(k) != _resolved(theirs).get(k))
-            reasons.append("protocol digest differs" + (f" ({', '.join(changed)})" if changed else ""))
-        unresolved = sorted(set(mine.get("unresolved") or []) | set(theirs.get("unresolved") or []))
-        if unresolved:
-            reasons.append(f"protocol inputs not resolved: {', '.join(unresolved)}")
+        reasons += _protocol_reasons(mine, theirs)
+    elif isinstance(mine, Mapping) or isinstance(theirs, Mapping):
+        reasons.append("protocol on one side only: the fallback fields cannot stand for its inputs")
     else:
         reasons += [f"{key} differs" for key in _FALLBACK_KEYS if result.get(key) != reference.get(key)]
     return reasons
+
+
+def _protocol_reasons(mine: Mapping[str, Any], theirs: Mapping[str, Any]) -> list[str]:
+    reasons = []
+    if (mine.get("id"), mine.get("version")) != (theirs.get("id"), theirs.get("version")):
+        reasons.append("protocol id or version differs")
+    elif mine.get("digest") != theirs.get("digest"):
+        changed = sorted(k for k in set(_resolved(mine)) | set(_resolved(theirs))
+                         if _resolved(mine).get(k) != _resolved(theirs).get(k))
+        reasons.append("protocol digest differs" + (f" ({', '.join(changed)})" if changed else ""))
+    unresolved = sorted(_unresolved(mine) | _unresolved(theirs))
+    if unresolved:
+        reasons.append(f"protocol inputs not resolved: {', '.join(unresolved)}")
+    return reasons
+
+
+def _unresolved(protocol: Mapping[str, Any]) -> set[str]:
+    """The inputs the protocol lists as unresolved, and for ``dokimi.awareness`` 1 the ones it omits."""
+    listed = set(protocol.get("unresolved") or [])
+    if (protocol.get("id"), protocol.get("version")) == (PROTOCOL_ID, PROTOCOL_VERSION):
+        listed |= set(REQUIRED_INPUTS) - set(_resolved(protocol))
+    return listed
 
 
 def mark_against(results: Iterable[Mapping[str, Any]],
@@ -196,10 +249,26 @@ def _resolved(protocol: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _near_alpha(p: float, alpha: float, decimals: Any) -> bool:
-    if not isinstance(decimals, int) or isinstance(decimals, bool):
+    if not _valid_decimals(decimals):
         return False
     return abs(p - alpha) <= 0.5 * 10 ** -decimals + 1e-12
 
 
-def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+#: The precisions a rounded p can carry: a float holds about 15 significant digits.
+_MAX_DECIMALS = 15
+
+
+def _valid_decimals(value: Any, *, allow_none: bool = False) -> bool:
+    if value is None:
+        return allow_none
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= _MAX_DECIMALS
+
+
+def _num(value: Any) -> float | None:
+    """A finite number, else None: NaN, infinity and an integer too large for a float say nothing."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return value if math.isfinite(value) else None
+    except OverflowError:
+        return None
