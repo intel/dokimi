@@ -56,12 +56,22 @@ def test_a_partial_record_with_no_reason_keeps_the_cap_wording(tmp_path, record)
     assert "(--max-usd stopped the measurement)" in _refusal(tmp_path, record)
 
 
-@pytest.mark.parametrize("message", [None, 7, ["a"], {"a": 1}, ""])
+_FALLBACKS = {
+    "no_price": "(a call with no known price stopped the measurement; price the model or drop --max-usd to run unmetered)",
+    "permanent_error": "(a permanent provider error stopped the measurement)",
+    "other_reason": "(--max-usd stopped the measurement)",
+}
+
+
+@pytest.mark.parametrize("message", [None, 7, ["a"], {"a": 1}, "", "   ", "\n\t "])
 @pytest.mark.parametrize("reason", ["no_price", "permanent_error", "other_reason"])
-def test_a_message_that_is_not_text_is_a_refusal_not_a_crash(tmp_path, reason, message):
-    text = _refusal(tmp_path, {"partial": {"reason": reason, "message": message}})
-    assert "stopped the measurement" in text or "no known price" in text
+def test_a_message_with_no_usable_text_is_replaced_by_the_fallback(tmp_path, reason, message):
+    assert _FALLBACKS[reason] in _refusal(tmp_path, {"partial": {"reason": reason, "message": message}})
 
 
 def test_an_unknown_reason_with_a_message_names_the_message(tmp_path):
     assert "(disk gone)" in _refusal(tmp_path, {"partial": {"reason": "disk_full", "message": "disk gone"}})
+
+
+def test_an_unknown_reason_with_no_message_keeps_the_cap_wording(tmp_path):
+    assert "(--max-usd stopped the measurement)" in _refusal(tmp_path, {"partial": {"reason": "disk_full"}})
