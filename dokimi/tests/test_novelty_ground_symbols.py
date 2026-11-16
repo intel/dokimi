@@ -190,6 +190,21 @@ def test_a_file_nm_cannot_read_is_an_input_error(tmp_path):
         symbols_check(["cblas_"], [], [str(library)])
 
 
+def test_no_prefix_at_all_is_refused_because_an_empty_pattern_names_every_word(tmp_path):
+    with pytest.raises(InputError, match="prefix"):
+        symbols_check([], [str(_headers(tmp_path) / "*.h")], [])
+
+
+def test_an_unreadable_header_is_an_input_error_not_a_traceback(tmp_path, monkeypatch):
+    header = _headers(tmp_path) / "cblas.h"
+
+    def denied(self, *args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(Path, "read_text", denied)
+    with pytest.raises(InputError, match="cannot read the header"):
+        symbols_check(["cblas_"], [str(header)], [])
+
+
 def _atoms_file(tmp_path, answer="Call cblas_dgemm."):
     span = Span(id="s1", kind="prose", text="cblas_dgemm is the product", start=0, end=25)
     path = tmp_path / "atoms.json"

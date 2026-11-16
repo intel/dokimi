@@ -32,6 +32,8 @@ def check_prefixes(prefixes: Sequence[str]) -> tuple[str, ...]:
         InputError: A prefix is not a C identifier ending in ``_`` (``mkl`` is refused: it
             would also match ordinary words).
     """
+    if not prefixes:  # an empty alternation matches every word of the answer
+        raise InputError("give at least one --prefix: it says which names are checked")
     bad = [p for p in prefixes if not _PREFIX.fullmatch(p)]
     if bad:
         raise InputError(f"--prefix {bad[0]!r} is not a C identifier prefix ending in '_' "
@@ -97,6 +99,14 @@ def _files(patterns: Sequence[str], flag: str) -> list[Path]:
     return sorted(found)
 
 
+def _header_text(path: Path) -> str:
+    """The text of a header; an unreadable one is an input error, not a traceback."""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise InputError(f"cannot read the header {path}: {exc.strerror or exc}") from None
+
+
 def _library_output(path: Path, *, timeout: float = 120.0) -> str:
     """``nm -D --defined-only`` of ``path``, the whole output (a large library lists thousands)."""
     try:
@@ -133,7 +143,7 @@ def symbols_check(prefixes: Sequence[str], headers: Sequence[str],
     for kind, paths in sources:
         for path in paths:
             if kind == "header":
-                names = header_names(path.read_text(encoding="utf-8", errors="replace"), prefixes)
+                names = header_names(_header_text(path), prefixes)
             else:
                 names = nm_names(_library_output(path), prefixes)
             known |= names
