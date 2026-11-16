@@ -628,3 +628,40 @@ def test_apply_splices_a_mutant_on_its_own_line_past_a_unicode_line_separator() 
     src = 'S = " "\ndef f(x):\n    return x == 1\n'
     (m,) = [m for m in mc.mutants_for("x.py", src, {3}) if m.op == "flip-compare"]
     assert mc.apply(src, m) == 'S = " "\ndef f(x):\n    return x != 1\n'
+
+
+def test_a_survivor_is_inconclusive_only_in_the_module_whose_test_file_did_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pkg, tests_dir = tmp_path / "dokimi" / "dokimi", tmp_path / "dokimi" / "tests"
+    pkg.mkdir(parents=True)
+    tests_dir.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@example.com")
+    _git(tmp_path, "config", "user.name", "t")
+    _git(tmp_path, "commit", "--allow-empty", "-qm", "base")
+    (pkg / "zz.py").write_text("def b(x):\n    return x == 2\n", encoding="utf-8")
+    (pkg / "yy.py").write_text("def c(x):\n    return x == 5\n", encoding="utf-8")
+    (tests_dir / "test_zz.py").write_text(
+        "from dokimi.zz import b\nfrom dokimi.yy import c\n\n\ndef test_both_are_called():\n    b(2)\n    c(5)\n",
+        encoding="utf-8")
+    (tests_dir / "test_yy_late.py").write_text("from dokimi.yy import c\n\n\ndef test_late():\n    c(5)\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "head")
+    monkeypatch.setattr(mc, "REPO", tmp_path)
+    monkeypatch.setattr(mc, "PROJECT", tmp_path / "dokimi")
+    monkeypatch.delenv("PYTHONSAFEPATH", raising=False)
+    covered = {2: ["tests/test_zz.py::test_both_are_called"]}
+
+    def covering(work: Path, files: list[str], paths: list[str], budget: float) -> tuple[dict, list[str], list[str]]:
+        return {"dokimi/dokimi/zz.py": covered, "dokimi/dokimi/yy.py": covered}, [], ["tests/test_yy_late.py"]
+
+    monkeypatch.setattr(mc, "covering_tests", covering)
+    out = tmp_path / "report.json"
+    mc.main(["--base", "HEAD~1", "--budget", "100", "--mutant-timeout", "30", "--json", str(out)])
+    report = json.loads(out.read_text(encoding="utf-8"))
+    status = {m["path"]: set() for m in report["mutants"]}
+    for m in report["mutants"]:
+        status[m["path"]].add(m["status"])
+    assert status == {"dokimi/dokimi/zz.py": {"survived"}, "dokimi/dokimi/yy.py": {"inconclusive"}}
