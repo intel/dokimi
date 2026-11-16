@@ -216,3 +216,32 @@ def test_a_none_metric_raises_naming_the_metric(condition, key):
 
     with pytest.raises(ValueError, match=f"{condition}.*{key}"):
         check_critical_bands({key: None}, spec)
+
+
+@pytest.mark.parametrize(("condition", "key"), _CONDITION_KEYS)
+def test_a_missing_metric_is_listed_not_measured(condition, key):
+    """The 0.0 default is not a measurement: the band says so, so the verdict is not read as a measured PASS."""
+    spec = {"critical_bands": {"fail_on": [{"condition": condition, "value": 0.0}]}}
+
+    result = check_critical_bands({}, spec)
+
+    assert (result.not_measured, result.status) == ([condition], "NOT MEASURED")
+
+
+@pytest.mark.parametrize(("condition", "key"), _CONDITION_KEYS)
+def test_a_carried_metric_is_measured(condition, key):
+    spec = {"critical_bands": {"fail_on": [{"condition": condition, "value": 0.5}]}}
+
+    assert check_critical_bands({key: 0.9}, spec).not_measured == []
+
+
+def test_a_missing_band_is_listed_even_when_another_band_was_measured():
+    """A measured band makes the verdict a measured PASS; the missing one is still listed, not hidden."""
+    spec = {"critical_bands": {"fail_on": [
+        {"condition": "coverage_below", "value": 0.5},
+        {"condition": "freshness_below", "value": 0.0},
+    ]}}
+
+    result = check_critical_bands({"coverage": 0.9}, spec)
+
+    assert (result.not_measured, result.status) == (["freshness_below"], "PASS")

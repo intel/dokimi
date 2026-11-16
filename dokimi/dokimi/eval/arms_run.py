@@ -25,7 +25,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
     JUDGE_MODEL_FOR_PROVIDER,
 )
-from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
+from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model, refuse_task_harness
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
 from dokimi.judge_rule import JudgeIsAnswerer, default_judge
@@ -455,6 +455,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     from dokimi.eval.session import check_session_questions
 
     _refuse_judged_session(config)
+    refuse_task_harness(config)
     refuse_deferred_self_judge(config)  # reads only the config: before the probe and the library lookup
     if config.session_turns is not None:
         check_session_questions(questions, config.session_turns)
