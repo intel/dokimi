@@ -600,6 +600,18 @@ def test_a_markdown_escape_in_prose_is_not_a_folder_separator(tmp_path, prose, n
 
 
 @pytest.mark.parametrize(
+    ("prose", "name"),
+    [
+        ("Run `scripts/my\\ run.py`.\n", "scripts/my run.py"),  # a backslash escapes a space
+        ("Run `python scripts/a\\;b.py`.\n", "scripts/a;b.py"),  # a backslash escapes a semicolon
+    ],
+)
+def test_a_markdown_escape_of_a_space_or_semicolon_names_the_file(tmp_path, prose, name):
+    review = _review_with_texts(tmp_path, prose, {name: "x\n"})
+    assert _unreferenced(review) == []
+
+
+@pytest.mark.parametrize(
     "dest",
     [
         "${CLAUDE_SKILL_DIR}/",
