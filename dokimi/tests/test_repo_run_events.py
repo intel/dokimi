@@ -37,6 +37,7 @@ def test_a_run_writes_the_probe_and_choice_rows_its_files_name(setup, monkeypatc
     probes.write_text("cpu: [nproc]\n")
     monkeypatch.setenv("FAKE_TOOL_USES", json.dumps([
         ["Bash", {"command": "nproc"}], ["Write", {"file_path": f"{WORKSPACE}/a.py", "content": "import scipy\n"}]]))
+    monkeypatch.setenv("FAKE_TOOL_RESULTS", "1")
     _run(setup, "--arm", "guidance:none", "--task", "fix_add", "--candidates", str(cands), "--probes", str(probes))
     (events_file,) = (setup["out"] / "b1").glob("*/events.jsonl")
     kinds = [(e["kind"], e.get("pattern") or e.get("act")) for e in map(json.loads, events_file.read_text().splitlines())]

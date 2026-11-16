@@ -136,6 +136,18 @@ def test_a_failed_install_gives_no_choice():
 
 
 def test_a_module_in_a_multi_module_import_line_is_an_import():
+def test_a_call_with_no_result_gives_no_choice():
+    unresolved = [_call("a", "Bash", {"command": "pip install scikit-learn-intelex"}, "2026-01-01T00:00:05Z"),
+                  _call("e", "Edit", {"file_path": f"{WS}/x.py", "old_string": "", "new_string": "import sklearnex"},
+                        "2026-01-01T00:00:06Z")]
+    assert _choices(_run(SKLEARN, unresolved)) == []
+
+
+@pytest.mark.parametrize("rc", [None, 1])
+def test_a_command_whose_exit_code_is_not_0_gives_no_choice(rc):
+    assert _choices(with_choices(_bash_rc("pip install scikit-learn-intelex", rc=rc), SKLEARN, [])) == []
+
+
     events = _run(SKLEARN, _edit("a", "app.py", "import os, sklearnex as sk\n", "2026-01-01T00:00:05Z"))
     assert _choices(events) == [("sklearn", "import", "app.py")]
 

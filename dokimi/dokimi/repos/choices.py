@@ -101,8 +101,9 @@ def with_choices(events: list[dict[str, Any]], candidates: Mapping[str, Mapping[
 
 
 def _ran(event: dict[str, Any]) -> bool:
-    """Whether the call took effect: a denied one or one that failed did not install, import, use or remove anything."""
-    return not event.get("denied") and event.get("rc") in (None, 0)
+    """Whether the call took effect: a denied one, one that failed, or one with no result (rc None, a cut-off call
+    or a Copilot command, which writes no rc) did not install, import, use or remove anything."""
+    return not event.get("denied") and event.get("rc") == 0
 
 
 def choice_timeline(events: Sequence[dict[str, Any]]) -> list[tuple[float | None, str, str]]:
