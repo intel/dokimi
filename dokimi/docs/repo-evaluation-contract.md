@@ -245,6 +245,9 @@ build_systems: [bazel, make]              # selects L0 claim-check adapters
 process_metrics:                          # optional repository counters, result.json `process.counters` (§4.1)
   bazel_cmds: '\bbazel(?:isk)?\b'          # a plain regex searches the command text
   icpx_missing: {regex: "icpx is not found", match: output}   # match: text (default), output or any
+
+probes:                                   # optional: target -> patterns of `probe` events (§4.1)
+  cpu: [nproc, "py:os.cpu_count"]         # a listed target replaces its defaults; [] turns it off
 ```
 
 Rules:
@@ -520,7 +523,10 @@ reads the upstream base (`base_sha`) and the workspace start commit
   line, and `output_truncated` is `true`; build errors are usually at the end.
 - `rc` is what the harness reports. Where it reports only success or failure
   (Claude Code), `rc` is `0` or `1`; a Claude Code `Skill` tool event carries it
-  too (`1`: the skill was not loaded). It is `null` when no result came back,
+  too (`1`: the skill was not loaded). A Copilot shell command takes its `rc` from
+  `shellExecution.exitCode` only, so a result that carries only `success` gives `null`
+  (no choice rests on it). `failed_commands` and `first_useful` read this `rc` too, so
+  such a command counts as neither failed nor useful. It is `null` when no result came back,
   for example when the run stopped at its turn or budget limit; a grader
   must not count `null` as a failure.
 - `agent` is present on an event a subagent made: the id of the parent's
@@ -528,6 +534,41 @@ reads the upstream base (`base_sha`) and the workspace start commit
 - A `read` event may have no `path`: a refused Claude Code Bash read of a
   relative path after an earlier call moved the shell, whose file is not
   known (`{"kind": "read", "denied": true}`).
+- A `probe` event follows the `command` event of a command that asks the host
+  for its facts, one per pattern it matches (a command may give several):
+  `{"t": 4.0, "kind": "probe", "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}`.
+  `target` is one of `cpu`, `gpu`, `os`, `memory`, `packages`, `env`, `network`;
+  `pattern` is the configured pattern it matched; `text`, `rc` and `agent` are the
+  command's. The defaults (`dokimi/repos/probes.py`, `DEFAULT_PROBES`): `cpu` `lscpu`,
+  `/proc/cpuinfo`, `nproc`, `sysctl -a | grep machdep.cpu`, `Get-CimInstance Win32_Processor`,
+  `py:os.cpu_count`, `py:platform.processor`; `gpu` `nvidia-smi`, `rocm-smi`,
+  `py:torch.cuda.is_available`; `os` `uname`, `/etc/os-release`, `sw_vers`, `systeminfo`;
+  `memory` `free`, `/proc/meminfo`; `packages` `pip list`, `pip show`, `pip freeze`,
+  `conda list`; `env` `env`, `printenv`. A pattern is matched on the program the shell or
+  PowerShell runs, with the words it names in any order and case (`grep nproc README` runs
+  `grep`: no probe), on a file a reading command (`cat`, `head`, `grep`, ...) names for a
+  path pattern, and on the call in the code of a `python -c` one-liner for `py:NAME`. A
+  `$( )` substitution or a `bash -c` script counts as a command the agent ran. Not matched:
+  a Python heredoc, a script the agent runs from a file, and a pattern with a `|` that is
+  not a pipeline of the same commands.
+  A manifest's `probes` (§2) replaces a target's defaults, and `repo run --probes FILE`
+  (YAML or JSON, the same mapping) replaces them again; nothing else changes the events,
+  and the `process_metrics` counters do not count probes.
+- A `choice` event follows the `command` or `edit` event of a call that installs, imports, uses or removes a
+  candidate the run names: `{"t": 5.0, "kind": "choice", "candidate": "sklearn", "act": "install", "path": null}`
+  (`repo run --candidates FILE`, YAML or JSON, `dokimi/repos/choices.py`). The file maps a candidate id to
+  `install` and `remove` (package names a package manager is given; a removal matches both lists), `import`
+  (modules an added `import` or `from` line names) and `use` (dotted names an added line mentions, textually: a comment counts too). Only added text
+  counts: the new side of an `Edit`, the content of a `Write`, never what the edit replaced. A harness whose edit
+  events carry no added text (Copilot's `edit`, `create`, `str_replace_editor`, `write` and `apply_patch`, Codex's
+  `file_change`) gives install and remove events only: no import or use choice there does not mean the agent did not
+  choose the candidate.
+  A choice needs the call's own exit code 0: a failed or denied call, or one with no result, gives none.
+  An install or removal gives a choice only when its command joins every part to the next with `&&` and has no pipe:
+  the harness reports one exit code per command, so a `;`, `||` or `|` part could have failed or never run. A
+  `--dry-run` installs nothing and gives none. An install in a `bash -c` wrapper, or whose first word carries a
+  parenthesis (`(pip install X)`), gives none.
+  Choice events are written to `events.jsonl`; the counters and `first_useful` do not read them.
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
@@ -2294,8 +2335,9 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `id` hashing the profile's name, `invoke`, tool arguments, `env_set`,
   `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
   `bridge`, `trace` (unless `claude-stream-json`), `answer_format`, the SHA-256 of the harness executable (`--bin`),
-  the SHA-256 of each `bin_companions` file and harness version.
-  A rerun whose `id` differs (another `--tools`, a `--delegation` that changes the tool arguments, profile,
+  the SHA-256 of each `bin_companions` file and harness version. A `repo run` with `--candidates` or `--probes` adds the
+  digest of each parsed file (the same mapping, not its bytes), so another file with other content is a different `id`.
+  A rerun whose `id` differs (another `--tools`, another `--candidates` or `--probes` file, a `--delegation` that changes the tool arguments, profile,
   harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`, `bridge`, `trace` or `answer_format`) is refused before any agent starts, and
   `--force` or another `--batch` runs it. `--force` replaces the cells of the
   run's plan only: if the batch dir holds finished cells outside that plan

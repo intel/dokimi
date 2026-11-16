@@ -10,6 +10,11 @@ Graders and probes read only these events, never a harness-specific trace:
     {"t": 5.0,  "kind": "edit",    "path": "src/foo.cpp"}
     {"t": 20.2, "kind": "tool",    "name": "WebFetch", "denied": true}
     {"t": 2.0,  "kind": "tool",    "name": "Skill", "skill": "lint-fix"}
+    {"t": 4.0,  "kind": "probe",   "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}
+
+A ``probe`` event follows the ``command`` event of a command that asks the host for its facts, one per
+pattern it matches (:mod:`dokimi.repos.probes`, contract §4.1). A ``choice`` event follows the ``command`` or
+``edit`` event of an install, import, use or removal of a named candidate (:mod:`dokimi.repos.choices`).
 
 ``t`` is seconds since the first timestamped trace line, or ``null`` when the
 format has no timestamps. Paths inside the workspace are made relative to it.
@@ -235,6 +240,15 @@ def _deny_read(read: dict[str, Any], unknown: bool) -> None:
         del read["path"]
 
 
+def _added_text(args: Any) -> str:
+    """The text an edit tool adds: the new side of each replacement, or the whole file of a write (choices.py)."""
+    if not isinstance(args, dict):
+        return ""
+    if isinstance(args.get("edits"), list):  # MultiEdit
+        return "\n".join(str(e.get("new_string", "")) for e in args["edits"] if isinstance(e, dict))
+    return str(args.get("new_string") or args.get("content") or args.get("new_source") or "")
+
+
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
     """The event of one tool_use block; a Bash call's derived reads come before it when the trace ends (:func:`_walk_bash`)."""
     event = _tool_event(block, t, stream.workdir)
@@ -244,6 +258,8 @@ def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: st
         stream.bash[id(event)] = _BashCall(str(event["text"]), event)
     if block.get("name") in _AGENT_TOOLS:
         out.subagent_calls = (out.subagent_calls or 0) + 1
+    if block.get("name") in _EDIT_TOOLS:
+        out.added_text.append((event, _added_text(block.get("input"))))
     out.events.append(event)
     if block.get("id"):
         stream.by_id[block["id"]] = event

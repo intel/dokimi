@@ -35,6 +35,7 @@
 --cache-root
 --calls
 --candidate
+--candidates  # repo run's candidate file (repos/choices.py): no registry concept yet; a F1b migration names it
 --catalog
 --checklist
 --claude  # catalog trigger-probe (#217) adds it: backend choice has no registry concept yet

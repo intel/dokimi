@@ -125,6 +125,10 @@ if os.environ.get("FAKE_TOOL_USES"):  # more tool calls, as a JSON list of [name
     lines.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": f"u{i}", "name": n, "input": a}
         for i, (n, a) in enumerate(json.loads(os.environ["FAKE_TOOL_USES"]))]}})
+    if os.environ.get("FAKE_TOOL_RESULTS"):  # a success for each of them: a choice needs its result (rc 0)
+        lines.append({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": f"u{i}", "is_error": False, "content": "ok"}
+            for i in range(len(json.loads(os.environ["FAKE_TOOL_USES"])))]}})
 result = {"type": "result", "subtype": "success", "result": "done: src/calc.py", "total_cost_usd": 0.01,
           "num_turns": 3, "is_error": False,
           "usage": {"input_tokens": 5, "output_tokens": 2, "cache_read_input_tokens": 100,
@@ -147,7 +151,7 @@ PROFILE = {
                "--max-budget-usd", "{budget}", "{tools}"],
     "tools": {"none": ["--tools", ""], "read": ["--tools", "Read"], "all": []},
     "config_dir_env": "FAKE_CONFIG_DIR",
-    "env_allow": ["FAKE_ACTION", "FAKE_ANSWER_MODEL", "FAKE_MARKER", "FAKE_SKILLS", "FAKE_USAGE", "FAKE_PROCESS", "FAKE_TOOL_USES", "PATH"],
+    "env_allow": ["FAKE_ACTION", "FAKE_ANSWER_MODEL", "FAKE_MARKER", "FAKE_SKILLS", "FAKE_USAGE", "FAKE_PROCESS", "FAKE_TOOL_RESULTS", "FAKE_TOOL_USES", "PATH"],
     "egress": ["api.example.com"], "trace": "claude-stream-json",
     "prompt_suffix": "Stay in the foreground.",
     "config_files": {"settings.json": '{"hook": "python3 {support_dir}/no_background.py"}'},

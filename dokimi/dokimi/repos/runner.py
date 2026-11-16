@@ -71,6 +71,8 @@ from .batch_ledger import (  # re-exported: the names callers and tests take fro
 )
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
+from .choices import with_choices
+from .probes import probes_for, with_probes
 from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
@@ -99,6 +101,8 @@ class AgentOptions:
     timeout_s: float = 2700
     max_turns: int = 200
     budget_usd: float = 2.0
+    probes: dict[str, tuple[str, ...]] | None = None  # the run's --probes, over the manifest's (repos/probes.py)
+    candidates: dict[str, dict[str, tuple[str, ...]]] | None = None  # the run's --candidates (repos/choices.py)
 
 
 def execution_record(opts: AgentOptions, arm: str | None = None) -> dict[str, str]:
@@ -111,8 +115,9 @@ def execution_record(opts: AgentOptions, arm: str | None = None) -> dict[str, st
     companions = {n: harness_sha256(beside / n) if (beside / n).is_file() else None
                   for n in opts.profile.bin_companions}
     overlay = opts.profile.overlay if arm is not None and parse_arm(arm).base == OVERLAY_ARM else None
+    inputs = {"candidates": opts.candidates, "probes": opts.probes}
     return batch_ledger.execution_record(opts.profile, opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
-                                         opts.harness_version, companions, overlay)
+                                         opts.harness_version, companions, overlay, inputs)
 
 
 def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
@@ -260,7 +265,10 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
-        (rd / "events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
+        # Probe events go to events.jsonl only: the counters, first_useful and skill usage score the trace's events
+        probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes))
+        shown = with_choices(probed, opts.candidates or {}, transcript.added_text)  # choice events: choices.py
+        (rd / "events.jsonl").write_text(transcript.events_jsonl(shown), encoding="utf-8")
         failed = transcript.is_error or not result.ok  # a crashed review is missing, not clean
         answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE, failed=failed,
                                 messages=transcript.agent_messages)
