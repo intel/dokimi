@@ -101,8 +101,8 @@ def with_choices(events: list[dict[str, Any]], candidates: Mapping[str, Mapping[
 
 
 def _ran(event: dict[str, Any]) -> bool:
-    """Whether the call took effect: a denied one, one that failed, or one with no result (rc None, a cut-off call
-    or a Copilot command, which writes no rc) did not install, import, use or remove anything."""
+    """Whether the call took effect: a denied one, one that failed, or one with no result (rc None: a cut-off call,
+    or a Copilot command with neither an exit code nor a success flag) did not install, import, use or remove anything."""
     return not event.get("denied") and event.get("rc") == 0
 
 

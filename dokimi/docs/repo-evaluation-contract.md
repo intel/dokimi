@@ -559,6 +559,7 @@ reads the upstream base (`base_sha`) and the workspace start commit
   events carry no added text (Copilot's `edit`, `create`, `str_replace_editor`, `write` and `apply_patch`, Codex's
   `file_change`) gives install and remove events only: no import or use choice there does not mean the agent did not
   choose the candidate.
+  A choice needs the call's own exit code 0: a failed or denied call, or one with no result, gives none.
   An install or removal gives a choice only when its command joins every part to the next with `&&` and has no pipe:
   the harness reports one exit code per command, so a `;`, `||` or `|` part could have failed or never run. A
   `--dry-run` installs nothing and gives none. An install in a `bash -c` wrapper, or whose first word carries a
@@ -2330,8 +2331,9 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `id` hashing the profile's name, `invoke`, tool arguments, `env_set`,
   `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
   `bridge`, `trace` (unless `claude-stream-json`), `answer_format`, the SHA-256 of the harness executable (`--bin`),
-  the SHA-256 of each `bin_companions` file and harness version.
-  A rerun whose `id` differs (another `--tools`, a `--delegation` that changes the tool arguments, profile,
+  the SHA-256 of each `bin_companions` file and harness version. A `repo run` with `--candidates` or `--probes` adds the
+  digest of each parsed file (the same mapping, not its bytes), so another file with other content is a different `id`.
+  A rerun whose `id` differs (another `--tools`, another `--candidates` or `--probes` file, a `--delegation` that changes the tool arguments, profile,
   harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`, `bridge`, `trace` or `answer_format`) is refused before any agent starts, and
   `--force` or another `--batch` runs it. `--force` replaces the cells of the
   run's plan only: if the batch dir holds finished cells outside that plan
