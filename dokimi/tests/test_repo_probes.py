@@ -355,6 +355,7 @@ def test_a_python_probe_needs_a_call_on_a_name_boundary():
     ("true || cat <<EOF\n$(nproc)\nEOF", []),  # an unquoted heredoc's substitution runs with its command
     ("cat <<EOF\n$(nproc)\nEOF", ["nproc"]),
     ("echo \\\\| nproc", ["nproc"]),  # ``\\`` is a backslash: the pipe after it is real
+    ("echo \"a\\\\\" | nproc", ["nproc"]),  # inside double quotes too: the closing quote is found, the pipe is real
     ("echo \\| nproc", []),
     ("cat >$(printf /tmp/probe.log) /etc/os-release", ["/etc/os-release"]),  # the file is the operand, not the target
 ])

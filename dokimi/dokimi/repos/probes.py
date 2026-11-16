@@ -263,7 +263,7 @@ def command_stages(part: str) -> tuple[list[list[str]], list[str]]:
             word.append(part[i + 1:end])
             started, bare = True, False
             i = end
-        elif c == "\\" and not quote and part[i + 1:i + 2] == "\\":  # ``\\|`` is a backslash, then a pipe
+        elif c == "\\" and part[i + 1:i + 2] == "\\":  # ``\\|`` is a backslash, then a pipe, in double quotes too
             word.append("\\\\")
             started, bare = True, False
             i += 1

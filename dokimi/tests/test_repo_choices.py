@@ -304,6 +304,7 @@ def test_a_command_the_shell_runs_before_or_around_its_redirects_gives_its_insta
 
 @pytest.mark.parametrize("command", [
     "pip install scipy 2>logs\\\\|cat",  # ``\\`` is a backslash: the pipe after it runs cat, whose code is the result
+    'pip install scipy "--log=C:\\\\" | tee l',  # inside double quotes too: the quote closes, and the pipe is real
     "exec true && pip install scipy",  # exec with a program replaces the shell: nothing after it runs
 ])
 def test_a_pipeline_or_an_exec_with_a_program_gives_no_install(command):
