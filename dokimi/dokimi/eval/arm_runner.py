@@ -371,7 +371,7 @@ class ArmRunner:
         except Exception as exc:
             logger.exception("Arm %s answer generation failed", treatment.name)
             if getattr(exc, "run_wide", False) is True:
-                raise  # run() stops the run; the question is not kept
+                raise  # run() stops the run; the question keeps the cells it has (RunStopped)
             return {"error": f"generation_failed: {exc}", "answer": None,
                     "metadata": cfg_metadata}
 
