@@ -40,7 +40,7 @@ def _write_json(path: str, payload: dict) -> None:
 
 
 def _parse_source(args: argparse.Namespace) -> RepoSource:
-    """The source as typed: a malformed string, an unpinned remote or a local path that is not a directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
+    """The source as typed: a malformed string, an unpinned remote, a local path that is not a directory or a ``--cache-dir`` that is not a usable directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
     from dokimi.repos import RepoSource, SourceError
 
     try:
@@ -603,7 +603,11 @@ def _manifest_id(label: str) -> str:
 
 
 def _cache_dir(args: argparse.Namespace) -> Path | None:
-    """``--cache-dir`` as given, or ``None``; a value no clone can be cached in is a usage error (2) (#765)."""
+    """``--cache-dir`` as given, or ``None``; a value no clone can be cached in is a usage error (2) (#765).
+
+    An existing read-only directory passes on purpose: a populated one replays without writing. An empty one
+    is not told apart without the clone URL, so its clone fails later with exit 1.
+    """
     from dokimi.commands.cache_dir import CLONE_USE, usable_cache_dir
 
     return usable_cache_dir(args.cache_dir, CLONE_USE)

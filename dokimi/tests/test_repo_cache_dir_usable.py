@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 
 import pytest
 
@@ -108,3 +109,19 @@ def test_cache_dir_passes_unset_an_existing_directory_and_a_missing_child_unchan
     assert _cache_dir(args(str(tmp_path))) == tmp_path
     assert _cache_dir(args(str(tmp_path / "new" / "deeper"))) == tmp_path / "new" / "deeper"
     assert not (tmp_path / "new").exists()
+
+
+def test_repo_fetch_prints_the_sha_of_a_pinned_source_in_a_writable_cache_dir(tmp_path, monkeypatch, capsys):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.txt").write_text("a", encoding="utf-8")
+    git = ["git", "-C", str(src), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    _argv(monkeypatch, "repo", "fetch", f"file://{src}@{sha}", "--cache-dir", str(cache))
+    cli.main()
+    assert capsys.readouterr().out.startswith(f"{sha}\t")
