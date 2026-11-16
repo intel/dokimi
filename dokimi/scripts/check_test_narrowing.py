@@ -66,10 +66,11 @@ DEFAULTS = {"rel": 1e-6, "abs": 1e-12, "rtol": 1e-5, "atol": 1e-8, "rel_tol": 1e
 # is not numpy.allclose, and an approx with no keywords still has pytest's default tolerances.
 API_DEFAULTS = {
     "approx": {"rel": 1e-6, "abs": 1e-12},
-    "isclose": {"rel_tol": 1e-9, "abs_tol": 0.0},
     "allclose": {"rtol": 1e-5, "atol": 1e-8},
     "assert_allclose": {"rtol": 1e-7, "atol": 0.0},
 }
+# Methods that change a list, dict or set in place: a name whose method is called this way is not a constant.
+MUTATORS = {"append", "extend", "insert", "remove", "pop", "clear", "update", "add", "discard", "setdefault"}
 _ARITHMETIC = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
                ast.Div: operator.truediv, ast.Pow: operator.pow}
 
@@ -154,19 +155,24 @@ def _is_mark(func: ast.expr) -> bool:
 
 def _number(node: ast.expr) -> float | None:
     """The value of a number written as a constant or as constant arithmetic (``10 ** -3``), else None."""
+    try:
+        value = _evaluate(node)
+        return None if value is None or isinstance(value, complex) else float(value)
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+
+
+def _evaluate(node: ast.expr) -> complex | None:
     if isinstance(node, ast.Constant):
-        return float(node.value) if isinstance(node.value, (int, float)) else None
+        return node.value if isinstance(node.value, (int, float)) else None
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-        value = _number(node.operand)
+        value = _evaluate(node.operand)
         return None if value is None else (-value if isinstance(node.op, ast.USub) else value)
     if isinstance(node, ast.BinOp) and type(node.op) in _ARITHMETIC:
-        left, right = _number(node.left), _number(node.right)
+        left, right = _evaluate(node.left), _evaluate(node.right)
         if left is None or right is None or (isinstance(node.op, ast.Pow) and abs(right) > 1000):
             return None
-        try:
-            return float(_ARITHMETIC[type(node.op)](left, right))
-        except (ArithmeticError, ValueError, OverflowError):
-            return None
+        return _ARITHMETIC[type(node.op)](left, right)
     return None
 
 
@@ -269,12 +275,12 @@ def _count(values: ast.expr | None) -> int | None:
         return len(values.elts)
     if isinstance(values, ast.Call) and _name(values.func) == "range" and not values.keywords \
             and 0 < len(values.args) <= 3:
-        numbers = [_number(arg) for arg in values.args]
-        if all(n is not None and n == int(n) for n in numbers):
-            try:
+        try:
+            numbers = [_number(arg) for arg in values.args]
+            if all(n is not None and n == int(n) for n in numbers):
                 return len(range(*(int(n) for n in numbers if n is not None)))
-            except ValueError:
-                return None
+        except (ArithmeticError, ValueError):
+            return None
     return None
 
 
@@ -427,8 +433,9 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
     (``pytest.importorskip``), is left alone, and so is a name a function binds itself
     (parameter or local). The copy takes the line of the read it replaces."""
     targets = [t.id for node in tree.body for t in _targets(node) if isinstance(t, ast.Name)]
-    # A name that is the owner of an attribute (``pytestmark.append``) is a container that may change: not a constant.
-    owners = {n.value.id for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+    # A name whose container is changed in place (``pytestmark.append``) is not a constant.
+    owners = {n.func.value.id for n in ast.walk(tree) if isinstance(n, ast.Call)
+              and isinstance(n.func, ast.Attribute) and n.func.attr in MUTATORS and isinstance(n.func.value, ast.Name)}
     consts = {node.targets[0].id: node.value for node in tree.body
               if isinstance(node, ast.Assign) and len(node.targets) == 1
               and isinstance(node.targets[0], ast.Name) and targets.count(node.targets[0].id) == 1

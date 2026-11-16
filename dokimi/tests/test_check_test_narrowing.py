@@ -691,3 +691,21 @@ NESTED = ("import pytest\n\n\nclass TestOuter:\n    class TestInner:\n        de
 def test_a_test_in_a_nested_test_class_is_read_by_its_dotted_name():
     found = ctn.compare(NESTED, NESTED.replace("assert value() == 1", "pass"))
     assert [(name, what) for name, _, what in found] == [("TestOuter.TestInner.test_value", "fewer checks (1 -> 0)")]
+
+
+def test_a_constant_read_through_a_method_is_still_inlined():
+    base = ("import pytest\n\nCASES = [1, 2, 3]\n\n\n@pytest.mark.parametrize('x', CASES)\n"
+            "def test_a(x):\n    assert CASES.index(x) >= 0\n")
+    assert [what for _, _, what in ctn.compare(base, base.replace("CASES = [1, 2, 3]", "CASES = [1]"))] == [
+        "cuts parametrize cases (3 -> 1)"]
+
+
+@pytest.mark.parametrize("tolerance", ["(-1) ** 0.5", str(10 ** 400), "10 ** 400", "1e400"])
+def test_a_tolerance_that_is_not_a_real_number_is_read_without_an_error(tolerance):
+    base = "import pytest\n\n\ndef test_a():\n    assert f() == pytest.approx(1, rel=1e-3)\n"
+    assert isinstance(ctn.compare(base, base.replace("rel=1e-3", f"rel={tolerance}")), list)
+
+
+def test_a_range_too_long_to_count_is_read_without_an_error():
+    base = "import pytest\n\n\n@pytest.mark.parametrize('x', range(10 ** 19))\ndef test_a(x):\n    assert x\n"
+    assert ctn.compare(base, base.replace("10 ** 19", "1e400")) == []
