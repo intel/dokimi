@@ -429,3 +429,18 @@ def test_a_suite_gap_with_egress_does_not_abort_the_batch_under_no_network(run, 
     unsupported = json.loads((batch / "fix_add__guidance-none__m-1__r1/unsupported.json").read_text(encoding="utf-8"))
     assert unsupported["task"] == "fix_add"
     assert (batch / "review_add__guidance-none__m-1__r1/result.json").is_file()
+
+
+def test_a_moved_hash_shaped_floating_branch_is_resolved_again_not_from_the_warm_cache(tmp_path):
+    root, first = _scaffold(tmp_path)
+    git(root, "branch", "abcdef0", first)
+    suite = parse_suite(_raw(repos={"sc": f"file://{root}@abcdef0"}), allow_floating=True)
+    cache = tmp_path / "cache"
+    assert resolve_suite(suite, {"t1": first}, cache).pins == {"sc": first}  # warms the cache at the branch
+    write(root, "src/more.py", "X = 1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "moved")
+    moved = git(root, "rev-parse", "HEAD")
+    git(root, "branch", "-f", "abcdef0", moved)
+    found = resolve_suite(suite, {"t1": moved}, cache)
+    assert found.pins == {"sc": moved} and found.gaps == {}

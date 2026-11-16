@@ -424,8 +424,8 @@ def check_pinned_root(source: RepoSource) -> None:
             raise SourceArgumentError(f"{source.location} is {prefix!r} inside a repository; give its root")
 
 
-def open_source(source: RepoSource, cache_dir: Path | None = None) -> RepoTree:
-    """Return a readable tree for ``source``, cloning or fetching as needed."""
+def open_source(source: RepoSource, cache_dir: Path | None = None, refresh: bool = False) -> RepoTree:
+    """Return a readable tree for ``source``, cloning or fetching as needed; ``refresh`` re-fetches its refs."""
     if not source.remote:
         if source.rev is None:
             return WorkTree(source.location)
@@ -434,7 +434,7 @@ def open_source(source: RepoSource, cache_dir: Path | None = None) -> RepoTree:
         return GitTree(Path(source.location), sha, label=f"{source.location}@{sha[:12]}")
     git_dir = ensure_clone(source.location, cache_dir or default_cache_dir())
     assert source.rev is not None  # parse() refuses unpinned remotes
-    sha = ensure_rev(git_dir, source.rev)
+    sha = ensure_rev(git_dir, source.rev, refresh)
     return GitTree(git_dir, sha, label=f"{source.location}@{sha[:12]}")
 
 
@@ -493,10 +493,11 @@ def ensure_clone(url: str, cache_dir: Path) -> Path:
     return git_dir
 
 
-def ensure_rev(git_dir: Path, rev: str) -> str:
-    """Resolve ``rev`` in the cached clone; a branch or tag is re-fetched on every call."""
+def ensure_rev(git_dir: Path, rev: str, refresh: bool = False) -> str:
+    """Resolve ``rev`` in the cached clone; a branch or tag is re-fetched on every call. ``refresh`` also
+    re-fetches a hash-shaped name, which may be a branch that moved (a floating suite pin)."""
     base = re.split(r"[\^~]", rev, maxsplit=1)[0]
-    if _SHA_RE.match(base):
+    if _SHA_RE.match(base) and not refresh:
         try:
             return resolve_rev(git_dir, rev)
         except SourceError:

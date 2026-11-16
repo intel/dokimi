@@ -134,10 +134,10 @@ def load_suite(tree: RepoTree, path: str, allow_floating: bool = False) -> Suite
     return parse_suite(raw, path, allow_floating)
 
 
-def _checkout(source: RepoSource, cache_dir: Path | None) -> tuple[Path, str] | str:
+def _checkout(source: RepoSource, cache_dir: Path | None, refresh: bool = False) -> tuple[Path, str] | str:
     """``(git dir, commit)`` of a repository of the suite, or the reason it cannot be opened."""
     try:
-        tree = open_source(source, cache_dir)
+        tree = open_source(source, cache_dir, refresh=refresh)
         git_dir = source_git_dir(source, tree, cache_dir)
     except (ValueError, OSError, PrepError) as exc:  # SourceError is a ValueError
         return f"{source} is unavailable: {exc}"
@@ -162,7 +162,8 @@ def resolve_suite(suite: SuiteManifest, bases: Mapping[str, str], cache_dir: Pat
     ``bases`` maps each suite task to the ``base`` of its task.json. Repositories are opened once
     each, all of them, so the pins do not depend on which tasks a run selects.
     """
-    checkouts = {name: _checkout(source, cache_dir) for name, source in suite.repos.items()}
+    checkouts = {name: _checkout(source, cache_dir, refresh=suite.floating and not _SHA_RE.match(source.rev or ""))
+                 for name, source in suite.repos.items()}
     for name, found in checkouts.items():  # a name shaped like a hash (a branch) is not the commit the pin says
         if suite.floating:  # the run asked for refs to be resolved: the commit it found is the pin
             break
