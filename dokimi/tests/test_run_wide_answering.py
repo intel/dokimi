@@ -72,7 +72,8 @@ def test_arm_runner_asks_no_later_question_after_a_run_wide_error(monkeypatch):
     monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", _run_wide_on_first_call(calls))
     records = ArmRunner([BaselineTreatment()]).run("lib", _questions(4), concurrency=1)
     assert len(calls) == 1
-    assert records == []
+    assert [r["question_id"] for r in records] == ["q0"]  # the stopped question keeps a cell per arm
+    assert records[0]["arms"]["baseline"]["error"].startswith("generation_failed")
 
 
 def test_arm_runner_keeps_the_records_it_has_before_a_run_wide_error(monkeypatch):
@@ -87,7 +88,7 @@ def test_arm_runner_keeps_the_records_it_has_before_a_run_wide_error(monkeypatch
     monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", fake)
     records = ArmRunner([BaselineTreatment()]).run("lib", _questions(4), concurrency=1)
     assert len(calls) == 2
-    assert [r["question_id"] for r in records] == ["q0"]
+    assert [r["question_id"] for r in records] == ["q0", "q1"]  # the stopped question is recorded too
 
 
 @pytest.mark.parametrize("retryable", [True, False])
