@@ -42,7 +42,7 @@ import sys
 import threading
 import uuid
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,7 +56,9 @@ from .container import (
     ContainerSpec,
     EgressNotImplemented,
     Mount,
+    clear_halt,
     docker_network,
+    halt_and_kill_started,
 )
 from . import batch_ledger
 from .answers import convert_answer
@@ -429,12 +431,38 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         if rec is not None and not rec.get("skipped"):
             _log_cell(log, name, rec)
 
-    with ThreadPoolExecutor(max(1, jobs)) as pool:
-        list(pool.map(one, cells))
+    pool = ThreadPoolExecutor(max(1, jobs))
+    futures: list[Future[None]] = []  # filled as cells are submitted: an interrupt may land in the middle
+    try:
+        for cell in cells:
+            futures.append(pool.submit(one, cell))
+        for future in futures:  # a worker's exception is raised here, as pool.map raised it
+            future.result()
+    except KeyboardInterrupt:
+        _stop_on_interrupt(pool, futures)
+        raise
+    finally:
+        pool.shutdown(wait=True)
     return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
             "errors": state["errors"], "budget_stopped": state["budget_stopped"],
             "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
             "spent_usd": round(state["this_run"], 6), "batch_spent_usd": round(state["spent"], 6)}
+
+
+KILL_RETRY_S = 2.0
+
+
+def _stop_on_interrupt(pool: ThreadPoolExecutor, futures: list[Future[None]]) -> None:
+    """Ctrl-C reached the main thread, not the cells in worker threads. Cancel the cells not started, then kill the
+    containers the running cells started, by name, and kill again until they all return: a container started
+    between two kills is caught by the next one. A cell that asks for a container after the halt gets an error."""
+    pool.shutdown(wait=False, cancel_futures=True)
+    try:
+        while not all(f.done() for f in futures):
+            halt_and_kill_started()
+            wait(futures, timeout=KILL_RETRY_S)
+    finally:
+        clear_halt()
 
 
 SPEND_FILE = "spend.json"

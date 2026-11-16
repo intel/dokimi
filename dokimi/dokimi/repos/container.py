@@ -35,7 +35,9 @@ Every container is started the same way, whatever the image's ``ENTRYPOINT``:
 
 from __future__ import annotations
 
+import contextlib
 import os
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,6 +59,52 @@ HARNESS_DIR = "/eval/harness"
 SUPPORT_DIR = "/eval/support"
 GRADERS_DIR = "/eval/graders"  # the built-in graders, mounted read-only into the grading container only
 NETWORKS = ("none", "bridge", "host")
+
+# The named containers a run has started and not yet returned, with the kill of each. A batch's worker threads
+# share them: Ctrl-C reaches only the main thread, so the batch kills them by name (see halt_and_kill_started).
+_live_lock = threading.Lock()
+_live: dict[str, Callable[[], None]] = {}
+_halted = False
+
+
+class BatchInterrupted(BaseException):
+    """A cell of a batch that Ctrl-C interrupted: it is dropped with nothing recorded, so a resume runs it again.
+
+    A BaseException, so that a cell's own ``except Exception`` cannot grade it as a failed run."""
+
+
+def _track(name: str | None, stop: Callable[[], None]) -> None:
+    with _live_lock:
+        if _halted:
+            raise BatchInterrupted("the batch was interrupted: no container is started after Ctrl-C")
+        if name:
+            _live[name] = stop
+
+
+def _untrack(name: str | None) -> None:
+    with _live_lock:
+        _live.pop(name or "", None)
+
+
+def halt_and_kill_started() -> None:
+    """Refuse every container not yet started, and kill each named container that is still running, by its name.
+
+    A container started after the halt is refused; one registered before it is killed. Killing again is harmless,
+    so a caller may repeat this while the cells that started containers are still running."""
+    global _halted
+    with _live_lock:
+        _halted = True
+        stops = list(_live.values())
+    for stop in stops:
+        with contextlib.suppress(Exception):  # a kill that fails leaves the next call to retry it
+            stop()
+
+
+def clear_halt() -> None:
+    """Accept containers again, once no cell is running (the batch that halted them has returned)."""
+    global _halted
+    with _live_lock:
+        _halted = False
 
 
 class ContainerError(RuntimeError):
@@ -157,6 +205,7 @@ class DockerRunner:
         # -e NAME reads the forwarded values from the CLI's own environment: the caller's.
         argv = self.argv(spec)
         try:
+            _track(spec.name, stop)  # before docker starts: a batch that is interrupted starts nothing more
             result = run_process(argv, env=process.Env.inherit(), stdout=stdout, stderr=stderr,
                                  timeout_s=timeout_s, on_timeout=stop, runner=self.runner)
         except KeyboardInterrupt:
@@ -166,6 +215,8 @@ class DockerRunner:
             except BaseException:  # noqa: BLE001, S110 - a second Ctrl-C must not hide the first
                 pass
             raise
+        finally:
+            _untrack(spec.name)
         if docker_cmd.failed_to_start(result.returncode, result.timed_out):
             tail = stderr.read_text(encoding="utf-8", errors="replace").strip()[-500:]
             raise ContainerError(f"docker run failed: {tail}")
