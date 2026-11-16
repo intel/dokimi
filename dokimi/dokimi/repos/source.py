@@ -509,16 +509,11 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
         except OSError:
             if not (git_dir / "HEAD").is_file():
                 raise
-    except BaseException:
+    finally:
         try:
-            _remove_tree(tmp)
-        except OSError as exc:  # the clone's own error is the one to report
+            _remove_tree(tmp)  # gone when the rename won; after a failed clone or a lost rename, it is ours to remove
+        except OSError as exc:  # not raised over the clone's error or the winner's clone; swept once stale
             log.warning("cannot remove the partial clone %s: %s", tmp, exc)
-        raise
-    try:
-        _remove_tree(tmp)  # still there only when the rename lost: the winner's clone is in place
-    except OSError as exc:  # a later clone's sweep removes it once it is stale
-        log.warning("cannot remove the partial clone %s: %s", tmp, exc)
     return git_dir
 
 
