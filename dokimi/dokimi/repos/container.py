@@ -36,6 +36,7 @@ Every container is started the same way, whatever the image's ``ENTRYPOINT``:
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -196,11 +197,16 @@ class DockerRunner:
         return False
 
 
+_DAEMON_DIAGNOSTIC = re.compile(r"^(?:(?:error|docker):\s+)?(?:cannot connect to the docker daemon|error during connect|"
+                                r"permission denied while trying to connect to the docker daemon)")
+
+
 def _daemon_unreachable(stderr: str | None) -> bool:
     """True when the docker CLI says, in its last lines, that it could not reach the daemon (down, or no permission on
-    its socket). The last lines only: a RUN step of a build may print the same words in the middle of its output."""
-    lines = [ln for ln in (stderr or "").lower().splitlines() if ln.strip()][-2:]
-    return any("connect to the docker daemon" in ln or "error during connect" in ln for ln in lines)
+    its socket). Only a line that opens with the CLI's own diagnostic counts: a RUN step prints its command text, and
+    BuildKit repeats that command in its final `failed to solve` line, so the words can sit in the last lines too."""
+    lines = [ln.strip().lower() for ln in (stderr or "").splitlines() if ln.strip()][-2:]
+    return any(_DAEMON_DIAGNOSTIC.match(ln) for ln in lines)
 
 
 def run_process(argv: list[str], *, env: process.Env | dict[str, str], stdout: Path, stderr: Path,

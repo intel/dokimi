@@ -59,6 +59,30 @@ def test_a_daemon_that_is_down_is_a_docker_error_before_any_build():
     assert [c.argv[1] for c in fake.calls] == ["image"]  # the build is never started
 
 
+BUILDKIT_QUOTED_MESSAGE = (
+    "#5 [3/4] RUN echo 'Cannot connect to the Docker daemon' && false\n"
+    "#5 0.1 Cannot connect to the Docker daemon\n"
+    "ERROR: failed to solve: process \"/bin/sh -c echo 'Cannot connect to the Docker daemon' && false\" "
+    "did not complete successfully: exit code: 1\n"
+)
+
+
+def test_a_build_step_that_quotes_the_daemon_message_is_a_container_error_not_infra(tmp_path):
+    """A RUN step whose command text names the daemon message is a failed manifest build (exit 1), not a daemon
+    that is down (exit 5): only the CLI's own top-level diagnostic counts."""
+    from dokimi import process
+    from dokimi.repos.container import ContainerError, DockerError, DockerRunner
+
+    (tmp_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    quoted = process.FakeRunner(lambda call: process.reply(stderr=BUILDKIT_QUOTED_MESSAGE, returncode=1))
+    with pytest.raises(ContainerError) as exc:
+        DockerRunner(runner=quoted).build(tmp_path, tmp_path / "Dockerfile", "t")
+    assert not isinstance(exc.value, DockerError)
+    down = process.FakeRunner(lambda call: process.reply(stderr=DAEMON_DOWN, returncode=1))
+    with pytest.raises(DockerError):
+        DockerRunner(runner=down).build(tmp_path, tmp_path / "Dockerfile", "t")
+
+
 def test_a_docker_cli_missing_on_the_image_inspect_is_a_docker_error():
     from dokimi import process
     from dokimi.repos.container import DockerError, DockerRunner
