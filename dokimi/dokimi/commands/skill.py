@@ -57,7 +57,7 @@ def register_check(skill_sub) -> None:
 
 
 def register_skill(skill_sub, positive_int) -> None:
-    """Add `skill novelty` (analyze, atoms, probe, items) and `skill shorten` (#94 M2)."""
+    """Add `skill novelty` (analyze, atoms, probe, ground, items, view) and `skill shorten` (#94 M2)."""
     from dokimi.commands.novelty import (
         _add_bundle_args,
         _add_common,
@@ -67,6 +67,7 @@ def register_skill(skill_sub, positive_int) -> None:
         cmd_novelty_items,
         cmd_novelty_probe,
         cmd_novelty_shorten,
+        cmd_novelty_view,
     )
     from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
@@ -162,6 +163,14 @@ def register_skill(skill_sub, positive_int) -> None:
                               "(default: the artifact arm)")
     items_p.add_argument("--out", default=None)
     items_p.set_defaults(func=cmd_novelty_items)
+
+    # Was `novelty view` (#94 M3 tail): re-render the saved artifact; no model calls.
+    view_p = novelty_sub.add_parser("view", help="Re-render the annotated artifact view")
+    view_p.add_argument("--novelty", required=True, help="novelty.json from `skill novelty analyze`")
+    view_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
+    view_p.add_argument("--format", default="html", choices=["html", "md"])
+    view_p.add_argument("--out", default=None)
+    view_p.set_defaults(func=cmd_novelty_view)
 
     shorten_p = skill_sub.add_parser(
         "shorten", help="Score shortening candidates on tokens/knowledge/value/protection/routing"

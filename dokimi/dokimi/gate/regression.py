@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 from dokimi.gate.verdict import Check, Verdict
@@ -18,8 +19,11 @@ def _classify_regression(
     """Classify a negative delta by threshold.
 
     Delta is expected to be negative for regressions.
-    Thresholds are positive (how much drop is allowed).
+    Thresholds are positive (how much drop is allowed). A NaN delta is no measurement the gate can pass,
+    so it grades CRITICAL, as ``critical_bands`` treats NaN as a violation.
     """
+    if math.isnan(delta):
+        return "CRITICAL"
     if delta >= 0:
         return "OK"  # Improvement, not regression
     drop = abs(delta)
