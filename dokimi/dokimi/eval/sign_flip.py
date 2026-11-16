@@ -10,7 +10,7 @@ over the deltas not within their tie width of 0 (:data:`EPS`, or :func:`tie_widt
 ``p(theta)`` is the two-sided sign-flip p of the shifted deltas ``d - theta`` over every delta, as
 :func:`sign_flip_p` computes it on them: a shifted delta within the tie width of its pair (:func:`tie_widths`, kept
 from the original deltas) of 0 is a tie, so a delta tied at 0 counts again once ``theta`` moves off 0. Exact, a sign
-pattern counts when its sum falls short of the observed one by at most the largest tie width (:data:`EPS` at most),
+pattern counts when its sum falls short of the observed one by at most the largest tie width among the deltas summed (:data:`EPS` at most),
 the observed sum taken as the least of its exactly rounded sum and the product's sums for
 the observed signs and their mirror: from deltas of about 1e6 on the two round apart by more than :data:`EPS`, and the
 observed pattern would not count itself. The observed sum and the mean the bisection starts from are
@@ -111,10 +111,13 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
     ``magnitudes`` holds the larger value of each pair (:func:`pair_magnitudes`), which sets each tie width
     (:func:`tie_widths`); without it a tie is within :data:`EPS` of 0.
     """
-    d = [x for x, w in zip(deltas, tie_widths(magnitudes, len(deltas)), strict=True) if abs(x) > w]
-    if not d:
+    widths = tie_widths(magnitudes, len(deltas))
+    active = [i for i, (x, w) in enumerate(zip(deltas, widths, strict=True)) if abs(x) > w]
+    if not active:
         return None
-    unit = tie_scale(magnitudes)
+    d = [deltas[i] for i in active]
+    # the slack on a sum follows the pairs the sum is of, not a tied pair's larger values
+    unit = tie_scale(None if magnitudes is None else [magnitudes[i] for i in active])
     k = _scale_exponent(d, unit)
     eps = EPS * math.ldexp(unit, -k)
     if k:  # near the float maximum the sums go to inf/nan: the same p on the deltas divided by a power of two
@@ -173,18 +176,19 @@ class ShiftTest:
         self.changed = len([x for x, w in zip(deltas, widths, strict=True) if abs(x) > w])  # sign_flip_p's order first
         self.d = np.array([deltas[i] for i in order], dtype=float)
         self.widths = np.array([widths[i] for i in order], dtype=float)
-        self.seed, self.n_resamples, self.eps = seed, n_resamples, max(widths, default=EPS)  # eps: slack on a sum
+        self.seed, self.n_resamples = seed, n_resamples
 
     def p(self, theta: float) -> float | None:
         """``None`` when every shifted delta ties, as :func:`sign_flip_p` has no p then."""
         import numpy as np
 
         x = self.d - theta
-        eps = self.eps
-        x[np.abs(x) <= self.widths] = 0.0
+        tied = np.abs(x) <= self.widths
+        x[tied] = 0.0
         moved = x[x != 0.0]
         if not moved.size:
             return None
+        eps = float(self.widths[~tied].max())  # slack on a sum: the widest tie width among the deltas summed
         observed = abs(math.fsum(moved.tolist()))  # exactly rounded: sum() rounds differently before 3.12
         if moved.size <= EXACT_MAX:
             sums = np.abs(_patterns(moved.size) @ moved)  # rows 0 and -1: the observed signs and their mirror

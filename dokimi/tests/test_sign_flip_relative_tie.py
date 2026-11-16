@@ -134,3 +134,15 @@ def test_the_shifted_deltas_keep_the_tie_widths_of_the_original_pairs():
 def test_deltas_alone_keep_the_absolute_tie_width():
     assert sign_flip_p([0.0, 0.0, 1e-12]) is None
     assert sign_flip_row([1e-300] * 8, exact=True)["n_changed"] == 0
+
+
+def test_an_unchanged_pair_of_large_values_does_not_loosen_the_sums_of_the_small_changed_pairs():
+    treatment, baseline = [1e-12] * 8 + [1.0], [0.0] * 8 + [1.0]
+    deltas, mags = [t - b for t, b in zip(treatment, baseline, strict=True)], pair_magnitudes(treatment, baseline)
+    alone = sign_flip_p(deltas[:8], magnitudes=mags[:8], exact=True)
+    assert alone == 0.0078125 and sign_flip_p(deltas, magnitudes=mags, exact=True) == alone
+    assert stats.paired_test(treatment, baseline)["significant"] is True
+    lo, hi = sign_flip_interval(deltas, alone, rounded=False, magnitudes=mags)
+    assert lo is not None and hi is not None and 0 < lo <= hi  # p(0) is below ALPHA: the interval excludes 0
+    # the shifted test: the unchanged pair is a tie at theta 0, and the sums of the 8 small deltas have the small slack
+    assert ShiftTest(deltas, eps=tie_widths(mags, 9)).p(0.0) == alone
