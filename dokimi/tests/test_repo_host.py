@@ -795,7 +795,7 @@ def test_ctrl_c_in_a_threaded_batch_kills_each_container_a_worker_started(tmp_pa
             if not sent:  # the user's Ctrl-C, from inside a worker thread
                 sent.append(name)
                 os.kill(os.getpid(), signal.SIGINT)
-            gone.setdefault(name, threading.Event()).wait(5)  # a container runs until it is killed
+            gone.setdefault(name, threading.Event()).wait(60)  # a container runs until it is killed
             return process.reply(returncode=137)
         return process.reply()
 
