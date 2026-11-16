@@ -44,11 +44,12 @@ def check_prefixes(prefixes: Sequence[str]) -> tuple[str, ...]:
 def symbol_pattern(prefixes: Sequence[str]) -> str:
     """A regex for the names with one of ``prefixes`` as C identifiers, not as parts of a word.
 
-    A name after ``.``, ``>``, ``/`` or ``-`` is a member, a path or an option, and ``mkl_types``
-    in ``mkl_types.h`` is a file name: none of those is an API name.
+    A name after ``.`` or ``->`` is a member, and ``mkl_types`` in ``mkl_types.h`` is a file name:
+    neither is an API name. A name after ``/`` is one only when it is called (``a/cblas_x(``), and
+    a name after ``-`` is one when it is called or follows an operand (``f(x)-cblas_x``).
     """
     alternatives = "|".join(re.escape(p) for p in prefixes)
-    return rf"(?<![\w./>-])(?:{alternatives})\w+(?!\.?\w)"
+    return rf"(?<![\w.])(?<!->)(?:(?<!/)(?<![^\w)\]]-)(?<!^-)|(?=(?:{alternatives})\w+\())(?:{alternatives})\w+(?!\.?\w)"
 
 
 def header_names(text: str, prefixes: Sequence[str]) -> set[str]:

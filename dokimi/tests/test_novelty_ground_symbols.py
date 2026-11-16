@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,7 +17,7 @@ from dokimi.eval.reference_checks import grade_check, validate_grading
 from dokimi.novelty import symbols
 from dokimi.novelty.atoms import Atom, Span, load_atoms_record, save_atoms
 from dokimi.novelty.grounding import add_checks, identifiers_check, verify_keys
-from dokimi.novelty.symbols import header_names, nm_names, symbols_check
+from dokimi.novelty.symbols import header_names, nm_names, symbol_pattern, symbols_check
 from dokimi.utils import InputError
 
 PREFIXES = ("cblas_", "LAPACKE_", "mkl_")
@@ -295,3 +296,38 @@ def test_an_overlapping_prefix_set_replaces_the_stale_symbol_check(tmp_path):
     add_checks(atoms, [_check(tmp_path, ("LAPACKE_", "cblas_"))])
     checks = atoms[0]["meta"]["grading"]["checks"]
     assert [tuple(c["source"]["prefixes"]) for c in checks] == [("LAPACKE_", "cblas_")]
+
+
+def test_a_nested_prefix_refresh_replaces_the_stale_symbol_check(tmp_path):
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    (old_dir / "mkl.h").write_text("void mkl_sparse_old(void);\n", encoding="utf-8")
+    old = symbols_check(["mkl_"], [str(old_dir / "mkl.h")], [])
+    atoms = [{"statement": "Call mkl_sparse_new.", "question": "q", "answer": "a"}]
+    add_checks(atoms, [old])
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    (new_dir / "mkl.h").write_text("void mkl_sparse_old(void);\nvoid mkl_sparse_new(void);\n", encoding="utf-8")
+    add_checks(atoms, [symbols_check(["mkl_sparse_"], [str(new_dir / "mkl.h")], [])])
+    checks = atoms[0]["meta"]["grading"]["checks"]
+    assert [tuple(c["source"]["prefixes"]) for c in checks] == [("mkl_sparse_",)]
+
+
+@pytest.mark.parametrize("code", [
+    "return cblas_ddot(n,x,1)-cblas_dgemmx(n,x,1);",
+    "return cblas_ddot(n,x,1)/cblas_dgemmx(n,x,1);",
+    "if (x>cblas_dgemmx(n,x,1)) return 0;",
+    "return a/cblas_dgemmx(n,x,1);",
+])
+def test_an_operator_before_a_called_api_name_keeps_the_name(code):
+    assert "cblas_dgemmx" in re.findall(symbol_pattern(("cblas_",)), code)
+
+
+@pytest.mark.parametrize("code, name", [
+    ("x = s.cblas_dgemmx;", "cblas_dgemmx"),
+    ("x = p->cblas_dgemmx;", "cblas_dgemmx"),
+    ("run --cblas_dgemmx", "cblas_dgemmx"),
+    ("inc/cblas_api", "cblas_api"),
+])
+def test_a_member_option_or_path_is_not_an_api_name(code, name):
+    assert name not in re.findall(symbol_pattern(("cblas_",)), code)

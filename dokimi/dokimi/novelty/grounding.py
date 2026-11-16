@@ -197,16 +197,19 @@ def _replaced_by(old: dict, mine: list[dict]) -> bool:
     """Whether a check ``old`` on an atom is replaced by one of ``mine``.
 
     A tool's check is replaced by the same tool's. A symbol check is replaced by any symbol check
-    sharing a prefix with it: both would read that prefix's names, from different inputs, so the
-    older one would veto a name the newer one declares. A disjoint prefix set is kept.
+    whose prefix starts with one of its prefixes, or that one starts with: both would read the same
+    names (``mkl_`` and ``mkl_sparse_`` overlap), from different inputs, so the older one would veto
+    a name the newer one declares. A disjoint prefix set is kept.
     """
     if old.get("type") != "identifiers":
         return False
     if _source_of(old)[0] == "tool":
         return any(_source_of(m) == _source_of(old) for m in mine)
-    shared = set((old.get("source") or {}).get("prefixes") or [])
+    old_prefixes = (old.get("source") or {}).get("prefixes") or []
     return any((m.get("source") or {}).get("kind") == "symbols"
-               and shared & set(m["source"].get("prefixes") or []) for m in mine)
+               and any(a.startswith(b) or b.startswith(a)
+                       for a in old_prefixes for b in m["source"].get("prefixes") or [])
+               for m in mine)
 
 
 def add_checks(atoms: list[dict], checks: list[dict]) -> int:
