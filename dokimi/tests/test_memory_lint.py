@@ -602,3 +602,8 @@ def test_text_after_a_closed_title_leaves_the_link_live(mem):
 def test_link_in_a_title_on_the_next_line_is_text(mem):
     (mem / "MEMORY.md").write_text('[A][g]\n\n[g]:\n  a.md "[X](missing.md)"\n')
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_backticks_after_an_angle_without_an_opener_are_code(mem):
+    (mem / "a.md").write_text(_entry("a", body="x](<q `tomorrow` r>) z"))
+    assert [f.rule for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []

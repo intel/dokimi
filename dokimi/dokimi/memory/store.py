@@ -220,7 +220,7 @@ def _title_spans(lines: list[str], begin: list[int], defs: dict[int, re.Match]) 
 def _angle_link_at(line: str, pos: int) -> re.Match | None:
     """The ``](<...>)`` link on ``line`` whose destination holds ``pos``: a backtick there is text, and opens no span."""
     i = line.rfind("](", 0, pos)
-    m = _ANGLE_LINK.match(line, i) if i >= 0 else None
+    m = _ANGLE_LINK.match(line, i) if i >= 0 and _has_opener(line, i) else None
     return m if m and m.end() > pos else None
 
 
