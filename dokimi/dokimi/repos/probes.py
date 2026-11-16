@@ -77,6 +77,7 @@ _SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 _SHELL_C = re.compile(r"-[a-z]*c[a-z]*")  # ``-c``, ``-lc``: the next word is a script
 _LEX_SKIP = frozenset({"(", ")", "{", "}"})  # grouping a PowerShell or shell expression puts around a command
 _SEPARATORS = frozenset({"|", "||", "&&", ";", "&"})  # ``|`` splits stages; the rest end a command
+_GROUPED = re.compile(r"[{}()]|\b(?:if|then|else|elif|fi|do|done|while|until|case|esac)\b")  # a group or a block
 
 Stage = tuple[str, tuple[str, ...]]  # a simple command's program (normalised) and its words
 
@@ -192,7 +193,9 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
     """Each pipeline of the script as its stages' words; the commands of its ``$( )`` and backtick substitutions too."""
     status: bool | None = None  # the exit status of the last part that ran; None when it is not known
     before = ""  # the operator before this part
-    for part, after, in_subshell, _outer in split_script(_without_heredocs(script)):
+    text = _without_heredocs(script)
+    flat = not _GROUPED.search(text)  # a group or a block may hold an exit that does not run: then nothing ends the scan
+    for part, after, in_subshell, _outer in split_script(text):
         conditional = before in ("||", "&&")  # the part runs only if the one before it did, or did not, succeed
         skipped, before = (before == "||" and status is True) or (before == "&&" and status is False), after
         if skipped:  # a part after ``||`` that succeeded, or after ``&&`` that failed, never runs
@@ -207,7 +210,7 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
             for rest in command_words(stage):
                 if len(rest) > 2 and _program(rest[0]) in _SHELLS and _SHELL_C.fullmatch(rest[1]):
                     yield from _pipelines(rest[2])
-        if not conditional and not in_subshell and any(_ends_shell(stage) for stage in stages):
+        if flat and not conditional and not in_subshell and any(_ends_shell(stage) for stage in stages):
             return  # what follows an ``exit`` or a replacing ``exec`` that surely runs never runs
 
 
