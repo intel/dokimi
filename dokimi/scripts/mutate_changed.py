@@ -189,9 +189,15 @@ def continuation_lines(src: str, lines: set[int], mutated: set[int]) -> set[int]
     skip = _docstring_lines(tree)
     spanned: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.expr) and not isinstance(node, (ast.Constant, ast.JoinedStr)):
-            spanned.update(range(node.lineno + 1, (node.end_lineno or node.lineno) + 1))
-    text = src.splitlines()
+        if not isinstance(node, ast.expr):
+            continue
+        end = node.end_lineno or node.lineno
+        if isinstance(node, (ast.Constant, ast.JoinedStr)):
+            if end > node.lineno:
+                skip.update(range(node.lineno, end + 1))  # a multi-line string's lines are its text, not code
+        else:
+            spanned.update(range(node.lineno + 1, end + 1))
+    text = re.split(r"(?<=\n)", src)
     return {n for n in lines if n in spanned and n not in mutated and n not in skip
             and text[n - 1].strip() and not text[n - 1].lstrip().startswith("#")}
 

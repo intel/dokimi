@@ -684,3 +684,12 @@ def test_a_changed_continuation_line_with_no_mutant_is_listed_uncovered(tmp_path
     tests = "from dokimi.zz import f\n\n\ndef test_f():\n    assert f(1) == 2\n"
     _, report = _mutation_run(tmp_path, monkeypatch, src, tests, {})
     assert 3 in report["uncovered_lines"]["dokimi/dokimi/zz.py"]
+
+
+def test_the_text_of_a_multi_line_string_in_a_call_is_not_listed_uncovered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Lines 7-8 are the string's text and its closing line: they hold no code, so only line 3 (`+ a)`) is listed.
+    src = 'def f(a):\n    x = (a\n         + a)\n    return x\ndef g():\n    y = dedent("""\n    hello\n    """)\n    return y\n'
+    tests = "from dokimi.zz import f\n\n\ndef test_f():\n    assert f(1) == 2\n"
+    _, report = _mutation_run(tmp_path, monkeypatch, src, tests, {})
+    listed = report["uncovered_lines"]["dokimi/dokimi/zz.py"]
+    assert 3 in listed and 7 not in listed and 8 not in listed
