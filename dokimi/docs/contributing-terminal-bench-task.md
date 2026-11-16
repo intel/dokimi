@@ -272,7 +272,14 @@ results are never reported as official upstream benchmark numbers. The content
 repository is the right place for that record, kept next to the tasks it
 describes; keep it current in the same change that adds the task.
 
-Record the status in the task too: `[metadata] provenance = { source = "hand-written", reviewed_by = "...", status = "candidate" }` (see §3). `candidate` is a task nobody has checked yet, `validated` one a reviewer has checked, `frozen` one that must not change. Bump `metadata.version` when you change a task that results were already reported on (a repo `dokimi:typecheck` task has no revision `version`: there it is the pinned mypy version, see the [repository contract](./repo-evaluation-contract.md#3-taskjson)). A task without these keys reads as `unknown`; that is not an error.
+Record the status in the task too, as a `provenance` key inside the existing `[metadata]` table (see §3). Keep the table header on its own line:
+
+```toml
+[metadata]
+provenance = { source = "hand-written", reviewed_by = "...", status = "candidate" }
+```
+
+`candidate` is a task nobody has checked yet, `validated` one a reviewer has checked, `frozen` one that must not change. Bump `metadata.version` when you change a task that results were already reported on (a repo `dokimi:typecheck` task has no revision `version`: there it is the pinned mypy version, see the [repository contract](./repo-evaluation-contract.md#3-taskjson)). A task without these keys reads as `unknown`; that is not an error.
 
 ## 10 — CI
 
