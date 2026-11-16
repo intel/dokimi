@@ -335,6 +335,18 @@ def test_a_link_left_as_a_partial_is_removed_without_changing_its_target(tmp_pat
     assert not link.is_symlink() and (outside / "f").stat().st_mode & 0o777 == 0o444
 
 
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root removes a read-only directory")
+def test_a_link_inside_a_partial_that_needs_its_modes_fixed_keeps_its_target(tmp_path):
+    outside, partial = tmp_path / "outside", tmp_path / "x.git.1-aa.partial"
+    outside.write_text("x", encoding="utf-8")
+    outside.chmod(0o444)
+    (partial / "objects").mkdir(parents=True)
+    (partial / "objects" / "link").symlink_to(outside)
+    (partial / "objects").chmod(0o500)  # the first rmtree cannot unlink the link, so the modes are fixed
+    source._remove_tree(partial)
+    assert not partial.exists() and outside.stat().st_mode & 0o777 == 0o444
+
 @pytest.mark.parametrize("text", ["cannot lock ref 'refs/heads/b': is at x but expected y",
                                   "error: fetching ref refs/heads/b failed: incorrect old value provided",
                                   "error: fetching ref refs/heads/b failed: reference already exists"])

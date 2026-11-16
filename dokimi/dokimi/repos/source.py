@@ -539,6 +539,8 @@ def _remove_tree(path: Path) -> None:
     except OSError:
         for root, dirs, files in os.walk(path):
             for name in [root, *(os.path.join(root, n) for n in (*dirs, *files))]:
+                if os.path.islink(name):  # chmod would follow it out of the cache; its parent's mode is what matters
+                    continue
                 try:
                     os.chmod(name, 0o700)
                 except OSError:
