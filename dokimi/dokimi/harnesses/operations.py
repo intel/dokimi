@@ -70,9 +70,10 @@ def _parse_record(text: str, source: str) -> OperationRecord:
     """The operation in ``text``, a JSON object; anything else is a ``log_parse_error`` named ``source``."""
     try:
         data = json.loads(text)
-    except (ValueError, RecursionError) as exc:  # not JSON, an int over 4300 digits, nesting too deep
+    except (ValueError, RecursionError) as exc:  # not JSON, or valid JSON Python cannot hold (deep, a huge int)
+        prefix = "not JSON" if isinstance(exc, json.JSONDecodeError) else "JSON this reader cannot hold"
         return OperationRecord(type="log_parse_error", name=source, status="error",
-                               metadata={"error": f"not JSON: {exc}"})
+                               metadata={"error": f"{prefix}: {exc}"})
     if not isinstance(data, dict):  # the documented shape is an object (#687)
         return OperationRecord(type="log_parse_error", name=source, status="error",
                                metadata={"error": f"expected a JSON object, got {type(data).__name__}"})

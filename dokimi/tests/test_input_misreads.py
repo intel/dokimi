@@ -224,14 +224,16 @@ def test_a_marker_that_is_not_an_object_is_a_parse_error(payload, kind):
     assert ops[0].metadata == {"error": f"expected a JSON object, got {kind}"}
 
 
-@pytest.mark.parametrize("payload,reason", [
-    ("[" * 100000, "maximum recursion depth"), ("1" * 5000, "4300"), ("{", "Expecting"), ("", "Expecting value"),
+@pytest.mark.parametrize("payload,prefix,reason", [
+    ("[" * 100000, "JSON this reader cannot hold: ", "maximum recursion depth"),
+    ("1" * 5000, "JSON this reader cannot hold: ", "4300"),
+    ("{", "not JSON: ", "Expecting"), ("", "not JSON: ", "Expecting value"),
 ], ids=["too-deep", "int-over-4300-digits", "unparsable", "empty"])
-def test_a_marker_json_cannot_hold_is_a_parse_error_that_says_why(payload, reason):
+def test_a_marker_json_cannot_hold_is_a_parse_error_that_says_why(payload, prefix, reason):
     ops = load_operations(None, f"DOKIMI_OP {payload}", "")
 
     assert [(op.type, op.name, op.status) for op in ops] == [("log_parse_error", "marker", "error")]
-    assert ops[0].metadata["error"].startswith("not JSON: ") and reason in ops[0].metadata["error"]
+    assert ops[0].metadata["error"].startswith(prefix) and reason in ops[0].metadata["error"]
 
 
 def test_an_elapsed_too_large_for_a_float_is_zero():
