@@ -385,7 +385,10 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
                                 max_turns=args.max_turns, budget_usd=args.budget) for m in args.model]
-        for task in tasks:  # refuse before anything runs, not cell by cell
+        gaps = ctx.base_gaps()
+        for task in tasks:  # refuse before anything runs, not cell by cell; a suite gap is unsupported, not run
+            if task.id in gaps:
+                continue
             task_caps(task, options[0])
             agent_network(options[0], ctx, task)
             docker_network(ctx.manifest.image.network, task.egress)  # grade has no egress route either

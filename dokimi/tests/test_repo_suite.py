@@ -415,3 +415,17 @@ def test_an_empty_suite_path_is_refused_by_self_check_too(tmp_path, monkeypatch,
         args.func(args)
     assert exc.value.code == 1
     assert not (out / "check/check.json").exists()
+
+
+def test_a_suite_gap_with_egress_does_not_abort_the_batch_under_no_network(run, capsys):
+    task = run["root"] / ".agent-eval/tasks/fix_add/task.json"
+    write(run["root"], ".agent-eval/tasks/fix_add/task.json",
+          json.dumps({**json.loads(task.read_text(encoding="utf-8")), "egress": ["example.com"]}))
+    gone = f"file://{run['tmp']}/missing@{'c' * 40}"
+    _commit_suite(run["root"], None, _raw(repos={"sc": gone}, tasks=[{"id": "fix_add", "repo": "sc"}]))
+    run["invoke"]("--suite", ".agent-eval/suite.yaml", "--task", "fix_add", "--task", "review_add",
+                  "--arm", "guidance:none")
+    batch = run["out"] / "b1"
+    unsupported = json.loads((batch / "fix_add__guidance-none__m-1__r1/unsupported.json").read_text(encoding="utf-8"))
+    assert unsupported["task"] == "fix_add"
+    assert (batch / "review_add__guidance-none__m-1__r1/result.json").is_file()
