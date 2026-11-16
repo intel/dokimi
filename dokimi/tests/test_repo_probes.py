@@ -160,15 +160,52 @@ def test_a_command_in_the_body_of_a_conditional_or_loop_is_a_probe(command):
     assert [e["pattern"] for e in events if e["kind"] == "probe"] == ["nproc"]
 
 
-@pytest.mark.xfail(strict=True, reason="quoted text is still searched for substitutions and pipes")
 @pytest.mark.parametrize("command", [
     "echo '$(nproc)'",
     "sysctl -a '|' grep machdep.cpu",
-    "python -c 'print(\"os.cpu_count()\")'",
 ])
 def test_quoted_text_is_no_probe(command):
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
     assert all(e["kind"] != "probe" for e in events)
+
+
+def test_a_call_inside_a_python_string_is_no_probe():
+    events = _claude(_claude_call("a", "python -c 'print(\"os.cpu_count()\")'", "2026-01-01T00:00:05Z"),
+                     _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("make -j$(python -c 'import os; print(os.cpu_count())')", "py:os.cpu_count"),
+    ("echo $(echo $(nproc))", "nproc"),
+    ("bash -c '>/dev/null; nproc'", "nproc"),
+    ("grep -m 1 >/tmp/cpu.txt processor /proc/cpuinfo", "/proc/cpuinfo"),
+    ("grep '>' /proc/cpuinfo", "/proc/cpuinfo"),
+    ("python -c'import os;print(os.cpu_count())'", "py:os.cpu_count"),
+    ("python -I -m pip list", "pip list"),
+    ("< /proc/cpuinfo cat", "/proc/cpuinfo"),
+    ("time bash -c 'nproc'", "nproc"),
+    ("FOO=bar bash -c 'nproc'", "nproc"),
+    ("bash --noprofile -c 'nproc'", "nproc"),
+    ("C:\\Windows\\System32\\nvidia-smi.exe --query-gpu=name", "nvidia-smi"),
+    ("/mnt/c/Program\\ Files/NVIDIA\\ Corporation/NVSMI/nvidia-smi.exe -L", "nvidia-smi"),
+])
+def test_a_probe_the_shell_runs_in_another_form_is_a_probe(command, pattern):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert [e["pattern"] for e in events if e["kind"] == "probe"] == [pattern]
+
+
+@pytest.mark.parametrize("command", ["python echo_args.py -c 'os.cpu_count()'", "rg /proc/cpuinfo README"])
+def test_a_script_argument_or_a_search_expression_is_no_probe(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+def test_a_probe_file_nested_too_deep_is_a_value_error_that_names_it(tmp_path):
+    path = tmp_path / "probes.yaml"
+    path.write_text("[" * 2000, encoding="utf-8")
+    with pytest.raises(ValueError, match="probes.yaml"):
+        load_probe_file(str(path))
 
 
 def test_a_windows_powershell_probe_is_matched_case_blind_and_through_parentheses():
