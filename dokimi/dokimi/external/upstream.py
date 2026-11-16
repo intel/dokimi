@@ -150,16 +150,17 @@ class Index:
     def __init__(self, upstreams: Sequence[Upstream], versions: Iterable[Version]):
         self.upstreams = tuple(upstreams)
         versions = list(versions)
-        # A checkout's head is always known; a manifest's is known only when one of its entries is flagged as head.
-        self.known_heads = frozenset(
-            [u.name for u in self.upstreams if u.history != "manifest"] + [v.upstream.name for v in versions if v.head]
-        )
+        self._flagged = frozenset((v.upstream.name, v.path) for v in versions if v.head)
         self._by_blob: dict[str, list[Version]] = {}
         self._by_name: dict[str, list[Version]] = {}
         for version in versions:
             self._by_blob.setdefault(version.blob_sha, []).append(version)
             if version.name is not None:
                 self._by_name.setdefault(version.name, []).append(version)
+
+    def head_known(self, version: Version) -> bool:
+        """Whether the head of this version's path is known: always for a checkout; for a manifest, only when an entry of that path is flagged."""
+        return version.upstream.history != "manifest" or (version.upstream.name, version.path) in self._flagged
 
     def match(self, raw: bytes, name: Optional[str]) -> Optional[Match]:
         """The upstream version a copy with bytes ``raw`` and frontmatter ``name`` came from, or None."""

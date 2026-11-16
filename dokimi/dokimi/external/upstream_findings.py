@@ -64,7 +64,7 @@ def upstream_findings(match: Optional[Match], copy_raw: bytes, copy_risks: froze
                       head_known: bool = True) -> list[Finding]:
     """The upstream findings of one skill copy: its ``match``, its SKILL.md bytes, and its own risk codes (``RISK_CODES``).
 
-    ``head_known`` is False for a manifest with no entry flagged as head: a version is then not stale, because nothing says which is the head.
+    ``head_known`` is False for a manifest path with no entry flagged as head: such a version is not stale, because nothing says which is the head.
     """
     if match is None:
         return []
@@ -106,5 +106,5 @@ def add_upstream_findings(index: Index, skills: Sequence, reviews: Sequence, ign
         raw = entry.skill.path.read_bytes()
         copy_risks = frozenset(f.code for f in review.findings) & (RISK_CODES - ignore)
         match = index.match(raw, entry.skill.name)
-        head_known = match is None or match.version.upstream.name in index.known_heads
+        head_known = match is None or index.head_known(match.version)
         review.findings += upstream_findings(match, raw, copy_risks, head_known=head_known)

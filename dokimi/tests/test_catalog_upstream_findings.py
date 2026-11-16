@@ -216,3 +216,11 @@ def test_ignoring_every_risk_code_inherits_nothing(tmp_path, capsys):
     assert _found(row, "risk-inherited-from-upstream") == []
     assert row["state"] == "ok"
     assert code == 0
+
+
+def test_a_flagged_head_on_one_path_does_not_make_another_path_stale(tmp_path, capsys):
+    docx = HEAD_TEXT.replace("name: pdf", "name: docx")
+    manifest = _manifest(tmp_path, {"content": docx, "path": "skills/docx/SKILL.md", "head": True, "commit": "bbbb"},
+                         {"content": OLD_TEXT, "commit": "aaaa"})  # pdf has no entry flagged as head
+    _, report = _check(_copy(tmp_path, OLD_TEXT), capsys, "--upstream-manifest", manifest)
+    assert _found(_row(report), "upstream-stale") == []
