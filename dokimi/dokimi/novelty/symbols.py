@@ -21,7 +21,7 @@ from dokimi.utils import InputError
 #: A C identifier prefix: a C identifier that ends in an underscore (``cblas_``, ``LAPACKE_``).
 _PREFIX = re.compile(r"[A-Za-z_]\w*_")
 #: Comments and string or character literals of C code: no declaration is named in them.
-_C_SKIP = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', re.DOTALL)
+_C_SKIP = re.compile(r'/\*.*?\*/|//(?:\\\n|[^\n])*|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', re.DOTALL)
 _CHUNK = 1 << 20
 
 
@@ -91,7 +91,11 @@ def _files(patterns: Sequence[str], flag: str) -> list[Path]:
     """
     found: set[Path] = set()
     for pattern in patterns:
-        matches = [Path(m) for m in glob.glob(pattern, recursive=True)]
+        # A path that exists is read as it is: glob would take ``[1]`` in ``inc[1]/`` for a class.
+        if Path(pattern).is_file():
+            matches = [Path(pattern)]
+        else:
+            matches = [Path(m) for m in glob.glob(pattern, recursive=True)]
         files = [m for m in matches if m.is_file()]
         if not files:
             raise InputError(f"--{flag} {pattern!r} matches no file")
@@ -110,7 +114,7 @@ def _header_text(path: Path) -> str:
 def _library_output(path: Path, *, timeout: float = 120.0) -> str:
     """``nm -D --defined-only`` of ``path``, the whole output (a large library lists thousands)."""
     try:
-        done = run(["nm", "-D", "--defined-only", str(path)], timeout=timeout, env=Env.inherit(),
+        done = run(["nm", "-D", "--defined-only", "--", str(path)], timeout=timeout, env=Env.inherit(),
                    capture_limit=None)
     except FileNotFoundError:
         raise InputError(f"nm is not installed; cannot read the symbols of {path}") from None

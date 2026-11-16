@@ -193,12 +193,28 @@ def _source_of(check: dict) -> tuple[str, str]:
     return ("tool", str(source.get("tool")))
 
 
+def _replaced_by(old: dict, mine: list[dict]) -> bool:
+    """Whether a check ``old`` on an atom is replaced by one of ``mine``.
+
+    A tool's check is replaced by the same tool's. A symbol check is replaced by any symbol check
+    sharing a prefix with it: both would read that prefix's names, from different inputs, so the
+    older one would veto a name the newer one declares. A disjoint prefix set is kept.
+    """
+    if old.get("type") != "identifiers":
+        return False
+    if _source_of(old)[0] == "tool":
+        return any(_source_of(m) == _source_of(old) for m in mine)
+    shared = set((old.get("source") or {}).get("prefixes") or [])
+    return any((m.get("source") or {}).get("kind") == "symbols"
+               and shared & set(m["source"].get("prefixes") or []) for m in mine)
+
+
 def add_checks(atoms: list[dict], checks: list[dict]) -> int:
     """Attach each check to the atoms that name its tool or prefix; how many atoms changed.
 
     An atom that names none gets no check: its answers would rarely carry the tool's command
-    line, and a check that never fires is noise in the report. A check from the same source
-    already on the atom is replaced, so re-running refreshes the snapshot.
+    line, and a check that never fires is noise in the report. A check replaced by a new one
+    (see :func:`_replaced_by`) is dropped, so re-running refreshes the snapshot.
     """
     _require_valid_gradings(atoms)
     changed = 0
@@ -209,9 +225,7 @@ def add_checks(atoms: list[dict], checks: list[dict]) -> int:
             continue
         meta = atom["meta"] = atom.get("meta") or {}
         grading = meta["grading"] = meta.get("grading") or {"checks": []}
-        replaced = {_source_of(m) for m in mine}
-        kept = [c for c in grading.get("checks", [])
-                if not (c.get("type") == "identifiers" and _source_of(c) in replaced)]
+        kept = [c for c in grading.get("checks", []) if not _replaced_by(c, mine)]
         grading["checks"] = kept + mine
         changed += 1
     return changed

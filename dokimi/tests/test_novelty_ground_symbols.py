@@ -258,3 +258,40 @@ def test_novelty_ground_refuses_symbol_flags_that_do_not_go_together(tmp_path, k
                               **kwargs)
     with pytest.raises(InputError, match=message):
         novelty_ground.cmd_novelty_ground(args)
+
+
+def test_a_header_path_with_glob_characters_that_exists_is_read(tmp_path):
+    include = tmp_path / "inc[1]"
+    include.mkdir()
+    (include / "cblas.h").write_text(CBLAS_H, encoding="utf-8")
+    check = symbols_check(["cblas_"], [str(include / "cblas.h")], [])
+    assert "cblas_dgemm" in check["known"]
+
+
+def test_a_line_comment_continued_by_a_backslash_declares_no_name():
+    text = "void cblas_real(void);\n// unavailable APIs: \\\n cblas_fake\n"
+    assert header_names(text, ("cblas_",)) == {"cblas_real"}
+
+
+def test_a_library_path_starting_with_a_dash_is_read_as_a_file(tmp_path, monkeypatch):
+    if shutil.which("nm") is None or shutil.which("cc") is None:
+        pytest.skip("needs nm and cc to build a fixture library")
+    source = tmp_path / "fixture.c"
+    source.write_text("int cblas_ddot(int x) { return x; }\n", encoding="utf-8")
+    subprocess.run(["cc", "-shared", "-fPIC", "-o", str(tmp_path / "-api.so"), str(source)],
+                   check=True)
+    monkeypatch.chdir(tmp_path)
+    check = symbols_check(["cblas_"], [], ["./-api.so"])
+    assert check["known"] == ["cblas_ddot"]
+
+
+def test_an_overlapping_prefix_set_replaces_the_stale_symbol_check(tmp_path):
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    (old_dir / "cblas.h").write_text("void cblas_ddot(void);\n", encoding="utf-8")
+    old = symbols_check(["cblas_"], [str(old_dir / "cblas.h")], [])
+    atoms = [{"statement": "Call cblas_dgemm.", "question": "q", "answer": "a"}]
+    add_checks(atoms, [old])
+    add_checks(atoms, [_check(tmp_path, ("LAPACKE_", "cblas_"))])
+    checks = atoms[0]["meta"]["grading"]["checks"]
+    assert [tuple(c["source"]["prefixes"]) for c in checks] == [("LAPACKE_", "cblas_")]
