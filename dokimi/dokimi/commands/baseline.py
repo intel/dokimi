@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -18,7 +17,7 @@ from dokimi.utils import model_identity, same_model
 from dokimi.commands import baseline_regression
 from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_INVALID
-from dokimi.utils import InputError, read_json_input, refuse_device
+from dokimi.utils import InputError, read_json_input, read_json_input_bytes
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -31,32 +30,23 @@ def _json_type(value: Any) -> str:
     return _JSON_TYPE_NAMES.get(type(value), type(value).__name__)
 
 
-def _read_json_object(path: Path) -> Dict[str, Any]:
-    """Read a JSON file that must hold an object, or raise :class:`InputError` naming the file and the problem."""
-    data = read_json_input(path)
+def _json_object(path: str | Path, data: Any) -> Dict[str, Any]:
+    """``data`` read from ``path``, or :class:`InputError` naming the file when it is not a JSON object."""
     if not isinstance(data, dict):
         raise InputError(f"{path}: expected a JSON object, got {_json_type(data)}")
     return data
 
 
-def _read_eval(path: Path) -> Tuple[bytes, Dict[str, Any]]:
+def _read_json_object(path: Path) -> Dict[str, Any]:
+    """Read a JSON file that must hold an object, or raise :class:`InputError` naming the file and the problem."""
+    return _json_object(path, read_json_input(path))
+
+
+def _read_eval(path: str) -> Tuple[bytes, Dict[str, Any]]:
     """The eval file's bytes, read once, and the JSON object they hold, so the summary describes the copy;
-    refused as :func:`read_json_input` and :func:`_read_json_object` refuse it, naming the file."""
-    refuse_device(path)
-    try:
-        raw = path.read_bytes()
-        data = json.loads(raw.decode("utf-8"))
-    except OSError as exc:
-        raise InputError(f"cannot read {path}: {exc.strerror or exc}") from exc
-    except UnicodeDecodeError as exc:
-        raise InputError(f"{path} is not UTF-8 text: {exc}") from exc
-    except (json.JSONDecodeError, RecursionError) as exc:
-        raise InputError(f"{path} is not valid JSON: {exc}") from exc
-    except ValueError as exc:  # e.g. "embedded null byte" in the path
-        raise InputError(f"cannot read {path}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise InputError(f"{path}: expected a JSON object, got {_json_type(data)}")
-    return raw, data
+    refused as :func:`_read_json_object` refuses it (``path`` as given, so ``""`` is refused as no file)."""
+    raw, data = read_json_input_bytes(path)
+    return raw, _json_object(path, data)
 
 
 def _baseline_manifest() -> Dict[str, Any]:
@@ -219,7 +209,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
 
     eval_path = Path(args.from_eval)
     manifest = _baseline_manifest()  # first: a corrupt manifest fails fast and leaves no orphan file
-    raw, eval_data = _read_eval(eval_path)
+    raw, eval_data = _read_eval(args.from_eval)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"

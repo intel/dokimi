@@ -768,7 +768,12 @@ def refuse_device(path: str | os.PathLike[str], flag: str | None = None) -> None
 
 
 def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) -> Any:
-    """The parsed JSON at ``path``, or :class:`InputError` naming the file and the reason.
+    """The parsed JSON at ``path``: :func:`read_json_input_bytes` without the bytes."""
+    return read_json_input_bytes(path, flag=flag)[1]
+
+
+def read_json_input_bytes(path: str | os.PathLike[str], *, flag: str | None = None) -> tuple[bytes, Any]:
+    """The bytes at ``path``, read once, and the JSON they hold, or :class:`InputError` naming the file and the reason.
 
     Covers a missing or unreadable file, a device (:func:`refuse_device`), bytes that are not
     UTF-8, text that is not JSON and JSON nested too deeply to parse. With ``flag`` (the option
@@ -780,7 +785,8 @@ def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) ->
         raise InputError(f'{flag} "": no file given' if flag else 'cannot read "": no file given')
     refuse_device(path, flag)
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
+        raw = Path(path).read_bytes()
+        return raw, json.loads(raw.decode("utf-8"))
     except OSError as exc:
         reason = exc.strerror or exc
         raise InputError(f"{flag} {path}: {reason}" if flag else f"cannot read {path}: {reason}") from exc
