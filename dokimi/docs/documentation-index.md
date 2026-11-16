@@ -57,6 +57,10 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   separate repository, and every location is an explicit flag
   (`--questions-root`, `--tasks-root`, `--repo-root`, `--registry`). Includes a
   pre-flight `catalog check` and what each command does when a root is missing.
+- [finding-codes.md](finding-codes.md) — the codes `catalog check` reports, with
+  their levels and which ones `--ignore` may hide.
+- [catalog-jsonl.md](catalog-jsonl.md) — the JSON and JSONL output of
+  `catalog check`, key by key, for scripts and external studies.
 - [quickstart.md](quickstart.md) — end-to-end LLM evaluation pipeline:
   personas → questions → answers → judge → report. Includes troubleshooting
   and a cost estimate.
