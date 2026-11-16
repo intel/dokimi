@@ -41,7 +41,7 @@ def _load(tmp_path, monkeypatch, calls, fail=(), seen=None, asked=None):
         for it in items:
             try:
                 out.append(fn(it))
-            except Exception as exc:  # the real pmap returns the error, not raises
+            except Exception as exc:  # noqa: BLE001 - the real pmap returns the error, not raises
                 out.append(exc)
         return out
 

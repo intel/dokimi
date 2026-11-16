@@ -54,7 +54,7 @@ jobs:
         run: |
           sed -e 's/ *\\$//' -e 's/ *;.*//' \
               requirements.lock.txt requirements-docs.lock.txt requirements-ci.lock.txt \
-              requirements-mutation.lock.txt requirements-fuzz.lock.txt | sort -u \
+              requirements-mutation.lock.txt requirements-fuzz.lock.txt requirements-conda-lock.lock.txt | sort -u \
             | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
           for f in "$RUNNER_TEMP"/pins*.txt; do
             pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off

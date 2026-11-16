@@ -148,7 +148,8 @@ def _verdicts_hint(oracle, cache_dir, stop) -> str:
 
     stored = max(0, oracle.escalations - oracle.errors - 1)
     dropped = stop.reply is not None
-    rerun = "no --max-usd" if stop.reason == "no_price" else "a higher --max-usd"
+    rerun = ("no --max-usd" if stop.reason == "no_price" else
+             "the error fixed" if stop.reason == "permanent_error" else "a higher --max-usd")
     tail = "; the call with no price was paid for and its verdict was not stored" if dropped else ""
     if cache_dir and stored:
         return (f"the retention verdicts adjudicated before the stop ({stored}) are stored in "
@@ -180,16 +181,16 @@ def score_candidates(args: argparse.Namespace, spans: list, atoms: list, scored:
     A stop at ``--max-usd`` exits with a message that says no candidate table and no ``--out``
     file was written and what a rerun can reuse; a table scored on part of the verdicts is not made.
     """
-    from pathlib import Path
-
+    from dokimi.commands.novelty_run import usable_cache_dir
     from dokimi.novelty import cost
     from dokimi.novelty.client import SpendCapReached
     from dokimi.novelty.retention import RetentionOracle
     from dokimi.novelty.shorten import build_candidates
 
+    cache_dir = usable_cache_dir(args.cache_dir)
     client = cost.client(args.extract_model or args.model, args.provider, "oracle", args) \
         if not args.lexical_only else None
-    oracle = RetentionOracle(client=client, cache_dir=Path(args.cache_dir) if args.cache_dir else None)
+    oracle = RetentionOracle(client=client, cache_dir=cache_dir)
     try:
         candidates = build_candidates(spans, atoms, oracle=oracle, budgets=tuple(args.budgets),
                                       seed=args.seed, scored_atoms=scored)

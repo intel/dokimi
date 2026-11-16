@@ -193,7 +193,9 @@ so the published sdist and wheel are not built by a backend resolved fresh from
 PyPI. The mutation workflow adds mutmut's closure
 (`requirements-mutation.txt`) from `requirements-mutation.lock.txt`, and the
 fuzz workflow atheris from `requirements-fuzz.lock.txt` (compiled for Linux
-x86_64: atheris has no sdist), which nothing else installs, and pip-audit audits with the others. When you change a range in
+x86_64: atheris has no sdist), which nothing else installs, and pip-audit audits with the others. The conda-lock workflow installs py-rattler and PyYAML
+(`requirements-conda-lock.txt`) from `requirements-conda-lock.lock.txt` with
+`--no-deps --require-hashes`. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The main and tools lock headers pass

@@ -74,6 +74,16 @@ def test_deep_nesting_is_a_parse_error_not_a_crash() -> None:
         assert isinstance(got, kind)
 
 
+@pytest.mark.parametrize("text", ["[" * 100000, "```json\n" + "[" * 100000 + "\n```"])
+@pytest.mark.parametrize("extract_name", ["extract_json_object", "extract_json_array"])
+def test_a_bare_deep_reply_is_a_parse_error_not_a_crash(extract_name: str, text: str) -> None:
+    # No prose before the nesting, bare or fenced: the direct and fence parses are the ones that recurse.
+    from dokimi import llm_json
+
+    with pytest.raises(ValueError):
+        getattr(llm_json, extract_name)(text)
+
+
 def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
     # PyYAML raises a plain ValueError for 2026-02-30: the lenient reader reads no metadata,
     # and the strict one raises the YAML error its docstring names.
