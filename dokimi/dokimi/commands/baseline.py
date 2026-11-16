@@ -11,7 +11,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from dokimi.artifacts import save_artifact
+from dokimi.artifacts import _write_target, save_artifact
 from dokimi.atomic_write import write_bytes_atomic
 from dokimi.utils import model_identity, same_model
 from dokimi.commands import baseline_regression
@@ -225,7 +225,8 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
         raise InputError(f"Baseline already exists: {dest} (choose a different --name)")
-    write_bytes_atomic(dest, raw)  # as it is: the eval's own run envelope, not this run's
+    copy = _write_target(dest)  # a dangling link at dest is written through, as save_artifact and main do
+    write_bytes_atomic(copy, raw)  # as it is: the eval's own run envelope, not this run's
 
     manifest["baselines"].append({
         "name": name,
@@ -237,7 +238,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     try:
         _save_manifest(manifest)
     except BaseException:
-        dest.unlink(missing_ok=True)  # a copy no manifest lists would block a retry under the same name
+        copy.unlink(missing_ok=True)  # a copy no manifest lists would block a retry under the same name
         raise
 
     print(f"✅ Saved baseline '{name}' → {dest}")

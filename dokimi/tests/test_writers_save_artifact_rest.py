@@ -269,3 +269,25 @@ def test_an_entry_baseline_list_reads_does_not_block_a_later_save(tmp_path, monk
     assert _cli(monkeypatch, "baseline", "save", "--from-eval", str(_eval(tmp_path, monkeypatch)), "--name", "n1") == 0
     assert [b["name"] for b in load_artifact("baseline_manifest", baselines / "manifest.json")["baselines"]] == \
         ["old", "n1"]
+
+
+
+def test_a_dangling_link_at_the_baseline_path_is_written_through(tmp_path, monkeypatch, baselines):
+    """As main wrote through it, and as save_artifact keeps a link (review of #829): the link stays and its target
+    gets the copy; a refused manifest removes the target, not the link."""
+    source = _eval(tmp_path, monkeypatch)
+    baselines.mkdir(parents=True)
+    target = tmp_path / "store" / "b1.json"
+    target.parent.mkdir()
+    try:
+        (baselines / "b1.json").symlink_to(target)
+    except OSError as exc:  # Windows without the symlink privilege
+        pytest.skip(f"cannot create a symlink: {exc}")
+    summary = baseline_mod._compute_summary
+    monkeypatch.setattr(baseline_mod, "_compute_summary", lambda _data: [])
+    assert _cli(monkeypatch, "baseline", "save", "--from-eval", str(source), "--name", "b1") == 1
+    assert (baselines / "b1.json").is_symlink() and not target.exists()
+
+    monkeypatch.setattr(baseline_mod, "_compute_summary", summary)
+    assert _cli(monkeypatch, "baseline", "save", "--from-eval", str(source), "--name", "b1") == 0
+    assert (baselines / "b1.json").is_symlink() and target.read_bytes() == source.read_bytes()
