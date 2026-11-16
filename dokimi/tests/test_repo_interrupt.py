@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """A Ctrl-C during a threaded repo batch: the containers its cells started are killed, and the charge is kept."""
 
 from __future__ import annotations
