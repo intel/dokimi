@@ -10,7 +10,9 @@ from __future__ import annotations
 import argparse
 import functools
 import math
+import os
 import sys
+from pathlib import Path
 
 
 def stops_at_cap(command):
@@ -26,6 +28,40 @@ def stops_at_cap(command):
             raise SystemExit(f"{exc}; nothing was written") from None
 
     return run
+
+
+def usable_cache_dir(raw: str | None) -> Path | None:
+    """``--cache-dir`` as a path the retention cache can store into, or ``None`` when unset.
+
+    A directory that does not exist yet is fine (created on the first store) when an existing,
+    writable directory is above it; one that exists must be a readable directory, writable or
+    not (the oracle skips a store it cannot make). Anything else raises ``InputError`` before a
+    paid call (#701).
+    """
+    from dokimi.utils import InputError
+
+    if not raw:
+        return None
+    path = Path(raw)
+    probe = path
+    try:
+        while not probe.exists() and not probe.is_symlink() and probe != probe.parent:
+            probe = probe.parent
+        is_dir = probe.is_dir()
+    except OSError as exc:
+        # An ancestor without search permission: exists()/is_dir() raise PermissionError (Python < 3.14).
+        raise InputError(f"--cache-dir {path}: cannot inspect {probe} ({exc.strerror or type(exc).__name__}); "
+                         "pass a directory the retention verdicts can be stored in") from exc
+    if not is_dir:
+        where = "is not a directory" if probe == path else f"has {probe} above it, which is not a directory"
+        raise InputError(f"--cache-dir {path} {where}; pass a directory the retention verdicts can be stored in")
+    # An existing directory only has to be readable: a fully cached run replays from a read-only
+    # directory and writes nothing. A missing one is created on the first store, so it needs to be writable.
+    needed, word = (os.R_OK | os.X_OK, "readable") if probe == path else (os.W_OK | os.X_OK, "writable")
+    if not os.access(probe, needed):
+        raise InputError(f"--cache-dir {path}: {probe} is not {word}; pass a directory the retention "
+                         "verdicts can be stored in")
+    return path
 
 
 def exit_if_analyze_partial(result, out) -> None:

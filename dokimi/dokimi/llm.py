@@ -228,7 +228,7 @@ def unsupported_sampling_params(
         return [n for n in requested if n not in cli.supports]
     try:
         supported = _litellm().get_supported_openai_params(model=resolve_model(model, provider)) or []
-    except Exception:
+    except Exception:  # noqa: BLE001 - litellm raises many types for an unknown model; [] drops nothing
         return []
     if not supported:
         return []
@@ -274,11 +274,11 @@ _NON_RETRYABLE_EXC_NAMES = frozenset({
     "unsupportedparamserror",
     "contentpolicyviolationerror",
 })
-# So are these messages, which litellm raises under its catch-alls: no key, project or SDK.
-_NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set",
-                           "missing gemini api key", "could not resolve credentials",
-                           "could not resolve project_id", "default credentials were not found",
-                           "google cloud sdk not found")
+# So are these messages, which litellm raises under its catch-alls: no key, project, SDK or AWS credentials.
+_NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set", "missing gemini api key",
+    "could not resolve credentials", "could not resolve project_id", "google cloud sdk not found",
+    "default credentials were not found", "unable to locate credentials", "partial credentials found in",
+    "unable to locate authorization token", "the config profile (", "sso session associated with this profile")
 
 
 def is_retryable(exc: BaseException) -> bool:
@@ -352,7 +352,7 @@ def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = 
         if cost == 0.0 and not _has_price_entry(litellm_model or model, model):
             raise ValueError("model is not in litellm's price map")
         return cost
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - logged once per model; cost is null, never a fake $0
         if model not in _COST_UNKNOWN_LOGGED:
             _COST_UNKNOWN_LOGGED.add(model)
             logger.info("No litellm pricing for model %r; cost_usd will be null (%s)", model, exc)
@@ -891,7 +891,7 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
     def parses(raw: str) -> bool:
         try:
             return parse(raw) is not None
-        except Exception:
+        except Exception:  # noqa: BLE001 - a cache predicate: any parse failure means do not cache
             return False
 
     raw, error = "", ""
@@ -900,7 +900,7 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
         raw = ask(asked, draw=draw * attempts + attempt, cache_if=parses)
         try:
             value = parse(raw)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the parse error is kept and re-asked, then raised
             error = str(exc)
         else:
             if value is not None:

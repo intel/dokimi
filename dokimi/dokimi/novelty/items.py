@@ -267,8 +267,12 @@ _POOLED_AS_ONE = (
 
 
 def _refuse_partial(raw: str, data: dict) -> None:
-    """A partial probe result (``--max-usd`` stopped the measurement) is not a finished one."""
+    """A partial probe result (a stop: ``--max-usd`` or a permanent provider error) is not a finished one."""
     if "partial" in data or data.get("status") == "partial":
+        block = data.get("partial")
+        if isinstance(block, dict) and block.get("reason") == "permanent_error":
+            raise ProbeFileError(f"{raw} is a partial probe result ({block.get('message', 'a permanent provider error stopped the measurement')}); "
+                                 "it is not a finished measurement")
         raise ProbeFileError(f"{raw} is a partial probe result (--max-usd stopped the measurement); "
                              "it is not a finished measurement")
 
