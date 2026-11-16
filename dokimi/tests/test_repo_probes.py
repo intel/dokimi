@@ -296,6 +296,8 @@ def test_text_the_shell_does_not_run_gives_no_probe(command):
     ("sudo -n bash -c 'nproc'", ["nproc"]),
     ("time bash -lc 'nproc'", ["nproc"]),
     ("cat <<EOF\n$(nproc)\nEOF", ["nproc"]),
+    ("cat <<EOF # the cores\n$(nproc)\nEOF", ["nproc"]),
+    ("cat <<EOF > cfg  # note\n$(nproc)\nEOF", ["nproc"]),
     ("cat <<EOF\nthe cores: `nproc`\nEOF", ["nproc"]),
     ("cat < /etc/os-release", ["/etc/os-release"]),
     ("cat README > out.txt < /etc/os-release", ["/etc/os-release"]),

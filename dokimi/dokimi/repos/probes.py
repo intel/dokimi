@@ -214,12 +214,13 @@ def _without_heredocs(script: str) -> str:
     end: str | None = None
     body: list[str] = []
     expands = False
-    head = 0  # the line that opens the heredoc
+    head, at = 0, 0  # the line that opens the heredoc, and where its operator starts on it
     for line in script.split("\n"):
         if end is not None:
             if line.strip() == end:
-                if expands:
-                    out[head] += "".join(f" {text}" for text in _expansions("\n".join(body)))
+                if expands:  # before the operator: a comment after it on the opening line would hide them
+                    found = "".join(f"{text} " for text in _expansions("\n".join(body)))
+                    out[head] = out[head][:at] + found + out[head][at:]
                 end, body = None, []
             else:
                 body.append(line)
@@ -227,7 +228,7 @@ def _without_heredocs(script: str) -> str:
         out.append(line)
         m = _HEREDOC.search(line)
         if m and not _SHELL_LINE.match(line):
-            end, expands, head = m.group(2), not m.group(1), len(out) - 1
+            end, expands, head, at = m.group(2), not m.group(1), len(out) - 1, m.start()
     return "\n".join(out)
 
 
