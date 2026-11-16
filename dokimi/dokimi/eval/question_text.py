@@ -94,11 +94,8 @@ def require_question_texts(records: Iterable[Mapping[str, Any]]) -> None:
             require_question_text(record, i)
 
 
-# Curated golden sets carry verified answer statements in ``expected_topics``,
-# which are usable as judge ground truth. Auto-generated sets put short keyword
-# labels in the same field (measured: ~14-19 chars/topic, versus 78-207 for the
-# golden sets), and grading a full answer against bare keywords would penalise
-# correct answers. Only promote topics that are prose-length.
+# Golden sets' ``expected_topics`` are prose statements; auto-generated keyword
+# labels (~14-19 chars) would penalise correct answers, so only long topics count.
 MIN_GROUND_TRUTH_TOPIC_CHARS = 40
 
 
