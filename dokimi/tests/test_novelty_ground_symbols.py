@@ -318,9 +318,18 @@ def test_a_nested_prefix_refresh_replaces_the_stale_symbol_check(tmp_path):
     "return cblas_ddot(n,x,1)/cblas_dgemmx(n,x,1);",
     "if (x>cblas_dgemmx(n,x,1)) return 0;",
     "return a/cblas_dgemmx(n,x,1);",
+    "return cblas_ddot(n,x,1)/cblas_dgemmx (n,x,1);",
+    "return cblas_ddot(n,x,1)/cblas_dgemmx\n(n,x,1);",
+    "return a/cblas_dgemmx\t(n,x,1);",
 ])
 def test_an_operator_before_a_called_api_name_keeps_the_name(code):
     assert "cblas_dgemmx" in re.findall(symbol_pattern(("cblas_",)), code)
+
+
+def test_a_called_api_name_with_whitespace_before_the_paren_is_in_the_key_scope():
+    # The bot's case: an invented call after an operator, with a space before its argument list.
+    from dokimi.novelty.symbols import header_names
+    assert header_names("return cblas_ddot(n,x,1)/cblas_dgemmx (n,x,1);", ("cblas_",)) == {"cblas_ddot", "cblas_dgemmx"}
 
 
 @pytest.mark.parametrize("code, name", [

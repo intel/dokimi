@@ -49,7 +49,7 @@ def symbol_pattern(prefixes: Sequence[str]) -> str:
     a name after ``-`` is one when it is called or follows an operand (``f(x)-cblas_x``).
     """
     alternatives = "|".join(re.escape(p) for p in prefixes)
-    return rf"(?<![\w.])(?<!->)(?:(?<!/)(?<![^\w)\]]-)(?<!^-)|(?=(?:{alternatives})\w+\())(?:{alternatives})\w+(?!\.?\w)"
+    return rf"(?<![\w.])(?<!->)(?:(?<!/)(?<![^\w)\]]-)(?<!^-)|(?=(?:{alternatives})\w+\s*\())(?:{alternatives})\w+(?!\.?\w)"
 
 
 def header_names(text: str, prefixes: Sequence[str]) -> set[str]:
