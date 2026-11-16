@@ -69,7 +69,8 @@ AGENT_GIT = "agent-git"    # where the workspace's own .git/config and hooks are
 _GRADER_GIT_CONFIG = (("core.fsmonitor", "false"), ("core.hooksPath", "/dev/null"))
 _PLAIN_GIT_CONFIG = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n"
 # Run-dir files the framework reads or writes after a grader had the run dir read-write.
-HOST_FILES = ("meta.json", "task.json", "answer.txt", "events.jsonl", "result.json", "grade.log", "grade.err")
+HOST_FILES = ("meta.json", "task.json", "answer.txt", "events.jsonl", "run_context.json", "result.json",
+              "grade.log", "grade.err")
 _NOT_FOUND_EXIT = 127  # docker run: the command (here the image's python3) is not on PATH
 _PYTHON3_NOT_FOUND_SIG = "exec python3 failed"  # tini's message under --init, which every container runs with
 

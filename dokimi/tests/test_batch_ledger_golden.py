@@ -73,6 +73,7 @@ GOLDEN_CELL_FILES = [
     "home",
     "meta.json",
     "result.json",
+    "run_context.json",
     "state",
     "task.json",
     "workspace",

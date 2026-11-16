@@ -414,7 +414,7 @@ def test_view_says_its_colours_come_from_spans_only(tmp_path, capsys):
     save_artifact("novelty", _minimal_artifact(), novelty_path)
     out = tmp_path / "annotated.md"
     args = _parse(
-        "novelty", "view", "--novelty", str(novelty_path), "--atoms", str(atoms_path),
+        "skill", "novelty", "view", "--novelty", str(novelty_path), "--atoms", str(atoms_path),
         "--format", "md", "--out", str(out),
     )
     args.func(args)
@@ -760,7 +760,7 @@ def test_view_and_probe_repeat_the_unread_warning(tmp_path, capsys):
     novelty_path = tmp_path / "novelty.json"
     save_artifact("novelty", _minimal_artifact(), novelty_path)
     out = tmp_path / "annotated.md"
-    args = _parse("novelty", "view", "--novelty", str(novelty_path), "--atoms",
+    args = _parse("skill", "novelty", "view", "--novelty", str(novelty_path), "--atoms",
                   str(atoms_path), "--format", "md", "--out", str(out))
     args.func(args)
     assert "render as `unread`" in capsys.readouterr().err
