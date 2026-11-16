@@ -38,6 +38,6 @@ def check_gate(summary: dict, spec: dict, kind: GateKind) -> Verdict:
             threshold=min_score,
             message=f"score {actual:.4f} against the {kind} gate's floor {min_score:.4f}",
             severity="fail",
-            measured=enabled,
+            measured="score" in summary,
         )],
     )

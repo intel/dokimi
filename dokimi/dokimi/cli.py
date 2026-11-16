@@ -26,7 +26,6 @@ from dokimi.commands import (
     evaluate,
     explore,
     memory,
-    novelty,
     orchestrate,
     personas,
     questions,
@@ -225,7 +224,6 @@ def build_parser() -> argparse.ArgumentParser:
     catalog.register(sub, positive_int, eval_sub)  # catalog; eval triggers generate; catalog intents
     explore.register(sub, positive_int)         # explore (ExploreBench)
     skill.register(sub, positive_int)           # skill: novelty, shorten (#94 M2)
-    novelty.register(sub, positive_int)         # novelty (view: not yet moved)
     repo.register(sub, positive_int, eval_sub)  # repo; eval check
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     memory.register(sub, positive_int)          # memory: lint (#728)

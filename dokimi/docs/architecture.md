@@ -195,10 +195,7 @@ whose absolute calibration is poor.
    annotated HTML view of the artifact; `dokimi/gate/novelty_gate.py`
    turns the numbers into soft gates (the novelty track's use of `gate/`).
 
-Entry points: `python cli.py skill novelty {analyze,atoms,probe,items}`, `python cli.py skill shorten`,
-`python cli.py novelty view`, and
-`python cli.py subjects run` to attach the result to the subject scorecard it
-builds for that run.
+Entry points: `python cli.py skill novelty {analyze,atoms,probe,items,view}`, `python cli.py skill shorten`, and `python cli.py subjects run` to attach the result to the subject scorecard it builds for that run.
 
 Novelty is a property of the (artifact, model) pair, not of the file — the same
 skill is worth very different amounts to a frontier and to a small model, so the
@@ -321,6 +318,10 @@ next release.
   into L0.
 - `dokimi/repos/bases.py` — checks that need every task base: each
   `base` must resolve, and the guidance globs are evaluated at each base.
+- `dokimi/repos/run_context.py` — builds the `run_context.v1` record
+  (`run_context.json` beside `events.jsonl`) from the start-up and closing
+  records the converters keep on the transcript, the command line, and config
+  digests taken before the agent starts; see `docs/repo-evaluation-contract.md` §4.9.
 - `dokimi/repos/events.py` — converts a harness trace to the
   `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
   Copilot JSON converters and the parser of the files a shell command prints
@@ -399,8 +400,8 @@ next release.
 
 Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,run,report}` (replay and authoring tasks: `eval tasks generate --from replay|prs`)
 (`python cli.py repo --help` is the current list). The interface a repository
-codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
-still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
+codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md).
+Its core is implemented, but the per-host egress proxy (§2) is not, so
 `repo run` needs `--agent-network` for an agent that must reach its model.
 
 ## Exploration quality

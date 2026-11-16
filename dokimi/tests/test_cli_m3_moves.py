@@ -549,9 +549,23 @@ def test_novelty_routing_prints_the_new_command_and_exits_2(capsys):
     assert "moved: dokimi skill routing skill:a --against skills/" in capsys.readouterr().err
 
 
-def test_novelty_view_still_lives_under_novelty():
-    args = build_parser().parse_args(["novelty", "view", "--novelty", "n.json", "--atoms", "a.json"])
-    assert args.novelty_cmd == "view"
+def test_novelty_view_lives_under_skill_novelty():
+    args = build_parser().parse_args(["skill", "novelty", "view", "--novelty", "n.json", "--atoms", "a.json"])
+    assert args.skill_novelty_cmd == "view"
+
+
+def test_novelty_view_prints_the_new_command_and_exits_2(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["novelty", "view", "--novelty", "n.json", "--atoms", "a.json"])
+    assert exc.value.code == 2
+    assert "moved: dokimi skill novelty view --novelty n.json --atoms a.json" in capsys.readouterr().err
+
+
+def test_bare_novelty_points_at_skill_novelty(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["novelty"])
+    assert exc.value.code == 2
+    assert "moved: dokimi skill novelty\n" in capsys.readouterr().err
 
 
 def test_novelty_routing_tombstone_names_an_unknown_flag_and_its_value_in_the_refusal():
