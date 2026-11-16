@@ -40,7 +40,8 @@ _VALUE_OPTIONS = frozenset({
     "--extra-index-url", "-f", "--find-links", "--prefix", "--root", "--python", "--name", "-n", "-p", "--platform",
     "--python-version", "--abi", "--implementation", "--src", "--cache-dir", "--log", "--proxy", "--retries",
     "--timeout", "--cert", "--client-cert", "--trusted-host", "--config-settings", "-C", "--channel", "--group",
-    "--with"})  # options that take the next word, which is not a package
+    "--with", "--report", "--upgrade-strategy", "--progress-bar", "--keyring-provider", "--no-binary", "--only-binary",
+    "--global-option", "--install-option", "--exists-action", "--use-feature"})  # options that take the next word, which is not a package
 
 
 def validate_candidates(raw: Any, where: str = "--candidates") -> dict[str, dict[str, tuple[str, ...]]]:
@@ -135,7 +136,7 @@ def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str
             for cid, acts in candidates.items():
                 if _wanted(acts, act) & set(packages):
                     found[(cid, act)] = None
-        if any(view[:1] == ["exec"] and len(view) > 1 for view in views):  # exec with a program replaces the shell
+        if any(view[:1] == ["exec"] for view in views[:-1]):  # exec with a program replaces the shell; ``exec -l`` has none
             break
     return [_choice(event, cid, act, None) for cid, act in found]
 
@@ -207,7 +208,7 @@ def _calls(name: str, text: str) -> bool:
 
 def _package_call(words: list[str]) -> tuple[str, list[str]] | None:
     """The act and the package names of a package manager's install, add, uninstall or remove call."""
-    if "--dry-run" in words or _INFO_FLAGS & set(words):  # a dry run installs nothing, nor does a help request
+    if {"--dry-run", "--download-only"} & set(words) or _INFO_FLAGS & set(words):  # no install: a dry run, a download, a help request
         return None
     rest = _manager_rest(words)
     while rest and rest[0].startswith("-"):  # ``pip --quiet install``: the options before the verb

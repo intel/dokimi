@@ -309,3 +309,32 @@ def test_a_command_the_shell_runs_before_or_around_its_redirects_gives_its_insta
 ])
 def test_a_pipeline_or_an_exec_with_a_program_gives_no_install(command):
     assert _choices(_run(INSTALL_SCIPY, _bash("a", command, "2026-01-01T00:00:05Z"))) == []
+
+
+def _choice_of(text: str, rc: object = 0) -> list[tuple]:
+    events = [{"t": 0.0, "kind": "command", "text": text, "rc": rc}]
+    return _choices(with_choices(events, SCIPY_INSTALL, []))
+
+
+SCIPY_INSTALL = {"scipy": {"install": ["scipy"]}}
+
+
+@pytest.mark.parametrize("text", [
+    "sudo --help pip install scipy",  # the wrapper's --help runs no install
+    "conda install --download-only scipy",  # downloads only: nothing is linked into the environment
+    "pip install --report scipy numpy",  # --report takes the next word as its file
+])
+def test_an_install_that_installs_nothing_gives_no_choice(text):
+    assert _choice_of(text) == []
+
+
+def test_exec_without_a_program_does_not_end_the_shell_for_the_install_after_it():
+    assert _choice_of("exec -l && pip install scipy") == [("scipy", "install", None)]
+
+
+def test_exec_with_a_program_still_gives_its_install():
+    assert _choice_of("exec pip install scipy") == [("scipy", "install", None)]
+
+
+def test_a_missing_exit_code_gives_no_choice():
+    assert _choice_of("pip install scipy", rc=None) == []
