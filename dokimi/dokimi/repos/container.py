@@ -204,6 +204,9 @@ class DockerRunner:
 
         # -e NAME reads the forwarded values from the CLI's own environment: the caller's.
         argv = self.argv(spec)
+        for out in (stdout, stderr):  # a FIFO with no reader blocks here: a Ctrl-C now starts and kills nothing
+            with open(out, "ab"):
+                pass
         try:
             _track(spec.name, stop)  # before docker starts: a batch that is interrupted starts nothing more
             result = run_process(argv, env=process.Env.inherit(), stdout=stdout, stderr=stderr,

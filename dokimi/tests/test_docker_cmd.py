@@ -7,6 +7,9 @@ the package goes through it. Nothing here starts a process: a :class:`FakeRunner
 from __future__ import annotations
 
 import ast
+import os
+import signal
+import threading
 from pathlib import Path
 
 import pytest
@@ -14,6 +17,7 @@ import pytest
 import dokimi
 from dokimi import docker_cmd
 from dokimi.process import FakeRunner, reply
+from dokimi.process import run as run_real
 from dokimi.repos.container import ContainerError, ContainerSpec, DockerRunner, Mount
 
 
@@ -146,6 +150,25 @@ def test_run_whose_setup_fails_before_docker_starts_kills_nothing(tmp_path):
         with pytest.raises((FileNotFoundError, ValueError)):
             DockerRunner(runner=fake).run(spec, stdout=stdout, stderr=tmp_path / "e", timeout_s=timeout_s)
         assert ("docker", "kill", "dokimi-x") not in fake.argvs()
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a FIFO")
+def test_interrupt_while_stdout_waits_for_a_reader_kills_nothing(tmp_path):
+    # Opening a FIFO with no reader blocks before docker is started: a Ctrl-C there must not kill the name.
+    calls: list[list[str]] = []
+
+    def recording(argv, **kwargs):
+        calls.append(list(argv))
+        return run_real(argv, **kwargs)
+
+    fifo = tmp_path / "o"
+    os.mkfifo(fifo)
+    threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGINT)).start()
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000")
+    with pytest.raises(KeyboardInterrupt):
+        DockerRunner(docker="/nonexistent/docker", runner=recording).run(spec, stdout=fifo, stderr=tmp_path / "e",
+                                                                        timeout_s=5)
+    assert not any(argv[1:2] == ["kill"] for argv in calls), calls
 
 
 def test_run_with_a_missing_mount_kills_nothing(tmp_path):
