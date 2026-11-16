@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from fractions import Fraction
 
 
 def _shown(value: float) -> str:
@@ -65,11 +66,14 @@ def checked_mean(values: Sequence[float], error: type[Exception] = OverflowError
 
     The result does not depend on the Python version: ``sum`` of floats compensates from 3.12 on and
     adds left to right before, so deltas that cancel left a rounding residue there. Integers only are
-    summed exactly as integers, since ``math.fsum`` would first round each to a float.
+    summed exactly as integers, and integers mixed with floats as exact fractions, since ``math.fsum``
+    would first round each integer to a float.
     """
     check_sum_range(values, error, where)
     if _has_non_finite_float(*values):  # they decide; finite values summed first could overflow and cancel a -inf
         return sum(v for v in values if isinstance(v, float) and not math.isfinite(v)) / len(values)
+    if all(isinstance(v, float) for v in values):
+        return math.fsum(values) / len(values)
     if all(isinstance(v, int) for v in values):
         return sum(values) / len(values)
-    return math.fsum(values) / len(values)
+    return float(sum((Fraction(v if isinstance(v, int) else float(v)) for v in values), Fraction(0)) / len(values))  # mixed: exact, as fsum rounds an integer first

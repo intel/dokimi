@@ -96,6 +96,11 @@ def test_checked_mean_keeps_the_exact_mean_of_integers():
     assert checked_mean([2**60 + 1, 2**60 + 1]) == float(2**60 + 1)
 
 
+def test_checked_mean_keeps_integer_contributions_beside_floats():
+    assert checked_mean([2**53 + 1, -(2**53), 0.0]) == 1 / 3  # fsum rounds the first to 2**53: 0.0
+    assert checked_mean([2**60 + 1, -(2**60), 0.5]) == 0.5
+
+
 def test_sign_flip_summary_mean_is_the_exact_mean():
     row = sign_flip_summary([_task(d) for d in (1, 1e16, 1.0, -1e16)])
     assert row["delta"]["mean"] == 0.5
