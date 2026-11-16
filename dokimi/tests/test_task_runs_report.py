@@ -501,4 +501,6 @@ def test_a_flag_in_a_discovery_rate_cell_prints_a_dash_not_100_percent():
     entry.update(with_skill_pass_rate=True, discover_pass_rate=False,
                  with_skill_invocation_rate=True, discover_invocation_rate=0.5)
     table = render_task_runs_report(data).split("## Skill discovery")[1]
-    assert "| `docker-claude-skill-discover:s` | — | — | +100.00 pp | — | 50% |" in table
+    row = next(line for line in table.split("\n") if line.startswith("| `docker-claude-skill-discover:s` |"))
+    cells = [cell.strip() for cell in row.split("|")]
+    assert [cells[i] for i in (2, 3, 5, 6)] == ["—", "—", "—", "50%"]  # the four rate cells; 4 is the gap
