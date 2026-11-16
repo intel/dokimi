@@ -60,14 +60,18 @@ def _behind_detail(match: Match) -> str:
     return " and ".join(parts) + " behind the upstream head" if parts else "behind the upstream head (history not read)"
 
 
-def upstream_findings(match: Optional[Match], copy_raw: bytes, copy_risks: frozenset[str]) -> list[Finding]:
-    """The upstream findings of one skill copy: its ``match``, its SKILL.md bytes, and its own risk codes (``RISK_CODES``)."""
+def upstream_findings(match: Optional[Match], copy_raw: bytes, copy_risks: frozenset[str],
+                      head_known: bool = True) -> list[Finding]:
+    """The upstream findings of one skill copy: its ``match``, its SKILL.md bytes, and its own risk codes (``RISK_CODES``).
+
+    ``head_known`` is False for a manifest with no entry flagged as head: a version is then not stale, because nothing says which is the head.
+    """
     if match is None:
         return []
     version = match.version
     where = f"{version.upstream.name}:{version.path}"
     findings: list[Finding] = []
-    if not version.head:
+    if head_known and not version.head:
         findings.append(Finding(
             "note", "upstream-stale",
             f"matches {where} at an older version, {_behind_detail(match)}",
@@ -89,13 +93,18 @@ def upstream_findings(match: Optional[Match], copy_raw: bytes, copy_risks: froze
     return findings
 
 
-def add_upstream_findings(index: Index, skills: Sequence, reviews: Sequence) -> None:
-    """Append the upstream findings to each loaded skill's review, in place. ``skills`` and ``reviews`` pair up by position."""
+def add_upstream_findings(index: Index, skills: Sequence, reviews: Sequence, ignore: frozenset = frozenset()) -> None:
+    """Append the upstream findings to each loaded skill's review, in place. ``skills`` and ``reviews`` pair up by position.
+
+    ``ignore`` is the ``--ignore`` set: an ignored risk code is not inherited either, so no finding prints it.
+    """
     for entry, review in zip(skills, reviews, strict=True):
         if review is None or not entry.loaded or entry.skill is None:
             continue
         if any(f.code == "unreadable" for f in review.findings):
             continue  # the review already says the SKILL.md cannot be read: there are no bytes to match
         raw = entry.skill.path.read_bytes()
-        copy_risks = frozenset(f.code for f in review.findings) & RISK_CODES
-        review.findings += upstream_findings(index.match(raw, entry.skill.name), raw, copy_risks)
+        copy_risks = frozenset(f.code for f in review.findings) & (RISK_CODES - ignore)
+        match = index.match(raw, entry.skill.name)
+        head_known = match is None or match.version.upstream.name in index.known_heads
+        review.findings += upstream_findings(match, raw, copy_risks, head_known=head_known)

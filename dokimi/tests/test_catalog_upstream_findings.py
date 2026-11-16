@@ -188,3 +188,31 @@ def test_a_manifest_that_is_not_an_upstream_is_refused(tmp_path, capsys):
     args = build_parser().parse_args(["catalog", "check", "--root", str(root), "--upstream-manifest", str(bad)])
     with pytest.raises(InputError):
         args.func(args)
+
+
+def test_a_manifest_with_no_head_flag_says_nothing_is_stale(tmp_path, capsys):
+    manifest = _manifest(tmp_path, {"content": OLD_TEXT, "commit": "aaaa"}, {"content": HEAD_TEXT, "commit": "bbbb"})
+    _, report = _check(_copy(tmp_path, OLD_TEXT), capsys, "--upstream-manifest", manifest)
+    assert _found(_row(report), "upstream-stale") == []  # nothing says which version is the head
+
+
+def test_an_ignored_risk_is_not_inherited_or_named(tmp_path, capsys):
+    manifest = _manifest(tmp_path, {"content": RISKY_HEAD, "head": True, "commit": "bbbb"})
+    code, report = _check(_copy(tmp_path, RISKY_HEAD), capsys, "--upstream-manifest", manifest,
+                          "--ignore", "pipe-to-shell")
+    row = _row(report)
+    [inherited] = _found(row, "risk-inherited-from-upstream")
+    assert "allowed-tools-unrestricted-bash" in inherited["message"]
+    assert all("pipe-to-shell" not in f["message"] for f in row["findings"])
+    assert code == 0
+
+
+def test_ignoring_every_risk_code_inherits_nothing(tmp_path, capsys):
+    manifest = _manifest(tmp_path, {"content": RISKY_HEAD, "head": True, "commit": "bbbb"})
+    code, report = _check(_copy(tmp_path, RISKY_HEAD), capsys, "--upstream-manifest", manifest,
+                          "--ignore", "pipe-to-shell", "--ignore", "allowed-tools-unrestricted-bash",
+                          "--ignore", "permission-bypass-flag")
+    row = _row(report)
+    assert _found(row, "risk-inherited-from-upstream") == []
+    assert row["state"] == "ok"
+    assert code == 0

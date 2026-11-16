@@ -149,6 +149,11 @@ class Index:
 
     def __init__(self, upstreams: Sequence[Upstream], versions: Iterable[Version]):
         self.upstreams = tuple(upstreams)
+        versions = list(versions)
+        # A checkout's head is always known; a manifest's is known only when one of its entries is flagged as head.
+        self.known_heads = frozenset(
+            [u.name for u in self.upstreams if u.history != "manifest"] + [v.upstream.name for v in versions if v.head]
+        )
         self._by_blob: dict[str, list[Version]] = {}
         self._by_name: dict[str, list[Version]] = {}
         for version in versions:

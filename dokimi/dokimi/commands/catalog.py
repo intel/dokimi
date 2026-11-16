@@ -95,7 +95,7 @@ def _upstream_findings(args: argparse.Namespace, skills, reviews) -> None:
     from dokimi.external.upstream_findings import add_upstream_findings
 
     index = upstream.build(getattr(args, "upstream", None) or (), getattr(args, "upstream_manifest", None) or ())
-    add_upstream_findings(index, skills, reviews)
+    add_upstream_findings(index, skills, reviews, ignore=frozenset(getattr(args, "ignore", None) or ()))
 
 
 def _online_checks(args: argparse.Namespace, skills, reviews, report: dict) -> dict | None:
