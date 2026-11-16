@@ -132,6 +132,35 @@ def test_an_agent_that_left_no_trace_is_not_given_a_process_metrics_error(setup,
     assert not any("process metrics failed" in e for e in rec["agent"]["trace_errors"])
 
 
+def _stub_harness(tmp_path, body):
+    """A harness that answers --version, then runs ``body`` (the fixture binary is pinned by a golden digest)."""
+    exe = tmp_path / "stub-agent"
+    exe.write_text('#!/usr/bin/env python3\nimport json, sys\n'
+                   'if sys.argv[1:] == ["--version"]:\n    print("1.2.3 (Stub Agent)")\n    sys.exit(0)\n' + body,
+                   encoding="utf-8")
+    exe.chmod(0o755)
+    return exe
+
+
+def test_a_harness_that_crashes_after_its_start_record_has_a_trace_and_is_not_a_crash(setup, tmp_path):
+    # The start-up record is a trace line: the agent started, so the cell keeps its result (no exit 5).
+    body = 'print(json.dumps({"type": "system", "subtype": "init", "model": "m-1"}))\nsys.exit(1)\n'
+    _run({**setup, "exe": _stub_harness(tmp_path, body)}, "--arm", "guidance:raw", "--task", "fix_add")
+    assert (setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").is_file()
+
+
+def test_a_text_harness_whose_stdout_is_its_trace_is_not_a_crash(setup, tmp_path):
+    # trace: text has no events, so its stdout is the only trace line: a crash after an answer keeps the cell.
+    prof = yaml.safe_load(setup["profile"].read_text(encoding="utf-8"))
+    prof["trace"] = "text"
+    text = tmp_path / "text-profile.yaml"
+    text.write_text(yaml.safe_dump(prof), encoding="utf-8")
+    body = 'print("The answer is 4.")\nsys.exit(1)\n'
+    _run({**setup, "profile": text, "exe": _stub_harness(tmp_path, body)}, "--arm", "guidance:raw",
+         "--task", "fix_add")
+    assert (setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").is_file()
+
+
 def test_a_process_metrics_error_leaves_process_null_and_keeps_the_cost_and_the_grade(setup, monkeypatch):
     # The metric is best-effort: a counter that raises must not fail the task or drop the cost the harness reported.
     def refuse(*args, **kwargs):

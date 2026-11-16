@@ -274,7 +274,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
         started = bool(transcript.events) or transcript.result_seen  # else the agent never started
-        no_trace = not started and not transcript.is_error and not transcript.errors  # nothing the harness wrote
+        traced = started or bool(transcript.start_record) or (opts.profile.trace == "text" and bool(raw.strip()))
+        no_trace = not traced and not transcript.is_error and not transcript.errors  # nothing the harness wrote
         if no_trace and result.returncode != 0 and not result.timed_out:
             # the harness failed before its first line: a crash of the machinery, not a verdict on the cell
             raise CellCrash(f"the harness exited {result.returncode} before its first trace line",
