@@ -9,8 +9,8 @@
   `runs list` lists them when they are written under its root (`--out results/…`,
   `--out-dir results/…`); their default paths stay outside it. A payload its schema
   refuses is not written: it is kept at `<name>.rejected` and the command exits 1 with
-  `Error: <kind> artifact rejected: …`, and `baseline save` then leaves no copy of the
-  eval behind. `baseline save` copies the eval file byte for byte and atomically, so the
+  `Error: <kind> artifact rejected: …`; `docs check` and `dashboard generate` still write
+  their markdown, and `baseline save` leaves no copy of the eval behind. `baseline save` copies the eval file byte for byte and atomically, so the
   baseline keeps the eval's own `schema_version` and `run_id`. Snapshots and manifests
   written before still read: `docs compare` and `baseline list|compare` take them as they
   are.

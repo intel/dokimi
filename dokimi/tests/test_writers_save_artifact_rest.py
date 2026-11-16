@@ -100,7 +100,8 @@ def test_docs_compare_reads_a_saved_snapshot_and_one_from_before_the_envelope(tm
 
 
 def test_a_snapshot_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
-    """A manifest time that is not text (a writer bug) is refused; the report is not written after it."""
+    """A manifest time that is not text (a writer bug) is refused; the markdown report is written by then, as
+    `report eval` writes its markdown before its sidecar (review of #829)."""
     from dokimi.runner import run as run_mod
 
     build = run_mod.build_run_manifest
@@ -109,7 +110,7 @@ def test_a_snapshot_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path,
     assert _check(monkeypatch, tmp_path, out) == 1
 
     assert _rejected(out)["run_manifest"]["generated_at"] is None
-    assert not (tmp_path / "current.md").exists()
+    assert (tmp_path / "current.md").read_text(encoding="utf-8").startswith("#")
     err = capsys.readouterr().err
     assert err.startswith("Error: docs_run artifact rejected: ") and "run_manifest/generated_at" in err
 
