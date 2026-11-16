@@ -58,7 +58,8 @@ fences, are not checked: those are usually examples or paths in the user's own p
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``); the cues are
 English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``when_cues.WHEN_CUES``),
 and a description in a script none covers is not checked: it gets a ``note`` (``description-when-not-checked``). One whose tokens overlap another skill's at a
-Jaccard similarity of at least :data:`NEAR_DUPLICATE_JACCARD` is a ``warn`` too (``description-near-duplicate``). Skills with
+Jaccard similarity of at least :data:`NEAR_DUPLICATE_JACCARD` is a ``warn`` too (``description-near-duplicate``). Under a different name, an overlap from :data:`SIMILAR_JACCARD` up to that line is a
+``note`` (``similar-skills-exist``) that does not change the state. Skills with
 ``disable-model-invocation: true`` are exempt from both, as the model never chooses them.
 
 Mirror drift: two skills in different paths with the same directory name but different
@@ -74,10 +75,8 @@ Unicode tag, stray zero-width character) in ``SKILL.md`` or a bundled text file
 from __future__ import annotations
 
 import hashlib
-import math
 import os
 import re
-from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional, Sequence
@@ -88,6 +87,8 @@ import yaml
 from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
+from .description_overlap import (NEAR_DUPLICATE_JACCARD, NEAR_DUPLICATE_MIN_SHARED, SIMILAR_JACCARD,
+                                  _candidate_pairs, _jaccard, _tokens)
 from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR, path_missing
 from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
@@ -103,8 +104,6 @@ from .when_cues import when_clause_found
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
-NEAR_DUPLICATE_JACCARD = 0.5
-NEAR_DUPLICATE_MIN_SHARED = 3  # shared words; a one-word overlap in two short descriptions is not a near-duplicate
 # The frontmatter keys the Agent Skills spec defines, then the ones Claude Code reads on top of it.
 # Any other key is a typo or a field no harness reads (``frontmatter-unknown-key``).
 FRONTMATTER_KEYS = frozenset(
@@ -130,14 +129,6 @@ CLAUDE_TOOLS = frozenset(
 BODY_MAX_LINES = 500
 BODY_MAX_TOKENS = 5000
 
-# Words that say nothing about what a skill is for; left out of the description overlap.
-STOP_WORDS = frozenset(
-    """a an the and or of to in on for with by from as at is are be been being this that
-    these those it its it's you your we our use used using when with without into than then
-    also any all each skill skills claude user users make makes do does not no yes can will
-    should must may might if else only other such via per about over under more most very
-    just""".split()
-)
 # A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
 _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 # RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
@@ -180,6 +171,7 @@ FINDING_CODES = (
     "script-crlf",
     "script-lint",
     "script-syntax",
+    "similar-skills-exist",
 )
 
 
@@ -575,16 +567,6 @@ def _description_findings(skill: Skill) -> list[Finding]:
     return []
 
 
-def _tokens(description: str) -> frozenset[str]:
-    """The lowercase words of three or more letters, in any script, less the stop words."""
-    words = re.findall(r"[^\W\d_]{3,}", description.lower())
-    return frozenset(w for w in words if w not in STOP_WORDS)
-
-
-def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
-    return len(a & b) / len(a | b) if a and b else 0.0
-
-
 def _dir_name_of(directory: Path) -> str:
     """The name of ``directory`` with its ``..`` parts taken away lexically: ``alpha/sub/..`` is ``alpha``.
 
@@ -640,60 +622,75 @@ def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) ->
                 )
 
 
-def _min_overlap(size: int) -> int:
-    """The fewest words a skill of ``size`` words shares with any pair that passes the near-duplicate test.
+def _name_key(name: str) -> str:
+    """The name as the corpus analyses compare names: lower case, every run of other characters one hyphen."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
-    A passing pair shares at least NEAR_DUPLICATE_MIN_SHARED words and a Jaccard similarity of at least
-    NEAR_DUPLICATE_JACCARD; its shared words are then that fraction of the union, which is at least
-    the skill's own size. The epsilon only ever lowers the bound, so it stays a safe under-estimate.
+
+def _similar_skills(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
+    """``similar-skills-exist`` (a note) on both skills of each pair under different names whose descriptions overlap.
+
+    The overlap is at least SIMILAR_JACCARD and below NEAR_DUPLICATE_JACCARD: a pair at or above it is already a
+    ``description-near-duplicate`` warning. Same-named skills are left to the name and copy checks.
     """
-    return max(NEAR_DUPLICATE_MIN_SHARED, math.ceil(NEAR_DUPLICATE_JACCARD * size - 1e-9))
+    shown = [item for item in loaded if not item[2].disable_model_invocation]
+    tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
+    keys = [_name_key(item[1].name) for item in shown]
+    for i, j in _candidate_pairs(tokens, SIMILAR_JACCARD):
+        if keys[i] == keys[j]:
+            continue
+        shared = len(tokens[i] & tokens[j])
+        similarity = _jaccard(tokens[i], tokens[j])
+        if shared < NEAR_DUPLICATE_MIN_SHARED or not SIMILAR_JACCARD <= similarity < NEAR_DUPLICATE_JACCARD:
+            continue
+        entry, _, review = shown[i]
+        o_entry, _, o_review = shown[j]
+        pairs = (
+            (review, _counterpart(shown[j], entry)),
+            (o_review, _counterpart(shown[i], o_entry)),
+        )
+        for side, other in pairs:
+            side.findings.append(
+                Finding(
+                    "note",
+                    "similar-skills-exist",
+                    f"description overlaps {other} (word overlap {similarity:.0%}) under another name; "
+                    "the two may be one skill under two names",
+                )
+            )
 
 
 def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
     """``description-near-duplicate`` on both skills of each pair whose descriptions overlap.
 
-    Only candidate pairs are compared, found by a prefix filter: each skill's words are ordered
-    rarest first across all the skills, and only its first ``size - _min_overlap(size) + 1`` words are
-    indexed. A passing pair with ``s`` shared words has at least ``_min_overlap`` of them, so its
-    rarest shared word sits inside both skills' prefixes and the pair is a candidate. Non-candidates
-    could not pass, so the findings, and their order, match comparing every pair.
+    Only the candidate pairs of :func:`_candidate_pairs` are compared.
     """
     shown = [item for item in loaded if not item[2].disable_model_invocation]
     tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
     names = [_dir_name(item) for item in shown]
-    frequency = Counter(word for words in tokens for word in words)
-    prefixes: list[list[str]] = []
-    by_prefix_word: dict[str, list[int]] = {}
-    for index, words in enumerate(tokens):
-        ordered = sorted(words, key=lambda word: (frequency[word], word))
-        prefix = ordered[: max(0, len(ordered) - _min_overlap(len(ordered)) + 1)]
-        prefixes.append(prefix)
-        for word in prefix:
-            by_prefix_word.setdefault(word, []).append(index)
-    for i, (entry, _, review) in enumerate(shown):
-        for j in sorted({k for word in prefixes[i] for k in by_prefix_word[word] if k > i}):
-            o_entry, _, o_review = shown[j]
-            if o_review.content_sha256 == review.content_sha256:
-                continue  # an identical SKILL.md: already a duplicate
-            if names[i] is not None and names[i] == names[j] and _is_drift(shown[i], shown[j]):
-                continue  # the same skill in another path, drifted: already a mirror-drift
-            shared = len(tokens[i] & tokens[j])
-            similarity = _jaccard(tokens[i], tokens[j])
-            if shared >= NEAR_DUPLICATE_MIN_SHARED and similarity >= NEAR_DUPLICATE_JACCARD:
-                pairs = (
-                    (review, _counterpart(shown[j], entry)),
-                    (o_review, _counterpart(shown[i], o_entry)),
-                )
-                for side, other in pairs:
-                    side.findings.append(
-                        Finding(
-                            "warn",
-                            "description-near-duplicate",
-                            f"description overlaps {other} (word overlap {similarity:.0%}); "
-                            "the model may pick either",
-                        )
+    for i, j in _candidate_pairs(tokens, NEAR_DUPLICATE_JACCARD):
+        entry, _, review = shown[i]
+        o_entry, _, o_review = shown[j]
+        if o_review.content_sha256 == review.content_sha256:
+            continue  # an identical SKILL.md: already a duplicate
+        if names[i] is not None and names[i] == names[j] and _is_drift(shown[i], shown[j]):
+            continue  # the same skill in another path, drifted: already a mirror-drift
+        shared = len(tokens[i] & tokens[j])
+        similarity = _jaccard(tokens[i], tokens[j])
+        if shared >= NEAR_DUPLICATE_MIN_SHARED and similarity >= NEAR_DUPLICATE_JACCARD:
+            pairs = (
+                (review, _counterpart(shown[j], entry)),
+                (o_review, _counterpart(shown[i], o_entry)),
+            )
+            for side, other in pairs:
+                side.findings.append(
+                    Finding(
+                        "warn",
+                        "description-near-duplicate",
+                        f"description overlaps {other} (word overlap {similarity:.0%}); "
+                        "the model may pick either",
                     )
+                )
 
 
 def review_skills(
@@ -770,6 +767,7 @@ def review_skills(
         )
     _mirror_drift(loaded)
     _near_duplicates(loaded)
+    _similar_skills(loaded)
     _name_conflicts(by_name)
     return reviews
 

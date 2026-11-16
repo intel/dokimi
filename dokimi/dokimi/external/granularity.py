@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Sequence
 
-from dokimi.external.validate import STOP_WORDS
+from dokimi.external.description_overlap import STOP_WORDS
 from dokimi.skills.loader import Skill
 
 # Measured routing did not follow similarity (#424, 11-06): TF-IDF and embeddings predicted no
