@@ -55,6 +55,15 @@ def judge_panel_roles(value: str) -> str:
     return value
 
 
+def _exit_if_terminated(output: dict) -> None:
+    """A run-wide stop: the artifact is saved and says what stopped, and the run exits 1."""
+    term = output.get("terminated")
+    if term:
+        print(f"Error running arms: stopped after {term['questions_recorded']} of "
+              f"{term['questions_requested']} questions: {term['reason']}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
+
+
 def cmd_arms_run(args: argparse.Namespace) -> None:
     """Run an N-arm treatment comparison and optionally judge it."""
     from dokimi.eval.arms_run import LibraryIdError, ProbeError, prepare_arms, run_prepared
@@ -97,11 +106,7 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
                 delta_s = f" (delta not computed: {stats['delta_error']})"
             err_s = f" ({stats['errors']} errors)" if stats.get("errors") else ""
             print(f"  {arm:<24} {avg_s}{delta_s}{err_s}")
-    term = output.get("terminated")
-    if term:
-        print(f"Error running arms: stopped after {term['questions_recorded']} of "
-              f"{term['questions_requested']} questions: {term['reason']}", file=sys.stderr)
-        sys.exit(EXIT_FAILURE)
+    _exit_if_terminated(output)
 
 
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
