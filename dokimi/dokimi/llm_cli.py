@@ -52,6 +52,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from dokimi import process
 from dokimi.metrics.usage import UsageRecord
+from dokimi.process_io import joined_pairs
 
 #: Variables a Claude Code session sets for its own children, plus the API key. Dropped, so
 #: a call made from inside a session is a session of its own and runs on the CLI's login.
@@ -431,7 +432,7 @@ def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None
     # A private temp dir (mkdtemp, mode 0700) for the one call: the system prompt goes by file.
     with tempfile.TemporaryDirectory(prefix="dokimi-cli-") as tmp:
         system_file = Path(tmp) / "system-prompt.txt"
-        system_file.write_text(system or DEFAULT_SYSTEM, encoding="utf-8")
+        system_file.write_text(joined_pairs(system or DEFAULT_SYSTEM), encoding="utf-8", errors="replace")  # lone surrogate: `?`
         try:
             done = (runner or process.run)(cli.build_argv(model, str(system_file)), timeout=timeout,
                                            env=_call_env(cli, cwd), cwd=cwd, input=prompt, capture_limit=None)

@@ -194,11 +194,15 @@ def shadow_for(profile: HarnessProfile, tree: RepoTree, kinds: tuple[str, ...]) 
         return None
     if not _safe_path(name):
         raise ReachError(f"{profile.path}: guidance.shadow_file {name!r} is not a path inside a directory")
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:  # the file's text names its path, and is written as UTF-8
+        raise ReachError(f"{profile.path}: guidance.shadow_file {name!r} holds a lone surrogate, which UTF-8 cannot write") from None
     return Shadow(name, frozenset(p.casefold() for p in tree.files()), tree)
 
 
 def token(salt: str, path: str, position: str) -> str:
-    digest = hashlib.sha256(f"{salt}\0{path}\0{position}".encode("utf-8", "surrogateescape")).hexdigest()
+    digest = hashlib.sha256(key_bytes(f"{salt}\0{path}\0{position}")).hexdigest()
     return "RC" + digest[:6].upper()
 
 

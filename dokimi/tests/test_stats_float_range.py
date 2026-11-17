@@ -75,10 +75,9 @@ def test_paired_test_keeps_the_meaning_of_a_non_finite_input(bad):
     assert result["significant"] is None
 
 
-def test_paired_summary_paired_delta_and_arm_significance_refuse_the_same_deltas():
+def test_paired_delta_and_arm_significance_refuse_deltas_beyond_the_range_while_paired_summary_has_none():
     evals = _evals(BIG, -BIG)
-    with pytest.raises(OverflowError):
-        stats.paired_summary(evals)
+    assert stats.paired_summary(evals).delta_mean is None  # no raise: #830
     with pytest.raises(OverflowError):
         stats.paired_delta(evals, "without_docs", "with_docs")
     with pytest.raises(OverflowError):
