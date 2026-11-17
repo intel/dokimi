@@ -35,6 +35,8 @@ from typing import Any
 
 import yaml
 
+from dokimi.process_io import joined_pairs
+
 from . import tbench_v1
 from .tasks import FORMAT_HARBOR, FORMAT_TBENCH_V1, TaskSpec
 
@@ -137,8 +139,9 @@ def export(task: TaskSpec, dest: Path) -> Path:
         if script.is_file():
             script.chmod(0o755)
     instruction = task.instruction if task.instruction.endswith("\n") else task.instruction + "\n"
-    (dest / "instruction.md").write_text(instruction, encoding="utf-8")
-    (dest / "task.toml").write_text(_task_toml(task), encoding="utf-8")
+    # A `😀` escape is one character; a lone surrogate is written as `?`, so the file stays valid UTF-8.
+    (dest / "instruction.md").write_text(joined_pairs(instruction), encoding="utf-8", errors="replace")
+    (dest / "task.toml").write_text(joined_pairs(_task_toml(task)), encoding="utf-8", errors="replace")
     return dest
 
 
