@@ -2515,6 +2515,19 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   cannot be read (no read permission, a directory, not UTF-8 text) or parsed
   as JSON (a trailing comma, a BOM) is refused the same way, exit 2 before
   writing and naming the path, since whether it holds labels is not known.
+- **The measure bound.** `repo report` and `repo compare` read a score, `--metric`
+  value, cost, turn count, token count or `process` count as a measurement only
+  when it is finite and its magnitude is at most 1e150 (`SCORE_BOUND` in
+  `dokimi/measure.py`), so that sums and squared deltas stay finite; a value past
+  it is no measurement. A `score` metric past it makes the grade a grader failure
+  (`grade.json has no numeric metrics.<name> that is finite and within +-1e+150`;
+  a stored `result.json` whose `grade.score` is past it is read as one too), and
+  a `cost_usd`, `num_turns`, token count or `score_max` past it makes `repo
+  report` and `repo compare` refuse that `result.json`. Any other value past it
+  (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_*`) is
+  left out of the mean and of `n`, as a value that is absent: three tasks whose
+  `metric:x` is 1.7e308 in both arms give a mean of `null`, not an overflow, and
+  the same three at 1e150 give 1e150.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,

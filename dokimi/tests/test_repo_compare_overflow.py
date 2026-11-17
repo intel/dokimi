@@ -14,6 +14,7 @@ import pytest
 from dokimi.eval.finite_delta import checked_delta, checked_mean
 from dokimi.repos.compare import CompareError, _inconclusive_note, _pair, _round, sign_flip_summary
 from dokimi.repos.compare_reach import min_detectable
+from dokimi.repos.grading import SCORE_BOUND
 
 
 def _side(value: float) -> dict:
@@ -176,6 +177,17 @@ def test_checked_mean_takes_integers_whose_exact_total_fits_the_float_range(orde
 def test_sign_flip_summary_mean_is_the_exact_mean():
     row = sign_flip_summary([_task(d) for d in (1, 1e16, 1.0, -1e16)])
     assert row["delta"]["mean"] == 0.5
+
+
+def test_sign_flip_summary_leaves_values_past_the_measure_bound_out_of_the_means():
+    # repo-evaluation-contract.md, "The measure bound": a value past SCORE_BOUND is no measurement, so its mean is None, not an overflow (#866)
+    def rows(value: float) -> list[dict]:
+        return [{"task": f"t{i}", "baseline": value, "treatment": value, "delta": 0.0} for i in range(3)]
+
+    past = sign_flip_summary(rows(1.7e308), "metric:x")
+    assert (past["baseline_mean"], past["treatment_mean"]) == (None, None)
+    at = sign_flip_summary(rows(SCORE_BOUND), "metric:x")
+    assert (at["baseline_mean"], at["treatment_mean"]) == (SCORE_BOUND, SCORE_BOUND)
 
 
 def test_checked_delta_refuses_an_integer_beyond_the_float_range_with_the_requested_error():
