@@ -723,6 +723,11 @@ def test_the_text_of_a_multi_line_string_is_not_listed_but_code_beside_it_is(tmp
     assert 3 in listed and 7 not in listed and 13 in listed and 17 in listed
 
 
+def test_an_async_def_signature_and_the_edges_of_a_multi_line_string_are_listed() -> None:
+    assert mc.continuation_lines("async def f(\n    a,\n):\n    return a\n", {2}, set()) == {2}
+    assert mc.continuation_lines("x = (a\n     + \"\"\"t\n    mid\n    u\"\"\" + b)\n", {2, 3, 4}, set()) == {2, 4}
+
+
 def test_the_script_starts_without_the_package_installed() -> None:
     # Under -S site-packages is off sys.path, so the script must put its project directory on it.
     run = subprocess.run([sys.executable, "-S", str(_SCRIPT), "--help"], capture_output=True, text=True)
