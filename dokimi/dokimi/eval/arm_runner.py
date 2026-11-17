@@ -96,6 +96,16 @@ def _refuse_session_records(recs: Sequence[Record]) -> None:
         )
 
 
+
+class _Halted(Exception):
+    """Raised between arms of a question once another question has stopped the run."""
+
+
+def _halt_if_stopped(stop: Optional[threading.Event]) -> None:
+    if stop is not None and stop.is_set():
+        raise _Halted()
+
+
 class ArmRunner:
     """Generate answers for each treatment arm and (optionally) judge them."""
 
@@ -262,18 +272,10 @@ class ArmRunner:
 
         arms: Dict[str, Any] = {}
         current = ""
-
-        def stopped_elsewhere() -> bool:
-            # Another question hit a run-wide failure: no further arm of this question is paid for.
-            return stop is not None and stop.is_set()
-
-        halted = False
         try:
             for treatment in self.treatments:
                 current = treatment.name
-                if stopped_elsewhere():
-                    halted = True
-                    break
+                _halt_if_stopped(stop)
                 if turns is None:
                     arms[treatment.name] = self._answer_one_arm(
                         treatment, question_text, library_name, library_id, qid,
@@ -285,13 +287,16 @@ class ArmRunner:
                 )
                 if self.turn_reminder is not None:
                     current = treatment.name + REMINDER_ARM_SUFFIX
-                    if stopped_elsewhere():
-                        halted = True
-                        break
+                    _halt_if_stopped(stop)
                     arms[current] = self._answer_session_arm(
                         treatment, turns, library_name, library_id, qid,
                         reminder=self.turn_reminder,
                     )
+        except _Halted:  # another question hit a run-wide failure: no further arm of this one is paid for
+            mark_not_asked(arms, self.arm_names)  # the arms the stop never reached; the completed ones are kept
+            partial = question_record(library_name, q, qid, question_text, turns, arms,
+                                      grounded_from_topics=self.grounded_from_topics)
+            raise RunStopped(self.stop_error, partial) from None
         except Exception as exc:
             if getattr(exc, "run_wide", False) is not True:
                 raise
@@ -299,11 +304,6 @@ class ArmRunner:
             partial = question_record(library_name, q, qid, question_text, turns, arms,
                                       grounded_from_topics=self.grounded_from_topics)
             raise RunStopped(exc, partial) from exc
-        if halted:
-            mark_not_asked(arms, self.arm_names)  # the arms the stop never reached, the completed ones kept
-            partial = question_record(library_name, q, qid, question_text, turns, arms,
-                                      grounded_from_topics=self.grounded_from_topics)
-            raise RunStopped(self.stop_error, partial)
         return question_record(library_name, q, qid, question_text, turns, arms,
                                grounded_from_topics=self.grounded_from_topics)
 

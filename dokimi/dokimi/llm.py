@@ -26,11 +26,9 @@ What a caller can rely on:
   :func:`resolve_model` is this module's model-name map and :func:`credential_env_var` its
   key-variable map. A provider outside the table is its own litellm route (``azure/<model>``),
   sent no key: litellm reads the vendor's variable raw (``file:`` is not read). A provider in
-  :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``, ``codex-cli``, ``copilot-cli``) is a logged-in
-  coding-agent CLI, not an API: no key and no sampling control (:mod:`dokimi.llm_cli`). Only
-  ``claude-cli`` and ``copilot-cli`` run with no tools; ``codex-cli`` keeps its read-only sandbox,
-  so it can read files. An explicit ``api_key`` wins over
-  the environment; either may be ``file:<path>``, and an unreadable file raises ``ValueError``.
+  :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``, ``codex-cli``, ``copilot-cli``) is a logged-in CLI, not an API:
+  no key, no sampling control, and no tools on ``claude-cli`` and ``copilot-cli`` (:mod:`dokimi.llm_cli`). An explicit
+  ``api_key`` wins over the environment; either may be ``file:<path>``, and an unreadable file raises ``ValueError``.
 - **Bedrock bare names.** A name in :data:`dokimi.defaults.BEDROCK_MODEL_IDS`
   runs under its inference profile (:func:`dokimi.defaults.bedrock_profile`);
   ``openai.*`` models take the Converse route.

@@ -418,9 +418,8 @@ class Judge:
             "delta": delta,
         }
 
-        # Classify retrieval outcome (why docs helped or didn't)
-        # One condition by design only in a run declared a knowledge run: a paired run with a missing
-        # context condition is incomplete, whatever the record holds (the legacy fallback is in is_knowledge_run).
+        # Classify retrieval outcome (why docs helped or didn't). One condition by design only in a declared
+        # knowledge run: a paired run with a missing context condition is incomplete (see is_knowledge_run).
         single = knowledge_only(answer) and is_knowledge_run([answer], self.run_metadata)
         result["diagnosis"] = diagnose(context_answer, delta, context_scored=with_docs_eval is not None,
                                        single_condition=single)

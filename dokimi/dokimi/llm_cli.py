@@ -389,8 +389,7 @@ def _copilot_argv(model: str, system_file: str, text: str) -> list:
         raise CliCallError(f"copilot-cli: the prompt is over {COPILOT_ARG_LIMIT} bytes, the most one argument "
                            "carries", retryable=False)
     # --allow-all-tools is what non-interactive mode requires; "__none__" is the measured no-tool allow-list
-    # (an empty list leaves every tool on, see repos/profiles/copilot.yaml).
-    # The prompt is bound to --prompt= so a leading "-" (a bullet-list system text) is not read as an option.
+    # (an empty list leaves every tool on, see repos/profiles/copilot.yaml); --prompt= keeps a leading "-" an argument.
     argv = ["copilot", f"--prompt={text}", "-s", "--model", model, "--allow-all-tools", "--no-custom-instructions",
             "--disable-builtin-mcps", "--no-remote", "--no-auto-update", "--no-ask-user", "--disallow-temp-dir",
             "--no-color", "--available-tools", "__none__"]
