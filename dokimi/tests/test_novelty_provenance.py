@@ -364,3 +364,16 @@ def test_judge2_frac_of_one_is_allowed():
     check_judge2(judge2, answerer, 1.0, False)
     with pytest.raises(InputError, match="judge2-frac"):
         check_judge2(judge2, answerer, 1.5, False)
+
+
+def test_regrade_of_a_panel_run_compares_with_the_first_judge_not_the_aggregate():
+    # The first judge said correct, the panel's median is wrong; judge2 agrees with the first judge.
+    # A run whose first judge failed is left out, though the other judges voted.
+    measured = _measured(2)
+    for run in measured.runs:
+        run.verdict = run.judge_verdict = WRONG
+        run.judge_verdicts = {"first": RIGHT, "second": WRONG, "third": WRONG}
+    measured.runs[1].judge_verdicts = {"first": ERRORED, "second": WRONG, "third": WRONG}
+    judge2 = LLMClient(model="gpt-6", transport=lambda p, s: (json.dumps({"verdict": RIGHT}), None))
+    out = regrade(measured, judge2, frac=1.0, concurrency=1)
+    assert (out["n_sampled"], out["n_compared"], out["lenient_agreement"]) == (1, 1, 1.0)

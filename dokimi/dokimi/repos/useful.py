@@ -5,9 +5,9 @@
 
 The first event of the run that hits the task's definition (:mod:`.useful_spec`): a ``command`` event whose text
 matches and whose ``rc`` is 0, or an ``edit`` event whose path matches a glob. A refused event (``denied``) never
-hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts every event
-up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the hit's ``t``: the time the call was
-issued, since its result is not timed, so a test run's pass is not timed.
+hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts the events
+of a known kind up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the hit's ``t``: the time
+the call was issued, since its result is not timed, so a test run's pass is not timed.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from typing import Any
 
 from .manifest import match_glob
 from .process_counts import as_measure
+from .event_format import KNOWN_KINDS
 from .process_metrics import _workspace_path
 from .useful_spec import Useful
 
@@ -67,7 +68,8 @@ def first_useful(
         return _record(None, "not_declared")
     if events is None:
         return _record(useful.kind, "unobserved")
-    for steps, event in enumerate(events, 1):
+    known = (e for e in events if e.get("kind") in KNOWN_KINDS)  # steps count known kinds, as tool_calls does
+    for steps, event in enumerate(known, 1):
         try:
             found = hits(useful, event)
         except TimeoutError:  # the pattern ran past its budget on this event: no verdict

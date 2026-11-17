@@ -118,6 +118,17 @@ def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     assert "--system-prompt-file" in second.argv and runner.system_texts[1] == llm_cli.DEFAULT_SYSTEM
 
 
+@pytest.mark.parametrize(("system", "written"), [
+    pytest.param("sys \ud800", "sys ?", id="lone-high"),
+    pytest.param("sys \udcff", "sys ?", id="lone-low"),
+    pytest.param("sys \ud83d\ude00", "sys \U0001f600", id="json-pair"),
+])
+def test_a_surrogate_in_the_system_prompt_is_written_as_utf8_not_raised(runner, system, written):
+    runner.answers.append(reply(_ok()))
+    llm_cli.call("claude-cli", model="sonnet", prompt="q", system=system)
+    assert runner.system_texts == [written]
+
+
 def test_a_long_system_prompt_goes_in_a_file_not_an_argument(runner):
     # One argument is limited to 128 KiB on Linux; a system prompt of this size must not reach argv.
     system = "s" * 150_000
