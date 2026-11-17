@@ -30,7 +30,7 @@ The text on stdout is only the counts. A run killed midway keeps the whole lines
 
 | Key | Type | Meaning |
 |---|---|---|
-| `name` | string | the manifest entry's `name` when it sets one, else the skill's frontmatter name as loaded; when the SKILL.md did not load, the directory name, or a placeholder (`?`, or `<entry N>` for a non-mapping manifest item) |
+| `name` | string | the manifest entry's `name` when it sets one. With a manifest and no `name`: the last part of the entry's `catalog_path` (`SKILL.md` when that path names the file) when the skill loads, else `?`; a non-mapping manifest item gives `<entry N>`. Without a manifest: the skill's frontmatter name when it loads, else its directory name |
 | `manifest_status` | string or null | the status a `skills.yaml` entry gives the skill; null without a manifest |
 | `path` | string or null | the skill's directory as scanned; when a manifest `catalog_path` names a SKILL.md file, that file |
 | `relpath` | string or null | the skill's directory relative to the scanned root, with `/` separators |
