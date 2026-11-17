@@ -184,6 +184,18 @@ def test_a_name_whose_file_and_source_are_gone_is_free_again(tmp_path, converted
         {"name": "a-pdf.md", "source": "../corpus/a.pdf"}]
 
 
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+def test_a_recorded_source_is_found_when_the_output_directory_is_a_link(tmp_path, converted):
+    v1, v0 = _docs(tmp_path / "work", "v1/m.pdf", "v0/m.pdf")
+    (tmp_path / "data" / "md").mkdir(parents=True)
+    out = tmp_path / "work" / "md"
+    _link(out, tmp_path / "data" / "md")
+    materialize_markdown([v1], out)
+    (out / "m-pdf.md").unlink()
+
+    assert materialize_markdown([v0, v1], out) == [out / "m-pdf-2.md", out / "m-pdf.md"]
+
+
 @pytest.mark.skipif(os.name == "nt", reason="a backslash is a path separator on Windows")
 def test_a_source_name_with_a_backslash_is_converted_and_rerun(tmp_path, converted):
     (doc,), out = _docs(tmp_path, "a\\b.pdf"), tmp_path / "md"
