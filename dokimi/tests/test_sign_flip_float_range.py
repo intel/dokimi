@@ -86,3 +86,28 @@ def test_the_p_and_ends_of_a_row_near_the_maximum_are_those_of_the_row_scaled(ro
         assert (big_row[end] is None) == (want is None)
         if want is not None:
             assert big_row[end] == pytest.approx(want, rel=1e-12)
+
+
+@pytest.mark.parametrize("m", [1e15, 1e16, 1e17, 1e20, 1e300])
+def test_a_delta_dwarfing_the_others_does_not_hide_them_in_the_exact_p(m):
+    # benchmarking-and-comparison.md: p is the share of sign patterns whose |sum| reaches the observed one. The five
+    # deltas of 1 share a sign and none ties, so only the all-same-sign pattern and its mirror reach it: 2 / 2**6 (#816)
+    assert sign_flip_p([m, 1, 1, 1, 1, 1], exact=True) == 2 / 2 ** 6
+
+
+@pytest.mark.parametrize("m", [1e16, 1e17, 1e300])
+def test_the_lower_end_of_a_row_with_a_dwarfing_delta_is_where_the_small_deltas_stop_rejecting(m):
+    # benchmarking-and-comparison.md: the interval is every shift the same test does not reject. The five deltas of 1
+    # stay on one side until the shift reaches 1, so the end is 1, not the 0.0001 a float search read as measured (#867)
+    row = sign_flip_row([m, 1, 1, 1, 1, 1], exact=True)
+    assert row["p"] == 2 / 2 ** 6 and row["lo"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_a_delta_dwarfing_the_others_does_not_hide_them_in_the_monte_carlo_p():
+    # 18 changed deltas, above EXACT_MAX: the same draws as for 1e15, and p at its floor 1 / (N_RESAMPLES + 1) (#816)
+    assert sign_flip_p([1e17] + [1.0] * 17, exact=True) == sign_flip_p([1e15] + [1.0] * 17, exact=True) == 1 / 20_001
+
+
+def test_huge_deltas_that_cancel_leave_the_p_of_the_small_ones_to_the_scale_where_float_sums_are_exact():
+    # +-1e17 cancel in the observed sum 6, as +-1e5 do; 1e5 + 1 is still a float sum without a rounding error (#816)
+    assert sign_flip_p([1e17, -1e17] + [1] * 6, exact=True) == sign_flip_p([1e5, -1e5] + [1] * 6, exact=True) == 33 / 64

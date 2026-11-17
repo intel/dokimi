@@ -9,8 +9,7 @@
     "kind": {"type": "string", "description": "What the event is. Readers ignore a kind they do not know."},
     "t": {"type": ["number", "null"], "description": "Seconds since the first timestamped trace line; null when the harness has no timestamps."},
     "agent": {"type": "string", "description": "The id of the parent's Agent/Task call that started this event; absent on the parent's events."},
-    "denied": {"type": "boolean", "description": "The call was refused and never ran."},
-    "output_truncated": {"type": "boolean"}
+    "denied": {"type": "boolean", "description": "The call was refused and never ran."}
   },
   "required": ["kind", "t"],
   "allOf": [
@@ -21,7 +20,8 @@
         "properties": {
           "text": {"type": "string"},
           "rc": {"type": ["integer", "null"]},
-          "output": {"type": "string", "description": "The command's output as the harness returned it, clipped to 8 KB."}
+          "output": {"type": "string", "description": "The command's output as the harness returned it, clipped to 8 KB."},
+          "output_truncated": {"type": "boolean"}
         }
       }
     },

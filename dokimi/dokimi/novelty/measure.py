@@ -34,6 +34,7 @@ from .atoms import Atom
 from .client import LLMClient, SpendCapReached, parse_json_object, same_client
 from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,
                        reversal_paired)
+from .panel_grade import check_judges, grade_panel
 from .probes import Probe
 from .routing_stop import PERMANENT_REASON, stop_if_run_wide
 
@@ -135,6 +136,7 @@ class ProbeRun:
     response: str
     verdict: str
     confidence: float | None = None  # recorded, never scored
+    judge_verdicts: dict[str, str] | None = field(default=None, kw_only=True)  # panel only: each judge's verdict by model
     #: Set only when the probe carries ``grading``: the judge's own verdict, which ``verdict``
     #: may overrule, where the verdict came from (``judge`` or ``check``) and the check results.
     judge_verdict: str | None = None
@@ -161,6 +163,7 @@ class ProbeRun:
             "response": self.response,
             "verdict": self.verdict,
             "confidence": self.confidence,
+            **({"judge_verdicts": self.judge_verdicts} if self.judge_verdicts else {}),
             **({"judge_verdict": self.judge_verdict, "verdict_source": self.verdict_source,
                 "checks": self.checks} if self.checks else {}),
         }
@@ -175,13 +178,13 @@ class MeasureResult:
     with_arm: str = "full"
     # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
     not_run: int = 0
-    # Answers the cap paid for but the judge call was refused: kept in ``runs`` (no datum),
-    # and counted here so the run is not taken as finished.
+    # Answers the cap paid for but the judge refused: kept in ``runs`` (no datum), counted here.
     ungraded: int = 0
     # (reason, message) of a call the cap refused; None when nothing was stopped.
     stop: tuple[str, str] | None = None
     # The probes answered, kept so a second judge can regrade a subset (``judge2``).
     probes: list[Probe] = field(default_factory=list)
+    judges: tuple[str, ...] = ()  # configured judges, judge first (a stopped panel may not vote all)
 
     def paired(self, scoring: str) -> dict:
         """The 2×2 for one scoring (see :func:`paired_outcomes`)."""
@@ -334,6 +337,8 @@ def run_measurement(
     placebo_text: str | None = None,
     seed: int = 0,
     framing: str = "reference",
+    panel: tuple[LLMClient, ...] = (),
+    aggregate: str = "median",
 ) -> MeasureResult:
     """Answer every probe in every arm and grade the answers.
 
@@ -352,8 +357,11 @@ def run_measurement(
             irrelevant context actively harms them.
         seed: Seed for the ``shuffled`` control, so the control is reproducible.
         framing: One of :data:`FRAMINGS`; how the context is introduced in the prompt.
+        panel: More judges besides ``judge``, each grading every answer.
+        aggregate: The rule that makes one verdict of the panel's (:func:`~.panel.aggregate`).
     """
-    check_self_judge(judge, answerer, allow_self_judge)
+    judges = (judge, *panel)
+    check_judges((judge, *panel), aggregate, lambda m: check_self_judge(m, answerer, allow_self_judge))
     check_arms(arms, placebo_text)
     if framing not in FRAMINGS:
         raise InputError(f"unknown context framing {framing!r}; known: {list(FRAMINGS)}")
@@ -372,6 +380,7 @@ def run_measurement(
 
     def one(job: tuple[Probe, str]) -> ProbeRun:
         probe, arm = job
+        by_judge: dict[str, str] | None = None
         answered = True
         try:
             response, confidence = _answer(
@@ -387,13 +396,14 @@ def run_measurement(
             answered = False
         else:
             try:
-                verdict = _grade_unless_stopped(stops, probe, response, judge)
+                verdict, by_judge = grade_panel(
+                    lambda m: _grade_unless_stopped(stops, probe, response, m), judges, aggregate, ERRORED)
             except SpendCapReached as exc:
                 return _capped_grade_run(probe, arm, response, confidence, exc, stops, ungraded)
         run = ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
             question=probe.question, response=response, verdict=verdict,
-            confidence=confidence,
+            confidence=confidence, judge_verdicts=by_judge,
         )
         if probe.grading and answered:
             _apply_checks(run, probe, response, verdict)
@@ -412,7 +422,7 @@ def run_measurement(
     stop = (stops[0].reason, str(stops[0])) if stops else None
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
                          not_run=len(jobs) - len(runs), ungraded=len(ungraded), stop=stop,
-                         probes=list(probes))
+                         probes=list(probes), judges=tuple(j.model for j in judges))
 
 
 def _held_permanent_stop(stops: list[SpendCapReached]) -> SpendCapReached | None:
@@ -441,14 +451,15 @@ def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float |
                       exc: SpendCapReached, stops: list[SpendCapReached],
                       ungraded: list[ProbeRun]) -> ProbeRun:
     """The answer was paid for and the judge hit the cap: keep the verdict a refused judge reply
-    names, else keep the run ungraded (no datum). The checks grade the run either way, and the
+    names (not a truncated one, not one judge's of a panel), else keep the run ungraded. The checks grade the run either way, and the
     measurement stops here."""
     stops.append(exc)
-    named = _reply_verdict(exc.reply)
+    panel_votes = getattr(exc, "panel_votes", None)
+    named = None if exc.truncated or panel_votes is not None else _reply_verdict(exc.reply)
     run = ProbeRun(
         atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
         question=probe.question, response=response, verdict=named or ERRORED,
-        confidence=confidence,
+        confidence=confidence, judge_verdicts=panel_votes or None,
     )
     if probe.grading:  # the veto runs on the answer whatever the refused judge reply said
         _apply_checks(run, probe, response, named or ERRORED)
@@ -787,4 +798,3 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
     if den == 0:
         return None
     return round(sum(a * b for a, b in zip(dx, dy, strict=True)) / den, 4)
-

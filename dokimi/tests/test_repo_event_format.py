@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from dokimi.artifacts import SCHEMA_DIR, schema_errors
 from dokimi.repos.event_format import EVENT_VERSION, KNOWN_KINDS, event_version
 from dokimi.repos.events import convert
@@ -80,6 +82,21 @@ def test_every_converted_line_is_versioned_and_validates():
         assert schema_errors("repo_event.v1", event) == [], event
 
 
+@pytest.mark.parametrize("line", [
+    {"kind": "command", "text": "ls", "t": 1.0, "v": 1},
+    {"kind": "command", "rc": 0, "t": 1.0, "v": 1},
+    {"kind": "edit", "t": 1.0, "v": 1},
+    {"kind": "tool", "t": 1.0, "v": 1},
+    {"kind": "read", "path": 3, "t": 1.0, "v": 1},
+    {"kind": "command", "text": "ls", "rc": 0, "t": "1.0", "v": 1},
+    {"kind": "read", "path": "a.md", "v": 1},
+    {"t": 1.0, "v": 1},
+], ids=["command-no-rc", "command-no-text", "edit-no-path", "tool-no-name", "read-path-int", "string-t",
+        "no-t", "no-kind"])
+def test_a_line_that_breaks_the_version_1_shape_is_refused(line):
+    assert schema_errors("repo_event.v1", line) != []
+
+
 def test_the_writer_only_adds_the_version_to_each_event():
     transcript = convert("claude-stream-json", _claude_trace())
     written = [json.loads(line) for line in transcript.events_jsonl().splitlines()]
@@ -104,6 +121,8 @@ def test_a_reader_skips_a_kind_it_does_not_know():
     base = [{"t": 1.0, "kind": "command", "text": "ls", "rc": 0}]
     assert process_metrics([*base, future], lambda _: False)["tool_calls"] == process_metrics(base, lambda _: False)["tool_calls"]
     assert process_metrics([*base, future], lambda _: False)["commands"] == 1
+    tool = {"t": 2.0, "kind": "tool", "name": "Skill", "skill": "lint-fix"}
+    assert process_metrics([tool], lambda _: False)["tool_calls"] == 1
 
 
 def test_unversioned_and_converted_give_the_same_process_metrics():

@@ -181,6 +181,12 @@ def test_a_claude_usage_missing_counts_are_null_not_zero():
     ]
 
 
+def test_an_output_only_claude_usage_leaves_input_and_prompt_tokens_null():
+    turn = _turns(convert("claude-stream-json", _lines(_call("a", {"output_tokens": 3}, "2026-11-14T10:00:00Z")))
+                  .events)[0]
+    assert turn["input"] is None and turn["prompt_tokens"] is None and turn["output"] == 3
+
+
 def test_a_split_message_prompt_tokens_is_the_sum_of_its_parts():
     raw = _lines(_call("a", {"input_tokens": 5, "output_tokens": 1, "cache_creation_input_tokens": 0},
                        "2026-11-14T10:00:00Z"),

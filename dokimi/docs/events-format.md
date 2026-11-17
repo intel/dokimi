@@ -30,6 +30,7 @@ depend on the kind:
 | `read` | `path` (absent on a refused relative read whose file is not known); `rc` 0 or 1 when the harness reported one |
 | `edit` | `path`; `rc`; `deleted` when the file was deleted |
 | `tool` | `name`; `skill` on a `Skill` call |
+<<<<<<< HEAD
 | `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output`, `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count |
 | `compaction` | `turn`: the index of the turn it came after, `null` before the first call |
 
@@ -51,6 +52,8 @@ tokens of its own.
 Turn and compaction events are not tool calls: `result.json` `process.tool_calls`
 counts the tool kinds only (`command`, `read`, `edit`, `tool`). A reader that
 reads the tool path of a run keeps to those kinds too.
+=======
+>>>>>>> b62613a11aaaa310ff39bf7eed57f89d96ccde1f
 
 Any line may also carry `agent` (the id of the parent's `Agent`/`Task` call that
 started it), and `denied: true` when the call was refused and never ran. The
@@ -59,8 +62,12 @@ exact field list is the JSON Schema `dokimi/schemas/repo_event.v1.json`.
 ## Version
 
 Every line carries `v`: the major version of the format it was written under.
+<<<<<<< HEAD
 Version 1 is the format this page describes; it has the `turn` and `compaction`
 kinds, added to it within version 1.
+=======
+Version 1 is the format this page describes.
+>>>>>>> b62613a11aaaa310ff39bf7eed57f89d96ccde1f
 
 - A line with no `v` was written before the field existed. It has the version 1
   shape and reads as version 1.
@@ -89,6 +96,10 @@ file may mix versions, since traces are re-derived and appended to.
 
 ## Null values
 
+<<<<<<< HEAD
 `t` is `null` when the harness writes no timestamps (Codex, Copilot). `rc` is
+=======
+`t` is `null` when a record has no parseable timestamp (always for Codex). `rc` is
+>>>>>>> b62613a11aaaa310ff39bf7eed57f89d96ccde1f
 `null` when no result came back, for example at the turn or budget limit: a
 grader must not count `null` as a failure.
