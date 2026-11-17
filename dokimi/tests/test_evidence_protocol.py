@@ -385,3 +385,9 @@ def test_a_non_json_resolved_value_is_a_reason_not_an_exception():
     result["protocol"]["resolved"]["judge_sampling"] = {"temperature": float("nan")}
     reasons = compare(result, _fixture("verdict_with_rule.json"))
     assert any("is not JSON" in reason for reason in reasons)
+
+
+def test_a_harness_change_is_a_reason_when_both_sides_carry_a_protocol():
+    # harness is not a protocol input, so the digest cannot tell two harnesses apart
+    base = _fixture("verdict_with_rule.json")
+    assert compare(_with(base, harness="another-harness"), base) == ["harness differs"]

@@ -215,6 +215,9 @@ def compare(result: Mapping[str, Any], reference: Mapping[str, Any]) -> list[str
     mine, theirs = result.get("protocol"), reference.get("protocol")
     if isinstance(mine, Mapping) and isinstance(theirs, Mapping):
         reasons += _protocol_reasons(mine, theirs)
+        # harness is not a protocol input, so a digest over the inputs cannot tell two harnesses apart
+        if result.get("harness") != reference.get("harness"):
+            reasons.append("harness differs")
     elif isinstance(mine, Mapping) or isinstance(theirs, Mapping):
         reasons.append("protocol on one side only: the fallback fields cannot stand for its inputs")
     else:
