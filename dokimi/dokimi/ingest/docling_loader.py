@@ -84,7 +84,9 @@ def materialize_markdown(inputs, out_dir) -> list[Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     record = out_dir / SOURCES_NAME
-    owners = _read_owners(record)
+    # an entry whose file and source are both gone holds its name no longer
+    owners = {name: source for name, source in _read_owners(record).items()
+              if os.path.lexists(out_dir / name) or os.path.lexists(os.path.join(out_dir, source))}
     written: list[Path] = []
     for src in inputs:
         src = Path(src)
