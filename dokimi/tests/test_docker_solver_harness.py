@@ -100,7 +100,7 @@ def test_prompt_txt_holds_the_instruction_with_a_lone_surrogate_as_a_question_ma
     task = SimpleNamespace(instruction=instruction)
     args = harness._claude_args(task, None, None, None, tmp_path)
     assert (tmp_path / "prompt.txt").read_bytes() == saved.encode("utf-8")
-    assert args[:1] == ["-p"]
+    assert args[:2] == ["-p", saved]
 
 
 # ── telemetry parsing ───────────────────────────────────────────────────────

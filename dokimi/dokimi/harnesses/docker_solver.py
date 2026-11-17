@@ -554,8 +554,8 @@ class DockerSolverHarness:
                      output_dir: Path) -> list[str]:
         """``claude`` argv after the executable; the prompt is also saved as ``prompt.txt``."""
         # The task instruction as the user wrote it, behind the treatment notice only.
-        prompt = f"{treatment_notice(treatment) if self.skill_notice else ''}{task.instruction}"
-        (output_dir / "prompt.txt").write_text(process_io.joined_pairs(prompt), encoding="utf-8", errors="replace")
+        prompt = process_io.utf8_bytes(f"{treatment_notice(treatment) if self.skill_notice else ''}{task.instruction}").decode()
+        (output_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
         args = ["-p", prompt, "--output-format", "stream-json", "--verbose", *solver_cli_flags()]
         args += ["--plugin-dir", plugin_dir] if plugin_dir else []
         return args + (["--model", model] if model else [])
