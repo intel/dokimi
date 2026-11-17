@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import signal
 
 import pytest
@@ -311,6 +312,49 @@ def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, m
     assert exc.value.code == 130
     assert kills == [True]
     assert started == ["accel-tuning"]
+
+
+def test_a_row_is_written_once_even_when_its_write_is_interrupted():
+    """A second Ctrl-C landing in write(): the row the sink already took is not written again by the drain."""
+    from dokimi.commands.catalog_novelty import _Item, _run_sweep
+
+    written: list[str] = []
+
+    def write(row):
+        written.append(row["key"])
+        raise KeyboardInterrupt  # after the append, as a second signal lands in the sink
+
+    items = [_Item(key="a", name="a", skill_md=Path("a/SKILL.md"), sha256=None),
+             _Item(key="b", name="b", skill_md=Path("b/SKILL.md"), sha256=None)]
+    with pytest.raises(KeyboardInterrupt):
+        _run_sweep(items, jobs=1, review=lambda item: {"key": item.key}, write=write,
+                   out_of_budget=lambda: False, stop_requested=lambda: False)
+    assert written == ["a", "b"]  # each row once; b finished and is kept too
+
+
+def test_settle_keeps_the_rows_done_before_it_waits_for_the_skills_in_flight(monkeypatch):
+    """An interrupt while the drain waits for the skills in flight keeps the rows already done."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import dokimi.commands.catalog_novelty as catalog_novelty
+
+    release = threading.Event()
+    pool = ThreadPoolExecutor(max_workers=2)
+    done = pool.submit(lambda: {"key": "a"})
+    done.result()
+    slow = pool.submit(lambda: (release.wait(5), {"key": "b"})[1])
+    running = {done, slow}
+    written: list[str] = []
+
+    def interrupted_wait(*args, **kwargs):
+        release.set()
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(catalog_novelty, "wait", interrupted_wait)
+    with pytest.raises(KeyboardInterrupt):
+        catalog_novelty._settle(pool, running, lambda row: written.append(row["key"]))
+    assert written == ["a"]
 
 
 def test_identical_skill_copies_are_one_skill_and_the_help_says_so(tmp_path, capsys):

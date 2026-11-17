@@ -242,10 +242,10 @@ def _run_sweep(items: list[_Item], *, jobs: int, review: Callable[[_Item], Optio
         while running and not stop_requested():
             finished, _ = wait(running, timeout=POLL_SECONDS, return_when=FIRST_COMPLETED)
             for future in finished:
+                running.discard(future)  # before the write: a write that raises is not written again
                 row = future.result()
                 if row is not None:
                     write(row)
-                running.discard(future)
             fill()
     except BaseException:
         _settle(pool, running, write)
@@ -254,12 +254,24 @@ def _run_sweep(items: list[_Item], *, jobs: int, review: Callable[[_Item], Optio
 
 
 def _settle(pool: ThreadPoolExecutor, running: set, write: Callable[[dict], None]) -> None:
-    """Cancel the queued skills, wait for the ones in flight and keep the rows they finished."""
-    pool.shutdown(wait=True, cancel_futures=True)
+    """Cancel the queued skills, keep the rows already done, then wait for the ones in flight and keep
+    theirs. The done rows are written before the wait, so an interrupt during the wait keeps them."""
+    pool.shutdown(wait=False, cancel_futures=True)
+    pending = set()
     for future in running:
-        if not future.cancelled() and future.exception() is None and future.result() is not None:
-            write(future.result())
+        if future.done():
+            _keep(future, write)
+        else:
+            pending.add(future)
+    wait(pending)
+    for future in pending:
+        _keep(future, write)
     running.clear()
+
+
+def _keep(future, write: Callable[[dict], None]) -> None:
+    if not future.cancelled() and future.exception() is None and future.result() is not None:
+        write(future.result())
 
 
 def _review_one(item: _Item, *, args: argparse.Namespace, run_cap: "SpendCap", per_skill: Optional[float],
