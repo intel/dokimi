@@ -219,7 +219,7 @@ def test_a_kept_context_answer_keeps_its_question_ground_truth(monkeypatch):
     assert row["ground_truth_chunk"] == "chunk text" and row["question_source"] == "chunk"
 
 
-def test_run_arms_on_a_usage_limit_writes_the_terminated_block_and_stops_the_questions(monkeypatch):
+def test_run_arms_on_a_usage_limit_writes_the_terminated_block(monkeypatch):
     from dokimi.eval import arms_run
 
     calls = _usage_stop(monkeypatch, arm_runner_module, stop_on_call=2)
