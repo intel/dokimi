@@ -12,7 +12,8 @@ import numpy as np
 import pytest
 
 from dokimi.eval.finite_delta import checked_delta, checked_mean
-from dokimi.repos.compare import CompareError, _inconclusive_note, _pair, _round, sign_flip_summary
+from dokimi.repos.compare import CompareError, _compare_measure, _inconclusive_note, _pair, _round, sign_flip_summary
+from dokimi.repos.compare_values import task_values
 from dokimi.repos.compare_reach import min_detectable
 from dokimi.repos.grading import SCORE_BOUND
 
@@ -184,10 +185,29 @@ def test_sign_flip_summary_leaves_values_past_the_measure_bound_out_of_the_means
     def rows(value: float) -> list[dict]:
         return [{"task": f"t{i}", "baseline": value, "treatment": value, "delta": 0.0} for i in range(3)]
 
-    past = sign_flip_summary(rows(1.7e308), "metric:x")
-    assert (past["baseline_mean"], past["treatment_mean"]) == (None, None)
+    for value in (1.7e308, 2 * SCORE_BOUND):
+        past = sign_flip_summary(rows(value), "metric:x")
+        assert (past["baseline_mean"], past["treatment_mean"]) == (None, None)
+    mixed = rows(1.0) + rows(2 * SCORE_BOUND)
+    kept = sign_flip_summary(mixed, "metric:x")
+    assert (kept["baseline_mean"], kept["treatment_mean"]) == (1.0, 1.0)
     at = sign_flip_summary(rows(SCORE_BOUND), "metric:x")
     assert (at["baseline_mean"], at["treatment_mean"]) == (SCORE_BOUND, SCORE_BOUND)
+
+
+def test_compare_gives_no_row_for_a_metric_past_the_measure_bound_and_lists_its_tasks_unpaired():
+    def arm(value: float) -> dict:
+        cells = [{"model": "m", "task": f"t{i}", "batch": "b", "cell": f"c{i}", "score_task": False, "agent": {},
+                  "metrics": {"x": value}, "grade": {"status": "ok", "success": True}} for i in range(3)]
+        return task_values(cells, ("x",))
+
+    shared = ["t0", "t1", "t2"]
+    unpaired: list[dict] = []
+    past = _compare_measure("tr", "m", "metric:x", shared, arm(1.7e308), arm(1.7e308), 0, unpaired)
+    assert past is None
+    assert [u["reason"] for u in unpaired] == ["no metric:x in baseline or treatment"] * 3
+    at = _compare_measure("tr", "m", "metric:x", shared, arm(SCORE_BOUND), arm(SCORE_BOUND), 0, [])
+    assert at is not None and at["baseline_mean"] == SCORE_BOUND
 
 
 def test_checked_delta_refuses_an_integer_beyond_the_float_range_with_the_requested_error():

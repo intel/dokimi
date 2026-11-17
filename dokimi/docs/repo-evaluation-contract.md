@@ -2525,9 +2525,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   a `cost_usd`, `num_turns`, token count or `score_max` past it makes `repo
   report` and `repo compare` refuse that `result.json`. Any other value past it
   (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_*`) is
-  left out of the mean and of `n`, as a value that is absent: three tasks whose
-  `metric:x` is 1.7e308 in both arms give a mean of `null`, not an overflow, and
-  the same three at 1e150 give 1e150.
+  left out of the mean and of `n`, as a value that is absent. In `repo compare`
+  a task whose `metric:x` is absent in either arm is unpaired (`no metric:x in
+  baseline or treatment`), so three tasks whose `metric:x` is 1.7e308 in both
+  arms give no `metric:x` row at all, not an overflow, and the same three at
+  1e150 give a row with means of 1e150.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
