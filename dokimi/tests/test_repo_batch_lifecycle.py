@@ -279,10 +279,18 @@ def shutdown(self, wait=True, *, cancel_futures=False):
     if cancel_futures:
         cancelled.set()
 ThreadPoolExecutor.shutdown = shutdown
+submitted, real_map = threading.Event(), ThreadPoolExecutor.map
+def pool_map(self, *args, **kwargs):
+    results = real_map(self, *args, **kwargs)  # returns once every cell is submitted and its thread has started
+    submitted.set()
+    return results
+ThreadPoolExecutor.map = pool_map
 def run_cell(ctx, task, arm, rep, *args, **kwargs):
     if rep <= 2:
         both.wait(30)
         if rep == 1:
+            if not submitted.wait(30):  # an interrupt inside submit() is a slow thread start, not the Ctrl-C under test
+                os._exit(3)
             signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
         cancelled.wait(30)  # no worker is free to take a queued cell until the main thread has cancelled them
     return real(ctx, task, arm, rep, *args, **kwargs)
