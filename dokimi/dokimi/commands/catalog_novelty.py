@@ -462,7 +462,7 @@ def _bound(args: argparse.Namespace, **shared: Any) -> Callable[[_Item], Optiona
 def register(catalog_sub, positive_int) -> None:
     """Add ``catalog novelty``: the corpus sweep, a catalog verb like ``catalog routing``."""
     from dokimi.commands.novelty import _add_bundle_args, _add_model_args
-    from dokimi.commands.novelty_run import usd_amount
+    from dokimi.cli_types import positive_usd
     from dokimi.novelty.sweep import RESAMPLES
     from dokimi.novelty.tiers import TIERS
 
@@ -485,7 +485,7 @@ def register(catalog_sub, positive_int) -> None:
                    help="Skills analysed in parallel threads, sharing --max-usd (default 1)")
     p.add_argument("--resume", action="store_true",
                    help="Keep the measured rows in --jsonl and run only the other skills")
-    p.add_argument("--max-usd-per-skill", type=usd_amount, default=None, dest="max_usd_per_skill",
+    p.add_argument("--max-usd-per-skill", type=positive_usd, default=None, dest="max_usd_per_skill",
                    help="Stop one skill once its calls cost this much (USD); the rest of the sweep goes on")
     p.add_argument("--limit", type=positive_int, default=None,
                    help="Only the first N skills in path order (a pilot)")
