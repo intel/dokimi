@@ -329,7 +329,7 @@ def test_a_row_is_written_once_even_when_its_write_is_interrupted():
     with pytest.raises(KeyboardInterrupt):
         _run_sweep(items, jobs=1, review=lambda item: {"key": item.key}, write=write,
                    out_of_budget=lambda: False, stop_requested=lambda: False)
-    assert written == ["a", "b"]  # each row once; b finished and is kept too
+    assert written.count("a") == 1  # written once; b may or may not have started before the cancel
 
 
 def test_settle_keeps_the_rows_done_before_it_waits_for_the_skills_in_flight(monkeypatch):
@@ -340,10 +340,18 @@ def test_settle_keeps_the_rows_done_before_it_waits_for_the_skills_in_flight(mon
     import dokimi.commands.catalog_novelty as catalog_novelty
 
     release = threading.Event()
+    slow_started = threading.Event()
     pool = ThreadPoolExecutor(max_workers=2)
     done = pool.submit(lambda: {"key": "a"})
     done.result()
-    slow = pool.submit(lambda: (release.wait(5), {"key": "b"})[1])
+
+    def slow_skill():
+        slow_started.set()  # running, not queued: the cancel of the queue leaves it alone
+        release.wait(5)
+        return {"key": "b"}
+
+    slow = pool.submit(slow_skill)
+    assert slow_started.wait(5)
     running = {done, slow}
     written: list[str] = []
 
@@ -400,9 +408,22 @@ def test_a_row_finished_during_the_drain_is_written_before_the_next_wait(monkeyp
     import time
 
     release = threading.Event()
+    started = threading.Barrier(3)  # the two skills and this test: both are running before the drain
     pool = ThreadPoolExecutor(max_workers=2)
-    fast = pool.submit(lambda: (time.sleep(0.1), {"key": "fast"})[1])  # still in flight when the drain starts
-    slow = pool.submit(lambda: (release.wait(5), {"key": "slow"})[1])
+
+    def fast_skill():
+        started.wait(5)
+        time.sleep(0.1)  # still in flight when the drain starts
+        return {"key": "fast"}
+
+    def slow_skill():
+        started.wait(5)
+        release.wait(5)
+        return {"key": "slow"}
+
+    fast = pool.submit(fast_skill)
+    slow = pool.submit(slow_skill)
+    started.wait(5)
     real_wait = catalog_novelty.wait
     waits: list[int] = []
 

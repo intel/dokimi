@@ -1144,7 +1144,8 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   for SIGINT, 143 for SIGTERM). A SIGTERM therefore waits for the calls in flight. The rows already
   written stay in the JSONL, so `--resume` continues from them. A second signal kills the subprocess calls in
   flight (their paid work is lost, so set `DOKIMI_RESPONSE_CACHE` to replay what was done) and stops
-  at once. An API call cannot be killed: the process waits for it before it exits.
+  at once. An API call in flight cannot be killed: its row is not written, and the process waits for it to end
+  before it exits, so its paid call is lost unless `DOKIMI_RESPONSE_CACHE` is set.
 
 ```bash
 dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \

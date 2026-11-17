@@ -11,7 +11,7 @@ runs only the skills without a measured row (same directory digest, same setting
 ``--summary-only`` prints the summary of a JSONL file without any model call. Directories whose
 ``SKILL.md`` files are identical and name the same skill count as one (the shallowest path is kept). Ctrl-C or SIGTERM
 cancels the skills not yet started, lets the running ones finish, keeps the rows done and exits nonzero
-(a second signal kills the subprocess calls in flight and stops at once; an API call cannot be killed, so the process waits for it).
+(a second signal kills the subprocess calls in flight and stops at once; an API call in flight cannot be killed, so its row is not written).
 
 A skill the budget stops mid-analysis is a ``partial`` row and leaves no novelty file. Set
 ``DOKIMI_RESPONSE_CACHE`` so a resumed run replays the calls already paid for at $0.
