@@ -185,6 +185,13 @@ def test_copilot_usage_limit_is_run_wide(run):
     assert info.value.run_wide is True and info.value.retryable is False
 
 
+def test_copilot_prompt_starting_with_a_hyphen_is_bound_to_its_option(run):
+    # A persona's bullet-list system text starts with "-": it must not parse as an option.
+    run.answers.append(reply(COPILOT_OK))
+    llm_cli.call("copilot-cli", model="gpt-5", prompt="Q?", system="- Be terse.")
+    assert run.calls[0].argv[1] == "--prompt=- Be terse.\n\nQ?"
+
+
 def test_copilot_prompt_is_checked_against_the_windows_command_line_limit(monkeypatch):
     monkeypatch.setattr(llm_cli, "_is_windows", lambda: True)
     with pytest.raises(llm_cli.CliCallError, match="Windows"):
@@ -212,7 +219,7 @@ def test_copilot_runs_with_no_tools_no_custom_instructions_and_the_prompt_in_arg
     out = llm_cli.call("copilot-cli", model="gpt-5", prompt="What is parallel_for?", system="Be terse.")
     call = run.calls[0]
     argv = call.argv
-    assert argv[:2] == ("copilot", "-p") and argv[2] == "Be terse.\n\nWhat is parallel_for?"
+    assert argv[0] == "copilot" and argv[1] == "--prompt=Be terse.\n\nWhat is parallel_for?"
     assert call.input is None  # Copilot reads no prompt from stdin
     for flag in ("--no-custom-instructions", "--disable-builtin-mcps", "--no-remote", "--no-auto-update",
                  "--disallow-temp-dir", "-s"):
