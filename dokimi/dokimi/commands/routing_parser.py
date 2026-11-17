@@ -8,7 +8,7 @@ Both leaves take the same routing options; `cmd_routing` in `dokimi.commands.nov
 
 from __future__ import annotations
 
-from dokimi.commands.novelty import cmd_routing
+from dokimi.commands.novelty import cmd_routing, cmd_skill_routing
 from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
 from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
@@ -35,7 +35,11 @@ def add_skill_routing(skill_sub, positive_int) -> None:
                                 "under another path counts once) except the artifact itself, the "
                                 "siblings a harness lists next to it. Combines with --competitors")
     _add_routing_options(routing_p, positive_int)
-    routing_p.set_defaults(all_vs_all=False, func=stops_at_cap(cmd_routing))
+    routing_p.add_argument("--json", action="store_true",
+                           help="Print cli_output.v1 on stdout (the measurement under data, report only); "
+                                "the summary goes to stderr")
+    routing_p.set_defaults(all_vs_all=False, func=stops_at_cap(cmd_skill_routing),
+                           emits_cli_output=True, cli_kind="skill routing")
 
 
 def add_catalog_routing(catalog_sub, positive_int) -> None:

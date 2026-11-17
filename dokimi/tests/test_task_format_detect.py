@@ -126,6 +126,16 @@ def test_task_without_environment_dockerfile_is_not_claimed_for_docker(tmp_path)
         assert "docker-*" not in _one(task).consumers
 
 
+def test_harbor_task_with_a_prebuilt_docker_image_is_claimed_for_docker(tmp_path):
+    """docs/coding-harnesses.md: docker-* run a Harbor task on its [environment] docker_image."""
+    task = _harbor(tmp_path)
+    (task / "environment" / "Dockerfile").unlink()
+    _write(task / "task.toml", '[metadata]\ndifficulty = "easy"\n[environment]\ndocker_image = "python:3.12-slim"\n')
+    assert _one(task).consumers == ["harbor", "docker-*"]
+    shutil.rmtree(task / "tests")  # still no verifier, no docker-*
+    assert "docker-*" not in _one(task).consumers
+
+
 def test_task_without_tests_or_verifier_is_not_claimed_for_docker(tmp_path):
     for task in (_harbor(tmp_path), _task_md(tmp_path)):
         for verifier in ("tests", "verifier"):

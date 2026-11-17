@@ -109,8 +109,10 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
     if args.json:
         reason = None if not failed else (f"{len(report.errors)} error(s)" if not report.ok
                                           else f"{len(report.warnings)} warning(s) under --fail-on-warning")
+        findings = [cli_output.finding("error", "validate-error", str(e), manifest.path) for e in report.errors]
+        findings += [cli_output.finding("warn", "validate-warning", str(w), manifest.path) for w in report.warnings]
         cli_output.emit_leaf("repo validate", report.to_dict(), status="failed" if failed else "complete",
-                             reason=reason)
+                             reason=reason, subjects=[{"subject": manifest.id, "verdict": None, "findings": findings}])
     else:
         mark = "✓" if report.ok else "✗"
         families = ", ".join(f"{k} {v}" for k, v in report.to_dict()["tasks"]["by_family"].items())
@@ -143,6 +145,7 @@ def _read_static(path: str) -> Any:
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
+    from dokimi.commands.repo_scan import scan_subjects
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.l0 import scan_repo
     from dokimi.repos.l0.typecheck import TypecheckError
@@ -171,7 +174,10 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         failed = bool(args.fail_on_fail and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
                              status="failed" if failed else "complete",
-                             reason=_scan_reason(payload, static_errors, args.fail_on_fail) if failed else None)
+                             reason=_scan_reason(payload, static_errors, args.fail_on_fail) if failed else None,
+                             subjects=scan_subjects(payload),
+                             summary={"claims": dict(payload["counts"]), "files": len(payload["files"]),
+                                      "adapters": ", ".join(payload.get("adapters") or []) or "none"})
     else:
         _print_scan_text(manifest, payload, args.out)
     _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
