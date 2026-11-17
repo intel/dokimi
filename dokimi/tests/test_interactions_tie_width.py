@@ -54,6 +54,15 @@ def test_the_tie_width_of_a_row_follows_its_largest_score():
     assert change["n_changed"] == 9
 
 
+def test_the_scale_of_a_contrast_is_the_largest_of_all_four_scores_not_of_ab_and_baseline():
+    # the contrast is -7e-13 and `a` is the largest score: a tie at 1e-12 (EPS times a); EPS times max(ab, base) = 5e-13 would count a change
+    row = _ev("x", 5e-4, 1e-3 + 7e-13, 0.0, 5e-4)
+    big = [_ev(f"q{i}", g * 1e-3, 0.0, 0.0, 0.0) for i, g in enumerate(G)]
+    res = interaction_test([*big, row], **ARMS)
+    assert res is not None
+    assert res["n_changed"] == 8
+
+
 @pytest.mark.parametrize("scale", [1e-3, 1e-300])
 @pytest.mark.parametrize("arm", ["a", "b", "a+b"])
 def test_an_arm_delta_of_tiny_scores_is_read_like_the_arms_table_reads_it(arm, scale):
