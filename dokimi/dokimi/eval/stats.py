@@ -64,6 +64,7 @@ import statistics
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from dokimi.eval.arm_summary import mean_in_range
 from dokimi.eval.finite_delta import check_sum_range, checked_delta
 from dokimi.eval.sign_flip import (
     ALPHA,
@@ -450,7 +451,7 @@ def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -
     """
     arm_vals, base_vals = paired_vectors(evaluations, arm_name, baseline_arm)
     diffs = _deltas(arm_vals, base_vals)
-    return round(sum(diffs) / len(diffs), 1) if diffs else None
+    return round(mean_in_range(diffs), 1) if diffs else None
 
 
 @dataclass(frozen=True)

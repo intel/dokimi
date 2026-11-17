@@ -26,7 +26,6 @@
     "dokimi/context/trace.py::_apply": {"complexity": 18},
     "dokimi/eval/agent_runner.py::_summarize_tool_usage": {"complexity": 11},
     "dokimi/eval/agent_runner.py::run_agent_loop": {"complexity": 14},
-    "dokimi/eval/arm_runner.py::ArmRunner.judge": {"complexity": 11},
     "dokimi/eval/checklist.py::ChecklistReport.format_markdown": {"complexity": 12},
     "dokimi/eval/degrade.py::build_pairs": {"complexity": 17, "rationale": "grew on main in #73 (judge-validity --context stored) from 10 to 17 before the ratchet landed; split it in its own PR"},
     "dokimi/eval/judge_sequential.py::run_sequential": {"complexity": 12, "rationale": "grew on main in #73 (judge-validity --context stored) from 6 to 12 before the ratchet landed; split it in its own PR"},
