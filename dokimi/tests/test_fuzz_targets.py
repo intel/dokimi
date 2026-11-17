@@ -127,6 +127,13 @@ def test_the_last_fallback_still_takes_the_outermost_block(name: str, text: str,
     assert _outcome(name, text) == want
 
 
+def test_a_reply_with_a_closer_and_no_opener_keeps_the_head_message() -> None:
+    from dokimi.llm_json import extract_json_array
+
+    with pytest.raises(ValueError, match="No JSON array found"):
+        extract_json_array("a]")
+
+
 def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
     # PyYAML raises a plain ValueError for 2026-02-30: the lenient reader reads no metadata,
     # and the strict one raises the YAML error its docstring names.
