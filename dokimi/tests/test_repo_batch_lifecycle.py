@@ -259,6 +259,7 @@ def test_compare_with_a_model_refuses_only_a_mixed_row_of_that_model(setup):
 
 _CTRL_C_DRIVER = """
 import os, signal, sys, threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
@@ -272,11 +273,18 @@ import dokimi.repos.container as container
 container.DockerRunner = lambda *a, **k: fake
 os.environ["FAKE_ACTION"] = "fix"
 both, real = threading.Barrier(2), repo_runner.run_cell
+cancelled, real_shutdown = threading.Event(), ThreadPoolExecutor.shutdown
+def shutdown(self, wait=True, *, cancel_futures=False):
+    real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+    if cancel_futures:
+        cancelled.set()
+ThreadPoolExecutor.shutdown = shutdown
 def run_cell(ctx, task, arm, rep, *args, **kwargs):
     if rep <= 2:
         both.wait(30)
         if rep == 1:
             signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
+        cancelled.wait(30)  # no worker is free to take a queued cell until the main thread has cancelled them
     return real(ctx, task, arm, rep, *args, **kwargs)
 repo_runner.run_cell = run_cell
 signal.signal(signal.SIGINT, signal.default_int_handler)
