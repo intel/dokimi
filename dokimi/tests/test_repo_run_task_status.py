@@ -9,7 +9,8 @@ import json
 
 from tests.test_repo_run import _run, setup  # noqa: F401  # the fixture and the runner of test_repo_run
 
-def test_the_host_writes_the_tasks_status_into_result_json(setup):
+
+def test_the_host_writes_the_tasks_status_into_result_json(setup):  # noqa: F811
     # the report reads the status from this key only: a run that drops the write shows every task as unknown
     task_json = setup["root"] / ".agent-eval/tasks/fix_add/task.json"
     task = json.loads(task_json.read_text())
