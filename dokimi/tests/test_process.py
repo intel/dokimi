@@ -754,6 +754,25 @@ def test_fake_runner_records_calls_and_answers(tmp_path, monkeypatch):
     assert fake.argvs() == [("ok", str(tmp_path)), ("slow",), ("missing",)]
 
 
+@pytest.mark.parametrize("text", [pytest.param("n\ud800", id="d800"), pytest.param("n\udcff", id="dcff")])
+def test_a_lone_surrogate_in_the_input_reaches_the_child_as_a_question_mark(text):
+    echo = "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"
+    done = _py(echo, input=text)
+    assert done.returncode == 0 and done.stdout_bytes == b"n?"
+
+
+@pytest.mark.parametrize("text", [pytest.param("n\ud800", id="d800"), pytest.param("n\udcff", id="dcff")])
+def test_fake_runner_records_a_lone_surrogate_in_the_input_as_a_question_mark(text):
+    fake = FakeRunner()
+    assert fake(["x"], timeout=1, env=INHERIT, input=text).ok
+    assert fake.calls[0].input == b"n?"
+
+
+@pytest.mark.parametrize("text", [pytest.param("n\ud800", id="d800"), pytest.param("n\udcff", id="dcff")])
+def test_reply_encodes_a_lone_surrogate_in_the_output_as_a_question_mark(text):
+    assert reply(text, text).stdout_bytes == b"n?" and reply(text, text).stderr_bytes == b"n?"
+
+
 def test_input_larger_than_the_pipe_reaches_a_child_that_reads_late():
     data = b"x" * 300_000
     done = _py("import sys, time; time.sleep(0.6); sys.stdout.buffer.write(sys.stdin.buffer.read())",

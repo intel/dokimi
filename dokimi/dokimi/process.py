@@ -187,7 +187,7 @@ def run(
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
     args = _check(argv, timeout, capture_limit, term_grace)
     preexec = _limits_preexec(limits) if limits else None
-    data = input.encode("utf-8") if isinstance(input, str) else input
+    data = input.encode("utf-8", "replace") if isinstance(input, str) else input
     with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
         start = time.monotonic()
         try:
@@ -743,7 +743,7 @@ class Call:
 def reply(stdout: str | bytes = "", stderr: str | bytes = "", returncode: int = 0, *,
           timed_out: bool = False) -> Completed:
     """A :class:`FakeRunner` answer (``argv`` and timing are filled in from the call)."""
-    enc = (lambda s: s.encode("utf-8") if isinstance(s, str) else s)
+    enc = (lambda s: s.encode("utf-8", "replace") if isinstance(s, str) else s)
     return Completed((), TIMEOUT_RC if timed_out else returncode, enc(stdout), enc(stderr), timed_out)
 
 
@@ -774,7 +774,7 @@ class FakeRunner:
         term_grace: float = 0.0,
     ) -> Completed:
         args = _check(argv, timeout, capture_limit, term_grace)
-        data = input.encode("utf-8") if isinstance(input, str) else input
+        data = input.encode("utf-8", "replace") if isinstance(input, str) else input
         path = (lambda p: Path(p) if p is not None else None)
         call = Call(tuple(args), path(cwd), env.resolve(), timeout, data, capture_stdout, limits,
                     capture_limit, path(stdout_to), path(stderr_to), term_grace)
