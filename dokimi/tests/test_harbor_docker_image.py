@@ -138,6 +138,18 @@ def test_without_a_declared_workdir_the_files_go_to_the_image_workdir_else_root(
         assert copy[2].split(":", 1)[1] == dest
 
 
+def test_a_failed_upload_still_removes_the_task_container(tmp_path):
+    """The task container (`sleep` >= 1800 s) is removed whatever step fails after its start."""
+    path = _task(tmp_path)
+    cli = _daemon(answer=lambda call: reply(stderr="cp failed", returncode=1) if (
+        call.argv[1] == "cp" and call.argv[2] == f"{path / 'environment'}/.") else None)
+    with pytest.raises(RuntimeError, match=r"docker cp failed \(exit 1\)"):
+        create_harness("docker-oracle", runner=cli).run(load_task(path), output_dir=tmp_path / "out")
+    run = next(i for i, a in enumerate(cli.args) if a[0] == "run")
+    container = cli.args[run][cli.args[run].index("--name") + 1]
+    assert ["rm", "-f", container] in cli.args[run + 1:]
+
+
 def test_bundled_skills_are_not_copied_into_the_workdir(tmp_path):
     """environment/skills stays out of the container, as it stays out of a build context."""
     path = _task(tmp_path, env_files=("probe.py", "skills/s/SKILL.md"))

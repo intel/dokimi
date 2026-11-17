@@ -223,8 +223,8 @@ class DockerSolverHarness:
             sandbox = self._open_sandbox(plan, container, log)
             try:
                 bridged = self._start_container(task, image, container, log, sandbox, plan)
-                upload_environment(task, container, log, self._docker)
                 try:
+                    upload_environment(task, container, log, self._docker)
                     if self.mode == "oracle":
                         self._solve_oracle(task, container, log, plan.solve, timeout=solve_timeout)
                     elif self.mode == "claude":
