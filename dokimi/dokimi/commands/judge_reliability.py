@@ -446,16 +446,19 @@ def _scored_nothing_exit(unscored: Sequence[Measure]) -> None:
 
 def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str) -> None:
     """Exit 4 (invalid) when an arm is JUDGE-DEPENDENT, else 3 (inconclusive) when no arm was compared or an arm is
-    NOT MEASURED (issue #94 §2.6). The invalid verdict is checked first, as ``baseline compare`` does."""
+    NOT MEASURED (issue #94 §2.6). Both lines print before the exit, so stderr names every arm the verdict counts."""
     dependent = sorted(a for a, r in arms.items() if r["label"] == "JUDGE-DEPENDENT")
     if dependent:
         print(f"✗ judge-dependent against `{baseline_arm}`: {', '.join(dependent)}", file=sys.stderr)
-        sys.exit(EXIT_INVALID)
     unmeasured = sorted(a for a, r in arms.items() if r["label"] == "NOT MEASURED")
-    if not arms or unmeasured:
+    inconclusive = not arms or bool(unmeasured)
+    if inconclusive:
         why = f"{len(unmeasured)} of {len(arms)} arm(s) NOT MEASURED: {', '.join(unmeasured)}" if arms else \
             "no arm has a scored question to compare"
         print(f"✗ incomplete against `{baseline_arm}`: {why}", file=sys.stderr)
+    if dependent:  # invalid (4) wins over inconclusive (3), as baseline compare does
+        sys.exit(EXIT_INVALID)
+    if inconclusive:
         sys.exit(EXIT_INCONCLUSIVE)
 
 

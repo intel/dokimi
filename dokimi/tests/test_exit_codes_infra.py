@@ -199,3 +199,16 @@ def test_docker_29_permission_denied_on_inspect_is_a_docker_error():
     fake = process.FakeRunner(lambda call: process.reply(stderr=denied, returncode=1))
     with pytest.raises(DockerError, match="permission denied while trying to connect to the docker API"):
         DockerRunner(runner=fake).image_exists("img:t")
+
+
+def test_strict_names_the_not_measured_arms_when_another_arm_is_judge_dependent(capsys):
+    """The verdict is 4, but stderr still names the NOT MEASURED arms: both lines print before the exit."""
+    from dokimi.commands import judge_reliability
+
+    arms = {"a": {"label": "NOT MEASURED"}, "b": {"label": "JUDGE-DEPENDENT"}}
+    with pytest.raises(SystemExit) as exc:
+        judge_reliability._strict_cross_judge_exit(arms, "base")
+    assert exc.value.code == 4
+    err = capsys.readouterr().err
+    assert "judge-dependent against `base`: b" in err
+    assert "incomplete against `base`: 1 of 2 arm(s) NOT MEASURED: a" in err
