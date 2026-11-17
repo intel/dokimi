@@ -447,7 +447,7 @@ family test itself succeeds. A mean of finite scores or of finite paired differe
 whose sum would pass the float range is computed exactly (`statistics.mean`), so the
 per-arm `avg_aggregate` and `delta_vs_baseline` are refused only when a single
 difference leaves the range. A significance row computes the mean, the sd and the
-sign-flip p of such differences too, and is refused only when its sd leaves the range. The console summary of `arms run` prints
+sign-flip p of such differences too, and is refused only when its sd leaves the range; an interaction row is also refused when the sum of its two arm deltas (its additive expectation) does. The console summary of `arms run` prints
 `(delta not computed: <the refusal>)` for such an arm.
 
 Everything above assumes the judge's continuous 0–100 score. The

@@ -110,6 +110,8 @@ def _interaction_contrast(
     res = _describe_deltas(contrasts, confidence=confidence, seed=seed)
     delta_a = _arm_delta(diffs_a, confidence, seed)
     delta_b = _arm_delta(diffs_b, confidence, seed)
+    if math.isfinite(delta_a) and math.isfinite(delta_b) and not math.isfinite(delta_a + delta_b):  # the row's additive expectation would print as inf next to a computed p
+        raise OverflowError("deltas too large: the sum of the two arm deltas leaves the float range")
     res.update(
         {
             "arm_a": arm_a,

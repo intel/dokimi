@@ -785,7 +785,7 @@ def test_paired_test_raises_when_the_deltas_leave_the_float_range():
     Test-narrowed: 9e307 no longer raises. Its sd is 9.9e307, so the mean, sd and sign-flip sums are all computed (#832).
     """
     pytest.importorskip("scipy")
-    with pytest.raises(OverflowError):
+    with pytest.raises(OverflowError, match="the sd of the deltas leaves the float range"):
         stats.paired_test([1.7e308, -1.7e308] * 3, [0.0] * 6, rounded=False)
     res = stats.paired_test([1e300, -1e300] * 3, [0.0] * 6, rounded=False)
     assert res is not None and math.isfinite(res["delta_std"])

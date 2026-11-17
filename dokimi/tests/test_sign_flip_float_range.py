@@ -70,18 +70,15 @@ def test_an_end_at_the_float_maximum_is_the_maximum(row):
             assert all(end is None or math.isfinite(end) for end in ends)
 
 
-@pytest.mark.parametrize(("row", "ends"), [([1.7e308] * 3 + [1.5e308] * 3, ("lo", "hi")),
-                                           # Test-narrowed: its lo end is the float product's noise at either scale, not a scaled value
-                                           ([BIG, 1.0, 1.0, 1.0, 1.0, 1.0], ("hi",)),
-                                           ([math.ldexp(x, SHIFT) for x in MC_BASE], ("lo", "hi"))],
-                         ids=["six", "max and ones", "monte-carlo"])
-def test_the_p_and_ends_of_a_row_near_the_maximum_are_those_of_the_row_scaled(row, ends):
+@pytest.mark.parametrize("row", [[1.7e308] * 3 + [1.5e308] * 3, [BIG, 1.0, 1.0, 1.0, 1.0, 1.0],
+                                 [math.ldexp(x, SHIFT) for x in MC_BASE]], ids=["six", "max and ones", "monte-carlo"])
+def test_the_p_and_ends_of_a_row_near_the_maximum_are_those_of_the_row_scaled(row):
     small = [math.ldexp(x, -4) for x in row]
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         big_row, small_row = sign_flip_row(row, exact=False), sign_flip_row(small, exact=False)
     assert big_row["p"] == small_row["p"]
-    for end in ends:
+    for end in ("lo", "hi"):
         try:
             want = None if small_row[end] is None else math.ldexp(small_row[end], 4)
         except OverflowError:
@@ -96,6 +93,14 @@ def test_a_delta_dwarfing_the_others_does_not_hide_them_in_the_exact_p(m):
     # benchmarking-and-comparison.md: p is the share of sign patterns whose |sum| reaches the observed one. The five
     # deltas of 1 share a sign and none ties, so only the all-same-sign pattern and its mirror reach it: 2 / 2**6 (#816)
     assert sign_flip_p([m, 1, 1, 1, 1, 1], exact=True) == 2 / 2 ** 6
+
+
+@pytest.mark.parametrize("m", [1e16, 1e17, 1e300])
+def test_the_lower_end_of_a_row_with_a_dwarfing_delta_is_where_the_small_deltas_stop_rejecting(m):
+    # benchmarking-and-comparison.md: the interval is every shift the same test does not reject. The five deltas of 1
+    # stay on one side until the shift reaches 1, so the end is 1, not the 0.0001 a float search read as measured (#867)
+    row = sign_flip_row([m, 1, 1, 1, 1, 1], exact=True)
+    assert row["p"] == 2 / 2 ** 6 and row["lo"] == pytest.approx(1.0, abs=1e-6)
 
 
 def test_a_delta_dwarfing_the_others_does_not_hide_them_in_the_monte_carlo_p():

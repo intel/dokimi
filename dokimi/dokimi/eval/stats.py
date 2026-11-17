@@ -65,7 +65,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.eval.arm_summary import mean_in_range
-from dokimi.eval.finite_delta import check_sum_range, checked_delta
+from dokimi.eval.finite_delta import checked_delta
 from dokimi.eval.sign_flip import (
     ALPHA,
     METHOD,
@@ -614,7 +614,7 @@ def _describe_deltas(
     cohens_d = _cohens_d(d_mean, d_sd)
     if all(math.isfinite(x) for x in d):
         if not math.isfinite(d_sd):  # the spread of finite deltas past the float range: refused, as before
-            check_sum_range(d)
+            raise OverflowError("the sd of the deltas leaves the float range")
         row = sign_flip_row(d, seed=seed, exact=True, magnitudes=magnitudes)
         p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
