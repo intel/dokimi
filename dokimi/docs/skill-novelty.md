@@ -330,8 +330,8 @@ python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.j
 
     In the study, median and majority matched Dawid-Skene on 99.3% of rows. Any-correct
     moved the headline by up to 0.20, and unanimous raised the added share by up to 0.09 over
-    majority. A judge whose grade fails is left out of the
-    vote.
+    majority. A judge whose grade fails is left out of the vote, except for a permanent provider
+    error (a bad key, an unknown model), which stops the run and keeps the partial record.
 
 - The record gets a `judge_panel` block with:
 
