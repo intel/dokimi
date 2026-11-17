@@ -692,6 +692,16 @@ def test_a_changed_signature_line_of_a_multi_line_def_is_listed_but_not_the_def_
     assert mc.continuation_lines(src, {1, 2, 3}, set()) == {2, 3}
 
 
+def test_a_file_that_is_not_utf8_is_skipped_like_a_syntax_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mc, "REPO", tmp_path)
+    (tmp_path / "bad.py").write_bytes(b"# \xff\nx = 1\n")
+    (tmp_path / "ok.py").write_text("def f(a):\n    return a + 1\n", encoding="utf-8")
+    report: dict = {"files": {}, "uncovered_lines": {}}
+    mutants = mc._collect({"bad.py": {2}, "ok.py": {2}}, report)
+    assert {m.path for m in mutants} == {"ok.py"}
+    assert "bad.py" not in report["files"]
+
+
 def test_a_changed_comment_line_in_a_multi_line_expression_is_not_listed() -> None:
     # Line 3 is a comment between `x = (a` and `+ a)`: it holds no code, so it is not listed.
     src = "def f(a):\n    x = (a  # note\n         # the reason\n         + a)\n    return x\n"

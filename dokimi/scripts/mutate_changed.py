@@ -396,10 +396,10 @@ def _not_run(failing: list[str], skipped: list[str]) -> list[str]:
 def _collect(changed: dict[str, set[int]], report: dict) -> list[Mutant]:
     all_mutants: list[Mutant] = []
     for path, lines in sorted(changed.items()):
-        src = (REPO / path).read_text(encoding="utf-8")
         try:
+            src = (REPO / path).read_text(encoding="utf-8")
             ms = mutants_for(path, src, lines)
-        except SyntaxError:
+        except (SyntaxError, UnicodeDecodeError):
             continue
         report["files"][path] = {"changed_lines": len(lines), "mutants_possible": len(ms)}
         all_mutants += ms
