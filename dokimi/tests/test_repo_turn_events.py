@@ -221,3 +221,8 @@ def test_a_turn_before_the_first_useful_command_is_not_a_step():
     events = convert("codex-json", raw).events
     assert [e["kind"] for e in events][:2] == ["turn", "command"]
     assert first_useful(parse_useful({"command": "pytest"}), events)["steps"] == 1
+
+
+def test_a_codex_turn_with_only_cached_input_sets_the_scope_of_its_totals():
+    transcript = convert("codex-json", _lines({"type": "turn.completed", "usage": {"cached_input_tokens": 5}}))
+    assert (transcript.cache_read_tokens, transcript.usage_scope) == (5, "main")

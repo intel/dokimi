@@ -552,7 +552,7 @@ def _codex_usage(out: Transcript, usage: dict[str, Any]) -> None:
         out.output_tokens = (out.output_tokens or 0) + turn["output"]
     if turn["cache_read"] is not None:  # reported, so a zero is measured; absent, it stays None
         out.cache_read_tokens = (out.cache_read_tokens or 0) + turn["cache_read"]
-    if turn["input"] is not None or turn["output"] is not None:
+    if any(turn[k] is not None for k in ("input", "output", "cache_read")):
         out.usage_scope = "main"  # the turns are the parent's; Codex reports no subagent tokens here
 
 
