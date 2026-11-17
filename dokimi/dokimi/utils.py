@@ -781,26 +781,20 @@ def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) ->
 
 
 def read_json_input_bytes(path: str | os.PathLike[str], *, flag: str | None = None) -> tuple[bytes, Any]:
-    """The bytes at ``path``, read once, and the JSON they hold, or :class:`InputError` naming the file and the reason.
-
-    Covers a missing or unreadable file, a device (:func:`refuse_device`), bytes that are not
-    UTF-8, text that is not JSON and JSON nested too deeply to parse. With ``flag`` (the option
-    the file was given to) the message is that option's own, ``<flag> <path>: <reason>``.
-    An empty path is refused first, quoted (``--answers "": no file given``): ``Path("")`` is the
-    current directory, which would read as ``Is a directory`` with nothing after the flag.
-    """
+    """The bytes at ``path``, read once, and the JSON they hold, or :class:`InputError` naming the file and why:
+    missing or unreadable, a device (:func:`refuse_device`), not UTF-8, not JSON or nested too deeply to parse.
+    With ``flag`` (the option the file was given to) the message is ``<flag> <path>: <reason>``. An empty path is
+    refused first, quoted (``--answers "": no file given``), as ``Path("")`` would read the current directory."""
     if os.fspath(path) == "":
         raise InputError(f'{flag} "": no file given' if flag else 'cannot read "": no file given')
     refuse_device(path, flag)
     try:
         raw = Path(path).read_bytes()
         return raw, json.loads(raw.decode("utf-8"))
-    except OSError as exc:
-        reason = exc.strerror or exc
-        raise InputError(f"{flag} {path}: {reason}" if flag else f"cannot read {path}: {reason}") from exc
     except UnicodeDecodeError as exc:
         raise InputError(f"{flag} {path}: {exc}" if flag else f"{path} is not UTF-8 text: {exc}") from exc
     except (json.JSONDecodeError, RecursionError) as exc:  # deep nesting is named as bad JSON, as on main
         raise InputError(f"{flag} {path}: {exc}" if flag else f"{path} is not valid JSON: {exc}") from exc
-    except ValueError as exc:  # e.g. "embedded null byte" in the path: pathlib raises a bare ValueError
-        raise InputError(f"{flag} {path}: {exc}" if flag else f"cannot read {path}: {exc}") from exc
+    except (OSError, ValueError) as exc:  # ValueError: e.g. "embedded null byte" in the path, from pathlib
+        reason = getattr(exc, "strerror", None) or exc
+        raise InputError(f"{flag} {path}: {reason}" if flag else f"cannot read {path}: {reason}") from exc
