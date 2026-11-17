@@ -11,11 +11,13 @@ spread, by difficulty, the lowest-scoring questions, and every question with its
 from __future__ import annotations
 
 import os
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
-from dokimi.records import Record, held_conditions, is_knowledge_run, is_single_condition, records
+from dokimi.records import (BASELINE, KNOWLEDGE_INTENT, Record, held_conditions, is_knowledge_run,
+                            is_single_condition, records)
 from dokimi.report.eval_report import (
     DIFFICULTY_ORDER,
     _answers_by_id,
@@ -69,9 +71,8 @@ def _question_row(q: Record, cond: str) -> str:
             f"{fmt_question(q.question_text)} |")
 
 
-def render(evals: Sequence[Record], meta: Dict[str, Any], library: str, generated: str) -> List[str]:
+def render(evals: Sequence[Record], meta: Dict[str, Any], library: str, generated: str, cond: str) -> List[str]:
     """The markdown lines of the one-condition report for *evals* (the records of a single-condition run)."""
-    cond = held_conditions(evals)[0]  # the one condition the run answered
     scored = [q for q in evals if q.score(cond) is not None]
     weakest = sorted(scored, key=lambda q: q.score(cond) or 0.0)[:WEAK_SPOTS]
     lines: List[str] = [
@@ -129,16 +130,21 @@ def _report_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
     return meta
 
 
+def _sibling_answers_path(eval_path: str) -> str:
+    """The answers file an eval file was judged from: its parent directory ``eval`` becomes ``answers``,
+    for a relative, absolute or native path (``eval/demo.json`` as well as ``/x/eval/demo.json``)."""
+    return re.sub(r"(^|[\\/])eval(?=[\\/][^\\/]*$)", r"\1answers", eval_path, count=1)
+
+
 def _write_qa(eval_path: str, out_path: str, qa_json_out: Optional[str], evals: Sequence[Record],
-              meta: Dict[str, Any], data: Dict[str, Any]) -> None:
-    cond = held_conditions(evals)[0]
+              meta: Dict[str, Any], data: Dict[str, Any], cond: str) -> None:
     if qa_json_out is None:
         qa_json_out = os.path.splitext(out_path)[0] + ".qa.json"
     # The artifact's own answers first (an arms artifact keeps them), then the sibling answers file.
     if isinstance(data.get("answers"), list):
         answers_by_id = answers_from_items(data["answers"], source=eval_path)
     else:
-        answers_by_id = _answers_by_id(eval_path.replace("/eval/", "/answers/"))
+        answers_by_id = _answers_by_id(_sibling_answers_path(eval_path))
 
     def _answer_text(a: Optional[Record]) -> Optional[str]:
         answer = a.answer(cond) if a is not None else None
@@ -170,23 +176,37 @@ def _write_qa(eval_path: str, out_path: str, qa_json_out: Optional[str], evals: 
     print(f"✅ Q&A JSON written to: {qa_json_out}")
 
 
+def _declared_intent(data: Dict[str, Any]) -> Any:
+    """The ``run_intent`` the file persisted, at its top level or in its ``run_metadata``."""
+    meta = data.get("run_metadata")
+    meta = meta if isinstance(meta, dict) else {}
+    return data.get("run_intent", meta.get("run_intent"))
+
+
 def write_eval_report(eval_path: str, out_path: str, qa_json_out: Optional[str] = None) -> str:
     """``report eval``: the one-condition page for a knowledge run, else :func:`eval_report.generate_report`."""
     data = _load_eval(eval_path)
     evals = records(data["evaluations"], source=eval_path, kind="evaluations")
-    if not (is_single_condition(evals) and is_knowledge_run(evals, data)):
+    held = held_conditions(evals)
+    # A declared knowledge run keeps its page when nothing was scored (every grade unscored): its one
+    # condition is the baseline, which the declared intent says it answered.
+    declared = _declared_intent(data) == KNOWLEDGE_INTENT
+    if not held and declared:
+        cond = BASELINE
+    elif is_single_condition(evals) and is_knowledge_run(evals, data):
+        cond = held[0]
+    else:
         return generate_report(eval_path, out_path, qa_json_out)
     meta = _report_metadata(data)
     library = os.path.basename(eval_path).replace(".json", "")
     generated = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    text = "\n".join(render(evals, meta, library, generated))
+    text = "\n".join(render(evals, meta, library, generated, cond))
     directory = os.path.dirname(out_path)
     if directory:
         os.makedirs(directory, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(text)
-    _write_qa(eval_path, out_path, qa_json_out, evals, meta, data)
-    cond = held_conditions(evals)[0]
+    _write_qa(eval_path, out_path, qa_json_out, evals, meta, data, cond)
     scored = [s for s in (q.score(cond) for q in evals) if s is not None]
     print(f"✅ Report written to: {out_path}")
     print(f"   Questions: {len(evals)} ({len(scored)} scored), one condition: {cond}, "
