@@ -4,6 +4,7 @@
 """Analyze project to gather signals for persona generation."""
 
 import logging
+import re
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
@@ -17,6 +18,8 @@ except ImportError:
     GITHUB_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+_BULLET = re.compile(r"\s*[-*•]\s")  # a list marker and a space: "**Use cases**" is a line, not a bullet
 
 
 class PersonaAnalyzer:
@@ -172,24 +175,25 @@ class PersonaAnalyzer:
     
     @staticmethod
     def _extract_use_cases_from_text(text: str) -> List[str]:
-        """Extract use cases from text (fallback for gh CLI)."""
+        """The list items of the use-case sections, lowercased, at most 10.
+
+        A line that is not a bullet and names "use case", "application" or "when to use" opens a
+        section; a heading without them closes it."""
         if not text:
             return []
         
         use_cases = []
-        lines = text.lower().split('\n')
         in_use_case_section = False
         
-        for line in lines:
-            if any(keyword in line for keyword in ['use case', 'application', 'when to use']):
-                in_use_case_section = True
-                continue
-            
-            if in_use_case_section:
-                if line.startswith('#'):
-                    in_use_case_section = False
-                elif line.strip().startswith(('-', '*', '•')):
+        for line in text.lower().split('\n'):
+            # A bullet is an item, never a section header, even when it names the keyword (#687).
+            if _BULLET.match(line):
+                if in_use_case_section:
                     use_cases.append(line.strip().lstrip('-*• '))
+            elif any(keyword in line for keyword in ['use case', 'application', 'when to use']):
+                in_use_case_section = True
+            elif line.startswith('#'):
+                in_use_case_section = False
         
         return use_cases[:10]
     
@@ -221,37 +225,8 @@ class PersonaAnalyzer:
             return ""
     
     def _extract_use_cases(self, repo) -> List[str]:
-        """
-        Extract use cases from README and docs.
-        
-        Looks for sections like:
-        - Use Cases
-        - When to Use
-        - Applications
-        - Examples
-        """
-        use_cases: List[str] = []
-        readme = self._get_readme(repo)
-        
-        if not readme:
-            return use_cases
-        
-        # Simple heuristic: look for list items after "use case" headers
-        lines = readme.lower().split('\n')
-        in_use_case_section = False
-        
-        for line in lines:
-            if any(keyword in line for keyword in ['use case', 'application', 'when to use']):
-                in_use_case_section = True
-                continue
-            
-            if in_use_case_section:
-                if line.startswith('#'):  # New section
-                    in_use_case_section = False
-                elif line.strip().startswith(('-', '*', '•')):
-                    use_cases.append(line.strip().lstrip('-*• '))
-        
-        return use_cases[:10]  # Limit to top 10
+        """The README's use cases, as :meth:`_extract_use_cases_from_text` reads them."""
+        return self._extract_use_cases_from_text(self._get_readme(repo))
     
     def _analyze_issues(self, repo, limit: int = 50) -> Dict[str, Any]:
         """
