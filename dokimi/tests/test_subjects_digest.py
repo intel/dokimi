@@ -184,6 +184,18 @@ def test_an_empty_file_ref_differs_from_a_missing_ref_spelled_as_the_same_path(t
 
 
 @pytest.mark.parametrize("digest", [
+    lambda f, base: _digest_ref(str(f), base=base),
+    lambda f, base: _digest_values((str(f),)),
+], ids=["ref", "values"])
+def test_rewriting_a_file_changes_its_digest(digest, tmp_path: Path):
+    f = tmp_path / "f"
+    f.write_bytes(b"a")
+    before = digest(f, tmp_path)
+    f.write_bytes(b"b")
+    assert digest(f, tmp_path) != before
+
+
+@pytest.mark.parametrize("digest", [
     lambda text, base: _digest_ref(text, base=base),
     lambda text, base: _digest_values((text,)),
     lambda text, base: _digest_arm_spec(f"skill:./{text}", base=base),
