@@ -17,11 +17,13 @@ One JSON object per line. Every line has a `kind` and a `t`; the other fields
 depend on the kind:
 
 ```json
-{"kind": "command", "rc": 0, "t": 12.4, "text": "bazel test //x", "v": 1}
-{"kind": "read", "t": 3.1, "path": "AGENTS.md", "v": 1}
-{"kind": "edit", "t": 5.0, "path": "src/foo.cpp", "v": 1}
-{"kind": "tool", "denied": true, "name": "WebFetch", "t": 20.2, "v": 1}
-{"kind": "tool", "name": "Skill", "skill": "lint-fix", "t": 2.0, "v": 1}
+{"kind": "command", "rc": 0, "t": 12.4, "text": "bazel test //x", "v": 2}
+{"kind": "read", "t": 3.1, "path": "AGENTS.md", "v": 2}
+{"kind": "edit", "t": 5.0, "path": "src/foo.cpp", "v": 2}
+{"kind": "tool", "denied": true, "name": "WebFetch", "t": 20.2, "v": 2}
+{"kind": "tool", "name": "Skill", "skill": "lint-fix", "t": 2.0, "v": 2}
+{"kind": "turn", "turn": 3, "input": 1200, "output": 85, "cache_read": 9000, "cache_write": 0, "prompt_tokens": 10200, "t": 14.0, "v": 2}
+{"kind": "compaction", "turn": 7, "t": 40.5, "v": 2}
 ```
 
 | Kind | Fields |
@@ -84,7 +86,7 @@ place. A file may mix versions, since traces are re-derived and appended to.
 ## Reading
 
 - Ignore a kind you do not know. Version 1 readers do so already: a new kind
-  (say a `turn` event) must not fail an old reader.
+  (say a `probe` event) must not fail an old reader.
 - Ignore a field you do not know.
 - Accept a line with no `v`. `dokimi.repos.event_format.event_version` returns 1
   for it.
