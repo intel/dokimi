@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Added
 
-- **`codex-cli` and `copilot-cli` are answering providers** — the OpenAI Codex CLI and the GitHub Copilot CLI, signed in on the machine, answer a question set on a comparison; `copilot-cli` also answers a knowledge run (`codex-cli` is refused there, see Fixed). Each call runs in a fixed empty directory outside any repository, with no user instructions or project docs, no tools and no conversation; a usage limit or missing login stops the run. Copilot records no token counts and no cost. See [docs/knowledge-runs.md](docs/knowledge-runs.md).
+- **`codex-cli` and `copilot-cli` are answering providers** — the OpenAI Codex CLI and the GitHub Copilot CLI, signed in on the machine, answer a question set on a comparison; `copilot-cli` also answers a knowledge run (`codex-cli` is refused there, see Fixed). Each call runs in a fixed empty directory outside any repository, with no user instructions or project docs and no conversation. `claude-cli` and `copilot-cli` run with no tools; `codex-cli` keeps its read-only sandbox, so a Codex comparison can read files, and its scores are not tool-free. A usage limit or missing login stops the run. Copilot records no token counts and no cost. See [docs/knowledge-runs.md](docs/knowledge-runs.md).
 - **`report eval` on a one-condition (knowledge) run writes a single-condition page** — one row for `without_docs (knowledge)` with its mean, lowest and highest score, by difficulty, the lowest-scoring questions, and every question with its score. Paired runs keep the paired report.
 
 ### Fixed
