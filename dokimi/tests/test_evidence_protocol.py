@@ -397,3 +397,10 @@ def test_a_questions_file_not_found_from_the_cwd_leaves_its_digest_unresolved():
     # the name alone is no identity: two sets named q.json would share one digest, so the input stays unknown
     from dokimi.subjects.scorecard import _digest_values
     assert _digest_values(("questions/q.json",)) is None
+
+
+def test_a_mixed_judge_context_is_an_unresolved_input_not_a_measurement_identity():
+    # some scores saw the stored material and some only the snippets: two such runs must not compare clean
+    from dokimi.eval.judge_context import PROTOCOL_MIXED
+    protocol = build_protocol({"judge_context": PROTOCOL_MIXED, "repeats": 3})
+    assert "judge_context" in protocol["unresolved"] and "judge_context" not in protocol["resolved"]

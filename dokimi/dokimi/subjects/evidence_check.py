@@ -23,6 +23,8 @@ import math
 import re
 from typing import Any, Iterable, Mapping
 
+from dokimi.eval.judge_context import PROTOCOL_MIXED
+
 #: What dokimi's awareness arms measure; a change to what the digest covers bumps the version.
 PROTOCOL_ID = "dokimi.awareness"
 PROTOCOL_VERSION = "1"
@@ -83,7 +85,7 @@ def build_protocol(inputs: Mapping[str, Any]) -> dict[str, Any]:
     aliases: dict[str, str] = {}
     for key in sorted(inputs):
         value = inputs[key]
-        if value is None:
+        if value is None or value == PROTOCOL_MIXED:  # mixed: some scores saw other inputs than the rest
             unresolved.append(key)
         elif is_alias(value):
             unresolved.append(key)
