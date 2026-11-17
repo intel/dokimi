@@ -129,6 +129,30 @@ class TaskSpec:
         return str(self._tb.get("dockerfile") or "Dockerfile")
 
     @property
+    def docker_image(self) -> str | None:
+        """A Harbor task's prebuilt ``[environment] docker_image``, run instead of a build; else ``None``.
+
+        Harbor 0.24 starts from it whenever it is set, also beside an ``environment/Dockerfile``
+        (``environments/definition.py::should_use_prebuilt_docker_image``; only ``--force-build``
+        builds then, and dokimi has no such flag). Other formats build: a staged SWE-bench task's
+        Dockerfile starts ``FROM`` its ``docker_image``.
+        """
+        image = self.environment.get("docker_image")
+        return image if self.format == FORMAT_HARBOR and isinstance(image, str) and image else None
+
+    @property
+    def environment_upload(self) -> Path | None:
+        """``environment/``, when Harbor copies its files into the workdir of the started container.
+
+        Harbor does so for a :attr:`docker_image` task whose non-empty ``environment/`` has no
+        ``Dockerfile`` or ``docker-compose.yaml`` (``should_upload_environment_dir``, same file).
+        """
+        env = self.path / "environment"
+        if self.docker_image is None or any((env / n).exists() for n in ("Dockerfile", "docker-compose.yaml")):
+            return None
+        return env if env.is_dir() and any(env.iterdir()) else None
+
+    @property
     def container_env(self) -> dict[str, str]:
         """Environment the task container starts with (terminal-bench's ``TEST_DIR`` and compose env)."""
         if self.format != FORMAT_TBENCH_V1:

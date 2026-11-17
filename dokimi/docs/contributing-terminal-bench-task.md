@@ -96,7 +96,6 @@ timeout_sec = 300.0
 
 [environment]
 build_timeout_sec = 300.0
-docker_image = "intel-hpc-bench/<task-name>:latest"
 cpus = 4
 memory_mb = 2048
 storage_mb = 5120
@@ -115,7 +114,7 @@ Field by field, with the consumer that actually reads it:
 | `agent.timeout_sec` | `TaskSpec.timeout_sec`, the solver harnesses | Wall-clock budget for the agent's attempt. Typically 300. |
 | `verifier.timeout_sec` | Harbor, human reviewers | Verifier budget. Keep it small (≤ 60s where possible) so CI stays fast. |
 | `environment.build_timeout_sec` | `docker-*` harnesses | Image-build budget; used instead of the default when set (oneAPI/pip-heavy images need > 10 min). |
-| `environment.docker_image` | Harbor | Image tag Harbor expects to exist (`harbor run` does **not** build it for you). The in-repo `docker-*` harnesses build and tag `dokimi/<task-name>:latest` themselves. |
+| `environment.docker_image` | Harbor, `docker-*` harnesses | A prebuilt image both run instead of building `environment/Dockerfile`, pulled when the daemon lacks it, so leave it out of a task that ships a Dockerfile. Without it, the `docker-*` harnesses build and tag `dokimi/<task-name>:latest`. See [Prebuilt images](./coding-harnesses.md#prebuilt-images-environment-docker_image). |
 | `environment.cpus`, `memory_mb` | `docker-*` harnesses | Container limits (`--cpus`, `--memory`); default to 4 CPUs / 2048 MB when absent. A malformed value falls back to the default rather than failing the run. |
 | `environment.network_mode` | `docker-*` harnesses, Harbor | `"no-network"` (absent means the same), `"allowlist"` with `allowed_hosts`, or `"public"` (NAT'd internet, bridge). It applies to the **verifier** and `docker-oracle`'s solve, not to an agent: an agent solves on an internal network whose only way out is the egress proxy (see `environment.egress`), unless `[agent] network_mode` says otherwise. `[agent]` and `[verifier]` take the same keys for their phase. Any other value, or `allowed_hosts` without `"allowlist"`, errors the run. The image *build* gets host network unless the operator passes `--network build=none`. See [Network policy](./coding-harnesses.md#network-policy). Prefer offline. |
 | `environment.egress` | `docker-claude` | Hosts the agent's solve may reach through the egress proxy, e.g. `["pypi.org", "files.pythonhosted.org"]`. A bare host means `host:443`; `host:port` is accepted. No wildcards (`*.pythonhosted.org`), commas or leading/trailing dots: list each host. A plain-HTTP host is reached directly, so it must be in the operator's `NO_PROXY`. |
