@@ -611,10 +611,8 @@ def _manifest_id(label: str) -> str:
 def _cache_dir(args: argparse.Namespace) -> Path | None:
     """``--cache-dir`` as given, or ``None``; a value no clone can be cached in is a usage error (2) (#765).
 
-    With no ``--cache-dir``, a non-empty ``$DOKIMI_REPO_CACHE`` is checked the same way and returned, so a bad
-    variable is a usage error naming it (#827); a flag that is given wins and the variable is not looked at.
-    An existing read-only directory passes on purpose: a populated one replays without writing. An empty one
-    is not told apart without the clone URL, so its clone fails later with exit 1.
+    Without the flag, a non-empty ``$DOKIMI_REPO_CACHE`` is checked and returned the same way (#827); the flag wins.
+    A read-only directory passes: a populated one replays without writing; an empty one fails later with exit 1.
     """
     import os
 
