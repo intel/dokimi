@@ -270,8 +270,7 @@ formats do not read the key.
 - After the container starts, the files of a non-empty `environment/` without a
   `Dockerfile` or `docker-compose.yaml` are copied into `environment.workdir`,
   else the image's `WORKDIR`, else `/` (Harbor's
-  `should_upload_environment_dir`). The uxl answer-quality tasks rely on it: their
-  `environment/.keep` is what creates `/app` in `python:3.12-slim`. A top-level
+  `should_upload_environment_dir`). A top-level
   `environment/skills` is left out, as it is left out of a build context.
 - `metrics.image` says which image ran: `{"source": "docker_image", "ref",
   "pulled", "id", "repo_digests"}` for a prebuilt one (the id and digests of what
