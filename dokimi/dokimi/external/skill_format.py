@@ -60,6 +60,8 @@ OPENCODE_NO_DESCRIPTION_MESSAGE = (
 UNSUPPORTED_MESSAGE = (
     "no spec is known for this host's skills directory, so the frontmatter and description checks were "
     "not run; the safety and content checks still ran")
+UNLOADED_UNSUPPORTED_MESSAGE = (
+    "no spec is known for this host's skills directory, and this SKILL.md did not load, so it was not read")
 
 
 def _parts(path: Path, root: Optional[Path]) -> Sequence[str]:
@@ -100,7 +102,7 @@ def skill_format(skill_md: Path, root: Optional[Path] = None) -> str:
     return FORMAT_AGENT_SKILL
 
 
-def format_findings(fmt: str, meta: Optional[dict] = None) -> list[Finding]:
+def format_findings(fmt: str, meta: Optional[dict] = None, *, loaded: bool = True) -> list[Finding]:
     """The findings for a SKILL.md that the frontmatter rules do not cover, under ``fmt``.
 
     ``meta`` is None for a file with no frontmatter. A host with no known spec gets one note, whatever
@@ -108,7 +110,8 @@ def format_findings(fmt: str, meta: Optional[dict] = None) -> list[Finding]:
     advertise it, so that is a warning. Any other format gets no finding here: the spec applies.
     """
     if fmt == FORMAT_UNSUPPORTED:
-        return [Finding("note", UNSUPPORTED_CODE, UNSUPPORTED_MESSAGE)]
+        # An unloaded file was never read by the content checks, so its note must not say they ran.
+        return [Finding("note", UNSUPPORTED_CODE, UNSUPPORTED_MESSAGE if loaded else UNLOADED_UNSUPPORTED_MESSAGE)]
     if fmt == FORMAT_OPENCODE and (meta is None or not str(meta.get("description") or "").strip()):
         return [Finding("warn", OPENCODE_NO_DESCRIPTION_CODE, OPENCODE_NO_DESCRIPTION_MESSAGE)]
     return []

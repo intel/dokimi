@@ -163,12 +163,17 @@ def test_an_unsupported_host_without_a_description_is_a_note_not_an_error(tmp_pa
     assert _codes(row) == {("note", "unsupported-skill-format")}
 
 
-def test_the_unsupported_note_says_the_safety_checks_still_ran(tmp_path, capsys):
-    # The note is shown as the state of a skipped row: it must not read as cut off mid-sentence.
+def test_the_unsupported_note_says_what_was_read(tmp_path, capsys):
+    # A loaded skill's safety and content checks ran; an unloaded one was not read at all, and its note must not say otherwise.
     _write(tmp_path, ".kiro/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
-    row = _rows(tmp_path, capsys)[".kiro/skills/quantum"]
-    message = row["findings"][0]["message"]
-    assert message.endswith("the safety and content checks still ran")
+    _write(tmp_path, ".kiro/skills/loaded/SKILL.md", "---\nname: loaded\ndescription: Use when quantum questions come up.\n---\n\n# Body\n")
+    rows = _rows(tmp_path, capsys)
+
+    def note(row):
+        return next(f["message"] for f in row["findings"] if f["code"] == "unsupported-skill-format")
+
+    assert note(rows[".kiro/skills/quantum"]).endswith("this SKILL.md did not load, so it was not read")
+    assert note(rows[".kiro/skills/loaded"]).endswith("the safety and content checks still ran")
 
 
 def test_an_unsupported_host_plain_markdown_is_a_note_not_a_failed_load(tmp_path, capsys):

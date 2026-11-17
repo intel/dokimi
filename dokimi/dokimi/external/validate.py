@@ -412,7 +412,7 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
     fmt = skill_format(candidate, entry.source_root)
     if first.strip() != "---" or not _opens_frontmatter(unquoted):  # a rule or prose, not a broken block
-        loaded = format_findings(fmt)  # OpenCode loads a file with no frontmatter; a host with no spec gets a note
+        loaded = format_findings(fmt, loaded=False)  # OpenCode loads a file with no frontmatter; a host with no spec gets a note
         if loaded:
             return SkillReview(findings=loaded)
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
@@ -421,7 +421,7 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     meta, parse_error = _strict_meta(text)
     if parse_error is not None:
         return SkillReview(findings=[parse_error])
-    gap = format_findings(fmt, meta)
+    gap = format_findings(fmt, meta, loaded=False)
     return SkillReview(findings=gap) if gap else None
 
 
