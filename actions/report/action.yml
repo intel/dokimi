@@ -53,13 +53,22 @@ runs:
       env:
         OUT: ${{ inputs.out-dir }}
         GH_TOKEN: ${{ inputs.github-token }}
+        DEFAULT_TOKEN: ${{ github.token }}
         PR: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
       run: |
         marker='<!-- dokimi-report -->'
         { echo "$marker"; cat -- "$OUT/summary/summary.md"; } > "$OUT/summary/comment.md"
         # The comment is the token's own: a user token posts as that user, the default token as the bot.
-        me=$(gh api user --jq .login 2>/dev/null || echo 'github-actions[bot]')
+        # Any other token whose login cannot be read (an app installation token) is refused, not guessed.
+        if [ "$GH_TOKEN" = "$DEFAULT_TOKEN" ]; then
+          me='github-actions[bot]'
+        else
+          me=$(gh api user --jq .login 2>/dev/null) || {
+            echo "::error title=dokimi report::github-token has no readable user login (an app installation token?); use the default token or a user token"
+            exit 1
+          }
+        fi
         id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
           --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)
         if [ -n "$id" ]; then

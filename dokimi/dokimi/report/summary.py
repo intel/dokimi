@@ -43,6 +43,18 @@ def expand_inputs(paths: list[str]) -> list[Path]:
     return out
 
 
+def _str_or_none(value: Any) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _finding_ok(f: Any) -> bool:
+    """A finding holds the types ``report_summary.v1`` states: string level, code and message, and an optional
+    string file and integer line."""
+    return (isinstance(f, dict) and all(isinstance(f.get(k), str) for k in ("level", "code", "message"))
+            and _str_or_none(f.get("file")) and (f.get("line") is None or (
+                isinstance(f["line"], int) and not isinstance(f["line"], bool))))
+
+
 def _malformed(doc: dict[str, Any]) -> str | None:
     """What is wrong with the envelope fields the summary consumes, or None when they hold their schema's types."""
     if not isinstance(doc.get("kind"), str):
@@ -56,8 +68,12 @@ def _malformed(doc: dict[str, Any]) -> str | None:
     for s in doc.get("subjects") or []:
         if not isinstance(s, dict) or not isinstance(s.get("subject"), str) or not s["subject"] \
                 or (s.get("verdict") is not None and s["verdict"] not in _VERDICTS) \
-                or not isinstance(s.get("findings", []), list):
+                or not isinstance(s.get("findings", []), list) \
+                or not all(_finding_ok(f) for f in s.get("findings") or []):
             return "subjects"
+    error = doc.get("error")
+    if not _str_or_none(doc.get("reason")) or (isinstance(error, dict) and not _str_or_none(error.get("message"))):
+        return "reason"
     cost = doc.get("cost")
     if cost is not None and (not isinstance(cost, dict) or any(
             v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)))
@@ -122,14 +138,21 @@ def summarize(paths: list[str]) -> dict[str, Any]:
     """The merged document: overall state, one row per input, one row per subject id across inputs."""
     checks: list[dict[str, Any]] = []
     subjects: dict[str, dict[str, Any]] = {}
+    used: set[str] = set()
     for path in expand_inputs(paths):
         row, doc = load(path)
         checks.append(row)
+        # One column key per document: its kind, or the kind and source when an earlier document took the kind.
+        check = row["kind"]
+        if (doc or {}).get("subjects"):
+            n = 1
+            while check in used:
+                n += 1
+                check = f"{row['kind']} ({row['source']})" + (f" #{n}" if n > 2 else "")
+            used.add(check)
         for s in (doc or {}).get("subjects") or []:
             if isinstance(s, dict) and isinstance(s.get("subject"), str):
                 entry = subjects.setdefault(s["subject"], {"subject": s["subject"], "verdicts": {}, "findings": []})
-                # A second document of the same kind keeps its own column, named by its source.
-                check = row["kind"] if row["kind"] not in entry["verdicts"] else f"{row['kind']} ({row['source']})"
                 entry["verdicts"][check] = s.get("verdict")
                 entry["findings"] += [{**f, "check": check} for f in s.get("findings") or []
                                       if isinstance(f, dict)]

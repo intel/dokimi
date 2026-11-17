@@ -249,6 +249,30 @@ def test_two_documents_of_one_kind_keep_each_subject_verdict(tmp_path):
     assert f"memory lint ({tmp_path / 'b.json'})" in render(out, "markdown")
 
 
+def test_same_kind_documents_with_different_subjects_keep_one_key_each(tmp_path):
+    _doc(tmp_path, "a.json", "memory lint", subjects=[{"subject": "s1", "verdict": "fail"}])
+    _doc(tmp_path, "b.json", "memory lint", subjects=[{"subject": "s1", "verdict": "pass"},
+                                                       {"subject": "s2", "verdict": "pass"}])
+    out = summarize([str(tmp_path), str(tmp_path / "b.json")])
+    b = f"memory lint ({tmp_path / 'b.json'})"
+    by = {s["subject"]: s["verdicts"] for s in out["subjects"]}
+    assert by["s1"] == {"memory lint": "fail", b: "pass", f"{b} #3": "pass"}
+    assert by["s2"] == {b: "pass", f"{b} #3": "pass"}
+    assert "not in run" in render(out, "markdown")  # s2 is absent from a.json only
+
+
+def test_reason_and_findings_of_the_wrong_type_are_invalid_rows(tmp_path):
+    bad = {"reason": {"reason": 123}, "error": {"error": {"message": 5}},
+           "empty-finding": {"subjects": [{"subject": "s", "verdict": "pass", "findings": [{}]}]}}
+    for name, fields in bad.items():
+        doc = cli_output.envelope("repo scan")
+        doc.update(fields)
+        (tmp_path / f"{name}.json").write_text(json.dumps(doc), encoding="utf-8")
+    out = summarize([str(tmp_path)])
+    assert {Path(c["source"]).stem: c["state"] for c in out["checks"]} == {k: "invalid" for k in bad}
+    assert not out["subjects"]
+
+
 def test_markdown_subject_header_escapes_the_kind(tmp_path):
     _doc(tmp_path, "a.json", "scan|lint", subjects=[{"subject": "s", "verdict": "pass"}])
     md = render(summarize([str(tmp_path)]), "markdown")
@@ -337,3 +361,32 @@ def test_the_report_action_uploads_after_a_failed_comment_and_finds_its_own_comm
     assert "always()" in by_name["Upload out-dir"]["if"]
     sticky = by_name["Sticky pull request comment"]["run"]
     assert "gh api user" in sticky and '.user.login == \\"$me\\"' in sticky
+
+
+def _run_sticky(tmp_path, token, default_token):
+    """The sticky step's script against a fake ``gh`` that has no ``/user`` and logs its calls."""
+    import yaml
+
+    steps = yaml.safe_load((CLI.parent.parent / "actions" / "report" / "action.yml").read_text(encoding="utf-8"))["runs"]["steps"]
+    script = next(s for s in steps if s["name"] == "Sticky pull request comment")["run"]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gh = bin_dir / "gh"
+    gh.write_text('#!/bin/sh\necho "$@" >> "$GH_LOG"\n[ "$2" = user ] && exit 1\nexit 0\n', encoding="utf-8")
+    gh.chmod(0o755)
+    (tmp_path / "summary").mkdir()
+    (tmp_path / "summary" / "summary.md").write_text("x\n", encoding="utf-8")
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "OUT": str(tmp_path), "GH_TOKEN": token, "DEFAULT_TOKEN": default_token,
+           "PR": "1", "REPO": "o/r", "GH_LOG": str(tmp_path / "gh.log")}
+    done = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=False)
+    return done, (tmp_path / "gh.log").read_text(encoding="utf-8") if (tmp_path / "gh.log").exists() else ""
+
+
+def test_sticky_comment_refuses_a_token_whose_login_is_unreadable(tmp_path):
+    done, log = _run_sticky(tmp_path, "app-token", "default-token")
+    assert done.returncode == 1 and "POST" not in log and "app installation" in done.stdout
+
+
+def test_sticky_comment_posts_with_the_default_token(tmp_path):
+    done, log = _run_sticky(tmp_path, "default-token", "default-token")
+    assert done.returncode == 0 and "POST" in log and "api user" not in log
