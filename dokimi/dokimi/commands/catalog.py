@@ -39,7 +39,6 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     """Review the skills under *root* into ``report``; (True when the scan must exit 1, skills declared)."""
     from dokimi.commands import catalog_scan
     from dokimi.external import read_skill_manifest
-    from dokimi.external.skill_format import not_a_failed_load
     from dokimi.external.validate import review_skills
 
     try:
@@ -70,8 +69,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
-        load_failed = not skill.loaded and not not_a_failed_load(  # skill_format; the codes before --ignore
-            [f.code for f in review.findings] if review is not None else [])
+        load_failed = row["error"] is not None  # None for a skill_format exemption, decided before --ignore (skill_row)
         if load_failed or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
     if not as_json:

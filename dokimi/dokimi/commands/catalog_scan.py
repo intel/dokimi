@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
 from dokimi import __version__
+from dokimi.external.skill_format import UNSUPPORTED_CODE
 from dokimi.utils import InputError
 
 
@@ -108,7 +109,7 @@ def _continued(message: str) -> str:
     return message.replace("\n", "\n    ")
 
 
-NOT_CHECKED_CODES = ("description-when-not-checked", "unsupported-skill-format")  # the notes that say a skill was not read
+NOT_CHECKED_CODES = ("description-when-not-checked", UNSUPPORTED_CODE)  # the notes that say a skill was not read
 
 
 def not_checked(row: dict) -> bool:

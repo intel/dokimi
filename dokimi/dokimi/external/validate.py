@@ -94,10 +94,11 @@ from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
+from .frontmatter_shape import keeps_load_error, opens_frontmatter
 from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
 from .listing import in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
-from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, skill_format
+from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, opencode_hidden, skill_format
 from .script_checks import script_findings
 from .paths import _exists, _in_checkout, _inside, _resolved
 from .skill_markdown import QUOTE_MARK_RE, link_pieces, outside_fences
@@ -336,53 +337,12 @@ def _frontmatter_findings(
         "yes",
         "on",
     )
-    return findings, hidden
+    return findings, opencode_hidden(meta, hidden) if opencode else hidden
 
 
 def _skill_digest(skill: Skill) -> str:
     """SHA-256 of the ``SKILL.md`` bytes: the text the model is shown when it chooses a skill."""
     return hashlib.sha256(skill.path.read_bytes()).hexdigest()
-
-
-def _has_late_frontmatter(lines: list[str]) -> bool:
-    """Whether a ``---`` line outside a code fence, in the first 20 physical lines, has a ``name:`` or ``description:`` line in its block (up to the next ``---``, outside a fence)."""
-    for i in range(min(len(lines) - 1, 20)):
-        # A fence's state depends only on the lines above it, so the prefix tells whether line i is outside one.
-        above = outside_fences("\n".join(lines[: i + 1]))
-        if lines[i].rstrip() != "---" or not above or above[-1].rstrip() != "---":
-            continue
-        for line in outside_fences("\n".join(lines[i + 1 :])):
-            if line.rstrip() == "---":
-                break
-            if line.startswith(("name:", "description:")):
-                return True
-    return False
-
-
-# A YAML key at the start of a line: ``title: x``, ``  name: x``, ``"name": x``, ``{name: x``, ``- name: x``.
-YAML_KEY_RE = re.compile(r"""\s*(?:-\s+)?[{\[]?\s*["']?[\w][\w.-]*["']?\s*:""")
-
-
-FLOW_OPENER_RE = re.compile(r"[\[{](?![^\]\n]*\](?:\(|\[|:))")  # a flow collection, not a link ``[text](url)``, ``[text][ref]`` or ``[ref]: url``
-
-
-def _first_line(block: list[str]) -> str:
-    """The first line of ``block`` that is not blank, stripped."""
-    return next((line.strip() for line in block if line.strip()), "")
-
-
-def _opens_frontmatter(lines: list[str]) -> bool:
-    """Whether the lines open with a ``---`` block that is empty or holds a YAML key (``title:``, ``name:``) before its closing ``---``.
-
-    A code fence in the block is prose, not YAML: its lines are left out, so a ``---`` rule followed by an example fence stays a rule.
-    """
-    block: list[str] = []
-    for line in outside_fences("\n".join(lines))[1:]:
-        if line.rstrip() == "---":
-            return not any(line.strip() for line in block) or any(YAML_KEY_RE.match(line) for line in block) or bool(FLOW_OPENER_RE.match(_first_line(block)))
-        block.append(line)
-    first = _first_line(block)
-    return bool(YAML_KEY_RE.match(first) or FLOW_OPENER_RE.match(first))  # unclosed: a later ``Usage:`` line is prose, not a key
 
 
 def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
@@ -408,10 +368,10 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
     unquoted = ["> quoted" if QUOTE_MARK_RE.match(line) else line for line in lines]  # a quoted example is prose too: text, not a key
-    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(unquoted)):
-        return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
     fmt = skill_format(candidate, entry.source_root)
-    if first.strip() != "---" or not _opens_frontmatter(unquoted):  # a rule or prose, not a broken block
+    if keeps_load_error(fmt, lines, first, unquoted):
+        return None  # a broken skill, not prose or a missing description; the loader's error stands
+    if first.strip() != "---" or not opens_frontmatter(unquoted):  # a rule or prose, not a broken block
         loaded = format_findings(fmt, loaded=False)  # OpenCode loads a file with no frontmatter; a host with no spec gets a note
         if loaded:
             return SkillReview(findings=loaded)
@@ -765,7 +725,7 @@ def review_skills(
             )
         )
     _mirror_drift(loaded)
-    _near_duplicates(loaded)
+    _near_duplicates([x for x in loaded if skill_format(x[1].path, x[0].source_root) != FORMAT_UNSUPPORTED])
     _name_conflicts(by_name)
     return reviews
 

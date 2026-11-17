@@ -274,3 +274,98 @@ def test_a_hidden_scan_root_that_is_no_host_keeps_the_spec(tmp_path):
     root = tmp_path / ".dotfiles"
     path = _write(root, "skills/plain/SKILL.md", "---\nname: plain\ndescription: x\n---\n")
     assert skill_format(path, root) == FORMAT_AGENT_SKILL
+
+
+def test_a_late_frontmatter_block_in_opencode_markdown_is_a_warning_not_a_load_error(tmp_path, capsys):
+    # OpenCode reads a file whose first line is a heading as Markdown; a `---` block further down is body text.
+    _write(tmp_path, ".opencode/skills/x/SKILL.md", "# Instructions\n\n---\nname: example\n---\n\nDo a thing.\n")
+    row = _rows(tmp_path, capsys)[".opencode/skills/x"]
+    assert row["error"] is None
+    assert ("warn", "opencode-no-description") in _codes(row)
+    assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]) == 0
+
+
+def test_an_unclosed_opencode_frontmatter_block_keeps_the_loaders_error(tmp_path, capsys):
+    _write(tmp_path, ".opencode/skills/foo/SKILL.md", "---\nname: foo\ndescription: Use when deploying foo\n\n# Foo\n")
+    row = _rows(tmp_path, capsys)[".opencode/skills/foo"]
+    assert row["error"] is not None
+    assert row["state"] == "error"
+    assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]) == 1
+
+
+@pytest.mark.parametrize("host", [".cursor", ".kiro"])
+def test_the_scan_root_being_an_unsupported_host_directory_keeps_the_host(tmp_path, capsys, host):
+    path = _write(tmp_path, f"{host}/skills/bar/SKILL.md", "# Bar\n\nA plain skill.\n")
+    assert skill_format(path, tmp_path / host) == FORMAT_UNSUPPORTED
+    row = _rows(tmp_path / host, capsys)["skills/bar"]
+    assert row["error"] is None
+    assert row["state"] == "skipped"
+    assert main(["catalog", "check", "--root", str(tmp_path / host), "--kind", "skills", "--strict"]) == 0
+
+
+def test_the_global_opencode_config_directory_is_read_as_opencode(tmp_path, capsys):
+    path = _write(tmp_path, ".config/opencode/skills/baz/SKILL.md", "---\nname: Baz_Skill\ndescription: x\n---\n")
+    plain = _write(tmp_path, ".config/opencode/skill/plain/SKILL.md", "# Plain\n")
+    assert skill_format(path, tmp_path) == FORMAT_OPENCODE
+    assert skill_format(path, tmp_path / ".config") == FORMAT_OPENCODE
+    assert skill_format(plain, tmp_path / ".config" / "opencode") == FORMAT_OPENCODE
+    rows = _rows(tmp_path, capsys)
+    assert rows[".config/opencode/skills/baz"]["error"] is None
+    assert ("warn", "name-format") in _codes(rows[".config/opencode/skills/baz"])
+    assert rows[".config/opencode/skill/plain"]["error"] is None
+
+
+def test_a_root_spelled_with_dotdot_reads_the_same_host(tmp_path):
+    path = _write(tmp_path, ".opencode/skills/plain/SKILL.md", "# Plain\n")
+    spelled = tmp_path / ".opencode" / "skills" / "plain" / ".." / "plain" / "SKILL.md"
+    assert skill_format(spelled, tmp_path / ".opencode" / "skills" / "plain" / "..") == FORMAT_OPENCODE
+    assert skill_format(path, tmp_path / ".opencode" / "skills" / "plain" / "..") == FORMAT_OPENCODE
+
+
+def test_an_unsupported_host_skill_adds_no_near_duplicate_warning_to_a_spec_skill(tmp_path, capsys):
+    desc = "description: Use when deploying quantum widgets safely"
+    _write(tmp_path, ".kiro/skills/a/SKILL.md", f"---\nname: a\n{desc}\n---\n\nAlpha body.\n")
+    _write(tmp_path, ".claude/skills/b/SKILL.md", f"---\nname: b\n{desc}\n---\n\nBeta body, different.\n")
+    rows = _rows(tmp_path, capsys)
+    assert "description-near-duplicate" not in {c for _, c in _codes(rows[".kiro/skills/a"])}
+    assert "description-near-duplicate" not in {c for _, c in _codes(rows[".claude/skills/b"])}
+    assert rows[".kiro/skills/a"]["state"] == "ok"
+
+
+def test_opencode_autoinvoke_false_hides_the_skill_from_the_description_checks(tmp_path, capsys):
+    base = "---\nname: {n}\ndescription: Quantum widgets\n{extra}---\n"
+    _write(tmp_path, ".opencode/skills/shown/SKILL.md", base.format(n="shown", extra=""))
+    _write(tmp_path, ".opencode/skills/hid/SKILL.md",
+           base.format(n="hid", extra="metadata:\n  opencode/autoinvoke: false\n"))
+    _write(tmp_path, ".opencode/skills/won/SKILL.md",
+           base.format(n="won", extra="disable-model-invocation: true\nmetadata:\n  opencode/autoinvoke: true\n"))
+    _write(tmp_path, ".opencode/skills/old/SKILL.md", base.format(n="old", extra="disable-model-invocation: true\n"))
+    rows = _rows(tmp_path, capsys)
+    assert ("warn", "description-no-when") in _codes(rows[".opencode/skills/shown"])
+    assert rows[".opencode/skills/hid"]["disable_model_invocation"] is True
+    assert "description-no-when" not in {c for _, c in _codes(rows[".opencode/skills/hid"])}
+    assert rows[".opencode/skills/won"]["disable_model_invocation"] is False  # autoinvoke wins when both are set
+    assert rows[".opencode/skills/old"]["disable_model_invocation"] is True
+
+
+def test_a_nameless_skill_warns_under_a_spec_host_and_not_under_opencode(tmp_path, capsys):
+    body = "---\ndescription: Use when you need quantum widgets.\n---\n"
+    _write(tmp_path, ".claude/skills/nameless/SKILL.md", body)
+    _write(tmp_path, ".opencode/skills/nameless/SKILL.md", body)
+    rows = _rows(tmp_path, capsys)
+    assert ("warn", "name-missing") in _codes(rows[".claude/skills/nameless"])
+    assert "name-missing" not in {c for _, c in _codes(rows[".opencode/skills/nameless"])}
+
+
+def test_a_relative_root_keeps_a_spec_host_in_the_spec(tmp_path, monkeypatch):
+    path = _write(tmp_path, ".kiro/skills/proj/skills/a/SKILL.md", "---\nname: a\ndescription: x\n---\n")
+    monkeypatch.chdir(tmp_path / ".kiro" / "skills" / "proj")
+    assert skill_format(Path("skills/a/SKILL.md"), Path("skills")) == FORMAT_AGENT_SKILL
+    assert skill_format(path, Path("skills")) == FORMAT_AGENT_SKILL
+
+
+def test_ignoring_the_opencode_warning_keeps_a_late_frontmatter_file_exempt(tmp_path, capsys):
+    _write(tmp_path, ".opencode/skills/x/SKILL.md", "# Instructions\n\n---\nname: example\n---\n\nDo a thing.\n")
+    argv = ["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--ignore", "opencode-no-description"]
+    assert main(argv) == 0
+    assert main([*argv, "--per-skill"]) == 0

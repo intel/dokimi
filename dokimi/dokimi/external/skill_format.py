@@ -31,6 +31,7 @@ by its absolute path, since no root stands above it.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -49,6 +50,9 @@ UNSUPPORTED_HOST_DIRS = frozenset({
     ".trae", ".windsurf",
 })
 OPENCODE_DIR = ".opencode"
+CONFIG_DIR = ".config"  # OpenCode's global skills directory is ~/.config/opencode/skills
+GLOBAL_OPENCODE_DIR = "opencode"
+HOST_DIRS = frozenset({OPENCODE_DIR}) | UNSUPPORTED_HOST_DIRS
 SKILL_DIR_NAMES = ("skill", "skills")
 
 UNSUPPORTED_CODE = "unsupported-skill-format"
@@ -74,27 +78,37 @@ def _parts(path: Path, root: Optional[Path]) -> Sequence[str]:
     return path.parts[:-1]
 
 
+def _host_root(skill_md: Path, root: Optional[Path]) -> Optional[Path]:
+    """The root to read the host from: ``root`` moved up to the directory above the host when the scan started inside it."""
+    if root is None or root.resolve() == skill_md.parent.resolve():
+        return None
+    first = next(iter(_parts(skill_md, root)), "")
+    if root.name in SKILL_DIR_NAMES:
+        # A scan of a skills directory itself (.opencode/skills): the host directory above it is the format's marker.
+        root = root.parent.parent
+    elif root.name in HOST_DIRS and first in SKILL_DIR_NAMES:
+        root = root.parent  # a scan of a host directory itself (.opencode, .kiro): the host is the root's own name
+    elif root.name == GLOBAL_OPENCODE_DIR and root.parent.name == CONFIG_DIR and first in SKILL_DIR_NAMES:
+        root = root.parent.parent  # a scan of ~/.config/opencode itself
+    if root.name == CONFIG_DIR and tuple(_parts(skill_md, root)[:1]) == (GLOBAL_OPENCODE_DIR,):
+        root = root.parent  # a scan of ~/.config, or of ~/.config/opencode/skills: keep ``.config`` as the first part
+    return root
+
+
 def skill_format(skill_md: Path, root: Optional[Path] = None) -> str:
     """The format of the ``SKILL.md`` at ``skill_md``, read from its directories below ``root``.
 
     ``root`` is None, or the skill's own directory (a skill reviewed alone): then the whole path is read.
     """
-    # Both paths absolute, so the verdict does not depend on how the root was spelled (`--root skills` or a full path).
-    skill_md = skill_md.absolute()
-    if root is not None:
-        root = Path(root).absolute()
-    if root is not None and root.resolve() == skill_md.parent.resolve():
-        root = None
-    if root is not None and Path(root).name in SKILL_DIR_NAMES:
-        # A scan of a skills directory itself (.opencode/skills): the host directory above it is the format's marker.
-        root = Path(root).parent.parent
-    elif root is not None and Path(root).name == OPENCODE_DIR and \
-            next(iter(_parts(skill_md, root)), "") in SKILL_DIR_NAMES:
-        # A scan of the OpenCode host directory itself (.opencode): the host is the root's own name, read from its parent.
-        root = Path(root).parent
+    # Both paths absolute and normalised, so the verdict does not depend on how the root was spelled
+    # (`--root skills`, a full path, or one with `..`).
+    skill_md = Path(os.path.normpath(skill_md.absolute()))
+    root = None if root is None else Path(os.path.normpath(Path(root).absolute()))
+    root = _host_root(skill_md, root)
     dirs = _parts(skill_md, root)
     for i, part in enumerate(dirs):
-        if part == OPENCODE_DIR and i + 1 < len(dirs) and dirs[i + 1] in SKILL_DIR_NAMES:
+        if i + 1 < len(dirs) and dirs[i + 1] in SKILL_DIR_NAMES and (
+                part == OPENCODE_DIR or (part == GLOBAL_OPENCODE_DIR and i > 0 and dirs[i - 1] == CONFIG_DIR)):
             return FORMAT_OPENCODE
     for i, part in enumerate(dirs):
         if part in UNSUPPORTED_HOST_DIRS and i + 1 < len(dirs) and dirs[i + 1] in SKILL_DIR_NAMES:
@@ -115,6 +129,14 @@ def format_findings(fmt: str, meta: Optional[dict] = None, *, loaded: bool = Tru
     if fmt == FORMAT_OPENCODE and (meta is None or not str(meta.get("description") or "").strip()):
         return [Finding("warn", OPENCODE_NO_DESCRIPTION_CODE, OPENCODE_NO_DESCRIPTION_MESSAGE)]
     return []
+
+
+def opencode_hidden(meta: dict, disabled: bool) -> bool:
+    """Whether an OpenCode skill is kept from the model: ``metadata: {opencode/autoinvoke: ...}`` wins over
+    ``disable-model-invocation`` (``disabled``, already read) when it is set to a boolean."""
+    extra = meta.get("metadata")
+    value = str(extra.get("opencode/autoinvoke", "")).strip().lower() if isinstance(extra, dict) else ""
+    return True if value in ("false", "0", "no", "off") else False if value in ("true", "1", "yes", "on") else disabled
 
 
 def not_a_failed_load(codes: Sequence[str]) -> bool:
