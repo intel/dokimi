@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from fractions import Fraction
 
 
 def _shown(value: float) -> str:
@@ -53,16 +54,35 @@ def check_sum_range(values: Sequence[float], error: type[Exception] = OverflowEr
     addition is safe for the sign patterns of a sign-flip test: they are refused.
     """
     try:
-        refused = not math.isfinite(sum(abs(v) for v in values)) and all(math.isfinite(v) for v in values)
-    except OverflowError:  # an integer sum too large for a float: ``isfinite`` cannot read it
-        refused = not _has_non_finite_float(*values)
+        if _has_non_finite_float(*values):
+            refused = False
+        elif all(isinstance(v, float) for v in values):
+            # fsum is exact: ``sum`` before 3.12 rounds small terms away and stays finite where the exact total does not
+            refused = not math.isfinite(math.fsum(abs(v) for v in values))
+        else:
+            # an integer: ``fsum`` would round it to a float first and could overflow where the exact total fits
+            float(sum((Fraction(abs(v)) for v in values), Fraction(0)))
+            refused = False
+    except OverflowError:  # an exact sum or an integer too large for a float
+        refused = True
     if refused:
         raise error(f"{where}{': ' if where else ''}the sum of the magnitudes of the values leaves the float range")
 
 
 def checked_mean(values: Sequence[float], error: type[Exception] = OverflowError, where: str = "") -> float:
-    """``sum(values) / len(values)`` after :func:`check_sum_range`."""
+    """The mean of ``values`` after :func:`check_sum_range`, with an exactly rounded sum (``math.fsum``).
+
+    The result does not depend on the Python version: ``sum`` of floats compensates from 3.12 on and
+    adds left to right before, so deltas that cancel left a rounding residue there. Integers only are
+    summed exactly as integers, and integers mixed with floats as exact fractions, since ``math.fsum``
+    would first round each integer to a float. ``values`` are floats or integers; another number type
+    (``numpy.float32``) is outside the ``Sequence[float]`` contract and raises ``TypeError``.
+    """
     check_sum_range(values, error, where)
     if _has_non_finite_float(*values):  # they decide; finite values summed first could overflow and cancel a -inf
         return sum(v for v in values if isinstance(v, float) and not math.isfinite(v)) / len(values)
-    return sum(values) / len(values)
+    if all(isinstance(v, float) for v in values):
+        return math.fsum(values) / len(values)
+    if all(isinstance(v, int) for v in values):
+        return sum(values) / len(values)
+    return float(sum((Fraction(v if isinstance(v, int) else float(v)) for v in values), Fraction(0)) / len(values))  # mixed: exact, as fsum rounds an integer first

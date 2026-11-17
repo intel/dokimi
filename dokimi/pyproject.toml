@@ -136,6 +136,8 @@ extend_exclude = [
   "scripts/conda_forge_specs.py",
   # Run by fuzz.yml, which installs atheris from requirements-fuzz.lock.txt.
   "fuzz",
+  # Run by ci.yml's mutation-diff job; coverage comes with pytest-cov from requirements.lock.txt.
+  "scripts/mutate_changed.py",
   # Study scripts: they import llm and run_probes from the study checkout (JP_STUDY), not from this package.
   "research/judge-panel",
 ]

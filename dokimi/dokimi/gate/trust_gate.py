@@ -11,6 +11,7 @@ Designed to be called from the report generator; no side-effects.
 
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -182,14 +183,26 @@ def evaluate_trust(
 
     # ── 4. Minimum delta (context arm minus baseline) ─────────────────────
     delta_avg = statistics.mean(with_scores) - statistics.mean(without_scores)
-    checks.append(Check(
-        name="min_delta",
-        passed=delta_avg >= cfg["min_delta"],
-        value=round(delta_avg, 1),
-        threshold=cfg["min_delta"],
-        message=f"Avg delta (context arm minus baseline) = {delta_avg:+.1f} (min {cfg['min_delta']:+})",
-        severity="warn",
-    ))
+    if math.isfinite(delta_avg):
+        checks.append(Check(
+            name="min_delta",
+            passed=delta_avg >= cfg["min_delta"],
+            value=round(delta_avg, 1),
+            threshold=cfg["min_delta"],
+            message=f"Avg delta (context arm minus baseline) = {delta_avg:+.1f} (min {cfg['min_delta']:+})",
+            severity="warn",
+        ))
+    else:
+        # The arm means differ by more than the float range: no delta to judge, as in the stats.
+        checks.append(Check(
+            name="min_delta",
+            passed=True,
+            value=None,
+            threshold=cfg["min_delta"],
+            message="Not measured: the arm means differ by more than the float range",
+            severity="warn",
+            measured=False,
+        ))
 
     # ── 5. Score coefficient of variation (stability) ─────────────────────
     with_std = statistics.stdev(with_scores) if len(with_scores) > 1 else 0.0
