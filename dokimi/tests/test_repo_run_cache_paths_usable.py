@@ -112,6 +112,20 @@ def test_good_cache_root_and_cache_override_run_as_before_and_make_the_directori
     assert exc.code == 0 and mine.is_dir()
 
 
+@pytest.mark.parametrize("command", COMMANDS)
+def test_with_no_cache_root_the_default_root_is_used_and_an_override_alone_is_checked(command, setup, monkeypatch):
+    home = setup["tmp"] / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("DOKIMI_REPO_CACHE", raising=False)
+    blocker = _file(setup["tmp"])
+    exc = _invoke(setup, command, "--cache", f"build-cache={blocker}")
+    assert exc.code == 2 and f"--cache build-cache {blocker} is not a directory; {CLOSING}" in exc.err
+    assert not home.exists()  # the refused override did not make the default root
+    exc = _invoke(setup, command)
+    assert exc.code == 0
+    assert list(home.rglob("build-cache")) and "--cache" not in exc.err
+
+
 def test_a_cache_of_a_name_the_manifest_does_not_declare_keeps_its_message(setup):
     blocker = _file(setup["tmp"])
     exc = _invoke(setup, "check", "--cache-root", str(setup["tmp"] / "caches"), "--cache", f"nope={blocker}")
