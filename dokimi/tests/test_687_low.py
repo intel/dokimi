@@ -20,6 +20,7 @@ from dokimi.ingest import docling_loader
 from dokimi.ingest.docling_loader import SOURCES_NAME, materialize_markdown
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.process import reply
+from dokimi.utils import InputError
 # _hermetic is autouse: no operator Claude settings, provider env or host `claude` reach a test.
 from tests.test_docker_solver_harness import _fixture_task, _hermetic, _pipeline  # noqa: F401
 
@@ -211,6 +212,24 @@ def test_a_directory_at_a_recorded_name_is_taken(tmp_path, converted):
     (out / "a-pdf.md").mkdir()
 
     assert materialize_markdown([doc], out) == [out / "a-pdf-2.md"]
+
+
+def test_a_name_differing_only_in_letter_case_stays_with_the_deleted_files_source(tmp_path, converted):
+    upper, lower = _docs(tmp_path, "x/A.pdf", "y/a.pdf")
+    out = tmp_path / "md"
+    materialize_markdown([upper], out)
+    (out / "A-pdf.md").unlink()
+
+    assert materialize_markdown([lower], out) == [out / "a-pdf-2.md"]
+
+
+def test_a_directory_at_the_record_name_is_refused_naming_the_record(tmp_path, converted):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+    (out / SOURCES_NAME).mkdir(parents=True)
+
+    with pytest.raises(InputError, match=SOURCES_NAME):
+        materialize_markdown([doc], out)
+    assert not list(out.glob("*.md"))
 
 
 def test_an_unreadable_record_is_named_and_its_files_are_kept(tmp_path, converted, caplog):

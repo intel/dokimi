@@ -39,7 +39,8 @@ A second source with the same name, such as `v2/manual.pdf`, gets the next
 numbered name, `manual-pdf-2.md`, in the same run or a later one. A file the
 record does not name, a directory and a symbolic link are never written over:
 the source gets the next free name instead. A deleted file's name stays with its
-source while that source exists. If the record cannot be read, a
+source while that source exists, and names that differ only in letter case count as one. A directory at
+the record's own name is refused with a message naming it. If the record cannot be read, a
 warning names it, the files stay, and the run writes new numbered ones beside
 them.
 

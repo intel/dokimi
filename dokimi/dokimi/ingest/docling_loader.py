@@ -115,7 +115,8 @@ def _source_id(src: Path, out_dir: Path) -> str:
 
 def _dest(src: Path, out_dir: Path, owners: dict[str, str], source: str) -> Path:
     """The file the record gives ``source``, else the first free name: one no other source holds in
-    the record, even when its file was deleted, and no file or link of any kind is at (#545)."""
+    the record (letter case aside), even when its file was deleted, and no file or link of any kind
+    is at (#545)."""
     for name, owner in owners.items():
         path = out_dir / name
         if owner != source or path.name != name:  # a `\` is a separator on Windows: not a name there
@@ -124,7 +125,8 @@ def _dest(src: Path, out_dir: Path, owners: dict[str, str], source: str) -> Path
             return path
     base = f"{src.stem}-{src.suffix.lstrip('.').lower()}"
     names = itertools.chain([f"{base}.md"], (f"{base}-{i}.md" for i in itertools.count(2)))
-    return next(out_dir / n for n in names if n not in owners and not os.path.lexists(out_dir / n))
+    held = {name.casefold() for name in owners}  # A-pdf.md and a-pdf.md are one file on a case-insensitive disk
+    return next(out_dir / n for n in names if n.casefold() not in held and not os.path.lexists(out_dir / n))
 
 
 def _read_owners(record: Path) -> dict[str, str]:
