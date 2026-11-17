@@ -59,8 +59,8 @@ from .process_io import (
     PipeReader,
     PipeReaderOwner,
     TRUNCATION_MARKER as TRUNCATION_MARKER,
-    _join,
-    _read_spool,
+    join_capture,
+    read_spool,
     path_text,
     utf8_bytes,
 )
@@ -238,8 +238,8 @@ def run(
             _live.pop(proc.pid, None)
             if sys.platform == "win32" and job:
                 _kernel32.CloseHandle(job)
-    out_bytes, out_cut = _read_spool(stdout_to, capture_limit) if stdout_to else out.value()
-    err_bytes, err_cut = _read_spool(stderr_to, capture_limit) if stderr_to else err.value()
+    out_bytes, out_cut = read_spool(stdout_to, capture_limit) if stdout_to else out.value()
+    err_bytes, err_cut = read_spool(stderr_to, capture_limit) if stderr_to else err.value()
     if not capture_stdout:
         out_bytes, out_cut = b"", False
     rc = TIMEOUT_RC if timed_out else proc.returncode
@@ -378,7 +378,7 @@ class _Capture:
     def value(self) -> tuple[bytes, bool]:
         """The kept bytes, with the marker where the middle was dropped, and whether it was."""
         with self._lock:
-            return _join(bytes(self.head), bytes(self.tail), self.total)
+            return join_capture(bytes(self.head), bytes(self.tail), self.total)
 
 
 class _Spool:

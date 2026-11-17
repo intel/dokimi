@@ -1,7 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""A pipe is owned by its reader or caller cleanup, even during interrupted startup."""
+"""A pipe is owned by its reader or caller cleanup, even during interrupted startup.
+
+read_spool reads back a spooled capture; join_capture joins the head and tail of a capture that was cut.
+"""
 
 import os
 import sys
@@ -108,14 +111,14 @@ class PipeReaderOwner(Protocol):
 TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture limit ...]\n"
 
 
-def _join(head: bytes, tail: bytes, total: int) -> tuple[bytes, bool]:
+def join_capture(head: bytes, tail: bytes, total: int) -> tuple[bytes, bool]:
     dropped = total - len(head) - len(tail)
     if dropped <= 0:
         return head + tail, False
     return head + TRUNCATION_MARKER.format(dropped=dropped).encode("utf-8") + tail, True
 
 
-def _read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
+def read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
     """A spooled stream's bounded head and tail, read back without loading the whole file. A FIFO is not read back:
     its reader is at the other end, and a read here waits for every writer to close, the caller's included."""
     if S_ISFIFO(os.stat(path).st_mode):
@@ -127,4 +130,4 @@ def _read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes,
         head = fh.read(limit // 2)
         tail_len = limit - limit // 2
         fh.seek(size - tail_len)
-        return _join(head, fh.read(tail_len), size)
+        return join_capture(head, fh.read(tail_len), size)
