@@ -36,6 +36,7 @@ from dokimi.eval.stats import (
     _describe_deltas,
     _finalize,
 )
+from dokimi.eval.sign_flip import pair_magnitudes
 from dokimi.treatments.specs import split_combined_name
 
 
@@ -91,11 +92,15 @@ def _interaction_contrast(
     if len(rows) < 2:
         return None
 
+    col_ab = [ab for ab, _, _, _ in rows]
+    col_a = [a for _, a, _, _ in rows]
+    col_b = [b for _, _, b, _ in rows]
     bases = [base for _, _, _, base in rows]
-    diffs_a = _deltas([a for _, a, _, _ in rows], bases)
-    diffs_b = _deltas([b for _, _, b, _ in rows], bases)
-    diffs_ab = _deltas([ab for ab, _, _, _ in rows], bases)
+    diffs_a = _deltas(col_a, bases)
+    diffs_b = _deltas(col_b, bases)
+    diffs_ab = _deltas(col_ab, bases)
     contrasts: List[float] = []
+    magnitudes = [max(abs(x) for x in row) for row in rows]  # float noise of the contrast follows the largest score
     for row in rows:
         ab, a, b, base = row
         contrast = ab - a - b + base
@@ -107,9 +112,11 @@ def _interaction_contrast(
         if not math.isfinite(contrast) and finite_row:
             raise OverflowError("deltas too large: a contrast of the four scores leaves the float range")
         contrasts.append(contrast)
-    res = _describe_deltas(contrasts, confidence=confidence, seed=seed)
-    delta_a = _arm_delta(diffs_a, confidence, seed)
-    delta_b = _arm_delta(diffs_b, confidence, seed)
+    res = _describe_deltas(contrasts, confidence=confidence, seed=seed, magnitudes=magnitudes)
+    delta_a = _arm_delta(diffs_a, confidence, seed, pair_magnitudes(col_a, bases))
+    delta_b = _arm_delta(diffs_b, confidence, seed, pair_magnitudes(col_b, bases))
+    if math.isfinite(delta_a) and math.isfinite(delta_b) and not math.isfinite(delta_a + delta_b):  # the row's additive expectation would print as inf next to a computed p
+        raise OverflowError("deltas too large: the sum of the two arm deltas leaves the float range")
     res.update(
         {
             "arm_a": arm_a,
@@ -118,7 +125,7 @@ def _interaction_contrast(
             "baseline_arm": baseline_arm,
             "delta_a": delta_a,
             "delta_b": delta_b,
-            "delta_combined": _arm_delta(diffs_ab, confidence, seed),
+            "delta_combined": _arm_delta(diffs_ab, confidence, seed, pair_magnitudes(col_ab, bases)),
             "interaction": res["delta_mean"],
             # the sum of the two printed deltas, so the row adds up; round() only drops float noise
             "additive_expectation": round(delta_a + delta_b, 12) + 0.0,
@@ -127,9 +134,9 @@ def _interaction_contrast(
     return res
 
 
-def _arm_delta(deltas: List[float], confidence: float, seed: int) -> float:
+def _arm_delta(deltas: List[float], confidence: float, seed: int, magnitudes: List[float]) -> float:
     """The ``delta_mean`` the arms table prints for these deltas: rounded and held inside their own interval."""
-    return _describe_deltas(deltas, confidence=confidence, seed=seed)["delta_mean"]
+    return _describe_deltas(deltas, confidence=confidence, seed=seed, magnitudes=magnitudes)["delta_mean"]
 
 
 def interaction_test(
@@ -156,7 +163,9 @@ def interaction_test(
     interval inverts it, so it excludes 0 exactly when ``p < 0.05``. It assumes
     the contrast symmetric about 0 under no interaction, and its level is 5%
     only then (module docstring). ``significant`` is ``None`` with no p or under
-    the floor rule (:func:`dokimi.eval.stats._describe_deltas`).
+    the floor rule (:func:`dokimi.eval.stats._describe_deltas`). The tie width of
+    a contrast is ``EPS`` times the largest of its four scores when that is
+    below 1, and each arm delta ties by the larger score of its pair.
 
     Only questions where all four arms produced a score contribute. Returns
     ``None`` if fewer than two such questions exist.

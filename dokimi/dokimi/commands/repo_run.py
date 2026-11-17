@@ -533,8 +533,8 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
 
 
 _SOURCE_EXIT = (
-    "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote) or a "
-    "pinned local path inside a repository (give its root); exit 1 for a source that cannot be opened "
+    "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote), a "
+    "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory; exit 1 for a source that cannot be opened "
     "(clone, fetch, revision) and "
 )
 CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check."

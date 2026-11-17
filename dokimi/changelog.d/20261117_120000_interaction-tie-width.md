@@ -1,0 +1,3 @@
+### Fixed
+
+- **`interaction_test` no longer reads contrasts of tiny-scale scores as ties** — eight evaluations whose `a+b` scores were `g * 1e-300` (g in 2, 4, 3, 5, 6, 9, 7, 8) and 0 for the other three arms gave `p` null, `n_changed` 0 and `significant` null, where the same scores at `1e-3` give `p` 0.0078, `n_changed` 8 and `significant` true, because every contrast was within the absolute 1e-9 tie width. The contrast `AB − A − B + baseline` of a question now ties within 1e-9 times the largest of its four scores when that is below 1 (1e-9 for 1 or more, as before), and each arm delta of the row (`delta_a`, `delta_b`, `delta_combined`) uses the larger score of its pair, as `paired_test` does. Scores of 1 or more give the same rows as before.
