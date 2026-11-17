@@ -474,6 +474,9 @@ def _run_cells(cells: list[Any], one: Callable[[Any], None], jobs: int) -> None:
     except KeyboardInterrupt:
         _stop_on_interrupt(pool)
         raise
+    except BaseException:  # a worker's error: as pool.map did, the cells not started are cancelled
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
     finally:
         pool.shutdown(wait=True)
 

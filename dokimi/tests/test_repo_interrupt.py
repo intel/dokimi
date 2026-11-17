@@ -142,3 +142,20 @@ def test_a_ctrl_c_as_the_kills_start_still_kills_and_waits_for_the_workers(monke
         assert container_mod._halted is False
     finally:
         container_mod.clear_halt()
+
+
+def test_an_error_in_a_cell_cancels_the_cells_not_started(monkeypatch):
+    from dokimi.repos import runner as runner_mod
+
+    ran = []
+
+    def one(cell):
+        ran.append(cell)
+        if cell == 0:
+            raise ValueError("cell 0 failed")
+        threading.Event().wait(0.05)
+
+    with pytest.raises(ValueError):
+        runner_mod._run_cells(list(range(10)), one, 1)
+    assert len(ran) <= 3  # a cell that was queued behind the failure does not start (pool.map cancelled them)
+
