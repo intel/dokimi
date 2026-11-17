@@ -25,3 +25,8 @@ def test_exact_resamples_of_deltas_of_both_signs_and_several_limbs_match_sign_fl
     row = [-1e30, 7.5, -3.25, 2.0, -1.0, 4.5, 1e-3, -6.0, 8.0, 0.5, -2.5, 3.0, 1e20, -9.0, 5.0, 1.5, -4.0, 6.5, 2.5]
     for seed in (0, 3):
         assert ShiftTest(row, seed).p(0.0) == sign_flip_p(row, seed=seed, exact=True)
+
+
+def test_tied_deltas_do_not_widen_the_slack_of_the_exact_resamples():
+    row = [4096.0] + [2e-9] * 7 + [2.1e-9] + [-2e-9] * 8 + [0.0] * 300  # the zeros tie, and 17 deltas move
+    assert ShiftTest(row).p(0.0) == sign_flip_p(row, exact=True)

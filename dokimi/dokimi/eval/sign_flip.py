@@ -170,19 +170,22 @@ def _as_integers(values: Sequence[float], cap: float) -> tuple[list[int], int]:
 def _exact_hits(signs: np.ndarray, values: list[float], cap_eps: float) -> int:
     """The resamples (rows of ``signs``) whose exact ``|sum|`` reaches the observed one less its slack: the integers of
     ``values`` are split into limbs that cannot overflow int64 over all of them, each limb summed as an int64
-    product, and the limbs joined as Python ints."""
+    product, and the limbs joined as Python ints (once for each distinct row of limb sums)."""
     import numpy as np
 
     ints, cap = _as_integers(values, cap_eps)
     observed = _observed(ints, cap)
     bits = max((abs(v).bit_length() for v in ints), default=0)
-    s64 = signs.astype(np.int64)
-    total = np.zeros(signs.shape[0], dtype=object)
     width = 62 - len(ints).bit_length()  # n limbs of this many bits sum within int64
-    for shift in range(0, bits, width):
-        limbs = np.array([(1 if v >= 0 else -1) * ((abs(v) >> shift) & ((1 << width) - 1)) for v in ints], dtype=np.int64)
-        total = total + (s64 @ limbs).astype(object) * (1 << shift)
-    return sum(abs(t) >= observed for t in total.tolist())
+    shifts = [k for k in range(0, bits, width) if any((abs(v) >> k) & ((1 << width) - 1) for v in ints)]  # zero limbs add nothing
+    limbs = np.array([[(1 if v >= 0 else -1) * ((abs(v) >> k) & ((1 << width) - 1)) for k in shifts] for v in ints], dtype=np.int64)
+    sums = signs.astype(np.int64) @ limbs  # one row of limb sums per resample
+    key = sums.astype(np.uint64) @ (np.arange(1, 2 * len(shifts), 2, dtype=np.uint64) * np.uint64(0x9E3779B97F4A7C15))  # row hash
+    _, first, inverse, counts = np.unique(key, return_index=True, return_inverse=True, return_counts=True)
+    if not np.array_equal(sums[first][inverse], sums):  # a hash collision: count every row
+        first, counts = np.arange(len(sums)), np.ones(len(sums), dtype=np.int64)
+    return sum(int(c) for row, c in zip(sums[first].tolist(), counts.tolist(), strict=True)
+               if abs(sum(t << k for t, k in zip(row, shifts, strict=True))) >= observed)
 
 
 @functools.cache
@@ -252,7 +255,7 @@ class ShiftTest:
             return int(np.count_nonzero(sums >= least - eps)) / 2 ** moved.size
         signs = _draws(self.seed, self.changed, self.d.size, self.n_resamples)
         if spread > 40:  # floats lose the small deltas: count the resamples on exact integer sums
-            return (_exact_hits(signs, x.tolist(), float(self.widths[~tied].max())) + 1) / (self.n_resamples + 1)
+            return (_exact_hits(signs[:, ~tied], x[~tied].tolist(), float(self.widths[~tied].max())) + 1) / (self.n_resamples + 1)
         return (int(np.count_nonzero(np.abs(signs @ x) >= observed - eps)) + 1) / (self.n_resamples + 1)
 
 
