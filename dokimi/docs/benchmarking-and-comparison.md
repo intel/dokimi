@@ -431,7 +431,10 @@ artifact also gets `summary.interactions`: the contrast
 `AB − A − B + baseline` computed per question against one shared baseline, which
 is what tells you whether combining two treatments beats the sum of their
 separate effects. Running the arms separately and subtracting run averages does
-not answer that question — the baselines drift between runs.
+not answer that question — the baselines drift between runs. The tie rule above
+applies to the contrast with the largest of the question's four scores as its
+value (a contrast of 1e-12 between scores of 1e-300 is a change), and to each arm
+delta with the larger score of its pair.
 
 Scores whose paired difference or interaction contrast leaves the float range are
 refused by the statistics. The run is still saved: `summary.significance_error` or
