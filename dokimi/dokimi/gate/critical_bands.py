@@ -32,8 +32,11 @@ def _below(actual: float, threshold: float) -> bool:
     return math.isnan(actual) or actual < threshold
 
 
-def _band_check(condition: str, threshold: float, actual: float, violated: bool) -> Check:
-    """One band as a fail-severity check: it passes unless the metric is strictly below the threshold."""
+def _band_check(
+    condition: str, threshold: float, actual: float, violated: bool, measured: bool
+) -> Check:
+    """One band as a fail-severity check: it passes unless the metric is strictly below the threshold or NaN.
+    ``measured`` is False when the summary did not carry the metric (``actual`` is then the 0.0 default)."""
     return Check(
         name=condition,
         passed=not violated,
@@ -41,6 +44,7 @@ def _band_check(condition: str, threshold: float, actual: float, violated: bool)
         threshold=threshold,
         message=f"{condition}: {actual:.4f} against the band {threshold:.4f}",
         severity="fail",
+        measured=measured,
     )
 
 
@@ -68,7 +72,9 @@ def check_critical_bands(summary: dict, spec: dict) -> Verdict:
             raise ValueError(f"Unknown critical_bands condition: {condition} (known: {', '.join(sorted(_BAND_KEYS))})")
 
         threshold = float(band.get("value", 0.0))
-        actual = _metric(summary, _BAND_KEYS[condition], condition)
-        checks.append(_band_check(condition, threshold, actual, _below(actual, threshold)))
+        key = _BAND_KEYS[condition]
+        actual = _metric(summary, key, condition)
+        checks.append(_band_check(condition, threshold, actual, _below(actual, threshold),
+                                  measured=key in summary))
 
     return Verdict(checks=checks)

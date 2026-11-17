@@ -33,6 +33,7 @@ CONTENTS = {
     "plugin_delta.v1": {"arms": 2},
     "questions.v2": {"questions": 3},
     "repo_budget.v1": {"entries": 9},
+    "run_context.v1": {},
     "effective_instructions.v1": {"receipts": 1},
     "reach_matrix.v1": {"runs": 2, "cells": 3},
     "repo_environment.v1": {"instructions": 4, "findings": 13},

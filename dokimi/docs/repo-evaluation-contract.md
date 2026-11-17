@@ -14,9 +14,10 @@ SPDX-License-Identifier: Apache-2.0
 
 # Repository evaluation contract
 
-> **Status: PROPOSED.** This is the interface proposed for evaluating a whole
-> code repository as a subject; the rationale behind it is recorded in the pull
-> requests that build it out.
+> **Status: implemented core with scoped extensions.** Validation, static scanning,
+> reach, task execution, reporting and arm comparison are available. Individual
+> sections describe their limits and proposed extensions. The rationale is recorded
+> in the pull requests that build it out. See the [feature cards](features/repositories.md).
 > Implemented so far (slice S1): the `repo_manifest.v1` schema, validation of
 > the manifest and of every `task.json` against one repository snapshot
 > (with git history, every task base must resolve and the guidance globs are
@@ -1256,6 +1257,46 @@ an integer), a source it cannot open, a manifest that is missing or malformed, t
 cannot write. Each prints `✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead, pinned or not. Grading a task needs the manifest's
 `entry_points.test` (§2).
 
+### 4.9 `run_context.v1` (written by `repo run` to `{run_dir}/run_context.json`)
+
+Beside `events.jsonl`, one record per cell: what the agent CLI printed about the run it made.
+Every field comes from the CLI's own start-up record (`system/init`, or Copilot's `session.start`),
+its closing record (`result`, `turn.completed`, `turn.failed`), or the command line dokimi started
+it with. A field the CLI did not print is `null`; nothing is taken from a default, so a sparse
+trace gives nulls. The schema is `dokimi/schemas/run_context.v1.json`.
+
+```json
+{"schema_version": "run_context.v1", "harness": "claude-code", "harness_version": "2.1.400",
+ "model_requested": "m-1", "model_served": {"init": "claude-sonnet-x", "usage": ["claude-sonnet-x"]},
+ "effort": "high", "thinking": null, "credential_kind": "ANTHROPIC_API_KEY",
+ "permission_mode": {"mode": "bypassPermissions", "sandbox": null, "approval": null},
+ "tools": {"allowed": ["Read", "Bash"], "disallowed": ["WebFetch", "WebSearch"]},
+ "extensions": {"plugins": [], "skills": null, "mcp_servers": ["docs"], "agents": null, "output_style": "default"},
+ "outcome": {"stop_reason": "end_turn", "terminal_reason": "completed", "num_turns": 3,
+             "permission_denials": 0, "safety_stops": 0},
+ "config_sha256": {"settings.json": "<64 hex>"}}
+```
+
+- `harness` is the profile's name (`claude-code`, `codex`, `copilot`), which dokimi started; the CLI does not print it.
+  `harness_version` is the CLI's own version (`claude_code_version`), else the version dokimi probed (`version_cmd`).
+- `model_requested` is the model the evaluator asked for (`repo run --model`), whether or not the profile passes it to the CLI. `model_served.init` is the model the start-up record names;
+  `model_served.usage` lists the keys of the closing record's `modelUsage`, which include helper models.
+  Codex prints no model, so both are null there.
+- `effort` is the start-up record's `per_turn_effort_active`, else `--effort`, else Codex's `-c model_reasoning_effort=`.
+  `thinking` is the `--thinking` value.
+- `permission_mode` and `tools` are what the CLI printed, else the flags dokimi passed. For Codex the sandbox
+  and approval values stand in for tool lists, which are null there.
+- `extensions` lists names only (plugins, skills, MCP servers, agents) and the output style.
+- `outcome.permission_denials` is the number of refused tool calls. `outcome.safety_stops` is the number of
+  main-thread replies whose `stop_reason` was `refusal`; it is null when no reply carried a stop reason. A reply split over several records (one `message.id`) counts once, by its last `stop_reason`.
+- `config_sha256` holds the SHA-256 of each config file dokimi wrote for the run, and of each workspace file the
+  profile's `args_if_present` named, taken before the agent starts. Keys are file names, never paths, with any character
+  outside `A-Za-z0-9._-` written as `_`: a nested
+  workspace file is keyed by its base name, or by `workspace.` and its dotted path when that name is already a key.
+  Contents are never recorded. A link, or a file under a linked directory, is not read, and a file that cannot be read is left out.
+
+A record that cannot be written is a note in the cell's `trace_errors`, not a failed cell.
+
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
 oneDAL drops its standalone mode: the generic parts of its harness move into
@@ -2309,7 +2350,14 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   still run; the file is left in place, and removing it or `--force` runs the
   cell again. The same holds for a finished cell of a task this host cannot
   run, except that `--force` keeps it: once its file is removed, the cell runs
-  on a host that meets the task's requirements. A batch stays on the eval tree it
+  on a host that meets the task's requirements. A `--force` run that stops part
+  way (Ctrl-C, a crash, a failed cell), or a harness binary replaced while the
+  batch runs, can leave finished cells of two `id`s in one arm and model; `repo
+  report` refuses such a batch and `repo compare` such a compared row, naming
+  both `id`s, until a `--force` run over every arm and model of the batch (the same `--task` and `--reps`) reruns them. A plan naming one cell twice (a
+  repeated `--task` or `--model`, or two `--model` strings with one directory
+  name, `a/b` and `a:b`, or names that differ only in case) is refused before any agent starts.
+  Ctrl-C lets the running cells finish and starts no queued one. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
@@ -2503,8 +2551,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
   the mean delta a one-sample t test at the uncorrected two-sided 5% level
   detects with 80% power at that spread, the t quantiles at `n-1` degrees of
-  freedom (every row has `mde` under `data` in `--json`; `null` for one task or deltas with
-  no spread, and then no note). It is not the power of the sign-flip test nor
+  freedom (every row has `mde` under `data` in `--json`; `null` for one task, for deltas with
+  no spread (then no note), or for a figure that leaves the float range (the note then names the changed-task or Holm floor where one keeps p above 0.05, and says nothing otherwise). It is not the power of the sign-flip test nor
   of the Holm-corrected decision; a Holm-calibrated figure would depend on the
   other rows' observed p, which a figure for planning the next run's task count
   cannot know. The sign-flip p over k changed (non-tied)

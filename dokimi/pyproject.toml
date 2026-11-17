@@ -275,6 +275,7 @@ only_mutate = [
   "dokimi/gate/regression.py",
   "dokimi/gate/score_gate.py",
   "dokimi/gate/trust_gate.py",
+  "dokimi/gate/verdict.py",
   "dokimi/caching.py",
 ]
 pytest_add_cli_args = ["-p", "no:randomly", "-p", "no:cacheprovider"]

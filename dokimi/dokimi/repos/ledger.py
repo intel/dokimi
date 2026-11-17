@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.artifacts import schema_errors
+from dokimi.eval.comparison_verdict import ComparisonVerdict, decide
 from dokimi.eval.sign_flip import ALPHA, EPS, min_sign_flip_p
 from dokimi.eval.stats import adjust_pvalues
 
@@ -264,9 +265,10 @@ def _verdict(entry: dict[str, Any], alpha: float) -> tuple[str, str]:
                               f"{alpha}); with {entry['changed']} changed case(s) no outcome reaches "
                               f"p < {alpha}: link more cases (not in the Holm family)")
     p, mean = entry["p_holm"], entry["delta"]["mean"]
-    if p < alpha and abs(mean) > EPS:
-        if mean > 0:
-            return KEEP, f"beats {entry['baseline']} on its linked cases (p_holm {p:.4f} < {alpha})"
+    verdict = decide(mean, significant=p < alpha, eps=EPS)
+    if verdict is ComparisonVerdict.IMPROVED:
+        return KEEP, f"beats {entry['baseline']} on its linked cases (p_holm {p:.4f} < {alpha})"
+    if verdict is ComparisonVerdict.REGRESSED:
         return REVIEW, (f"{entry['baseline']} beats it on its linked cases (p_holm {p:.4f} < {alpha}): "
                         "a person decides whether to fix or cut the rule")
     return INSUFFICIENT, f"no significant difference from {entry['baseline']} (p_holm {p:.4f}, alpha {alpha})"

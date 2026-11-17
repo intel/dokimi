@@ -825,3 +825,15 @@ def test_a_file_marked_partial_by_status_alone_is_a_partial_result_to_write_over
     assert _is_partial_file(marked)
     assert save_result({}, marked, {"partial": PARTIAL}) == marked
     assert json.loads(marked.read_text(encoding="utf-8"))["partial"] == PARTIAL
+
+
+def test_a_file_nested_too_deep_to_parse_is_not_a_partial_result_and_save_result_keeps_it(tmp_path):
+    from dokimi.commands.novelty_routing_report import _is_partial_file, save_result
+
+    deep = tmp_path / "routing.json"
+    deep.write_text("[" * 20000, encoding="utf-8")
+    assert not _is_partial_file(deep)
+    saved = save_result({}, deep, {"partial": PARTIAL})
+    assert saved != deep
+    assert deep.read_text(encoding="utf-8") == "[" * 20000
+    assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
