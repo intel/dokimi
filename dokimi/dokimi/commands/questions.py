@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -16,7 +15,7 @@ from typing import Any, Dict
 from dokimi.llm import ANSWER_PROVIDERS, CALLER_CHOICES
 from dokimi.commands._output import exit_on_rejected, exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
-from dokimi.utils import InputError, refuse_device, warn_recorded_self_judge
+from dokimi.utils import InputError, key_bytes, refuse_device, warn_recorded_self_judge
 
 
 def _load_questions_json(path: str):
@@ -324,7 +323,7 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
             raise InputError(str(exc)) from exc
 
         # Keyed on the source as in the pipeline: a registered product has one library id for every source.
-        source_key = hashlib.sha256(os.fsencode(doc_source)).hexdigest()[:16]
+        source_key = hashlib.sha256(key_bytes(doc_source)).hexdigest()[:16]
         extractor = RagasSeedExtractor(mcp_client=mcp_client, cache_dir=Path(".cache/topics") / source_key)
         topics = extractor.extract_topics(
             library_id=library_id,

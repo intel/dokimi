@@ -97,6 +97,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("report", "eval"), FREE),
     Leaf(("report", "generate"), FREE),
     Leaf(("report", "model-compare"), FREE),
+    Leaf(("report", "summary"), FREE),
     Leaf(("answers", "generate"), PAID),
     Leaf(("benchmark", "run"), PAID),
     Leaf(("benchmark", "preflight"), FREE),
