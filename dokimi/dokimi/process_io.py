@@ -14,6 +14,17 @@ from typing import IO, Protocol
 _POSIX = sys.platform != "win32"
 
 
+def joined_pairs(text: str) -> str:
+    """*text* with each high surrogate followed by a low one (a JSON ``\\ud83d\\ude00`` escape, which PyYAML and ``json``
+    load as two code points) joined into its character; a lone surrogate stays, for ``errors="replace"`` to write as ``?``."""
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+
+
+def utf8_bytes(text: str) -> bytes:
+    """*text* as UTF-8 with its surrogate pairs joined (:func:`joined_pairs`) and a lone surrogate sent as ``?``."""
+    return joined_pairs(text).encode("utf-8", "replace")
+
+
 def path_text(raw: bytes) -> str:
     """A file name git printed, as the path the file system opens: on POSIX a non-UTF-8 byte stays one
     (``os.fsdecode``), on Windows it becomes U+FFFD. Every reader of a ``-z`` listing decodes a path this way."""
