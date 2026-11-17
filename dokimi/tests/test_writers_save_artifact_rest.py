@@ -110,6 +110,23 @@ def test_an_unwritable_output_exits_2_and_the_other_one_is_still_written(tmp_pat
     assert (tmp_path / kept).is_file()
 
 
+def test_a_refused_snapshot_beside_an_unwritable_report_still_exits_1_and_names_both(tmp_path, monkeypatch,
+                                                                                     capsys):
+    """The snapshot's refusal decides the exit; the report's write error is printed too (review of #829)."""
+    from dokimi.runner import run as run_mod
+
+    build = run_mod.build_run_manifest
+    monkeypatch.setattr(run_mod, "build_run_manifest", lambda **kw: {**build(**kw), "generated_at": None})
+    (tmp_path / "current.md").mkdir()
+    out = tmp_path / "current.json"
+    assert _check(monkeypatch, tmp_path, out) == 1
+
+    assert _rejected(out)["run_manifest"]["generated_at"] is None
+    err = capsys.readouterr().err
+    assert f"Error: cannot write {tmp_path / 'current.md'}" in err
+    assert "Error: docs_run artifact rejected: " in err
+
+
 def test_a_snapshot_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
     """A manifest time that is not text (a writer bug) is refused; the markdown report is still written, as
     `report eval` keeps its markdown when the sidecar is refused (review of #829)."""

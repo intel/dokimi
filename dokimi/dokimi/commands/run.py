@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import sys
@@ -51,6 +52,21 @@ def _write_outputs(writes) -> None:
             sys.exit(EXIT_USAGE)
 
 
+def _write_snapshot_and_report(result: dict, out_json: Path, out_md: Path) -> None:
+    """Both files, whatever the other one does; the snapshot's failure decides the exit (1 refused, 2 unwritable).
+
+    After a failed snapshot an unwritable report only prints its ``cannot write`` line.
+    """
+    with exit_on_rejected("docs_run"):
+        try:
+            _write_outputs(((save_snapshot, result, out_json),))
+        except BaseException:
+            with contextlib.suppress(SystemExit):  # the report's error is printed; the snapshot's stands
+                _write_outputs(((write_run_report, result, out_md),))
+            raise
+    _write_outputs(((write_run_report, result, out_md),))
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     """Run benchmark and save snapshot + report."""
     root = Path(args.root).resolve()
@@ -59,11 +75,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     out_md = Path(args.out_md).resolve()
 
     result = _run_or_exit(root, spec_path)
-    with exit_on_rejected("docs_run"):
-        try:
-            _write_outputs(((save_snapshot, result, out_json),))
-        finally:  # a refused or unwritable snapshot still leaves the run's report
-            _write_outputs(((write_run_report, result, out_md),))
+    _write_snapshot_and_report(result, out_json, out_md)
     print(json.dumps(result["summary"], indent=2))
 
     # Strict mode: check hard gate and critical bands
