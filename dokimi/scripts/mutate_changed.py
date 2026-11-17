@@ -27,8 +27,8 @@ breaking. Steps:
    or failing to collect) is ``inconclusive``: that file may be the one that catches
    the change, so it is not reported as a gap.
 
-A line no candidate test executes is reported as uncovered, not mutated: the
-changed-lines coverage gate in ``ci.yml`` owns that. The run stops starting
+A line no candidate test executes, or one that continues a multi-line expression
+or signature, is listed as not mutated: the changed-lines coverage gate in ``ci.yml`` owns the first. The run stops starting
 mutants after ``--budget`` seconds and reports the rest as not run.
 
     python scripts/mutate_changed.py --base origin/main [--max-mutants 40]
@@ -490,7 +490,8 @@ def markdown(report: dict) -> str:
                    "for its module did not run (listed below), so it may be the one that catches the change. Not a gap.\n")
     if report["uncovered_lines"]:
         lines = "; ".join(f"`{p}`: {', '.join(map(str, ls))}" for p, ls in report["uncovered_lines"].items())
-        out.append(f"Changed lines no candidate test executes (not mutated): {lines}\n")
+        out.append("Changed lines not mutated (no candidate test executes them, "
+                   f"or they continue a multi-line expression or signature): {lines}\n")
     if skipped := report.get("candidate_tests_not_run"):
         out.append(f"{len(skipped)} candidate test files not run (coverage pass out of time): "
                    + ", ".join(f"`{t}`" for t in skipped[:20]) + ("…" if len(skipped) > 20 else "") + "\n")
