@@ -999,7 +999,7 @@ python cli.py skill novelty items --probes m1.json m2.json m3.json
 [reference checks](answer-formats.md); every probe built from it except the reversal gets it,
 and its non-judge checks run on each answer next to the judge. `skill novelty ground --atoms
 atoms.json --tool "perf report"` writes one such check: a veto that fails an answer naming a
-`perf report --flag` the tool's own `--help` does not list. With `--header` and `--library` and a
+`perf report --flag` the tool's own `--help` does not list. With `--header` and `--shared-lib` and a
 `--prefix` (`cblas_`), it vetoes a C API name no header declares and no library exports. The judge's verdict is kept on
 each checked run and the record's `checks` block counts how often the judge passed an answer
 a veto failed. Design and evidence: [grading-tiers.md](grading-tiers.md).

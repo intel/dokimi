@@ -237,7 +237,7 @@ def test_novelty_ground_writes_the_symbol_check_and_verifies_the_key(tmp_path, c
     from dokimi.commands import novelty_ground
     atoms_path = _atoms_file(tmp_path)
     args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=None, tool_version=None,
-                              header=[str(_headers(tmp_path) / "*.h")], library=[],
+                              header=[str(_headers(tmp_path) / "*.h")], shared_lib=[],
                               prefix=["cblas_", "LAPACKE_"])
     novelty_ground.cmd_novelty_ground(args)
     _, _, data = load_atoms_record(atoms_path)
@@ -249,9 +249,9 @@ def test_novelty_ground_writes_the_symbol_check_and_verifies_the_key(tmp_path, c
 
 
 @pytest.mark.parametrize("kwargs, message", [
-    ({"tool": None, "header": [], "library": [], "prefix": []}, "--tool, --header or --library"),
-    ({"tool": None, "header": ["x.h"], "library": [], "prefix": []}, "--prefix"),
-    ({"tool": None, "header": [], "library": [], "prefix": ["cblas_"]}, "--prefix scopes"),
+    ({"tool": None, "header": [], "shared_lib": [], "prefix": []}, "--tool, --header or --shared-lib"),
+    ({"tool": None, "header": ["x.h"], "shared_lib": [], "prefix": []}, "--prefix"),
+    ({"tool": None, "header": [], "shared_lib": [], "prefix": ["cblas_"]}, "--prefix scopes"),
 ])
 def test_novelty_ground_refuses_symbol_flags_that_do_not_go_together(tmp_path, kwargs, message):
     from dokimi.commands import novelty_ground
@@ -259,6 +259,17 @@ def test_novelty_ground_refuses_symbol_flags_that_do_not_go_together(tmp_path, k
                               **kwargs)
     with pytest.raises(InputError, match=message):
         novelty_ground.cmd_novelty_ground(args)
+
+
+def test_the_shared_library_flag_is_shared_lib_and_library_is_refused():
+    from dokimi import cli
+    parser = cli.build_parser()
+    args = parser.parse_args(["skill", "novelty", "ground", "--atoms", "a.json", "--shared-lib", "libx.so",
+                              "--prefix", "cblas_"])
+    assert args.shared_lib == ["libx.so"]
+    with pytest.raises(SystemExit):
+        parser.parse_args(["skill", "novelty", "ground", "--atoms", "a.json", "--library", "libx.so",
+                           "--prefix", "cblas_"])
 
 
 def test_a_header_path_with_glob_characters_that_exists_is_read(tmp_path):

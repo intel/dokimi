@@ -295,7 +295,14 @@ CONCEPTS: tuple[Concept, ...] = (
         help="a C header whose declared names a veto may check",
         canonical=(Flag("--header", "PATH", "path", repeatable=True,
                         meaning="a C header of the API (glob ok)"),),
-        note="Used with --prefix (and --library) by skill novelty ground.",
+        note="Used with --prefix (and --shared-lib) by skill novelty ground.",
+    ),
+    Concept(
+        name="shared_library",
+        help="a shared library whose exported symbols a veto may check",
+        canonical=(Flag("--shared-lib", "PATH", "path", repeatable=True,
+                        meaning="a shared library whose exported (nm -D) names are known"),),
+        note="Used with --prefix (and --header) by skill novelty ground.",
     ),
     Concept(
         name="symbol_prefix",

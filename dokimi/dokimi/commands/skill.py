@@ -149,12 +149,12 @@ def register_skill(skill_sub, positive_int) -> None:
     ground_p.add_argument("--header", action="append", default=None, metavar="PATH",
                           help="C header whose API names are known (glob ok). Repeatable; "
                                "needs --prefix")
-    ground_p.add_argument("--library", action="append", default=None, metavar="PATH",
+    ground_p.add_argument("--shared-lib", action="append", default=None, dest="shared_lib", metavar="PATH",
                           help="Shared library whose exported symbols (nm -D) are known. "
                                "Repeatable; needs --prefix")
     ground_p.add_argument("--prefix", action="append", default=None, metavar="PREFIX",
                           help="C identifier prefix ending in '_' (e.g. cblas_) that scopes "
-                               "--header and --library: only names with it are checked. Repeatable")
+                               "--header and --shared-lib: only names with it are checked. Repeatable")
     ground_p.add_argument("--out", default=None, help="Default: rewrite --atoms in place")
     from dokimi.commands.novelty_ground import cmd_novelty_ground
 

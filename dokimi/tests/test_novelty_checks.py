@@ -492,7 +492,7 @@ def test_novelty_ground_creates_the_output_directory(tmp_path, monkeypatch):
     monkeypatch.setattr(grounding, "help_text", lambda tool, **k: PERF_HELP)
     out = tmp_path / "new-dir" / "atoms.json"
     args = argparse.Namespace(atoms=str(atoms_path), out=str(out), tool=["perf report"],
-                              tool_version=None, header=None, library=None, prefix=None)
+                              tool_version=None, header=None, shared_lib=None, prefix=None)
     novelty_ground.cmd_novelty_ground(args)
     _, _, data = load_atoms_record(out)
     assert data["atoms"][0]["meta"]["grading"]["checks"][0]["type"] == "identifiers"
@@ -511,7 +511,7 @@ def test_novelty_ground_keeps_the_mode_of_the_atoms_file(tmp_path, monkeypatch):
     atoms_path.chmod(0o640)
     monkeypatch.setattr(grounding, "help_text", lambda tool, **k: PERF_HELP)
     args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=["perf report"],
-                              tool_version=None, header=None, library=None, prefix=None)
+                              tool_version=None, header=None, shared_lib=None, prefix=None)
     novelty_ground.cmd_novelty_ground(args)
     assert atoms_path.stat().st_mode & 0o777 == 0o640
 
@@ -553,7 +553,7 @@ def test_novelty_ground_keeps_the_atoms_file_when_the_write_fails(tmp_path, monk
 
     monkeypatch.setattr(Path, "write_text", failing_write)
     args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=["perf report"],
-                              tool_version=None, header=None, library=None, prefix=None)
+                              tool_version=None, header=None, shared_lib=None, prefix=None)
     # A failed write is a usage error with a one-line message, not a traceback.
     with pytest.raises(InputError, match="cannot write"):
         novelty_ground.cmd_novelty_ground(args)
@@ -689,7 +689,7 @@ def test_novelty_ground_refuses_a_malformed_grading_as_probe_does(tmp_path, monk
     before = atoms_path.read_bytes()
     monkeypatch.setattr(grounding, "help_text", lambda tool, **k: PERF_HELP)
     args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=["perf report"],
-                              tool_version=None, header=None, library=None, prefix=None)
+                              tool_version=None, header=None, shared_lib=None, prefix=None)
     with pytest.raises(InputError, match="invalid grading"):
         novelty_ground.cmd_novelty_ground(args)
     assert atoms_path.read_bytes() == before
