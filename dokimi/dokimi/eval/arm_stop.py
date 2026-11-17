@@ -21,6 +21,11 @@ class RunStopped(Exception):
 def stop_question(arms: Dict[str, Any], arm_names: Sequence[str], current: str, exc: Exception) -> None:
     """Fill the stopped question's cells in place: ``current`` is the arm the error hit."""
     arms[current] = {"error": f"generation_failed: {exc}", "answer": None, "metadata": {}}
-    for name in arm_names:  # an arm the stop never reached says so, as every record has every arm
+    mark_not_asked(arms, arm_names)
+
+
+def mark_not_asked(arms: Dict[str, Any], arm_names: Sequence[str]) -> None:
+    """An arm the stop never reached says so, as every record has every arm."""
+    for name in arm_names:
         arms.setdefault(name, {"error": "not_asked: the run stopped before this arm", "answer": None,
                                "metadata": {}})

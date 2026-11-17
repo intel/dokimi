@@ -31,7 +31,7 @@ from dokimi.eval.arm_summary import (
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
 from dokimi.eval.arm_record import question_record
-from dokimi.eval.arm_stop import RunStopped, stop_question
+from dokimi.eval.arm_stop import RunStopped, mark_not_asked, stop_question
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
@@ -222,13 +222,13 @@ class ArmRunner:
             if stop.is_set():
                 return
             try:
-                rec = self._answer_question(library_name, library_id, q)
+                rec = self._answer_question(library_name, library_id, q, stop)
             except RunStopped as exc:
                 # Keep the question's completed arms (and their spend); the run is marked terminated.
-                stop.set()  # a CLI usage limit or login: the questions not yet started are not asked
-                with lock:
+                with lock:  # the cause is set before the event: a worker that sees it reads it
                     results[idx] = exc.record
                     self.stop_error = exc.cause
+                stop.set()  # a CLI usage limit or login: the questions not yet started are not asked
                 print(f"Stopped: {exc.cause}", flush=True)
                 return
             with lock:
@@ -246,7 +246,8 @@ class ArmRunner:
         return [results[i] for i in sorted(results)]
 
     def _answer_question(
-        self, library_name: str, library_id: Optional[str], q: Dict[str, Any]
+        self, library_name: str, library_id: Optional[str], q: Dict[str, Any],
+        stop: Optional[threading.Event] = None,
     ) -> Dict[str, Any]:
         # Same key order and blank handling as the judge's check, so a record that passes
         # the up-front check is answered with the text the judge will see.
@@ -261,9 +262,18 @@ class ArmRunner:
 
         arms: Dict[str, Any] = {}
         current = ""
+
+        def stopped_elsewhere() -> bool:
+            # Another question hit a run-wide failure: no further arm of this question is paid for.
+            return stop is not None and stop.is_set()
+
+        halted = False
         try:
             for treatment in self.treatments:
                 current = treatment.name
+                if stopped_elsewhere():
+                    halted = True
+                    break
                 if turns is None:
                     arms[treatment.name] = self._answer_one_arm(
                         treatment, question_text, library_name, library_id, qid,
@@ -275,6 +285,9 @@ class ArmRunner:
                 )
                 if self.turn_reminder is not None:
                     current = treatment.name + REMINDER_ARM_SUFFIX
+                    if stopped_elsewhere():
+                        halted = True
+                        break
                     arms[current] = self._answer_session_arm(
                         treatment, turns, library_name, library_id, qid,
                         reminder=self.turn_reminder,
@@ -286,6 +299,11 @@ class ArmRunner:
             partial = question_record(library_name, q, qid, question_text, turns, arms,
                                       grounded_from_topics=self.grounded_from_topics)
             raise RunStopped(exc, partial) from exc
+        if halted:
+            mark_not_asked(arms, self.arm_names)  # the arms the stop never reached, the completed ones kept
+            partial = question_record(library_name, q, qid, question_text, turns, arms,
+                                      grounded_from_topics=self.grounded_from_topics)
+            raise RunStopped(self.stop_error, partial)
         return question_record(library_name, q, qid, question_text, turns, arms,
                                grounded_from_topics=self.grounded_from_topics)
 

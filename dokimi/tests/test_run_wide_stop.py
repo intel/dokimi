@@ -7,6 +7,7 @@ was answered is kept (including the completed arms of the question that stopped)
 from __future__ import annotations
 
 import json
+import threading
 
 from types import SimpleNamespace
 
@@ -124,3 +125,48 @@ def test_a_matrix_stops_at_the_terminated_cell_after_saving_it(monkeypatch):
         arms_run.run_matrix(SimpleNamespace(), cells, [], [], on_cell=lambda cell, out: saved.append(cell.name))
     assert exc.value.cell == "first" and exc.value.usage is False
     assert saved == ["first"] and len(ran) == 1  # the stopped cell is kept; the second cell is never run
+
+
+def test_a_baseline_stop_keeps_the_context_answer_already_paid_for(monkeypatch):
+    # The context answer is generated first; a usage limit on the baseline call must not discard it.
+    answerer = Answerer(mcp_client=object(), model="gpt-4o-mini", provider="openai")
+    monkeypatch.setattr(answerer, "_retrieve_docs", lambda *a, **k: (["doc"], {}))
+    paid = {"answer": "with docs", "token_usage": {"total_tokens": 9}}
+    monkeypatch.setattr(answerer, "_generate_with_docs", lambda *a, **k: paid)
+
+    def baseline(*a, **k):
+        raise llm_cli.CliCallError("usage limit exceeded", retryable=False, run_wide=True)
+
+    monkeypatch.setattr(answerer, "_generate_without_docs", baseline)
+    answers = answerer.generate_answers("lib", "/lib/id", QUESTIONS[:1], concurrency=1)
+    assert len(answers) == 1
+    assert answers[0]["with_docs"] == paid  # the paid-for condition and its telemetry survive
+    assert answers[0]["without_docs"] is None and answers[0]["error"].startswith("usage limit")
+    assert answerer.stop_error is not None
+
+
+def test_a_worker_in_flight_does_not_launch_the_next_arm_after_another_worker_stopped(monkeypatch):
+    # q2's first arm is in flight when q1 hits a usage limit. Its second arm must not be paid for.
+    release = threading.Event()
+    in_flight = threading.Event()
+    calls = []
+    runner = ArmRunner([BaselineTreatment(), BaselineTreatment(name="other")], model="gpt-4o-mini",
+                       provider="openai")
+
+    def call(**kwargs):
+        calls.append(kwargs["prompt"])
+        if "parallelize" in kwargs["prompt"]:
+            in_flight.wait(timeout=10)
+            raise llm_cli.CliCallError("usage limit exceeded", retryable=False, run_wide=True)
+        in_flight.set()
+        release.wait(timeout=10)
+        return "answer", {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+
+    monkeypatch.setattr(arm_runner_module, "llm_call_with_usage", call)
+    threading.Timer(0.2, release.set).start()
+    records = runner.run("lib", QUESTIONS, concurrency=2)
+    assert len(calls) == 2  # q1's failing call and q2's first arm; no second arm of q2
+    by_id = {r["question_id"]: r["arms"] for r in records}
+    assert by_id["q2"]["baseline"]["answer"] == "answer"  # the completed cell is kept
+    assert by_id["q2"]["other"]["error"].startswith("not_asked")
+    assert runner.stop_error is not None
