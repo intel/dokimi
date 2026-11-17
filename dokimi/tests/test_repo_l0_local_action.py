@@ -30,6 +30,21 @@ def test_a_local_action_a_composite_action_step_uses_is_ok(tmp_path):
     assert got[("AGENTS.md", _LOCAL)] == ("ok", "used by .github/actions/setup/action.yml")
 
 
+def test_a_remote_use_is_no_use_of_a_local_claim_of_the_same_spelling(tmp_path):
+    flow = "jobs:\n  t:\n    steps:\n      - uses: actions/checkout@v6\n"
+    got = _by_file(_scan(tmp_path, "Use `./actions/checkout` and `actions/checkout`.\n", {".github/workflows/ci.yml": flow}))
+    assert got[("AGENTS.md", "./actions/checkout")][0] == "unresolved"
+    assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+
+
+def test_a_claim_spelled_with_extra_slashes_checks_the_parent_of_its_normalized_path(tmp_path):
+    flow = "jobs:\n  t:\n    steps:\n      - uses: ./tools/gone\n"
+    got = _by_file(_scan(tmp_path, "Use `./tools//gone` and `././tools/gone`.\n",
+                         {".github/workflows/ci.yml": flow, "tools/keep": ""}))
+    for claim in ("./tools//gone", "././tools/gone"):
+        assert got[("AGENTS.md", claim)] == ("fail", "tools/ exists but tools/gone does not")
+
+
 def test_a_local_use_with_a_ref_below_a_root_directory_or_in_a_submodule_keeps_its_verdict(tmp_path):
     flow = ("jobs:\n  t:\n    steps:\n      - uses: ./source/.github/actions/x@v1\n      - uses: ./tools/gone\n"
             "      - uses: ./third/dep/act\n")

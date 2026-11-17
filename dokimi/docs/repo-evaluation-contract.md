@@ -1930,7 +1930,7 @@ directories and `**/` matches zero or more. A trailing slash on a file
 path claim. An Action named without its ref (`actions/checkout`, `owner/repo/path`)
 that the tree does not hold at the file's directory or an ancestor is `ok` when a
 job or step uses it as `uses: <name>@<ref>` (or, for a local reference, `uses: ./<name>`
-with no ref, which a claim `./<name>` or `<name>` finds: `./source/.github/actions/setup`
+with no ref, which a claim `./<name>` finds, as does `<name>`, while a `./<name>` claim finds no remote use: `./source/.github/actions/setup`
 used by a step is `ok`, a typo of it stays `unresolved`), in a `.yml` or `.yaml` workflow
 directly in `.github/workflows/` (not a nested one, which GitHub does not run) or
 a local composite action under `.github/` (`action.yml`, `action.yaml`); the

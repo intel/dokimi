@@ -34,9 +34,12 @@ def runnable(scan: Scan) -> list[str]:
 
 
 def local_key(name: str) -> str:
-    """``name`` as :func:`action_users` keys a local reference: without the leading ``./``; ``""`` for ``./`` itself."""
+    """``name`` as :func:`action_users` keys a local reference: normalized, with one leading ``./``; ``""`` for ``./`` itself.
+
+    The ``./`` keeps it apart from a remote Action ``owner/name`` of the same spelling.
+    """
     path = posixpath.normpath(name)
-    return "" if path == "." else path
+    return "" if path == "." else "./" + path.removeprefix("./")
 
 
 def action_users(scan: Scan) -> dict[str, str]:
@@ -75,9 +78,9 @@ def _action_users(scan: Scan) -> tuple[dict[str, str], dict[str, str]]:
             continue
         for value in _uses(doc, path in flows):  # `.github/workflows/action.yml` is a workflow
             name, at, ref = value.strip().partition("@")
-            if at and ref and ACTION.match(name):
+            if at and ref and ACTION.match(name) and not name.startswith("./"):
                 out.setdefault(name, path)
-            elif not at and name.startswith("./") and (key := local_key(name)) and not key.startswith(".."):
+            elif not at and name.startswith("./") and (key := local_key(name)) and not key.startswith("./.."):
                 out.setdefault(key, path)
     return out, {f: skipped[f] for f in scan.files if f in skipped}
 
