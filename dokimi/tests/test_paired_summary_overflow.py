@@ -83,12 +83,18 @@ def test_report_generator_prints_an_em_dash_and_a_note_for_the_missing_delta():
     data = {"evaluations": ISSUE_INPUT}
     md = ReportGenerator().generate_report(data, {"questions": []}, "markdown")
     assert "| **—** |" in md
-    assert "_No delta: 1 complete pairs differ by more than the float range._" in md
+    assert "_No delta: 1 complete pair differs by more than the float range._" in md
     assert "no delta and no conclusion" in md
     out = json.loads(ReportGenerator().generate_report(data, {"questions": []}, "json"))["stats"]
     assert out["delta"] == {"avg": None, "min": None, "max": None}
     assert out["with_docs"]["avg"] == pytest.approx(BIG / 2, rel=1e-12)
     assert (out["doc_improvements"], out["doc_degradations"]) == (1, 0)
+
+
+def test_report_generator_note_counts_several_overflowing_pairs_in_the_plural():
+    data = {"evaluations": [_row("q1", BIG, -BIG), _row("q2", -BIG, BIG), _row("q3", 1.0, 1.0)]}
+    md = ReportGenerator().generate_report(data, {"questions": []}, "markdown")
+    assert "_No delta: 2 complete pairs differ by more than the float range._" in md
 
 
 def _reject_constant(name):

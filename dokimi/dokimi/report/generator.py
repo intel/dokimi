@@ -563,7 +563,8 @@ def _complete_pairs(evaluations: Sequence[Record]) -> List[Record]:
 def _unpaired_note(stats: Dict[str, Any]) -> List[str]:
     """A line saying what the overall means leave out; nothing when every question is paired."""
     overflow = stats.get("delta_overflow_questions", 0)
-    note = [f"_No delta: {overflow} complete pairs differ by more than the float range._", ""] if overflow else []
+    pairs = "pair differs" if overflow == 1 else "pairs differ"
+    note = [f"_No delta: {overflow} complete {pairs} by more than the float range._", ""] if overflow else []
     if not stats["unpaired_questions"]:
         return note
     if not stats["paired_questions"]:
