@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import errno
 import json
-import math
 import os
 import sys
 import threading
@@ -17,6 +16,7 @@ from pathlib import Path
 
 from dokimi import cli_flags
 from dokimi.llm import PROVIDERS as API_PROVIDERS
+from dokimi.cli_types import positive_usd
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_USAGE
 from dokimi.utils import InputError
@@ -62,13 +62,6 @@ def _first_turn_caller(model: str, provider: str, max_tokens: int):
             raise
 
     return call
-
-
-def _positive_usd(value: str) -> float:
-    usd = float(value)
-    if not math.isfinite(usd) or usd <= 0:
-        raise argparse.ArgumentTypeError(f"must be > 0, got {value}")
-    return usd
 
 
 def _print_summary(summary: dict) -> None:
@@ -219,7 +212,7 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     pref_p.add_argument("--max-tokens", type=positive_int, default=2048, dest="max_tokens",
                         help="Per call; reasoning models spend part of it before the tool call (default: 2048)")
     pref_p.add_argument("--concurrency", type=positive_int, default=8)
-    pref_p.add_argument("--max-cost-usd", type=_positive_usd, default=None, dest="max_cost_usd",
+    pref_p.add_argument("--max-cost-usd", type=positive_usd, default=None, dest="max_cost_usd",
                         help="Start no new call once the priced calls have spent this much; the calls "
                              "not started are recorded as skipped and, if there are any, the command "
                              "exits 3 (default: no cap)")
