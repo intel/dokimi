@@ -363,7 +363,7 @@ def test_the_report_action_uploads_after_a_failed_comment_and_finds_its_own_comm
     assert "gh api user" in sticky and '.user.login == \\"$me\\"' in sticky
 
 
-def _run_sticky(tmp_path, token, default_token):
+def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False):
     """The sticky step's script against a fake ``gh`` that has no ``/user`` and logs its calls."""
     import yaml
 
@@ -372,12 +372,14 @@ def _run_sticky(tmp_path, token, default_token):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     gh = bin_dir / "gh"
-    gh.write_text('#!/bin/sh\necho "$@" >> "$GH_LOG"\n[ "$2" = user ] && exit 1\nexit 0\n', encoding="utf-8")
+    gh.write_text('#!/bin/sh\necho "$@" >> "$GH_LOG"\n[ "$2" = user ] && exit 1\n'
+                  '[ -n "$GH_WRITE_FAILS" ] && [ "$2" = -X ] && exit 1\nexit 0\n', encoding="utf-8")
     gh.chmod(0o755)
     (tmp_path / "summary").mkdir()
-    (tmp_path / "summary" / "summary.md").write_text("x\n", encoding="utf-8")
+    (tmp_path / "summary" / "summary.md").write_text(body, encoding="utf-8")
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "OUT": str(tmp_path), "GH_TOKEN": token, "DEFAULT_TOKEN": default_token,
-           "PR": "1", "REPO": "o/r", "GH_LOG": str(tmp_path / "gh.log")}
+           "PR": "1", "REPO": "o/r", "GH_LOG": str(tmp_path / "gh.log"),
+           **({"GH_WRITE_FAILS": "1"} if write_fails else {})}
     done = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=False)
     return done, (tmp_path / "gh.log").read_text(encoding="utf-8") if (tmp_path / "gh.log").exists() else ""
 
@@ -390,3 +392,105 @@ def test_sticky_comment_refuses_a_token_whose_login_is_unreadable(tmp_path):
 def test_sticky_comment_posts_with_the_default_token(tmp_path):
     done, log = _run_sticky(tmp_path, "default-token", "default-token")
     assert done.returncode == 0 and "POST" in log and "api user" not in log
+
+
+def test_sticky_comment_that_cannot_be_posted_is_a_warning_not_a_failed_job(tmp_path):
+    done, log = _run_sticky(tmp_path, "default-token", "default-token", write_fails=True)
+    assert "POST" in log and done.returncode == 0 and "::warning title=dokimi report::" in done.stdout
+
+
+def test_sticky_comment_body_stays_below_the_comment_limit(tmp_path):
+    done, _ = _run_sticky(tmp_path, "default-token", "default-token", body="| row |\n" * 20000)
+    comment = (tmp_path / "summary" / "comment.md").read_text(encoding="utf-8")
+    assert done.returncode == 0 and len(comment) < 65536 and "job summary" in comment
+
+
+def test_a_run_stopped_short_is_not_a_pass(tmp_path):
+    _doc(tmp_path, "a.json", "catalog check", verdict="pass")
+    _doc(tmp_path, "b.json", "skill routing", status="budget_stopped", reason="spend cap reached")
+    out = summarize([str(tmp_path)])
+    assert [c["state"] for c in out["checks"]] == ["pass", "budget_stopped"]
+    assert out["overall"] == "budget_stopped"
+    assert "::warning title=skill routing::budget_stopped: spend cap reached" in render(out, "annotations")
+    assert schema_errors("report_summary.v1", out) == []
+
+
+def test_a_failing_verdict_outranks_a_stopped_status(tmp_path):
+    _doc(tmp_path, "a.json", "catalog eval", status="partial", verdict="fail")
+    assert summarize([str(tmp_path)])["checks"][0]["state"] == "fail"
+
+
+def test_an_unpriced_spend_is_not_shown_as_an_amount_or_added_to_the_total(tmp_path):
+    _doc(tmp_path, "a.json", "skill routing", cost={"spent_usd": 0.0, "cap_usd": 1.0, "priced": False})
+    _doc(tmp_path, "b.json", "repo hits", cost={"spent_usd": 2.0, "cap_usd": 5.0, "priced": True})
+    out = summarize([str(tmp_path)])
+    md = render(out, "markdown")
+    assert out["spent_usd"] is None and "unpriced / 1.0" in md and "2.0 / 5.0" in md and "0.0 / 1.0" not in md
+
+
+def test_skill_routing_json_leaves_no_remainder_for_an_unpriced_run(tmp_path):
+    d, c = _routed_skill(tmp_path)
+    cost = {**_COST, "usd": None}
+    with patch("dokimi.novelty.cost.client", return_value=object()), \
+            patch("dokimi.novelty.client.roll_up_cost", return_value=cost), \
+            patch("dokimi.novelty.routing.model_routing", return_value=_ARM):
+        _, out, _ = _main("skill", "routing", str(d), "--competitors", str(c), "--queries-from-headings",
+                          "--model", "m", "--max-usd", "1", "--out", str(tmp_path / "r.json"), "--json")
+    doc = json.loads(out)
+    assert doc["cost"]["priced"] is False and doc["cost"]["remaining_usd"] is None
+
+
+def test_markdown_lists_each_finding_with_its_location_and_escapes_html(tmp_path):
+    doc = cli_output.envelope("repo scan", verdict="fail", subjects=[{"subject": "AGENTS.md", "verdict": "fail", "findings": [
+        cli_output.finding("error", "claim", "no <details> | here", "AGENTS.md", 7)]}])
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    md = render(summarize([str(p)]), "markdown")
+    assert "| AGENTS.md | repo scan | error | AGENTS.md:7 | claim | no &lt;details&gt; \\| here |" in md
+
+
+def test_markdown_caps_the_listed_findings(tmp_path):
+    findings = [cli_output.finding("warn", "w", f"m{i}", "f.md", i + 1) for i in range(103)]
+    doc = cli_output.envelope("repo scan", subjects=[{"subject": "s", "verdict": None, "findings": findings}])
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    md = render(summarize([str(p)]), "markdown")
+    assert "| m99 |" in md and "| m100 |" not in md and "3 more findings" in md
+
+
+def _git_catalog(tmp: Path) -> Path:
+    root = _catalog(tmp, broken=True)
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(root)]
+    subprocess.run([*git[:5], "init", "-q", str(root)], check=True)
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "base"], check=True)
+    (root / "skills" / "alpha" / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: Use for alpha tasks, changed.\n---\nRun the checks.\n", encoding="utf-8")
+    return root
+
+
+def test_catalog_eval_json_leaves_a_skill_outside_the_selection_unjudged(tmp_path):
+    root = _git_catalog(tmp_path)
+    code, out, _ = _main("catalog", "eval", str(root), "--out-dir", str(tmp_path / "out"), "--changed-from", "HEAD", "--json")
+    doc = json.loads(out)
+    subjects = {s["subject"]: s for s in doc["subjects"]}
+    assert code == 0 and doc["verdict"] == "pass"
+    assert subjects["beta"]["verdict"] is None and subjects["beta"]["findings"] == []
+    assert subjects["alpha"]["verdict"] == "pass"
+    annotations = render(summarize([_write(tmp_path, doc)]), "annotations")
+    assert "beta" not in annotations
+
+
+def _write(tmp: Path, doc: dict) -> str:
+    p = tmp / "eval.json"
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    return str(p)
+
+
+def test_catalog_eval_json_findings_point_at_the_skill_file_under_the_given_root(tmp_path, monkeypatch):
+    _catalog(tmp_path, broken=True)
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = _main("catalog", "eval", "catalog", "--out-dir", str(tmp_path / "out"), "--json")
+    doc = json.loads(out)
+    files = {f["file"] for s in doc["subjects"] for f in s["findings"]}
+    assert code == 1 and files == {"catalog/skills/beta/SKILL.md"}

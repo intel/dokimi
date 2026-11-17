@@ -475,9 +475,10 @@ def cmd_skill_routing(args: argparse.Namespace) -> None:
     payload, out, skill = done
     lexical, model = payload["lexical"], payload.get("model") or {}
     spent = (payload.get("cost") or {}).get("usd")
-    cost = {"spent_usd": spent or 0.0, "cap_usd": getattr(args, "max_usd", None),
-            "calls": (payload.get("cost") or {}).get("llm_calls", 0), "priced": spent is not None}
-    if cost["cap_usd"] is not None:
+    calls = (payload.get("cost") or {}).get("llm_calls", 0)
+    cost = {"spent_usd": spent or 0.0, "cap_usd": getattr(args, "max_usd", None), "calls": calls,
+            "priced": None if not calls else spent is not None}
+    if cost["cap_usd"] is not None and cost["priced"] is not False:  # an unpriced spend leaves no remainder to state
         cost["remaining_usd"] = round(cost["cap_usd"] - cost["spent_usd"], 6)
     partial = payload.get("partial")
     status = "complete" if partial is None else ("budget_stopped" if partial["reason"] == "spend_cap" else "partial")

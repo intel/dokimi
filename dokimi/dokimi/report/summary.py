@@ -23,6 +23,10 @@ _STATUSES = ("complete", "partial", "budget_stopped", "cancelled", "failed")
 FORMATS = ("markdown", "json", "annotations")
 #: Document verdicts that count against the overall state, worst first.
 _BAD = ("infra_error", "invalid", "fail", "inconclusive")
+#: Document statuses that end short of complete; a row in one is not a pass.
+_STOPPED = ("budget_stopped", "partial", "cancelled")
+#: Findings listed under the subject table of the Markdown; the rest stay in the JSON and the annotations.
+MAX_LISTED = 100
 
 
 def _row(source: str, state: str, *, kind: str | None = None, status: str | None = None,
@@ -30,7 +34,8 @@ def _row(source: str, state: str, *, kind: str | None = None, status: str | None
          subjects: int = 0) -> dict[str, Any]:
     return {"source": source, "state": state, "kind": kind, "status": status, "verdict": verdict,
             "reason": reason, "subjects": subjects, "summary": {},
-            "spent_usd": (cost or {}).get("spent_usd"), "cap_usd": (cost or {}).get("cap_usd")}
+            "spent_usd": (cost or {}).get("spent_usd"), "cap_usd": (cost or {}).get("cap_usd"),
+            "priced": (cost or {}).get("priced")}
 
 
 def expand_inputs(paths: list[str]) -> list[Path]:
@@ -102,7 +107,15 @@ def load(path: Path) -> tuple[dict[str, Any], dict[str, Any] | None]:
     error = doc.get("error") if isinstance(doc.get("error"), dict) else None
     reason = doc.get("reason") or (error or {}).get("message")
     verdict = doc.get("verdict")
-    state = "failed" if doc.get("status") == "failed" else (verdict or "report_only")
+    status = doc.get("status")
+    if status == "failed":
+        state = "failed"
+    elif verdict in _BAD:
+        state = verdict
+    elif status in _STOPPED:  # a run the cap or an error cut short is not a pass, whatever verdict it carries
+        state = status
+    else:
+        state = verdict or "report_only"
     cost = doc.get("cost") if isinstance(doc.get("cost"), dict) else None
     row = _row(source, state, kind=doc["kind"], status=doc.get("status"), verdict=verdict, reason=reason,
                cost=cost, subjects=len(doc.get("subjects") or []))
@@ -126,7 +139,7 @@ def _flat(summary: Any, prefix: str = "") -> dict[str, Any]:
 
 def _overall(checks: list[dict[str, Any]]) -> str:
     states = {c["state"] for c in checks}
-    for bad in ("failed", "invalid", "not_run", *_BAD):
+    for bad in ("failed", "invalid", "not_run", *_BAD, *_STOPPED):
         if bad in states:
             return bad
     if "pass" in states:
@@ -157,13 +170,18 @@ def summarize(paths: list[str]) -> dict[str, Any]:
                 entry["findings"] += [{**f, "check": check} for f in s.get("findings") or []
                                       if isinstance(f, dict)]
     spent = [c["spent_usd"] for c in checks if isinstance(c["spent_usd"], (int, float))]
+    unpriced = any(c["priced"] is False for c in checks)
     return {"schema_version": SUMMARY_SCHEMA, "overall": _overall(checks), "checks": checks,
             "subjects": [subjects[k] for k in sorted(subjects)],
-            "spent_usd": round(sum(spent), 6) if spent else None}
+            "spent_usd": round(sum(spent), 6) if spent and not unpriced else None}
 
 
 def _cell(value: Any) -> str:
-    return "—" if value is None else str(value).replace("|", "\\|").replace("\n", " ")
+    """A table cell: ``|`` and line breaks cannot split it, ``<`` and ``>`` cannot open HTML."""
+    if value is None:
+        return "—"
+    return (str(value).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+            .replace("<", "&lt;").replace(">", "&gt;"))
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
@@ -171,7 +189,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
              "| Check | Source | State | Verdict | Subjects | Spent / cap USD | Summary | Reason |",
              "|---|---|---|---|---|---|---|---|"]
     for c in summary["checks"]:
-        money = "—" if c["spent_usd"] is None else f"{c['spent_usd']} / {_cell(c['cap_usd'])}"
+        money = "—" if c["spent_usd"] is None else (
+            f"unpriced / {_cell(c['cap_usd'])}" if c["priced"] is False else f"{c['spent_usd']} / {_cell(c['cap_usd'])}")
         facts = ", ".join(f"{k} {_cell(v)}" for k, v in c["summary"].items()) or None
         lines.append(f"| {_cell(c['kind'])} | `{_cell(c['source'])}` | {c['state']} | {_cell(c['verdict'])} "
                      f"| {c['subjects']} | {money} | {_cell(facts)} | {_cell(c['reason'])} |")
@@ -183,6 +202,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
             lines.append(f"| {_cell(s['subject'])} | " + " | ".join(
                 (_cell(s["verdicts"].get(k)) + (f" ({counts[k]} finding{'s' * (counts[k] != 1)})" if counts[k] else ""))
                 if k in s["verdicts"] else "not in run" for k in kinds) + " |")
+        listed = [(s["subject"], f) for s in summary["subjects"] for f in s["findings"]]
+        if listed:
+            lines += ["", "| Subject | Check | Level | Location | Code | Message |", "|---|---|---|---|---|---|"]
+            for subject, f in listed[:MAX_LISTED]:
+                where = f.get("file") and f"{f['file']}:{f['line']}" if f.get("line") else f.get("file")
+                lines.append(f"| {_cell(subject)} | {_cell(f['check'])} | {_cell(f.get('level'))} | {_cell(where)} "
+                             f"| {_cell(f.get('code'))} | {_cell(f.get('message'))} |")
+            if len(listed) > MAX_LISTED:
+                lines += ["", f"{len(listed) - MAX_LISTED} more findings in the JSON summary and the annotations"]
     return "\n".join(lines) + "\n"
 
 
@@ -206,7 +234,7 @@ def render_annotations(summary: dict[str, Any]) -> str:
         msg = _escape(f"{c['state']}: {c['reason'] or c['source']}")
         if c["state"] in ("failed", "invalid", "not_run", "infra_error"):
             out.append(f"::error title={name}::{msg}")
-        elif c["state"] in _BAD:
+        elif c["state"] in _BAD or c["state"] in _STOPPED:
             out.append(f"::warning title={name}::{msg}")
     for s in summary["subjects"]:
         for kind, verdict in s["verdicts"].items():

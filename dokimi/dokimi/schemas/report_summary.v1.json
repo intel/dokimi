@@ -7,7 +7,7 @@
   "required": ["schema_version", "overall", "checks", "subjects", "spent_usd"],
   "additionalProperties": false,
   "$defs": {
-    "state": {"enum": ["pass", "fail", "inconclusive", "invalid", "infra_error", "failed", "not_run", "report_only"]},
+    "state": {"enum": ["pass", "fail", "inconclusive", "invalid", "infra_error", "failed", "not_run", "report_only", "budget_stopped", "partial", "cancelled"]},
     "verdict": {"enum": ["pass", "fail", "inconclusive", "invalid", "infra_error", null]}
   },
   "properties": {
@@ -17,7 +17,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["source", "state", "kind", "status", "verdict", "reason", "subjects", "summary", "spent_usd", "cap_usd"],
+        "required": ["source", "state", "kind", "status", "verdict", "reason", "subjects", "summary", "spent_usd", "cap_usd", "priced"],
         "additionalProperties": false,
         "properties": {
           "source": {"type": "string", "description": "The input path."},
@@ -29,7 +29,8 @@
           "subjects": {"type": "integer", "minimum": 0},
           "summary": {"type": "object", "description": "The scalar values of the document's `summary`, nested keys joined by `.`."},
           "spent_usd": {"type": ["number", "null"]},
-          "cap_usd": {"type": ["number", "null"]}
+          "cap_usd": {"type": ["number", "null"]},
+          "priced": {"type": ["boolean", "null"], "description": "The document's `cost.priced`; false means `spent_usd` is not a real price."}
         }
       }
     },
@@ -60,6 +61,6 @@
         }
       }
     },
-    "spent_usd": {"type": ["number", "null"], "description": "The sum of the rows' `spent_usd`; null when no row has a cost."}
+    "spent_usd": {"type": ["number", "null"], "description": "The sum of the rows' `spent_usd`; null when no row has a cost or any row is unpriced."}
   }
 }

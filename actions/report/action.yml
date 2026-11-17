@@ -14,7 +14,9 @@ inputs:
   out-dir:
     description: >-
       Directory holding the cli_output.v1 documents (`*.json`, not recursive), usually
-      the out-dir output of actions/setup. The rendered summary goes to its `summary/`
+      the out-dir output of actions/setup. Every top-level `*.json` there must be a
+      cli_output.v1 document, else it is an `invalid` row; other files (a receipt, a
+      `--out` result) go in a subdirectory. The rendered summary goes to its `summary/`
       subdirectory.
     required: true
   comment:
@@ -58,7 +60,11 @@ runs:
         REPO: ${{ github.repository }}
       run: |
         marker='<!-- dokimi-report -->'
-        { echo "$marker"; cat -- "$OUT/summary/summary.md"; } > "$OUT/summary/comment.md"
+        # A comment body is capped at 65,536 characters: cut the summary below it and point to the job summary.
+        { echo "$marker"; head -c 60000 -- "$OUT/summary/summary.md"
+          if [ "$(wc -c < "$OUT/summary/summary.md")" -gt 60000 ]; then
+            printf '\n\n_Summary cut here; the full one is in the job summary._\n'
+          fi; } > "$OUT/summary/comment.md"
         # The comment is the token's own: a user token posts as that user, the default token as the bot.
         # Any other token whose login cannot be read (an app installation token) is refused, not guessed.
         if [ "$GH_TOKEN" = "$DEFAULT_TOKEN" ]; then
@@ -70,11 +76,14 @@ runs:
           }
         fi
         id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)
+          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" | head -n1) || id=
+        # A token that cannot write (a pull request from a fork) must not turn a green job red.
         if [ -n "$id" ]; then
-          gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$OUT/summary/comment.md" >/dev/null
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$OUT/summary/comment.md" >/dev/null ||
+            echo "::warning title=dokimi report::the sticky comment could not be updated; the summary is in the job summary"
         else
-          gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$OUT/summary/comment.md" >/dev/null
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$OUT/summary/comment.md" >/dev/null ||
+            echo "::warning title=dokimi report::the sticky comment could not be posted; the summary is in the job summary"
         fi
     - name: Upload out-dir
       if: ${{ always() && inputs.artifact-name != '' }}
