@@ -45,7 +45,7 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
         reason = ("one or more traces could not be read (see stderr)" if failed
                   else "lines of a trace were skipped (see stderr)" if skipped else None)
         cli_output.emit_leaf("trace inspect", rows, status=status, reason=reason)
-    elif rows:
+    else:
         _print_text(rows, args)
     if failed:
         sys.exit(1)

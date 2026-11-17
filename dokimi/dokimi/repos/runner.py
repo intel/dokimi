@@ -248,7 +248,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     result = ctx.runner.run(spec, stdout=rd / "agent.stdout", stderr=rd / "agent.stderr",
                             timeout_s=caps["timeout_s"])
 
-    # The agent has run and may have spent its cap: from here on the cell is graded, never dropped.
+    # The agent has run and may have spent its cap: from here on the cell is graded, never dropped,
+    # except a crash before its first trace line (CellCrash below).
     agent: dict[str, Any] = {
         "rc": result.returncode, "timed_out": result.timed_out, "wall_s": result.wall_s, "cost_usd": None,
         # A killed harness reports no cost; the batch budget counts the cell's cap instead of $0.
