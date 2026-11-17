@@ -718,7 +718,7 @@ field per declared requirement with `met` true, false, or null where the probe c
 report's `met` is false if any field is, else null if any is undecided, else true. The requirements
 are checked against the grading container's CPU view, as in §3, not against the host's collectors,
 which only enter the fingerprint. `repo report` groups rows by `host_fingerprint` and notes a
-labelled miss ("labelled, unmet: cpu_flags.avx512f"). Without the flag, nothing changes.
+labelled miss ("labelled, unmet: cpu_flags.avx512f"). Without the flag, cells are not run on a host that misses the requirements, but results still carry `host_fingerprint` and `repo report` still splits rows by it.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
 directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a
