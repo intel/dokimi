@@ -75,6 +75,7 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     require_runnable(manifest)
     if manifest.image is None:
         raise ValueError(f"{manifest.path} declares no `image`; entry points and agents run in it")
+    _check_cache_paths(args, manifest)  # before the export and the image build (#826)
     git_dir = source_git_dir(source, tree, _cache_dir(args))
     content = out / "_eval" / "content"
     # a pinned batch keeps its content until the pin is checked
@@ -175,6 +176,25 @@ def _pair(text: str) -> tuple[str, str]:
     return name, path
 
 
+def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None:
+    """Refuse a ``--cache-root`` or ``--cache NAME=PATH`` no cache directory can be made in (usage error, exit 2) (#826).
+
+    Checked before the image build: ``_context`` makes each cache directory after it. A ``--cache`` naming no
+    cache of the manifest is skipped here (``_context`` refuses it with its own message).
+    """
+    from dokimi.commands.cache_dir import CACHE_USE, usable_cache_dir
+
+    overrides = dict(_pair(c) for c in args.cache or ())
+    names = [c.name for c in manifest.image.caches] if manifest.image is not None else []
+    if args.cache_root:
+        usable_cache_dir(args.cache_root, CACHE_USE, label="--cache-root")
+    for name in names:
+        if name in overrides:
+            usable_cache_dir(overrides[name], CACHE_USE, label=f"--cache {name}")
+        elif args.cache_root:
+            usable_cache_dir(str(Path(args.cache_root) / name), CACHE_USE, label="--cache-root")
+
+
 def _progress(line: str) -> None:
     """One progress line, flushed: under a pipe (CI) stdout is block-buffered and the per-task
     lines would otherwise all appear when the command exits."""
@@ -212,6 +232,8 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
         results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs, log=_progress)
+    except InputError:  # a ValueError: a bad cache path is a usage error (2), not a failed run (1) (#826)
+        raise
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -363,6 +385,8 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
             write_skill_pin(batch_dir, skill_pin)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
                             max_batch_usd=args.max_batch_usd, log=_progress)
+    except InputError:  # see cmd_repo_tasks_check (#826)
+        raise
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -486,7 +510,7 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
 
 _SOURCE_EXIT = (
     "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote), a "
-    "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory; exit 1 for a source that cannot be opened "
+    "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory, or a --cache-root or --cache that is not one; exit 1 for a source that cannot be opened "
     "(clone, fetch, revision) and "
 )
 CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check."
