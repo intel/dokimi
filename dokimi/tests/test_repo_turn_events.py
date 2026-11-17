@@ -158,7 +158,7 @@ def test_every_turn_and_compaction_line_validates_against_the_schema():
     events = convert("claude-stream-json", _claude_run(tree=True)).events
     for event in events:
         if event["kind"] in ("turn", "compaction"):
-            assert schema_errors("repo_event.v1", {**event, "v": 1}) == [], event
+            assert schema_errors("repo_event.v2", {**event, "v": 2}) == [], event
 
 
 def test_a_turn_without_its_counts_does_not_validate():
@@ -209,7 +209,7 @@ def test_a_turn_of_a_non_string_parent_tool_use_id_validates_against_the_schema(
     raw = _lines(_call("a", _usage(3, 1, 0, 0), "2026-11-14T10:00:00Z", parent=7))
     turns = _turns(convert("claude-stream-json", raw).events)
     assert len(turns) == 1 and turns[0]["agent"] == "7"
-    assert schema_errors("repo_event.v1", {**turns[0], "v": 1}) == []
+    assert schema_errors("repo_event.v2", {**turns[0], "v": 2}) == []
 
 
 def test_a_turn_before_the_first_useful_command_is_not_a_step():

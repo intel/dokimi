@@ -54,13 +54,17 @@ reads the tool path of a run keeps to those kinds too.
 
 Any line may also carry `agent` (the id of the parent's `Agent`/`Task` call that
 started it), and `denied: true` when the call was refused and never ran. The
-exact field list is the JSON Schema `dokimi/schemas/repo_event.v1.json`.
+exact field list is the JSON Schema `dokimi/schemas/repo_event.v2.json` (lines this code writes);
+lines written before version 2 are described by `repo_event.v1.json`, which is unchanged.
 
 ## Version
 
 Every line carries `v`: the major version of the format it was written under.
-Version 1 is the format this page describes; it has the `turn` and `compaction`
-kinds, added to it within version 1.
+This page describes version 2, which lines written by this code carry as `v: 2`.
+Version 2 differs from version 1 in two ways: `output` and `output_truncated` are
+on `command` lines only (version 1 had them on every line, which an integer
+`output` on a `turn` line contradicts), and the `turn` and `compaction` kinds
+are in it. Version 1 lines stay valid under `repo_event.v1.json`.
 
 - A line with no `v` was written before the field existed. It has the version 1
   shape and reads as version 1.
@@ -72,10 +76,10 @@ kinds, added to it within version 1.
 
 Within a major version, kinds and fields are only added. A reader written for
 version 1 keeps working on every later version 1 file, and a field that existed
-keeps its name, type and meaning. A change that would break a version 1 reader
-(a renamed or removed field, a changed meaning, a changed `null`) is version 2:
-a new schema `repo_event.v2.json`, with `v` set to 2 on the lines it writes. A
-file may mix versions, since traces are re-derived and appended to.
+keeps its name, type and meaning. A change that would break a reader of the
+current version is a new version: a new schema file `repo_event.vN.json`, with
+`v` set to N on the lines it writes. Released schema files are not edited in
+place. A file may mix versions, since traces are re-derived and appended to.
 
 ## Reading
 

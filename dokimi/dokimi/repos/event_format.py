@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-EVENT_VERSION = 1  # the major version this code writes; a version change adds repo_event.vN.json
+EVENT_VERSION = 2  # the major version this code writes; a version change adds repo_event.vN.json
 
 #: The kinds that are tool activity: what ``tool_calls`` counts.
 TOOL_KINDS = frozenset({"command", "read", "edit", "tool"})

@@ -79,22 +79,22 @@ def test_every_converted_line_is_versioned_and_validates():
     assert {e["kind"] for e in lines} == KNOWN_KINDS  # the fixtures cover every kind the schema names
     for event in lines:
         assert event["v"] == EVENT_VERSION
-        assert schema_errors("repo_event.v1", event) == [], event
+        assert schema_errors("repo_event.v2", event) == [], event
 
 
 @pytest.mark.parametrize("line", [
-    {"kind": "command", "text": "ls", "t": 1.0, "v": 1},
-    {"kind": "command", "rc": 0, "t": 1.0, "v": 1},
-    {"kind": "edit", "t": 1.0, "v": 1},
-    {"kind": "tool", "t": 1.0, "v": 1},
-    {"kind": "read", "path": 3, "t": 1.0, "v": 1},
-    {"kind": "command", "text": "ls", "rc": 0, "t": "1.0", "v": 1},
-    {"kind": "read", "path": "a.md", "v": 1},
-    {"t": 1.0, "v": 1},
+    {"kind": "command", "text": "ls", "t": 1.0, "v": 2},
+    {"kind": "command", "rc": 0, "t": 1.0, "v": 2},
+    {"kind": "edit", "t": 1.0, "v": 2},
+    {"kind": "tool", "t": 1.0, "v": 2},
+    {"kind": "read", "path": 3, "t": 1.0, "v": 2},
+    {"kind": "command", "text": "ls", "rc": 0, "t": "1.0", "v": 2},
+    {"kind": "read", "path": "a.md", "v": 2},
+    {"t": 1.0, "v": 2},
 ], ids=["command-no-rc", "command-no-text", "edit-no-path", "tool-no-name", "read-path-int", "string-t",
         "no-t", "no-kind"])
 def test_a_line_that_breaks_the_version_1_shape_is_refused(line):
-    assert schema_errors("repo_event.v1", line) != []
+    assert schema_errors("repo_event.v2", line) != []
 
 
 def test_the_writer_only_adds_the_version_to_each_event():
@@ -132,7 +132,7 @@ def test_unversioned_and_converted_give_the_same_process_metrics():
 
 
 def test_the_schema_names_exactly_the_known_kinds():
-    schema = json.loads((SCHEMA_DIR / "repo_event.v1.json").read_text(encoding="utf-8"))
+    schema = json.loads((SCHEMA_DIR / "repo_event.v2.json").read_text(encoding="utf-8"))
     named = {clause["if"]["properties"]["kind"]["const"] for clause in schema["allOf"]}
     assert named == KNOWN_KINDS
 
