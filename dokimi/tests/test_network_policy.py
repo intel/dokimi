@@ -18,7 +18,8 @@ from pathlib import Path
 import pytest
 
 from dokimi.harnesses import TaskSuiteRunner, load_task
-from dokimi.harnesses.network_policy import parse_override, resolve
+from dokimi.harnesses.network_policy import (PROXY_VARS, PhasePolicy, build_args, build_env, parse_override,
+                                             resolve)
 from dokimi.harnesses.registry import create_harness
 from dokimi.process import reply
 from docker_cli_fake import DockerCLI
@@ -276,6 +277,42 @@ def test_build_none_builds_offline(tmp_path):
     cli, _ = _oracle(tmp_path, "build=none")
     build = next(a for a in cli.args if a[0] == "build")
     assert build[build.index("--network") + 1] == "none" and "--build-arg" not in build
+
+
+# ── proxy values stay out of the docker build argv ─────────────────────────
+
+
+def test_a_public_build_names_the_proxy_and_its_value_stays_out_of_argv(tmp_path, monkeypatch):
+    secret = "http://svc-user:s3cret-token@proxy.corp:912"
+    monkeypatch.setenv("https_proxy", secret)
+    cli, _ = _oracle(tmp_path)
+    build = next(a for a in cli.args if a[0] == "build")
+    assert build[build.index("--build-arg") + 1] == "https_proxy"
+    assert not any("s3cret" in part or "proxy.corp" in part for a in cli.args for part in a)
+    # the value reaches the docker CLI through the build's environment instead
+    (build_call,) = [c for c in cli.calls if c.argv[1:2] == ("build",)]
+    assert build_call.env["https_proxy"] == secret
+
+
+def test_build_args_name_only_the_proxy_variables_that_are_set(monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://u:pw@proxy:912")
+    monkeypatch.setenv("NO_PROXY", "")  # empty counts as unset
+    assert build_args(PhasePolicy("public")) == ["--network", "host", "--build-arg", "HTTP_PROXY"]
+    assert build_env(PhasePolicy("public")) == {"HTTP_PROXY": "http://u:pw@proxy:912"}
+
+
+def test_build_args_and_env_for_every_proxy_variable_in_order(monkeypatch):
+    for name in PROXY_VARS:
+        monkeypatch.setenv(name, f"http://{name}:3128")
+    flags = build_args(PhasePolicy("public"))
+    assert flags == ["--network", "host", *[p for n in PROXY_VARS for p in ("--build-arg", n)]]
+    assert list(build_env(PhasePolicy("public"))) == list(PROXY_VARS)
+
+
+def test_a_build_without_network_takes_no_proxy_at_all(monkeypatch):
+    monkeypatch.setenv("https_proxy", "http://u:pw@proxy:912")
+    assert build_args(PhasePolicy("none")) == ["--network", "none"]
+    assert build_env(PhasePolicy("none")) == {}
 
 
 def test_a_task_public_oracle_keeps_its_network_unless_the_operator_closes_it(tmp_path):

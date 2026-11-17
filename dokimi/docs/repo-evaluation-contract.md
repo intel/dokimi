@@ -505,6 +505,8 @@ reads the upstream base (`base_sha`) and the workspace start commit
 
 ### 4.1 `events.jsonl`
 
+The line format, its version and the promise that comes with it: [events-format.md](events-format.md).
+
 ```json
 {"t": 12.4, "kind": "command", "text": "bazel test //cpp/...:x_host", "rc": 0}
 {"t": 3.1,  "kind": "read",    "path": "AGENTS.md"}
@@ -550,7 +552,7 @@ parent's and subagents' together, so a grader need not:
 
 | Key | Meaning |
 |---|---|
-| `tool_calls` | every event: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
+| `tool_calls` | every event of a known kind: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
@@ -570,7 +572,7 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
-A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts every event up to and
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the events of a known kind up to and
 including the hit, the parent's and subagents' (as `process.tool_calls` does).
 `issued_s` is the hit's `t`: the time the call was issued, since a call's result
 is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
@@ -2551,8 +2553,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
   the mean delta a one-sample t test at the uncorrected two-sided 5% level
   detects with 80% power at that spread, the t quantiles at `n-1` degrees of
-  freedom (every row has `mde` under `data` in `--json`; `null` for one task or deltas with
-  no spread, and then no note). It is not the power of the sign-flip test nor
+  freedom (every row has `mde` under `data` in `--json`; `null` for one task, for deltas with
+  no spread (then no note), or for a figure that leaves the float range (the note then names the changed-task or Holm floor where one keeps p above 0.05, and says nothing otherwise). It is not the power of the sign-flip test nor
   of the Holm-corrected decision; a Holm-calibrated figure would depend on the
   other rows' observed p, which a figure for planning the next run's task count
   cannot know. The sign-flip p over k changed (non-tied)
