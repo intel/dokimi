@@ -8,7 +8,7 @@ over the deltas not within their tie width of 0 (:data:`EPS`, or :func:`tie_widt
 :func:`min_sign_flip_p` is the floor it cannot go below over k changed deltas, ``2 / 2**k`` exact.
 
 ``p(theta)`` is the two-sided sign-flip p of the shifted deltas ``d - theta`` over every delta, as
-:func:`sign_flip_p` computes it on them (that one adds the deltas as exact integers; this one, below, in floats, so its p can differ at the ends of a row whose deltas floats cannot resolve): a shifted delta within the tie width of its pair (:func:`tie_widths`, kept
+:func:`sign_flip_p` computes it on them (that one adds the deltas as exact integers; this one, below, in floats unless the shifted deltas span more than 40 binary orders, so its p can differ at the ends of a row whose deltas floats cannot resolve in fewer): a shifted delta within the tie width of its pair (:func:`tie_widths`, kept
 from the original deltas) of 0 is a tie, so a delta tied at 0 counts again once ``theta`` moves off 0. Exact, a sign
 pattern counts when its sum falls short of the observed one by at most the rounding error of adding the deltas summed (:func:`_sum_slack`; :data:`EPS` at most, and no more than the
 largest tie width among them),
@@ -167,6 +167,24 @@ def _as_integers(values: Sequence[float], cap: float) -> tuple[list[int], int]:
     return [num * (denominator // den) for num, den in ratios], math.floor(Fraction(cap) * denominator)
 
 
+def _exact_hits(signs: np.ndarray, values: list[float], cap_eps: float) -> int:
+    """The resamples (rows of ``signs``) whose exact ``|sum|`` reaches the observed one less its slack: the integers of
+    ``values`` are split into limbs that cannot overflow int64 over all of them, each limb summed as an int64
+    product, and the limbs joined as Python ints."""
+    import numpy as np
+
+    ints, cap = _as_integers(values, cap_eps)
+    observed = _observed(ints, cap)
+    bits = max((abs(v).bit_length() for v in ints), default=0)
+    s64 = signs.astype(np.int64)
+    total = np.zeros(signs.shape[0], dtype=object)
+    width = 62 - len(ints).bit_length()  # n limbs of this many bits sum within int64
+    for shift in range(0, bits, width):
+        limbs = np.array([(1 if v >= 0 else -1) * ((abs(v) >> shift) & ((1 << width) - 1)) for v in ints], dtype=np.int64)
+        total = total + (s64 @ limbs).astype(object) * (1 << shift)
+    return sum(abs(t) >= observed for t in total.tolist())
+
+
 @functools.cache
 def _patterns(k: int) -> np.ndarray:
     """Every sign pattern of k deltas, one per row: ``2**k x k``, as floats for the product."""
@@ -199,7 +217,8 @@ class ShiftTest:
     on, a sign pattern whose sum ties the observed one in exact arithmetic (magnitudes that repeat, such as 1e9 + 0.1)
     can round to one side of it in the product and to the other in the exact sums of :func:`sign_flip_p`, so ``p(0)`` can differ there: the
     row's own p, not ``p(0)``, places 0 (:func:`sign_flip_interval`). Up to :data:`EXACT_MAX` shifted deltas that span more than
-    40 binary orders of magnitude are summed exactly too, as floats lose the small ones there; more of them are not (#865)."""
+    40 binary orders of magnitude are summed exactly too, as floats lose the small ones there; so are the Monte Carlo
+    resamples of more of them (:func:`_exact_hits`), whose p then follows :func:`sign_flip_p`'s integer sums."""
 
     def __init__(self, deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES, *,
                  eps: float | Sequence[float] = EPS) -> None:
@@ -232,6 +251,8 @@ class ShiftTest:
             least = min(observed, float(sums[0]), float(sums[-1]))  # the product rounds them otherwise from 1e6 on
             return int(np.count_nonzero(sums >= least - eps)) / 2 ** moved.size
         signs = _draws(self.seed, self.changed, self.d.size, self.n_resamples)
+        if spread > 40:  # floats lose the small deltas: count the resamples on exact integer sums
+            return (_exact_hits(signs, x.tolist(), float(self.widths[~tied].max())) + 1) / (self.n_resamples + 1)
         return (int(np.count_nonzero(np.abs(signs @ x) >= observed - eps)) + 1) / (self.n_resamples + 1)
 
 
