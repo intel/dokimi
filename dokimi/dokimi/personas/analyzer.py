@@ -113,13 +113,13 @@ class PersonaAnalyzer:
             repo = client.get_repo(repo_name)
             
             readme_content = self._get_readme(repo)
-            use_cases = self._extract_use_cases(repo)
+            use_cases = self._extract_use_cases_from_text(readme_content)
             issues_analysis = self._analyze_issues(repo)
             analysis = {
                 "readme_content": readme_content,
                 "use_cases": use_cases,
                 "issues_analysis": issues_analysis,
-                "api_patterns": self._extract_api_patterns(repo),
+                "api_patterns": self._extract_api_patterns_from_text(readme_content),
                 "description": repo.description or "",
                 "topics": repo.get_topics()
             }
@@ -224,10 +224,6 @@ class PersonaAnalyzer:
         except Exception:  # noqa: BLE001 - a repo without a readable README has no README text
             return ""
     
-    def _extract_use_cases(self, repo) -> List[str]:
-        """The README's use cases, as :meth:`_extract_use_cases_from_text` reads them."""
-        return self._extract_use_cases_from_text(self._get_readme(repo))
-    
     def _analyze_issues(self, repo, limit: int = 50) -> Dict[str, Any]:
         """
         Analyze recent issues for common question patterns.
@@ -281,35 +277,6 @@ class PersonaAnalyzer:
         except Exception as e:  # noqa: BLE001 - logged; an empty issue sample
             logger.error(f"Issue analysis error: {e}")
             return {"common_questions": [], "common_labels": [], "sample_issues": []}
-    
-    def _extract_api_patterns(self, repo) -> List[str]:
-        """
-        Extract common API patterns from code examples.
-        
-        Looks for:
-        - Frequently used class/function names
-        - Import patterns
-        - Code snippets in docs
-        """
-        # Simplified version: extract from README code blocks
-        readme = self._get_readme(repo)
-        if not readme:
-            return []
-        
-        patterns = []
-        in_code_block = False
-        
-        for line in readme.split('\n'):
-            if line.strip().startswith('```'):
-                in_code_block = not in_code_block
-                continue
-            
-            if in_code_block:
-                # Extract likely API calls (simplified heuristic)
-                if '::' in line or '.' in line:
-                    patterns.append(line.strip())
-        
-        return patterns[:20]
     
     def _empty_analysis(self) -> Dict[str, Any]:
         """Return empty analysis structure."""

@@ -221,10 +221,15 @@ def test_a_bold_use_case_line_still_opens_a_section():
     assert PersonaAnalyzer._extract_use_cases_from_text(readme) == ["robotics"]
 
 
-def test_the_pygithub_path_keeps_a_keyword_bullet_too():
-    repo = Mock()
+def test_the_pygithub_path_keeps_a_keyword_bullet_and_reads_the_readme_once():
+    client, repo = Mock(), Mock(description="", get_issues=Mock(return_value=[]))
+    client.get_repo.return_value = repo
     repo.get_readme.return_value.decoded_content = b"## When to use\n- Desktop applications\n- CLIs\n"
-    assert PersonaAnalyzer()._extract_use_cases(repo) == ["desktop applications", "clis"]
+    repo.get_topics.return_value = []
+
+    analysis = PersonaAnalyzer()._analyze_with_pygithub(client, "o/r")
+    assert analysis["use_cases"] == ["desktop applications", "clis"]
+    assert repo.get_readme.call_count == 1
 
 
 # ── harnesses/container_agent.py: a sidecar whose removal failed is not stopped ─
