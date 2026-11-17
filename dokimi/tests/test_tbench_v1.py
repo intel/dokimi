@@ -330,7 +330,7 @@ def test_harbor_view_writes_a_lone_surrogate_in_the_instruction_as_a_question_ma
     path = _tb1(tmp_path / "tasks")
     _write(path / "task.yaml", 'instruction: "Create n\\udcff.txt"\nauthor_name: a\n')
     view = harbor_export.harbor_view(load_task(path), cache_root=tmp_path / "cache")
-    assert (view.path / "instruction.md").read_bytes().decode("utf-8") == "Create n?.txt\n"
+    assert (view.path / "instruction.md").read_text(encoding="utf-8") == "Create n?.txt\n"
 
 
 def test_export_puts_a_subdir_context_and_its_named_dockerfile_where_harbor_builds(tmp_path):
