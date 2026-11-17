@@ -269,6 +269,8 @@ move onto the registry, `cli_flags.py` is data only: no command reads it.
 
 - **New flag.** Use the canonical spelling of its concept. A new concept needs a row in
   `CONCEPTS`, which reviewers look at.
+- **Value checks.** A flag that takes a count, a USD amount or a share uses the `type=` of
+  its kind from `dokimi/cli_types.py` instead of a private copy in the command module.
 - **Snapshot.** From `dokimi/`, after `make dev`, run `make cli-snapshot` and commit
   `docs/reference/cli-interface.json` with the change. CI's `typecheck` job and
   `tests/test_cli_flags.py` check it against the code, so a flag change without a

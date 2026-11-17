@@ -436,9 +436,9 @@ def test_a_relock_over_a_non_hex_stored_digest_passes_and_writes_its_artifact(tm
 def test_a_word_count_or_fraction_that_is_not_a_number_is_refused_by_the_parser():
     # the converters refuse text that is not a number at all (the codecov patch report named these lines)
     import argparse as _argparse
-    from dokimi.commands.leak import _fraction, _positive_int
+    from dokimi.cli_types import positive_fraction, positive_int
 
-    with pytest.raises(_argparse.ArgumentTypeError, match="whole number of words"):
-        _positive_int("many")
+    with pytest.raises(_argparse.ArgumentTypeError, match="expected an integer"):
+        positive_int("many")
     with pytest.raises(_argparse.ArgumentTypeError, match="a number in"):
-        _fraction("half")
+        positive_fraction("half")
