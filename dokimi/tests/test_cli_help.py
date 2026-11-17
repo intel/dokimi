@@ -47,3 +47,10 @@ def test_help_renders(path, capsys):
     out = capsys.readouterr().out
     assert out.startswith("usage: ")
     assert " ".join(path) in out.splitlines()[0]
+
+
+@pytest.mark.parametrize("path", [("eval", "check"), ("repo", "run")], ids=["eval-check", "repo-run"])
+def test_the_exit_2_help_of_a_source_command_names_the_cache_dir_case(path, capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([*path, "--help"])
+    assert "a --cache-dir that is not a usable directory" in " ".join(capsys.readouterr().out.split())

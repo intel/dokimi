@@ -699,7 +699,7 @@ apart, neither failed nor missing. If the probe itself fails, a task with
 cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
-directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a
+directory, an unpinned remote), on a pinned local path inside a repository that is not its root and on a `--cache-dir` that is not a usable directory; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
 source and exits 2, for an unpinned local directory and for a pinned source (`<repo>@<sha>`) alike; a link in the tree that leads out of it, the default
@@ -1043,8 +1043,8 @@ as it is, so fetch those refs first, for example
 whose revision is still missing is listed and left out.
 
 The command exits 2, before it reads the threads file, on a malformed source,
-an unpinned remote, a local source that is not a directory, or a pinned local path inside a repository
-that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the threads file cannot be read or holds no pull
+an unpinned remote, a local source that is not a directory, a pinned local path inside a repository
+that is not its root (`<repo>/sub@<sha>`: give the root), or a `--cache-dir` that is not a usable directory. It exits 1 when the threads file cannot be read or holds no pull
 request, when no pull request gave a task (written, or kept from before), and
 on an error that is not one pull request's own: a malformed pull request, a
 source it cannot open, a manifest that is missing or malformed, the prompt file, or a task it cannot write. Each prints
@@ -1249,8 +1249,8 @@ and `headRefOid` it lacks from `origin`; a local repository is read as it is, so
 
 The command prints one line per pull request (`written`, `kept` or `skipped`, with the
 reason or the counts) and a summary. It exits 2, before it reads the pull request file, on a
-malformed source, an unpinned remote, a local source that is not a directory, or a pinned local path inside
-a repository that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the pull request file cannot be read or
+malformed source, an unpinned remote, a local source that is not a directory, a pinned local path inside
+a repository that is not its root (`<repo>/sub@<sha>`: give the root), or a `--cache-dir` that is not a usable directory. It exits 1 when the pull request file cannot be read or
 holds no pull request, when no pull request gave a task (written, or kept from before), and on
 an error that is not one pull request's own: a malformed pull request (a `number` that is not
 an integer), a source it cannot open, a manifest that is missing or malformed, the prompt file (unreadable or empty), or a task it
