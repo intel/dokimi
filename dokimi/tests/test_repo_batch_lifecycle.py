@@ -98,7 +98,7 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
         if rep <= 2:
             both.wait(5)  # both threads busy, every cell already submitted to the pool
             if rep == 1:
-                os.kill(os.getpid(), signal.SIGINT)  # what Ctrl-C sends
+                signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)  # emulates Ctrl-C reaching the main thread
             time.sleep(0.3)  # the main thread takes the interrupt while these cells still run
         try:
             return real(ctx, task, arm, rep, *args, **kwargs)
@@ -276,7 +276,7 @@ def run_cell(ctx, task, arm, rep, *args, **kwargs):
     if rep <= 2:
         both.wait(30)
         if rep == 1:
-            os.kill(os.getpid(), signal.SIGINT)
+            signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
     return real(ctx, task, arm, rep, *args, **kwargs)
 repo_runner.run_cell = run_cell
 signal.signal(signal.SIGINT, signal.default_int_handler)
