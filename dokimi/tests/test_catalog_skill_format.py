@@ -64,6 +64,9 @@ _LONG = "Does a thing with many words. Use when asked. " * 25  # over 1024 chara
         ("skills/a/SKILL.md", FORMAT_AGENT_SKILL),  # no host directory: the spec
         ("SKILL.md", FORMAT_AGENT_SKILL),
         (".kiro/skills/a/SKILL.md", FORMAT_UNSUPPORTED),
+        (".cursor/skills/a/SKILL.md", FORMAT_UNSUPPORTED),
+        (".config/skills/a/SKILL.md", FORMAT_AGENT_SKILL),  # a hidden directory that is no listed host: the spec
+        (".dotfiles/skills/a/SKILL.md", FORMAT_AGENT_SKILL),
     ],
 )
 def test_the_host_is_read_from_the_path_below_the_root(tmp_path, rel, expected):
@@ -75,6 +78,17 @@ def test_a_hidden_directory_above_the_root_is_not_a_host(tmp_path):
     root = tmp_path / ".cache" / "checkout"
     path = _write(root, "skills/a/SKILL.md", "---\nname: a\ndescription: x\n---\n")
     assert skill_format(path, root) == FORMAT_AGENT_SKILL
+
+
+def test_a_scan_of_a_hidden_skills_directory_runs_the_spec_checks(tmp_path, capsys):
+    # `--root ~/.config/skills`: .config is no listed host, so the skill is held to the spec as it is on main.
+    root = tmp_path / ".config" / "skills"
+    _write(root, "my-skill/SKILL.md", f"---\nname: other\ndescription: {_LONG}\n---\n\n# Body\n")
+    main(["catalog", "check", "--root", str(root), "--kind", "skills", "--format", "json"])
+    row, = json.loads(capsys.readouterr().out)["skills"]
+    assert {("error", "name-mismatch"), ("error", "description-too-long")} <= _codes(row)
+    assert row["state"] == "error"
+    assert "unsupported-skill-format" not in [code for _, code in _codes(row)]
 
 
 def test_a_skill_reviewed_alone_reads_its_own_path(tmp_path):

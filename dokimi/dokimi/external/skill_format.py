@@ -19,12 +19,13 @@ Formats:
   ``SKILL.md`` with no host directory in its path, such as ``skills/<name>/SKILL.md``);
 - ``opencode``: OpenCode's rules above. The corpus also holds ``.opencode/skill/`` (singular), which
   the docs do not list; it is read as OpenCode;
-- ``unsupported``: a ``.<tool>/skills/`` directory dokimi holds no spec for. Its spec checks are not
-  run and one ``unsupported-skill-format`` note says so, instead of an error the host may not raise.
-  Safety and content checks still run.
+- ``unsupported``: a skills directory under one of the hosts in :data:`UNSUPPORTED_HOST_DIRS`, which
+  dokimi holds no spec for. Its spec checks are not run and one ``unsupported-skill-format`` note says
+  so, instead of an error the host may not raise. Safety and content checks still run.
 
-The host is read from the path relative to the scanned root, so a checkout that lives under a
-hidden directory such as ``~/.cache`` is not mistaken for a host. A skill reviewed alone is read
+The host is read from the path relative to the scanned root, and only a directory named in one of the
+sets below is a host. Any other hidden directory, such as ``~/.cache`` or ``~/.config`` above a
+``skills`` root, is not, so its skills get the spec checks. A skill reviewed alone is read
 by its absolute path, since no root stands above it.
 """
 
@@ -41,6 +42,12 @@ FORMAT_UNSUPPORTED = "unsupported"
 
 # Dot-directories whose ``skills/`` folder follows the Agent Skills spec (see the module doc).
 SPEC_HOST_DIRS = frozenset({".claude", ".codex", ".gemini", ".github", ".agents"})
+# Dot-directories whose ``skills/`` folder dokimi holds no spec for: the hosts seen in the corpus with a
+# skills folder. A host not listed here gets the spec checks, as any hidden directory does.
+UNSUPPORTED_HOST_DIRS = frozenset({
+    ".amp", ".augment", ".cline", ".clinerules", ".continue", ".cursor", ".goose", ".kiro", ".qwen", ".roo",
+    ".trae", ".windsurf",
+})
 OPENCODE_DIR = ".opencode"
 SKILL_DIR_NAMES = ("skill", "skills")
 
@@ -88,8 +95,7 @@ def skill_format(skill_md: Path, root: Optional[Path] = None) -> str:
         if part == OPENCODE_DIR and i + 1 < len(dirs) and dirs[i + 1] in SKILL_DIR_NAMES:
             return FORMAT_OPENCODE
     for i, part in enumerate(dirs):
-        if part.startswith(".") and part not in SPEC_HOST_DIRS and i + 1 < len(dirs) \
-                and dirs[i + 1] in SKILL_DIR_NAMES:
+        if part in UNSUPPORTED_HOST_DIRS and i + 1 < len(dirs) and dirs[i + 1] in SKILL_DIR_NAMES:
             return FORMAT_UNSUPPORTED
     return FORMAT_AGENT_SKILL
 
