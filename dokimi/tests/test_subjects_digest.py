@@ -159,6 +159,21 @@ def test_a_file_ref_differs_from_a_missing_ref_spelled_as_its_content(tmp_path: 
     assert _digest_ref("doc.md", base=tmp_path) != _digest_ref("missing.md", base=tmp_path)
 
 
+def test_a_value_naming_an_empty_file_differs_from_a_value_naming_no_file(tmp_path: Path):
+    f = tmp_path / "f"
+    f.write_bytes(b"")
+    empty = _digest_values((str(f),))
+    f.unlink()
+    assert _digest_values((str(f),)) != empty
+
+
+def test_an_empty_file_ref_differs_from_a_missing_ref_spelled_as_the_same_path(tmp_path: Path):
+    (tmp_path / "present").mkdir()
+    (tmp_path / "present" / "e.md").write_bytes(b"")
+    (tmp_path / "absent").mkdir()
+    assert _digest_ref("e.md", base=tmp_path / "present") != _digest_ref("e.md", base=tmp_path / "absent")
+
+
 @pytest.mark.parametrize("digest", [
     lambda text, base: _digest_ref(text, base=base),
     lambda text, base: _digest_values((text,)),
