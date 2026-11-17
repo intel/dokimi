@@ -15,7 +15,7 @@ def partial_atoms_refusal(path, partial: dict) -> str:
     """Why ``path``, an atoms file whose ``partial`` block is ``partial``, is not a finished atom set.
 
     A ``no_price`` or ``permanent_error`` block names its stop in ``message``; one whose message is not
-    text with a visible character gets the reason's own text, so the sentence never has an empty slot.
+    text with a printable, non-space character gets the reason's own text.
     Any other reason is a ``--max-usd`` stop.
     """
     reason = partial.get("reason")
