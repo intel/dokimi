@@ -60,6 +60,8 @@ _ENV_VALUES = frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string
 _RUN_VALUES = frozenset({"-n", "--name", "-p", "--prefix", "--python", "--with", "--directory", "--project",
                          "--env-file"})  # the options of ``conda run`` and ``uv run`` that take a value word
 _PWSH = frozenset({"pwsh", "powershell"})  # PowerShell: its script follows ``-Command`` (``-c``), any case
+_PWSH_VALUES = frozenset({"-executionpolicy", "-ep", "-workingdirectory", "-wd", "-settingsfile", "-configurationname",
+                          "-inputformat", "-outputformat"})  # PowerShell options whose next word is their value
 _GREP_VALUES = frozenset({"-m", "-A", "-B", "-C", "-d", "-D", "--max-count", "--after-context", "--before-context",
                           "--context", "--label", "--binary-files", "--directories", "--devices"})
 _RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not", "--type-add", "-m", "--max-count",
@@ -185,6 +187,9 @@ def _stage(part: str, text: str) -> Stage:
         raise ValueError(f"{text!r}: {exc}") from exc
     if not words:
         raise ValueError(f"{text!r}: a pattern names a program")
+    launched = _launched(words, 0)  # ``uv run pip list`` is the pattern ``pip list``: the program the command runs
+    if launched is not None:
+        words = words[launched:]
     return _head(words[0], words[1:])  # ``pip3 list`` and ``python -m pip list`` are ``pip list``, as commands are
 
 
@@ -371,13 +376,22 @@ def _views(words: list[str]) -> Iterator[Stage]:
         wrapper = _program(words[i])
         if wrapper not in _WRAPPERS:
             return
+        after = _past_wrapper_args(words, i + 1, wrapper)
+        if after is None:
+            return  # ``command -v nproc`` looks the program up, it does not run it
+        i = after
+
+
+def _past_wrapper_args(words: list[str], i: int, wrapper: str) -> int | None:
+    """The index of the program a wrapper runs: past its options (``sudo -E``, ``nice -n 5``) and, for ``timeout``, its
+    duration; None when the wrapper only looks a program up (``command -v``)."""
+    while i < len(words) and words[i].startswith("-"):
+        if wrapper == "command" and words[i] in ("-v", "-V"):
+            return None
+        i += 2 if (wrapper, words[i]) in _OPTION_OPERANDS else 1
+    if wrapper == "timeout" and i < len(words):  # ``timeout 5 nproc``: the duration is no program
         i += 1
-        while i < len(words) and words[i].startswith("-"):  # ``sudo -E``, ``nice -n 5``: options, then the program
-            if wrapper == "command" and words[i] in ("-v", "-V"):
-                return  # ``command -v nproc`` looks the program up, it does not run it
-            i += 2 if (wrapper, words[i]) in _OPTION_OPERANDS else 1
-        if wrapper == "timeout" and i < len(words):  # ``timeout 5 nproc``: the duration is no program
-            i += 1
+    return i
 
 
 def _launched(words: list[str], i: int) -> int | None:
@@ -413,11 +427,14 @@ def _shell_script(prog: str, args: tuple[str, ...]) -> str | None:
     i = 0
     while i < len(args):
         word = args[i]
-        if (prog in _PWSH and word.casefold() in ("-c", "-command")) or (prog in _SHELLS and _SHELL_C.fullmatch(word)):
+        if (prog in _PWSH and len(word) > 1 and "-command".startswith(word.casefold())) or (prog in _SHELLS and _SHELL_C.fullmatch(word)):
             if prog in _PWSH:  # ``pwsh -Command a b``: the words after -Command are the script, joined
                 return " ".join(args[i + 1:]) or None
             return args[i + 1] if i + 1 < len(args) else None
         if prog in _SHELLS and word in ("-o", "+o"):  # ``bash -o pipefail -c nproc``: the option's value is no word
+            i += 2
+            continue
+        if prog in _PWSH and word.casefold() in _PWSH_VALUES:  # ``pwsh -ExecutionPolicy Bypass -Command ...``
             i += 2
             continue
         if not word.startswith("-"):

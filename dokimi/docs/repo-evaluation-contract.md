@@ -551,7 +551,7 @@ The line format, its version and the promise that comes with it: [events-format.
   a Python heredoc, a script the agent runs from a file, a pattern with a `|` that is
   not a pipeline of the same commands, and a launcher the wrapper lists do not know
   (`docker exec`, `nix develop -c`). `env`, `timeout`, `xargs`, `conda run` and `uv run`
-  run the program after them; `env` alone is its own probe. Each cell's `meta.json`
+  run the program after them; `env` with no program after its options is its own probe (`env -S` is not read). Each cell's `meta.json`
   records the patterns per target (`probes`) that it ran with.
   A manifest's `probes` (§2) replaces a target's defaults, and `repo run --probes FILE`
   (YAML or JSON, the same mapping) replaces them again; nothing else changes the events,

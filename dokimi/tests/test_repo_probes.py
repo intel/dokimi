@@ -413,3 +413,12 @@ def test_a_conda_run_is_no_conda_list_probe():
 def test_a_pattern_spelled_as_a_pip3_or_python_m_pip_command_matches_it():
     assert _matched("pip3 list", {"packages": ["pip3 list"]}) == ["pip3 list"]
     assert _matched("python -m pip list", {"packages": ["python -m pip list"]}) == ["python -m pip list"]
+
+
+def test_a_pattern_that_starts_with_a_launcher_matches_the_program_it_runs():
+    assert _matched("uv run pip list", {"packages": ["uv run pip list"]}) == ["uv run pip list"]
+
+
+def test_a_powershell_command_after_its_options_is_a_probe():
+    cmd = "pwsh -NoProfile -ExecutionPolicy Bypass -com Get-CimInstance Win32_Processor"
+    assert _matched(cmd) == ["Get-CimInstance Win32_Processor"]
