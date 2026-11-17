@@ -191,3 +191,14 @@ def test_a_task_copy_the_grader_rewrote_does_not_change_the_status(tmp_path, cap
     args.func(args)
     rows = {r["task"]: r["status"] for r in json.loads(capsys.readouterr().out)["data"]["rows"]}
     assert rows == {"t4": "candidate"}
+
+
+def test_a_row_whose_cells_recorded_different_statuses_says_mixed(tmp_path, capsys):
+    # a batch resumed after the task went from candidate to validated: its cells disagree, the row must say so
+    _cell(tmp_path, "t5__a__m__r1", {"result.json": {**_RESULT, "task": "t5", "task_status": "candidate"}})
+    _cell(tmp_path, "t5__a__m__r2", {"result.json": {**_RESULT, "task": "t5", "task_status": "validated"}})
+    parser = build_parser()
+    args = parser.parse_args(["repo", "report", str(tmp_path / "b1"), "--json"])
+    args.func(args)
+    rows = {r["task"]: r["status"] for r in json.loads(capsys.readouterr().out)["data"]["rows"]}
+    assert rows == {"t5": "mixed"}

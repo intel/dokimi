@@ -209,6 +209,12 @@ def _task_status(rec: dict[str, Any]) -> str:
     return status if status in STATUSES else UNKNOWN
 
 
+def _row_status(recs: list[dict[str, Any]]) -> str:
+    """The one status the row's cells recorded, or ``mixed`` when a resumed batch recorded more than one."""
+    statuses = {_task_status(r) for r in recs}
+    return statuses.pop() if len(statuses) == 1 else "mixed"
+
+
 def refuse_mixed_executions(cells: list[dict[str, Any]], where: str) -> None:
     """One (batch, arm, model) ran with one execution: a ``--force`` run that stopped part way, or a harness
     binary replaced mid-batch, leaves two, and pooling them would blend two setups in one row."""
@@ -255,7 +261,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
             failures = sum(r["grade"]["status"] == "grader_failure" for r in recs)
             score_only = any(r["score_task"] for r in recs)
             row: dict[str, Any] = {"task": key[0], "arm": key[1], "model": key[2], "n": n,
-                                   "status": _task_status(recs[0]),
+                                   "status": _row_status(recs),
                                    "grader_failures": failures,
                                    "agent_timeouts": sum(bool(r["agent"]["timed_out"]) for r in recs),
                                    "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
