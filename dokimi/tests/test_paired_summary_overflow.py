@@ -91,6 +91,15 @@ def test_report_generator_prints_an_em_dash_and_a_note_for_the_missing_delta():
     assert (out["doc_improvements"], out["doc_degradations"]) == (1, 0)
 
 
+def test_report_generator_draws_the_conclusion_from_a_delta_that_exists():
+    hurting = ReportGenerator().generate_report({"evaluations": [_row("q1", 50.0, 70.0)]}, {"questions": []}, "markdown")
+    assert "Documentation is hurting answer quality" in hurting
+    assert "no delta and no conclusion" not in hurting
+    zero = ReportGenerator().generate_report({"evaluations": [_row("q1", 60.0, 60.0)]}, {"questions": []}, "markdown")
+    assert "Documentation has minimal impact" in zero
+    assert "leaves the float range" not in zero
+
+
 def test_report_generator_note_counts_several_overflowing_pairs_in_the_plural():
     data = {"evaluations": [_row("q1", BIG, -BIG), _row("q2", -BIG, BIG), _row("q3", 1.0, 1.0)]}
     md = ReportGenerator().generate_report(data, {"questions": []}, "markdown")
