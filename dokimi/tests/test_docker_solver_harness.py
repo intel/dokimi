@@ -16,6 +16,7 @@ import io
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -87,6 +88,19 @@ def _fixture_task(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return task
+
+
+@pytest.mark.parametrize(("instruction", "saved"), [
+    pytest.param("n\ud800", "n?", id="d800"),
+    pytest.param("n\udcff", "n?", id="dcff"),
+    pytest.param("a" + chr(0xD83D) + chr(0xDE00), "a\U0001f600", id="pair"),  # a JSON escape pair of U+1F600
+])
+def test_prompt_txt_holds_the_instruction_with_a_lone_surrogate_as_a_question_mark(tmp_path, instruction, saved):
+    harness = DockerSolverHarness("docker-claude", skill_notice=False)
+    task = SimpleNamespace(instruction=instruction)
+    args = harness._claude_args(task, None, None, None, tmp_path)
+    assert (tmp_path / "prompt.txt").read_bytes() == saved.encode("utf-8")
+    assert args[:1] == ["-p"]
 
 
 # ── telemetry parsing ───────────────────────────────────────────────────────
