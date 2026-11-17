@@ -179,7 +179,7 @@ def resolve_suite(suite: SuiteManifest, bases: Mapping[str, str], cache_dir: Pat
             raise SuiteError(suite.path, [f"repos.{name}: {rev!r} resolves to {found[1]}, not to that commit; "
                                           "pin the full commit SHA"])
     # a full-SHA pin is the declared commit, whether or not its repository opened
-    pins = {name: suite.repos[name].rev for name in suite.repos if not suite.floating}
+    pins = {name: source.rev for name, source in suite.repos.items() if not suite.floating and source.rev is not None}
     pins.update({name: found[1] for name, found in checkouts.items() if suite.floating and not isinstance(found, str)})
     out = SuiteBases(pins=pins,
                      plan={"path": suite.path, "repos": {name: str(source) for name, source in suite.repos.items()},
