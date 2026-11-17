@@ -686,6 +686,12 @@ def test_a_changed_continuation_line_with_no_mutant_is_listed_uncovered(tmp_path
     assert 3 in report["uncovered_lines"]["dokimi/dokimi/zz.py"]
 
 
+def test_a_changed_signature_line_of_a_multi_line_def_is_listed_but_not_the_def_line() -> None:
+    # Line 1 starts the def; lines 2 and 3 are its parameters, which no mutant covers: listed.
+    src = "def f(\n    a,\n    b=3,\n):\n    return a + b\n"
+    assert mc.continuation_lines(src, {1, 2, 3}, set()) == {2, 3}
+
+
 def test_a_changed_comment_line_in_a_multi_line_expression_is_not_listed() -> None:
     # Line 3 is a comment between `x = (a` and `+ a)`: it holds no code, so it is not listed.
     src = "def f(a):\n    x = (a  # note\n         # the reason\n         + a)\n    return x\n"

@@ -193,7 +193,7 @@ def _text_lines(src: str) -> set[int]:
 
 
 def continuation_lines(src: str, lines: set[int], mutated: set[int]) -> set[int]:
-    """Changed lines inside a multi-line expression that no mutant starts on, as ``+ b)`` in ``x = (a`` / ``+ b)``.
+    """Changed lines inside a multi-line expression or def signature that no mutant starts on, as ``+ b)`` in ``x = (a``.
 
     Docstrings, comments, blank lines and the text of multi-line strings are not listed: they hold no code a test could run.
     """
@@ -203,6 +203,8 @@ def continuation_lines(src: str, lines: set[int], mutated: set[int]) -> set[int]
     for node in ast.walk(tree):
         if isinstance(node, ast.expr):
             spanned.update(range(node.lineno + 1, (node.end_lineno or node.lineno) + 1))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            spanned.update(range(node.lineno + 1, node.body[0].lineno))
     text = re.split(r"(?<=\n)", src)
     return {n for n in lines if n in spanned and n not in mutated and n not in skip
             and text[n - 1].strip() and not text[n - 1].lstrip().startswith("#")}
