@@ -140,14 +140,15 @@ def build_subject_scorecard(
     }
 
 
-def _digest_values(values: tuple[str, ...]) -> str:
+def _digest_values(values: tuple[str, ...]) -> str | None:
     h = hashlib.sha256()
     for value in values:
+        path = Path(value)
+        if not path.is_file():  # the name alone is no identity: the input stays unresolved
+            return None
         h.update(os.fsencode(value))
         h.update(b"\0")
-        path = Path(value)
-        if path.is_file():
-            h.update(path.read_bytes())
+        h.update(path.read_bytes())
     return "sha256:" + h.hexdigest()
 
 

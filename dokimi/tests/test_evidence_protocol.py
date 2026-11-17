@@ -391,3 +391,9 @@ def test_a_harness_change_is_a_reason_when_both_sides_carry_a_protocol():
     # harness is not a protocol input, so the digest cannot tell two harnesses apart
     base = _fixture("verdict_with_rule.json")
     assert compare(_with(base, harness="another-harness"), base) == ["harness differs"]
+
+
+def test_a_questions_file_not_found_from_the_cwd_leaves_its_digest_unresolved():
+    # the name alone is no identity: two sets named q.json would share one digest, so the input stays unknown
+    from dokimi.subjects.scorecard import _digest_values
+    assert _digest_values(("questions/q.json",)) is None

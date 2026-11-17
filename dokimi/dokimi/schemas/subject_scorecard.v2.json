@@ -90,7 +90,7 @@
           }
         },
         "question_set_hash": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "tasks": {
           "type": "array",
