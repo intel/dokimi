@@ -712,7 +712,8 @@ from `/.dockerenv`, podman's `/run/.containerenv` or the cgroup, and a VM from D
 CPU flag. Nothing identifying is recorded: no host or user name, IP address, environment value,
 interface name or absolute path; an error text is cut to 300 characters with its paths replaced.
 `fingerprint_id` hashes the CPU and identity collectors but not `network`, so a bridge that appears
-between runs does not split a batch.
+between runs does not split a batch. `tools` count by presence only (a version change or a timed-out
+`--version` does not split a host), and a collector that still fails after one retry is left out.
 
 `repo run --label-host` runs a task that the host misses, instead of marking it unsupported. Each
 cell's `result.json` and `meta.json` hold `host_match`: the `fingerprint`, the report's `met`, and one

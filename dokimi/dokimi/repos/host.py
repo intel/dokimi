@@ -191,9 +191,20 @@ def probe_host(ctx: EvalContext, work_dir: Path, probe: Probe | None = None) -> 
 def fingerprint_id(facts: dict[str, Any]) -> str:
     """A short id of the host: the same machine gives the same id on every run (see ``IDENTITY_COLLECTORS``)."""
     keys = ("cpus", "affinity_cpus", "cgroup_cpus", "cpu_vendor", "cpu_model", "cpu_flags")
+    collectors = facts.get("collectors") or {}
     identity = {**{k: facts.get(k) for k in keys},
-                **{name: (facts.get("collectors") or {}).get(name) for name in IDENTITY_COLLECTORS}}
+                **{name: _identity_value(name, collectors.get(name)) for name in IDENTITY_COLLECTORS}}
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def _identity_value(name: str, value: Any) -> Any:
+    """What a collector adds to the id: nothing when it failed (left out, as if absent), and for ``tools``
+    only whether each tool is present, so a version change or a timed-out ``--version`` does not split a host."""
+    if not isinstance(value, dict) or "error" in value:
+        return None
+    if name == "tools":
+        return {tool: version is not None for tool, version in value.items()}
+    return value
 
 
 def match_report(task: Task, facts: dict[str, Any] | None) -> dict[str, Any]:

@@ -367,7 +367,9 @@ def test_the_fingerprint_id_is_stable_and_ignores_the_network_but_not_the_cpu():
 def test_the_fingerprint_id_changes_with_every_identity_collector(name):
     base = {n: {"k": "a"} for n in ["os", "cpu", "memory", "gpu", "python", "tools", "virt"]}
     facts = {"cpus": 4, "collectors": base}
-    changed = {"cpus": 4, "collectors": {**base, name: {"k": "b"}}}
+    # tools count by presence only (a version change is no change): its change is a tool that goes away
+    changed_value = {"k": None} if name == "tools" else {"k": "b"}
+    changed = {"cpus": 4, "collectors": {**base, name: changed_value}}
     assert fingerprint_id(facts) != fingerprint_id(changed)
 
 
@@ -375,3 +377,73 @@ def test_match_report_for_a_host_with_no_task_requirement_is_met_without_fields(
     task = Task("t", {"id": "t"}, Path("."))
     assert match_report(task, {"cpus": 2})["met"] is True
     assert match_report(task, {"cpus": 2})["fields"] == []
+
+
+# ------------------------------------------------------------------ identity: presence, failures, one retry (ZGgG)
+
+
+def test_a_tool_version_change_does_not_change_the_fingerprint_id():
+    base = {"cpus": 4, "collectors": {"tools": {"git": "2.43.0", "docker": None}}}
+    upgraded = {"cpus": 4, "collectors": {"tools": {"git": "2.45.1", "docker": None}}}
+    timed_out = {"cpus": 4, "collectors": {"tools": {"git": "2.43.0", "docker": "present"}}}
+    assert fingerprint_id(base) == fingerprint_id(upgraded)
+    assert fingerprint_id(timed_out) == fingerprint_id({"cpus": 4, "collectors": {"tools": {"git": "2.43.0", "docker": "24.0.7"}}})
+
+
+def test_a_tool_that_appears_or_disappears_changes_the_fingerprint_id():
+    absent = {"cpus": 4, "collectors": {"tools": {"docker": None}}}
+    present = {"cpus": 4, "collectors": {"tools": {"docker": "24.0.7"}}}
+    assert fingerprint_id(absent) != fingerprint_id(present)
+
+
+def test_a_failing_collector_is_left_out_of_the_fingerprint_id():
+    ok = {"cpus": 4, "collectors": {"gpu": {"present": True, "count": 1}, "os": {"release": "6.8"}}}
+    failed = {"cpus": 4, "collectors": {"gpu": {"present": True, "error": "nvidia-smi timed out"},
+                                        "os": {"release": "6.8"}}}
+    left_out = {"cpus": 4, "collectors": {"os": {"release": "6.8"}}}
+    assert fingerprint_id(failed) == fingerprint_id(left_out)
+    assert fingerprint_id(failed) != fingerprint_id(ok)
+
+
+def test_a_collector_that_fails_once_is_retried_and_its_retry_is_kept():
+    calls = {"n": 0}
+
+    def flaky(probe):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("transient")
+        return {"total_bytes": 8}
+
+    probe = hf.Probe(system="Linux", read=lambda path: None, run=FakeRunner(lambda call: reply(returncode=1)),
+                     env={}, which=lambda name: None)
+    original = dict(hf.COLLECTORS)
+    try:
+        hf.COLLECTORS.clear()
+        hf.COLLECTORS["memory"] = flaky
+        out = hf.collect(probe)["collectors"]["memory"]
+    finally:
+        hf.COLLECTORS.clear()
+        hf.COLLECTORS.update(original)
+    assert out == {"total_bytes": 8}
+    assert calls["n"] == 2
+
+
+def test_a_collector_that_fails_twice_is_one_retry_then_an_error():
+    calls = {"n": 0}
+
+    def broken(probe):
+        calls["n"] += 1
+        return {"error": "still broken"}
+
+    probe = hf.Probe(system="Linux", read=lambda path: None, run=FakeRunner(lambda call: reply(returncode=1)),
+                     env={}, which=lambda name: None)
+    original = dict(hf.COLLECTORS)
+    try:
+        hf.COLLECTORS.clear()
+        hf.COLLECTORS["memory"] = broken
+        out = hf.collect(probe)["collectors"]["memory"]
+    finally:
+        hf.COLLECTORS.clear()
+        hf.COLLECTORS.update(original)
+    assert out == {"error": "still broken"}
+    assert calls["n"] == 2

@@ -260,13 +260,22 @@ COLLECTORS: dict[str, Callable[[Probe], dict[str, Any]]] = {
 }
 
 
-def collect(probe: Probe | None = None) -> dict[str, Any]:
-    """``{"collectors_version", "collectors": {name: flat dict}}``; a collector that raises is ``{"error": ...}``."""
-    probe = probe or Probe()
+def _run_collector(probe: Probe, collector: Callable[[Probe], dict[str, Any]]) -> dict[str, Any]:
+    """One collector's flat dict; a collector that raises or reports an error is run once more (a transient
+    failure on a loaded host), and the retry is what is kept."""
     out: dict[str, Any] = {}
-    for name, collector in COLLECTORS.items():
+    for _attempt in range(2):
         try:
-            out[name] = collector(probe)
+            out = collector(probe)
         except Exception as exc:  # noqa: BLE001 - one collector failing must not fail the probe
-            out[name] = {"error": scrub(f"{type(exc).__name__}: {exc}")}
+            out = {"error": scrub(f"{type(exc).__name__}: {exc}")}
+        if "error" not in out:
+            break
+    return out
+
+
+def collect(probe: Probe | None = None) -> dict[str, Any]:
+    """``{"collectors_version", "collectors": {name: flat dict}}``; a collector that still fails after one retry is ``{"error": ...}``."""
+    probe = probe or Probe()
+    out = {name: _run_collector(probe, collector) for name, collector in COLLECTORS.items()}
     return {"collectors_version": COLLECTORS_VERSION, "collectors": out}
