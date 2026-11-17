@@ -686,6 +686,12 @@ def test_a_changed_continuation_line_with_no_mutant_is_listed_uncovered(tmp_path
     assert 3 in report["uncovered_lines"]["dokimi/dokimi/zz.py"]
 
 
+def test_a_changed_comment_line_in_a_multi_line_expression_is_not_listed() -> None:
+    # Line 3 is a comment between `x = (a` and `+ a)`: it holds no code, so it is not listed.
+    src = "def f(a):\n    x = (a  # note\n         # the reason\n         + a)\n    return x\n"
+    assert mc.continuation_lines(src, {3}, set()) == set()
+
+
 def test_the_text_of_a_multi_line_string_is_not_listed_but_code_beside_it_is(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Line 7 is the string's text: not listed. Line 3 (`+ a)`), line 13 (`u""" + b)`) and line 17 (`"b")`, a single-line string
     # continuing an implicit concatenation) are code: listed.
