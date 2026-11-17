@@ -298,10 +298,11 @@ def test_an_overlapping_prefix_set_replaces_the_stale_symbol_check(tmp_path):
     assert [tuple(c["source"]["prefixes"]) for c in checks] == [("LAPACKE_", "cblas_")]
 
 
-def test_a_nested_prefix_refresh_replaces_the_stale_symbol_check(tmp_path):
+def test_a_nested_prefix_refresh_keeps_the_broader_check_for_its_other_scopes(tmp_path):
     old_dir = tmp_path / "old"
     old_dir.mkdir()
-    (old_dir / "mkl.h").write_text("void mkl_sparse_old(void);\n", encoding="utf-8")
+    (old_dir / "mkl.h").write_text("void mkl_sparse_old(void);\nvoid mkl_vml_add(void);\n"
+                                   "void mkl_sparse_gone(void);\n", encoding="utf-8")
     old = symbols_check(["mkl_"], [str(old_dir / "mkl.h")], [])
     atoms = [{"statement": "Call mkl_sparse_new.", "question": "q", "answer": "a"}]
     add_checks(atoms, [old])
@@ -310,7 +311,13 @@ def test_a_nested_prefix_refresh_replaces_the_stale_symbol_check(tmp_path):
     (new_dir / "mkl.h").write_text("void mkl_sparse_old(void);\nvoid mkl_sparse_new(void);\n", encoding="utf-8")
     add_checks(atoms, [symbols_check(["mkl_sparse_"], [str(new_dir / "mkl.h")], [])])
     checks = atoms[0]["meta"]["grading"]["checks"]
-    assert [tuple(c["source"]["prefixes"]) for c in checks] == [("mkl_sparse_",)]
+    assert [tuple(c["source"]["prefixes"]) for c in checks] == [("mkl_",), ("mkl_sparse_",)]
+    broad = checks[0]
+    # the unaffected scope keeps its names; the refreshed scope takes the new header's names
+    assert broad["known"] == ["mkl_sparse_new", "mkl_sparse_old", "mkl_vml_add"]
+    # no veto on a newly declared name, nor on one only the broader header declared
+    for answer in ("Call mkl_sparse_new().", "Call mkl_vml_add()."):
+        assert all(grade_check(c, "q", answer, None).passed for c in checks), answer
 
 
 @pytest.mark.parametrize("code", [
@@ -340,3 +347,52 @@ def test_a_called_api_name_with_whitespace_before_the_paren_is_in_the_key_scope(
 ])
 def test_a_member_option_or_path_is_not_an_api_name(code, name):
     assert name not in re.findall(symbol_pattern(("cblas_",)), code)
+
+
+def test_a_narrower_old_check_is_replaced_by_the_broader_new_one(tmp_path):
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    (old_dir / "mkl.h").write_text("void mkl_sparse_old(void);\n", encoding="utf-8")
+    old = symbols_check(["mkl_sparse_"], [str(old_dir / "mkl.h")], [])
+    atoms = [{"statement": "Call mkl_sparse_old.", "question": "q", "answer": "a"}]
+    add_checks(atoms, [old])
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    (new_dir / "mkl.h").write_text("void mkl_sparse_old(void);\nvoid mkl_vml_add(void);\n", encoding="utf-8")
+    add_checks(atoms, [symbols_check(["mkl_"], [str(new_dir / "mkl.h")], [])])
+    checks = atoms[0]["meta"]["grading"]["checks"]
+    assert [tuple(c["source"]["prefixes"]) for c in checks] == [("mkl_",)]
+
+
+def test_a_refresh_leaves_a_check_shared_with_another_atom_unchanged(tmp_path):
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    (old_dir / "mkl.h").write_text("void mkl_sparse_old(void);\nvoid mkl_vml_add(void);\n", encoding="utf-8")
+    old = symbols_check(["mkl_"], [str(old_dir / "mkl.h")], [])
+    before = repr(old)
+    atoms = [{"statement": "Call mkl_sparse_new.", "question": "q", "answer": "a"},
+             {"statement": "Call mkl_vml_add.", "question": "q", "answer": "a"}]
+    add_checks(atoms, [old])
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    (new_dir / "mkl.h").write_text("void mkl_sparse_new(void);\n", encoding="utf-8")
+    new = symbols_check(["mkl_sparse_"], [str(new_dir / "mkl.h")], [])
+    add_checks([atoms[0]], [new])  # only the first atom names the narrower scope
+    assert repr(old) == before  # the check the second atom still holds is not rewritten
+    assert atoms[1]["meta"]["grading"]["checks"][0]["known"] == ["mkl_sparse_old", "mkl_vml_add"]
+
+
+def test_a_refresh_that_leaves_an_old_check_with_no_names_drops_it(tmp_path):
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    (old_dir / "mkl.h").write_text("void mkl_sparse_a(void);\n", encoding="utf-8")
+    old = symbols_check(["mkl_sparse_", "cblas_"], [str(old_dir / "mkl.h")], [])
+    atoms = [{"statement": "Call mkl_sparse_a.", "question": "q", "answer": "a"}]
+    add_checks(atoms, [old])
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    (new_dir / "mkl.h").write_text("void mkl_vml_add(void);\n", encoding="utf-8")
+    add_checks(atoms, [symbols_check(["mkl_"], [str(new_dir / "mkl.h")], [])])
+    checks = atoms[0]["meta"]["grading"]["checks"]
+    assert [tuple(c["source"]["prefixes"]) for c in checks] == [("mkl_",)]
+    assert all(c["known"] for c in checks)

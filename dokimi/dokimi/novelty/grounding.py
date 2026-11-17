@@ -196,20 +196,47 @@ def _source_of(check: dict) -> tuple[str, str]:
 def _replaced_by(old: dict, mine: list[dict]) -> bool:
     """Whether a check ``old`` on an atom is replaced by one of ``mine``.
 
-    A tool's check is replaced by the same tool's. A symbol check is replaced by any symbol check
-    whose prefix starts with one of its prefixes, or that one starts with: both would read the same
-    names (``mkl_`` and ``mkl_sparse_`` overlap), from different inputs, so the older one would veto
-    a name the newer one declares. A disjoint prefix set is kept.
+    A tool's check is replaced by the same tool's. A symbol check is replaced by a symbol check
+    whose prefixes include all of its own: its scope lies inside the new one, so nothing is lost.
+    A symbol check with a prefix the new one does not cover is kept, and :func:`_merged` carries the
+    new names into it; a disjoint one is kept as it is.
     """
     if old.get("type") != "identifiers":
         return False
     if _source_of(old)[0] == "tool":
         return any(_source_of(m) == _source_of(old) for m in mine)
     old_prefixes = (old.get("source") or {}).get("prefixes") or []
-    return any((m.get("source") or {}).get("kind") == "symbols"
-               and any(a.startswith(b) or b.startswith(a)
-                       for a in old_prefixes for b in m["source"].get("prefixes") or [])
-               for m in mine)
+    return bool(old_prefixes) and any(
+        _source_of(m)[0] == "symbols" and all(
+            any(a.startswith(b) for b in m["source"].get("prefixes") or []) for a in old_prefixes)
+        for m in mine)
+
+
+def _merged(old: dict, mine: list[dict]) -> dict | None:
+    """``old`` with the names of ``mine``'s symbol checks merged in, as a new dict (``old`` is not changed).
+
+    Only for a symbol check that overlaps one of ``mine``; None when no name is left. The names with
+    the new prefixes are replaced by what the new checks read now, so a name no header declares any
+    more drops out; the names with ``old``'s prefixes that the new checks read are added; the other
+    names stay. The inputs of the new checks are added to ``old``'s, a path once with the later sha.
+    """
+    symbol = [m for m in mine if _source_of(m)[0] == "symbols"]
+    if old.get("type") != "identifiers" or _source_of(old)[0] != "symbols" or not symbol:
+        return old
+    old_prefixes = tuple((old.get("source") or {}).get("prefixes") or [])
+    new_prefixes = tuple(p for m in symbol for p in m["source"].get("prefixes") or [])
+    if not any(a.startswith(b) or b.startswith(a) for a in old_prefixes for b in new_prefixes):
+        return old
+    fresh = {n for m in symbol for n in m.get("known") or [] if n.startswith(old_prefixes)}
+    kept = {n for n in old.get("known") or [] if not n.startswith(new_prefixes)}
+    if not kept | fresh:  # a check with no name would veto every mention of its prefixes
+        return None
+    source = dict(old.get("source") or {})
+    inputs = {(i["kind"], i["path"]): i for i in source.get("inputs") or []}
+    for m in symbol:
+        inputs.update({(i["kind"], i["path"]): i for i in m["source"].get("inputs") or []})
+    source["inputs"] = list(inputs.values())
+    return dict(old, known=sorted(kept | fresh), source=source)
 
 
 def add_checks(atoms: list[dict], checks: list[dict]) -> int:
@@ -217,7 +244,8 @@ def add_checks(atoms: list[dict], checks: list[dict]) -> int:
 
     An atom that names none gets no check: its answers would rarely carry the tool's command
     line, and a check that never fires is noise in the report. A check replaced by a new one
-    (see :func:`_replaced_by`) is dropped, so re-running refreshes the snapshot.
+    (see :func:`_replaced_by`) is dropped, so re-running refreshes the snapshot; a kept one has
+    the new names merged in (see :func:`_merged`).
     """
     _require_valid_gradings(atoms)
     changed = 0
@@ -228,7 +256,11 @@ def add_checks(atoms: list[dict], checks: list[dict]) -> int:
             continue
         meta = atom["meta"] = atom.get("meta") or {}
         grading = meta["grading"] = meta.get("grading") or {"checks": []}
-        kept = [c for c in grading.get("checks", []) if not _replaced_by(c, mine)]
+        kept = []
+        for old in grading.get("checks", []):
+            merged = None if _replaced_by(old, mine) else _merged(old, mine)
+            if merged is not None:
+                kept.append(merged)
         grading["checks"] = kept + mine
         changed += 1
     return changed
