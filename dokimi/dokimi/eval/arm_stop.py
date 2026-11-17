@@ -4,7 +4,17 @@
 """A run-wide CLI failure (usage limit, no login) stops an arms run, and the question it stopped
 keeps a cell for every arm: the arm that hit the error, the arms it completed, and ``not_asked`` for the rest."""
 
-from typing import Any, Dict, Sequence
+import threading
+from typing import Any, Dict, Optional, Sequence
+
+
+class Halted(Exception):
+    """Raised between arms of a question once another question has stopped the run."""
+
+
+def halt_if_stopped(stop: Optional[threading.Event]) -> None:
+    if stop is not None and stop.is_set():
+        raise Halted()
 
 
 class RunStopped(Exception):

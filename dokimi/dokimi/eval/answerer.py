@@ -182,8 +182,9 @@ class Answerer:
                     "difficulty": q.get("difficulty"),
                     "persona": q.get("persona"),
                     "error": str(e),
-                    "with_docs": done_conditions.get("with_docs"),
-                    "without_docs": done_conditions.get("without_docs"),
+                    "with_docs": None,
+                    "without_docs": None,
+                    **done_conditions,
                 }
             elapsed = time.time() - t0
             with lock:
@@ -286,7 +287,8 @@ class Answerer:
         try:
             without_docs_answer = self._generate_without_docs(question_text, verbatim=verbatim)
         except Exception as exc:
-            exc.partial_conditions = {"with_docs": with_docs_answer, "without_docs": None}
+            carrier: Any = exc  # the pair's completed condition rides on the error for the caller
+            carrier.partial_conditions = {"with_docs": with_docs_answer, "without_docs": None}
             raise
 
         result = {

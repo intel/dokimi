@@ -31,7 +31,7 @@ from dokimi.eval.arm_summary import (
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
 from dokimi.eval.arm_record import question_record
-from dokimi.eval.arm_stop import RunStopped, mark_not_asked, stop_question
+from dokimi.eval.arm_stop import Halted, RunStopped, halt_if_stopped, mark_not_asked, stop_question
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
@@ -95,15 +95,6 @@ def _refuse_session_records(recs: Sequence[Record]) -> None:
             "answer against its first question. Judge a single-turn run instead."
         )
 
-
-
-class _Halted(Exception):
-    """Raised between arms of a question once another question has stopped the run."""
-
-
-def _halt_if_stopped(stop: Optional[threading.Event]) -> None:
-    if stop is not None and stop.is_set():
-        raise _Halted()
 
 
 class ArmRunner:
@@ -275,7 +266,7 @@ class ArmRunner:
         try:
             for treatment in self.treatments:
                 current = treatment.name
-                _halt_if_stopped(stop)
+                halt_if_stopped(stop)
                 if turns is None:
                     arms[treatment.name] = self._answer_one_arm(
                         treatment, question_text, library_name, library_id, qid,
@@ -287,16 +278,19 @@ class ArmRunner:
                 )
                 if self.turn_reminder is not None:
                     current = treatment.name + REMINDER_ARM_SUFFIX
-                    _halt_if_stopped(stop)
+                    halt_if_stopped(stop)
                     arms[current] = self._answer_session_arm(
                         treatment, turns, library_name, library_id, qid,
                         reminder=self.turn_reminder,
                     )
-        except _Halted:  # another question hit a run-wide failure: no further arm of this one is paid for
+        except Halted:  # another question hit a run-wide failure: no further arm of this one is paid for
             mark_not_asked(arms, self.arm_names)  # the arms the stop never reached; the completed ones are kept
             partial = question_record(library_name, q, qid, question_text, turns, arms,
                                       grounded_from_topics=self.grounded_from_topics)
-            raise RunStopped(self.stop_error, partial) from None
+            cause = self.stop_error  # set under the lock before the stop event (see _process)
+            if cause is None:
+                raise RuntimeError("the run stopped without a run-wide cause") from None
+            raise RunStopped(cause, partial) from None
         except Exception as exc:
             if getattr(exc, "run_wide", False) is not True:
                 raise
