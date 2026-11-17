@@ -319,6 +319,10 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
     hosts_of: dict[tuple[str, str, str], int] = defaultdict(int)
     for g in groups:
         hosts_of[(g[0], _cell_arm(g[1]), _cell_model(g[2]))] += 1
+    # A started missing cell whose host has no finished cell has no row: it is unplaced, so the single-row rule applies.
+    row_keys = {(g[0], _cell_arm(g[1]), _cell_model(g[2]), g[3]) for g in groups}
+    for k in [k for k in missing_by if k not in row_keys]:
+        unplaced[(k[0], k[1], k[2])] += missing_by.pop(k)
     rows = []
     for key in sorted(groups, key=lambda k: (k[0], k[1], k[2], k[3] or "")):
         recs = groups[key]

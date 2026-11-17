@@ -59,6 +59,15 @@ def test_an_unstarted_missing_cell_stays_on_the_only_row(tmp_path):
     assert [r["missing"] for r in summarize(batch)["rows"]] == [1]
 
 
+def test_a_started_missing_cell_whose_host_has_no_row_counts_on_the_only_row(tmp_path):
+    batch = tmp_path / "b1"
+    _cell(batch, 1, host=HOST_A, fingerprint=FP_A)
+    _cell(batch, 2, host=HOST_B, result=False)  # started on B, crashed before result.json; B has no finished cell
+    summary = summarize(batch)
+    assert [(r["host_fingerprint"], r["missing"]) for r in summary["rows"]] == [(FP_A, 1)]
+    assert summary["missing"] == ["t__guidance-raw__m-1__r2"]
+
+
 def test_text_report_names_the_host_of_every_fingerprinted_row_without_label_mode(tmp_path):
     batch = tmp_path / "b1"
     _cell(batch, 1, host=HOST_A, fingerprint=FP_A)
