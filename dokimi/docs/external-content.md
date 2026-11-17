@@ -207,6 +207,8 @@ Read that output as three outcomes, not two:
 - `skipped` — a declared entry the scan is *expected* to pass over: a
   `planned` task with no directory yet, or a `track` that `tasks run` does not
   drive (`answer-quality` entries are question-set material, not Docker tasks).
+  For a skill, it is an unloaded `SKILL.md` that no format rule read (see
+  [Skill formats](#skill-formats)); `--ignore` does not make it an `ok`.
 - `ERROR` — an entry that should have worked and did not.
 
 Only load errors change the exit code, so `catalog check` exiting 0 means
@@ -249,8 +251,8 @@ A block that opens with a `[` or `{` that is not a Markdown link also keeps the 
 
 The catalog check reads the host from the path below the scanned root (`skill_format` in
 `dokimi/external/skill_format.py`). The Agent Skills spec applies to `.claude`, `.codex`, `.gemini`,
-`.github` and `.agents` skill directories, and to a `skills/` directory with no host. Two cases have
-their own rules:
+`.github` and `.agents` skill directories, to a `skills/` directory with no host, and to any hidden
+directory that is not a listed host. Two cases have their own rules:
 
 - **OpenCode** (`.opencode/skills/`, and the singular `.opencode/skill/`, which the OpenCode docs do
   not list): frontmatter is optional and the ID comes from the path, so a `SKILL.md` with no frontmatter
@@ -258,9 +260,12 @@ their own rules:
   skill without a description, and dokimi reads only a skill with one. A name that is not kebab-case is
   a `warn` (`name-format`), and a name that differs from the directory or a description over 1024
   characters is not a finding. Source: https://opencode.ai/docs/skills/
-- **A `.<tool>/skills/` directory dokimi holds no spec for** (for example `.kiro/skills/`): the
-  frontmatter and description checks do not run, and one `note`, `unsupported-skill-format`, says so.
-  Safety and content checks still run.
+- **A skills directory under a listed host dokimi holds no spec for** (`UNSUPPORTED_HOST_DIRS` in
+  `dokimi/external/skill_format.py`: `.cursor`, `.kiro`, `.windsurf`, `.trae`, and the others the corpus
+  holds): the frontmatter and description checks do not run, and one `note`, `unsupported-skill-format`,
+  says so. Safety and content checks still run. A loaded skill keeps its `ok` with that note; an unloaded
+  one is `skipped`, with the note. Any other hidden directory, such as `~/.config` above a `skills/` root,
+  is not a host, and its skills get the spec checks.
 
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the

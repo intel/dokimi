@@ -158,7 +158,7 @@ def test_an_unsupported_host_gets_one_note_and_no_spec_errors(tmp_path, capsys):
 def test_an_unsupported_host_without_a_description_is_a_note_not_an_error(tmp_path, capsys):
     _write(tmp_path, ".kiro/skills/quiet/SKILL.md", "---\nname: quiet\n---\n\n# Quiet\n")
     row = _rows(tmp_path, capsys)[".kiro/skills/quiet"]
-    assert row["state"] == "ok"
+    assert row["state"] == "skipped"  # the loader does not load it, and no format rule reads it
     assert row["error"] is None
     assert _codes(row) == {("note", "unsupported-skill-format")}
 
@@ -166,7 +166,7 @@ def test_an_unsupported_host_without_a_description_is_a_note_not_an_error(tmp_pa
 def test_an_unsupported_host_plain_markdown_is_a_note_not_a_failed_load(tmp_path, capsys):
     _write(tmp_path, ".kiro/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
     row = _rows(tmp_path, capsys)[".kiro/skills/quantum"]
-    assert row["state"] == "ok"
+    assert row["state"] == "skipped"  # not read by any format rule: not a pass, so not ok
     assert row["error"] is None
     assert _codes(row) == {("note", "unsupported-skill-format")}
     assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--strict"]) == 0
@@ -177,7 +177,7 @@ def test_ignoring_the_opencode_warning_does_not_fail_the_plain_markdown_skill(tm
     _write(tmp_path, ".opencode/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
     row = _rows(tmp_path, capsys, "--ignore", "opencode-no-description")[".opencode/skills/quantum"]
     assert row["error"] is None
-    assert row["state"] == "ok"
+    assert row["state"] == "skipped"
     assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills",
                  "--ignore", "opencode-no-description"]) == 0
 
@@ -188,6 +188,33 @@ def test_the_scan_root_being_the_skills_directory_keeps_the_host(tmp_path, capsy
     assert skill_format(path, tmp_path / ".opencode" / "skills") == FORMAT_OPENCODE
     assert main(["catalog", "check", "--root", str(tmp_path / ".opencode" / "skills"),
                  "--kind", "skills", "--strict"]) == 0
+
+
+def test_ignoring_the_unsupported_note_leaves_an_unloaded_skill_skipped_not_ok(tmp_path, capsys):
+    # --ignore drops the note; the skill was still not read, so its state must not become ok.
+    _write(tmp_path, ".kiro/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
+    row = _rows(tmp_path, capsys, "--ignore", "unsupported-skill-format")[".kiro/skills/quantum"]
+    assert row["state"] == "skipped"
+    assert row["error"] is None
+    assert row["findings"] == []
+    assert row["ignored"] == ["unsupported-skill-format"]
+    argv = ["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--ignore", "unsupported-skill-format"]
+    assert main([*argv, "--strict"]) == 0
+    assert main(argv) == 0
+    text = capsys.readouterr().out
+    assert "1 skipped" in text
+    assert "\tskipped" in text
+    assert "\tok" not in text
+
+
+def test_a_skipped_row_is_written_to_jsonl_and_survives_a_resume(tmp_path):
+    _write(tmp_path, ".kiro/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
+    jsonl = tmp_path / "scan.jsonl"
+    argv = ["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--per-skill", "--jsonl", str(jsonl)]
+    assert main(argv) == 0
+    assert main([*argv, "--resume"]) == 0  # a row the resume does not accept would be an InputError here
+    row, = (json.loads(line) for line in jsonl.read_text(encoding="utf-8").splitlines())
+    assert row["state"] == "skipped"
 
 
 def test_the_unsupported_host_keeps_the_unrestricted_bash_warning_for_strict(tmp_path, capsys):

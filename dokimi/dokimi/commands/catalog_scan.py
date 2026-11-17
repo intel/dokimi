@@ -27,8 +27,10 @@ from dokimi.utils import InputError
 def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[Path] = (),
               ignore: frozenset = frozenset()) -> dict:
     """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
-    ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
-    when its SKILL.md is plain Markdown or its frontmatter is broken YAML, and that review's finding is its only finding.
+    ``warn`` for a warning finding only, ``skipped`` for an unloaded skill that no format rule read (its
+    findings left no warning or error, whether or not ``--ignore`` dropped its note), else ``ok``. A skill
+    that did not load has a review only when its SKILL.md is plain Markdown or its frontmatter is broken YAML,
+    and that review's finding is its only finding.
     ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
     findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
@@ -41,6 +43,8 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     # An unloaded SKILL.md that is plain Markdown under OpenCode or an unsupported host is a warning or a note here, not a failed load (skill_format).
     exempt = not skill.loaded and not_a_failed_load([f.code for f in review.findings] if review else [])  # before --ignore
     state = "error" if not skill.loaded and not exempt else state_of(kept)
+    if not skill.loaded and exempt and state == "ok":
+        state = "skipped"  # not read by any format rule: not a pass, even when --ignore dropped its note
     return {
         "name": skill.name,
         "manifest_status": None if skill.status is None else str(skill.status),
@@ -112,6 +116,11 @@ def not_checked(row: dict) -> bool:
     return row["state"] == "ok" and any(f["code"] in NOT_CHECKED_CODES for f in row["findings"])
 
 
+def skipped_note(skipped: int) -> str:
+    """The summary's ``N skipped`` for the unloaded skills no format rule read; empty for none, as ``plain_note``."""
+    return f", {skipped} skipped" if skipped else ""
+
+
 def ok_text(ok: int, unchecked: int) -> str:
     """``N ok`` for the counts line, with ``(M not checked)`` when some of them were not read, so they do not read as a pass."""
     return f"{ok} ok ({unchecked} not checked)" if unchecked else f"{ok} ok"
@@ -122,6 +131,10 @@ def print_skill_row(row: dict) -> None:
         state = f"ERROR: {_continued(row['error'])}"
     elif row["state"] == "ok" and not not_checked(row):
         state = "ok"
+    elif row["state"] == "skipped":
+        # An unloaded skill no format rule read: its note says why, and the state does not say ok.
+        note = row["findings"][0] if row["findings"] else None
+        state = "skipped" if note is None else f"skipped: {note['message']}"
     elif row["state"] == "ok":
         # A "not checked" note: the skill was not read, so it is not a pass and the state does not say ok.
         note = next(f for f in row["findings"] if f["code"] in NOT_CHECKED_CODES)
@@ -219,7 +232,7 @@ class _Tally:
 
     def __init__(self, strict: bool) -> None:
         self.strict = strict
-        self.counts = {"ok": 0, "warn": 0, "error": 0}
+        self.counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
         self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.not_checked = 0
         self.failed = False
@@ -239,7 +252,7 @@ class _Tally:
             self.reasons.append(reason)
 
 
-_ROW_STATES = ("ok", "warn", "error")
+_ROW_STATES = ("ok", "warn", "error", "skipped")
 
 
 def _is_row(row: object) -> bool:
@@ -345,7 +358,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     counts = tally.counts
     where = f"; {resumed} resumed from {jsonl}" if jsonl is not None and resumed else ""
     print(f"# skills ({declared} declared under {root}; {ok_text(counts['ok'], tally.not_checked)}, {counts['warn']} warn, "
-          f"{counts['error']} error{plain_note(tally.plain)}{where})")
+          f"{counts['error']} error{plain_note(tally.plain)}{skipped_note(counts['skipped'])}{where})")
     if jsonl is not None:
         print(f"rows written to {jsonl}")
     else:
