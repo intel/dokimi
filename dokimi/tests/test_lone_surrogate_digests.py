@@ -78,7 +78,7 @@ def test_skill_reach_token_of_a_json_escaped_high_surrogate_case_id():
 
     from dokimi.repos.skill_reach import token
 
-    assert token("s", json.loads('"n\\ud800"'), "p").startswith("SB")
+    assert token("s", json.loads('"n\\ud800"'), "p") == "SB191ACA"  # the value the `\0sp` tag gave before key_bytes
     assert token("s", json.loads('"n\\ud800"'), "p") != token("s", json.loads('"n\\ud801"'), "p")
 
 
