@@ -701,7 +701,7 @@ apart, neither failed nor missing. If the probe itself fails, a task with
 cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
-directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` that is not a usable directory and on a `--cache-root` or `--cache NAME=PATH` that is not one; a
+directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` (or, without the flag, a `$DOKIMI_REPO_CACHE`) that is not a usable directory and on a `--cache-root` or `--cache NAME=PATH` that is not one; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
 source and exits 2, for an unpinned local directory and for a pinned source (`<repo>@<sha>`) alike; a link in the tree that leads out of it, the default
