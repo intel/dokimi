@@ -15,6 +15,7 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -26,7 +27,8 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cell_values, cost_summary, empty_reply_cell, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
+    cell_values, cost_summary, empty_reply_cell, mean_in_range, question_deltas, refusal_kept,
+    summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -642,15 +644,8 @@ class ArmRunner:
                         score["judge_context_sha256"] = digest
                 scores[arm_name] = score
 
-            deltas = {}
-            base = scores.get(baseline_arm)
-            base_agg = base.get("aggregate") if isinstance(base, dict) else None
-            if base_agg is not None:
-                for arm_name, s in scores.items():
-                    if arm_name != baseline_arm and isinstance(s, dict) and s.get("aggregate") is not None:
-                        deltas[arm_name] = round(s["aggregate"] - base_agg, 1)
-
-            return {
+            deltas, delta_errors = question_deltas(scores, baseline_arm)
+            row: Dict[str, Any] = {
                 "question_id": rec.question_id,
                 "question_text": rec.question_text,
                 "category": rec.category,
@@ -658,6 +653,9 @@ class ArmRunner:
                 "scores": scores,
                 "deltas_vs_baseline": deltas,
             }
+            if delta_errors:
+                row["delta_errors"] = delta_errors
+            return row
 
         recs = as_records(records, source="answers", kind="answers")
         # Before any judge call: refuse, do not grade against "".
@@ -758,13 +756,13 @@ class ArmRunner:
 
         summary: Dict[str, Any] = {"per_arm": {}}
         for arm_name, vals in per_arm.items():
-            avg = round(sum(vals) / len(vals), 1) if vals else None
+            avg = round(mean_in_range(vals), 1) if vals else None
             summary["per_arm"][arm_name] = {"avg_aggregate": avg, "n": len(vals), "errors": errors.get(arm_name, 0)}
-        # Paired over the questions both arms scored; the unpaired means above are still reported.
-        # Always present: null for the baseline, and for an arm with no question both arms scored.
+        # Paired over the questions both arms scored. Null for the baseline, an arm with no such
+        # question, and an arm whose score range is refused, which says why in its own delta_error (#750).
         for arm_name, stats in summary["per_arm"].items():
-            stats["delta_vs_baseline"] = (
-                arm_stats.paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
+            stats["delta_vs_baseline"] = None if arm_name == baseline_arm else refusal_kept(
+                stats, "delta_error", partial(arm_stats.paired_delta, evaluations, baseline_arm, arm_name)
             )
 
         # Paired statistics. Every arm is tested against the *same* baseline
@@ -772,17 +770,15 @@ class ArmRunner:
         # p-values get corrected across the family. Unpaired means above are
         # kept as-is for artifact compatibility.
         arm_names = list(summary["per_arm"].keys())
-        significance = arm_stats.arm_significance(
-            evaluations, baseline_arm, arm_names, correction=self.stats_correction
-        )
-        for arm_name, sig in significance.items():
+        significance = refusal_kept(summary, "significance_error", lambda: arm_stats.arm_significance(
+            evaluations, baseline_arm, arm_names, correction=self.stats_correction))
+        for arm_name, sig in (significance or {}).items():
             summary["per_arm"].setdefault(arm_name, {})["significance"] = sig
 
         # Interaction contrasts are their own hypothesis family, corrected
         # among themselves rather than pooled with the arm comparisons above.
-        interactions = interaction_significance(
-            evaluations, arm_names, baseline_arm, correction=self.stats_correction
-        )
+        interactions = refusal_kept(summary, "interactions_error", lambda: interaction_significance(
+            evaluations, arm_names, baseline_arm, correction=self.stats_correction))
         if interactions:
             summary["interactions"] = interactions
 
