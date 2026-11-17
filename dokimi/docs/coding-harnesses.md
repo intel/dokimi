@@ -247,7 +247,8 @@ A Harbor task whose `task.toml` sets `[environment] docker_image` runs on that
 image, as `harbor run` does, and a docker-* run starts from that image instead of
 building: Harbor 0.24 uses it whenever it is set, also beside an
 `environment/Dockerfile` (only Harbor's `--force-build` builds then;
-`should_use_prebuilt_docker_image` in `harbor/environments/definition.py`). A
+`should_use_prebuilt_docker_image` in `harbor/environments/definition.py`;
+`run.log` names the Dockerfile not built: remove `docker_image` to build it). A
 task without one builds `dokimi/<task>:latest` from `environment/`, as before; so
 does a staged SWE-bench task, whose Dockerfile starts `FROM` its image. Other
 formats do not read the key.

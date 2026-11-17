@@ -45,6 +45,8 @@ def ready_image(task: TaskSpec, log, docker: Docker, build: Callable[[str], None
         return tag, {"source": "build", "ref": tag}
     if not _REFERENCE_RE.fullmatch(image):
         raise ValueError(f"{task.name}: [environment] docker_image {image!r} is not a docker image reference")
+    if (task.build_context / task.dockerfile).is_file():
+        log.write(f"[image] {task.dockerfile} not built: [environment] docker_image {image} wins, as in Harbor\n")
     inspect = ["image", "inspect", "-f", _RECORD_FORMAT, image]
     found = docker(inspect, log, check=False)
     pulled = found.returncode != 0

@@ -13,4 +13,9 @@ SPDX-License-Identifier: Apache-2.0
   loose files of `environment/` are copied into the workdir after the start (what creates `/app`
   in `python:3.12-slim`). `--network build=none` does not stop the pull, as it does not stop a
   build's `FROM`. `metrics.image` records the image a cell ran on: its id and repo digests for a
-  prebuilt one. A task without `docker_image` builds as before. See `docs/coding-harnesses.md`.
+  prebuilt one. A task without `docker_image` builds as before. A task that sets `docker_image`
+  beside `environment/Dockerfile` (as the old `task.toml` template in
+  `contributing-terminal-bench-task.md` did, with a local `intel-hpc-bench/...` tag) now runs on
+  that image and no longer builds the Dockerfile; `run.log` says so, and a tag no registry has
+  errors the cell with `docker pull failed`. Remove `docker_image` to keep building the
+  Dockerfile. See `docs/coding-harnesses.md`.

@@ -206,6 +206,13 @@ def test_with_both_the_docker_image_wins_and_nothing_is_uploaded(tmp_path):
     assert not [a for a in cli.args if a[0] == "build"]
     assert ["pull", "-q", IMAGE] in cli.args
     assert not [a for a in cli.args if a[0] == "cp" and a[1] == f"{path / 'environment'}/."]
+    log = (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
+    assert f"Dockerfile not built: [environment] docker_image {IMAGE} wins" in log
+
+
+def test_a_docker_image_only_task_says_nothing_about_a_dockerfile(tmp_path):
+    create_harness("docker-oracle", runner=_daemon()).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    assert "not built" not in (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
 
 
 def test_only_a_harbor_task_reads_docker_image(tmp_path):
