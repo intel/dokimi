@@ -58,15 +58,17 @@ runs:
       run: |
         marker='<!-- dokimi-report -->'
         { echo "$marker"; cat -- "$OUT/summary/summary.md"; } > "$OUT/summary/comment.md"
+        # The comment is the token's own: a user token posts as that user, the default token as the bot.
+        me=$(gh api user --jq .login 2>/dev/null || echo 'github-actions[bot]')
         id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-          --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)
+          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)
         if [ -n "$id" ]; then
           gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$OUT/summary/comment.md" >/dev/null
         else
           gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$OUT/summary/comment.md" >/dev/null
         fi
     - name: Upload out-dir
-      if: ${{ inputs.artifact-name != '' }}
+      if: ${{ always() && inputs.artifact-name != '' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: ${{ inputs.artifact-name }}

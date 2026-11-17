@@ -208,3 +208,132 @@ def test_repo_scan_subjects_put_each_failing_claim_at_its_file_and_line():
     assert [s["subject"] for s in subjects] == ["AGENTS.md", "CLAUDE.md"]
     (f,) = subjects[0]["findings"]
     assert (f["file"], f["line"], f["code"]) == ("AGENTS.md", 4, "fail_missing") and subjects[1]["findings"] == []
+
+
+# --- review round: what a bad input or a second document of one kind must not hide ---
+
+
+def test_an_empty_directory_stays_a_not_run_row(tmp_path):
+    good = _doc(tmp_path, "ok.json", "repo scan", verdict="pass")
+    empty = tmp_path / "empty-results"
+    empty.mkdir()
+    out = summarize([str(empty), str(good)])
+    assert [c["state"] for c in out["checks"]] == ["not_run", "pass"]
+    assert out["checks"][0]["source"] == str(empty) and out["overall"] == "not_run"
+
+
+def test_malformed_envelope_fields_are_invalid_rows_not_a_crash(tmp_path):
+    _doc(tmp_path, "a.json", "ok", verdict="pass")
+    docs = {"verdict": {"verdict": ["pass"]}, "status": {"status": "broken", "verdict": "pass"},
+            "cost": {"cost": {"spent_usd": "1", "cap_usd": None}},
+            "subjects": {"subjects": [{"subject": "s", "verdict": "maybe"}]}}
+    for field, fields in docs.items():
+        p = tmp_path / f"{field}.json"
+        doc = cli_output.envelope("repo scan")
+        doc.update(fields)
+        p.write_text(json.dumps(doc), encoding="utf-8")
+    out = summarize([str(tmp_path)])
+    rows = {Path(c["source"]).stem: c for c in out["checks"]}
+    assert rows["a"]["state"] == "pass" and out["overall"] == "invalid"
+    for field in docs:
+        assert (rows[field]["state"], rows[field]["reason"]) == ("invalid", f"{field} malformed")
+
+
+def test_two_documents_of_one_kind_keep_each_subject_verdict(tmp_path):
+    _doc(tmp_path, "a.json", "memory lint", subjects=[{"subject": "s1", "verdict": "fail"}])
+    _doc(tmp_path, "b.json", "memory lint", subjects=[{"subject": "s1", "verdict": "pass"}])
+    out = summarize([str(tmp_path)])
+    assert out["subjects"][0]["verdicts"] == {"memory lint": "fail",
+                                              f"memory lint ({tmp_path / 'b.json'})": "pass"}
+    assert "::warning title=memory lint::s1: fail" in render(out, "annotations")
+    assert f"memory lint ({tmp_path / 'b.json'})" in render(out, "markdown")
+
+
+def test_markdown_subject_header_escapes_the_kind(tmp_path):
+    _doc(tmp_path, "a.json", "scan|lint", subjects=[{"subject": "s", "verdict": "pass"}])
+    md = render(summarize([str(tmp_path)]), "markdown")
+    assert "| Subject | scan\\|lint |" in md and "| s | pass |" in md
+
+
+def test_subject_annotation_title_escapes_its_delimiters(tmp_path):
+    p = _doc(tmp_path, "a.json", "scan,file=other.py,line=1", subjects=[{"subject": "s", "verdict": "fail"}])
+    assert render(summarize([str(p)]), "annotations").splitlines()[-1] == \
+        "::warning title=scan%2Cfile=other.py%2Cline=1::s: fail"
+
+
+def test_the_json_summary_conforms_to_its_schema(tmp_path):
+    from dokimi.artifacts import SCHEMA_VERSIONS
+
+    _doc(tmp_path, "a.json", "catalog check", verdict="fail", cost={"spent_usd": 0.5, "cap_usd": 1.0},
+         subjects=[{"subject": "s", "verdict": "fail", "findings": [
+             cli_output.finding("error", "x", "m", "SKILL.md", 3)]}])
+    (tmp_path / "bad.json").write_text("{", encoding="utf-8")
+    doc = json.loads(render(summarize([str(tmp_path), str(tmp_path / "gone.json")]), "json"))
+    assert SCHEMA_VERSIONS["report_summary"] == doc["schema_version"] == "report_summary.v1"
+    assert schema_errors("report_summary.v1", doc) == []
+    assert schema_errors("report_summary.v1", {**doc, "overall": "great"}) != []
+
+
+def test_catalog_check_json_refuses_jsonl(tmp_path):
+    code, out, _ = _main("catalog", "check", "--root", str(_catalog(tmp_path)), "--per-skill", "--jsonl",
+                         str(tmp_path / "rows.jsonl"), "--json")
+    assert code == 2 and "--jsonl" in json.loads(out)["error"]["message"]
+
+
+def _routed_skill(tmp_path, dirname="a-dir", name="a"):
+    d = tmp_path / dirname
+    d.mkdir()
+    (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: profile a binary\n---\n\n# B\n\n## A section here\n",
+                                encoding="utf-8")
+    c = tmp_path / "b"
+    c.mkdir()
+    (c / "SKILL.md").write_text("---\nname: b\ndescription: tune a database\n---\n\n# B\n", encoding="utf-8")
+    return d, c
+
+
+_COST = {"usd": 0.25, "llm_calls": 2, "input_tokens": 9, "output_tokens": 2, "cache_read_tokens": 0,
+         "cache_write_tokens": 0, "replayed_calls": 0}
+_ARM = {"selection_rate": 0.5, "selection_rate_among_answered": 0.5, "n_queries": 1, "n_calls": 2, "n_abstained": 0,
+        "n_failed": 0, "repeats": 1, "model": "m", "noise": None}
+
+
+def _routing_with_model(tmp_path, d, c, model_arm, artifact=None):
+    class Client:
+        pass
+    with patch("dokimi.novelty.cost.client", return_value=Client()), \
+            patch("dokimi.novelty.client.roll_up_cost", return_value=_COST), \
+            patch("dokimi.novelty.routing.model_routing", return_value=model_arm):
+        return _main("skill", "routing", artifact or str(d), "--competitors", str(c), "--queries-from-headings",
+                     "--model", "m", "--max-usd", "1", "--out", str(tmp_path / "r.json"), "--json")
+
+
+def test_skill_routing_json_names_the_loaded_skill_and_carries_the_model_rate(tmp_path, monkeypatch):
+    d, c = _routed_skill(tmp_path)
+    monkeypatch.chdir(d)
+    code, out, _ = _routing_with_model(tmp_path, d, c, _ARM, artifact=".")
+    doc = json.loads(out)
+    assert code == 0 and schema_errors("cli_output.v1", doc) == []
+    assert doc["subjects"] == [{"subject": "a", "verdict": None}]
+    assert doc["summary"]["model_selection_rate"] == 0.5
+
+
+def test_skill_routing_json_of_a_capped_run_keeps_its_document_and_its_exit(tmp_path):
+    from dokimi.novelty.noise import partial_record
+
+    d, c = _routed_skill(tmp_path)
+    arm = {**_ARM, "partial": partial_record("spend cap reached", 1, 2, "spend_cap")}
+    code, out, _ = _routing_with_model(tmp_path, d, c, arm)
+    doc = json.loads(out)
+    assert code == 1 and schema_errors("cli_output.v1", doc) == []
+    assert (doc["status"], doc["reason"]) == ("budget_stopped", "spend cap reached")
+    assert doc["cost"]["spent_usd"] == 0.25 and doc["artifacts"]["out"] == str(tmp_path / "r.json")
+
+
+def test_the_report_action_uploads_after_a_failed_comment_and_finds_its_own_comment():
+    import yaml
+
+    steps = yaml.safe_load((CLI.parent.parent / "actions" / "report" / "action.yml").read_text(encoding="utf-8"))["runs"]["steps"]
+    by_name = {s["name"]: s for s in steps}
+    assert "always()" in by_name["Upload out-dir"]["if"]
+    sticky = by_name["Sticky pull request comment"]["run"]
+    assert "gh api user" in sticky and '.user.login == \\"$me\\"' in sticky

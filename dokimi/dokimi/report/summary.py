@@ -18,6 +18,8 @@ from typing import Any
 
 SCHEMA_VERSION = "cli_output.v1"
 SUMMARY_SCHEMA = "report_summary.v1"
+_VERDICTS = ("pass", "fail", "inconclusive", "invalid", "infra_error")
+_STATUSES = ("complete", "partial", "budget_stopped", "cancelled", "failed")
 FORMATS = ("markdown", "json", "annotations")
 #: Document verdicts that count against the overall state, worst first.
 _BAD = ("infra_error", "invalid", "fail", "inconclusive")
@@ -32,17 +34,43 @@ def _row(source: str, state: str, *, kind: str | None = None, status: str | None
 
 
 def expand_inputs(paths: list[str]) -> list[Path]:
-    """Each file as given; a directory becomes its ``*.json`` files, sorted. A missing path stays, to become ``not_run``."""
+    """Each file as given; a directory becomes its ``*.json`` files, sorted. A missing path, and a directory with no
+    ``*.json`` file, stay as given, to become a ``not_run`` row."""
     out: list[Path] = []
     for raw in paths:
         p = Path(raw)
-        out.extend(sorted(p.glob("*.json")) if p.is_dir() else [p])
+        out.extend((sorted(p.glob("*.json")) or [p]) if p.is_dir() else [p])
     return out
+
+
+def _malformed(doc: dict[str, Any]) -> str | None:
+    """What is wrong with the envelope fields the summary consumes, or None when they hold their schema's types."""
+    if not isinstance(doc.get("kind"), str):
+        return "kind"
+    if doc.get("status") not in _STATUSES:
+        return "status"
+    if doc.get("verdict") is not None and doc["verdict"] not in _VERDICTS:
+        return "verdict"
+    if not isinstance(doc.get("subjects", []), list):
+        return "subjects"
+    for s in doc.get("subjects") or []:
+        if not isinstance(s, dict) or not isinstance(s.get("subject"), str) or not s["subject"] \
+                or (s.get("verdict") is not None and s["verdict"] not in _VERDICTS) \
+                or not isinstance(s.get("findings", []), list):
+            return "subjects"
+    cost = doc.get("cost")
+    if cost is not None and (not isinstance(cost, dict) or any(
+            v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)))
+            for v in (cost.get("spent_usd"), cost.get("cap_usd")))):
+        return "cost"
+    return None
 
 
 def load(path: Path) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """The check row of one input and its document, or None when it is not a ``cli_output.v1`` document."""
     source = str(path)
+    if path.is_dir():
+        return _row(source, "not_run", reason="no *.json file in the directory"), None
     if not path.exists():
         return _row(source, "not_run", reason="file not found"), None
     try:
@@ -52,8 +80,9 @@ def load(path: Path) -> tuple[dict[str, Any], dict[str, Any] | None]:
     if not isinstance(doc, dict) or doc.get("schema_version") != SCHEMA_VERSION:
         got = doc.get("schema_version") if isinstance(doc, dict) else type(doc).__name__
         return _row(source, "invalid", reason=f"not {SCHEMA_VERSION} (got {got!r})"), None
-    if not isinstance(doc.get("kind"), str) or not isinstance(doc.get("subjects", []), list):
-        return _row(source, "invalid", reason="kind or subjects malformed"), None
+    bad = _malformed(doc)
+    if bad:
+        return _row(source, "invalid", reason=f"{bad} malformed"), None
     error = doc.get("error") if isinstance(doc.get("error"), dict) else None
     reason = doc.get("reason") or (error or {}).get("message")
     verdict = doc.get("verdict")
@@ -99,8 +128,10 @@ def summarize(paths: list[str]) -> dict[str, Any]:
         for s in (doc or {}).get("subjects") or []:
             if isinstance(s, dict) and isinstance(s.get("subject"), str):
                 entry = subjects.setdefault(s["subject"], {"subject": s["subject"], "verdicts": {}, "findings": []})
-                entry["verdicts"][row["kind"]] = s.get("verdict")
-                entry["findings"] += [{**f, "check": row["kind"]} for f in s.get("findings") or []
+                # A second document of the same kind keeps its own column, named by its source.
+                check = row["kind"] if row["kind"] not in entry["verdicts"] else f"{row['kind']} ({row['source']})"
+                entry["verdicts"][check] = s.get("verdict")
+                entry["findings"] += [{**f, "check": check} for f in s.get("findings") or []
                                       if isinstance(f, dict)]
     spent = [c["spent_usd"] for c in checks if isinstance(c["spent_usd"], (int, float))]
     return {"schema_version": SUMMARY_SCHEMA, "overall": _overall(checks), "checks": checks,
@@ -123,7 +154,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                      f"| {c['subjects']} | {money} | {_cell(facts)} | {_cell(c['reason'])} |")
     if summary["subjects"]:
         kinds = sorted({k for s in summary["subjects"] for k in s["verdicts"]})
-        lines += ["", "| Subject | " + " | ".join(kinds) + " |", "|---|" + "---|" * len(kinds)]
+        lines += ["", "| Subject | " + " | ".join(_cell(k) for k in kinds) + " |", "|---|" + "---|" * len(kinds)]
         for s in summary["subjects"]:
             counts = {k: sum(f["check"] == k for f in s["findings"]) for k in kinds}
             lines.append(f"| {_cell(s['subject'])} | " + " | ".join(

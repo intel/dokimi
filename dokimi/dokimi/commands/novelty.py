@@ -379,7 +379,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     print_all_vs_all_summary(*summary)
 
 
-def cmd_routing(args: argparse.Namespace) -> tuple[dict, Path] | None:
+def cmd_routing(args: argparse.Namespace) -> tuple[dict, Path, str] | None:
     """Can a skill (or each skill under a root) be selected against its competitors? Lexical floor, model on top."""
     from dokimi.novelty import cost
     if args.repeats > 1 and not args.model:
@@ -433,18 +433,23 @@ def cmd_routing(args: argparse.Namespace) -> tuple[dict, Path] | None:
         payload["cost"] = roll_up_cost([selector])
 
     out = save_result(payload, out, payload.get("model", {}))
-    stop_if_partial(payload, out,
-                    lambda: print_routing_summary(payload, len(competitors), self_derived))
+    try:
+        stop_if_partial(payload, out,
+                        lambda: print_routing_summary(payload, len(competitors), self_derived))
+    except SystemExit as stop:
+        raise RoutingStopped(stop.code, payload, out, gold.name) from None
     print(f"OK Saved routing measurement: {out}")
 
     print_routing_summary(payload, len(competitors), self_derived)
-    return payload, out
+    return payload, out, gold.name
 
 
-def _subject_name(artifact: str) -> str:
-    """The subject id of a routed skill: its directory name, as `catalog check` names it."""
-    path = Path(str(artifact).split(":", 1)[-1])
-    return path.parent.name if path.name == "SKILL.md" else path.name
+class RoutingStopped(SystemExit):
+    """A routing run the cap or a model error cut short: it exits as before, and carries the saved result for --json."""
+
+    def __init__(self, message: object, payload: dict, out: Path, skill: str) -> None:
+        super().__init__(message)
+        self.result = (payload, out, skill)
 
 
 def cmd_skill_routing(args: argparse.Namespace) -> None:
@@ -458,23 +463,32 @@ def cmd_skill_routing(args: argparse.Namespace) -> None:
         return
     from dokimi import cli_output
 
+    stopped = None
     with cli_output.quiet_stdout():
-        done = cmd_routing(args)
+        try:
+            done = cmd_routing(args)
+        except RoutingStopped as stop:  # the result is saved: its document is printed, then the exit stands
+            done, stopped = stop.result, stop
     if done is None:  # --estimate-only: an estimate, nothing measured
         cli_output.emit_leaf("skill routing", None, reason="estimate only, nothing measured")
         return
-    payload, out = done
+    payload, out, skill = done
     lexical, model = payload["lexical"], payload.get("model") or {}
     spent = (payload.get("cost") or {}).get("usd")
     cost = {"spent_usd": spent or 0.0, "cap_usd": getattr(args, "max_usd", None),
             "calls": (payload.get("cost") or {}).get("llm_calls", 0), "priced": spent is not None}
     if cost["cap_usd"] is not None:
         cost["remaining_usd"] = round(cost["cap_usd"] - cost["spent_usd"], 6)
+    partial = payload.get("partial")
+    status = "complete" if partial is None else ("budget_stopped" if partial["reason"] == "spend_cap" else "partial")
     cli_output.emit_leaf(
-        "skill routing", payload, subjects=[{"subject": _subject_name(args.artifact), "verdict": None}],
+        "skill routing", payload, status=status, reason=partial and partial["message"],
+        subjects=[{"subject": skill, "verdict": None}],
         summary={"queries_self_derived": payload["queries_self_derived"], "n_candidates": payload["n_candidates"],
-                 "lexical_recall_at_1": lexical.get("recall_at_1"), "model_recall_at_1": model.get("recall_at_1")},
+                 "lexical_recall_at_1": lexical.get("recall_at_1"), "model_selection_rate": model.get("selection_rate")},
         artifacts={"out": str(out)}, cost=cost)
+    if stopped is not None:
+        raise stopped
 
 
 def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derived: bool,

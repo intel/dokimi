@@ -167,9 +167,13 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
     return failed
 
 
-def _refuse_json_with_format_json(args: argparse.Namespace) -> None:
-    if getattr(args, "json", False) and args.format == "json":
+def _refuse_json_conflicts(args: argparse.Namespace) -> None:
+    if not getattr(args, "json", False):
+        return
+    if args.format == "json":
         raise InputError("--json prints cli_output.v1 with the report under data; drop --format json")
+    if args.jsonl:
+        raise InputError("--jsonl writes one row per skill to a file, so --json would carry none; drop one of them")
 
 
 def _check_scan_flags(args: argparse.Namespace) -> None:
@@ -189,7 +193,7 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
     if "unreadable" in (args.ignore or ()):
         # The whole-catalog exit reads the unfiltered findings, --per-skill the filtered rows: ignoring it splits them.
         raise InputError("--ignore unreadable: a SKILL.md the OS will not read always fails the scan, as a load error does")
-    _refuse_json_with_format_json(args)
+    _refuse_json_conflicts(args)
     if args.jsonl and args.format == "json":
         raise InputError("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:

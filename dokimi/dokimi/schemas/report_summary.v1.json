@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/report_summary.v1.json",
+  "title": "Report summary v1",
+  "description": "What `dokimi report summary --format json` prints (dokimi.report.summary): one row per input `cli_output.v1` document, in input order, and one row per subject id across them. `overall` is the worst row state; it is never a verdict the summary computed. A missing, unreadable or malformed input is a `not_run` or `invalid` row, never dropped. A subject's `verdicts` is keyed by the check kind, or `<kind> (<source>)` for a second document of the same kind.",
+  "type": "object",
+  "required": ["schema_version", "overall", "checks", "subjects", "spent_usd"],
+  "additionalProperties": false,
+  "$defs": {
+    "state": {"enum": ["pass", "fail", "inconclusive", "invalid", "infra_error", "failed", "not_run", "report_only"]},
+    "verdict": {"enum": ["pass", "fail", "inconclusive", "invalid", "infra_error", null]}
+  },
+  "properties": {
+    "schema_version": {"const": "report_summary.v1"},
+    "overall": {"$ref": "#/$defs/state"},
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "state", "kind", "status", "verdict", "reason", "subjects", "summary", "spent_usd", "cap_usd"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {"type": "string", "description": "The input path."},
+          "state": {"$ref": "#/$defs/state"},
+          "kind": {"type": ["string", "null"], "description": "The document's `kind`; null for a row with no readable document."},
+          "status": {"type": ["string", "null"]},
+          "verdict": {"$ref": "#/$defs/verdict"},
+          "reason": {"type": ["string", "null"]},
+          "subjects": {"type": "integer", "minimum": 0},
+          "summary": {"type": "object", "description": "The scalar values of the document's `summary`, nested keys joined by `.`."},
+          "spent_usd": {"type": ["number", "null"]},
+          "cap_usd": {"type": ["number", "null"]}
+        }
+      }
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["subject", "verdicts", "findings"],
+        "additionalProperties": false,
+        "properties": {
+          "subject": {"type": "string", "minLength": 1},
+          "verdicts": {"type": "object", "additionalProperties": {"$ref": "#/$defs/verdict"}},
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["check", "level", "code", "message"],
+              "properties": {
+                "check": {"type": "string", "description": "The key of `verdicts` the finding belongs to."},
+                "level": {"type": "string"},
+                "code": {"type": "string"},
+                "message": {"type": "string"},
+                "file": {"type": ["string", "null"]},
+                "line": {"type": ["integer", "null"]}
+              }
+            }
+          }
+        }
+      }
+    },
+    "spent_usd": {"type": ["number", "null"], "description": "The sum of the rows' `spent_usd`; null when no row has a cost."}
+  }
+}
