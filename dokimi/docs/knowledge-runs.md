@@ -58,8 +58,8 @@ context-arm line, because there is no context arm.
 `run_metadata.ungraded_questions` and not in the summary. When the `--answers` file is an
 `arms.v1` file (route B), the artifact stays `arms.v1` and the same per-condition tally sits
 under `reference_scoring.summary`. Drop `--no-judge` to let the judge grade the checks that
-need one (`judge` checks); with `--no-judge` those are left unscored, and they are never
-counted as passed.
+need one (`judge` checks); with `--no-judge` those are left unscored and the pass rate covers only the checks that
+ran: read `judge_unscored` before you compare it with a judged run.
 
 For a judge-only score with no checks, use `eval score pointwise --product demo --answers
 knowledge/demo-answers.json --output knowledge/demo-judged.json`. Its per-question rows have
