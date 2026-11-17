@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import math
+import sys
 
+import numpy as np
 import pytest
 
 from dokimi.eval.finite_delta import checked_delta, checked_mean
-from dokimi.repos.compare import CompareError, _pair, sign_flip_summary
+from dokimi.repos.compare import CompareError, _inconclusive_note, _pair, _round, sign_flip_summary
+from dokimi.repos.compare_reach import min_detectable
 
 
 def _side(value: float) -> dict:
@@ -71,12 +74,53 @@ def test_sign_flip_summary_refuses_finite_deltas_whose_sum_or_spread_leaves_the_
         sign_flip_summary([_task(d) for d in deltas])
 
 
-@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")  # the mde of a spread this large
 def test_sign_flip_summary_shifts_deltas_near_the_range_on_a_scaled_copy():
     row = sign_flip_summary([_task(1.0e307), _task(-1.0e307)] * 6)  # cancels pairwise: sum() before 3.12 does not compensate
     assert row["delta"]["mean"] == 0.0
     assert math.isfinite(row["delta"]["lo"]) and math.isfinite(row["delta"]["hi"])
     assert row["delta"]["lo"] < 0 < row["delta"]["hi"]
+
+
+@pytest.mark.filterwarnings("error")
+def test_mde_is_none_when_the_planning_figure_leaves_the_float_range():
+    row = sign_flip_summary([_task(d) for d in [sys.float_info.max, 1.0, 1.0, 1.0, 1.0, 1.0]])
+    assert row["mde"] is None
+
+
+@pytest.mark.filterwarnings("error")
+def test_mde_of_a_large_spread_is_rounded_without_overflowing():
+    row = sign_flip_summary([_task(1.0e307), _task(-1.0e307)] * 6)
+    assert math.isfinite(row["mde"]) and row["mde"] == pytest.approx(9.276e306, rel=1e-3)
+
+
+@pytest.mark.filterwarnings("error")
+def test_min_detectable_past_the_range_is_inf_without_a_warning():
+    assert min_detectable(sys.float_info.max, 3) == math.inf
+
+
+def test_min_detectable_of_no_task_is_nan():
+    assert math.isnan(min_detectable(0.5, 0))
+
+
+@pytest.mark.filterwarnings("error")
+def test_round_of_a_numpy_scalar_near_the_range_does_not_warn():
+    assert _round(np.float64(1.0e307)) == 1.0e307
+
+
+def test_inconclusive_note_prints_a_large_mde_in_scientific_notation():
+    row = sign_flip_summary([_task(1.0e307), _task(-1.0e307)] * 6)
+    note = _inconclusive_note({**row, "measure": "gate"}, 1)
+    assert "about ±9.276e+306 (12 tasks)" in note
+
+
+def test_inconclusive_note_keeps_three_decimals_for_a_small_mde():
+    row = {"measure": "gate", "n_tasks": 6, "delta": {"lo": -1.0, "hi": 1.0}, "mde": 123456.7891}
+    assert "about ±123456.789 (6 tasks)" in _inconclusive_note(row, 1)
+
+
+@pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
+def test_round_gives_no_figure_for_a_non_finite_value(value):
+    assert _round(value) is None
 
 
 def test_checked_mean_is_the_plain_mean_where_it_is_finite():
