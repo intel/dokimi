@@ -100,6 +100,7 @@ def test_a_ref_that_is_no_path_and_holds_a_lone_surrogate_is_digested(tmp_path: 
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
+# Test-narrowed: test_a_question_value_with_a_lone_surrogate_is_digested now asserts None: a missing file has no digest, the name is not hashed.
 def test_a_question_value_with_a_lone_surrogate_that_is_no_file_stays_unresolved():
     # a name the cwd does not show is no identity, so the digest is None and the name is not hashed
     assert _digest_values(("q\udcff",)) is None
