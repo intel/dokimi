@@ -246,7 +246,7 @@ def _container_facts(ctx: EvalContext, work_dir: Path) -> dict[str, Any]:
     try:
         result = ctx.runner.run(spec, stdout=out, stderr=err, timeout_s=PROBE_TIMEOUT_S)
     except ContainerError as exc:
-        return {"error": f"host probe did not start: {str(exc)[:300]}"}
+        return {"error": scrub(f"host probe did not start: {str(exc)[:300]}")}
     text = out.read_text(encoding="utf-8", errors="replace") if out.is_file() else ""
     try:
         raw = json.loads(text.strip().splitlines()[-1]) if result.ok and text.strip() else None
