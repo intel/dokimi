@@ -49,7 +49,8 @@ def test_help_renders(path, capsys):
     assert " ".join(path) in out.splitlines()[0]
 
 
-@pytest.mark.parametrize("path", [("eval", "check"), ("repo", "run")], ids=["eval-check", "repo-run"])
+@pytest.mark.parametrize("path", [("eval", "check"), ("repo", "run"), ("eval", "tasks")],
+                         ids=["eval-check", "repo-run", "tasks-generate-in-the-tasks-listing"])
 def test_the_exit_2_help_of_a_source_command_names_the_cache_dir_case(path, capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args([*path, "--help"])

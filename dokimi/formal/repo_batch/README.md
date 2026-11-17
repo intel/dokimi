@@ -40,7 +40,7 @@ result differs from its expectation. `out/` is not committed.
 | Cancel | Ctrl-C: `KeyboardInterrupt`; `pool.map` cancels queued futures, running cells finish | `Cancel`, `CancelGuard` |
 | Exclusion of concurrent runs on one batch | `batch_lock` (flock on `_eval/lock`) | `Locked` |
 | Execution pinning | `execution.id` in `meta.json`/`result.json`; `check_batch_executions` before any cell | `Configs`, `StartCheck` |
-| Commit | `_write_json(rd / "result.json")`: a `<name>.<pid>.<thread>.tmp` sibling of the target, then `os.replace` (atomic) | `Commit` |
+| Commit | `_write_json(rd / "result.json")`: mkstemp + `os.replace` (atomic) | `Commit` |
 | Aggregation | `load_cells`: one `result.json` per dir; missing = planned − done | `Done`, `Counted`, `Missing` |
 | Dataset/task, skill, evaluator pins | eval tree revision or digests, `_eval/skills.json`, grader sources in the batch ledger | folded into `Configs` |
 | Caps (timeout, max turns, budget) pinned | **no**: recorded per cell in `agent.caps`, not in `execution.id` | not modelled (open question 3) |

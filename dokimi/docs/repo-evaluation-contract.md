@@ -1140,7 +1140,7 @@ is F1 against `gold`. A gold file with an unknown `answer_key`, an empty
 error.
 
 The command exits 2 without `--index`, with `--references 0 --derives 0`, on
-an unpinned source, an index that does not read, or one that maps to no file
+an unpinned source, a `--cache-dir` that is not a usable directory, an index that does not read, or one that maps to no file
 of the tree; 1 when no target gave a task, a task cannot be written, or the source cannot be resolved at the revision.
 
 ### 4.8 Authoring tasks from merged pull requests

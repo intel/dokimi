@@ -130,7 +130,7 @@ Work(w) ==
     /\ UNCHANGED <<inv, live, cfg, force, plan, queue, cancelled, errs, exit,
                    atts, owner, result, commits, ghosts, stale, lateStart, badOk>>
 
-\* _write_json(rd / "result.json"): a <name>.<pid>.<thread>.tmp sibling, then os.replace into the path.
+\* _write_json(rd / "result.json"): mkstemp + os.replace into the path.
 WriteResult(c, a) ==
     /\ result' = [result EXCEPT ![c] = a]
     /\ commits' = Append(commits, <<c, a>>)
