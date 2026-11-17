@@ -69,7 +69,7 @@ def test_a_directory_ref_of_utf8_names_keeps_its_digest(tmp_path: Path):
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "é.md").write_bytes(b"two\n")
     assert _digest_ref(str(tmp_path), base=tmp_path) == (
-        "sha256:b81d3e4952432273d79f200d2d22373cefe695e569138fe2d6feab66fa962a76")
+        "sha256:8bebaf0c5b5da4acb85facaa866ec8beabd87373df2c2f38f0fc86a655e1303f")  # gitleaks:allow
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a name that is not UTF-8 cannot be created on Windows")
@@ -89,7 +89,7 @@ def test_a_directory_ref_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_pa
 
 def test_a_ref_that_is_no_path_keeps_its_digest(tmp_path: Path):
     assert _digest_ref("no-such-é", base=tmp_path) == (
-        "sha256:63661dbcb1a932eeb0f6555a4df5f16b59516d27e1d56d1ce19777691bf1b78a")
+        "sha256:3124a1d714c608077eca68f5b382e3db438cc8826e0523d3e82768e517f08f9b")  # gitleaks:allow
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
@@ -119,6 +119,44 @@ def test_each_part_of_a_combined_spec_with_a_lone_surrogate_is_digested(tmp_path
     assert [part for part, _ in content_refs(spec)] == ["skill:./a", "skill:./n\udcff"]
     digest = _digest_arm_spec(spec, base=tmp_path)
     assert digest.startswith("sha256:") and digest != _digest_arm_spec("skill:./a+skill:./n\udcfe", base=tmp_path)
+
+
+def _tree(root: Path, files: dict[str, bytes]) -> str:
+    root.mkdir()
+    for name, content in files.items():
+        (root / name).write_bytes(content)
+    digest = _digest_ref(str(root), base=root)
+    assert digest is not None
+    return digest
+
+
+def test_a_nul_in_a_file_cannot_move_bytes_into_the_next_file_name(tmp_path: Path):
+    # #878: a = "b" and c = "" hashed the same bytes as a = "b\0c\0" alone.
+    two = _tree(tmp_path / "s1", {"a": b"b", "c": b""})
+    one = _tree(tmp_path / "s2", {"a": b"b\0c\0"})
+    assert two != one
+
+
+def test_a_nul_in_a_file_cannot_move_bytes_into_the_next_value(tmp_path: Path):
+    # #878: ("f", "c") with f = "b" hashed the same bytes as ("f",) with f = "bc\0".
+    f = tmp_path / "f"
+    f.write_bytes(b"b")
+    pair = _digest_values((str(f), "c"))
+    f.write_bytes(b"bc\0")
+    assert _digest_values((str(f),)) != pair
+
+
+def test_an_arm_spec_digest_frames_the_spec_and_each_part_as_fixed_width_fields(tmp_path: Path):
+    # #878: the spec and each part were joined with a bare NUL, so this literal moved.
+    assert _digest_arm_spec("skill:./a+skill:./b", base=tmp_path) == (
+        "sha256:8c142870b5eab2dd85f0380146b5b58e1de2576a17f49bc6312bbfce6b00d7cc")  # gitleaks:allow
+    assert _digest_arm_spec("baseline", base=tmp_path) == (
+        "sha256:f22917cace49ee841b942ac46ec9a946203ba2f89f8c816143557337cbcdf72c")  # gitleaks:allow
+
+
+def test_a_file_ref_differs_from_a_missing_ref_spelled_as_its_content(tmp_path: Path):
+    (tmp_path / "doc.md").write_bytes(b"missing.md")
+    assert _digest_ref("doc.md", base=tmp_path) != _digest_ref("missing.md", base=tmp_path)
 
 
 def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypatch):

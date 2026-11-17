@@ -53,7 +53,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "sha256 over the ref's content: for a directory, each file's relative path and content as two fixed-width sha256 digests, in sorted path order; for a file, its content digest; for a ref that is no path, its text. Digests written by earlier releases hashed the raw bytes next to NUL separators and differ for the same ref."
         },
         "distribution_digest": {
           "type": [
@@ -90,7 +91,8 @@
           }
         },
         "question_set_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "sha256 over each questions entry: a digest of its text, then a digest of the file it names when it is a file. Digests written by earlier releases differ for the same entries."
         },
         "tasks": {
           "type": "array",
@@ -105,7 +107,8 @@
       "type": "string"
     },
     "baseline_digest": {
-      "type": "string"
+      "type": "string",
+      "description": "sha256 over the baseline arm spec and, per part that reads local content, the part and the ref_digest of that content, each as a fixed-width digest. Digests written by earlier releases differ for the same spec."
     },
     "awareness": {
       "type": "object",

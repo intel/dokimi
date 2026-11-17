@@ -132,14 +132,19 @@ def build_subject_scorecard(
     }
 
 
+def _field(text: str) -> bytes:
+    """A fixed-width field for *text*, so a NUL or any byte in it cannot run into the next field."""
+    return hashlib.sha256(os.fsencode(text)).digest()
+
+
 def _digest_values(values: tuple[str, ...]) -> str:
+    """Per value: its text's digest, then the digest of the file it names, when it names one."""
     h = hashlib.sha256()
     for value in values:
-        h.update(os.fsencode(value))
-        h.update(b"\0")
+        h.update(_field(value))
         path = Path(value)
         if path.is_file():
-            h.update(path.read_bytes())
+            h.update(hashlib.sha256(path.read_bytes()).digest())
     return "sha256:" + h.hexdigest()
 
 
@@ -182,15 +187,14 @@ def _digest_ref(ref: str | None, *, base: Path) -> str | None:
         path = base / path
     h = hashlib.sha256()
     if path.is_file():
-        h.update(path.read_bytes())
+        h.update(b"f" + hashlib.sha256(path.read_bytes()).digest())
     elif path.is_dir():
+        h.update(b"d")
         for child in sorted(p for p in path.rglob("*") if p.is_file()):
-            h.update(os.fsencode(str(child.relative_to(path))))
-            h.update(b"\0")
-            h.update(child.read_bytes())
-            h.update(b"\0")
+            h.update(_field(str(child.relative_to(path))))
+            h.update(hashlib.sha256(child.read_bytes()).digest())
     else:
-        h.update(os.fsencode(ref))
+        h.update(b"t" + _field(ref))
     return "sha256:" + h.hexdigest()
 
 
@@ -198,12 +202,8 @@ def _digest_arm_spec(spec: str, *, base: Path) -> str:
     from dokimi.treatments.specs import content_refs
 
     h = hashlib.sha256()
-    h.update(os.fsencode(spec))
-    h.update(b"\0")
+    h.update(_field(spec))
     for part, content_ref in content_refs(spec):
-        h.update(os.fsencode(part))
-        h.update(b"\0")
-        digest = _digest_ref(content_ref, base=base)
-        h.update((digest or "").encode("utf-8"))
-        h.update(b"\0")
+        h.update(_field(part))
+        h.update(_field(_digest_ref(content_ref, base=base) or ""))
     return "sha256:" + h.hexdigest()
