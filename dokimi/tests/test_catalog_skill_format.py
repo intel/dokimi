@@ -163,6 +163,14 @@ def test_an_unsupported_host_without_a_description_is_a_note_not_an_error(tmp_pa
     assert _codes(row) == {("note", "unsupported-skill-format")}
 
 
+def test_the_unsupported_note_says_the_safety_checks_still_ran(tmp_path, capsys):
+    # The note is shown as the state of a skipped row: it must not read as cut off mid-sentence.
+    _write(tmp_path, ".kiro/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
+    row = _rows(tmp_path, capsys)[".kiro/skills/quantum"]
+    message = row["findings"][0]["message"]
+    assert message.endswith("the safety and content checks still ran")
+
+
 def test_an_unsupported_host_plain_markdown_is_a_note_not_a_failed_load(tmp_path, capsys):
     _write(tmp_path, ".kiro/skills/quantum/SKILL.md", "# Quantum\n\nA plain skill.\n")
     row = _rows(tmp_path, capsys)[".kiro/skills/quantum"]

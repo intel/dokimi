@@ -59,7 +59,7 @@ OPENCODE_NO_DESCRIPTION_MESSAGE = (
     "description to the frontmatter (https://opencode.ai/docs/skills/)")
 UNSUPPORTED_MESSAGE = (
     "no spec is known for this host's skills directory, so the frontmatter and description checks were "
-    "not run; the safety and content checks were")
+    "not run; the safety and content checks still ran")
 
 
 def _parts(path: Path, root: Optional[Path]) -> Sequence[str]:
