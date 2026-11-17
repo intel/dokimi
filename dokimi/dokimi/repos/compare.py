@@ -112,7 +112,17 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.context.consistency import Run, run_from_events
-from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_row, within
+from dokimi.eval.sign_flip import (
+    ALPHA,
+    EPS,
+    METHOD,
+    min_sign_flip_p,
+    pair_magnitudes,
+    sign_flip_row,
+    tie_scale,
+    tie_widths,
+    within,
+)
 from dokimi.eval.stats import correct_family
 from dokimi.eval.finite_delta import checked_delta, checked_mean
 from dokimi.utils import same_model
@@ -582,9 +592,12 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
     Holm's p is known. ``measure`` is not read: every measure gets the same statistics.
     """
     deltas = [p["delta"] for p in pairs]
+    magnitudes = pair_magnitudes([p["treatment"] for p in pairs], [p["baseline"] for p in pairs])
+    widths = tie_widths(magnitudes, len(deltas))  # a tie is within float noise of the pair's own values
+    changed = [m for m, d, w in zip(magnitudes, deltas, widths, strict=True) if abs(d) > w]  # the spread is read at their scale
     mean = checked_mean(deltas, CompareError)
     try:
-        row = sign_flip_row(deltas, seed=seed, exact=exact)
+        row = sign_flip_row(deltas, seed=seed, exact=exact, magnitudes=magnitudes)
         sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
     except OverflowError as exc:  # finite deltas whose sum or spread leaves the float range: no test to run
         raise CompareError("the deltas of the tasks are too large to test: a sum or a spread of them leaves the float range") from exc
@@ -599,11 +612,11 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
-        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS and reachable else None,
+        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS * tie_scale(changed) and reachable else None,
         "interval_p_disagree": p is not None and includes_zero(lo, hi) == (p < ALPHA),
-        "up": sum(d > EPS for d in deltas),
-        "down": sum(d < -EPS for d in deltas),
-        "tied": sum(abs(d) <= EPS for d in deltas),
+        "up": sum(d > w for d, w in zip(deltas, widths, strict=True)),
+        "down": sum(d < -w for d, w in zip(deltas, widths, strict=True)),
+        "tied": sum(abs(d) <= w for d, w in zip(deltas, widths, strict=True)),
         "tasks": [{**p, "baseline": _round(p["baseline"]), "treatment": _round(p["treatment"]),
                    "delta": _round(p["delta"])} for p in pairs],
     }
@@ -628,6 +641,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                          f"{r['up']}/{r['down']}/{r['tied']}")
         for r in rows:
             if r["measure"] in PRIMARY:
+                # the tasks hold rounded values: this line follows the printed deltas, which are 0 or 1e-6 and more
                 moved = [t for t in r["tasks"] if abs(t["delta"]) > EPS]
                 if moved:
                     lines.append(f"  {r['measure']} changed: " + ", ".join(

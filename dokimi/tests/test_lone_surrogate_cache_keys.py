@@ -206,25 +206,39 @@ def _retention_key(statement: str, text: str) -> str:
     return _key(Atom(statement=statement, question="q", answer="a", id="a1"), text)
 
 
-def _old_retention_key(statement: bytes, text: bytes) -> str:
+def _v6_retention_key(statement: bytes, text: bytes) -> str:
     from dokimi.novelty.retention import _CACHE_VERSION
 
-    return _sha(_CACHE_VERSION + statement + b"\0" + text)[:32]
+    return _sha(_CACHE_VERSION + len(statement).to_bytes(8, "big") + statement + text)[:32]
 
 
-def test_retention_key_of_a_utf8_statement_and_text_is_unchanged():
-    old = _old_retention_key("Use café?".encode("utf-8"), "tëxt".encode("utf-8"))
-    assert _retention_key(" Use café? ", "tëxt") == old
+def test_retention_key_of_a_utf8_statement_and_text_is_the_v6_layout():
+    # Not the v5 key on purpose: the layout changed and _CACHE_VERSION moved to v6 (#847).
+    expected = _v6_retention_key("Use café?".encode("utf-8"), "tëxt".encode("utf-8"))
+    assert _retention_key(" Use café? ", "tëxt") == expected
 
 
 def test_retention_key_of_a_statement_with_a_lone_surrogate_is_a_digest():
-    assert _retention_key(HIGH, "t") == _old_retention_key(b"n\xed\xa0\x80", b"t")
-    assert _retention_key(LOW, "t") == _old_retention_key(b"n\xed\xb3\xbf", b"t")
+    assert _retention_key(HIGH, "t") == _v6_retention_key(b"n\xed\xa0\x80", b"t")
+    assert _retention_key(LOW, "t") == _v6_retention_key(b"n\xed\xb3\xbf", b"t")
 
 
 def test_retention_key_of_a_text_with_a_lone_surrogate_is_a_digest():
-    assert _retention_key("s", HIGH) == _old_retention_key(b"s", b"n\xed\xa0\x80")
-    assert _retention_key("s", LOW) == _old_retention_key(b"s", b"n\xed\xb3\xbf")
+    assert _retention_key("s", HIGH) == _v6_retention_key(b"s", b"n\xed\xa0\x80")
+    assert _retention_key("s", LOW) == _v6_retention_key(b"s", b"n\xed\xb3\xbf")
+
+
+def test_retention_key_of_a_statement_ending_in_nul_is_apart_from_a_text_starting_with_nul():
+    assert _retention_key("a\0", "") != _retention_key("a", "\0")
+
+
+def test_retention_key_of_a_nul_inside_the_text_is_apart_from_one_inside_the_statement():
+    assert _retention_key("a", "\0b") != _retention_key("a\0", "b")
+
+
+def test_retention_key_is_stable_and_strips_the_statement():
+    assert _retention_key("  a \n", "t") == _retention_key("a", "t")
+    assert _retention_key("a", "t") != _retention_key("a", " t")
 
 
 def test_url_client_cache_key_of_a_utf8_source_is_unchanged():

@@ -73,7 +73,7 @@ class HarborProbe:
             report.problems.append(f"Harbor would refuse it: {problem}")
         else:
             report.consumers.append(BY_HARBOR)
-        if _docker_runnable(path):
+        if _docker_runnable(path, spec):
             report.consumers.append(BY_DOCKER)
         return report
 
@@ -115,7 +115,7 @@ class TaskMdProbe:
         report.details["metadata"] = _summary(spec.metadata)
         report.details["schema_version"] = spec.schema_version
         report.consumers.append(BY_BENCHFLOW)
-        if _docker_runnable(path):
+        if _docker_runnable(path, spec):
             report.consumers.append(BY_DOCKER)
         return report
 
@@ -174,9 +174,11 @@ class TerminalBenchV1Probe:
         return report
 
 
-def _docker_runnable(path: Path) -> bool:
-    """docker-* builds ``environment/Dockerfile`` and runs a verifier: without either it errors."""
-    return (path / "environment" / "Dockerfile").is_file() and _any_dir(path, "tests", "verifier")
+def _docker_runnable(path: Path, spec: task_layouts.TaskSpec) -> bool:
+    """docker-* builds ``environment/Dockerfile`` or starts from a prebuilt ``docker_image``, and runs
+    a verifier: without either it errors."""
+    image = (path / "environment" / "Dockerfile").is_file() or spec.docker_image is not None
+    return image and _any_dir(path, "tests", "verifier")
 
 
 def _summary(table: dict[str, Any], keys: tuple[str, ...] = ("difficulty", "category", "tags")) -> dict[str, Any]:

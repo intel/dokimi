@@ -444,18 +444,6 @@ def test_discovery_gap_both_arms_fully_errored():
     assert data["summary"]["discovery_gaps"][arms[2]]["with_skill_pass_rate"] is None
 
 
-def test_fmt_rate_rejects_bools():
-    """bool is a subclass of int, so _fmt_rate(True) must not render as 100%."""
-    from dokimi.report.task_runs_report import _fmt_rate
-
-    assert _fmt_rate(0.5) == "50%"
-    assert _fmt_rate(1.0) == "100%"
-    assert _fmt_rate(0.0) == "0%"
-    assert _fmt_rate(True) == "—"
-    assert _fmt_rate(False) == "—"
-    assert _fmt_rate(None) == "—"
-
-
 def test_discovery_gap_no_scored_cells_differs_from_different_attempted():
     """When gap is None, distinguish between no scored cells vs arms attempted different cells."""
     arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
@@ -504,3 +492,15 @@ def test_discovery_gap_no_scored_cells_differs_from_different_attempted():
     md_err = render_task_runs_report(data_err)
     assert "— (no scored cells)" in md_err
     assert "— (arms ran or lost different cells)" not in md_err
+
+
+def test_a_flag_in_a_discovery_rate_cell_prints_a_dash_not_100_percent():
+    """bool is an int: a rate stored as ``true`` must not read as 100% in the discovery table."""
+    data = _gap_data((0, 1), (), ())
+    entry = data["summary"]["discovery_gaps"]["docker-claude-skill-discover:s"]
+    entry.update(with_skill_pass_rate=True, discover_pass_rate=False,
+                 with_skill_invocation_rate=True, discover_invocation_rate=0.5)
+    table = render_task_runs_report(data).split("## Skill discovery")[1]
+    row = next(line for line in table.split("\n") if line.startswith("| `docker-claude-skill-discover:s` |"))
+    cells = [cell.strip() for cell in row.split("|")]
+    assert [cells[i] for i in (2, 3, 5, 6)] == ["—", "—", "—", "50%"]  # the four rate cells; 4 is the gap

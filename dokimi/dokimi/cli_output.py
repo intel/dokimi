@@ -107,6 +107,20 @@ def emit_leaf(kind: str, data: Any, **fields: Any) -> None:
     emit(envelope(kind, run_id=current_run_id(), data=data, **fields))
 
 
+def finding(level: str, code: str, message: str, file: str | None = None, line: int | None = None) -> dict[str, Any]:
+    """One entry of a subject's ``findings``. ``warning`` is spelled ``warn``."""
+    return {"level": "warn" if level == "warning" else level, "code": code, "message": message,
+            "file": file, "line": line}
+
+
+def quiet_stdout():
+    """While a --json leaf runs, its human-readable prints go to stderr: stdout holds only the document."""
+    import contextlib
+    import sys
+
+    return contextlib.redirect_stdout(sys.stderr)
+
+
 def schema_document() -> dict[str, Any]:
     """The schema itself, for ``dokimi data schema show cli_output.v1``."""
     return json.loads((SCHEMA_DIR / f"{SCHEMA_VERSION}.json").read_text(encoding="utf-8"))
