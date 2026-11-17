@@ -135,6 +135,23 @@ def test_a_harness_that_exits_nonzero_before_any_trace_is_a_crash_exit_5(setup, 
     assert len([s for s in setup["runner"].specs if "-p" in s.argv]) == 3
 
 
+def test_a_crash_before_the_first_trace_line_charges_its_cap_again_on_every_rerun(setup, monkeypatch):
+    """Its spend is unknown, so the cell is charged its cap, as for a killed harness; each rerun charges it again."""
+    monkeypatch.setenv("FAKE_ACTION", "silent")
+
+    def spent() -> float:
+        return json.loads((setup["out"] / "b1" / "_eval" / "spend.json").read_text(encoding="utf-8"))["spent_usd"]
+
+    with pytest.raises(SystemExit):
+        _run(setup)
+    first = spent()
+    assert first == pytest.approx(3 * 2.0)  # three crashed reps, each charged the default cap of $2.0
+    setup["runner"].specs.clear()
+    with pytest.raises(SystemExit):
+        _run(setup)
+    assert spent() == pytest.approx(2 * first)
+
+
 def test_a_nonzero_timed_out_harness_with_no_trace_is_a_fail_cell_not_a_crash(setup, monkeypatch):
     """The cap ran out before the agent wrote anything: a verdict on the cell (a fail), not a crash of the harness."""
     from dokimi.repos.container import ContainerResult
