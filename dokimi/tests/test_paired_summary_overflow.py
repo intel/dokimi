@@ -14,6 +14,7 @@ import statistics
 import pytest
 
 from dokimi.eval import stats
+from dokimi.gate.trust_gate import evaluate_trust
 from dokimi.orchestrator.pipeline import EvaluationPipeline
 from dokimi.report.eval_report import generate_report
 from dokimi.report.generator import ReportGenerator
@@ -88,6 +89,21 @@ def test_report_generator_prints_an_em_dash_and_a_note_for_the_missing_delta():
     assert out["delta"] == {"avg": None, "min": None, "max": None}
     assert out["with_docs"]["avg"] == pytest.approx(BIG / 2, rel=1e-12)
     assert (out["doc_improvements"], out["doc_degradations"]) == (1, 0)
+
+
+def _reject_constant(name):
+    raise AssertionError(f"non-standard JSON constant {name}")
+
+
+def test_report_json_trust_reports_min_delta_not_measured_and_is_strict_json():
+    rows = [_row(f"q{i}", BIG, -BIG) for i in range(3)]
+    text = ReportGenerator().generate_report({"evaluations": rows}, {"questions": []}, "json")
+    out = json.loads(text, parse_constant=_reject_constant)
+    check = next(c for c in out["trust"]["checks"] if c["name"] == "min_delta")
+    assert (check["value"], check["measured"], check["passed"]) == (None, False, True)
+    assert "Not measured" in check["message"]
+    assert "min_delta" in evaluate_trust(rows).not_measured
+    assert out["trust"]["not_measured"] == evaluate_trust(rows).not_measured
 
 
 def test_report_generator_group_tables_give_a_group_with_an_overflowing_pair_no_delta():
