@@ -289,7 +289,7 @@ def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, P
         if case.link == "symlink":
             target = outside / f"case-{n}" / case.dirname  # the index, not the id: an id is not a path
             target.mkdir(parents=True)
-            (target / "SKILL.md").write_bytes(text.encode())
+            (target / "SKILL.md").write_bytes(text.encode("utf-8", "replace"))  # a lone surrogate is not UTF-8
             dest.parent.mkdir(parents=True, exist_ok=True)
             try:
                 os.symlink(target, dest, target_is_directory=True)
@@ -299,7 +299,7 @@ def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, P
             link_kind = "symlink"
         else:
             dest.mkdir(parents=True, exist_ok=True)
-            (dest / "SKILL.md").write_bytes(text.encode())
+            (dest / "SKILL.md").write_bytes(text.encode("utf-8", "replace"))
         fixture.placed.append(Placed(case, scope, rel, tok, body_tok, link_kind))
     return fixture
 
