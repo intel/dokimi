@@ -9,9 +9,9 @@ a cap on each skill; ``--jobs`` runs skills in parallel threads that share the b
 writes one row to ``--jsonl`` as it finishes, so a killed sweep keeps its rows, and ``--resume``
 runs only the skills without a measured row (same directory digest, same settings).
 ``--summary-only`` prints the summary of a JSONL file without any model call. Directories whose
-``SKILL.md`` files are identical count as one skill (the shallowest path is kept). Ctrl-C or SIGTERM
+``SKILL.md`` files are identical and name the same skill count as one (the shallowest path is kept). Ctrl-C or SIGTERM
 cancels the skills not yet started, lets the running ones finish, keeps the rows done and exits nonzero
-(a second signal kills the calls in flight and stops at once).
+(a second signal kills the subprocess calls in flight and stops at once; an API call cannot be killed, so the process waits for it).
 
 A skill the budget stops mid-analysis is a ``partial`` row and leaves no novelty file. Set
 ``DOKIMI_RESPONSE_CACHE`` so a resumed run replays the calls already paid for at $0.
@@ -64,7 +64,7 @@ class _Stop:
 @contextmanager
 def _interruptible(stop: _Stop):
     """While the sweep runs, the first SIGINT or SIGTERM only sets *stop*: the sweep cancels the skills
-    not started, and the skills in flight finish. A second signal kills the calls in flight
+    not started, and the skills in flight finish. A second signal kills the subprocess calls in flight
     (``process.kill_children``) and raises KeyboardInterrupt. The handlers are restored after.
     Only the main thread can install them."""
     if threading.current_thread() is not threading.main_thread():
@@ -230,12 +230,16 @@ def _run_sweep(items: list[_Item], *, jobs: int, review: Callable[[_Item], Optio
     running: set = set()
     pool = ThreadPoolExecutor(max_workers=jobs)
 
+    def guarded(item: _Item) -> Optional[dict]:
+        # a stop that landed while this skill was queued: it makes no call, even if a worker freed up first
+        return None if stop_requested() else review(item)
+
     def fill() -> None:
         while len(running) < jobs * 2 and not out_of_budget() and not stop_requested():
             item = next(pending, None)
             if item is None:
                 return
-            running.add(pool.submit(review, item))
+            running.add(pool.submit(guarded, item))
 
     try:
         fill()
@@ -263,9 +267,10 @@ def _settle(pool: ThreadPoolExecutor, running: set, write: Callable[[dict], None
             _keep(future, write)
         else:
             pending.add(future)
-    wait(pending)
-    for future in pending:
-        _keep(future, write)
+    while pending:  # each row is written as its skill finishes, so an interrupt keeps the ones done
+        finished, pending = wait(pending, return_when=FIRST_COMPLETED)
+        for future in finished:
+            _keep(future, write)
     running.clear()
 
 
@@ -467,7 +472,7 @@ def register(catalog_sub, positive_int) -> None:
              "with bootstrap CIs per stratum [paid]",
     )
     p.add_argument("root", help="Catalog root: every SKILL.md under it is one skill. Directories whose "
-                                "SKILL.md files are identical count once: the shallowest path is kept, the "
+                                "SKILL.md files are identical and name the same skill count once: the shallowest path is kept, the "
                                 "other copies are left out (not an error, no row)")
     p.add_argument("--out-dir", required=True, dest="out_dir",
                    help="Where each skill's novelty.json and report go (OUT_DIR/<skill>/)")
@@ -475,7 +480,7 @@ def register(catalog_sub, positive_int) -> None:
                    help=f"One row per skill, written as each finishes (default: OUT_DIR/{DEFAULT_JSONL}). "
                         "Ctrl-C or SIGTERM cancels the skills not yet started (no new call), lets the "
                         "running ones finish, keeps the rows done and exits nonzero (130, 143); "
-                        "a second signal kills the calls in flight too")
+                        "a second signal kills the subprocess calls in flight too")
     p.add_argument("--jobs", type=positive_int, default=1,
                    help="Skills analysed in parallel threads, sharing --max-usd (default 1)")
     p.add_argument("--resume", action="store_true",

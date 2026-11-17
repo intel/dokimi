@@ -357,6 +357,72 @@ def test_settle_keeps_the_rows_done_before_it_waits_for_the_skills_in_flight(mon
     assert written == ["a"]
 
 
+def test_a_skill_queued_when_the_stop_lands_makes_no_call(monkeypatch):
+    """The stop lands while a skill is in flight and that skill finishes at once: the skill the freed
+    worker takes next must not start, since the stop came first (no new paid call)."""
+    import time
+
+    import dokimi.commands.catalog_novelty as catalog_novelty
+    from dokimi.commands.catalog_novelty import _Item, _run_sweep
+
+    real_wait = catalog_novelty.wait
+
+    def late_wait(futures, **kwargs):  # the main thread wakes late: the freed worker takes the next skill first
+        done = real_wait(futures, **kwargs)
+        time.sleep(0.3)
+        return done
+
+    monkeypatch.setattr(catalog_novelty, "wait", late_wait)
+    stop = [False]
+    started: list[str] = []
+
+    def review(item):
+        started.append(item.key)
+        if item.key == "a":  # b is queued behind a by now; the stop lands while a is in flight
+            time.sleep(0.05)
+            stop[0] = True
+        return {"key": item.key}
+
+    items = [_Item(key=k, name=k, skill_md=Path(f"{k}/SKILL.md"), sha256=None) for k in "abc"]
+    _run_sweep(items, jobs=1, review=review, write=lambda row: None, out_of_budget=lambda: False,
+               stop_requested=lambda: stop[0])
+    assert started == ["a"]
+
+
+def test_a_row_finished_during_the_drain_is_written_before_the_next_wait(monkeypatch):
+    """A skill that finishes while the drain waits for another is written then, not after all of them:
+    an interrupt during the wait for the rest keeps it."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import dokimi.commands.catalog_novelty as catalog_novelty
+
+    import time
+
+    release = threading.Event()
+    pool = ThreadPoolExecutor(max_workers=2)
+    fast = pool.submit(lambda: (time.sleep(0.1), {"key": "fast"})[1])  # still in flight when the drain starts
+    slow = pool.submit(lambda: (release.wait(5), {"key": "slow"})[1])
+    real_wait = catalog_novelty.wait
+    waits: list[int] = []
+
+    def wait_then_interrupt(futures, **kwargs):
+        waits.append(1)
+        if len(waits) > 1:
+            raise KeyboardInterrupt  # a second signal while the drain waits for the slow skill
+        return real_wait(futures, **kwargs)
+
+    monkeypatch.setattr(catalog_novelty, "wait", wait_then_interrupt)
+    written: list[str] = []
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            catalog_novelty._settle(pool, {fast, slow}, lambda row: written.append(row["key"]))
+        assert written == ["fast"]
+    finally:
+        release.set()
+        pool.shutdown(wait=True)
+
+
 def test_identical_skill_copies_are_one_skill_and_the_help_says_so(tmp_path, capsys):
     """Two directories with the same SKILL.md are one skill: the shallowest path keeps the row."""
     root = _root(tmp_path, names=("accel-tuning",))
