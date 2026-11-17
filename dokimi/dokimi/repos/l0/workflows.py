@@ -33,8 +33,16 @@ def runnable(scan: Scan) -> list[str]:
     return [f for f in workflow_files(scan) if f.endswith((".yml", ".yaml")) and "/" not in f[len(WORKFLOWS):]]
 
 
+def local_key(name: str) -> str:
+    """``name`` as :func:`action_users` keys a local reference: without the leading ``./``; ``""`` for ``./`` itself."""
+    path = posixpath.normpath(name)
+    return "" if path == "." else path
+
+
 def action_users(scan: Scan) -> dict[str, str]:
-    """Each Action a job or step names as ``uses: <owner/name>@<ref>`` -> the first file that does.
+    """Each Action a job or step names as ``uses: <owner/name>@<ref>`` or ``uses: ./<path>`` -> the first file that does.
+
+    A local reference has no ref and is keyed by :func:`local_key`, so a claim ``./dir/.github/actions/x`` finds it.
 
     Read from the ``jobs`` of the ``.yml``/``.yaml`` workflows directly in ``.github/workflows/`` (GitHub
     runs no nested one) and the ``runs.steps`` of the local actions under ``.github/`` (``action.yml``,
@@ -69,6 +77,8 @@ def _action_users(scan: Scan) -> tuple[dict[str, str], dict[str, str]]:
             name, at, ref = value.strip().partition("@")
             if at and ref and ACTION.match(name):
                 out.setdefault(name, path)
+            elif not at and name.startswith("./") and (key := local_key(name)) and not key.startswith(".."):
+                out.setdefault(key, path)
     return out, {f: skipped[f] for f in scan.files if f in skipped}
 
 

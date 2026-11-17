@@ -341,14 +341,16 @@ class Scan:
     def _submodule_or_action(self, name: str, cands: list[str]) -> tuple[str, str] | None:
         """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
 
-        The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref; the
+        The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref, or as a
+        local ``uses: ./<name>`` (a claim ``./<name>`` or ``<name>`` finds it, see :func:`.workflows.local_key`); the
         submodule verdict comes first, as the snapshot does not hold what the name may be there. A name
         whose directory the tree holds at the root (``tools/gone`` beside ``tools/`` or a link ``tools`` to one) is a path.
         """
         sub = self.submodule_of(cands)
         if sub:
             return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
-        used = workflows.action_users(self).get(name) if self._reads_as_action(name, cands) else None
+        key = workflows.local_key(name) if name.startswith("./") else name
+        used = workflows.action_users(self).get(key) if self._reads_as_action(name, cands) else None
         return ("ok", f"used by {used}") if used else None
 
     def _as_branch(self, name: str, verdict: tuple[str, str]) -> tuple[str, str]:
@@ -369,7 +371,7 @@ class Scan:
     def _reads_as_action(self, name: str, cands: list[str]) -> bool:
         """``name`` has an Action's shape, no candidate holds it and its directory is no root one (or link to one)."""
         return (workflows.ACTION.match(name) is not None and not any(self.exists(c) for c in cands)
-                and not self._is_dir(posixpath.dirname(name)))
+                and not self._is_dir(posixpath.dirname(name.removeprefix("./"))))
 
     def _is_dir(self, path: str) -> bool:
         """``path`` is a directory of the tree or a link to one, also through a link above it (as a checkout makes it)."""
