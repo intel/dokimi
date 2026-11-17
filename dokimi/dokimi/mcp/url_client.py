@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional
 
 import httpx
 
+from dokimi.utils import key_bytes
+
 from . import MCPClient, MCPConnectionError
 from .utils import read_cache_text, strip_html, score_chunk, split_paragraphs, write_cache_text
 
@@ -132,7 +134,7 @@ class URLClient(MCPClient):
     # ── Helpers ───────────────────────────────────────────────────────────
 
     def _cache_key(self) -> str:
-        return hashlib.sha256(self.url.encode("utf-8", "surrogateescape")).hexdigest()
+        return hashlib.sha256(key_bytes(self.url)).hexdigest()
 
     def _fetch(self) -> str:
         """Fetch URL (with optional caching). Returns cleaned plain text."""

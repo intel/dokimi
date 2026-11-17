@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi import cli_flags
+from dokimi.cli_types import non_negative_int
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
@@ -145,16 +146,6 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def _count(value: str) -> int:
-    try:
-        n = int(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"expected an integer, got '{value}'") from None
-    if n < 0:
-        raise argparse.ArgumentTypeError(f"must be 0 or more, not {value}")
-    return n
-
-
 def add_parser(eval_tasks_sub, positive_int) -> None:
     gen_p = eval_tasks_sub.add_parser(
         "generate", help="Write repository tasks from a source, no LLM: --from graph writes dokimi:graph_enum "
@@ -162,8 +153,8 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
         "from a SCIP code index; --from replay writes one dokimi:review_replay task per merged pull request of a "
         "threads file; --from prs writes one dokimi:hidden_tests task per merged pull request of a pull request "
         "file (its description as the prompt, its test files hidden until grading, the rest of its diff as the "
-        "oracle). Exits 2 on a usage error, among them a malformed source, an unpinned remote or a local source "
-        "that is not a directory. With graph, also 2 on an index that does not read or matches no file "
+        "oracle). Exits 2 on a usage error, among them a malformed source, an unpinned remote, a local source "
+        "that is not a directory or a --cache-dir that is not a usable directory. With graph, also 2 on an index that does not read or matches no file "
         "of the source, and 1 when no target of the index gave a task, the tasks cannot be written or the source "
         "cannot be resolved at the revision. With replay or prs, 1 when no pull request gave a task, a task cannot "
         "be written, the source cannot be opened, or the threads or pull request file, the manifest or the prompt "
@@ -198,9 +189,9 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
                        "dokimi never builds one")
     cli_flags.add(gen_p, "output", "--out-dir", dest="out", required=True,
                        help="Directory that gets one <task id>/ per task, usually the manifest's `tasks`")
-    gen_p.add_argument("--references", type=_count, default=None, metavar="N",
+    gen_p.add_argument("--references", type=non_negative_int, default=None, metavar="N",
                        help="Reference tasks to write (default 9); about half with a name other symbols share")
-    gen_p.add_argument("--derives", type=_count, default=None, metavar="N",
+    gen_p.add_argument("--derives", type=non_negative_int, default=None, metavar="N",
                        help="Direct-subclass tasks to write (default 3)")
     gen_p.add_argument("--seed", type=int, default=None, help="Seed of the choice among the candidates (default 7)")
     gen_p.add_argument("--max-turns", type=positive_int, default=None, dest="max_turns",

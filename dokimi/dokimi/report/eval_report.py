@@ -60,6 +60,14 @@ def significance_test(evals):
     return result
 
 
+def _significance_or_refusal(evals) -> tuple[dict | None, list[str]]:
+    """The significance test, or the lines that say a paired difference beyond the float range refused it."""
+    try:
+        return significance_test(evals), []
+    except OverflowError as exc:
+        return None, ["## Statistical Significance", f"_Not computed: {exc}._", ""]
+
+
 def has_scores(e: Record) -> bool:
     return e.score(CONTEXT) is not None and e.score(BASELINE) is not None
 
@@ -89,7 +97,7 @@ def stats(qs):
         "unpaired": s.unpaired,
         "with_avg": round(s.with_mean, 1),
         "without_avg": round(s.without_mean, 1),
-        "delta_avg": round(s.delta_mean, 1),
+        "delta_avg": None if s.delta_mean is None else round(s.delta_mean, 1),
         "improvements": s.improvements,
         "degradations": s.degradations,
         "neutral": s.neutral,
@@ -118,6 +126,8 @@ def _summary_cells(st: dict) -> tuple[str, str, str]:
     """The context, baseline and delta cells of a Summary row: an em dash when no question is paired."""
     if not st["valid"]:
         return "—", "—", "—"
+    if st["delta_avg"] is None:
+        return str(st["with_avg"]), str(st["without_avg"]), "—"
     return str(st["with_avg"]), str(st["without_avg"]), f'**{st["delta_avg"]:+}**'
 
 
@@ -125,6 +135,8 @@ def _overall_line(st: dict) -> str:
     """The Overall delta bullet, or a note that no question is paired."""
     if not st["valid"]:
         return "- **Overall delta:** none — no complete pairs (a question scored in both arms), so there is no delta."
+    if st["delta_avg"] is None:
+        return "- **Overall delta:** none — a paired difference leaves the float range, so there is no delta."
     verdict = "context arm is helping." if st["delta_avg"] > 2 else "context arm is neutral or slightly harmful."
     return f'- **Overall delta: {st["delta_avg"]:+}** — {verdict}'
 
@@ -133,6 +145,8 @@ def _agreement_line(dyn: dict, static: dict) -> str:
     """The Dynamic vs Static bullet; no agreement is claimed when either set has no complete pair."""
     if not (dyn["valid"] and static["valid"]):
         return "- **Dynamic vs Static agreement:** none — a set has no complete pairs, so there is no delta to compare."
+    if dyn["delta_avg"] is None or static["delta_avg"] is None:
+        return "- **Dynamic vs Static agreement:** none — a set has no delta (a paired difference leaves the float range)."
     gap = abs(dyn["delta_avg"] - static["delta_avg"])
     verdict = "good consistency, benchmark is stable." if gap < 3 else "notable gap — investigate question quality."
     return f'- **Dynamic vs Static agreement:** {dyn["delta_avg"]:+} vs {static["delta_avg"]:+} — {verdict}'
@@ -141,6 +155,8 @@ def _agreement_line(dyn: dict, static: dict) -> str:
 def _delta_summary(st: dict) -> str:
     if not st["valid"]:
         return "   Delta: none (no complete pairs)"
+    if st["delta_avg"] is None:
+        return f"   Delta: none (a paired difference leaves the float range; with={st['with_avg']}, without={st['without_avg']})"
     return f"   Delta: {st['delta_avg']:+} (with={st['with_avg']}, without={st['without_avg']})"
 
 
@@ -321,7 +337,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     lines += _unpaired_note(all_stats)
 
     # Statistical significance
-    sig = significance_test(evals)
+    sig, refusal = _significance_or_refusal(evals)
+    lines += refusal
     if sig:
         sig_label = ("✅ **Statistically significant** (p < 0.05)" if sig.get("significant")
                      else "❌ **Not statistically significant** (p ≥ 0.05)" if sig.get("significant") is False

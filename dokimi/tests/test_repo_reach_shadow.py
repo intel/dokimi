@@ -247,6 +247,13 @@ def test_shadow_for_refuses_a_profile_without_one_and_an_unsafe_path(tmp_path):
             shadow_for(load_profile(_profile(tmp_path, shadow_file=unsafe)), tree, ("shadow",))
 
 
+@pytest.mark.parametrize("name", ["n" + chr(0xD800), "n" + chr(0xDCFF)])
+def test_a_shadow_file_with_a_lone_surrogate_is_refused_before_the_first_harness_call(tmp_path, monkeypatch, name):
+    with pytest.raises(ReachError, match="holds a lone surrogate"):
+        _run(tmp_path, monkeypatch, shadow_file=name)
+    assert not (tmp_path / "seen.jsonl").exists()
+
+
 def test_distinct_salt_counts_the_shadow_tokens(tmp_path):
     root = tmp_path / "t"
     _write(root, "AGENTS.md", f"mentions {token('s', 'sub/CLAUDE.local.md', 'tail')}\n")
