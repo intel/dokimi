@@ -52,6 +52,14 @@ def test_a_claim_spelled_with_extra_slashes_checks_the_parent_of_its_normalized_
         assert got[("AGENTS.md", claim)] == ("fail", "tools/ exists but tools/gone does not")
 
 
+def test_an_unprefixed_claim_with_extra_slashes_checks_the_parent_of_its_normalized_path(tmp_path):
+    flow = "jobs:\n  t:\n    steps:\n      - uses: ./tools/sub/gone\n"
+    got = _by_file(_scan(tmp_path, "Use `tools/sub//gone` and `tools/sub//gone/`.\n",
+                         {".github/workflows/ci.yml": flow, "tools/sub/keep": ""}))
+    for claim in ("tools/sub//gone", "tools/sub//gone/"):
+        assert got[("AGENTS.md", claim)] == ("fail", "tools/sub/ exists but tools/sub/gone does not")
+
+
 def test_a_local_use_with_a_ref_below_a_root_directory_or_in_a_submodule_keeps_its_verdict(tmp_path):
     flow = ("jobs:\n  t:\n    steps:\n      - uses: ./source/.github/actions/x@v1\n      - uses: ./tools/gone\n"
             "      - uses: ./third/dep/act\n")

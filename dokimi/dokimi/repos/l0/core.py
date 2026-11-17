@@ -373,7 +373,7 @@ class Scan:
     def _reads_as_action(self, name: str, cands: list[str]) -> bool:
         """``name`` has an Action's shape, no candidate holds it and its directory is no root one (or link to one)."""
         return (workflows.ACTION.match(name) is not None and not any(self.exists(c) for c in cands)
-                and not self._is_dir(posixpath.dirname(workflows.local_key(name)[2:] if name.startswith("./") else name)))
+                and not self._is_dir(posixpath.dirname(workflows.local_key(name)[2:])))
 
     def _is_dir(self, path: str) -> bool:
         """``path`` is a directory of the tree or a link to one, also through a link above it (as a checkout makes it)."""
