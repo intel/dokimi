@@ -18,5 +18,5 @@ SPDX-License-Identifier: Apache-2.0
 - **Docker harness cells: an egress sidecar whose removal failed is no longer taken as gone** —
   a `docker rm` of the sidecar that exited non-zero still marked it stopped, so the verifier ran
   beside it and teardown did not try the removal again. The cell now errors before the
-  verifier, as for a removal that timed out, and teardown retries the removal before it drops
+  verifier runs, as for any failed docker step, and teardown retries the removal before it drops
   the network (#687).
