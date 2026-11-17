@@ -24,6 +24,25 @@ def utf8_bytes(text: str) -> bytes:
     return joined_pairs(text).encode("utf-8", "replace")
 
 
+def argv_text(text: str) -> str:
+    """An argv entry as the child gets it: pairs joined (:func:`joined_pairs`), and each character ``os.fsencode`` cannot
+    encode (a lone surrogate) a ``?``. On POSIX U+DC80..U+DCFF stay: ``os.fsdecode`` makes them of a non-UTF-8 file name."""
+    joined = joined_pairs(text)
+    try:
+        os.fsencode(joined)
+    except UnicodeEncodeError:
+        return "".join(char if _fs_encodable(char) else "?" for char in joined)
+    return joined
+
+
+def _fs_encodable(char: str) -> bool:
+    try:
+        os.fsencode(char)
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def path_text(raw: bytes) -> str:
     """A file name git printed, as the path the file system opens: on POSIX a non-UTF-8 byte stays one
     (``os.fsdecode``), on Windows it becomes U+FFFD. Every reader of a ``-z`` listing decodes a path this way."""
