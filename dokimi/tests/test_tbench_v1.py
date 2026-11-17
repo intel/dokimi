@@ -316,6 +316,23 @@ def test_exported_task_toml_parses_with_a_non_bmp_character(tmp_path):
     assert tomllib.loads((dest / "task.toml").read_text(encoding="utf-8"))["metadata"]["author_email"] == author
 
 
+@pytest.mark.parametrize("escape", ["\\udcff", "\\ud800"])
+def test_harbor_view_writes_a_lone_surrogate_in_the_metadata_as_a_question_mark(tmp_path, escape):
+    import tomllib
+
+    task = load_task(_tb1(tmp_path / "tasks", yaml_extra=f'author_email: "n{escape}"\n'))
+    view = harbor_export.harbor_view(task, cache_root=tmp_path / "cache")
+    raw = (view.path / "task.toml").read_bytes()
+    assert tomllib.loads(raw.decode("utf-8"))["metadata"]["author_email"] == "n?"
+
+
+def test_harbor_view_writes_a_lone_surrogate_in_the_instruction_as_a_question_mark(tmp_path):
+    path = _tb1(tmp_path / "tasks")
+    _write(path / "task.yaml", 'instruction: "Create n\\udcff.txt"\nauthor_name: a\n')
+    view = harbor_export.harbor_view(load_task(path), cache_root=tmp_path / "cache")
+    assert (view.path / "instruction.md").read_bytes().decode("utf-8") == "Create n?.txt\n"
+
+
 def test_export_puts_a_subdir_context_and_its_named_dockerfile_where_harbor_builds(tmp_path):
     compose = _COMPOSE.replace("      dockerfile: Dockerfile\n",
                                "      context: ./env\n      dockerfile: Dockerfile.x\n    working_dir: /srv\n")

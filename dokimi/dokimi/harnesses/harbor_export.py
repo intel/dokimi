@@ -137,9 +137,15 @@ def export(task: TaskSpec, dest: Path) -> Path:
         if script.is_file():
             script.chmod(0o755)
     instruction = task.instruction if task.instruction.endswith("\n") else task.instruction + "\n"
-    (dest / "instruction.md").write_text(instruction, encoding="utf-8")
-    (dest / "task.toml").write_text(_task_toml(task), encoding="utf-8")
+    _write_utf8(dest / "instruction.md", instruction)
+    _write_utf8(dest / "task.toml", _task_toml(task))
     return dest
+
+
+def _write_utf8(path: Path, text: str) -> None:
+    """``write_text`` in UTF-8, a lone surrogate (a YAML ``\\udcff`` escape) written as ``?``: the file stays valid UTF-8."""
+    with path.open("w", encoding="utf-8", errors="replace") as out:
+        out.write(text)
 
 
 def _copy_context(task: TaskSpec, env_dir: Path) -> None:
