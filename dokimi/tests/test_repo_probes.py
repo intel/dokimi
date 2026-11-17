@@ -374,3 +374,42 @@ def test_python_flags_with_c_or_m_in_one_word_are_read_as_the_code_or_the_module
 def test_a_here_string_is_no_file_the_command_reads():
     events = _claude(_claude_call("a", "cat <<< /proc/cpuinfo", "2026-01-01T00:00:05Z"), _claude_result("a"))
     assert all(e["kind"] != "probe" for e in events)
+
+
+def _matched(command: str, layer: dict | None = None) -> list[str]:
+    raw = "\n".join(json.dumps(x) for x in (
+        {"type": "system", "subtype": "init", "timestamp": "2026-01-01T00:00:00Z"},
+        _claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a")))
+    events = with_probes(convert("claude-stream-json", raw, WS).events, probes_for(layer))
+    return [e["pattern"] for e in events if e["kind"] == "probe"]
+
+
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("timeout 5 nproc", "nproc"),
+    ("echo | xargs -n 1 nproc", "nproc"),
+    ("uv run python -c 'import os; print(os.cpu_count())'", "py:os.cpu_count"),
+    ("bash -o pipefail -c nproc", "nproc"),
+    ("pwsh -Command Get-CimInstance Win32_Processor", "Get-CimInstance Win32_Processor"),
+    ("conda run -n x pip list", "pip list"),
+])
+def test_a_common_launcher_does_not_hide_the_probe_it_runs(command, pattern):
+    assert _matched(command) == [pattern]
+
+
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("env PYTHONPATH=. pytest -q", None),
+    ("env FOO=1 nproc", "nproc"),
+    ("env -u HOME nproc", "nproc"),
+    ("env", "env"),
+])
+def test_env_runs_the_program_after_its_assignments_and_is_a_probe_only_alone(command, pattern):
+    assert _matched(command) == ([] if pattern is None else [pattern])
+
+
+def test_a_conda_run_is_no_conda_list_probe():
+    assert "conda list" not in _matched("conda run -n x pip list")
+
+
+def test_a_pattern_spelled_as_a_pip3_or_python_m_pip_command_matches_it():
+    assert _matched("pip3 list", {"packages": ["pip3 list"]}) == ["pip3 list"]
+    assert _matched("python -m pip list", {"packages": ["python -m pip list"]}) == ["python -m pip list"]

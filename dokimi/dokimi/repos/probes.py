@@ -50,9 +50,16 @@ DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
 _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep", "egrep", "fgrep", "awk", "tac",
                       "strings", "wc", "rg"})
 _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is an expression, not a file
-_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice"})  # each runs the command after it
+_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice", "timeout", "xargs"})  # each runs
+# the command after it
 _KEYWORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!"})  # shell keywords before a command
-_OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u")})  # wrapper options that take a value word
+_OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u"), ("timeout", "-s"), ("timeout", "-k"),
+                              ("xargs", "-n"), ("xargs", "-I"), ("xargs", "-L"), ("xargs", "-P"), ("xargs", "-d"),
+                              ("xargs", "-E"), ("xargs", "-s"), ("xargs", "-a")})  # wrapper options that take a value
+_ENV_VALUES = frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"})  # env options with a value word
+_RUN_VALUES = frozenset({"-n", "--name", "-p", "--prefix", "--python", "--with", "--directory", "--project",
+                         "--env-file"})  # the options of ``conda run`` and ``uv run`` that take a value word
+_PWSH = frozenset({"pwsh", "powershell"})  # PowerShell: its script follows ``-Command`` (``-c``), any case
 _GREP_VALUES = frozenset({"-m", "-A", "-B", "-C", "-d", "-D", "--max-count", "--after-context", "--before-context",
                           "--context", "--label", "--binary-files", "--directories", "--devices"})
 _RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not", "--type-add", "-m", "--max-count",
@@ -118,6 +125,14 @@ def load_probe_file(path: str) -> dict[str, tuple[str, ...]]:
     return validate_config(raw, f"--probes {path}")
 
 
+def effective_patterns(*layers: Mapping[str, Sequence[str]] | None) -> dict[str, list[str]]:
+    """Each target's patterns once the layers are applied, as ``probes_for`` applies them (for the cell's record)."""
+    config: dict[str, Sequence[str]] = dict(DEFAULT_PROBES)
+    for layer in layers:
+        config.update(layer or {})
+    return {target: [text.strip() for text in config.get(target, ())] for target in TARGETS}
+
+
 def probes_for(*layers: Mapping[str, Sequence[str]] | None) -> tuple[Probe, ...]:
     """The compiled patterns of the defaults with each layer applied in turn: a target a layer names is replaced."""
     config: dict[str, Sequence[str]] = dict(DEFAULT_PROBES)
@@ -170,7 +185,7 @@ def _stage(part: str, text: str) -> Stage:
         raise ValueError(f"{text!r}: {exc}") from exc
     if not words:
         raise ValueError(f"{text!r}: a pattern names a program")
-    return _program(words[0]), tuple(words[1:])
+    return _head(words[0], words[1:])  # ``pip3 list`` and ``python -m pip list`` are ``pip list``, as commands are
 
 
 def _program(word: str) -> str:
@@ -348,6 +363,10 @@ def _views(words: list[str]) -> Iterator[Stage]:
                 break
         if i >= len(words):
             return
+        launched = _launched(words, i)
+        if launched is not None:  # ``env FOO=1 nproc``: the program is nproc, and env is no probe of its own
+            i = launched
+            continue
         yield _head(words[i], words[i + 1:])
         wrapper = _program(words[i])
         if wrapper not in _WRAPPERS:
@@ -357,6 +376,24 @@ def _views(words: list[str]) -> Iterator[Stage]:
             if wrapper == "command" and words[i] in ("-v", "-V"):
                 return  # ``command -v nproc`` looks the program up, it does not run it
             i += 2 if (wrapper, words[i]) in _OPTION_OPERANDS else 1
+        if wrapper == "timeout" and i < len(words):  # ``timeout 5 nproc``: the duration is no program
+            i += 1
+
+
+def _launched(words: list[str], i: int) -> int | None:
+    """The index of the program that ``env`` or ``conda run`` / ``uv run`` at ``i`` runs, or None when no program
+    follows its options and assignments."""
+    program, j = _program(words[i]), i + 1
+    if program == "env":
+        while j < len(words) and (words[j].startswith("-") or _ASSIGN.match(words[j])):
+            j += 2 if words[j] in _ENV_VALUES else 1
+    elif program in ("conda", "uv") and words[i + 1:i + 2] == ["run"]:
+        j = i + 2
+        while j < len(words) and words[j].startswith("-"):
+            j += 2 if words[j] in _RUN_VALUES else 1
+    else:
+        return None
+    return j if j < len(words) else None
 
 
 def _head(word: str, args: list[str]) -> Stage:
@@ -371,13 +408,21 @@ def _head(word: str, args: list[str]) -> Stage:
 
 def _shell_script(prog: str, args: tuple[str, ...]) -> str | None:
     """The script a shell runs with ``-c`` (``bash --noprofile -c nproc``), or None."""
-    if prog not in _SHELLS:
+    if prog not in _SHELLS | _PWSH:
         return None
-    for i, word in enumerate(args):
-        if _SHELL_C.fullmatch(word):
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if (prog in _PWSH and word.casefold() in ("-c", "-command")) or (prog in _SHELLS and _SHELL_C.fullmatch(word)):
+            if prog in _PWSH:  # ``pwsh -Command a b``: the words after -Command are the script, joined
+                return " ".join(args[i + 1:]) or None
             return args[i + 1] if i + 1 < len(args) else None
+        if prog in _SHELLS and word in ("-o", "+o"):  # ``bash -o pipefail -c nproc``: the option's value is no word
+            i += 2
+            continue
         if not word.startswith("-"):
             return None
+        i += 1
     return None
 
 

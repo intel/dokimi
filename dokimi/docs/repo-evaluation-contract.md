@@ -546,8 +546,11 @@ reads the upstream base (`base_sha`) and the workspace start commit
   `grep`: no probe), on a file a reading command (`cat`, `head`, `grep`, ...) names for a
   path pattern, and on the call in the code of a `python -c` one-liner for `py:NAME`. A
   `$( )` substitution or a `bash -c` script counts as a command the agent ran. Not matched:
-  a Python heredoc, a script the agent runs from a file, and a pattern with a `|` that is
-  not a pipeline of the same commands.
+  a Python heredoc, a script the agent runs from a file, a pattern with a `|` that is
+  not a pipeline of the same commands, and a launcher the wrapper lists do not know
+  (`docker exec`, `nix develop -c`). `env`, `timeout`, `xargs`, `conda run` and `uv run`
+  run the program after them; `env` alone is its own probe. Each cell's `meta.json`
+  records the patterns per target (`probes`) that it ran with.
   A manifest's `probes` (§2) replaces a target's defaults, and `repo run --probes FILE`
   (YAML or JSON, the same mapping) replaces them again; nothing else changes the events,
   and the `process_metrics` counters do not count probes.
