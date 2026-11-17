@@ -186,3 +186,16 @@ def test_strict_judge_dependent_is_checked_before_not_measured(capsys):
         judge_reliability._strict_cross_judge_exit(arms, "base")
     assert exc.value.code == 4
     assert "judge-dependent against `base`: b" in capsys.readouterr().err
+
+
+def test_docker_29_permission_denied_on_inspect_is_a_docker_error():
+    """Docker 29 CLI opens a socket it may not use with `permission denied while trying to connect to the docker API`:
+    on `image inspect` that is no permission, not a missing image (exit 5, not 1)."""
+    from dokimi import process
+    from dokimi.repos.container import DockerError, DockerRunner
+
+    denied = ("permission denied while trying to connect to the docker API at unix:///var/run/docker.sock: "
+              "Get \"http://%2Fvar%2Frun%2Fdocker.sock/v1.47/images/img:t/json\": permission denied\n")
+    fake = process.FakeRunner(lambda call: process.reply(stderr=denied, returncode=1))
+    with pytest.raises(DockerError, match="permission denied while trying to connect to the docker API"):
+        DockerRunner(runner=fake).image_exists("img:t")
