@@ -99,6 +99,44 @@ def test_report_generator_group_tables_give_a_group_with_an_overflowing_pair_no_
     assert out["sources_summary"][0]["delta_avg"] is None
 
 
+def test_eval_report_agreement_line_says_none_when_the_dynamic_set_has_no_delta(tmp_path):
+    rows = [_row("onetbb-Q001", 80.0, 60.0), _row("onetbb-Q002", 70.0, 50.0), _row("gen-1", BIG, -BIG), _row("gen-2", 0.0, 0.0)]
+    path = tmp_path / "eval" / "lib.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"evaluations": rows}), encoding="utf-8")
+    md = tmp_path / "lib.md"
+    generate_report(str(path), str(md), str(tmp_path / "lib.qa.json"))
+    text = md.read_text(encoding="utf-8")
+    assert "- **Dynamic vs Static agreement:** none — a set has no delta (a paired difference leaves the float range)." in text
+
+
+def test_cmd_evaluate_prints_a_dash_for_the_delta_of_a_summary_without_one(monkeypatch, capsys):
+    import argparse
+
+    from dokimi import orchestrator
+    from dokimi.commands import orchestrate
+
+    result = {"steps": {"personas": {"skipped": True}, "questions_merged": {"path": "q"}, "answers": {"path": "a"},
+                        "report": {"path": "r"},
+                        "evaluation": {"path": "e", "summary": {"with_avg": 1.0, "without_avg": 2.0, "delta_avg": None}}}}
+
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self):
+            return result
+
+    monkeypatch.setattr(orchestrator, "EvaluationPipeline", FakePipeline)
+    args = argparse.Namespace(repo="owner/repo", description=None, product="demo", output_dir="out", custom_questions=None,
+                              provider="openai", model="m", judge_provider="openai", judge_model="j", judge_temperature=None,
+                              personas_count=1, questions_per_topic=1, top_k=None, rerank_threshold=0.3, debug_retrieval=False)
+    orchestrate.cmd_evaluate(args)
+    out = capsys.readouterr().out
+    assert "  Delta:            — (a paired difference leaves the float range)" in out
+    assert "Context avg:      1.0" in out
+
+
 def test_eval_report_prints_an_em_dash_for_the_missing_delta(tmp_path):
     path = tmp_path / "eval" / "lib.json"
     path.parent.mkdir()
