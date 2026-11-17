@@ -379,7 +379,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     print_all_vs_all_summary(*summary)
 
 
-def cmd_routing(args: argparse.Namespace) -> None:
+def cmd_routing(args: argparse.Namespace) -> tuple[dict, Path] | None:
     """Can a skill (or each skill under a root) be selected against its competitors? Lexical floor, model on top."""
     from dokimi.novelty import cost
     if args.repeats > 1 and not args.model:
@@ -391,7 +391,8 @@ def cmd_routing(args: argparse.Namespace) -> None:
     )
 
     if args.all_vs_all:
-        return _cmd_routing_all_vs_all(args)
+        _cmd_routing_all_vs_all(args)
+        return None
     gold, body, competitors, left_out, conflicts = load_routing_field(args)
     # Checked before the query file is read, so the message is about the real problem.
     if not competitors and conflicts:
@@ -403,7 +404,7 @@ def cmd_routing(args: argparse.Namespace) -> None:
     if args.estimate_only:
         refuse_estimate_without_queries(args, queries, self_derived)
         print_routing_estimate(args, candidates, queries)
-        return
+        return None
     lexical = dict(lexical_routing(candidates, queries, gold=0),
                    queries_self_derived=self_derived)
     out = checked_out_path(args.out, "routing", default=str(_default_dir(args.artifact) / "routing.json"))
@@ -437,6 +438,43 @@ def cmd_routing(args: argparse.Namespace) -> None:
     print(f"OK Saved routing measurement: {out}")
 
     print_routing_summary(payload, len(competitors), self_derived)
+    return payload, out
+
+
+def _subject_name(artifact: str) -> str:
+    """The subject id of a routed skill: its directory name, as `catalog check` names it."""
+    path = Path(str(artifact).split(":", 1)[-1])
+    return path.parent.name if path.name == "SKILL.md" else path.name
+
+
+def cmd_skill_routing(args: argparse.Namespace) -> None:
+    """`skill routing`, and with --json its cli_output.v1 document. Report only: the leaf issues no verdict.
+
+    The lexical floor from self-derived (heading) queries is triage, not a routing rate, so
+    ``summary.queries_self_derived`` is carried next to every score.
+    """
+    if not getattr(args, "json", False):
+        cmd_routing(args)
+        return
+    from dokimi import cli_output
+
+    with cli_output.quiet_stdout():
+        done = cmd_routing(args)
+    if done is None:  # --estimate-only: an estimate, nothing measured
+        cli_output.emit_leaf("skill routing", None, reason="estimate only, nothing measured")
+        return
+    payload, out = done
+    lexical, model = payload["lexical"], payload.get("model") or {}
+    spent = (payload.get("cost") or {}).get("usd")
+    cost = {"spent_usd": spent or 0.0, "cap_usd": getattr(args, "max_usd", None),
+            "calls": (payload.get("cost") or {}).get("llm_calls", 0), "priced": spent is not None}
+    if cost["cap_usd"] is not None:
+        cost["remaining_usd"] = round(cost["cap_usd"] - cost["spent_usd"], 6)
+    cli_output.emit_leaf(
+        "skill routing", payload, subjects=[{"subject": _subject_name(args.artifact), "verdict": None}],
+        summary={"queries_self_derived": payload["queries_self_derived"], "n_candidates": payload["n_candidates"],
+                 "lexical_recall_at_1": lexical.get("recall_at_1"), "model_recall_at_1": model.get("recall_at_1")},
+        artifacts={"out": str(out)}, cost=cost)
 
 
 def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derived: bool,

@@ -1,0 +1,74 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: dokimi report
+description: >-
+  Places the summary of every cli_output.v1 document in out-dir: runs
+  `dokimi report summary`, appends its Markdown to the job summary, prints its
+  annotations, optionally keeps one sticky PR comment, and uploads out-dir. No
+  parsing and no verdict in YAML: the gate stays the exit code of each dokimi
+  step. Needs `contents: read`; `pull-requests: write` only with comment: sticky.
+  Run it after actions/setup, with `if: always()`.
+
+inputs:
+  out-dir:
+    description: >-
+      Directory holding the cli_output.v1 documents (`*.json`, not recursive), usually
+      the out-dir output of actions/setup. The rendered summary goes to its `summary/`
+      subdirectory.
+    required: true
+  comment:
+    description: "false, or sticky: create or update one comment on the pull request"
+    required: false
+    default: 'false'
+  github-token:
+    description: Token for the sticky comment (needs pull-requests write)
+    required: false
+    default: ${{ github.token }}
+  artifact-name:
+    description: Name of the uploaded out-dir artifact; empty skips the upload
+    required: false
+    default: dokimi-report
+
+runs:
+  using: composite
+  steps:
+    - name: Render the summary
+      shell: bash
+      env:
+        OUT: ${{ inputs.out-dir }}
+      run: |
+        if ! command -v dokimi >/dev/null; then
+          echo "::error title=dokimi report::dokimi is not on PATH; run intel/dokimi/actions/setup first"
+          exit 1
+        fi
+        mkdir -p -- "$OUT/summary"
+        dokimi report summary --format markdown --out "$OUT/summary/summary.md" -- "$OUT"
+        dokimi report summary --format json --out "$OUT/summary/summary.json" -- "$OUT"
+        dokimi report summary --format annotations -- "$OUT"
+        cat -- "$OUT/summary/summary.md" >> "$GITHUB_STEP_SUMMARY"
+    - name: Sticky pull request comment
+      if: ${{ inputs.comment == 'sticky' && github.event.pull_request.number }}
+      shell: bash
+      env:
+        OUT: ${{ inputs.out-dir }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        marker='<!-- dokimi-report -->'
+        { echo "$marker"; cat -- "$OUT/summary/summary.md"; } > "$OUT/summary/comment.md"
+        id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+          --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$OUT/summary/comment.md" >/dev/null
+        else
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$OUT/summary/comment.md" >/dev/null
+        fi
+    - name: Upload out-dir
+      if: ${{ inputs.artifact-name != '' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.out-dir }}
+        if-no-files-found: ignore

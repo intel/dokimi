@@ -153,3 +153,20 @@ def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
     if payload["incomplete"]:
         print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)
     sys.exit(1)
+
+
+def scan_subjects(payload: dict) -> list[dict]:
+    """One report-only subject per guidance file; each failing claim is a finding at its file and line."""
+    from dokimi.cli_output import finding
+
+    by_file: dict[str, list[dict]] = {}
+    for claim in payload.get("claims") or []:
+        if str(claim.get("status", "")).split("_", 1)[0] != "fail":
+            continue
+        file = str(claim.get("file"))
+        line = claim.get("line") if isinstance(claim.get("line"), int) and claim["line"] >= 1 else None
+        message = f"{claim.get('kind')}: `{str(claim.get('claim'))[:80]}`: {claim.get('why')}"
+        by_file.setdefault(file, []).append(finding("warn", str(claim.get("status")), message, file, line))
+    files = [str(f.get("path", f)) if isinstance(f, dict) else str(f) for f in payload.get("files") or []]
+    return [{"subject": f, "verdict": None, "findings": by_file.get(f, [])}
+            for f in sorted(set(files) | set(by_file))]
