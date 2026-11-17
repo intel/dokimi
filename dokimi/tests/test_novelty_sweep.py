@@ -231,3 +231,17 @@ def test_summary_lines_list_the_ranking_after_the_stratum_table():
     head = next(i for i, line in enumerate(lines) if line.startswith("ranking by new share per 1k tokens"))
     assert lines[head] == "ranking by new share per 1k tokens (top 2 of 2):"
     assert lines[head + 1].lstrip().startswith("1. a:")
+
+
+def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
+    """Two sweeps into one JSONL measure `a` twice: the ranking has one entry for it, the later one,
+    while the overall figures still sum every ok row."""
+    rows = [_ok("a", 0.2, tokens=800), _ok("b", 0.6, tokens=3000), _ok("a", 0.5, tokens=800)]
+    summary = summarize(rows, resamples=50)
+    assert [(r["key"], r["new_lenient"]) for r in summary["ranking"]] == [("a", 0.5), ("b", 0.6)]
+    assert summary["overall"]["n"] == 3
+
+
+def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
+    rows = [_ok("a", 0.5, tokens=800), _row("a", "error")]
+    assert [(r["key"], r["new_lenient"]) for r in summarize(rows, resamples=50)["ranking"]] == [("a", 0.5)]

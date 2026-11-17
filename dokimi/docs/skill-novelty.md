@@ -1139,7 +1139,8 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   sweep with no model call. `--summary-out FILE` also writes it as JSON. The summary leads with
   the already-known share, then lists the skills by **new share per 1k tokens** (the new share
   divided by the skill's size in thousands of tokens; the top ten in text, all in the JSON
-  `ranking`). It sums every row in the JSONL, so a file shared by two sweeps reports both.
+  `ranking`). The ranking has one entry per skill, from its latest `ok` row, so a skill measured by
+  two sweeps into one JSONL is listed once; the overall figures still sum every `ok` row.
 - **Identical copies.** Directories under ROOT whose `SKILL.md` files are byte-identical and name the
   same skill (the frontmatter `name`, or the directory name when it has none) are one skill: the
   shallowest path is kept, the other copies get no row and no call (not an error).

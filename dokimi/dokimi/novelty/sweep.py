@@ -169,16 +169,22 @@ RANK_LINES = 10
 
 
 def ranking(rows: list[dict]) -> list[dict]:
-    """The measured skills with a token count, most new content per 1k tokens first.
+    """The measured skills with a token count, most new content per 1k tokens first, one entry per key.
 
-    ``new_per_1k_tokens`` is the skill's new share divided by its size in thousands of tokens:
-    what a model learns from reading the skill, per token it must read. Ties keep the key order.
+    A skill measured by more than one sweep into the same JSONL is ranked from its latest ``ok`` row
+    (the last in file order); the overall figures are not affected. ``new_per_1k_tokens`` is the
+    skill's new share divided by its size in thousands of tokens: what a model learns from reading
+    the skill, per token it must read. Ties keep the key order.
     """
+    latest: dict[str, dict] = {}
+    for r in rows:
+        if r["status"] == "ok":
+            latest[r["key"]] = r
     scored = [
         {"key": r["key"], "name": r["name"], "new_lenient": r["new_lenient"], "tokens": r["tokens"],
          "new_per_1k_tokens": round(r["new_lenient"] * 1000 / r["tokens"], 6)}
-        for r in rows
-        if r["status"] == "ok" and r["new_lenient"] is not None and r.get("tokens")
+        for r in latest.values()
+        if r["new_lenient"] is not None and r.get("tokens")
     ]
     scored.sort(key=lambda s: (-s["new_per_1k_tokens"], s["key"]))
     return scored
@@ -190,7 +196,7 @@ def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
 
     Only ``ok`` rows with a measure are summarised; ``partial`` and ``error`` rows are counted and
     their spend is in ``usd``. With *strata* the per-stratum table is given, else only ``overall``.
-    ``ranking`` lists every measured skill with a token count by new share per 1k tokens.
+    ``ranking`` lists every measured skill with a token count by new share per 1k tokens, once per skill.
     """
     counts = {status: 0 for status in STATUSES}
     for row in rows:
@@ -201,7 +207,7 @@ def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
         "usd": round(sum(r["usd"] for r in rows), 6),
         "overall": group_stats(measured, resamples=resamples) if measured else None,
         "strata": None,
-        "ranking": ranking(measured),
+        "ranking": ranking(rows),
     }
     if strata is not None:
         groups: dict[str, list[dict]] = {}
