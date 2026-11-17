@@ -110,7 +110,7 @@ def test_each_task_takes_its_base_from_the_repo_it_names_and_a_gap_is_recorded(t
     found = resolve_suite(suite, bases, tmp_path / "cache")
     assert set(found.git_dirs) == {"ok"} and found.git_dirs["ok"].is_dir()
     assert found.meta == {"ok": {"repo": "good", "source": f"{good}@{sha}"}}
-    assert found.pins == {"good": sha}
+    assert found.pins == {"good": sha, "gone": "b" * 40}  # every declared pin, the down repository's too
     assert "is not a commit of good" in found.gaps["absent"]
     assert found.gaps["lost"].startswith("base repository gone:") and "unavailable" in found.gaps["lost"]
 
