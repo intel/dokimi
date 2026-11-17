@@ -9,7 +9,38 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional
 
+from dokimi.mcp.context7 import MIN_DOC_CHARS
+from dokimi.mcp.utils import read_cache_text, write_cache_text
+
 logger = logging.getLogger(__name__)
+
+#: What :meth:`RagasSeedExtractor._fallback_topics` returns: never stored, never replayed.
+FALLBACK_TOPICS = ("installation", "getting started", "API overview",
+                   "performance tuning", "troubleshooting", "examples")
+
+
+def _storable(topics: object) -> bool:
+    """Whether *topics* may be stored, or a stored entry replayed: a non-empty list of topic
+    strings, other than the generic fallback (replaying it would skip the docs on every run)."""
+    return (isinstance(topics, list) and bool(topics)
+            and all(isinstance(t, str) and t.strip() for t in topics)
+            and topics != list(FALLBACK_TOPICS))
+
+
+def _load_topics(cache_file: Path) -> Optional[List[str]]:
+    """The topics stored at *cache_file*, or ``None`` for a miss (a bad entry is warned about)."""
+    text = read_cache_text(cache_file)
+    if text is None:
+        return None
+    try:
+        topics = json.loads(text)
+    except ValueError:
+        topics = None
+    if not _storable(topics):
+        logger.warning("Ignoring topics cache entry %s: not a list of extracted topics; "
+                       "extracting again", cache_file)
+        return None
+    return topics
 
 
 class RagasSeedExtractor:
@@ -66,15 +97,16 @@ class RagasSeedExtractor:
             ["parallel_for", "task_arena", "flow_graph", "tbb::blocked_range", ...]
         """
         cache_key = hashlib.sha256(
-            f"{library_id}:{max_topics}:{max_tokens}".encode()
+            f"{library_id}:{max_topics}:{max_tokens}".encode("utf-8", "surrogatepass")
         ).hexdigest()
 
         # Cache hit?
         if self.cache_dir:
             cache_file = self.cache_dir / f"topics_{cache_key}.json"
-            if cache_file.exists():
+            cached = _load_topics(cache_file)
+            if cached is not None:
                 logger.info("Topics cache hit for %s", library_id)
-                return json.loads(cache_file.read_text(encoding="utf-8"))
+                return cached
 
         # 1. Fetch raw docs
         docs = self._fetch_docs(library_id, library_name, max_tokens)
@@ -85,9 +117,10 @@ class RagasSeedExtractor:
         # 2. Extract topics via LLM (or simple heuristics if no LLM)
         topics = self._extract_via_llm(docs, library_name, max_topics)
 
-        # 3. Cache
-        if self.cache_dir:
-            cache_file.write_text(json.dumps(topics), encoding="utf-8")
+        # 3. Cache what extraction found; the generic fallback says it found nothing, and topics
+        #    taken from a stub answer (an error, "no documentation") would replay the stub
+        storable = _storable(topics) and len(docs.strip()) >= MIN_DOC_CHARS
+        if self.cache_dir and storable and write_cache_text(cache_file, json.dumps(topics)):
             logger.info("Cached %d topics to %s", len(topics), cache_file)
 
         return topics
@@ -112,7 +145,7 @@ class RagasSeedExtractor:
                 max_tokens=max_tokens,
             )
             return "\n\n".join(c["content"] for c in chunks)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; no seed docs
             logger.error("Failed to fetch docs for %s: %s", library_id, e)
             return ""
 
@@ -138,10 +171,10 @@ class RagasSeedExtractor:
             raw = response.content if hasattr(response, "content") else str(response)
             from dokimi.llm import extract_json_array
             topics = extract_json_array(raw)
-            # Clean and deduplicate
-            topics = list(dict.fromkeys(str(t).strip() for t in topics if t))
+            # Clean, drop blank and non-string entries (a null is not the topic "None"), deduplicate
+            topics = list(dict.fromkeys(t.strip() for t in topics if isinstance(t, str) and t.strip()))
             return topics[:max_topics]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; falls back to the heuristic extractor
             logger.error("LLM topic extraction failed: %s — falling back to heuristic", e)
             return self._extract_heuristic(docs, library_name, max_topics)
 
@@ -188,5 +221,4 @@ class RagasSeedExtractor:
         ``eval questions generate --topics <file>`` instead of hard-coding them
         here, so the fallback is the same for every library.
         """
-        return ["installation", "getting started", "API overview",
-                "performance tuning", "troubleshooting", "examples"]
+        return list(FALLBACK_TOPICS)

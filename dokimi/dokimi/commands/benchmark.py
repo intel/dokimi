@@ -204,9 +204,12 @@ def _check_questions_from(questions_from: str, key: str) -> tuple[Path, list, st
     except InputError as exc:
         return qf, [], str(exc)
     try:
-        return qf, load_questions_payload(qf), None
-    except Exception as exc:
+        records = load_questions_payload(qf)
+    except Exception as exc:  # noqa: BLE001 - any load failure is reported as an invalid source
         return qf, [], f"questions source invalid: {qf} ({exc})"
+    if not records:
+        return qf, [], f"questions source is empty: {qf}"
+    return qf, records, None
 
 
 def _check_golden_set(questions_root: str, key: str, refuse: Callable[[str], None]) -> None:
@@ -230,7 +233,7 @@ def _check_golden_set(questions_root: str, key: str, refuse: Callable[[str], Non
         bad = next((i for i, q in enumerate(cast(List[Any], golden_questions)) if not isinstance(q, dict)), None)
         if bad is not None:
             refuse(f"golden set item {bad} is not a dict: {golden}")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any load failure refuses the run, with its message
         refuse(f"golden set invalid: {golden} ({exc})")
 
 
@@ -254,7 +257,7 @@ def _check_doc_source(plan: dict, entry: Any, refuse: Callable[[str], None], err
             warnings.append("context7 id not pinned; client will resolve by target name")
     except ValueError as exc:
         refuse(f"doc source invalid: {plan['doc_source']} ({exc})")
-    except Exception as exc:  # the source cannot be reached or built: a failed check
+    except Exception as exc:  # noqa: BLE001 - the source cannot be reached or built: a failed check
         errors.append(f"doc source check failed: {plan['doc_source']} ({exc})")
 
 
@@ -442,7 +445,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
                 registry=registry,
             )
             results.append(r)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one failed library is recorded; --fail-fast stops
             msg = f"FAILED: {entry.key} — {exc}"
             print(f"\n❌ {msg}", file=sys.stderr)
             failed.append({"library": entry.key, "name": entry.name, "status": "failed", "error": str(exc)})
@@ -525,6 +528,8 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
+    # Preflight makes no LLM call, but it plans the run that `benchmark run` makes, so it refuses the judge that run refuses.
+    bench_pre_p.set_defaults(judge=True)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
     bench_pre_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency")

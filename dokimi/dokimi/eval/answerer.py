@@ -111,7 +111,7 @@ class Answerer:
             try:
                 self.reranker = SentenceTransformerReranker(threshold=rerank_threshold)
                 logger.info(f"Semantic reranker initialized with threshold={rerank_threshold:.2f}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - logged; the lexical reranker is the documented fallback
                 logger.warning(f"Semantic reranker failed ({e}); fallback to lexical reranker")
                 self.reranker = SimpleReranker(threshold=rerank_threshold)
         else:
@@ -164,7 +164,7 @@ class Answerer:
                     question=q,
                     max_tokens=max_tokens_per_question
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - the failure is stored on the pair and reported
                 failure = e
                 pair = {
                     "question_id": q_id,
@@ -208,7 +208,8 @@ class Answerer:
         errors = sum(1 for a in answers if a.get("error"))
 
         print("\n✓ Generated answers:", flush=True)
-        print(f"  Context arm:  {ok_with}/{n}", flush=True)
+        if self.mcp_client is not None:  # a knowledge run (--doc-source none) has no context arm to count
+            print(f"  Context arm:  {ok_with}/{n}", flush=True)
         print(f"  Baseline:     {ok_without}/{n}", flush=True)
         if errors:
             print(f"  Errors:       {errors}", flush=True)

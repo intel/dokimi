@@ -49,9 +49,8 @@ def test_a_repeat_that_fails_after_a_good_one_keeps_the_good_pick_in_model_scori
     _cat(root, {"perf": "profile a slow binary with perf", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile it"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m",
-                  "--repeats", "2")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m", "--reps", "2")
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert "1 of 2 model call" in str(exc.value.code)
@@ -79,9 +78,8 @@ def test_every_noise_row_of_an_all_vs_all_names_its_own_query_and_gold(tmp_path,
     queries = ["profile it", "profile my binary"]
     queries_file = _write_queries(tmp_path, {"perf": queries})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries_file), "--out", str(out), "--model", "m",
-                  "--repeats", "2")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries_file),
+                  "--out", str(out), "--model", "m", "--reps", "2")
     args.func(args)
     per_query = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]["noise"]["per_query"]
     assert sorted((row["query"], row["gold"]) for row in per_query) == [

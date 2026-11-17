@@ -73,11 +73,12 @@ def _bundle_path(word: str, anchor: bool = True) -> Optional[str]:
 _OPERATORS = ";|<>&"
 # A backslash before one of these is a shell escape, swapped for a placeholder before the tokenizer so
 # an escaped ``,`` or ``;`` does not split. Any other backslash is a character of the name (``scripts/a\b.py``).
-_ESCAPED = {",": "\x01", ";": "\x02", '"': "\x03", "'": "\x04", " ": "\x05"}
+_ESCAPED = {",": "\x01", ";": "\x02", '"': "\x03", "'": "\x04", " ": "\x05", "\\": "\x06"}
 # A single-quoted string is literal (a backslash in it is a character), so only an escape outside one is swapped.
 # A double-quoted string is matched whole too, so an apostrophe in it does not open a single-quoted one.
 _ESCAPE_RE = re.compile(r"""'[^']*'|"(?:\\.|[^"\\])*"|\\([,;"' ])""")
-_INNER_ESCAPE_RE = re.compile(r"""\\([,;"' ])""")
+# Inside double quotes a shell escapes only ``"`` and ``\`` of these (and ``$``, a backtick, a newline, which are no name); the rest keeps its backslash.
+_INNER_ESCAPE_RE = re.compile(r"""\\(["\\])""")
 
 
 def _restore(part: str) -> str:

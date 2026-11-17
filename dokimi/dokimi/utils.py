@@ -125,6 +125,14 @@ def digest_text(text: str) -> str:
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
+def key_bytes(text: str) -> bytes:
+    """Bytes a cache key hashes: ``surrogateescape``; NUL-led text gets ``\\0e``; a surrogate it cannot map (U+D800..U+DC7F, U+DD00..U+DFFF) tags the text ``\\0sp`` and uses ``surrogatepass``."""
+    try:
+        return b"\0e" * text.startswith("\0") + text.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError:  # a JSON `\ud800` has no escape
+        return b"\0sp" + text.encode("utf-8", "surrogatepass")
+
+
 def _plain_path(text: str) -> str:
     r"""A Windows absolute path without its extended-length prefix. os.readlink gives an absolute link target as
     \\?\C:\... (or \\?\UNC\...), while the anchors are plain: the two read as different drives.
@@ -773,7 +781,11 @@ def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) ->
     Covers a missing or unreadable file, a device (:func:`refuse_device`), bytes that are not
     UTF-8, text that is not JSON and JSON nested too deeply to parse. With ``flag`` (the option
     the file was given to) the message is that option's own, ``<flag> <path>: <reason>``.
+    An empty path is refused first, quoted (``--answers "": no file given``): ``Path("")`` is the
+    current directory, which would read as ``Is a directory`` with nothing after the flag.
     """
+    if os.fspath(path) == "":
+        raise InputError(f'{flag} "": no file given' if flag else 'cannot read "": no file given')
     refuse_device(path, flag)
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))

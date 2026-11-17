@@ -1,0 +1,3 @@
+### Fixed
+
+- **Model compare refuses a score difference beyond the float range** — `report model-compare` wrote `+inf` as the delta of a question whose finite scores differ by more than the float maximum (`-1.7e308` against `1.7e308`), and ended in a traceback for finite deltas whose sum leaves the range or for integer scores whose difference does. It now stops with `Error: ...` naming the run, and the question when one pair is the cause. With `--pool-replicates`, replicate scores whose mean would leave the range are refused too, naming the question. Finite results are unchanged. `repo compare` already drops a task value past `1e150`, so its output does not change; its pairing and sign-flip summary refuse the same deltas for callers that reach them directly.

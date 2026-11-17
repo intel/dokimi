@@ -18,7 +18,8 @@ if TYPE_CHECKING:
 from dokimi import cli_flags, cli_output
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.commands.repo_scan import _print_scan_text, _scan_gate, _scan_reason, _typecheck_or_exit
+from dokimi.commands.repo_scan import (_loaded_with_default, _print_scan_text, _scan_gate, _scan_reason,
+                                         _typecheck_or_exit)
 from dokimi.utils import InputError
 
 
@@ -39,37 +40,39 @@ def _write_json(path: str, payload: dict) -> None:
 
 
 def _parse_source(args: argparse.Namespace) -> RepoSource:
-    """The source as typed: a malformed string, an unpinned remote or a local path that is not a directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
+    """The source as typed: a malformed string, an unpinned remote, a local path that is not a directory or a ``--cache-dir`` that is not a usable directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
     from dokimi.repos import RepoSource, SourceError
 
     try:
-        return RepoSource.parse(args.source)
+        source = RepoSource.parse(args.source)
     except SourceError as exc:
         raise InputError(str(exc)) from exc
     except OSError as exc:  # Path.is_dir raises PermissionError on Python 3.11-3.13
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    _cache_dir(args)  # a bad --cache-dir is a usage error too, and must not reach a handler of the clone's failures
+    return source
+
+
+def _open_tree(source: RepoSource, args: argparse.Namespace):
+    """The source's tree, cloned into ``--cache-dir`` when remote: a bad ``--cache-dir`` or a pinned local path that is not the repository root is a usage error (2); a clone, fetch or pin resolution failure is 1."""
+    from dokimi.repos import SourceError, open_source
+    from dokimi.repos.source import SourceArgumentError
+
+    cache_dir = _cache_dir(args)  # before the handlers below: InputError is a ValueError
+    try:
+        return open_source(source, cache_dir)
+    except SourceArgumentError as exc:
+        raise InputError(str(exc)) from exc
+    except (SourceError, OSError, ValueError) as exc:  # a cache dir that cannot be made, or git output that is not UTF-8
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
 
 
 def _source_tree(args: argparse.Namespace) -> tuple:
     """The source (source, tree): a malformed string, unpinned remote or pinned local path that is not the repository root is a usage error (2); a clone, fetch or pin resolution failure is 1."""
-    from dokimi.repos import SourceError, open_source
-    from dokimi.repos.source import SourceArgumentError
-
     source = _parse_source(args)
-    # 2 = malformed source string, unpinned remote, pinned local path inside a repository, manifest/profile errors; 1 = clone/fetch/resolve of a pin
-    # (incl. pinned local non-git source, pin absent locally, remote pin missing from origin).
-    try:
-        return source, open_source(source, _cache_dir(args))
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        raise InputError(str(exc)) from exc
-    except SourceError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
-    except (OSError, ValueError) as exc:
-        # A cache dir that cannot be made, or git output that is not UTF-8: a failed read, not a usage error.
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    return source, _open_tree(source, args)
 
 
 def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool = False,
@@ -149,7 +152,8 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     static = _read_static(args.static) if args.static else None
     check = _typecheck_or_exit(args)
     try:
-        payload = scan_repo(tree, manifest, static, typecheck=check)
+        loaded, not_counted = _loaded_with_default(tree, manifest)
+        payload = scan_repo(tree, manifest, static, typecheck=check, also=loaded, not_counted=not_counted)
     except TypecheckError as exc:
         print(f"✗ repo scan --typecheck: {exc}", file=sys.stderr)  # the error says whether the tool or the interpreter
         sys.exit(EXIT_USAGE)
@@ -247,8 +251,8 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
 
 def cmd_repo_fetch(args: argparse.Namespace) -> None:
     """Clone (once) and fetch a pinned remote source into the cache; print the SHA."""
-    from dokimi.repos import RepoSource, SourceError, open_source
-    from dokimi.repos.source import GitTree, SourceArgumentError
+    from dokimi.repos import RepoSource, SourceError
+    from dokimi.repos.source import GitTree
 
     try:  # the source as typed: a usage error
         source = RepoSource.parse(args.source)
@@ -256,13 +260,7 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
             raise SourceError("fetch needs a pinned source: <url-or-path>@<rev>")
     except SourceError as exc:
         raise InputError(str(exc)) from exc
-    try:  # the clone and fetch: a runtime failure (network, git, unknown revision)
-        tree = open_source(source, _cache_dir(args))
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        raise InputError(str(exc)) from exc
-    except (SourceError, OSError, ValueError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    tree = _open_tree(source, args)
     assert isinstance(tree, GitTree)
     if args.json:
         cli_output.emit_leaf("repo fetch", {"sha": tree.sha, "git_dir": str(tree.git_dir)})
@@ -318,23 +316,16 @@ def _saved_reach_inputs(args: argparse.Namespace):
 
 def _reach_from_saved(args: argparse.Namespace) -> None:
     """The matrix or the receipt of a saved reach.json, checked against the source; no harness runs."""
-    from dokimi.repos import ManifestError, SourceError, open_source
+    from dokimi.repos import ManifestError, SourceError
     from dokimi.repos.harness_profile import ProfileError
     from dokimi.repos.receipt import check_receipt_provenance, check_saved_guidance, check_saved_reach
     from dokimi.repos.reach import ReachError, format_matrix
-    from dokimi.repos.source import SourceArgumentError
 
     try:  # the arguments and the saved file as typed: a usage error
         profile, source, reach = _saved_reach_inputs(args)
     except (SourceError, ProfileError, ReachError, OSError, ValueError) as exc:
         raise InputError(str(exc)) from exc
-    try:  # the clone and fetch: a runtime failure
-        tree = open_source(source, _cache_dir(args))
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        raise InputError(str(exc)) from exc
-    except (SourceError, OSError, ValueError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    tree = _open_tree(source, args)
     try:  # the manifest and the file's provenance: a usage error; a failed git read is a fetch failure (1)
         manifest = _load_manifest(tree, args, guidance_default=True)
         check_saved_reach(reach, manifest.id, profile.name, getattr(tree, "sha", None))
@@ -424,9 +415,8 @@ def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
 
 def cmd_repo_reach(args: argparse.Namespace) -> None:
     """L1 reach probe: which guidance files one harness/version/model loads."""
-    from dokimi.repos import RepoSource, SourceError, open_source
+    from dokimi.repos import RepoSource, SourceError
     from dokimi.repos.harness_profile import ProfileError, load_profile
-    from dokimi.repos.source import SourceArgumentError
     from dokimi.repos.reach import ReachError, check_flags, check_kinds, check_shadow, run_reach, save_reach
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
@@ -439,13 +429,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         source = RepoSource.parse(args.source)
     except (SourceError, ProfileError, ReachError) as exc:
         raise InputError(str(exc)) from exc
-    try:  # the clone and fetch: a runtime failure
-        tree = open_source(source, _cache_dir(args))
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        raise InputError(str(exc)) from exc
-    except (SourceError, OSError, ValueError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    tree = _open_tree(source, args)
     manifest, files, planned_count = _reach_plan(args, tree, profile, kinds, only)
     if not args.dry_run:
         print(f"{len(files)} guidance files, {planned_count} scenarios, "
@@ -619,7 +603,14 @@ def _manifest_id(label: str) -> str:
 
 
 def _cache_dir(args: argparse.Namespace) -> Path | None:
-    return Path(args.cache_dir) if args.cache_dir else None
+    """``--cache-dir`` as given, or ``None``; a value no clone can be cached in is a usage error (2) (#765).
+
+    An existing read-only directory passes on purpose: a populated one replays without writing. An empty one
+    is not told apart without the clone URL, so its clone fails later with exit 1.
+    """
+    from dokimi.commands.cache_dir import CLONE_USE, usable_cache_dir
+
+    return usable_cache_dir(args.cache_dir, CLONE_USE)
 
 
 def register(sub, positive_int, eval_sub) -> None:
@@ -678,8 +669,8 @@ def register(sub, positive_int, eval_sub) -> None:
     scan_p.add_argument("--typecheck", action="store_true", default=False,
                         help="Type-check each Python fence of the guidance (§8.2): one claim per fence, fail when the "
                         "tool reports an error. The tool is mypy unless --typecheck-tool names basedpyright (on PATH). "
-                        "mypy is not installed by pip install dokimi: the tested pin is requirements-test.txt "
-                        "(mypy==2.4.0); a missing mypy exits 2. Without --python-env the fences are unknown (unresolved), "
+                        "mypy is not installed by pip install dokimi: the tested pin is the one in "
+                        "requirements-test.txt; a missing mypy exits 2. Without --python-env the fences are unknown (unresolved), "
                         "not checked")
     scan_p.add_argument("--typecheck-tool", default=None, dest="typecheck_tool", choices=("mypy", "basedpyright"),
                         help="The tool --typecheck runs (default mypy). Needs --typecheck")
@@ -792,6 +783,7 @@ def register(sub, positive_int, eval_sub) -> None:
     budget_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     budget_p.set_defaults(func=cmd_repo_budget, emits_cli_output=True, cli_kind="repo budget")
 
-    from . import repo_run
+    from . import repo_run, repo_security
 
     repo_run.register(repo_sub, eval_sub, positive_int, source_help, cache_help)
+    repo_security.register(repo_sub)

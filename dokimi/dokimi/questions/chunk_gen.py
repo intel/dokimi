@@ -182,7 +182,7 @@ class ChunkBasedQuestionGenerator:
         logger.info(f"Fetching docs for chunk-based generation: {doc_url}")
         try:
             raw = _fetch_url(doc_url)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - logged; an empty result for that URL
             logger.error(f"Failed to fetch {doc_url}: {exc}")
             return ChunkQuestionResult(source_url=doc_url)
 
@@ -220,7 +220,7 @@ class ChunkBasedQuestionGenerator:
                 qs = self._gen_from_chunk(library_name, chunk, doc_url, idx, count)
                 all_questions.extend(qs)
                 remaining -= len(qs)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - logged; one failed chunk does not lose the rest
                 logger.warning(f"Chunk {idx} failed: {exc}")
 
         return ChunkQuestionResult(

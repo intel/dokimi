@@ -26,12 +26,13 @@ from pathlib import Path
 
 from .atoms import Atom
 from .client import LLMClient
+from .routing_stop import stop_if_run_wide
 
 RETAINED = "retained"
 ABSENT = "absent"
 CONTRADICTED = "contradicted"
 _VERDICTS = (RETAINED, ABSENT, CONTRADICTED)
-_CACHE_VERSION = b"retention-cache-v4\0"
+_CACHE_VERSION = b"retention-cache-v5\0"
 
 _STOP = frozenset("""
 a an the and or but if then than that this these those is are was were be been being
@@ -103,7 +104,8 @@ class RetentionOracle:
     def verdict(self, atom: Atom, text: str) -> RetentionVerdict:
         """Decide whether ``atom`` survives in ``text``."""
         key = _key(atom, text)
-        cached = self._memo.get(key) or self._load(key)
+        # A lexical oracle skips the disk cache: it would replay an adjudicated verdict.
+        cached = self._memo.get(key) or (self._load(key) if self.client is not None else None)
         if cached is not None:
             self.decisions += 1
             return cached
@@ -111,11 +113,13 @@ class RetentionOracle:
         score = lexical_overlap(atom.statement, text)
         if score >= self.high:
             result = RetentionVerdict(RETAINED, "lexical", round(score, 4))
-        elif score <= self.low or self.client is None:
-            # Without an adjudicator the ambiguous band resolves to `absent`: the
-            # conservative direction, which under-reports retention rather than
-            # claiming an atom survived that may have been reversed.
+        elif score <= self.low:
             result = RetentionVerdict(ABSENT, "lexical", round(score, 4))
+        elif self.client is None:
+            # No adjudicator: a placeholder `absent`, not a verdict, so it is not memoized
+            # or stored; the cache key names no oracle, so an adjudicated run would replay it.
+            self.decisions += 1
+            return RetentionVerdict(ABSENT, "lexical", round(score, 4))
         else:
             self.escalations += 1
             verdict = self._adjudicate(atom, text)
@@ -169,7 +173,8 @@ class RetentionOracle:
                 _ADJUDICATE_PROMPT.format(statement=atom.statement, text=text[:12000]),
                 accept=lambda raw: parse_verdict(raw) is not None,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - a failed adjudication is no verdict (None), not a wrong one
+            stop_if_run_wide()  # raises a permanent stop; any other failure is an unusable verdict
             return None
         return parse_verdict(reply)
 
@@ -192,8 +197,13 @@ class RetentionOracle:
         path = self._path(key)
         if path is None:
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"verdict": result.verdict, "score": result.score}), "utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"verdict": result.verdict, "score": result.score}), "utf-8")
+        except OSError:
+            # A read-only cache still serves what it holds (`_load`); a verdict it cannot take
+            # stays in the memo for this run and is decided again on the next.
+            return
 
 
 def error_warning(oracle: RetentionOracle) -> str | None:
@@ -255,7 +265,7 @@ def _key(atom: Atom, text: str) -> str:
     # Bumped when what an entry means changes: every older entry is then not read.
     # The reason for each bump is in docs/skill-novelty.md, under the cache key.
     digest.update(_CACHE_VERSION)
-    digest.update(atom.statement.strip().encode("utf-8"))
+    digest.update(atom.statement.strip().encode("utf-8", "surrogatepass"))  # model output and files can hold a lone surrogate
     digest.update(b"\0")
-    digest.update(text.encode("utf-8"))
+    digest.update(text.encode("utf-8", "surrogatepass"))
     return digest.hexdigest()[:32]

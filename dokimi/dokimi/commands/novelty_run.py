@@ -11,6 +11,7 @@ import argparse
 import functools
 import math
 import sys
+from dokimi.commands.cache_dir import usable_cache_dir  # noqa: F401 - re-exported for the novelty commands
 
 
 def stops_at_cap(command):

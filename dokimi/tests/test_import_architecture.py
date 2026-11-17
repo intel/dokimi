@@ -52,6 +52,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tracks", (
         "dokimi.config_check", "dokimi.context", "dokimi.coverage", "dokimi.dashboard",
         "dokimi.datasets_export", "dokimi.eval_coverage", "dokimi.explore", "dokimi.external", "dokimi.harnesses",
+        "dokimi.memory",
         "dokimi.novelty", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
         "dokimi.runner", "dokimi.runs", "dokimi.schema_check", "dokimi.schema_compat",
         "dokimi.skill_coverage",
@@ -77,7 +78,8 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.container_policy", "dokimi.defaults", "dokimi.docker_cmd",
         "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
         "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
-        "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
+        "dokimi.atomic_write", "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
+        "dokimi.judge_rule",
         # Token/cost record the LLM chokepoint fills; it lives under metrics/ but
         # depends on nothing and is read by every LLM caller.
         "dokimi.metrics.usage",

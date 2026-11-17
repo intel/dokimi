@@ -14,7 +14,7 @@ from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
 from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.client import LLMClient, SpendCap, SpendCapReached
-from tests.cli_paths import novelty_argv
+from tests.cli_paths import artifact_flag, novelty_argv
 
 
 def _parse(*argv):
@@ -78,6 +78,17 @@ def test_without_the_flag_there_is_no_cap():
     assert all(client.cap is None for client in novelty_cost.clients(args))
 
 
+def test_the_extractor_runs_on_the_named_provider_and_every_role_gets_max_tokens():
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x",
+                  "--model", "claude-haiku-4-5", "--provider", "anthropic",
+                  "--judge-model", "claude-sonnet-5-5", "--extract-model", "gpt-4o",
+                  "--extract-provider", "openai", "--max-tokens", "777")
+    extractor, answerer, judge = novelty_cost.clients(args)
+    assert (extractor.model, extractor.provider) == ("gpt-4o", "openai")
+    assert (judge.model, judge.provider) == ("claude-sonnet-5-5", "anthropic")
+    assert [c.max_tokens for c in (extractor, answerer, judge)] == [777, 777, 777]
+
+
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
 def test_a_cap_that_could_never_trip_is_refused(value):
     with pytest.raises(SystemExit):
@@ -89,7 +100,7 @@ def test_a_cap_that_could_never_trip_is_refused(value):
 def test_every_command_that_calls_a_model_takes_the_flag(sub):
     extra = {"probe": ["--atoms", "a.json"], "shorten": ["--atoms", "a.json"],
              "routing": ["--competitors", "skill:y"]}.get(sub, [])
-    args = _parse(*novelty_argv(sub), "--artifact", "skill:x", *extra, "--max-usd", "3")
+    args = _parse(*novelty_argv(sub), *artifact_flag(sub, "skill:x"), *extra, "--max-usd", "3")
     assert args.max_usd == 3.0
 
 
