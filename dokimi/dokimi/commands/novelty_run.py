@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import argparse
 import functools
-import math
 from pathlib import Path
 import sys
+from dokimi.cli_types import positive_usd
 from dokimi.commands.cache_dir import usable_cache_dir  # noqa: F401 - re-exported for the novelty commands
 
 
@@ -38,16 +38,8 @@ def exit_if_analyze_partial(result, out) -> None:
         save_analyze_partial(result, out)
 
 
-def usd_amount(text: str) -> float:
-    """A positive, finite USD amount (``0``, negatives, ``nan`` and ``inf`` would disable the cap)."""
-    value = float(text)
-    if not math.isfinite(value) or value <= 0:
-        raise argparse.ArgumentTypeError(f"must be a positive number of USD, got {text!r}")
-    return value
-
-
 def add_spend_cap(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--max-usd", type=usd_amount, default=None, dest="max_usd",
+    parser.add_argument("--max-usd", type=positive_usd, default=None, dest="max_usd",
                         help="Stop the run once its model calls have cost this much (USD, "
                              "all roles together; calls in flight can overshoot it). A call "
                              "with no known price also stops it; a reply replayed from "

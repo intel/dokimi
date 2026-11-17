@@ -30,28 +30,9 @@ import os
 import sys
 from pathlib import Path
 
+from dokimi.cli_types import positive_fraction, positive_int
 from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.utils import InputError
-
-
-def _positive_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"expected a whole number of words, got {value!r}") from None
-    if number < 1:
-        raise argparse.ArgumentTypeError(f"expected a whole number of words, got {value!r}")
-    return number
-
-
-def _fraction(value: str) -> float:
-    try:
-        number = float(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"expected a number in (0, 1], got {value!r}") from None
-    if not 0 < number <= 1:
-        raise argparse.ArgumentTypeError(f"expected a number in (0, 1], got {value!r}")
-    return number
 
 
 def _same_file(a: str, b: str) -> bool:
@@ -146,10 +127,10 @@ def register_eval(eval_sub) -> None:
                    help="a term that may appear in both the skill and the answers (repeatable)")
     r.add_argument("--allow-file", metavar="FILE", default=None,
                    help="allowlist, one term per line; blank lines and lines starting with # are skipped")
-    r.add_argument("--min-fraction", metavar="F", type=_fraction, default=DEFAULT_MIN_FRACTION,
+    r.add_argument("--min-fraction", metavar="F", type=positive_fraction, default=DEFAULT_MIN_FRACTION,
                    help=f"flag an item when this share of its answer n-grams is in the skill, in (0, 1] "
                         f"(default {DEFAULT_MIN_FRACTION})")
-    r.add_argument("--verbatim-words", metavar="N", type=_positive_int, default=DEFAULT_VERBATIM,
+    r.add_argument("--verbatim-words", metavar="N", type=positive_int, default=DEFAULT_VERBATIM,
                    help=f"flag an item on any run of this many words copied from its expected text, "
                         f"whatever the share (default {DEFAULT_VERBATIM})")
     r.add_argument("--split", metavar="FILE", default=None,
