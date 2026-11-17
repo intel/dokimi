@@ -286,6 +286,14 @@ def _started_host(meta_path: Path) -> Any:
     return fingerprint_id(host)
 
 
+def _unplace_rowless(missing_by: dict[tuple[str, str, str, str | None], int],
+                     unplaced: dict[tuple[str, str, str], int], groups: dict[Any, list[dict[str, Any]]]) -> None:
+    """A started missing cell whose host has no finished cell has no row: it is unplaced, so the single-row rule applies."""
+    row_keys = {(g[0], _cell_arm(g[1]), _cell_model(g[2]), g[3]) for g in groups}
+    for k in [k for k in missing_by if k not in row_keys]:
+        unplaced[(k[0], k[1], k[2])] += missing_by.pop(k)
+
+
 def _row_missing(missing_by: dict[tuple[str, str, str, str | None], int], unplaced: dict[tuple[str, str, str], int],
                  hosts_of: dict[tuple[str, str, str], int], key: tuple[str, str, str, str | None]) -> int:
     """Missing cells of one host row: those that ran on its host, and the unplaced ones when it is the only row."""
@@ -319,10 +327,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
     hosts_of: dict[tuple[str, str, str], int] = defaultdict(int)
     for g in groups:
         hosts_of[(g[0], _cell_arm(g[1]), _cell_model(g[2]))] += 1
-    # A started missing cell whose host has no finished cell has no row: it is unplaced, so the single-row rule applies.
-    row_keys = {(g[0], _cell_arm(g[1]), _cell_model(g[2]), g[3]) for g in groups}
-    for k in [k for k in missing_by if k not in row_keys]:
-        unplaced[(k[0], k[1], k[2])] += missing_by.pop(k)
+    _unplace_rowless(missing_by, unplaced, groups)
     rows = []
     for key in sorted(groups, key=lambda k: (k[0], k[1], k[2], k[3] or "")):
         recs = groups[key]
