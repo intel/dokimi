@@ -103,7 +103,7 @@ Question records preserve source fields such as `source_type`, `question_source`
 
 ### Question record format
 
-Each question may carry `version` (the author's revision, a string or an integer) and `provenance` (`source`, `reviewed_by`, `status` as `candidate`, `validated` or `frozen`). Every key is optional and an absent one is unknown. `eval questions generate` writes `source` as `generated:dokimi-questions-generate@<dokimi version>`; a hand-written set is `hand-written` by convention. Both shapes are checked when the set is read: a malformed one is a warning, never a refusal, so files written before the key existed still load.
+Each question may carry `version` (the author's revision, a string or an integer) and `provenance` (`source`, `reviewed_by`, `status` as `candidate`, `validated` or `frozen`). Every key is optional and an absent one is unknown. `eval questions generate` writes `source` as `generated:dokimi-questions-persona@<dokimi version>`, and the pipeline's chunk-grounded questions carry `generated:dokimi-questions-chunk@<dokimi version>`; a hand-written set is `hand-written` by convention. Both shapes are checked when the set is read: a malformed one is a warning, never a refusal, so files written before the key existed still load.
 
 A question set is a JSON object with a `questions` list. The framework writes it as `questions.v2` (`dokimi/schemas/questions.v2.json`, where every field is documented); `questions.v1` files are still read.
 
