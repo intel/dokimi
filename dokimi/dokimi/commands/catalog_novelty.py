@@ -343,14 +343,14 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
     from dokimi.novelty.sweep import load_strata
 
     root = Path(args.root)
-    if not root.is_dir():
-        raise InputError(f"ROOT is not a directory: {root}")
     strata = load_strata(Path(args.strata), args.stratum_column) if args.strata else None
     out_dir = Path(args.out_dir)
     jsonl = Path(args.jsonl) if args.jsonl else out_dir / DEFAULT_JSONL
     if args.summary_only:
         _summary_only(jsonl, strata, args)
         return
+    if not root.is_dir():
+        raise InputError(f"ROOT is not a directory: {root}")
     _refuse_unsafe_run(args, jsonl)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     cache_dir = usable_cache_dir(args.cache_dir)

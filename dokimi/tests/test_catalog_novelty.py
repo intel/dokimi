@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 
 import pytest
@@ -141,6 +142,15 @@ def test_summary_only_reads_the_jsonl_and_makes_no_call(tmp_path, monkeypatch, c
         raise AssertionError("summary-only must not build a client")
 
     monkeypatch.setattr(novelty_cost, "client", no_client)
+    _sweep(root, out, "--summary-only")
+    assert "# novelty sweep: 2 measured" in capsys.readouterr().out
+
+
+def test_summary_only_needs_no_root(tmp_path, capsys):
+    out, root = tmp_path / "out", _root(tmp_path)
+    _sweep(root, out, "--max-usd", "5")
+    capsys.readouterr()
+    shutil.rmtree(root)
     _sweep(root, out, "--summary-only")
     assert "# novelty sweep: 2 measured" in capsys.readouterr().out
 
