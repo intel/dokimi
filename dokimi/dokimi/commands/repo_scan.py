@@ -168,5 +168,8 @@ def scan_subjects(payload: dict) -> list[dict]:
         message = f"{claim.get('kind')}: `{str(claim.get('claim'))[:80]}`: {claim.get('why')}"
         by_file.setdefault(file, []).append(finding("warn", str(claim.get("status")), message, file, line))
     files = [str(f.get("path", f)) if isinstance(f, dict) else str(f) for f in payload.get("files") or []]
-    return [{"subject": f, "verdict": None, "findings": by_file.get(f, [])}
-            for f in sorted(set(files) | set(by_file))]
+    names = sorted(set(files) | set(by_file))
+    if names:
+        by_file.setdefault(names[0], []).extend(
+            finding("warn", "scan-warning", str(w)) for w in payload.get("warnings") or [])
+    return [{"subject": f, "verdict": None, "findings": by_file.get(f, [])} for f in names]
