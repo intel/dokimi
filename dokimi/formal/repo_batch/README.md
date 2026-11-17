@@ -37,7 +37,7 @@ result differs from its expectation. `out/` is not committed.
 | Timeout | agent killed, the cell is graded (an outcome, not a retry) | inside `Work` |
 | Crash | process dies; no `result.json` → cell is *missing*, the next run fills it | `Crash` |
 | Late result of an old attempt | none after SIGKILL: threads die with the process (a second Ctrl-C is not modelled, open question 4) | `LateCommit`, mutation only |
-| Cancel | Ctrl-C: `KeyboardInterrupt`; `pool.map` cancels queued futures, running cells finish | `Cancel`, `CancelGuard` |
+| Cancel | Ctrl-C: `KeyboardInterrupt`; queued futures are cancelled, running cells' containers are killed by name | `Cancel`, `CancelGuard` |
 | Exclusion of concurrent runs on one batch | `batch_lock` (flock on `_eval/lock`) | `Locked` |
 | Execution pinning | `execution.id` in `meta.json`/`result.json`; `check_batch_executions` before any cell | `Configs`, `StartCheck` |
 | Commit | `_write_json(rd / "result.json")`: mkstemp + `os.replace` (atomic) | `Commit` |
@@ -66,7 +66,7 @@ result differs from its expectation. `out/` is not committed.
 | P3 | `NoStaleOverwrite` | no `result.json` from an attempt that no longer owns the dir | `batch_lock`; threads die with the process; `_refuse_shared_cells` |
 | P4 | `OneConfig` | the cells of one report row ran under one `execution.id` | `check_batch_executions`; `refuse_mixed_executions` in `summarize` and `compare` |
 | P5 | `PartialNotComplete` | exit 0 only with every planned cell done; the rest are *missing* | exit logic of `cmd_repo_run`; `record_plan` + `load_cells` |
-| P6 | `CancelContract` | no attempt starts after Ctrl-C; the run does not exit 0 | `pool.map` cancels pending futures when the main thread raises |
+| P6 | `CancelContract` | no attempt starts after Ctrl-C; the run does not exit 0 | queued futures are cancelled when the main thread or a cell raises |
 | P7 | `InvocationEnds` (liveness) | every invocation ends | under `Fairness` only |
 
 Assumptions (stated in the model, not proven):
@@ -121,7 +121,7 @@ tla2tools v1.8.0 (TLC2 Version 2026.11.06.222357, rev d8fb231), 4 TLC workers, T
    found by TLC on its first run of `fixed`): `--force` replaced r1, then the run stopped; r2 kept
    the old execution and `repo report` pooled both in one row. Fixed: `refuse_mixed_executions`. The same refusal catches a harness binary replaced mid-batch, which the model does not have (one execution per invocation, while the code hashes `--bin` per cell).
 3. **Ctrl-C** (`mut_no_cancel_guard`): a probe with `_thread.interrupt_main()` started queued cells,
-   but a real SIGINT wakes the main thread and `pool.map` cancels them. Not a bug; the test pins it.
+   but a real SIGINT wakes the main thread and the pool cancels them. Not a bug; the test pins it.
 
 Open questions (left as they are):
 
