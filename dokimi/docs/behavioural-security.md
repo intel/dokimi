@@ -60,8 +60,8 @@ of cell that are in no rate:
   null `process` in `result.json`, no finding; an empty `events.jsonl` is what the runner
   writes when the agent never started, even though its `rc` is 0 or the cap killed it, unless the runner also
   recorded `trace_errors`, see `unfinished`). A nonzero `rc` with no trace, unless the cap
-  killed the harness (`timed_out`), is not a cell at all: it is a crash (exit 5) that writes no `result.json`. Counting it as clean would make an arm
-  whose skill crashes the agent look safer. Each arm entry gives its `not_started` count;
+  killed the harness (`timed_out`), is a crash (exit 5) with no `result.json`, listed under `unfinished`. Counting it as
+  clean would make an arm whose skill crashes the agent look safer. Each arm entry gives its `not_started` count;
   its `cells` (the denominator of every rate) are the measured ones. An arm, the baseline
   included, whose every cell is `not_started` has no rate at all: the report shows it as
   `no measured cell`, and `--fail-on` (`fail` or `warn`) exits 3 on it (`ARM: no measured cell`),
