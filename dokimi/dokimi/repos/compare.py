@@ -49,7 +49,7 @@ Three notes keep a row from being misread; none changes the delta, its interval 
 whose interval includes 0 is inconclusive, not "no effect": the note gives ``mde``, a planning figure: an
 approximate, uncorrected t-based estimate of the mean delta a two-sided 5% one-sample t test detects with 80% power
 at the row's spread, ``(t_0.975 + t_0.80) * sd / sqrt(n)`` over the per-task deltas, t at ``n - 1`` degrees of
-freedom (in every row; ``None`` for one task or no spread), not the power of the sign-flip test nor of the
+freedom (in every row; ``None`` for one task, no spread, or a spread so large the figure leaves the float range), not the power of the sign-flip test nor of the
 Holm-corrected decision. The sign-flip p over k changed tasks cannot go below ``2 / 2**k``, so at 5 or fewer no
 effect of any size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead.
 ``mde`` is ``None`` too where a gate or score row's ``p_holm_floor`` (its ``p_holm`` with its p at that floor and the
@@ -105,6 +105,7 @@ deltas measure the patch's text (a guidance line, say), not the tool.
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from collections import defaultdict
 from pathlib import Path
@@ -672,11 +673,12 @@ def _inconclusive_note(r: dict[str, Any], family: int) -> str | None:
         return None
     head = f"  {r['measure']} inconclusive: the interval includes 0; "
     if r["mde"] is not None:
+        mde = f"{r['mde']:.3f}" if r["mde"] < 1e6 else f"{r['mde']:.3e}"  # a figure near the float range is no 300-digit string
         return head + (f"an uncorrected t-test estimate puts the effect 80% power detects at this spread at about "
-                       f"±{r['mde']:.3f} ({r['n_tasks']} tasks), before Holm and not for the sign-flip test")
+                       f"±{mde} ({r['n_tasks']} tasks), before Holm and not for the sign-flip test")
     changed, holm = r["up"] + r["down"], r["p_holm_floor"]
     if r["p"] is None or (floor := min_sign_flip_p(changed)) < ALPHA and holm < ALPHA:
-        return None  # every delta tied, or no spread
+        return None  # every delta tied, no spread, or an mde beyond the float range
     if floor >= ALPHA:
         return head + (f"with {changed} changed task{'' if changed == 1 else 's'} the sign-flip p cannot go below "
                        f"{floor:.4g}: no effect can reach p < {ALPHA} here")
@@ -754,7 +756,10 @@ def _mean(values: list[Any]) -> float | None:
 
 
 def _round(value: float | None) -> float | None:
-    return None if value is None else round(value, 6)
+    if value is None:
+        return None
+    number = float(value)  # a numpy float64 would warn on overflow while rounding
+    return round(number, 6) if math.isfinite(number) else None
 
 
 def _num(value: float | None) -> str:

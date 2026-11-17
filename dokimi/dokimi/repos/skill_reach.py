@@ -71,7 +71,7 @@ from typing import Any
 import yaml
 
 from dokimi import process
-from dokimi.utils import retry_writable
+from dokimi.utils import key_bytes, retry_writable
 
 from .events import convert
 from .harness_profile import HarnessProfile
@@ -233,12 +233,7 @@ def resolve_at(case: Case, dirs: dict[str, str]) -> tuple[str, str] | None:
 
 
 def token(salt: str, case_id: str, position: str) -> str:
-    text = f"{salt}\0{case_id}\0{position}"
-    try:
-        raw = text.encode("utf-8", "surrogateescape")
-    except UnicodeEncodeError:  # a JSON `\ud800` escape is a surrogate `surrogateescape` does not map
-        raw = b"\0sp" + text.encode("utf-8", "surrogatepass")  # tagged: apart from the bytes `surrogateescape` maps
-    digest = hashlib.sha256(raw).hexdigest()
+    digest = hashlib.sha256(key_bytes(f"{salt}\0{case_id}\0{position}")).hexdigest()
     return ("SK" if position == "description" else "SB") + digest[:6].upper()
 
 
