@@ -237,8 +237,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _names_model(token: str) -> bool:
-    """True for ``--model`` or ``--model=value``."""
-    return token.split("=", 1)[0] == "--model"
+    """True for ``--model`` (``=value`` too) or an argparse abbreviation of it (``--mod``)."""
+    flag = token.split("=", 1)[0]
+    return flag.startswith("--mod") and "--model".startswith(flag)
 
 
 def _names_judge_provider(token: str) -> bool:
