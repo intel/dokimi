@@ -1410,7 +1410,12 @@ first run after upgrading therefore pays one adjudication call per pair the old 
 `DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
 calls now send 16384 where they sent none, so those entries miss too.
 
-Entries written under `retention-cache-v5` are not read either: that key used to join the statement and the text with a bare NUL byte, so a statement ending in NUL and a text starting with NUL hashed the same bytes and one atom could replay another atom's verdict. The key now hashes the statement's byte length as 8 bytes (big-endian) before the statement, which no statement and text can collide on. Every key changed, so entries written under `retention-cache-v5` are not read. The old files stay in `--cache-dir` and can be deleted, and the first run after upgrading pays the adjudication calls again.
+Entries written under `retention-cache-v5` are not read either: that key used to join the
+statement and the text with a bare NUL byte, so a statement ending in NUL and a text starting with
+NUL hashed the same bytes and one atom could replay another atom's verdict. The key now hashes the
+statement's byte length as 8 bytes (big-endian) before the statement, which no statement and text
+can collide on. The old files stay in `--cache-dir` and can be deleted, and the first run after
+upgrading pays the adjudication calls again.
 
 **Pass `--max-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
 16384 output tokens unless `--max-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
