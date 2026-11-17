@@ -157,7 +157,8 @@ def _resolve_base(source: RepoSource, git_dir: Path, base: str) -> str:
     if _SHA_RE.match(commit):
         process.git("-C", str(git_dir), "fetch", "origin", "--", commit)  # a failure leaves the miss below
     else:  # git cannot fetch a short SHA: its refs are fetched, then the base is looked up again; a failure leaves the miss
-        process.git("-C", str(git_dir), "fetch", "--filter=blob:none", "origin",
+        # no --filter here: on the full clone it would make every later fetch partial
+        process.git("-C", str(git_dir), "fetch", "origin",
                     "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
     return resolve_rev(git_dir, base)
 
@@ -177,7 +178,10 @@ def resolve_suite(suite: SuiteManifest, bases: Mapping[str, str], cache_dir: Pat
         if not isinstance(found, str) and rev and _SHA_RE.match(rev) and found[1] != rev:
             raise SuiteError(suite.path, [f"repos.{name}: {rev!r} resolves to {found[1]}, not to that commit; "
                                           "pin the full commit SHA"])
-    out = SuiteBases(pins={name: found[1] for name, found in checkouts.items() if not isinstance(found, str)},
+    # a full-SHA pin is the declared commit, whether or not its repository opened
+    pins = {name: suite.repos[name].rev for name in suite.repos if not suite.floating}
+    pins.update({name: found[1] for name, found in checkouts.items() if suite.floating and not isinstance(found, str)})
+    out = SuiteBases(pins=pins,
                      plan={"path": suite.path, "repos": {name: str(source) for name, source in suite.repos.items()},
                            "tasks": dict(suite.tasks)})
     for task_id, repo in suite.tasks.items():

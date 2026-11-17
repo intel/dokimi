@@ -7,6 +7,7 @@ and the run. Every repository here is a local git repository; nothing reaches th
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -474,6 +475,33 @@ def test_an_abbreviated_base_the_warm_cache_lacks_is_fetched_not_a_gap(tmp_path,
     short = git(root, "rev-parse", "--short=7", "HEAD")
     found = resolve_suite(suite, {"t1": f"{short}{suffix}"}, cache)
     assert found.gaps == {} and "t1" in found.git_dirs
+
+
+def test_a_short_base_fetch_leaves_the_full_clone_without_a_partial_filter(tmp_path):
+    root, sha = _scaffold(tmp_path)
+    git(root, "config", "uploadpack.allowFilter", "true")
+    suite = parse_suite(_raw(repos={"sc": f"file://{root}@{sha}"}))
+    cache = tmp_path / "cache"
+    assert resolve_suite(suite, {"t1": sha}, cache).gaps == {}  # warms the full clone at the pin
+    git(root, "checkout", "-q", "-b", "other")
+    write(root, "src/more.py", "X = 1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "base on another branch")
+    short = git(root, "rev-parse", "--short=7", "HEAD")
+    found = resolve_suite(suite, {"t1": short}, cache)
+    assert found.gaps == {} and "t1" in found.git_dirs
+    promisor = subprocess.run(["git", "-C", str(found.git_dirs["t1"]), "config", "--get", "remote.origin.promisor"],
+                              capture_output=True, text=True, check=False)
+    assert promisor.returncode != 0  # the full clone is not a partial clone
+
+
+def test_a_full_sha_pin_is_recorded_even_when_its_repository_is_down(tmp_path):
+    good, sha = _scaffold(tmp_path)
+    gone = "b" * 40
+    suite = parse_suite(_raw(repos={"good": f"{good}@{sha}", "gone": f"{tmp_path}/missing@{gone}"},
+                             tasks=[{"id": "ok", "repo": "good"}, {"id": "lost", "repo": "gone"}]))
+    found = resolve_suite(suite, {"ok": sha, "lost": gone}, tmp_path / "cache")
+    assert found.pins == {"good": sha, "gone": gone}
 
 
 def test_a_floating_full_sha_pin_on_no_branch_is_fetched_by_name(tmp_path):
