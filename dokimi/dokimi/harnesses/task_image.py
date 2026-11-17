@@ -56,6 +56,13 @@ def ready_image(task: TaskSpec, log, docker: Docker, build: Callable[[str], None
     return image, {"source": "docker_image", "ref": image, "pulled": pulled, **json.loads(found.stdout or "")}
 
 
+def workdir_args(task: TaskSpec) -> list[str]:
+    """``-w`` for a prebuilt-image task's ``environment.workdir``: Harbor runs every exec there
+    (``DockerEnvironment.exec``: ``cwd or task_env_config.workdir``); a built image has its ``WORKDIR``."""
+    workdir = task.environment.get("workdir")
+    return ["-w", workdir] if task.docker_image is not None and isinstance(workdir, str) and workdir else []
+
+
 def upload_environment(task: TaskSpec, container: str, log, docker: Docker) -> None:
     """Copy :attr:`.TaskSpec.environment_upload` into the started container, as Harbor does.
 

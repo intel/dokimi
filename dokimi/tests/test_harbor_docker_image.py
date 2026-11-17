@@ -128,6 +128,22 @@ def test_the_loose_environment_files_land_in_the_workdir_before_the_solve(tmp_pa
     assert ["exec", "-u", "root", copy[0][2].split(":")[0], "mkdir", "-p", "/app"] in cli.args
 
 
+def test_the_task_container_works_in_the_declared_workdir(tmp_path):
+    """Harbor's DockerEnvironment.exec runs in environment.workdir, so a solve.sh or test.sh with a
+    relative path (`cp seed.txt answer.txt`) finds the uploaded files; python:3.12-slim has no WORKDIR."""
+    cli = _daemon()
+    create_harness("docker-oracle", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    run = _run_argv(cli)
+    assert run[run.index("-w") + 1] == "/app" and run.index("-w") < run.index(IMAGE)
+
+
+def test_without_a_declared_workdir_the_container_keeps_the_image_workdir(tmp_path):
+    for path in (_task(tmp_path / "a", workdir=None), _task(tmp_path / "b", image=None, dockerfile=True)):
+        cli = _daemon()
+        create_harness("docker-oracle", runner=cli).run(load_task(path), output_dir=tmp_path / "out")
+        assert "-w" not in _run_argv(cli)
+
+
 def test_without_a_declared_workdir_the_files_go_to_the_image_workdir_else_root(tmp_path):
     """Harbor uploads into environment.workdir, else the container's `pwd` (the image's WORKDIR, or /)."""
     path = _task(tmp_path, workdir=None)

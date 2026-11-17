@@ -79,7 +79,7 @@ from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, ent
                              resolve_recorded, skill_needs, start_network, redact as _redact)
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
-from .task_image import ignore_top_level_skills, ready_image, upload_environment
+from .task_image import ignore_top_level_skills, ready_image, upload_environment, workdir_args
 from .task_env import _exec_env, unresolved_env  # re-exported
 from .tbench_v1 import reward as _pytest_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
@@ -359,7 +359,7 @@ class DockerSolverHarness:
         sandbox_flags = sandbox.run_args() if sandbox else []
         self._docker(docker_cmd.run_spec(
             task_container_policy(network=network, cpus=cpus, memory=memory),
-            [["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
+            [["-d"], ["--name", container], workdir_args(task), "init", "cap_drop", "security", "pids", "cap_add",
              "network", sandbox_flags, docker_cmd.env_args(task.container_env), "resource"],
             image, ["sleep", str(lifetime)]), log)
         return enter_phase(plan.solve if inside else DEFAULTS["solve"], container, self._docker, log,
