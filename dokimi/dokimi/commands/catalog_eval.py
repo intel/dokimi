@@ -208,8 +208,9 @@ def _emit(report: dict[str, Any], out: Path, root: Path) -> None:
 
     ``data`` holds the per-skill evaluation state (``no_tasks``, ``not_measured``, ``checks_only``) and the
     findings that belong to no skill; the full report stays in the receipts under ``--out-dir``. A finding's file is
-    under ``root`` as given, and a skill directory becomes its ``SKILL.md``. With ``--changed-from``, a skill outside
-    the selection was not evaluated: its verdict is null and it is left out of ``reason``.
+    under ``root`` as given, and a skill or task directory becomes its ``SKILL.md`` or task definition. With
+    ``--changed-from``, a skill outside the selection was not evaluated: its verdict is null and it is left out of
+    ``reason``.
     """
     from dokimi import cli_output
     from dokimi.external.catalog_eval import shared_problems
@@ -217,7 +218,8 @@ def _emit(report: dict[str, Any], out: Path, root: Path) -> None:
     def finding(item: dict[str, Any]) -> dict[str, Any]:
         path = root / item["path"] if item.get("path") else None
         if path is not None and path.is_dir():
-            path = path / "SKILL.md"
+            path = next((path / name for name in ("SKILL.md", "task.toml", "task.yaml", "task.md")
+                         if (path / name).is_file()), path)
         return cli_output.finding(item["level"], item["code"], item["message"], path and path.as_posix())
 
     selected = set(report["selection"]["selected"])

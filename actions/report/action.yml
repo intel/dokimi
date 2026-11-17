@@ -75,8 +75,13 @@ runs:
             exit 1
           }
         fi
-        id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" | head -n1) || id=
+        # A failed lookup is not proof that no comment exists: skip publishing instead of posting a duplicate.
+        ids=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id") || {
+          echo "::warning title=dokimi report::the sticky comment lookup failed; the summary is in the job summary"
+          exit 0
+        }
+        id=$(printf '%s\n' "$ids" | head -n1)
         # A token that cannot write (a pull request from a fork) must not turn a green job red.
         if [ -n "$id" ]; then
           gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$OUT/summary/comment.md" >/dev/null ||

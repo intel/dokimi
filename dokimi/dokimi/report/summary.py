@@ -82,7 +82,8 @@ def _malformed(doc: dict[str, Any]) -> str | None:
     cost = doc.get("cost")
     if cost is not None and (not isinstance(cost, dict) or any(
             v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)))
-            for v in (cost.get("spent_usd"), cost.get("cap_usd")))):
+            for v in (cost.get("spent_usd"), cost.get("cap_usd"))) or not (
+            cost.get("priced") is None or isinstance(cost["priced"], bool))):
         return "cost"
     return None
 

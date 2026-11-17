@@ -239,6 +239,13 @@ def test_malformed_envelope_fields_are_invalid_rows_not_a_crash(tmp_path):
         assert (rows[field]["state"], rows[field]["reason"]) == ("invalid", f"{field} malformed")
 
 
+def test_a_non_boolean_priced_is_an_invalid_row(tmp_path):
+    _doc(tmp_path, "a.json", "repo hits", verdict="pass", cost={"spent_usd": 0.0, "priced": "false"})
+    _doc(tmp_path, "b.json", "repo scan", verdict="pass", cost={"spent_usd": 0.0, "priced": None})
+    out = summarize([str(tmp_path)])
+    assert [(c["state"], c["reason"]) for c in out["checks"]] == [("invalid", "cost malformed"), ("pass", None)]
+
+
 def test_two_documents_of_one_kind_keep_each_subject_verdict(tmp_path):
     _doc(tmp_path, "a.json", "memory lint", subjects=[{"subject": "s1", "verdict": "fail"}])
     _doc(tmp_path, "b.json", "memory lint", subjects=[{"subject": "s1", "verdict": "pass"}])
@@ -363,7 +370,7 @@ def test_the_report_action_uploads_after_a_failed_comment_and_finds_its_own_comm
     assert "gh api user" in sticky and '.user.login == \\"$me\\"' in sticky
 
 
-def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False):
+def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False, lookup=""):
     """The sticky step's script against a fake ``gh`` that has no ``/user`` and logs its calls."""
     import yaml
 
@@ -373,14 +380,15 @@ def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False):
     bin_dir.mkdir()
     gh = bin_dir / "gh"
     gh.write_text('#!/bin/sh\necho "$@" >> "$GH_LOG"\n[ "$2" = user ] && exit 1\n'
+                  '[ "$2" = --paginate ] && [ -n "$GH_LOOKUP" ] && { echo 7; [ "$GH_LOOKUP" = fail ] && exit 1; exit 0; }\n'
                   '[ -n "$GH_WRITE_FAILS" ] && [ "$2" = -X ] && exit 1\nexit 0\n', encoding="utf-8")
     gh.chmod(0o755)
     (tmp_path / "summary").mkdir()
     (tmp_path / "summary" / "summary.md").write_text(body, encoding="utf-8")
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "OUT": str(tmp_path), "GH_TOKEN": token, "DEFAULT_TOKEN": default_token,
            "PR": "1", "REPO": "o/r", "GH_LOG": str(tmp_path / "gh.log"),
-           **({"GH_WRITE_FAILS": "1"} if write_fails else {})}
-    done = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=False)
+           **({"GH_WRITE_FAILS": "1"} if write_fails else {}), **({"GH_LOOKUP": lookup} if lookup else {})}
+    done = subprocess.run(["bash", "-o", "pipefail", "-c", script], env=env, capture_output=True, text=True, check=False)
     return done, (tmp_path / "gh.log").read_text(encoding="utf-8") if (tmp_path / "gh.log").exists() else ""
 
 
@@ -397,6 +405,17 @@ def test_sticky_comment_posts_with_the_default_token(tmp_path):
 def test_sticky_comment_that_cannot_be_posted_is_a_warning_not_a_failed_job(tmp_path):
     done, log = _run_sticky(tmp_path, "default-token", "default-token", write_fails=True)
     assert "POST" in log and done.returncode == 0 and "::warning title=dokimi report::" in done.stdout
+
+
+def test_sticky_comment_lookup_that_fails_after_an_id_posts_nothing(tmp_path):
+    done, log = _run_sticky(tmp_path, "default-token", "default-token", lookup="fail")
+    assert done.returncode == 0 and "POST" not in log and "PATCH" not in log
+    assert "::warning title=dokimi report::the sticky comment lookup failed" in done.stdout
+
+
+def test_sticky_comment_updates_the_comment_the_lookup_found(tmp_path):
+    done, log = _run_sticky(tmp_path, "default-token", "default-token", lookup="ok")
+    assert done.returncode == 0 and "PATCH repos/o/r/issues/comments/7" in log and "POST" not in log
 
 
 def test_sticky_comment_body_stays_below_the_comment_limit(tmp_path):
@@ -494,3 +513,23 @@ def test_catalog_eval_json_findings_point_at_the_skill_file_under_the_given_root
     doc = json.loads(out)
     files = {f["file"] for s in doc["subjects"] for f in s["findings"]}
     assert code == 1 and files == {"catalog/skills/beta/SKILL.md"}
+
+
+def test_catalog_eval_json_task_findings_point_at_the_task_definition(tmp_path):
+    from dokimi.commands.catalog_eval import _emit
+
+    (tmp_path / "skills" / "alpha").mkdir(parents=True)
+    (tmp_path / "skills" / "alpha" / "SKILL.md").write_text("x", encoding="utf-8")
+    (tmp_path / "tasks" / "t1").mkdir(parents=True)
+    (tmp_path / "tasks" / "t1" / "task.toml").write_text("x", encoding="utf-8")
+    row = {"name": "alpha", "evaluation": "no_tasks", "checks": {"status": "pass", "findings": [
+        {"level": "warn", "code": "undeclared-task", "message": "m", "path": "tasks/t1"},
+        {"level": "warn", "code": "other", "message": "m", "path": "skills/alpha"}]}}
+    report = {"status": "pass", "tier": "static", "problems": [], "skills": [row],
+              "selection": {"selected": ["alpha"]}}
+    out = tmp_path / "out"
+    out.mkdir()
+    with patch("dokimi.cli_output.emit_leaf") as leaf:
+        _emit(report, out, tmp_path)
+    files = [f["file"] for f in leaf.call_args.kwargs["subjects"][0]["findings"]]
+    assert files == [(tmp_path / "tasks/t1/task.toml").as_posix(), (tmp_path / "skills/alpha/SKILL.md").as_posix()]
