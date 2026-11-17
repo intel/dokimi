@@ -228,15 +228,32 @@ def test_a_marker_that_is_not_an_object_is_a_parse_error(payload, kind):
 
 
 @pytest.mark.parametrize("payload,prefix,reason", [
-    ("[" * 100000, "JSON this reader cannot hold: ", "maximum recursion depth"),
     ("1" * 5000, "JSON this reader cannot hold: ", "4300"),
     ("{", "not JSON: ", "Expecting"), ("", "not JSON: ", "Expecting value"),
-], ids=["too-deep", "int-over-4300-digits", "unparsable", "empty"])
+], ids=["int-over-4300-digits", "unparsable", "empty"])
 def test_a_marker_json_cannot_hold_is_a_parse_error_that_says_why(payload, prefix, reason):
     ops = load_operations(None, f"DOKIMI_OP {payload}", "")
 
     assert [(op.type, op.name, op.status) for op in ops] == [("log_parse_error", "marker", "error")]
     assert ops[0].metadata["error"].startswith(prefix) and reason in ops[0].metadata["error"]
+
+
+def test_a_marker_nested_past_the_decoder_s_limit_is_a_parse_error():
+    """Where the limit falls, and what the decoder then says, depends on the Python and its stack (#820)."""
+    ops = load_operations(None, "DOKIMI_OP " + "[" * 100000 + "]" * 100000, "")
+
+    assert [(op.type, op.name, op.status) for op in ops] == [("log_parse_error", "marker", "error")]
+
+
+def test_a_recursion_error_in_the_decoder_is_json_this_reader_cannot_hold(monkeypatch):
+    def too_deep(text):
+        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+
+    monkeypatch.setattr("dokimi.harnesses.operations.json.loads", too_deep)
+    ops = load_operations(None, 'DOKIMI_OP {"type":"tool"}', "")
+
+    assert [op.metadata for op in ops] == [
+        {"error": "JSON this reader cannot hold: maximum recursion depth exceeded while decoding a JSON array"}]
 
 
 def test_an_elapsed_too_large_for_a_float_is_zero():
