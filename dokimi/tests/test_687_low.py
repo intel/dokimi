@@ -162,6 +162,17 @@ def test_a_source_whose_file_was_deleted_writes_it_again_under_its_name(tmp_path
     assert materialize_markdown(docs[:1], out) == [out / "a-pdf.md"]
 
 
+def test_a_new_source_does_not_take_the_name_of_a_deleted_file(tmp_path, converted):
+    v1, v2 = _docs(tmp_path, "v1/m.pdf", "v2/m.pdf")
+    out = tmp_path / "md"
+    materialize_markdown([v1, v2], out)
+    (out / "m-pdf.md").unlink()
+    (v0,) = _docs(tmp_path, "v0/m.pdf")
+
+    assert materialize_markdown([v0, v1, v2], out) == [out / "m-pdf-3.md", out / "m-pdf.md", out / "m-pdf-2.md"]
+    assert _md(out)["m-pdf.md"] == "# m.pdf, conversion 4\n"  # v1's text, not v0's
+
+
 @pytest.mark.skipif(os.name == "nt", reason="a backslash is a path separator on Windows")
 def test_a_source_name_with_a_backslash_is_converted_and_rerun(tmp_path, converted):
     (doc,), out = _docs(tmp_path, "a\\b.pdf"), tmp_path / "md"
