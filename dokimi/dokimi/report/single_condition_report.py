@@ -11,7 +11,6 @@ spread, by difficulty, the lowest-scoring questions, and every question with its
 from __future__ import annotations
 
 import os
-import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
@@ -19,6 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from dokimi.records import (BASELINE, KNOWLEDGE_INTENT, Record, held_conditions, is_knowledge_run,
                             is_single_condition, records)
 from dokimi.report.eval_report import (
+    _sibling_answers_path,
     DIFFICULTY_ORDER,
     _answers_by_id,
     answers_from_items,
@@ -128,12 +128,6 @@ def _report_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
     if data.get("provider"):
         meta.setdefault("answer_provider", data["provider"])
     return meta
-
-
-def _sibling_answers_path(eval_path: str) -> str:
-    """The answers file an eval file was judged from: its parent directory ``eval`` becomes ``answers``,
-    for a relative, absolute or native path (``eval/demo.json`` as well as ``/x/eval/demo.json``)."""
-    return re.sub(r"(^|[\\/])eval(?=[\\/][^\\/]*$)", r"\1answers", eval_path, count=1)
 
 
 def _write_qa(eval_path: str, out_path: str, qa_json_out: Optional[str], evals: Sequence[Record],

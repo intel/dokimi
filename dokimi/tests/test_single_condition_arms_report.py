@@ -102,3 +102,10 @@ def test_a_legacy_eval_with_an_unscored_context_block_is_a_paired_run_not_a_know
                              "with_docs": {"aggregate": None}, "without_docs": {"aggregate": 80.0}}]}
     recs = records(data["evaluations"], kind="evaluations")
     assert not is_knowledge_run(recs, data)
+
+
+def test_the_paired_report_and_the_one_condition_page_find_the_same_answers_file():
+    from dokimi.report.eval_report import _sibling_answers_path
+
+    assert _sibling_answers_path("eval/demo.json") == "answers/demo.json"
+    assert _sibling_answers_path("/x/eval/demo.json") == "/x/answers/demo.json"
