@@ -127,6 +127,10 @@ def read_rows(path: Path) -> list[dict]:
             raise InputError(f"--jsonl {path} line {lineno} is not a sweep row: {exc}") from exc
         if not isinstance(row, dict) or row.get("status") not in STATUSES or "key" not in row:
             raise InputError(f"--jsonl {path} line {lineno} is not a sweep row; fix or remove it before --resume")
+        needed = ("usd", "new_lenient", "tokens") if row["status"] == "ok" else ("usd",)
+        missing = [k for k in needed if k not in row]
+        if missing:
+            raise InputError(f"--jsonl {path} line {lineno} has no {', '.join(missing)}; fix or remove it before --resume")
         rows.append(row)
     return rows
 

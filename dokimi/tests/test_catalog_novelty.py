@@ -460,3 +460,15 @@ def test_identical_skill_copies_are_one_skill_and_the_help_says_so(tmp_path, cap
     help_text = " ".join(capsys.readouterr().out.split())
     assert "identical" in help_text
     assert "Ctrl-C or SIGTERM" in help_text
+
+
+def test_a_tree_digest_failure_leaves_no_digest_so_resume_runs_the_skill_again(tmp_path, monkeypatch):
+    import dokimi.utils as utils
+    from dokimi.commands.catalog_novelty import _items
+
+    def broken(*args, **kwargs):
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(utils, "tree_digest", broken)
+    items = _items(_root(tmp_path), None)
+    assert [i.sha256 for i in items] == [None, None]

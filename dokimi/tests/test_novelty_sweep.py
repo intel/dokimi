@@ -245,3 +245,15 @@ def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
 def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
     rows = [_ok("a", 0.5, tokens=800), _row("a", "error")]
     assert [(r["key"], r["new_lenient"]) for r in summarize(rows, resamples=50)["ranking"]] == [("a", 0.5)]
+
+
+@pytest.mark.parametrize("row, missing", [
+    ({"key": "a", "status": "ok"}, "usd, new_lenient, tokens"),
+    ({"key": "a", "status": "ok", "usd": 0.1, "tokens": 5}, "new_lenient"),
+    ({"key": "a", "status": "error"}, "usd"),
+])
+def test_read_rows_refuses_a_row_without_the_fields_the_summary_reads(tmp_path, row, missing):
+    path = tmp_path / "s.jsonl"
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(InputError, match=f"line 1 has no {missing}"):
+        read_rows(path)
