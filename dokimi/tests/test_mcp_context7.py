@@ -135,6 +135,12 @@ class TestContext7Client:
         assert mock_get.call_args[0][0].endswith("/" + path + "?tokens=8000&topic=n%3F")
 
     @patch('httpx.get')
+    def test_get_library_docs_sends_a_json_surrogate_pair_as_one_character(self, mock_get, tmp_path):
+        mock_get.return_value = Mock(text="Documentation about parallel_for. " * 4)
+        Context7Client(cache_dir=tmp_path / "cache").get_library_docs("org/n\ud83d\ude00", "q\ud83d\ude00")
+        assert mock_get.call_args[0][0].endswith("/org/n%F0%9F%98%80/llms.txt?tokens=8000&topic=q%F0%9F%98%80")
+
+    @patch('httpx.get')
     def test_get_library_docs_404(self, mock_get):
         """Test handling of library not found (404)."""
         import httpx

@@ -333,6 +333,17 @@ def test_harbor_view_writes_a_lone_surrogate_in_the_instruction_as_a_question_ma
     assert (view.path / "instruction.md").read_text(encoding="utf-8") == "Create n?.txt\n"
 
 
+def test_harbor_view_joins_a_json_surrogate_pair_in_the_metadata_and_the_instruction(tmp_path):
+    import tomllib
+
+    path = _tb1(tmp_path / "tasks", yaml_extra='author_email: "n\\ud83d\\ude00"\n')
+    _write(path / "task.yaml", 'instruction: "Reply with \\ud83d\\ude00"\nauthor_email: "n\\ud83d\\ude00"\n')
+    view = harbor_export.harbor_view(load_task(path), cache_root=tmp_path / "cache")
+    toml = tomllib.loads((view.path / "task.toml").read_bytes().decode("utf-8"))
+    assert toml["metadata"]["author_email"] == "n\U0001f600"
+    assert (view.path / "instruction.md").read_text(encoding="utf-8") == "Reply with \U0001f600\n"
+
+
 def test_export_puts_a_subdir_context_and_its_named_dockerfile_where_harbor_builds(tmp_path):
     compose = _COMPOSE.replace("      dockerfile: Dockerfile\n",
                                "      context: ./env\n      dockerfile: Dockerfile.x\n    working_dir: /srv\n")

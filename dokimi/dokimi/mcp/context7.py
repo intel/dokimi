@@ -10,6 +10,8 @@ from pathlib import Path
 import hashlib
 import logging
 
+from dokimi.process_io import joined_pairs
+
 from . import MCPClient, MCPConnectionError, MCPLibraryNotFoundError
 from .utils import read_cache_text, write_cache_text
 
@@ -153,21 +155,23 @@ class Context7Client(MCPClient):
         # Website IDs: no slash + (underscore OR 'github_io' pattern)
         # This avoids misclassifying GitHub repos with underscores (e.g., some_org/repo)
         is_website = "/" not in library_id and ("_" in library_id or "github_io" in library_id)
-        path_id = urllib.parse.quote(library_id, safe="/%:@!$&'()*+,;=-._~", errors="replace")  # a lone surrogate -> %3F
+        # A surrogate pair is one character, a lone surrogate is %3F.
+        path_id = urllib.parse.quote(joined_pairs(library_id), safe="/%:@!$&'()*+,;=-._~", errors="replace")
+        topic = urllib.parse.quote(joined_pairs(query), errors="replace")
 
         if is_website:
             # Website format: websites/intelpython_github_io_dpnp
             url = (
                 f"{self.endpoint}/websites/{path_id}/llms.txt"
                 f"?tokens={max_tokens}"
-                f"&topic={urllib.parse.quote(query, errors='replace')}"
+                f"&topic={topic}"
             )
         else:
             # GitHub repo format: uxlfoundation/oneTBB (or some_org/repo)
             url = (
                 f"{self.endpoint}/{path_id}/llms.txt"
                 f"?tokens={max_tokens}"
-                f"&topic={urllib.parse.quote(query, errors='replace')}"
+                f"&topic={topic}"
             )
         
         logger.info(f"Fetching from Context7: {library_id} query={query[:50]}...")

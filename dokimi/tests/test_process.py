@@ -773,6 +773,24 @@ def test_reply_encodes_a_lone_surrogate_in_the_output_as_a_question_mark(text):
     assert reply(text, text).stdout_bytes == b"n?" and reply(text, text).stderr_bytes == b"n?"
 
 
+_PAIR = "a\ud83d\ude00"  # what PyYAML and json load for a JSON-style escape of U+1F600
+
+
+def test_a_surrogate_pair_in_the_input_reaches_the_child_as_one_character():
+    echo = "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"
+    assert _py(echo, input=_PAIR).stdout_bytes == "a\U0001f600".encode()
+
+
+def test_fake_runner_records_a_surrogate_pair_in_the_input_as_one_character():
+    fake = FakeRunner()
+    assert fake(["x"], timeout=1, env=INHERIT, input=_PAIR).ok
+    assert fake.calls[0].input == "a\U0001f600".encode()
+
+
+def test_reply_encodes_a_surrogate_pair_as_one_character():
+    assert reply(_PAIR, _PAIR).stdout_bytes == reply(_PAIR, _PAIR).stderr_bytes == "a\U0001f600".encode()
+
+
 def test_input_larger_than_the_pipe_reaches_a_child_that_reads_late():
     data = b"x" * 300_000
     done = _py("import sys, time; time.sleep(0.6); sys.stdout.buffer.write(sys.stdin.buffer.read())",

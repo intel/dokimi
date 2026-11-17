@@ -801,6 +801,14 @@ def test_a_case_name_with_a_lone_surrogate_is_written_as_a_question_mark(tmp_pat
     assert "\n# n?\n" in text
 
 
+def test_a_case_name_written_as_a_json_surrogate_pair_is_one_character(tmp_path):
+    profile = load_profile(str(_profile(tmp_path)))
+    roots = _roots(tmp_path)
+    case = Case(id="c", at="project:x", name="n\ud83d\ude00", dirname="d1")
+    build_fixture([case], profile, roots, tmp_path / "outside", "s")
+    assert "\n# n\U0001f600\n" in (roots["project"] / "x/d1/SKILL.md").read_bytes().decode("utf-8")
+
+
 def test_a_skill_dir_above_the_workspace_is_refused(tmp_path):
     (tmp_path / ".claude" / "skills").mkdir(parents=True)
     workspace = tmp_path / "ws"
