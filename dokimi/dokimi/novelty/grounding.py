@@ -218,7 +218,8 @@ def _merged(old: dict, mine: list[dict]) -> dict | None:
     Only for a symbol check that overlaps one of ``mine``; None when no name is left. The names with
     the new prefixes are replaced by what the new checks read now, so a name no header declares any
     more drops out; the names with ``old``'s prefixes that the new checks read are added; the other
-    names stay. The inputs of the new checks are added to ``old``'s, a path once with the later sha.
+    names stay. The inputs of the new checks are added to ``old``'s; a path overwritten since keeps both
+    snapshots: every snapshot is kept, so the list grows by one per overwrite of the path (no pruning).
     """
     symbol = [m for m in mine if _source_of(m)[0] == "symbols"]
     if old.get("type") != "identifiers" or _source_of(old)[0] != "symbols" or not symbol:
@@ -232,11 +233,20 @@ def _merged(old: dict, mine: list[dict]) -> dict | None:
     if not kept | fresh:  # a check with no name would veto every mention of its prefixes
         return None
     source = dict(old.get("source") or {})
-    inputs = {(i["kind"], i["path"]): i for i in source.get("inputs") or []}
+    inputs = {(i["kind"], i["path"], i.get("sha256")): i for i in source.get("inputs") or []}
     for m in symbol:
-        inputs.update({(i["kind"], i["path"]): i for i in m["source"].get("inputs") or []})
+        inputs.update({(i["kind"], i["path"], i.get("sha256")): i for i in m["source"].get("inputs") or []})
     source["inputs"] = list(inputs.values())
     return dict(old, known=sorted(kept | fresh), source=source)
+
+
+def _absorbed(new: dict, kept: list[dict]) -> bool:
+    """Whether a kept symbol check already holds every name of ``new`` (a subset-prefix refresh merged it in)."""
+    if _source_of(new)[0] != "symbols":
+        return False
+    new_prefixes = set(new["source"].get("prefixes") or [])
+    return any(_source_of(k)[0] == "symbols" and set(k["source"].get("prefixes") or []) >= new_prefixes
+               and set(new.get("known") or []) <= set(k.get("known") or []) for k in kept)
 
 
 def add_checks(atoms: list[dict], checks: list[dict]) -> int:
@@ -261,7 +271,7 @@ def add_checks(atoms: list[dict], checks: list[dict]) -> int:
             merged = None if _replaced_by(old, mine) else _merged(old, mine)
             if merged is not None:
                 kept.append(merged)
-        grading["checks"] = kept + mine
+        grading["checks"] = kept + [m for m in mine if not _absorbed(m, kept)]
         changed += 1
     return changed
 

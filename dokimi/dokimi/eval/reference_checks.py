@@ -432,9 +432,17 @@ _VALUE_WORD = re.compile(
     re.IGNORECASE)
 
 
+_CLAUSE_WINDOW = 400  # characters before a mention that can make up its clause
+
+
 def _negated_before(answer: str, start: int) -> bool:
     """Whether the clause just before ``start`` negates or warns against what follows it."""
-    clause = re.split(r"[.;!?,\n]|\b(?:and|but|then|while)\b", answer[:start], flags=re.I)[-1]
+    # the clause is read back from a bounded window: a long answer with many mentions stays linear
+    first = max(0, start - _CLAUSE_WINDOW)
+    window = answer[first:start]
+    if first and re.match(r"\w\w", answer[first - 1:first + 1]):  # cut inside a word: that partial word is no negation
+        window = re.sub(r"^\S*", "", window, count=1)
+    clause = re.split(r"[.;!?,\n]|\b(?:and|but|then|while)\b", window, flags=re.I)[-1]
     # "not only" and "no problem" affirm: they are no negation of what follows.
     clause = re.sub(r"(?i)\bnot\s+only\b|\bno\s+problem\b", " ", clause)
     clause = re.sub(r"(?<![\w-])--?[A-Za-z][\w-]*", " ", clause)  # flags are no words

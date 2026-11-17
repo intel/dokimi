@@ -320,6 +320,18 @@ def test_a_nested_prefix_refresh_keeps_the_broader_check_for_its_other_scopes(tm
         assert all(grade_check(c, "q", answer, None).passed for c in checks), answer
 
 
+def test_a_same_path_overwrite_keeps_the_old_snapshot_too(tmp_path):
+    header = tmp_path / "mkl.h"
+    header.write_text("void mkl_sparse_old(void);\nvoid mkl_vml_add(void);\n", encoding="utf-8")
+    atoms = [{"statement": "Call mkl_sparse_new.", "question": "q", "answer": "a"}]
+    add_checks(atoms, [symbols_check(["mkl_"], [str(header)], [])])
+    header.write_text("void mkl_sparse_new(void);\n", encoding="utf-8")  # the same path, overwritten
+    add_checks(atoms, [symbols_check(["mkl_sparse_"], [str(header)], [])])
+    broad = atoms[0]["meta"]["grading"]["checks"][0]
+    assert "mkl_vml_add" in broad["known"]  # kept: its only pinned snapshot is the old header
+    # both snapshots of the path stay pinned while a retained name depends on the old one
+    assert len({i["sha256"] for i in broad["source"]["inputs"] if i["path"] == str(header)}) == 2
+
 @pytest.mark.parametrize("code", [
     "return cblas_ddot(n,x,1)-cblas_dgemmx(n,x,1);",
     "return cblas_ddot(n,x,1)/cblas_dgemmx(n,x,1);",
@@ -342,11 +354,17 @@ def test_a_called_api_name_with_whitespace_before_the_paren_is_in_the_key_scope(
 @pytest.mark.parametrize("code, name", [
     ("x = s.cblas_dgemmx;", "cblas_dgemmx"),
     ("x = p->cblas_dgemmx;", "cblas_dgemmx"),
+    ("x = p-> cblas_dgemmx;", "cblas_dgemmx"),
     ("run --cblas_dgemmx", "cblas_dgemmx"),
     ("inc/cblas_api", "cblas_api"),
 ])
 def test_a_member_option_or_path_is_not_an_api_name(code, name):
     assert name not in re.findall(symbol_pattern(("cblas_",)), code)
+
+
+@pytest.mark.parametrize("text", ["Use the API. cblas_dgemmx handles it.", "Done.\ncblas_dgemmx(a);", "1. cblas_dgemmx"])
+def test_a_name_after_a_period_in_prose_is_an_api_name(text):
+    assert "cblas_dgemmx" in re.findall(symbol_pattern(("cblas_",)), text)
 
 
 def test_a_narrower_old_check_is_replaced_by_the_broader_new_one(tmp_path):
@@ -396,3 +414,37 @@ def test_a_refresh_that_leaves_an_old_check_with_no_names_drops_it(tmp_path):
     checks = atoms[0]["meta"]["grading"]["checks"]
     assert [tuple(c["source"]["prefixes"]) for c in checks] == [("mkl_",)]
     assert all(c["known"] for c in checks)
+
+
+def test_an_apostrophe_in_a_directive_text_does_not_hide_the_names_between_two_of_them():
+    # Two apostrophes on one line are not a character literal: the names between them are the header's.
+    from dokimi.novelty.symbols import header_names
+    text = "#error Don't call cblas_dgemm_batch directly; include mkl's header\n"
+    assert "cblas_dgemm_batch" in header_names(text, ("cblas_",))
+    assert header_names("char c = '\\n'; int cblas_dgemm;", ("cblas_",)) == {"cblas_dgemm"}
+
+
+def test_a_long_answer_with_many_mentions_is_scanned_in_linear_time():
+    # Every mention used to re-read the whole text before it: 126 KB took about 12 s, past the grader's 1 s.
+    import time
+    from dokimi.eval.reference_checks import scope_pairs
+    unit = "Then call cblas_dgemm(a, b) on the block. "
+    answer = (unit * 3000)[:126_000]
+    started = time.monotonic()
+    assert len(scope_pairs(symbol_pattern(("cblas_",)), answer, timeout=30)) > 2000
+    assert time.monotonic() - started < 5.0  # a quadratic scan takes 11 s here; the box is shared
+
+
+def test_a_refresh_with_a_subset_of_the_prefixes_does_not_veto_the_same_names_twice(tmp_path):
+    atoms = [{"statement": "Call cblas_dgemm and LAPACKE_dgesv.", "question": "q", "answer": "a"}]
+    add_checks(atoms, [symbols_check(["cblas_", "LAPACKE_"], [str(_headers(tmp_path) / "*.h")], [])])
+    add_checks(atoms, [symbols_check(["cblas_"], [str(_headers(tmp_path) / "*.h")], [])])
+    checks = atoms[0]["meta"]["grading"]["checks"]
+    assert [sorted(c["source"]["prefixes"]) for c in checks] == [["LAPACKE_", "cblas_"]]  # one check, not two
+    assert "cblas_dgemm" in checks[0]["known"] and "LAPACKE_dgesv" in checks[0]["known"]
+
+
+def test_a_tool_version_without_a_tool_is_refused_not_dropped():
+    from dokimi.commands.novelty_ground import _refuse_bad_sources
+    with pytest.raises(InputError, match="--tool-version"):
+        _refuse_bad_sources([], ["cblas.h"], [], ["cblas_"], "2025.1")

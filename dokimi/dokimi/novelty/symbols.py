@@ -21,7 +21,7 @@ from dokimi.utils import InputError
 #: A C identifier prefix: a C identifier that ends in an underscore (``cblas_``, ``LAPACKE_``).
 _PREFIX = re.compile(r"[A-Za-z_]\w*_")
 #: Comments and string or character literals of C code: no declaration is named in them.
-_C_SKIP = re.compile(r'/\*.*?\*/|//(?:\\\n|[^\n])*|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', re.DOTALL)
+_C_SKIP = re.compile(r'/\*.*?\*/|//(?:\\\n|[^\n])*|"(?:\\.|[^"\\\n])*"|\'(?:\\(?:x[0-9A-Fa-f]+|[0-7]{1,3}|.)|[^\'\\\n])\'', re.DOTALL)
 _CHUNK = 1 << 20
 
 
@@ -41,15 +41,21 @@ def check_prefixes(prefixes: Sequence[str]) -> tuple[str, ...]:
     return tuple(sorted(set(prefixes)))
 
 
+_MEMBER_GAP = 8  # the blanks a member access may have between its `->` and the name
+
+
 def symbol_pattern(prefixes: Sequence[str]) -> str:
     """A regex for the names with one of ``prefixes`` as C identifiers, not as parts of a word.
 
-    A name after ``.`` or ``->`` is a member, and ``mkl_types`` in ``mkl_types.h`` is a file name:
+    A name after ``.`` or after ``->`` (with up to 8 blanks) is a member, and ``mkl_types`` in ``mkl_types.h`` is a file name:
     neither is an API name. A name after ``/`` is one only when it is called (``a/cblas_x(``), and
     a name after ``-`` is one when it is called or follows an operand (``f(x)-cblas_x``).
     """
     alternatives = "|".join(re.escape(p) for p in prefixes)
-    return rf"(?<![\w.])(?<!->)(?:(?<!/)(?<![^\w)\]]-)(?<!^-)|(?=(?:{alternatives})\w+\s*\())(?:{alternatives})\w+(?!\.?\w)"
+    # `->` may be followed by up to _MEMBER_GAP blanks (not newlines): one fixed-width lookbehind each.
+    # a name after `. ` stays an API name: a sentence's period and a space look the same.
+    member = "".join(rf"(?<!->[ \t]{{{n}}})" for n in range(_MEMBER_GAP + 1))
+    return rf"(?<![\w.]){member}(?:(?<!/)(?<![^\w)\]]-)(?<!^-)|(?=(?:{alternatives})\w+\s*\())(?:{alternatives})\w+(?!\.?\w)"
 
 
 def header_names(text: str, prefixes: Sequence[str]) -> set[str]:

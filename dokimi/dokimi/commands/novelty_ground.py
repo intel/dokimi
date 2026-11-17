@@ -15,8 +15,10 @@ from dokimi.utils import InputError
 
 
 def _refuse_bad_sources(tools: list[str], headers: list[str], libraries: list[str],
-                        prefixes: list[str]) -> None:
+                        prefixes: list[str], tool_version: str | None = None) -> None:
     """Refuse a source set the flags cannot read: ``--prefix`` goes with a header or a library."""
+    if tool_version and not tools:
+        raise InputError("--tool-version names the version of --tool: give --tool with it")
     if prefixes and not (headers or libraries):
         raise InputError("--prefix scopes the names of --header and --library: give one of them")
     if (headers or libraries) and not prefixes:
@@ -44,7 +46,7 @@ def cmd_novelty_ground(args: argparse.Namespace) -> None:
 
     tools, headers = list(args.tool or []), list(args.header or [])
     libraries, prefixes = list(args.library or []), list(args.prefix or [])
-    _refuse_bad_sources(tools, headers, libraries, prefixes)
+    _refuse_bad_sources(tools, headers, libraries, prefixes, args.tool_version)
     _, _, data = load_atoms_record(args.atoms)
     checks = [identifiers_check(tool, help_text(tool), version=args.tool_version) for tool in tools]
     if headers or libraries:
