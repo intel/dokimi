@@ -158,6 +158,7 @@ class ReportGenerator:
             "total_questions": s.total,
             "paired_questions": s.paired,
             "unpaired_questions": s.unpaired,
+            "delta_overflow_questions": s.delta_overflow,
             "with_docs": _stat_block(s, s.with_mean, s.with_min, s.with_max),
             "without_docs": _stat_block(s, s.without_mean, s.without_min, s.without_max),
             "delta": _stat_block(s, s.delta_mean, s.delta_min, s.delta_max),
@@ -501,10 +502,12 @@ class ReportGenerator:
         return "\n".join(lines)
 
 
-def _stat_block(s: Any, mean: float, low: float, high: float) -> Dict[str, Optional[float]]:
-    """avg, min and max of one statistic, rounded; all None when no question is a complete pair."""
-    if not s.paired:
-        return {"avg": None, "min": None, "max": None}  # no complete pair: no value, not a zero
+def _stat_block(
+    s: Any, mean: Optional[float], low: Optional[float], high: Optional[float]
+) -> Dict[str, Optional[float]]:
+    """avg, min and max of one statistic, rounded; all None when no question is a complete pair or the statistic has no value."""
+    if not s.paired or mean is None or low is None or high is None:
+        return {"avg": None, "min": None, "max": None}  # no value, not a zero
     return {"avg": round(mean, 1), "min": round(low, 1), "max": round(high, 1)}
 
 
@@ -519,6 +522,8 @@ def _overall_advice(stats: Dict[str, Any]) -> List[str]:
     """The Overall recommendation lines; no conclusion is drawn without a complete pair."""
     if not stats["paired_questions"]:
         return ["⚪ **Overall:** no complete pairs, so no conclusion can be drawn."]
+    if stats["delta"]["avg"] is None:
+        return ["⚪ **Overall:** a paired difference leaves the float range, so there is no delta and no conclusion."]
     if stats["delta"]["avg"] < 0:
         return ["⚠️ **Overall:** Documentation is hurting answer quality. Consider:",
                 "- Improving retrieval relevance",
@@ -541,7 +546,7 @@ def _arm_means(evaluations: Sequence[Record]) -> Dict[str, Any]:
         "unpaired": s.unpaired,
         "with_avg": None if not s.paired else round(s.with_mean, 1),
         "without_avg": None if not s.paired else round(s.without_mean, 1),
-        "delta_avg": None if not s.paired else round(s.delta_mean, 1),
+        "delta_avg": None if s.delta_mean is None or not s.paired else round(s.delta_mean, 1),
     }
 
 
@@ -557,8 +562,10 @@ def _complete_pairs(evaluations: Sequence[Record]) -> List[Record]:
 
 def _unpaired_note(stats: Dict[str, Any]) -> List[str]:
     """A line saying what the overall means leave out; nothing when every question is paired."""
+    overflow = stats.get("delta_overflow_questions", 0)
+    note = [f"_No delta: {overflow} complete pairs differ by more than the float range._", ""] if overflow else []
     if not stats["unpaired_questions"]:
-        return []
+        return note
     if not stats["paired_questions"]:
         return [f"_No complete pairs: {stats['unpaired_questions']} unpaired questions, "
                 "so no arm mean or delta is given._", ""]
@@ -566,4 +573,4 @@ def _unpaired_note(stats: Dict[str, Any]) -> List[str]:
         f"_Averages, min/max, delta and the top/bottom tables are over the {stats['paired_questions']} complete pairs; "
         f"{stats['unpaired_questions']} unpaired (scored in one arm only) left out._",
         "",
-    ]
+    ] + note
