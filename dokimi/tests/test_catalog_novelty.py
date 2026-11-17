@@ -10,11 +10,13 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import threading
 
 import pytest
 
 from dokimi.cli import build_parser
 from dokimi.metrics.usage import UsageRecord
+from dokimi.novelty.client import SpendCapReached
 from dokimi.novelty import cost as novelty_cost
 from dokimi.utils import InputError
 from tests.test_novelty_analyze import SKILL, _scripted
@@ -223,7 +225,12 @@ def test_a_save_that_fails_is_that_skills_error_row_and_the_sweep_goes_on(tmp_pa
     assert rows["other-skill"]["status"] == "ok"
 
 
-@pytest.mark.parametrize("flag", [["--max-file-words", "100"], ["--max-resource-words", "100"]])
+@pytest.mark.parametrize("flag", [
+    ["--max-file-words", "100"], ["--max-resource-words", "100"], ["--model", "other-m"],
+    ["--judge-model", "other-judge"], ["--arms", "no_artifact,full,shuffled"], ["--budgets", "0.5"], ["--seed", "1"],
+    ["--include-resources"], ["--context-framing", "neutral"], ["--no-paraphrase"], ["--max-atoms", "3"],
+    ["--no-reversal"],
+])
 def test_resume_runs_again_the_rows_measured_under_other_input_limits(tmp_path, capsys, flag):
     root, out = _root(tmp_path), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5")
@@ -232,6 +239,7 @@ def test_resume_runs_again_the_rows_measured_under_other_input_limits(tmp_path, 
     assert "0 measured and kept, 2 to run" in capsys.readouterr().err
 
 
+@pytest.mark.skipif(os.name == "nt", reason="os.kill with SIGINT terminates the process on Windows")
 @pytest.mark.parametrize("signum, code", [(signal.SIGINT, 130), (signal.SIGTERM, 143)])
 def test_an_interrupt_cancels_the_queued_skills_keeps_the_rows_done_and_exits_nonzero(
         tmp_path, monkeypatch, signum, code):
@@ -286,6 +294,7 @@ def test_an_interrupt_cancels_the_queued_skills_keeps_the_rows_done_and_exits_no
     assert [(r["key"], r["status"]) for r in rows] == [("accel-tuning", "ok")]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="os.kill with SIGINT terminates the process on Windows")
 def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, monkeypatch):
     """The first Ctrl-C lets the call in flight finish; a second one kills the calls in flight
     (process.kill_children) and stops the sweep at once, with the same exit code as the first."""
@@ -302,6 +311,8 @@ def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, m
     artifact = {"k0": {"lenient": 0.2, "strict": 0.1}, "paired": {"lenient": {"n_paired": 3}},
                 "artifact": {"tokens": 100}}
     started = []
+    next_call: list[str] = []
+    next_done = threading.Event()
 
     def analyze(args, *a, **k):
         started.append(args.artifact.rsplit("/", 1)[-1])
@@ -310,6 +321,13 @@ def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, m
             time.sleep(0.1)
             os.kill(os.getpid(), signal.SIGINT)
             time.sleep(0.5)
+            try:
+                args._spend_cap.before_call("m")  # the skill's next call, after the sweep stopped
+                next_call.append("started")
+            except SpendCapReached:
+                next_call.append("refused")
+            finally:
+                next_done.set()
         return SimpleNamespace(partial=None, artifact=artifact)
 
     monkeypatch.setattr(catalog_novelty, "_analyze_skill", analyze)
@@ -322,6 +340,7 @@ def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, m
     assert exc.value.code == 130
     assert kills == [True]
     assert started == ["accel-tuning"]
+    assert next_done.wait(5) and next_call == ["refused"]
 
 
 def test_a_row_is_written_once_even_when_its_write_is_interrupted():
@@ -470,3 +489,150 @@ def test_identical_skill_copies_are_one_skill_and_the_help_says_so(tmp_path, cap
     help_text = " ".join(capsys.readouterr().out.split())
     assert "identical" in help_text
     assert "Ctrl-C or SIGTERM" in help_text
+
+
+def test_resume_runs_again_the_rows_measured_under_another_placebo_text(tmp_path, capsys):
+    root, out = _root(tmp_path), tmp_path / "out"
+    placebo = tmp_path / "placebo.txt"
+    placebo.write_text("A neutral paragraph about the weather. " * 40, encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5", "--arms", "no_artifact,full,placebo",
+           "--placebo-text", str(placebo))
+    capsys.readouterr()
+    placebo.write_text("A different neutral paragraph about tea. " * 40, encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--arms", "no_artifact,full,placebo",
+           "--placebo-text", str(placebo))
+    assert "0 measured and kept, 2 to run" in capsys.readouterr().err
+
+
+def test_two_bundles_with_one_skill_md_and_other_resources_are_two_skills(tmp_path, capsys):
+    root = _root(tmp_path, names=("accel-tuning",))
+    for side, text in (("a", "one"), ("b", "two")):
+        bundle = root / side / "accel-tuning"
+        (bundle / "references").mkdir(parents=True)
+        (bundle / "SKILL.md").write_text((root / "accel-tuning" / "SKILL.md").read_text(encoding="utf-8"),
+                                         encoding="utf-8")
+        (bundle / "references" / "ref.md").write_text(f"Reference {text}.\n", encoding="utf-8")
+    twin = root / "c" / "accel-tuning"
+    shutil.copytree(root / "a" / "accel-tuning", twin)
+    out = tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5", "--include-resources")
+    keys = [r["key"] for r in _rows(out / "sweep.jsonl")]
+    assert keys == ["a/accel-tuning", "accel-tuning", "b/accel-tuning"]  # c/ is a copy of a/: left out
+    assert "left out" in capsys.readouterr().err
+
+
+def test_resume_runs_again_a_symlinked_skill_md_whose_target_changed(tmp_path):
+    root, out = _root(tmp_path, names=("other-skill",)), tmp_path / "out"
+    shared = tmp_path / "shared" / "SKILL.md"
+    shared.parent.mkdir()
+    shared.write_text(SKILL, encoding="utf-8")
+    (root / "linked").mkdir()
+    try:
+        (root / "linked" / "SKILL.md").symlink_to(shared)
+    except OSError:
+        pytest.skip("symlinks are not available")
+    _sweep(root, out, "--max-usd", "5")
+    before = {r["key"]: r["skill_sha256"] for r in _rows(out / "sweep.jsonl")}
+    shared.write_text(SKILL + "\nMore text.\n", encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    after = {r["key"]: r["skill_sha256"] for r in _rows(out / "sweep.jsonl")}
+    assert after["linked"] != before["linked"] and after["other-skill"] == before["other-skill"]
+
+
+def test_a_skill_measured_again_that_ends_partial_or_error_leaves_no_old_novelty_file(tmp_path):
+    root, out = _root(tmp_path, names=("accel-tuning",)), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    old = Path(_rows(out / "sweep.jsonl")[0]["novelty_json"])
+    assert old.is_file() and old.with_suffix(".md").is_file()
+    (root / "accel-tuning" / "SKILL.md").write_text(SKILL + "\nMore text.\n", encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--max-usd-per-skill", "0.02")
+    assert _rows(out / "sweep.jsonl")[0]["status"] == "partial"
+    assert not old.exists() and not old.with_suffix(".md").exists()
+    (root / "accel-tuning" / "SKILL.md").write_text("no frontmatter at all", encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    assert _rows(out / "sweep.jsonl")[0]["status"] == "error"
+    assert not old.exists()
+
+
+def test_the_output_directory_of_a_long_nested_key_stays_a_valid_name(tmp_path):
+    from dokimi.commands.catalog_novelty import _dirname
+
+    key = "/".join(["a" * 100] * 3)
+    name = _dirname(key)
+    assert len(name) <= 100
+    assert name != _dirname(key[:-1] + "b")  # the hash still tells long keys apart
+    (tmp_path / name).mkdir()
+
+
+@pytest.mark.parametrize("summary_only", [False, True])
+def test_a_summary_out_that_is_the_jsonl_is_refused_before_any_work(tmp_path, summary_only):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    before = (out / "sweep.jsonl").read_text(encoding="utf-8")
+    alias = out / ".." / "out" / "sweep.jsonl"  # the same file by another path
+    extra = ["--summary-only"] if summary_only else ["--max-usd", "5", "--resume"]
+    with pytest.raises(InputError, match="--summary-out"):
+        _sweep(root, out, *extra, "--summary-out", str(alias))
+    assert (out / "sweep.jsonl").read_text(encoding="utf-8") == before
+
+
+def test_a_summary_out_in_a_missing_directory_is_made_and_written(tmp_path):
+    root, out = _root(tmp_path), tmp_path / "out"
+    target = tmp_path / "new" / "dir" / "summary.json"
+    _sweep(root, out, "--max-usd", "5", "--summary-out", str(target))
+    assert json.loads(target.read_text(encoding="utf-8"))["counts"]["ok"] == 2
+
+
+def test_a_summary_out_whose_directory_cannot_be_made_is_refused_before_a_paid_call(tmp_path):
+    root, out = _root(tmp_path), tmp_path / "out"
+    blocker = tmp_path / "file"
+    blocker.write_text("x", encoding="utf-8")
+    with pytest.raises(InputError, match="--summary-out"):
+        _sweep(root, out, "--max-usd", "5", "--summary-out", str(blocker / "summary.json"))
+    assert not (out / "sweep.jsonl").exists()
+
+
+def test_a_second_signal_inside_the_poll_wait_waits_for_no_skill_and_writes_no_row():
+    import threading
+    import time
+
+    from dokimi.commands.catalog_novelty import _Item, _run_sweep
+
+    started, release = threading.Event(), threading.Event()
+    written: list[str] = []
+
+    def review(item):
+        started.set()
+        release.wait(5)
+        return {"key": item.key}
+
+    def stop_requested():  # the main thread's poll sees the second signal while the skill is in flight
+        if threading.current_thread() is threading.main_thread() and started.is_set():
+            raise KeyboardInterrupt
+        return False
+
+    items = [_Item(key="a", name="a", skill_md=Path("a/SKILL.md"), sha256=None)]
+    begun = time.monotonic()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            _run_sweep(items, jobs=1, review=review, write=lambda row: written.append(row["key"]),
+                       out_of_budget=lambda: False, stop_requested=stop_requested)
+        assert time.monotonic() - begun < 2  # the skill in flight is not waited for
+        assert written == []
+    finally:
+        release.set()
+
+
+def test_the_hard_stop_ends_the_next_call_of_a_skill_in_flight():
+    import threading
+
+    from dokimi.novelty.client import NestedSpendCap, SpendCap, SpendCapReached
+
+    hard = threading.Event()
+    cap = NestedSpendCap(limit_usd=1.0, parent=SpendCap(limit_usd=5.0), hard_stop=hard)
+    cap.before_call("m")  # a call in flight started before the signal
+    hard.set()
+    with pytest.raises(SpendCapReached) as stop:
+        cap.before_call("m")
+    assert stop.value.reason == "stopped"
+    assert cap.parent.calls == 0

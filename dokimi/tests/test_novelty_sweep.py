@@ -211,3 +211,17 @@ def test_make_row_refuses_an_unknown_status():
 def test_resumable_never_keeps_a_row_whose_directory_could_not_be_digested():
     prior = [dict(_ok("gone-quiet", 0.3), skill_sha256=None)]
     assert resumable(prior, {"gone-quiet": None}, SETTINGS, "1.0") == []
+
+
+@pytest.mark.parametrize("bad", [
+    '{"key": "a", "name": "a", "status": "ok", "usd": "x"}\n',
+    '{"key": [], "name": "a", "status": "partial", "usd": 0.0}\n',
+    '{"key": "a", "status": "ok"}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": "high"}\n',
+    '[1]\n',
+])
+def test_a_row_of_the_wrong_shape_is_a_line_numbered_input_error(tmp_path, bad):
+    path = tmp_path / "s.jsonl"
+    path.write_text(json.dumps(_ok("a", 0.3)) + "\n" + bad, encoding="utf-8")
+    with pytest.raises(InputError, match="line 2 is not a sweep row"):
+        read_rows(path)
