@@ -778,7 +778,9 @@ def test_ctrl_c_in_a_threaded_batch_kills_each_container_a_worker_started(tmp_pa
     started: list[str] = []
     killed: list[str] = []
     gone: dict[str, threading.Event] = {}
-    sent = []
+    sent: list[str] = []
+    sent_lock = threading.Lock()
+    main = threading.main_thread().ident
 
     def answer(call):
         argv = list(call.argv)
@@ -792,9 +794,11 @@ def test_ctrl_c_in_a_threaded_batch_kills_each_container_a_worker_started(tmp_pa
         if argv[1] == "run" and "-agent-" in argv[argv.index("--name") + 1]:
             name = argv[argv.index("--name") + 1]
             started.append(name)
-            if not sent:  # the user's Ctrl-C, from inside a worker thread
+            with sent_lock:
+                first = not sent
                 sent.append(name)
-                os.kill(os.getpid(), signal.SIGINT)
+            if first:  # the user's Ctrl-C, from inside a worker thread, aimed at the main thread
+                signal.pthread_kill(main, signal.SIGINT)
             gone.setdefault(name, threading.Event()).wait(60)  # a container runs until it is killed
             return process.reply(returncode=137)
         return process.reply()
