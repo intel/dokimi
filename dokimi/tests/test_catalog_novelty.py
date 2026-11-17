@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 
 import pytest
 
@@ -217,3 +219,71 @@ def test_resume_runs_again_the_rows_measured_under_other_input_limits(tmp_path, 
     capsys.readouterr()
     _sweep(root, out, "--max-usd", "5", "--resume", *flag)
     assert "0 measured and kept, 2 to run" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("signum, code", [(signal.SIGINT, 130), (signal.SIGTERM, 143)])
+def test_an_interrupt_cancels_the_queued_skills_keeps_the_rows_done_and_exits_nonzero(
+        tmp_path, monkeypatch, signum, code):
+    """Ctrl-C or SIGTERM mid-sweep: the skill in flight finishes and keeps its row, the queued skills
+    never start (no paid call), and the process exits nonzero. The JSONL stays resumable."""
+    import time
+    from types import SimpleNamespace
+
+    import dokimi.artifacts as artifacts
+    import dokimi.commands.catalog_novelty as catalog_novelty
+    import dokimi.novelty.report as report
+
+    artifact = {"k0": {"lenient": 0.2, "strict": 0.1}, "paired": {"lenient": {"n_paired": 3}},
+                "artifact": {"tokens": 100}}
+    started = []
+
+    def analyze(args, *a, **k):
+        name = args.artifact.rsplit("/", 1)[-1]
+        started.append(name)
+        if len(started) == 1:  # the signal arrives while the first skill is in flight; it finishes
+            os.kill(os.getpid(), signum)
+            time.sleep(0.5)  # the main thread cancels the queued skills well inside this
+        return SimpleNamespace(partial=None, artifact=artifact)
+
+    monkeypatch.setattr(catalog_novelty, "_analyze_skill", analyze)
+    monkeypatch.setattr(artifacts, "save_artifact", lambda kind, art, path: path.parent.mkdir(parents=True))
+    monkeypatch.setattr(report, "render_novelty_markdown", lambda artifact: "")
+    root = _root(tmp_path, names=("accel-tuning", "beta", "gamma", "other-skill"))
+    out = tmp_path / "out"
+    # a SIGTERM the sweep does not handle would end pytest itself: the stray handler keeps that a failure
+    stray: list[int] = []
+    previous = signal.signal(signal.SIGTERM, lambda s, f: stray.append(s))
+    try:
+        try:
+            _sweep(root, out, "--max-usd", "5", "--jobs", "1")
+        except SystemExit as exc:
+            code_seen = exc.code
+        except KeyboardInterrupt:  # not turned into an exit: fail here, not as an aborted pytest run
+            pytest.fail("the interrupt escaped the sweep as KeyboardInterrupt, not an exit")
+        else:
+            pytest.fail("the sweep returned after an interrupt")
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    assert code_seen == code
+    assert started == ["accel-tuning"]  # the queued skills were cancelled before they started
+    assert not stray
+    rows = _rows(out / "sweep.jsonl")
+    assert [(r["key"], r["status"]) for r in rows] == [("accel-tuning", "ok")]
+
+
+def test_identical_skill_copies_are_one_skill_and_the_help_says_so(tmp_path, capsys):
+    """Two directories with the same SKILL.md are one skill: the shallowest path keeps the row."""
+    root = _root(tmp_path, names=("accel-tuning",))
+    copy = root / "mirror" / "accel-tuning"
+    copy.mkdir(parents=True)
+    (copy / "SKILL.md").write_text((root / "accel-tuning" / "SKILL.md").read_text(encoding="utf-8"),
+                                   encoding="utf-8")
+    out = tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    assert [r["key"] for r in _rows(out / "sweep.jsonl")] == ["accel-tuning"]
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["catalog", "novelty", "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "identical" in help_text
+    assert "Ctrl-C or SIGTERM" in help_text

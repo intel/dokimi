@@ -1137,6 +1137,13 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   default `stratum`); a skill the CSV does not name is `(unassigned)`.
 - **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
   sweep with no model call. `--summary-out FILE` also writes it as JSON.
+- **Identical copies.** Directories under ROOT whose `SKILL.md` files are byte-identical are one
+  skill: the shallowest path is kept, the other copies get no row and no call (not an error).
+- **Interrupt.** Ctrl-C or SIGTERM stops the sweep without new calls: the skills not yet started
+  are cancelled, the skills in flight finish and keep their rows, and the run exits nonzero (130
+  for SIGINT, 143 for SIGTERM). The rows already written stay in the JSONL, so `--resume` continues
+  from them. A second signal raises KeyboardInterrupt: the queued skills stay cancelled, but the
+  rows of the skills in flight are not written (their calls are paid, so set `DOKIMI_RESPONSE_CACHE`).
 
 ```bash
 dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \

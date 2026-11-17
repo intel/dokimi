@@ -8,7 +8,10 @@ model calls are paid. ``--max-usd`` is one budget for the whole sweep and ``--ma
 a cap on each skill; ``--jobs`` runs skills in parallel threads that share the budget. Each skill
 writes one row to ``--jsonl`` as it finishes, so a killed sweep keeps its rows, and ``--resume``
 runs only the skills without a measured row (same directory digest, same settings).
-``--summary-only`` prints the summary of a JSONL file without any model call.
+``--summary-only`` prints the summary of a JSONL file without any model call. Directories whose
+``SKILL.md`` files are identical count as one skill (the shallowest path is kept). Ctrl-C or SIGTERM
+cancels the skills not yet started, lets the running ones finish, keeps the rows done and exits nonzero
+(a second signal raises KeyboardInterrupt and the rows in flight are not written).
 
 A skill the budget stops mid-analysis is a ``partial`` row and leaves no novelty file. Set
 ``DOKIMI_RESPONSE_CACHE`` so a resumed run replays the calls already paid for at $0.
@@ -22,8 +25,11 @@ import hashlib
 import json
 import math
 import re
+import signal
 import sys
+import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
@@ -38,6 +44,47 @@ if TYPE_CHECKING:
 
 #: The JSONL file a sweep writes unless ``--jsonl`` names another.
 DEFAULT_JSONL = "sweep.jsonl"
+
+
+class _Stop:
+    """A stop request: the signal (SIGINT or SIGTERM) that asked the sweep to stop, once it has."""
+
+    def __init__(self) -> None:
+        self.signum: Optional[int] = None
+
+    @property
+    def requested(self) -> bool:
+        return self.signum is not None
+
+    @property
+    def exit_code(self) -> int:
+        return 128 + (self.signum or signal.SIGINT)  # the shell's code for a process a signal stopped
+
+
+@contextmanager
+def _interruptible(stop: _Stop):
+    """While the sweep runs, the first SIGINT or SIGTERM only sets *stop*: the sweep cancels the skills
+    not started and keeps the rows done. A second signal raises KeyboardInterrupt. The handlers are
+    restored after. Only the main thread can install them."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def on_signal(signum: int, frame: object) -> None:
+        if stop.requested:
+            raise KeyboardInterrupt
+        stop.signum = signum
+        if signum == signal.SIGTERM:
+            from dokimi.process import kill_children
+
+            kill_children()  # what the CLI's SIGTERM handler does for the processes it started
+
+    previous = {signum: signal.signal(signum, on_signal) for signum in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler if handler is not None else signal.SIG_DFL)
 
 
 @dataclass(frozen=True)
@@ -164,34 +211,55 @@ class _Sink:
         self._fh.close()
 
 
+#: How often the sweep's main thread looks at the stop request while it waits for a skill.
+POLL_SECONDS = 0.2
+
+
 def _run_sweep(items: list[_Item], *, jobs: int, review: Callable[[_Item], Optional[dict]],
-               write: Callable[[dict], None], out_of_budget: Callable[[], bool]) -> None:
+               write: Callable[[dict], None], out_of_budget: Callable[[], bool],
+               stop_requested: Callable[[], bool]) -> None:
     """Review the items with up to *jobs* threads, handing each row to *write* as it finishes.
 
     ``review`` returns None for a skill it did not run (the budget was spent before it started);
-    no new skill is submitted once ``out_of_budget()`` holds. A worker's unexpected failure
-    propagates after the rows finished so far are written.
+    no new skill is submitted once ``out_of_budget()`` holds. A stop request (``stop_requested()``)
+    does the same, and cancels the skills queued but not started, so they make no call. The skills
+    in flight finish and their rows are written. A worker's unexpected failure cancels the queue the
+    same way and propagates after the rows finished so far are written.
     """
     pending = iter(items)
     running: set = set()
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
+    pool = ThreadPoolExecutor(max_workers=jobs)
 
-        def fill() -> None:
-            while len(running) < jobs * 2 and not out_of_budget():
-                item = next(pending, None)
-                if item is None:
-                    return
-                running.add(pool.submit(review, item))
+    def fill() -> None:
+        while len(running) < jobs * 2 and not out_of_budget() and not stop_requested():
+            item = next(pending, None)
+            if item is None:
+                return
+            running.add(pool.submit(review, item))
 
+    try:
         fill()
-        while running:
-            finished, _ = wait(running, return_when=FIRST_COMPLETED)
+        while running and not stop_requested():
+            finished, _ = wait(running, timeout=POLL_SECONDS, return_when=FIRST_COMPLETED)
             for future in finished:
-                running.discard(future)
                 row = future.result()
                 if row is not None:
                     write(row)
+                running.discard(future)
             fill()
+    except BaseException:
+        _settle(pool, running, write)
+        raise
+    _settle(pool, running, write)
+
+
+def _settle(pool: ThreadPoolExecutor, running: set, write: Callable[[dict], None]) -> None:
+    """Cancel the queued skills, wait for the ones in flight and keep the rows they finished."""
+    pool.shutdown(wait=True, cancel_futures=True)
+    for future in running:
+        if not future.cancelled() and future.exception() is None and future.result() is not None:
+            write(future.result())
+    running.clear()
 
 
 def _review_one(item: _Item, *, args: argparse.Namespace, run_cap: "SpendCap", per_skill: Optional[float],
@@ -325,8 +393,8 @@ def _plan(items: list[_Item], jsonl: Path, args: argparse.Namespace,
 
 
 def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: list[dict],
-                others: list[dict], total: int, jsonl: Path, out_dir: Path, placebo_text: Optional[str], cache_dir: Optional[Path],
-                fingerprint: dict[str, Any]) -> list[dict]:
+                others: list[dict], total: int, jsonl: Path, out_dir: Path, placebo_text: Optional[str],
+                cache_dir: Optional[Path], fingerprint: dict[str, Any]) -> list[dict]:
     """Run the skills still to do, writing each row as it finishes; returns the rows this run made."""
     sink = _Sink(jsonl, others + kept, resume=args.resume)
     review = _bound(args, run_cap=run_cap, placebo_text=placebo_text, cache_dir=cache_dir,
@@ -343,14 +411,24 @@ def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: l
     def out_of_budget() -> bool:
         return run_cap.spent_usd >= run_cap.limit_usd
 
+    stop = _Stop()
     try:
-        _run_sweep(todo, jobs=args.jobs, review=review, write=write, out_of_budget=out_of_budget)
+        with _interruptible(stop):
+            _run_sweep(todo, jobs=args.jobs, review=review, write=write, out_of_budget=out_of_budget,
+                       stop_requested=lambda: stop.requested)
+    except KeyboardInterrupt:  # a second signal: stop at once, the rows written so far are kept
+        stop.signum = stop.signum or signal.SIGINT
     finally:
         sink.close()
     not_run = len(todo) - len(new_rows)
     if not_run:
-        print(f"# {not_run} skill(s) not run: the budget was spent. Rerun with --resume and a higher "
-              "--max-usd; set DOKIMI_RESPONSE_CACHE so the calls already paid replay at $0", file=sys.stderr)
+        print(f"# {not_run} skill(s) not run: the budget was spent or the run was stopped. Rerun with "
+              "--resume (and a higher --max-usd if the budget was spent); set DOKIMI_RESPONSE_CACHE so the "
+              "calls already paid replay at $0", file=sys.stderr)
+    if stop.requested:
+        print(f"# stopped by signal {stop.signum}: queued skills were cancelled, {len(new_rows)} row(s) "
+              f"written to {jsonl}; rerun with --resume to continue", file=sys.stderr)
+        raise SystemExit(stop.exit_code)
     return new_rows
 
 
@@ -376,11 +454,15 @@ def register(catalog_sub, positive_int) -> None:
         help="Corpus novelty sweep: analyze every skill under a catalog root under a budget, resumable, "
              "with bootstrap CIs per stratum [paid]",
     )
-    p.add_argument("root", help="Catalog root: every SKILL.md under it is one skill")
+    p.add_argument("root", help="Catalog root: every SKILL.md under it is one skill. Directories whose "
+                                "SKILL.md files are identical count once: the shallowest path is kept, the "
+                                "other copies are left out (not an error, no row)")
     p.add_argument("--out-dir", required=True, dest="out_dir",
                    help="Where each skill's novelty.json and report go (OUT_DIR/<skill>/)")
     p.add_argument("--jsonl", default=None,
-                   help=f"One row per skill, written as each finishes (default: OUT_DIR/{DEFAULT_JSONL})")
+                   help=f"One row per skill, written as each finishes (default: OUT_DIR/{DEFAULT_JSONL}). "
+                        "Ctrl-C or SIGTERM cancels the skills not yet started (no new call), lets the "
+                        "running ones finish, keeps the rows done and exits nonzero (130, 143)")
     p.add_argument("--jobs", type=positive_int, default=1,
                    help="Skills analysed in parallel threads, sharing --max-usd (default 1)")
     p.add_argument("--resume", action="store_true",
