@@ -132,6 +132,8 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 
 ## Repository evaluation
 
+- [events-format.md](events-format.md) — the normalized `events.jsonl` trace of a
+  repository run: its lines, the version field and the promise that a version's fields only grow.
 - [repo-evaluation-contract.md](repo-evaluation-contract.md) — implemented core with scoped extensions: what a repository provides to be evaluated as a whole:
   `repo-eval.yaml`, `task.json`, the `grade` entry point and `grade.json`,
   harness profiles, and the guidance reach probe; and how to run its task

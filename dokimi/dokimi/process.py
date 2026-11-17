@@ -40,8 +40,8 @@ a doc snippet) goes through :func:`run`, which holds these invariants:
 * **The environment is a stated policy.** There is no default ``env``: a call
   site passes :meth:`Env.inherit` (the parent's environment plus overrides) or
   :meth:`Env.only` (an allow-list plus overrides).
-* **stdin is closed** (``/dev/null``) unless ``input`` is given, so a child that
-  reads stdin gets EOF instead of the caller's terminal.
+* **stdin is closed** (``/dev/null``) unless ``input`` is given (a child gets EOF, not the caller's terminal).
+  A ``str`` input is sent as UTF-8, a lone surrogate as ``?``: pass bytes for a name from ``os.fsdecode``.
 
 Errors: a command that cannot be started (missing binary, missing ``cwd``, no
 permission) raises :class:`OSError`; a non-zero exit never raises. After
@@ -55,7 +55,7 @@ Code that spawns takes a ``runner`` argument defaulting to :func:`run`.
 
 from __future__ import annotations
 
-from .process_io import PipeReader, PipeReaderOwner, path_text
+from .process_io import PipeReader, PipeReaderOwner, path_text, utf8_bytes
 
 import dataclasses
 import os
@@ -187,7 +187,7 @@ def run(
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
     args = _check(argv, timeout, capture_limit, term_grace)
     preexec = _limits_preexec(limits) if limits else None
-    data = input.encode("utf-8") if isinstance(input, str) else input
+    data = utf8_bytes(input) if isinstance(input, str) else input
     with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
         start = time.monotonic()
         try:
@@ -743,7 +743,7 @@ class Call:
 def reply(stdout: str | bytes = "", stderr: str | bytes = "", returncode: int = 0, *,
           timed_out: bool = False) -> Completed:
     """A :class:`FakeRunner` answer (``argv`` and timing are filled in from the call)."""
-    enc = (lambda s: s.encode("utf-8") if isinstance(s, str) else s)
+    enc = (lambda s: utf8_bytes(s) if isinstance(s, str) else s)
     return Completed((), TIMEOUT_RC if timed_out else returncode, enc(stdout), enc(stderr), timed_out)
 
 
@@ -774,7 +774,7 @@ class FakeRunner:
         term_grace: float = 0.0,
     ) -> Completed:
         args = _check(argv, timeout, capture_limit, term_grace)
-        data = input.encode("utf-8") if isinstance(input, str) else input
+        data = utf8_bytes(input) if isinstance(input, str) else input
         path = (lambda p: Path(p) if p is not None else None)
         call = Call(tuple(args), path(cwd), env.resolve(), timeout, data, capture_stdout, limits,
                     capture_limit, path(stdout_to), path(stderr_to), term_grace)
