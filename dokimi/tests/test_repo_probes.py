@@ -103,7 +103,10 @@ def test_a_probe_in_a_substitution_is_run_by_the_command():
     ("conda list -n base", "conda list"),
     ("printenv PATH", "printenv"),
     ("env", "env"),
-    ("sysctl -a | grep machdep.cpu", "sysctl -a | grep machdep.cpu"),
+    ("sysctl -a | grep machdep.cpu", "sysctl"),
+    ("sysctl -n machdep.cpu.brand_string", "sysctl"),
+    ("sysctl -n hw.ncpu", "sysctl"),
+    ("sysctl hw.memsize", "sysctl"),
 ])
 def test_default_command_patterns_match_the_program_that_runs(command, pattern):
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
@@ -162,7 +165,7 @@ def test_a_command_in_the_body_of_a_conditional_or_loop_is_a_probe(command):
 
 @pytest.mark.parametrize("command", [
     "echo '$(nproc)'",
-    "sysctl -a '|' grep machdep.cpu",
+    "echo 'sysctl -n hw.ncpu'",
 ])
 def test_quoted_text_is_no_probe(command):
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))

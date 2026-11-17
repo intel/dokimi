@@ -539,7 +539,7 @@ The line format, its version and the promise that comes with it: [events-format.
   `target` is one of `cpu`, `gpu`, `os`, `memory`, `packages`, `env`, `network`;
   `pattern` is the configured pattern it matched; `text`, `rc` and `agent` are the
   command's. The defaults (`dokimi/repos/probes.py`, `DEFAULT_PROBES`): `cpu` `lscpu`,
-  `/proc/cpuinfo`, `nproc`, `sysctl -a | grep machdep.cpu`, `Get-CimInstance Win32_Processor`,
+  `/proc/cpuinfo`, `nproc`, `sysctl`, `Get-CimInstance Win32_Processor`,
   `py:os.cpu_count`, `py:platform.processor`; `gpu` `nvidia-smi`, `rocm-smi`,
   `py:torch.cuda.is_available`; `os` `uname`, `/etc/os-release`, `sw_vers`, `systeminfo`;
   `memory` `free`, `/proc/meminfo`; `packages` `pip list`, `pip show`, `pip freeze`,

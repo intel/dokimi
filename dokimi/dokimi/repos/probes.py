@@ -37,7 +37,7 @@ from .shell_split import split_script
 TARGETS = ("cpu", "gpu", "os", "memory", "packages", "env", "network")
 
 DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
-    "cpu": ("lscpu", "/proc/cpuinfo", "nproc", "sysctl -a | grep machdep.cpu", "Get-CimInstance Win32_Processor",
+    "cpu": ("lscpu", "/proc/cpuinfo", "nproc", "sysctl", "Get-CimInstance Win32_Processor",
             "py:os.cpu_count", "py:platform.processor"),
     "gpu": ("nvidia-smi", "rocm-smi", "py:torch.cuda.is_available"),
     "os": ("uname", "/etc/os-release", "sw_vers", "systeminfo"),
