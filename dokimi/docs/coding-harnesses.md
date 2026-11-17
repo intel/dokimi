@@ -265,7 +265,8 @@ formats do not read the key.
   not stop it. To run offline, have the image on the daemon first.
 - The container runs in `environment.workdir` when the task declares one (`docker run -w`), as
   Harbor runs every exec there, so the oracle and the verifier find relative paths; without one,
-  in the image's `WORKDIR`.
+  in the image's `WORKDIR`. A task built from its Dockerfile keeps the image's `WORKDIR` even
+  when it declares one (Harbor overrides it there too).
 - After the container starts, the files of a non-empty `environment/` without a
   `Dockerfile` or `docker-compose.yaml` are copied into `environment.workdir`,
   else the image's `WORKDIR`, else `/` (Harbor's

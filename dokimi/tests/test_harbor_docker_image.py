@@ -138,10 +138,18 @@ def test_the_task_container_works_in_the_declared_workdir(tmp_path):
 
 
 def test_without_a_declared_workdir_the_container_keeps_the_image_workdir(tmp_path):
-    for path in (_task(tmp_path / "a", workdir=None), _task(tmp_path / "b", image=None, dockerfile=True)):
-        cli = _daemon()
-        create_harness("docker-oracle", runner=cli).run(load_task(path), output_dir=tmp_path / "out")
-        assert "-w" not in _run_argv(cli)
+    cli = _daemon()
+    create_harness("docker-oracle", runner=cli).run(load_task(_task(tmp_path, workdir=None)), output_dir=tmp_path / "out")
+    assert "-w" not in _run_argv(cli)
+
+
+def test_a_built_task_keeps_its_image_workdir_despite_a_declared_one(tmp_path):
+    """Left as on main on purpose (unlike Harbor, which overrides WORKDIR with it): see the PR's Not in this PR."""
+    path = _task(tmp_path, image=None, dockerfile=True)
+    assert load_task(path).environment["workdir"] == "/app"
+    cli = _daemon()
+    create_harness("docker-oracle", runner=cli).run(load_task(path), output_dir=tmp_path / "out")
+    assert "-w" not in _run_argv(cli)
 
 
 def test_without_a_declared_workdir_the_files_go_to_the_image_workdir_else_root(tmp_path):

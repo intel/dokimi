@@ -58,7 +58,8 @@ def ready_image(task: TaskSpec, log, docker: Docker, build: Callable[[str], None
 
 def workdir_args(task: TaskSpec) -> list[str]:
     """``-w`` for a prebuilt-image task's ``environment.workdir``: Harbor runs every exec there
-    (``DockerEnvironment.exec``: ``cwd or task_env_config.workdir``); a built image has its ``WORKDIR``."""
+    (``DockerEnvironment.exec``: ``cwd or task_env_config.workdir``). Harbor does so for a built task
+    too; a built task keeps its image's ``WORKDIR`` here on purpose, as on main."""
     workdir = task.environment.get("workdir")
     return ["-w", workdir] if task.docker_image is not None and isinstance(workdir, str) and workdir else []
 
