@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -63,6 +64,22 @@ def test_reach_token_of_a_utf8_path_is_unchanged():
     from dokimi.repos.reach import token
 
     assert token("s", "a/b.py", "p") == "RCC6EA29"
+
+
+@pytest.mark.parametrize("path", ["n" + chr(0xD800), "n" + chr(0xDCFF), "a/b.py"])
+def test_reach_token_of_a_path_with_a_lone_surrogate_has_the_shape_of_any_token(path):
+    from dokimi.repos.reach import token
+
+    assert re.fullmatch(r"RC[0-9A-F]{6}", token("s", path, "p"))
+
+
+def test_reach_token_of_a_json_escaped_high_surrogate_path_is_a_token_of_its_own():
+    from dokimi.repos.reach import token
+
+    high, other = json.loads('"n\\ud800"'), json.loads('"n\\ud801"')
+    assert token("s", high, "p") == "RC191ACA"
+    assert token("s", high, "p") != token("s", other, "p")
+    assert token("s", high, "p") != token("s", "n\udcff", "p")
 
 
 @posix_only
@@ -126,6 +143,12 @@ def test_bundle_measured_digest_of_a_file_name_with_a_non_utf8_byte_is_a_digest(
 def test_bundle_measured_digest_of_a_utf8_file_name_is_unchanged():
     assert _bundle_digest("references/a.md", "b" * 8) == (
         "sha256:6c2343b26584af5163cf510a83b2854ecdec51dc82b4ee23ef94f8f8c03181db")
+
+
+def test_bundle_measured_digest_of_a_json_escaped_high_surrogate_file_name_is_a_digest():
+    high, other = json.loads('"n\\ud800"'), json.loads('"n\\ud801"')
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", _bundle_digest(high))
+    assert _bundle_digest(high) != _bundle_digest(other)
 
 
 def _graph_candidate(*symbols: str):
