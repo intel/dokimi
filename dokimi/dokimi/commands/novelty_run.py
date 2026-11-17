@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import functools
 import math
+from pathlib import Path
 import sys
 from dokimi.commands.cache_dir import usable_cache_dir  # noqa: F401 - re-exported for the novelty commands
 
