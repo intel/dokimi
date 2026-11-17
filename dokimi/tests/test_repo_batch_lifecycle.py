@@ -84,7 +84,7 @@ def test_names_that_differ_only_in_case_are_refused_before_any_agent(setup, caps
     assert not _agents(setup)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="os.kill with SIGINT terminates the process on Windows")
+@pytest.mark.skipif(os.name == "nt", reason="signal.pthread_kill is POSIX-only")
 def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     # CancelContract of cfg/fixed.cfg (cfg/mut_no_cancel_guard.cfg breaks it): SIGINT wakes the main thread and
     # pool.map cancels the queued cells; _thread.interrupt_main() sends no signal and would let them start.
