@@ -345,22 +345,23 @@ def _check(tmp: Path, monkeypatch, suite: dict, *extra: str, tasks: dict | None 
     return code, json.loads((out / "check/check.json").read_text(encoding="utf-8"))
 
 
-def test_a_self_check_where_every_selected_task_is_a_suite_gap_exits_0(tmp_path, monkeypatch, capsys):
+def test_a_self_check_where_every_selected_task_is_a_suite_gap_exits_1(tmp_path, monkeypatch, capsys):
     gone = f"file://{tmp_path}/missing@{'c' * 40}"
     code, report = _check(tmp_path, monkeypatch, _raw(repos={"sc": gone}, tasks=[{"id": "fix_add", "repo": "sc"}]),
                           "--task", "fix_add")
     captured = capsys.readouterr()
-    assert code == 0 and "incomplete" not in captured.err
+    assert code == 1 and "incomplete: no task was checked" in captured.err
     assert [(r["task"], r["unsupported_by"]) for r in report["tasks"]] == [("fix_add", "suite")]
 
 
-def test_a_suite_gap_is_not_checked_even_when_the_task_also_needs_egress(tmp_path, monkeypatch):
+def test_a_suite_gap_is_not_checked_even_when_the_task_also_needs_egress(tmp_path, monkeypatch, capsys):
     gone = f"file://{tmp_path}/missing@{'c' * 40}"
     net = {"net_add": {"family": "review", "grader": "review", "review_patch": "change.patch", "egress": ["example.com"],
                        "score": {"metric": "recall", "max": 1.0}, "prompt": "Review HEAD."}}
     code, report = _check(tmp_path, monkeypatch, _raw(repos={"sc": gone}, tasks=[{"id": "net_add", "repo": "sc"}]),
                           "--task", "net_add", tasks=net)
-    assert code == 0
+    assert code == 1
+    assert "incomplete: no task was checked" in capsys.readouterr().err
     assert report["tasks"][0]["unsupported_by"] == "suite"
 
 

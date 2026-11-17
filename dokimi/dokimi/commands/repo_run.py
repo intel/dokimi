@@ -255,6 +255,9 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     unavailable = [r["task"] for r in bad if r.get("unsupported_by") == "suite"]
     if unavailable:  # the base's repository of --suite is missing: not checked, and not a failure
         print(f"{len(unavailable)} not checked, the repository of their base is missing: " + ", ".join(unavailable))
+    if results and len(unavailable) == len(results):  # a gate that checked nothing is incomplete, not a pass
+        print("✗ incomplete: no task was checked, the repository of every base is missing", file=sys.stderr)
+        sys.exit(1)
     allowed = [r for r in bad if args.allow_unsupported and r.get("unsupported_by") == "host"]
     if allowed:
         print(f"{len(allowed)} unsupported on this host, allowed by --allow-unsupported: "
@@ -537,7 +540,7 @@ _SOURCE_EXIT = (
     "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory; exit 1 for a source that cannot be opened "
     "(clone, fetch, revision) and "
 )
-CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check."
+CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check, or when no task was checked (every one a suite gap)."
 RUN_EXIT = _SOURCE_EXIT + "for a cell that crashed, a batch budget stop or an incomplete batch."
 
 

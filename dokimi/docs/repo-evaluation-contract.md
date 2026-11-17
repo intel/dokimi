@@ -353,7 +353,7 @@ tasks:
   the cached clone of a remote lacks is fetched once before it counts as missing.
 - `repo tasks check` reports these tasks as not checked when their repository is
   missing and fails only on the other bad tasks; when every selected task is
-  not checked it exits 0.
+  not checked it exits 1 (incomplete), as `repo run` does, since nothing was checked.
 - Not covered yet: `repo validate` checks the bases of the eval tree only; a suite
   task's `{source_dir}` is still the eval-tree source; and a `guidance:rev:<sha>`
   arm is pinned against the eval-tree source.
