@@ -53,7 +53,8 @@ def ready_image(task: TaskSpec, log, docker: Docker, build: Callable[[str], None
     if pulled:
         docker(["pull", "-q", image], log, timeout=_task_build_timeout(task))
         found = docker(inspect, log)
-    return image, {"source": "docker_image", "ref": image, "pulled": pulled, **json.loads(found.stdout or "")}
+    record = json.loads(found.stdout or "")
+    return record["id"], {"source": "docker_image", "ref": image, "pulled": pulled, **record}
 
 
 def workdir_args(task: TaskSpec) -> list[str]:

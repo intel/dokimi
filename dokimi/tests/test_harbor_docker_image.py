@@ -97,7 +97,7 @@ def test_a_docker_image_task_pulls_and_runs_that_image_without_a_build(tmp_path,
     assert not [a for a in cli.args if a[0] == "build"]
     assert ["pull", "-q", IMAGE] in cli.args
     run = _run_argv(cli)
-    assert run[run.index("sleep") - 1] == IMAGE
+    assert run[run.index("sleep") - 1] == RECORD["id"]
     pull = next(c for c in cli.calls if c.argv[1] == "pull")
     assert pull.timeout == _task_build_timeout(task) == 77
     assert result.metrics["image"] == {"source": "docker_image", "ref": IMAGE, "pulled": True, **RECORD}
@@ -134,7 +134,7 @@ def test_the_task_container_works_in_the_declared_workdir(tmp_path):
     cli = _daemon()
     create_harness("docker-oracle", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     run = _run_argv(cli)
-    assert run[run.index("-w") + 1] == "/app" and run.index("-w") < run.index(IMAGE)
+    assert run[run.index("-w") + 1] == "/app" and run.index("-w") < run.index(RECORD["id"])
 
 
 def test_without_a_declared_workdir_the_container_keeps_the_image_workdir(tmp_path):
