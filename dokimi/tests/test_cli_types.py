@@ -17,6 +17,7 @@ from dokimi.cli import build_parser
 _BEFORE = {
     "--rare-max": ["trace", "prefilter", "AGENTS.md", "s.jsonl"],
     "--in-use-rate": ["trace", "prefilter", "AGENTS.md", "s.jsonl"],
+    "--references": ["eval", "tasks", "generate", "src", "--from", "graph", "--out-dir", "o"],
     "--typed-max-len": ["eval", "judge", "validate", "--answers", "a.json"],
     "--verbatim-words": ["eval", "leak", "skill", "q.json"],
     "--min-fraction": ["eval", "leak", "skill", "q.json"],
@@ -28,6 +29,7 @@ _BEFORE = {
 ACCEPTED = [
     ("--rare-max", "0", 0),
     ("--rare-max", "7", 7),
+    ("--references", "0", 0),
     ("--typed-max-len", "0", 0),
     ("--typed-max-len", "512", 512),
     ("--verbatim-words", "1", 1),
@@ -46,6 +48,8 @@ REFUSED = [
     ("--rare-max", "abc", "expected an integer, got 'abc'"),
     ("--rare-max", "1.5", "expected an integer, got '1.5'"),
     ("--rare-max", "1e3", "expected an integer, got '1e3'"),
+    ("--references", "-1", "must be >= 0, got -1"),
+    ("--references", "abc", "expected an integer, got 'abc'"),
     ("--typed-max-len", "-1", "must be >= 0, got -1"),
     ("--typed-max-len", "-01", "must be >= 0, got -1"),
     ("--typed-max-len", "abc", "expected an integer, got 'abc'"),
