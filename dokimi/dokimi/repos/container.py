@@ -111,10 +111,9 @@ def halt_and_kill_started() -> None:
     pending: BaseException | None = None
     for stop in stops:
         try:
-            stop()
-        except Exception:  # a kill that fails leaves the next call to retry it
-            continue
-        except BaseException as exc:  # a Ctrl-C in one kill must not skip the others: it is raised after them
+            with contextlib.suppress(Exception):  # a kill that fails leaves the next call to retry it
+                stop()
+        except BaseException as exc:  # noqa: BLE001 - a Ctrl-C in one kill must not skip the others: raised after them
             pending = pending or exc
     if pending is not None:
         raise pending
@@ -248,7 +247,7 @@ class DockerRunner:
                                 env=process.Env.inherit())
                 except OSError:
                     pass  # still a timed-out or interrupted run; the container may outlive it
-                except Exception:  # a bug here must not pass unseen: the kill is retried, so log each one
+                except Exception:  # noqa: BLE001 - a bug here must not pass unseen: the kill is retried, so log each one
                     _log.exception("docker kill of %s failed", spec.name)
 
         # -e NAME reads the forwarded values from the CLI's own environment: the caller's.
