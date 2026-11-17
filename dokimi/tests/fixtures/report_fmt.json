@@ -187,6 +187,7 @@
     "| 🟡 Low relevance | 0 | 0% | Retrieved docs had low relevance scores — likely off-topic content. |",
     "| 🔵 Model knowledge sufficient | 0 | 0% | Docs were retrieved but the model already knew the answer. |",
     "| ⚪ Insufficient data | 7 | 100% | Delta could not be computed (answer missing or errored). |",
+    "| ⚪ One condition (no delta) | 0 | 0% | One condition by design (a knowledge run): the per-condition score is the result. |",
     "",
     "### Questions with Negative Delta (4 total)",
     "",
