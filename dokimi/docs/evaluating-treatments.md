@@ -123,6 +123,9 @@ carry the same stamped judge model, provider and `judge_context`.
 > prompt. It is **not** a `persona` — in this repo a persona is a synthetic
 > *user* who asks questions (`dokimi/personas`).
 
+> **One arm, no docs:** `--arms baseline` alone is a knowledge run, the reference for a comparison;
+> see [knowledge-runs.md](knowledge-runs.md).
+>
 > **Which commands run treatments:** `arms run`, `arms matrix-run`, and the
 > `subjects` commands — they are the only callers of `create_treatments`. The
 > legacy answer path (`benchmark run`, `answers generate`) predates arms: it has

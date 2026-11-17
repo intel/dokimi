@@ -233,14 +233,27 @@ def proxy_env_flags(pol: PhasePolicy, *, credentials: bool = True) -> list[str]:
     return flags
 
 
+def build_env(pol: PhasePolicy) -> dict[str, str]:
+    """The proxy variables a ``docker build`` under *pol* takes, with their values: the build's
+    environment (:func:`build_args` passes them by name). Empty when the build has no network."""
+    if pol.mode == "none":
+        return {}
+    return {var: os.environ[var] for var in PROXY_VARS if os.environ.get(var)}
+
+
 def build_args(pol: PhasePolicy) -> list[str]:
-    """``docker build`` network flags: host network and proxy build-args, or none."""
+    """``docker build`` network flags: host network and the proxy build-args by name, or none.
+
+    A value given as ``NAME=value`` would sit in the docker command line, which every user of
+    the host can read. By name, the docker CLI reads the value from the build's environment (the
+    inherited process environment, which holds :func:`build_env`'s values). A Dockerfile that
+    declares ``ARG`` for the name still records the value in the image history; this does not
+    change that."""
     if pol.mode == "none":
         return ["--network", "none"]
     flags = ["--network", "host"]
-    for var in PROXY_VARS:
-        if os.environ.get(var):
-            flags += ["--build-arg", f"{var}={os.environ[var]}"]
+    for var in build_env(pol):
+        flags += ["--build-arg", var]
     return flags
 
 

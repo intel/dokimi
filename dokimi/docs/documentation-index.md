@@ -57,6 +57,10 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   separate repository, and every location is an explicit flag
   (`--questions-root`, `--tasks-root`, `--repo-root`, `--registry`). Includes a
   pre-flight `catalog check` and what each command does when a root is missing.
+- [finding-codes.md](finding-codes.md) — the codes `catalog check` reports, with
+  their levels and which ones `--ignore` may hide.
+- [catalog-jsonl.md](catalog-jsonl.md) — the JSON and JSONL output of
+  `catalog check`, key by key, for scripts and external studies.
 - [quickstart.md](quickstart.md) — end-to-end LLM evaluation pipeline:
   personas → questions → answers → judge → report. Includes troubleshooting
   and a cost estimate.
@@ -81,6 +85,9 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
+- [knowledge-runs.md](knowledge-runs.md) — ask one question set of one agent
+  or model with no docs injected and grade it (`arms run --arms baseline`,
+  `answers generate --doc-source none`): the reference before a with-docs comparison.
 - [answer-formats.md](answer-formats.md) — run Inspect AI, OpenAI evals,
   skill-creator and promptfoo answer-only sets on the answers track
 - [subscription-backends.md](subscription-backends.md) — run the Q&A track through a
@@ -102,6 +109,9 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   enabled vs disabled arms, novel vs known content, and repositories.
 - [reviewing.md](reviewing.md) — review a skill or a repository's agent setup,
   cheapest step first, with costs and how to read the results.
+- [memory.md](memory.md) — check an agent's memory directory (Claude Code auto
+  memory) with `dokimi memory lint`: index links and load limit, frontmatter,
+  wikilinks, undated relative dates. No LLM call.
 
 ## Content novelty
 
@@ -126,6 +136,8 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 
 ## Repository evaluation
 
+- [events-format.md](events-format.md) — the normalized `events.jsonl` trace of a
+  repository run: its lines, the version field and the promise that a version's fields only grow.
 - [repo-evaluation-contract.md](repo-evaluation-contract.md) — implemented core with scoped extensions: what a repository provides to be evaluated as a whole:
   `repo-eval.yaml`, `task.json`, the `grade` entry point and `grade.json`,
   harness profiles, and the guidance reach probe; and how to run its task

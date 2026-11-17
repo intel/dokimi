@@ -508,6 +508,8 @@ reads the upstream base (`base_sha`) and the workspace start commit
 
 ### 4.1 `events.jsonl`
 
+The line format, its version and the promise that comes with it: [events-format.md](events-format.md).
+
 ```json
 {"t": 12.4, "kind": "command", "text": "bazel test //cpp/...:x_host", "rc": 0}
 {"t": 3.1,  "kind": "read",    "path": "AGENTS.md"}
@@ -576,7 +578,7 @@ parent's and subagents' together, so a grader need not:
 
 | Key | Meaning |
 |---|---|
-| `tool_calls` | every event: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
+| `tool_calls` | every event of a known kind: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
@@ -596,7 +598,7 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
-A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts every event up to and
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the events of a known kind up to and
 including the hit, the parent's and subagents' (as `process.tool_calls` does).
 `issued_s` is the hit's `t`: the time the call was issued, since a call's result
 is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
@@ -725,7 +727,7 @@ apart, neither failed nor missing. If the probe itself fails, a task with
 cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
-directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a
+directory, an unpinned remote), on a pinned local path inside a repository that is not its root and on a `--cache-dir` that is not a usable directory; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
 source and exits 2, for an unpinned local directory and for a pinned source (`<repo>@<sha>`) alike; a link in the tree that leads out of it, the default
@@ -1069,8 +1071,8 @@ as it is, so fetch those refs first, for example
 whose revision is still missing is listed and left out.
 
 The command exits 2, before it reads the threads file, on a malformed source,
-an unpinned remote, a local source that is not a directory, or a pinned local path inside a repository
-that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the threads file cannot be read or holds no pull
+an unpinned remote, a local source that is not a directory, a pinned local path inside a repository
+that is not its root (`<repo>/sub@<sha>`: give the root), or a `--cache-dir` that is not a usable directory. It exits 1 when the threads file cannot be read or holds no pull
 request, when no pull request gave a task (written, or kept from before), and
 on an error that is not one pull request's own: a malformed pull request, a
 source it cannot open, a manifest that is missing or malformed, the prompt file, or a task it cannot write. Each prints
@@ -1166,7 +1168,7 @@ is F1 against `gold`. A gold file with an unknown `answer_key`, an empty
 error.
 
 The command exits 2 without `--index`, with `--references 0 --derives 0`, on
-an unpinned source, an index that does not read, or one that maps to no file
+an unpinned source, a `--cache-dir` that is not a usable directory, an index that does not read, or one that maps to no file
 of the tree; 1 when no target gave a task, a task cannot be written, or the source cannot be resolved at the revision.
 
 ### 4.8 Authoring tasks from merged pull requests
@@ -1275,8 +1277,8 @@ and `headRefOid` it lacks from `origin`; a local repository is read as it is, so
 
 The command prints one line per pull request (`written`, `kept` or `skipped`, with the
 reason or the counts) and a summary. It exits 2, before it reads the pull request file, on a
-malformed source, an unpinned remote, a local source that is not a directory, or a pinned local path inside
-a repository that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the pull request file cannot be read or
+malformed source, an unpinned remote, a local source that is not a directory, a pinned local path inside
+a repository that is not its root (`<repo>/sub@<sha>`: give the root), or a `--cache-dir` that is not a usable directory. It exits 1 when the pull request file cannot be read or
 holds no pull request, when no pull request gave a task (written, or kept from before), and on
 an error that is not one pull request's own: a malformed pull request (a `number` that is not
 an integer), a source it cannot open, a manifest that is missing or malformed, the prompt file (unreadable or empty), or a task it
@@ -1955,7 +1957,9 @@ directories and `**/` matches zero or more. A trailing slash on a file
 (`src/mod.py/`) is `fail`, and a glob ending in `/` (`src/m*/`) matches only a directory. A GitHub Action reference (`actions/checkout@v6`) is not a
 path claim. An Action named without its ref (`actions/checkout`, `owner/repo/path`)
 that the tree does not hold at the file's directory or an ancestor is `ok` when a
-job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow
+job or step uses it as `uses: <name>@<ref>` (or, for a local reference, `uses: ./<name>`
+with no ref, which a claim `./<name>` finds, as does `<name>`, while a `./<name>` claim finds no remote use: `./source/.github/actions/setup`
+used by a step is `ok`, a typo of it stays `unresolved`), in a `.yml` or `.yaml` workflow
 directly in `.github/workflows/` (not a nested one, which GitHub does not run) or
 a local composite action under `.github/` (`action.yml`, `action.yaml`); the
 reason names the first such file, workflows first (`used by
@@ -2376,7 +2380,14 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   still run; the file is left in place, and removing it or `--force` runs the
   cell again. The same holds for a finished cell of a task this host cannot
   run, except that `--force` keeps it: once its file is removed, the cell runs
-  on a host that meets the task's requirements. A batch stays on the eval tree it
+  on a host that meets the task's requirements. A `--force` run that stops part
+  way (Ctrl-C, a crash, a failed cell), or a harness binary replaced while the
+  batch runs, can leave finished cells of two `id`s in one arm and model; `repo
+  report` refuses such a batch and `repo compare` such a compared row, naming
+  both `id`s, until a `--force` run over every arm and model of the batch (the same `--task` and `--reps`) reruns them. A plan naming one cell twice (a
+  repeated `--task` or `--model`, or two `--model` strings with one directory
+  name, `a/b` and `a:b`, or names that differ only in case) is refused before any agent starts.
+  Ctrl-C lets the running cells finish and starts no queued one. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
@@ -2570,8 +2581,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
   the mean delta a one-sample t test at the uncorrected two-sided 5% level
   detects with 80% power at that spread, the t quantiles at `n-1` degrees of
-  freedom (every row has `mde` under `data` in `--json`; `null` for one task or deltas with
-  no spread, and then no note). It is not the power of the sign-flip test nor
+  freedom (every row has `mde` under `data` in `--json`; `null` for one task, for deltas with
+  no spread (then no note), or for a figure that leaves the float range (the note then names the changed-task or Holm floor where one keeps p above 0.05, and says nothing otherwise). It is not the power of the sign-flip test nor
   of the Holm-corrected decision; a Holm-calibrated figure would depend on the
   other rows' observed p, which a figure for planning the next run's task count
   cannot know. The sign-flip p over k changed (non-tied)

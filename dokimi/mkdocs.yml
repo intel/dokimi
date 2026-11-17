@@ -122,6 +122,8 @@ nav:
       - what-it-measures.md
       - reviewing.md
       - external-content.md
+      - finding-codes.md
+      - catalog-jsonl.md
       - Q&A pipeline tutorial: quickstart.md
       - runs.md
       - user-flow.md
@@ -133,7 +135,9 @@ nav:
       - coding-harnesses.md
       - subscription-backends.md
       - answer-formats.md
+      - knowledge-runs.md
       - context-window.md
+      - memory.md
       - session-prefilter.md
   - Content novelty:
       - skill-novelty.md
@@ -143,6 +147,7 @@ nav:
       - grading-tiers.md
   - Repository evaluation:
       - repo-evaluation-contract.md
+      - events-format.md
       - behavioural-security.md
       - repo-evaluation-mergeability.md
       - repo-evaluation-agent-modes.md
