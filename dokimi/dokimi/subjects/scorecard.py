@@ -6,13 +6,13 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from dokimi import __version__
+from dokimi.utils import key_bytes
 
 from .loader import awareness_arm_specs, work_arm_specs
 from .models import SubjectDescriptor
@@ -134,7 +134,7 @@ def build_subject_scorecard(
 
 def _field(text: str) -> bytes:
     """A fixed-width field for *text*, so a NUL or any byte in it cannot run into the next field."""
-    return hashlib.sha256(os.fsencode(text)).digest()
+    return hashlib.sha256(key_bytes(text)).digest()
 
 
 def _digest_values(values: tuple[str, ...]) -> str:

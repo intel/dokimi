@@ -159,6 +159,19 @@ def test_a_file_ref_differs_from_a_missing_ref_spelled_as_its_content(tmp_path: 
     assert _digest_ref("doc.md", base=tmp_path) != _digest_ref("missing.md", base=tmp_path)
 
 
+@pytest.mark.parametrize("digest", [
+    lambda text, base: _digest_ref(text, base=base),
+    lambda text, base: _digest_values((text,)),
+    lambda text, base: _digest_arm_spec(f"skill:./{text}", base=base),
+], ids=["ref", "values", "arm_spec"])
+def test_a_high_surrogate_is_digested_and_told_apart(digest, tmp_path: Path):
+    # #795: a JSON "\ud800" escape has no surrogateescape byte form, so os.fsencode raised UnicodeEncodeError.
+    first = digest("n\ud800", tmp_path)
+    assert first.startswith("sha256:") and first == digest("n\ud800", tmp_path)
+    assert first != digest("n\ud801", tmp_path)
+    assert digest("n\udcff", tmp_path).startswith("sha256:")
+
+
 def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypatch):
     from dokimi.artifacts import validate_artifact
     from dokimi.subjects import build_subject_scorecard, load_subject
