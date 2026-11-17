@@ -177,6 +177,8 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
         pkg.problems.append("no name")
     bundle = path.parent if fmt == FORMAT_GEMINI_EXTENSION else path.parent.parent
     pkg.details["skills"] = len(list((bundle / "skills").glob("*/SKILL.md")))
+    if fmt == FORMAT_CLAUDE_PLUGIN and not pkg.details["skills"]:
+        pkg.details["skills"] = _declared_skills(bundle, data, path.parent / "marketplace.json")
     if fmt == FORMAT_GEMINI_EXTENSION:
         pkg.details["context_file"] = data.get("contextFileName") or (
             "GEMINI.md" if (bundle / "GEMINI.md").is_file() else None)
@@ -186,6 +188,37 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
         else:
             pkg.problems.append("mcpServers is not an object")
     return pkg
+
+
+def _skill_dirs(base: Path, entries) -> set[Path]:
+    """The skill directories ``entries`` (a path or a list, relative to ``base``) name: one holding SKILL.md, or
+    each child of a directory that does."""
+    found: set[Path] = set()
+    for entry in [entries] if isinstance(entries, str) else entries if isinstance(entries, list) else []:
+        if not isinstance(entry, str):
+            continue
+        d = (base / entry).resolve()
+        if (d / "SKILL.md").is_file():
+            found.add(d)
+        elif d.is_dir():
+            found.update(p.parent for p in d.glob("*/SKILL.md"))
+    return found
+
+
+def _declared_skills(bundle: Path, data: dict, marketplace: Path) -> int:
+    """Skills a Claude plugin declares outside ``skills/``: its own ``skills`` key, else the ``source`` (and
+    ``skills``) of each plugin in the marketplace manifest next to it."""
+    found = _skill_dirs(bundle, data.get("skills"))
+    if not found and marketplace.is_file():
+        try:
+            market = json.loads(marketplace.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return 0
+        for plugin in market.get("plugins") or [] if isinstance(market, dict) else []:
+            if isinstance(plugin, dict) and isinstance(plugin.get("source"), str):
+                source = bundle / plugin["source"]
+                found |= _skill_dirs(source, plugin.get("skills") or ["./"])
+    return len(found)
 
 
 def classify(path: Path) -> Optional[SkillPackage]:

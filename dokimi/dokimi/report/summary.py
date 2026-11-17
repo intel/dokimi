@@ -20,7 +20,7 @@ SCHEMA_VERSION = "cli_output.v1"
 SUMMARY_SCHEMA = "report_summary.v1"
 _VERDICTS = ("pass", "fail", "inconclusive", "invalid", "infra_error")
 _STATUSES = ("complete", "partial", "budget_stopped", "cancelled", "failed")
-FORMATS = ("markdown", "json", "annotations")
+FORMATS = ("markdown", "json", "annotations", "sarif")
 #: Document verdicts that count against the overall state, worst first.
 _BAD = ("infra_error", "invalid", "fail", "inconclusive")
 #: Document statuses that end short of complete; a row in one is not a pass.
@@ -252,7 +252,45 @@ def render_annotations(summary: dict[str, Any]) -> str:
     return "".join(line + "\n" for line in out)
 
 
+_SARIF_LEVEL = {"error": "error", "warn": "warning", "warning": "warning"}
+
+
+def render_sarif(summary: dict[str, Any]) -> str:
+    """SARIF 2.1.0: one result per subject finding, so GitHub code scanning, Azure DevOps and the GitLab or
+    Jenkins SARIF importers show it at its file and line. A finding with no file is located at its check's
+    input. A check that failed or could not be read is a result too, so it is not silent."""
+    from dokimi._version import __version__
+
+    rules: dict[str, dict[str, Any]] = {}
+    results: list[dict[str, Any]] = []
+
+    def result(rule: str, level: str, message: str, uri: str | None, line: Any) -> None:
+        rules.setdefault(rule, {"id": rule, "shortDescription": {"text": rule}})
+        loc: dict[str, Any] = {"artifactLocation": {"uri": uri or "."}}
+        if isinstance(line, int) and line >= 1:
+            loc["region"] = {"startLine": line}
+        results.append({"ruleId": rule, "level": level, "message": {"text": message},
+                        "locations": [{"physicalLocation": loc}]})
+
+    for c in summary["checks"]:
+        if c["state"] in ("failed", "invalid", "not_run", "infra_error"):
+            result(f"dokimi/{c['kind'] or 'input'}/{c['state']}", "error",
+                   f"{c['kind'] or c['source']}: {c['state']}: {c['reason'] or ''}".rstrip(": "), None, None)
+    for s in summary["subjects"]:
+        for f in s["findings"]:
+            result(f"dokimi/{f['check']}/{f.get('code')}", _SARIF_LEVEL.get(str(f.get("level")), "note"),
+                   f"{s['subject']}: {f.get('message')}", f.get("file"), f.get("line"))
+    doc = {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
+           "runs": [{"tool": {"driver": {"name": "dokimi", "version": __version__,
+                                         "informationUri": "https://github.com/intel/dokimi",
+                                         "rules": sorted(rules.values(), key=lambda r: r["id"])}},
+                     "results": results}]}
+    return json.dumps(doc, indent=2) + "\n"
+
+
 def render(summary: dict[str, Any], fmt: str) -> str:
+    if fmt == "sarif":
+        return render_sarif(summary)
     if fmt == "json":
         return json.dumps(summary, indent=2) + "\n"
     if fmt == "annotations":

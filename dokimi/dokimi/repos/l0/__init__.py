@@ -18,6 +18,7 @@ from ..manifest import RepoManifest, match_glob
 from ..source import RepoTree, SourceError
 from ..static import STATUS_CLASSES, check_static, status_class
 from .adapters import ADAPTERS, detect
+from .config import apply_config, load_config
 from .core import Claim, Scan
 from .typecheck import Check, check_fences
 
@@ -83,6 +84,8 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         scan.check_file(f)
     typecheck_block = None if typecheck is None else check_fences(scan, checked, typecheck)
     framework = [dict(c.to_dict(), source="framework") for c in scan.claims]  # a rule's frontmatter is blanked (Scan)
+    config = load_config(tree)
+    scan_config = apply_config(framework, config, scan.files)
 
     static_info: dict[str, Any] | None = None
     repository: list[dict[str, Any]] = []
@@ -108,6 +111,7 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     warnings += unscanned
     reasons += unscanned  # every warning that makes the scan incomplete, in the order of `warnings`
     warnings += not_counted
+    warnings += scan_config["errors"]
     reasons += not_counted
     sha = getattr(tree, "sha", None)
     return {
@@ -125,6 +129,7 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         "warnings": warnings,
         "incomplete": bool(reasons),
         "incomplete_reasons": reasons,
+        "scan_config": scan_config,
         "claims": claims,
     }
 

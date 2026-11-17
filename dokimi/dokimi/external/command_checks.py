@@ -48,6 +48,9 @@ PIPE_TO_SHELL = re.compile(
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
     r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
     r"(?:(?:ba|z|da|k)?sh|fish|python(?:3(?:\.\d+)?)?|node|perl|ruby)\b"
+    # `python -c PROGRAM`, `python -m json.tool`, `node -e`, `perl -e`: the program is on the command line and the
+    # download is only its input (JSON to parse), so nothing downloaded is run.
+    r"(?![ \t]+-[cme](?![\w-]))"
 )
 PERMISSION_BYPASS = re.compile(
     r"(?<![\w-])--dangerously-skip-permissions(?![\w-])|(?<![\w-])--yolo(?![\w-])|\bbypassPermissions\b"
