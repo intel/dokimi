@@ -192,3 +192,15 @@ def test_the_flag_is_off_by_default_and_on_with_label_host():
     argv = ["repo", "run", "/x@HEAD", "--arm", "guidance:raw", "--model", "m", "--batch", "b"]
     assert build_parser().parse_args(argv).label_host is False
     assert build_parser().parse_args([*argv, "--label-host"]).label_host is True
+
+
+def test_compare_warns_when_a_labelled_cell_ran_on_a_host_that_misses_its_task(tmp_path):
+    from dokimi.repos.compare import _arm_warnings
+
+    def cell(arm, met):
+        rec = {"task": "race", "arm": arm, "model": "m-1", "batch": "b"}
+        return rec if met is None else {**rec, "host_match": {"met": met, "fields": [], "fingerprint": "f"}}
+
+    cells = [cell("raw", None), cell("skill", False)]  # the treatment ran one labelled cell on a host that misses
+    assert any("race" in w and "--label-host" in w for w in _arm_warnings(cells, "raw", "skill", None))
+    assert not any("--label-host" in w for w in _arm_warnings([cell("raw", None), cell("skill", None)], "raw", "skill", None))

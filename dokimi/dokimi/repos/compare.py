@@ -335,6 +335,11 @@ def _arm_warnings(cells: list[dict[str, Any]], baseline: str, text: str, models:
     if uptake and uptake["cells"] and not uptake["used"]:
         out.append(f"{text}: the agent used none of what the arm added in {uptake['cells']} cell(s); "
                    "a delta measures the patch's text, not the tool")
+    # A labelled cell on a host that misses its task (or could not be checked) is pooled like any other: say so.
+    missed = sorted({c["task"] for arm in arms for c in arm if "host_match" in c and c["host_match"].get("met") is not True})
+    if missed:
+        out.append(f"{text} vs {baseline}: cells run with --label-host on a host that misses the task's requirements "
+                   f"or could not be checked are pooled (tasks {', '.join(missed)}); not a measured pass")
     return out
 
 
