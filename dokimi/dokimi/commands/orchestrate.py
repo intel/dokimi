@@ -102,7 +102,8 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             print("\nResults:")
             print(f"  Context avg:      {summary['with_avg']}")
             print(f"  Baseline avg:     {summary['without_avg']}")
-            print(f"  Delta:            {summary['delta_avg']:+.1f}")
+            print("  Delta:            " + ("— (a paired difference leaves the float range)"
+                                             if summary["delta_avg"] is None else f"{summary['delta_avg']:+.1f}"))
 
         print(f"\n📊 View full report: cat {results['steps']['report']['path']}")
 

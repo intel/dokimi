@@ -21,7 +21,7 @@ import yaml
 from tests.cli_refusal import refusal
 
 from dokimi import process
-from dokimi.artifacts import validate_artifact
+from dokimi.artifacts import schema_errors, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.repos.harness_profile import load_profile
@@ -784,6 +784,31 @@ def test_the_skill_name_loads_back_as_the_same_string(name):
     assert yaml.safe_load(text.split("---")[1])["name"] == name
 
 
+@pytest.mark.parametrize("link", ["", "symlink"])
+@pytest.mark.parametrize("name", [pytest.param("n\udcff", id="dcff"), pytest.param("n\ud800", id="d800")])
+def test_a_case_name_with_a_lone_surrogate_is_written_as_a_question_mark(tmp_path, name, link):
+    if link:
+        try:
+            os.symlink(tmp_path, tmp_path / "probe-link", target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            pytest.skip(f"cannot create a symlink here: {exc}")
+    profile = load_profile(str(_profile(tmp_path)))
+    roots = _roots(tmp_path)
+    case = Case(id="c", at="project:x", name=name, dirname="d1", link=link or None)
+    fixture = build_fixture([case], profile, roots, tmp_path / "outside", "s")
+    assert [p.case.id for p in fixture.placed] == ["c"]
+    text = (roots["project"] / "x/d1/SKILL.md").read_bytes().decode("utf-8")
+    assert "\n# n?\n" in text
+
+
+def test_a_case_name_written_as_a_json_surrogate_pair_is_one_character(tmp_path):
+    profile = load_profile(str(_profile(tmp_path)))
+    roots = _roots(tmp_path)
+    case = Case(id="c", at="project:x", name="n\ud83d\ude00", dirname="d1")
+    build_fixture([case], profile, roots, tmp_path / "outside", "s")
+    assert "\n# n\U0001f600\n" in (roots["project"] / "x/d1/SKILL.md").read_bytes().decode("utf-8")
+
+
 def test_a_skill_dir_above_the_workspace_is_refused(tmp_path):
     (tmp_path / ".claude" / "skills").mkdir(parents=True)
     workspace = tmp_path / "ws"
@@ -837,6 +862,17 @@ def test_a_run_leaves_the_guidance_reach_traces_in_a_shared_out_dir(tmp_path):
     _run(tmp_path, only=("project-client",))
     assert sorted(p.name for p in reach.iterdir()) == ["00-root.stdout", "03-cwd_src.events.jsonl"]
     assert (tmp_path / "out" / "skill-traces" / "00-cwd_..stdout").is_file()
+
+
+def test_a_skill_reach_trace_is_versioned_and_validates(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "look")
+    _run(tmp_path, only=("project-client",))
+    lines = [json.loads(line) for p in (tmp_path / "out" / "skill-traces").glob("*.events.jsonl")
+             for line in p.read_text(encoding="utf-8").splitlines()]
+    assert lines
+    for event in lines:
+        assert event["v"] == 1
+        assert schema_errors("repo_event.v1", event) == [], event
 
 
 def test_a_new_run_clears_the_traces_of_an_earlier_one(tmp_path):

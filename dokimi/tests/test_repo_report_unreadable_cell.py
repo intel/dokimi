@@ -11,7 +11,7 @@ import math
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.report import _SAFE_MAGNITUDE
+from dokimi.repos.report import _SAFE_MAGNITUDE, CellFileError, refuse_mixed_executions
 from tests.cli_refusal import refusal
 
 
@@ -459,3 +459,12 @@ def test_a_result_file_with_a_batch_that_is_not_a_string_exits_2(tmp_path, capsy
     err = capsys.readouterr().err
     assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `batch`" in err
     assert "Traceback" not in err
+
+
+@pytest.mark.parametrize("batch, starts", [("b7", "b7: the cells of arm a, model m ran with"),
+                                           ("", "WHERE: the cells of arm a, model m ran with")])
+def test_the_mixed_execution_refusal_starts_with_the_batch_name_or_else_where(batch, starts):
+    cells = [{"batch": batch, "arm": "a", "model": "m", "execution": {"id": ran}} for ran in ("e1", "e2")]
+    with pytest.raises(CellFileError) as exc:
+        refuse_mixed_executions(cells, "WHERE")
+    assert str(exc.value).startswith(starts)
