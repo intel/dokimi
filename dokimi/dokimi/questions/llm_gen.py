@@ -15,10 +15,10 @@ from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.provenance import generated_by
 
 
-def _stamped(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Each generated question with the ``provenance`` the generator filled (a set by hand is kept)."""
+def _stamped(questions: List[Dict[str, Any]], tool: str) -> List[Dict[str, Any]]:
+    """Each generated question with the ``provenance`` of the generator ``tool`` (a set by hand is kept)."""
     for q in questions:
-        q.setdefault("provenance", generated_by("questions-generate"))
+        q.setdefault("provenance", generated_by(tool))
     return questions
 
 
@@ -168,7 +168,7 @@ class QuestionGenerator:
                 all_questions.append(q)
         
         logger.info(f"Generated {len(all_questions)} total questions")
-        return _stamped(all_questions)
+        return _stamped(all_questions, "questions-persona")
 
     def generate_hybrid(
         self,
@@ -239,7 +239,7 @@ class QuestionGenerator:
             f"Hybrid result: {len(persona_qs)} persona + {len(chunk_qs)} chunk "
             f"= {len(all_questions)} total"
         )
-        return _stamped(all_questions)
+        return _stamped(all_questions, "questions-chunk")
     
     def _generate_for_persona(
         self,

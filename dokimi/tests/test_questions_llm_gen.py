@@ -103,7 +103,7 @@ class TestGenerateQuestions:
              patch('dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE', True):
             gen = QuestionGenerator()
             questions = gen.generate_questions("oneTBB", sample_personas, sample_topics, questions_per_topic=2)
-        assert {q["provenance"]["source"] for q in questions} == {f"generated:dokimi-questions-generate@{__version__}"}
+        assert {q["provenance"]["source"] for q in questions} == {f"generated:dokimi-questions-persona@{__version__}"}
     
     def test_assigns_unique_ids(self, sample_personas, sample_topics, mock_llm):
         mock_cls = Mock(return_value=mock_llm)
