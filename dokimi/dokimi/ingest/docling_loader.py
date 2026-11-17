@@ -113,7 +113,9 @@ def _dest(src: Path, out_dir: Path, owners: dict[str, str], source: str) -> Path
     """The file the record gives ``source``, else the first free name: a link of any kind is taken (#545)."""
     for name, owner in owners.items():
         path = out_dir / name
-        if owner == source and (path.is_file() and not path.is_symlink() or not os.path.lexists(path)):
+        if owner != source or path.name != name:  # a `\` is a separator on Windows: not a name there
+            continue
+        if path.is_file() and not path.is_symlink() or not os.path.lexists(path):
             return path
     base = f"{src.stem}-{src.suffix.lstrip('.').lower()}"
     names = itertools.chain([f"{base}.md"], (f"{base}-{i}.md" for i in itertools.count(2)))

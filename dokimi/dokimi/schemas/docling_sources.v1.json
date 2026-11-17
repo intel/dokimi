@@ -17,7 +17,7 @@
         "required": ["name", "source"],
         "additionalProperties": false,
         "properties": {
-          "name": {"type": "string", "pattern": "^[^/\\\\]+\\.md(?![\\s\\S])", "description": "The Markdown file's name in the output directory: a name, not a path."},
+          "name": {"type": "string", "pattern": "^[^/]+\\.md(?![\\s\\S])", "description": "The Markdown file's name in the output directory: a name, not a path (a `\\` is a name character on POSIX; on Windows a name holding one is not used)."},
           "source": {"type": "string", "minLength": 1, "description": "The source document it was converted from, `/`-separated: relative to the output directory, or absolute when there is none (another Windows drive)."}
         }
       },
