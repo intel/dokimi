@@ -96,7 +96,10 @@ class Probe:
 
 def _spawn(probe: Probe, argv: list[str]) -> str | None:
     """stdout of a command that exits 0, else ``None``: a tool that fails is a fact about the host, not an error."""
-    done = probe.run(argv, timeout=SPAWN_TIMEOUT_S, env=Env.only(_SPAWN_ENV))
+    try:
+        done = probe.run(argv, timeout=SPAWN_TIMEOUT_S, env=Env.only(_SPAWN_ENV))
+    except OSError:  # a command `which` found that cannot be started (a Windows shim): still a fact, not an error
+        return None
     return done.stdout if done.ok else None
 
 

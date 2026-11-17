@@ -249,6 +249,18 @@ def test_tools_record_the_version_number_and_no_path():
     assert hf.collect(probe)["collectors"]["tools"]["make"] == "present"  # on the path, its version not printed
 
 
+def test_a_tool_that_cannot_be_started_keeps_the_versions_of_the_others():
+    def handler(call):
+        if call.argv[0] == "make":
+            raise OSError("[Errno 2] No such file or directory: 'make'")  # `which` found it; the spawn fails
+        return reply("git version 2.43.0\n") if " ".join(call.argv) == "git --version" else reply(returncode=1)
+
+    probe = hf.Probe(system="Linux", read=lambda path: None, run=FakeRunner(handler), env={},
+                     which=lambda name: f"/usr/bin/{name}" if name in ("git", "make") else None)
+    tools = hf.collect(probe)["collectors"]["tools"]
+    assert tools == {"git": "2.43.0", "docker": None, "cmake": None, "gcc": None, "clang": None, "make": "present"}
+
+
 def test_python_names_the_implementation_and_not_the_executable():
     python = hf.collect(_probe()[0])["collectors"]["python"]
     assert python["version"] == platform.python_version() and isinstance(python["free_threaded"], bool)
