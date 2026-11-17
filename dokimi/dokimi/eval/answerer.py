@@ -59,6 +59,22 @@ ANSWER_PROMPT_WITH_DOCS_VERBATIM = """Relevant documentation:
 {question}"""
 
 
+def _ground_truth_fields(question: Dict[str, Any]) -> Dict[str, Any]:
+    """The ground truth of a chunk-grounded question, for the answer record (none for other questions)."""
+    if not question.get("ground_truth_chunk"):
+        return {}
+    return {"ground_truth_chunk": question["ground_truth_chunk"],
+            "question_source": question.get("question_source", "chunk")}
+
+
+def _terminated_block(stop_error: Optional[Exception], requested: Optional[int], recorded: int) -> Dict[str, Any]:
+    """The ``terminated`` block of a run that a run-wide error stopped: the file says it is not the whole run."""
+    if stop_error is None:
+        return {}
+    return {"terminated": {"reason": str(stop_error), "questions_requested": requested,
+                           "questions_recorded": recorded}}
+
+
 class Answerer:
     """
     Generate answers to questions using LLM.
@@ -153,6 +169,7 @@ class Answerer:
 
         stop = threading.Event()  # set by a failed save or a run-wide error: queued questions are skipped
         self.stop_error = None
+        self.questions_requested = n
 
         def _process(idx: int, q: Dict) -> None:
             if stop.is_set():
@@ -185,6 +202,7 @@ class Answerer:
                     "with_docs": None,
                     "without_docs": None,
                     **done_conditions,
+                    **_ground_truth_fields(q),  # a kept context answer is graded with its question's rubric
                 }
             elapsed = time.time() - t0
             with lock:
@@ -301,10 +319,7 @@ class Answerer:
             "with_docs": with_docs_answer,
             "without_docs": without_docs_answer,
         }
-        # Preserve ground truth chunk for chunk-grounded questions
-        if question.get("ground_truth_chunk"):
-            result["ground_truth_chunk"] = question["ground_truth_chunk"]
-            result["question_source"] = question.get("question_source", "chunk")
+        result.update(_ground_truth_fields(question))
         return result
     
     def _retrieve_docs(
@@ -459,6 +474,8 @@ class Answerer:
             "model": self.model,
             "provider": self.provider,
             "total_questions": len(answers),
+            **_terminated_block(getattr(self, "stop_error", None), getattr(self, "questions_requested", None),
+                                len(answers)),
             "token_usage_summary": total_usage,
             "answers": answers,
         }

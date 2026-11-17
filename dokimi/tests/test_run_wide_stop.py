@@ -58,6 +58,8 @@ def test_answers_generate_exits_1_after_a_run_wide_failure_and_keeps_what_was_an
     saved = json.loads(out.read_text(encoding="utf-8"))
     rows = saved["answers"]
     assert len(rows) == 2 and rows[0].get("error") is None and rows[1]["error"]
+    assert saved["terminated"] == {"reason": "usage limit exceeded", "questions_requested": 4,
+                                   "questions_recorded": 2}
     assert "stopped after 2 of 4 questions" in capsys.readouterr().err
 
 
@@ -170,3 +172,61 @@ def test_a_worker_in_flight_does_not_launch_the_next_arm_after_another_worker_st
     assert by_id["q2"]["baseline"]["answer"] == "answer"  # the completed cell is kept
     assert by_id["q2"]["other"]["error"].startswith("not_asked")
     assert runner.stop_error is not None
+
+
+def test_run_prepared_stamps_the_terminated_block_of_a_run_wide_stop(monkeypatch):
+    # The arms artifact says the run stopped, with the counts: the stamp is what a reader sees, not only the exit code.
+    from dokimi.eval import arms_run
+
+    _usage_stop(monkeypatch, arm_runner_module, stop_on_call=2)
+    questions = [{"id": f"q{i}", "question": f"question {i}"} for i in range(4)]
+    prepared = arms_run.PreparedArms(runner=ArmRunner([BaselineTreatment()]), judge=None, library_id="lib")
+    output = arms_run.run_prepared(prepared, SimpleNamespace(product="lib", concurrency=1, baseline_arm="baseline"),
+                                   questions)
+    assert output["terminated"] == {"reason": "usage limit exceeded", "questions_requested": 4,
+                                    "questions_recorded": 2}
+
+
+def test_a_stopped_answers_run_is_not_judged_or_reported_as_whole(monkeypatch, tmp_path):
+    from dokimi.orchestrator import pipeline as pipeline_mod
+
+    def generate(self, *args, **kwargs):
+        self.stop_error = llm_cli.CliCallError("usage limit exceeded", retryable=False, run_wide=True)
+        return [{"question_id": "q0", "with_docs": None, "without_docs": None, "error": "usage limit exceeded"}]
+
+    monkeypatch.setattr(pipeline_mod, "create_doc_source_client", lambda source: None)
+    monkeypatch.setattr(Answerer, "generate_answers", generate)
+    monkeypatch.setattr(Answerer, "save_answers", lambda self, answers, path, question_set_hash=None: None)
+    fake = SimpleNamespace(doc_source="none", model="m", provider="claude-cli", top_k=5, rerank_threshold=0.5,
+                           debug_retrieval=False, product="lib", max_tokens_per_question=100,
+                           answers_path=tmp_path / "answers.json", _library_id=lambda client: "lib/id")
+    with pytest.raises(RuntimeError, match="stopped after 1 of 2 questions"):
+        pipeline_mod.EvaluationPipeline._generate_answers(fake, [{"id": "q0"}, {"id": "q1"}], concurrency=1)
+
+
+def test_a_kept_context_answer_keeps_its_question_ground_truth(monkeypatch):
+    answerer = Answerer(mcp_client=object(), model="gpt-4o-mini", provider="openai")
+    monkeypatch.setattr(answerer, "_retrieve_docs", lambda *a, **k: (["doc"], {}))
+    monkeypatch.setattr(answerer, "_generate_with_docs", lambda *a, **k: {"answer": "with docs"})
+
+    def baseline(*a, **k):
+        raise llm_cli.CliCallError("usage limit exceeded", retryable=False, run_wide=True)
+
+    monkeypatch.setattr(answerer, "_generate_without_docs", baseline)
+    question = {"id": "q1", "question": "How do I sum?", "ground_truth_chunk": "chunk text",
+                "question_source": "chunk"}
+    [row] = answerer.generate_answers("lib", "/lib/id", [question], concurrency=1)
+    assert row["ground_truth_chunk"] == "chunk text" and row["question_source"] == "chunk"
+
+
+def test_run_arms_on_a_usage_limit_writes_the_terminated_block_and_stops_the_questions(monkeypatch):
+    from dokimi.eval import arms_run
+
+    calls = _usage_stop(monkeypatch, arm_runner_module, stop_on_call=2)
+    config = arms_run.ArmsRunConfig(product="lib", model="gpt-4o-mini", provider="openai", concurrency=1)
+
+    output = arms_run.run_arms(config, ["baseline"], QUESTIONS)
+
+    assert len(calls) == 2  # the second question's call is the one that hits the limit
+    assert output["terminated"] == {"reason": "usage limit exceeded", "questions_requested": 2,
+                                    "questions_recorded": 2}
