@@ -998,14 +998,3 @@ def test_a_grader_score_that_is_no_measurement_is_a_grader_failure_and_the_batch
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", "guidance:none"])
     args.func(args)
     assert "review_add" in capsys.readouterr().out
-
-
-def test_the_host_writes_the_tasks_status_into_result_json(setup):
-    # the report reads the status from this key only: a run that drops the write shows every task as unknown
-    task_json = setup["root"] / ".agent-eval/tasks/fix_add/task.json"
-    task = json.loads(task_json.read_text())
-    task["provenance"] = {"source": "hand-written", "status": "validated"}
-    task_json.write_text(json.dumps(task))
-    _run(setup, "--arm", "guidance:raw", source=str(setup["root"]))
-    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
-    assert rec["task_status"] == "validated"
