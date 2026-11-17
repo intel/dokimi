@@ -153,20 +153,21 @@ class Context7Client(MCPClient):
         # Website IDs: no slash + (underscore OR 'github_io' pattern)
         # This avoids misclassifying GitHub repos with underscores (e.g., some_org/repo)
         is_website = "/" not in library_id and ("_" in library_id or "github_io" in library_id)
+        path_id = urllib.parse.quote(library_id, safe="/%:@!$&'()*+,;=-._~", errors="replace")  # a lone surrogate -> %3F
 
         if is_website:
             # Website format: websites/intelpython_github_io_dpnp
             url = (
-                f"{self.endpoint}/websites/{library_id}/llms.txt"
+                f"{self.endpoint}/websites/{path_id}/llms.txt"
                 f"?tokens={max_tokens}"
-                f"&topic={urllib.parse.quote(query)}"
+                f"&topic={urllib.parse.quote(query, errors='replace')}"
             )
         else:
             # GitHub repo format: uxlfoundation/oneTBB (or some_org/repo)
             url = (
-                f"{self.endpoint}/{library_id}/llms.txt"
+                f"{self.endpoint}/{path_id}/llms.txt"
                 f"?tokens={max_tokens}"
-                f"&topic={urllib.parse.quote(query)}"
+                f"&topic={urllib.parse.quote(query, errors='replace')}"
             )
         
         logger.info(f"Fetching from Context7: {library_id} query={query[:50]}...")
