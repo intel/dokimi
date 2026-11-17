@@ -48,7 +48,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `hidden-unicode` | warn | a bidi control, Unicode tag or stray zero-width character in SKILL.md or a bundled text file | yes |
 | `install-unpinned` | warn | a bundled script installs a package without a pinned version | yes |
 | `legacy-model-id` | warn | a model ID its vendor has retired or deprecated | yes |
-| `link-dead` | warn | `--online`: a URL in SKILL.md answers 404 or 410; a host that does not resolve counts too, once any other probe of the run got an answer (a PyPI or npm lookup counts unless it is a 404) | yes |
+| `link-dead` | warn | `--online`: a URL in SKILL.md answers 404 or 410; a host that does not resolve counts too (not when an environment proxy carries the URL), once any other probe of the run got an answer (a PyPI or npm lookup counts too, including one that answers 404) | yes |
 | `link-escapes-skill` | warn | a relative link points to a file outside the skill directory | yes |
 | `link-missing` | warn | a relative Markdown link names no file | yes |
 | `mirror-drift` | warn | a copy of the same directory name in another path has different SKILL.md text | yes |
