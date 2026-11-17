@@ -292,7 +292,8 @@ def run_cell(ctx, task, arm, rep, *args, **kwargs):
             if not submitted.wait(30):  # an interrupt inside submit() is a slow thread start, not the Ctrl-C under test
                 os._exit(3)
             signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
-        cancelled.wait(30)  # no worker is free to take a queued cell until the main thread has cancelled them
+        if not cancelled.wait(30):  # no worker is free to take a queued cell until the main thread has cancelled them
+            os._exit(4)
     return real(ctx, task, arm, rep, *args, **kwargs)
 repo_runner.run_cell = run_cell
 signal.signal(signal.SIGINT, signal.default_int_handler)
