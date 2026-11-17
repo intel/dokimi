@@ -1931,7 +1931,9 @@ directories and `**/` matches zero or more. A trailing slash on a file
 (`src/mod.py/`) is `fail`, and a glob ending in `/` (`src/m*/`) matches only a directory. A GitHub Action reference (`actions/checkout@v6`) is not a
 path claim. An Action named without its ref (`actions/checkout`, `owner/repo/path`)
 that the tree does not hold at the file's directory or an ancestor is `ok` when a
-job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow
+job or step uses it as `uses: <name>@<ref>` (or, for a local reference, `uses: ./<name>`
+with no ref, which a claim `./<name>` finds, as does `<name>`, while a `./<name>` claim finds no remote use: `./source/.github/actions/setup`
+used by a step is `ok`, a typo of it stays `unresolved`), in a `.yml` or `.yaml` workflow
 directly in `.github/workflows/` (not a nested one, which GitHub does not run) or
 a local composite action under `.github/` (`action.yml`, `action.yaml`); the
 reason names the first such file, workflows first (`used by
