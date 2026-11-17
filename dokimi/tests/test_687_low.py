@@ -139,6 +139,20 @@ def test_a_link_at_the_record_is_neither_read_nor_written_through(tmp_path, conv
     assert not (out / SOURCES_NAME).is_symlink()
 
 
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+def test_a_linked_source_is_a_source_of_its_own(tmp_path, converted):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+    _link(tmp_path / "raw" / "cur.pdf", doc)
+    inputs = docling_loader.discover_documents(tmp_path / "raw")
+    assert materialize_markdown(inputs, out) == [out / "a-pdf.md", out / "cur-pdf.md"]
+
+    (doc.parent / "v2.pdf").write_bytes(b"%PDF")
+    (tmp_path / "raw" / "cur.pdf").unlink()
+    _link(tmp_path / "raw" / "cur.pdf", doc.parent / "v2.pdf")  # repointed: still the source cur.pdf
+    assert materialize_markdown(inputs, out) == [out / "a-pdf.md", out / "cur-pdf.md"]
+    assert sorted(_md(out)) == ["a-pdf.md", "cur-pdf.md"]
+
+
 def test_a_source_whose_file_was_deleted_writes_it_again_under_its_name(tmp_path, converted):
     docs, out = _docs(tmp_path, "a.pdf", "sub/a.pdf"), tmp_path / "md"
     materialize_markdown(docs, out)

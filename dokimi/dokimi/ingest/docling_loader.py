@@ -100,12 +100,13 @@ def materialize_markdown(inputs, out_dir) -> list[Path]:
 
 
 def _source_id(src: Path, out_dir: Path) -> str:
-    """The source as the record names it: relative to ``out_dir``, so the two can move together."""
-    resolved = src.resolve()
+    """The source as the record names it: relative to ``out_dir``, so the two can move together.
+    Links are not followed: a link is a source of its own, whatever it points at."""
+    absolute = os.path.abspath(src)
     try:
-        return Path(os.path.relpath(resolved, out_dir.resolve())).as_posix()
+        return Path(os.path.relpath(absolute, os.path.abspath(out_dir))).as_posix()
     except ValueError:  # on another Windows drive there is no relative path
-        return resolved.as_posix()
+        return Path(absolute).as_posix()
 
 
 def _dest(src: Path, out_dir: Path, owners: dict[str, str], source: str) -> Path:
