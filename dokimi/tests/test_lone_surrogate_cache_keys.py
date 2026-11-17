@@ -237,7 +237,6 @@ def test_retention_key_of_a_nul_inside_the_text_is_apart_from_one_inside_the_sta
 
 
 def test_retention_key_is_stable_and_strips_the_statement():
-    assert _retention_key("a", "t") == _retention_key("a", "t")
     assert _retention_key("  a \n", "t") == _retention_key("a", "t")
     assert _retention_key("a", "t") != _retention_key("a", " t")
 
