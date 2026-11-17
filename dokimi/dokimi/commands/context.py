@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import argparse
 import glob
-import math
 import os
 import sys
 from pathlib import Path
 from typing import NoReturn
 
+from dokimi.cli_types import non_negative_int, unit_interval
 from dokimi.utils import InputError, refuse_device
 
 
@@ -251,20 +251,6 @@ def _session_paths(names: list[str]) -> list[str]:
     return paths
 
 
-def _non_negative_int(value: str) -> int:
-    number = int(value)
-    if number < 0:
-        raise argparse.ArgumentTypeError(f"must be 0 or more, not {value}")
-    return number
-
-
-def _unit_rate(value: str) -> float:
-    rate = float(value)
-    if not math.isfinite(rate) or not 0 <= rate <= 1:
-        raise argparse.ArgumentTypeError(f"must be a number from 0 to 1, not {value}")
-    return rate
-
-
 def _unique_traces(label: str, names: list[str]) -> list[str]:
     """Each trace once: a repeated ``--arm`` or overlapping globs must not count one run twice."""
     seen: dict[str, str] = {}
@@ -369,9 +355,9 @@ def register(sub, positive_int) -> None:
                        "correction (default 10)")
     pre_p.add_argument("--min-sessions", type=positive_int, default=5,
                        help="Fewer sessions than this: no candidates are ranked (default 5)")
-    pre_p.add_argument("--rare-max", type=_non_negative_int, default=3,
+    pre_p.add_argument("--rare-max", type=non_negative_int, default=3,
                        help="A rule triggered in at most this many sessions is rare: listed, not ranked (default 3)")
-    pre_p.add_argument("--in-use-rate", type=_unit_rate, default=0.2,
+    pre_p.add_argument("--in-use-rate", type=unit_interval, default=0.2,
                        help="A rule triggered in at least this share of sessions is in use, not a candidate (default 0.2)")
     pre_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
     pre_p.set_defaults(func=cmd_context_prefilter, emits_cli_output=True, cli_kind="trace prefilter")
