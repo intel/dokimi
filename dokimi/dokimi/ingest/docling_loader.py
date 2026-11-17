@@ -145,6 +145,8 @@ def _read_owners(record: Path) -> dict[str, str]:
 
 
 def _save_owners(record: Path, owners: dict[str, str]) -> None:
+    if record.is_dir() and not record.is_symlink():
+        raise InputError(f"{record} is a directory, not the record of converted files: remove it or use another --out-dir")
     if record.is_symlink():  # save_artifact would write through it, out of out_dir (#545)
         record.unlink()
     files = [{"name": name, "source": source} for name, source in sorted(owners.items())]

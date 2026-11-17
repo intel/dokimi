@@ -272,6 +272,8 @@ def test_a_failed_sidecar_removal_errors_the_cell_and_close_retries_it(tmp_path)
 
     assert (result.returncode, result.reward, result.passed) == (1, None, False)
     assert "docker rm dokimi-egress-" in result.metrics["error"]
+    run_log = (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
+    assert "[sidecar removal] docker rm dokimi-egress-" in run_log
     assert not [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
     # open() clears a leftover, stop_proxy() fails, close() tries again and still drops the network
     removals = [i for i, c in enumerate(cli.calls) if _sidecar_rm(c)]
