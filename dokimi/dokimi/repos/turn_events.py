@@ -5,10 +5,10 @@
 
 A ``turn`` is one model call and the tokens it was billed: ``input`` (uncached), ``output``,
 ``cache_read``, ``cache_write`` and ``prompt_tokens`` (the whole prompt, ``input + cache_read +
-cache_write``). Claude's come from :mod:`dokimi.context.trace`, the parse the tool events use; their sums
-should match the run's totals when the result's usage equals its per-call usage. Codex's come from its ``turn.completed``
-usage. Copilot's trace carries no usage, so it has no turn events. A count the harness did not report
-is ``null``, never ``0``.
+cache_write``). Claude's come from :mod:`dokimi.context.trace` (the parse the context budget uses);
+their sums should match the run's totals when the result's usage equals its per-call usage.
+Codex's come from its ``turn.completed`` usage. Copilot's trace carries no usage, so it has no
+turn events. A count the harness did not report is ``null``, never ``0``.
 
 A ``compaction`` follows the turn it came after; its ``turn`` is that turn's index, or ``null`` before
 the first call.

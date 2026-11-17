@@ -30,7 +30,7 @@ depend on the kind:
 | `read` | `path` (absent on a refused relative read whose file is not known); `rc` 0 or 1 when the harness reported one |
 | `edit` | `path`; `rc`; `deleted` when the file was deleted |
 | `tool` | `name`; `skill` on a `Skill` call |
-| `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output`, `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it can be partial) |
+| `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output`, `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it is low when a part is `null`) |
 | `compaction` | `turn`: the index of the turn it came after, `null` before the first call |
 
 A `turn` is one model call, so a Claude run's trace has one per call. A call
@@ -43,7 +43,7 @@ of subagents are in the sum (they carry `agent`), with `main` they are not. A
 model that the result's `modelUsage` lists but that made no assistant record has
 no `turn`; its tokens are in the totals only. Codex
 reports usage on each `turn.completed`, one `turn` event per turn, with `t`
-`null`; a count Codex did not report is `null`. Lines are not in time order across kinds (Claude's `turn` and `compaction` lines follow its tool lines), so sort by `t`. Copilot's trace carries no
+`null`; a count Codex did not report is `null`. In a Claude trace the `turn` and `compaction` lines follow its tool lines, so sort those by `t`; Codex's lines are in trace order. Copilot's trace carries no
 usage, so it writes no `turn` events and its token counts stay `null`.
 `compaction` is the point where Claude Code summarised the history; it has no
 tokens of its own.
