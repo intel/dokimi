@@ -19,6 +19,13 @@ def test_a_local_action_a_workflow_step_uses_is_ok(tmp_path):
     assert got[("AGENTS.md", "./source/.github/actions/y")] == ("unresolved", "tried source/.github/actions/y")
 
 
+def test_an_unprefixed_claim_spelled_with_extra_slashes_finds_the_local_use_of_its_normalized_path(tmp_path):
+    got = _by_file(_scan(tmp_path, "Use `source/.github//actions/x` and `source//.github/actions/y`.\n",
+                         {".github/workflows/ci.yml": _LOCAL_USE}))
+    assert got[("AGENTS.md", "source/.github//actions/x")] == ("ok", "used by .github/workflows/ci.yml")
+    assert got[("AGENTS.md", "source//.github/actions/y")][0] == "unresolved"
+
+
 def test_a_local_action_no_workflow_uses_stays_unresolved(tmp_path):
     got = _by_file(_scan(tmp_path, f"Use `{_LOCAL}`.\n", {".github/workflows/ci.yml": _CHECKOUT}))
     assert got[("AGENTS.md", _LOCAL)] == ("unresolved", "tried source/.github/actions/x")

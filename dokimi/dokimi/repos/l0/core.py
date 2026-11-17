@@ -352,7 +352,7 @@ class Scan:
         used = None
         if self._reads_as_action(name, cands):
             users = workflows.action_users(self)
-            used = users.get(workflows.local_key(name)) if name.startswith("./") else users.get(name) or users.get("./" + name)
+            used = users.get(workflows.local_key(name)) if name.startswith("./") else users.get(name) or users.get(workflows.local_key(name))
         return ("ok", f"used by {used}") if used else None
 
     def _as_branch(self, name: str, verdict: tuple[str, str]) -> tuple[str, str]:
