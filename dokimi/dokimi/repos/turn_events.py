@@ -5,8 +5,8 @@
 
 A ``turn`` is one model call and the tokens it was billed: ``input`` (uncached), ``output``,
 ``cache_read``, ``cache_write`` and ``prompt_tokens`` (the whole prompt, ``input + cache_read +
-cache_write``). Claude's come from :mod:`dokimi.context.trace`, the parse the run's own token totals
-use, so the turns of a complete trace sum to those totals. Codex's come from its ``turn.completed``
+cache_write``). Claude's come from :mod:`dokimi.context.trace`, the parse the tool events use; their sums
+should match the run's totals when the result's usage equals its per-call usage. Codex's come from its ``turn.completed``
 usage. Copilot's trace carries no usage, so it has no turn events. A count the harness did not report
 is ``null``, never ``0``.
 
