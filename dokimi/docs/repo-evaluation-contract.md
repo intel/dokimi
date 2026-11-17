@@ -2553,8 +2553,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
   the mean delta a one-sample t test at the uncorrected two-sided 5% level
   detects with 80% power at that spread, the t quantiles at `n-1` degrees of
-  freedom (every row has `mde` under `data` in `--json`; `null` for one task or deltas with
-  no spread, and then no note). It is not the power of the sign-flip test nor
+  freedom (every row has `mde` under `data` in `--json`; `null` for one task, for deltas with
+  no spread (then no note), or for a figure that leaves the float range (the note then names the changed-task or Holm floor where one keeps p above 0.05, and says nothing otherwise). It is not the power of the sign-flip test nor
   of the Holm-corrected decision; a Holm-calibrated figure would depend on the
   other rows' observed p, which a figure for planning the next run's task count
   cannot know. The sign-flip p over k changed (non-tied)

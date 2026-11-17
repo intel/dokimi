@@ -33,7 +33,7 @@ STEP_TIMEOUT_S = 600.0  # a docker step without a budget of its own (cp, exec, i
 STOP_GRACE_S = 10  # a timed-out docker CLI gets SIGTERM (it stops the container) before SIGKILL
 INFRA_EXIT = 125  # `docker run` itself failed (daemon, mount, image); the command never started
 # Predefined docker build args: passed by name when set, so a build behind a proxy works
-# and the values stay out of the image history.
+# and the values stay out of the command line.
 PROXY_BUILD_ARGS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 
 #: The callable a harness passes as its docker step: ``docker(args, log, check=..., timeout=...)``.

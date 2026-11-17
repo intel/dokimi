@@ -33,6 +33,7 @@ from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.code_index.symbols import descriptor_names, descriptors
 from dokimi.repos.environment.files import is_generated, is_test_file
 from dokimi.repos.environment.structure import detect_prefix, function_like, is_protocol_name
+from dokimi.utils import key_bytes
 
 GOLD = "gold.json"
 GRADER = "dokimi:graph_enum"
@@ -160,7 +161,7 @@ def write(p: Plan, opts: Options, code_index: dict[str, str]) -> None:
 def task_id(c: Candidate) -> str:
     """``graph_<kind>_<name>_<hash>``: the hash of the symbols keeps two targets of one name (another seed,
     another revision) from sharing a directory."""
-    digest = hashlib.sha256("\n".join(c.symbols).encode("utf-8", "surrogateescape")).hexdigest()[:HASH_LEN]
+    digest = hashlib.sha256(key_bytes("\n".join(c.symbols))).hexdigest()[:HASH_LEN]
     slug = re.sub(r"[^a-z0-9]+", "_", c.name.lower()).strip("_") or "symbol"
     return f"graph_{c.kind}_{slug}"[:ID_MAX - HASH_LEN - 1] + f"_{digest}"
 
