@@ -1141,9 +1141,10 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   skill: the shallowest path is kept, the other copies get no row and no call (not an error).
 - **Interrupt.** Ctrl-C or SIGTERM stops the sweep without new calls: the skills not yet started
   are cancelled, the skills in flight finish and keep their rows, and the run exits nonzero (130
-  for SIGINT, 143 for SIGTERM). The rows already written stay in the JSONL, so `--resume` continues
-  from them. A second signal raises KeyboardInterrupt: the queued skills stay cancelled, but the
-  rows of the skills in flight are not written (their calls are paid, so set `DOKIMI_RESPONSE_CACHE`).
+  for SIGINT, 143 for SIGTERM). A SIGTERM therefore waits for the calls in flight. The rows already
+  written stay in the JSONL, so `--resume` continues from them. A second signal kills the calls in
+  flight (their paid work is lost, so set `DOKIMI_RESPONSE_CACHE` to replay what was done) and stops
+  at once.
 
 ```bash
 dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \

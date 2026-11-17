@@ -232,7 +232,10 @@ def test_an_interrupt_cancels_the_queued_skills_keeps_the_rows_done_and_exits_no
     import dokimi.artifacts as artifacts
     import dokimi.commands.catalog_novelty as catalog_novelty
     import dokimi.novelty.report as report
+    import dokimi.process as process
 
+    kills: list[bool] = []
+    monkeypatch.setattr(process, "kill_children", lambda: kills.append(True))
     artifact = {"k0": {"lenient": 0.2, "strict": 0.1}, "paired": {"lenient": {"n_paired": 3}},
                 "artifact": {"tokens": 100}}
     started = []
@@ -266,9 +269,48 @@ def test_an_interrupt_cancels_the_queued_skills_keeps_the_rows_done_and_exits_no
         signal.signal(signal.SIGTERM, previous)
     assert code_seen == code
     assert started == ["accel-tuning"]  # the queued skills were cancelled before they started
+    assert not kills  # the first signal kills nothing: the call in flight finishes
     assert not stray
     rows = _rows(out / "sweep.jsonl")
     assert [(r["key"], r["status"]) for r in rows] == [("accel-tuning", "ok")]
+
+
+def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, monkeypatch):
+    """The first Ctrl-C lets the call in flight finish; a second one kills the calls in flight
+    (process.kill_children) and stops the sweep at once, with the same exit code as the first."""
+    import time
+    from types import SimpleNamespace
+
+    import dokimi.artifacts as artifacts
+    import dokimi.commands.catalog_novelty as catalog_novelty
+    import dokimi.novelty.report as report
+    import dokimi.process as process
+
+    kills: list[bool] = []
+    monkeypatch.setattr(process, "kill_children", lambda: kills.append(True))
+    artifact = {"k0": {"lenient": 0.2, "strict": 0.1}, "paired": {"lenient": {"n_paired": 3}},
+                "artifact": {"tokens": 100}}
+    started = []
+
+    def analyze(args, *a, **k):
+        started.append(args.artifact.rsplit("/", 1)[-1])
+        if len(started) == 1:  # two Ctrl-Cs while the first skill is in flight
+            os.kill(os.getpid(), signal.SIGINT)
+            time.sleep(0.1)
+            os.kill(os.getpid(), signal.SIGINT)
+            time.sleep(0.5)
+        return SimpleNamespace(partial=None, artifact=artifact)
+
+    monkeypatch.setattr(catalog_novelty, "_analyze_skill", analyze)
+    monkeypatch.setattr(artifacts, "save_artifact", lambda kind, art, path: path.parent.mkdir(parents=True))
+    monkeypatch.setattr(report, "render_novelty_markdown", lambda artifact: "")
+    root = _root(tmp_path, names=("accel-tuning", "beta", "gamma", "other-skill"))
+    out = tmp_path / "out"
+    with pytest.raises(SystemExit) as exc:
+        _sweep(root, out, "--max-usd", "5", "--jobs", "1")
+    assert exc.value.code == 130
+    assert kills == [True]
+    assert started == ["accel-tuning"]
 
 
 def test_identical_skill_copies_are_one_skill_and_the_help_says_so(tmp_path, capsys):

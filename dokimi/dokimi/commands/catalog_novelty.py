@@ -11,7 +11,7 @@ runs only the skills without a measured row (same directory digest, same setting
 ``--summary-only`` prints the summary of a JSONL file without any model call. Directories whose
 ``SKILL.md`` files are identical count as one skill (the shallowest path is kept). Ctrl-C or SIGTERM
 cancels the skills not yet started, lets the running ones finish, keeps the rows done and exits nonzero
-(a second signal raises KeyboardInterrupt and the rows in flight are not written).
+(a second signal kills the calls in flight and stops at once).
 
 A skill the budget stops mid-analysis is a ``partial`` row and leaves no novelty file. Set
 ``DOKIMI_RESPONSE_CACHE`` so a resumed run replays the calls already paid for at $0.
@@ -64,20 +64,20 @@ class _Stop:
 @contextmanager
 def _interruptible(stop: _Stop):
     """While the sweep runs, the first SIGINT or SIGTERM only sets *stop*: the sweep cancels the skills
-    not started and keeps the rows done. A second signal raises KeyboardInterrupt. The handlers are
-    restored after. Only the main thread can install them."""
+    not started, and the skills in flight finish. A second signal kills the calls in flight
+    (``process.kill_children``) and raises KeyboardInterrupt. The handlers are restored after.
+    Only the main thread can install them."""
     if threading.current_thread() is not threading.main_thread():
         yield
         return
 
     def on_signal(signum: int, frame: object) -> None:
-        if stop.requested:
-            raise KeyboardInterrupt
-        stop.signum = signum
-        if signum == signal.SIGTERM:
+        if stop.requested:  # a second signal: stop at once, the calls in flight too
             from dokimi.process import kill_children
 
-            kill_children()  # what the CLI's SIGTERM handler does for the processes it started
+            kill_children()
+            raise KeyboardInterrupt
+        stop.signum = signum
 
     previous = {signum: signal.signal(signum, on_signal) for signum in (signal.SIGINT, signal.SIGTERM)}
     try:
@@ -462,7 +462,8 @@ def register(catalog_sub, positive_int) -> None:
     p.add_argument("--jsonl", default=None,
                    help=f"One row per skill, written as each finishes (default: OUT_DIR/{DEFAULT_JSONL}). "
                         "Ctrl-C or SIGTERM cancels the skills not yet started (no new call), lets the "
-                        "running ones finish, keeps the rows done and exits nonzero (130, 143)")
+                        "running ones finish, keeps the rows done and exits nonzero (130, 143); "
+                        "a second signal kills the calls in flight too")
     p.add_argument("--jobs", type=positive_int, default=1,
                    help="Skills analysed in parallel threads, sharing --max-usd (default 1)")
     p.add_argument("--resume", action="store_true",

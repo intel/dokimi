@@ -11,5 +11,6 @@ SPDX-License-Identifier: Apache-2.0
   finishes. `--resume` keeps the measured rows whose skill digest and settings are unchanged, and
   an existing `--jsonl` is not overwritten without it. `--strata CSV` adds bootstrap 95%
   intervals per stratum; `--summary-only` prints the summary of a JSONL with no model call. See
-  Ctrl-C or SIGTERM cancels the skills not yet started and keeps the rows done; identical
-  SKILL.md copies count once. See `docs/skill-novelty.md`, Corpus sweep.
+  Ctrl-C or SIGTERM cancels the skills not yet started, lets the running ones finish and keeps the
+  rows done; a second signal kills the calls in flight. Identical SKILL.md copies count once.
+  See `docs/skill-novelty.md`, Corpus sweep.
