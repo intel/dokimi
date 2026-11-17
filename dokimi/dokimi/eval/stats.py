@@ -65,7 +65,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.eval.arm_summary import mean_in_range
-from dokimi.eval.finite_delta import check_sum_range, checked_delta
+from dokimi.eval.finite_delta import checked_delta
 from dokimi.eval.sign_flip import (
     ALPHA,
     METHOD,
@@ -631,9 +631,8 @@ def _describe_deltas(
     d_sd = _sample_sd(d)
     cohens_d = _cohens_d(d_mean, d_sd)
     if all(math.isfinite(x) for x in d):
-        # The sign-flip sums would overflow and read as a measured zero effect.
-        # A finite sum of magnitudes bounds the spread (sd**2 <= sum(x**2) <= that sum squared), so it is finite too.
-        check_sum_range(d)
+        if not math.isfinite(d_sd):  # the spread of finite deltas past the float range: refused, as before
+            raise OverflowError("the sd of the deltas leaves the float range")
         row = sign_flip_row(d, seed=seed, exact=True, magnitudes=magnitudes)
         p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends

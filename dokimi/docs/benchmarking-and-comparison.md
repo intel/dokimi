@@ -368,7 +368,10 @@ records its `correction_family`, `family_size` (every member), and `family_teste
 Each row's `p` is one two-sided sign-flip test on the per-question deltas: under
 the null each delta's sign is a fair coin, and p is the share of sign patterns
 whose |sum| reaches the observed one (exact up to 16 changed pairs, Monte Carlo
-with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
+with a fixed seed above). The sums are exact, not float sums: a delta of 1e17 does not
+hide five deltas of 1, and a pattern whose sum falls short of the observed one by no more
+than the rounding slack of the deltas (at most 1e-9) still reaches it (0.1 + 0.2 against
+0.3). A delta within 1e-9 of 0 is a tie and carries no sign,
 unless the values of its pair are below 1: float noise in a delta scales with the
 values subtracted, so a pair whose larger value is m below 1 ties within 1e-9 times m
 (a score of 0.3 against 0.1 + 0.2 is a tie; 1e-12 against 0 is a change, as 1e-3 against 0
@@ -446,7 +449,8 @@ heading, when no arm has a row); the significance of the other arms stays when t
 family test itself succeeds. A mean of finite scores or of finite paired differences
 whose sum would pass the float range is computed exactly (`statistics.mean`), so the
 per-arm `avg_aggregate` and `delta_vs_baseline` are refused only when a single
-difference leaves the range. The console summary of `arms run` prints
+difference leaves the range. A significance row computes the mean, the sd and the
+sign-flip p of such differences too, and is refused only when its sd leaves the range; an interaction row is also refused when the sum of its two arm deltas (its additive expectation) does. The console summary of `arms run` prints
 `(delta not computed: <the refusal>)` for such an arm.
 
 Everything above assumes the judge's continuous 0–100 score. The
