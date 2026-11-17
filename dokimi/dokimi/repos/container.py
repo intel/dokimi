@@ -36,6 +36,7 @@ Every container is started the same way, whatever the image's ``ENTRYPOINT``:
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import threading
 from collections.abc import Callable
@@ -62,6 +63,7 @@ NETWORKS = ("none", "bridge", "host")
 
 # The named containers a run has started and not yet returned, with the kill of each. A batch's worker threads
 # share them: Ctrl-C reaches only the main thread, so the batch kills them by name (see halt_and_kill_started).
+_log = logging.getLogger(__name__)
 _live_lock = threading.Lock()
 _live: dict[str, Callable[[], None]] = {}
 _halted = False
@@ -106,9 +108,16 @@ def halt_and_kill_started() -> None:
         _halted = True
         _halts += 1
         stops = list(_live.values())
+    pending: BaseException | None = None
     for stop in stops:
-        with contextlib.suppress(Exception):  # a kill that fails leaves the next call to retry it
+        try:
             stop()
+        except Exception:  # a kill that fails leaves the next call to retry it
+            continue
+        except BaseException as exc:  # a Ctrl-C in one kill must not skip the others: it is raised after them
+            pending = pending or exc
+    if pending is not None:
+        raise pending
 
 
 def clear_halt() -> None:
@@ -239,6 +248,8 @@ class DockerRunner:
                                 env=process.Env.inherit())
                 except OSError:
                     pass  # still a timed-out or interrupted run; the container may outlive it
+                except Exception:  # a bug here must not pass unseen: the kill is retried, so log each one
+                    _log.exception("docker kill of %s failed", spec.name)
 
         # -e NAME reads the forwarded values from the CLI's own environment: the caller's.
         result = _run_tracked(spec.name, stop, self.argv(spec), stdout=stdout, stderr=stderr, timeout_s=timeout_s,

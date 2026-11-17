@@ -159,3 +159,51 @@ def test_an_error_in_a_cell_cancels_the_cells_not_started(monkeypatch):
         runner_mod._run_cells(list(range(10)), one, 1)
     assert len(ran) <= 3  # a cell that was queued behind the failure does not start (pool.map cancelled them)
 
+
+def test_a_ctrl_c_during_one_kill_still_kills_the_other_containers():
+    from dokimi.repos import container as container_mod
+
+    kills = []
+
+    def first():
+        kills.append("a")
+        raise KeyboardInterrupt  # a second Ctrl-C lands in this kill
+
+    def second():
+        kills.append("b")
+
+    container_mod._track("dokimi-a", first)
+    container_mod._track("dokimi-b", second)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            container_mod.halt_and_kill_started()
+        assert kills == ["a", "b"]
+    finally:
+        container_mod._untrack("dokimi-a")
+        container_mod._untrack("dokimi-b")
+        container_mod.clear_halt()
+
+
+def test_a_kill_that_fails_unexpectedly_is_logged_with_its_traceback(tmp_path, monkeypatch, caplog):
+    import logging
+
+    from dokimi.repos import container as container_mod
+
+    captured = {}
+
+    def fake_tracked(name, stop, argv, **kw):
+        captured["stop"] = stop
+        raise container_mod.BatchInterrupted("stopped for the test")
+
+    def broken_kill(argv, **kw):
+        raise RuntimeError("kill broke")
+
+    monkeypatch.setattr(container_mod, "_run_tracked", fake_tracked)
+    spec = container_mod.ContainerSpec(image="img", argv=["true"], name="dokimi-k")
+    runner = container_mod.DockerRunner(docker="docker", runner=broken_kill)
+    with pytest.raises(container_mod.BatchInterrupted):
+        runner.run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=1)
+    with caplog.at_level(logging.ERROR):
+        captured["stop"]()  # the kill is retried by the caller: it must not raise, and must not vanish
+    assert "docker kill of dokimi-k failed" in caplog.text
+    assert caplog.records[-1].exc_info is not None  # with its traceback
