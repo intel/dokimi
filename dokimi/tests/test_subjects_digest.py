@@ -146,6 +146,15 @@ def test_a_nul_in_a_file_cannot_move_bytes_into_the_next_value(tmp_path: Path):
     assert _digest_values((str(f),)) != pair
 
 
+def test_a_file_value_whose_content_spells_the_next_value_differs_from_the_two_values(tmp_path: Path):
+    # #892 review: the file's content digest was the same bytes as the digest of a following value spelled as that content.
+    f = tmp_path / "f"
+    f.write_bytes(b"missing-question")
+    single = _digest_values((str(f),))
+    f.unlink()
+    assert _digest_values((str(f), "missing-question")) != single
+
+
 def test_an_arm_spec_digest_frames_the_spec_and_each_part_as_fixed_width_fields(tmp_path: Path):
     # #878: the spec and each part were joined with a bare NUL, so this literal moved.
     assert _digest_arm_spec("skill:./a+skill:./b", base=tmp_path) == (

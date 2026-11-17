@@ -138,13 +138,15 @@ def _field(text: str) -> bytes:
 
 
 def _digest_values(values: tuple[str, ...]) -> str:
-    """Per value: its text's digest, then the digest of the file it names, when it names one."""
+    """Per value: its text's digest, then a tag for file or no file, then the file's digest when it names one."""
     h = hashlib.sha256()
     for value in values:
         h.update(_field(value))
         path = Path(value)
         if path.is_file():
-            h.update(hashlib.sha256(path.read_bytes()).digest())
+            h.update(b"f" + hashlib.sha256(path.read_bytes()).digest())
+        else:
+            h.update(b"t")
     return "sha256:" + h.hexdigest()
 
 
