@@ -376,6 +376,7 @@ def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
             f"'environment' is the legacy Harbor spelling); keep only 'sandbox': {path}"
         )
     environment = _table(data.get("sandbox")) or _table(data.get("environment"))
+    _check_docker_image(fmt, environment, path)
     version = data.get("schema_version")
     spec = TaskSpec(
         name=path.name,
@@ -396,6 +397,14 @@ def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
             f"docker-* and the run artifact use task.md, Harbor-backed harnesses refuse it: {path}"
         )
     return spec
+
+
+def _check_docker_image(fmt: str, environment: dict[str, Any], path: Path) -> None:
+    """Refuse a Harbor ``docker_image`` that is not a string, as Harbor 0.24's ``EnvironmentConfig``
+    (``docker_image: str | None``) does, rather than build a task that names a prebuilt image."""
+    image = environment.get("docker_image")
+    if fmt == FORMAT_HARBOR and image is not None and not isinstance(image, str):
+        raise ValueError(f"task.toml [environment] docker_image must be a string, not {image!r}: {path}")
 
 
 def read_task_config(path: Path) -> dict[str, Any]:

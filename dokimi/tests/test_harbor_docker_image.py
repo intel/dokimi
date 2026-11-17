@@ -271,6 +271,15 @@ def test_a_failed_pull_errors_the_cell_before_any_container(tmp_path):
     assert not [a for a in cli.args if a[0] == "run"]
 
 
+@pytest.mark.parametrize("value", ["5", "true", '["python:3.12-slim"]'])
+def test_a_docker_image_that_is_not_a_string_is_refused_at_load(tmp_path, value):
+    """docs/coding-harnesses.md: refused as Harbor's EnvironmentConfig (docker_image: str | None) refuses it."""
+    path = _task(tmp_path, image=None, dockerfile=True)
+    (path / "task.toml").write_text(f"[environment]\ndocker_image = {value}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="docker_image must be a string"):
+        load_task(path)
+
+
 @pytest.mark.parametrize("image", ["--privileged", "python:3.12 -slim"])
 def test_a_docker_image_that_is_not_a_reference_is_refused(tmp_path, image):
     """distribution/reference: a reference starts with a letter or digit and has no space;

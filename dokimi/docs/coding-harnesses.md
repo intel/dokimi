@@ -257,7 +257,9 @@ formats do not read the key.
   `docker compose up` does, within the task's `build_timeout_sec`; a pull that
   runs out of time errors the cell, like a build. A value that is not an image
   reference (it starts with `-`, or holds a space) is refused before any docker
-  call: docker would read it as a flag.
+  call: docker would read it as a flag. A `docker_image` that is not a string
+  (`docker_image = 5`) fails the task's load, as Harbor's `EnvironmentConfig` refuses
+  it; an empty string is no image.
 - The pull is the daemon's, like the `FROM` image of a `docker build`:
   `--network build=none` takes the network from a build's `RUN` steps and does
   not stop it. To run offline, have the image on the daemon first.
