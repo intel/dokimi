@@ -83,6 +83,13 @@ def test_reach_token_of_a_json_escaped_high_surrogate_path_is_a_token_of_its_own
 
 
 @posix_only
+def test_reach_token_of_a_high_surrogate_differs_from_the_escaped_bytes_that_encode_alike():
+    from dokimi.repos.reach import token
+
+    assert token("s", "n\ud800", "p") != token("s", "n\udced\udca0\udc80", "p")
+
+
+@posix_only
 def test_skill_reach_token_of_a_case_id_with_a_non_utf8_byte_is_a_token():
     from dokimi.repos.skill_reach import token
 
@@ -149,6 +156,11 @@ def test_bundle_measured_digest_of_a_json_escaped_high_surrogate_file_name_is_a_
     high, other = json.loads('"n\\ud800"'), json.loads('"n\\ud801"')
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", _bundle_digest(high))
     assert _bundle_digest(high) != _bundle_digest(other)
+
+
+@posix_only
+def test_bundle_measured_digest_of_a_high_surrogate_differs_from_the_escaped_bytes_that_encode_alike():
+    assert _bundle_digest("n\ud800") != _bundle_digest("n\udced\udca0\udc80")
 
 
 def _graph_candidate(*symbols: str):
