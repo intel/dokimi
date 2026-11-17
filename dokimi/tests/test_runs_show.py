@@ -68,6 +68,7 @@ CONTENTS = {
     "question_panel.v1": {"questions": 2},
     "question_quality.v1": {"questions": 2, "trivial_questions": 1, "recommendations": 1},
     "report_qa.v1": {"records": 1},
+    "docling_sources.v1": {"files": 2},
 }
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"

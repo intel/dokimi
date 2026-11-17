@@ -100,6 +100,7 @@ FIELDS: dict[str, KindFields] = {
     "question_quality": KindFields(subject=("library_name",),
                                    counts=("questions", "trivial_questions", "recommendations")),
     "report_qa": KindFields(time=("generated_at",), counts=("records",)),
+    "docling_sources": KindFields(counts=("files",)),
 }
 
 #: Every schema_version an artifact may carry (current and superseded) -> its kind.

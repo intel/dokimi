@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/docling_sources.v1.json",
+  "title": "Docling import sources v1",
+  "description": "Which source document each Markdown file in a `data import docling` output directory was converted from (docs/ingestion-docling.md), kept there as `.dokimi-docling.json`. A rerun replaces the file the record gives a source; another source with the same name gets the next numbered file.",
+  "type": "object",
+  "required": ["schema_version", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "docling_sources.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "pattern": "^[^/\\\\]+\\.md(?![\\s\\S])", "description": "The Markdown file's name in the output directory: a name, not a path."},
+          "source": {"type": "string", "minLength": 1, "description": "The source document it was converted from, `/`-separated: relative to the output directory, or absolute when there is none (another Windows drive)."}
+        }
+      },
+      "description": "One entry per file, sorted by name."
+    }
+  }
+}

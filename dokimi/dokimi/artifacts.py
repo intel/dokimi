@@ -103,6 +103,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "question_panel": "question_panel.v1",
     "question_quality": "question_quality.v1",
     "report_qa": "report_qa.v1",
+    "docling_sources": "docling_sources.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

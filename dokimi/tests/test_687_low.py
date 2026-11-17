@@ -5,17 +5,170 @@
 
 from __future__ import annotations
 
+import logging
+import os
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
+from dokimi.artifacts import load_artifact
 from dokimi.harnesses import container_agent as container_mod
 from dokimi.harnesses import load_task
 from dokimi.harnesses.registry import create_harness
+from dokimi.ingest import docling_loader
+from dokimi.ingest.docling_loader import SOURCES_NAME, materialize_markdown
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.process import reply
 # _hermetic is autouse: no operator Claude settings, provider env or host `claude` reach a test.
 from tests.test_docker_solver_harness import _fixture_task, _hermetic, _pipeline  # noqa: F401
+
+# ── ingest/docling_loader.py: a rerun replaces its own output ─────────────────
+# The rules are docs/ingestion-docling.md "Materialize a corpus".
+
+
+@pytest.fixture
+def converted(monkeypatch):
+    """Docling replaced by a converter whose output names the call, so a stale file shows."""
+    calls: list[Path] = []
+
+    def convert(path):
+        calls.append(Path(path))
+        return f"# {Path(path).name}, conversion {len(calls)}\n"
+    monkeypatch.setattr(docling_loader, "convert_to_markdown", convert)
+    return calls
+
+
+def _docs(tmp_path: Path, *rels: str) -> list[Path]:
+    paths = [tmp_path / "raw" / rel for rel in rels]
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"%PDF")
+    return paths
+
+
+def _md(out: Path) -> dict[str, str]:
+    return {p.name: p.read_text(encoding="utf-8") for p in sorted(out.glob("*.md"))}
+
+
+def test_a_rerun_replaces_its_own_output_instead_of_writing_a_numbered_copy(tmp_path, converted):
+    docs, out = _docs(tmp_path, "a.pdf", "sub/a.pdf"), tmp_path / "md"
+    assert materialize_markdown(docs, out) == [out / "a-pdf.md", out / "a-pdf-2.md"]
+
+    assert materialize_markdown(docs, out) == [out / "a-pdf.md", out / "a-pdf-2.md"]
+    assert _md(out) == {"a-pdf.md": "# a.pdf, conversion 3\n", "a-pdf-2.md": "# a.pdf, conversion 4\n"}
+    record = load_artifact("docling_sources", out / SOURCES_NAME)
+    assert record["files"] == [{"name": "a-pdf-2.md", "source": "../raw/sub/a.pdf"},
+                               {"name": "a-pdf.md", "source": "../raw/a.pdf"}]
+
+
+def test_another_source_with_the_name_gets_a_counter_across_runs(tmp_path, converted):
+    (first,), (second,) = _docs(tmp_path, "x/a.pdf"), _docs(tmp_path, "y/a.pdf")
+    out = tmp_path / "md"
+    assert materialize_markdown([first], out) == [out / "a-pdf.md"]
+    assert materialize_markdown([second], out) == [out / "a-pdf-2.md"]
+
+    assert materialize_markdown([first], out) == [out / "a-pdf.md"]
+    assert materialize_markdown([second], out) == [out / "a-pdf-2.md"]
+    assert sorted(_md(out)) == ["a-pdf-2.md", "a-pdf.md"]
+
+
+def test_the_same_source_by_another_path_is_the_same_source(tmp_path, converted, monkeypatch):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+    materialize_markdown([doc], out)
+    monkeypatch.chdir(tmp_path)
+
+    assert materialize_markdown([Path("raw/a.pdf")], Path("md")) == [Path("md/a-pdf.md")]
+    assert sorted(_md(out)) == ["a-pdf.md"]
+
+
+def test_a_failed_record_save_leaves_no_file_the_rerun_cannot_place(tmp_path, converted, monkeypatch):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+
+    def full(kind, data, path):
+        raise OSError(28, "No space left on device")
+    with monkeypatch.context() as patch:
+        patch.setattr(docling_loader, "save_artifact", full)
+        with pytest.raises(OSError, match="No space"):
+            materialize_markdown([doc], out)
+
+    assert materialize_markdown([doc], out) == [out / "a-pdf.md"]
+    assert sorted(_md(out)) == ["a-pdf.md"]
+
+
+def test_a_file_no_record_names_is_kept(tmp_path, converted):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+    out.mkdir()
+    (out / "a-pdf.md").write_text("hand-written\n", encoding="utf-8")
+
+    assert materialize_markdown([doc], out) == [out / "a-pdf-2.md"]
+    assert (out / "a-pdf.md").read_text(encoding="utf-8") == "hand-written\n"
+
+
+def _link(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks are not allowed here")
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+def test_a_link_at_a_recorded_name_is_not_written_through(tmp_path, converted):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+    materialize_markdown([doc], out)
+    (out / "a-pdf.md").unlink()
+    (tmp_path / "elsewhere.md").write_text("outside\n", encoding="utf-8")
+    _link(out / "a-pdf.md", tmp_path / "elsewhere.md")
+
+    assert materialize_markdown([doc], out) == [out / "a-pdf-2.md"]
+    assert (tmp_path / "elsewhere.md").read_text(encoding="utf-8") == "outside\n"
+    assert (out / "a-pdf.md").is_symlink()
+    assert [f["name"] for f in load_artifact("docling_sources", out / SOURCES_NAME)["files"]] == ["a-pdf-2.md"]
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+def test_a_link_at_the_record_is_neither_read_nor_written_through(tmp_path, converted):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+    materialize_markdown([doc], out)
+    (out / SOURCES_NAME).rename(tmp_path / "kept.json")
+    before = (tmp_path / "kept.json").read_text(encoding="utf-8")
+    _link(out / SOURCES_NAME, tmp_path / "kept.json")
+
+    assert materialize_markdown([doc], out) == [out / "a-pdf-2.md"]
+    assert (tmp_path / "kept.json").read_text(encoding="utf-8") == before
+    assert not (out / SOURCES_NAME).is_symlink()
+
+
+def test_a_source_whose_file_was_deleted_writes_it_again_under_its_name(tmp_path, converted):
+    docs, out = _docs(tmp_path, "a.pdf", "sub/a.pdf"), tmp_path / "md"
+    materialize_markdown(docs, out)
+    (out / "a-pdf.md").unlink()
+
+    assert materialize_markdown(docs[1:], out) == [out / "a-pdf-2.md"]
+    assert materialize_markdown(docs[:1], out) == [out / "a-pdf.md"]
+
+
+def test_a_directory_at_a_recorded_name_is_taken(tmp_path, converted):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+    materialize_markdown([doc], out)
+    (out / "a-pdf.md").unlink()
+    (out / "a-pdf.md").mkdir()
+
+    assert materialize_markdown([doc], out) == [out / "a-pdf-2.md"]
+
+
+def test_an_unreadable_record_is_named_and_its_files_are_kept(tmp_path, converted, caplog):
+    (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
+    materialize_markdown([doc], out)
+    (out / SOURCES_NAME).write_text("{not json", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="dokimi.ingest.docling_loader"):
+        assert materialize_markdown([doc], out) == [out / "a-pdf-2.md"]
+    assert SOURCES_NAME in caplog.text and "are kept" in caplog.text
+    assert (out / "a-pdf.md").read_text(encoding="utf-8") == "# a.pdf, conversion 1\n"
+    assert load_artifact("docling_sources", out / SOURCES_NAME)["files"] == [
+        {"name": "a-pdf-2.md", "source": "../raw/a.pdf"}]
+
 
 # ── personas/analyzer.py: the use-case section parser ─────────────────────────
 

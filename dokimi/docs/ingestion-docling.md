@@ -32,6 +32,16 @@ This converts every supported document under `--input` to a `.md` file in
 `.pptx`, `.xlsx`, `.html`/`.htm`, and common image formats (`.png`, `.jpg`,
 `.tiff`, …).
 
+Each source becomes `<stem>-<ext>.md` (`manual.pdf` → `manual-pdf.md`). The
+output directory keeps `.dokimi-docling.json`, a `docling_sources.v1` record of
+which source each file came from, so a rerun replaces each source's own file.
+A second source with the same name, such as `v2/manual.pdf`, gets the next
+numbered name, `manual-pdf-2.md`, in the same run or a later one. A file the
+record does not name, a directory and a symbolic link are never written over:
+the source gets the next free name instead. If the record cannot be read, a
+warning names it, the files stay, and the run writes new numbered ones beside
+them.
+
 If Docling is not installed, the command exits with an install hint and the rest
 of the pipeline is unaffected — the dependency is fully optional.
 
