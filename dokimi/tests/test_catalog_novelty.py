@@ -145,6 +145,17 @@ def test_a_resume_whose_judge_is_the_answerer_is_refused_before_it_drops_a_row_o
     assert len(list(out.glob("*/novelty.json"))) == 2
 
 
+@pytest.mark.parametrize("panel", [["--judge", "openai/judge-a", "--judge", "openai/judge-b"],
+                                   ["--judge", "openai/judge-a", "--judge-aggregate", "unanimous"]])
+def test_a_judge_panel_is_refused_rather_than_graded_by_its_first_judge(tmp_path, panel):
+    argv = ["catalog", "novelty", str(_root(tmp_path)), "--out-dir", str(tmp_path / "out"),
+            "--model", "answerer-m", "--max-usd", "5", *panel]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(InputError, match="judge panel"):
+        args.func(args)
+    assert not (tmp_path / "out").exists()
+
+
 def test_resume_keeps_the_measured_rows_and_runs_only_the_rest(tmp_path, capsys):
     root, out = _root(tmp_path), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5", "--limit", "1")

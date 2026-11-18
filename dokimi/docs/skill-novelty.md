@@ -1200,7 +1200,8 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   `--jsonl` is refused rather than overwritten.
 - **Settings.** The sweep takes the measurement flags it needs (`--model`, `--judge-model`,
   `--tier`, `--max-atoms`, `--budgets`, `--arms`, `--include-resources`, ...); the rest keep their
-  `skill novelty analyze` defaults. `--judge2` is not part of the sweep: run it on one skill.
+  `skill novelty analyze` defaults. `--judge2` and a judge panel (`--judge` more than once, `--judge-aggregate`) are not part of
+  the sweep, which refuses them: run them on one skill.
 - **Summary.** The first line of the summary is the share the model already knew without the
   skill, `k0.lenient`, and the share it did not know (`1 - known`): the new-to-the-model share.
   Each interval is a 95% percentile bootstrap over the skills (2000 resamples,

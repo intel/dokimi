@@ -480,6 +480,9 @@ def _refuse_unsafe_run(args: argparse.Namespace, jsonl: Path) -> None:
 
     if args.judge2:
         raise InputError("--judge2 is not part of catalog novelty: run it on one skill with skill novelty analyze")
+    if len(args.judges or ()) > 1 or args.judge_aggregate != "median":
+        raise InputError("a judge panel (--judge given more than once, --judge-aggregate) is not part of catalog "
+                         "novelty: the sweep grades with one judge; run a panel on one skill with skill novelty analyze")
     if args.max_usd is None:
         raise InputError("catalog novelty makes paid calls: pass --max-usd, the whole-run budget "
                          "(--max-usd-per-skill caps one skill inside it)")
