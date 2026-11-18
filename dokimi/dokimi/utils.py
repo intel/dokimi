@@ -125,6 +125,14 @@ def digest_text(text: str) -> str:
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
+def key_bytes(text: str) -> bytes:
+    """Bytes a cache key hashes: ``surrogateescape``; NUL-led text gets ``\\0e``; a surrogate it cannot map (U+D800..U+DC7F, U+DD00..U+DFFF) tags the text ``\\0sp`` and uses ``surrogatepass``."""
+    try:
+        return b"\0e" * text.startswith("\0") + text.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError:  # a JSON `\ud800` has no escape
+        return b"\0sp" + text.encode("utf-8", "surrogatepass")
+
+
 def _plain_path(text: str) -> str:
     r"""A Windows absolute path without its extended-length prefix. os.readlink gives an absolute link target as
     \\?\C:\... (or \\?\UNC\...), while the anchors are plain: the two read as different drives.
@@ -577,7 +585,7 @@ _REGION_PROFILES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "
 _ROUTES = frozenset({
     "openai", "openai-codex", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
     "bedrock", "converse", "vertex_ai", "azure", "azure_ai", "models", "groq", "ollama", "mistral", "deepseek",
-    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface", "claude-cli",
+    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface", "claude-cli", "codex-cli", "copilot-cli",
 })
 
 

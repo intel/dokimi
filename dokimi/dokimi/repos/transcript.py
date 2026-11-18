@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
+from dokimi.repos.event_format import EVENT_VERSION
+
 OUTPUT_LIMIT = 8192
 OUTPUT_KEEP = 4096
 
@@ -62,8 +64,9 @@ class Transcript:
         """The paths the agent was shown (:func:`shown_read`); a refused or failed read stays in the events only."""
         return {e["path"] for e in self.events if shown_read(e) and e.get("path")}
 
-    def events_jsonl(self) -> str:
-        return "".join(json.dumps(e, sort_keys=True) + "\n" for e in self.events)
+    def events_jsonl(self, events: list[dict[str, Any]] | None = None) -> str:
+        return "".join(json.dumps({**e, "v": EVENT_VERSION}, sort_keys=True) + "\n"
+                       for e in (self.events if events is None else events))
 
 
 def shown_read(event: dict[str, Any]) -> bool:

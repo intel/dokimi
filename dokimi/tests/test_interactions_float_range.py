@@ -84,6 +84,15 @@ def test_a_record_with_a_non_finite_score_gives_a_nan_contrast_not_a_value_error
     assert res["p"] is None
 
 
+def test_two_arm_deltas_whose_sum_leaves_the_float_range_raise_instead_of_an_inf_additive_expectation():
+    # every delta and the contrast fit (the sd is finite), but 1e308 + 1e308 is the row's additive expectation
+    evaluations = [_ev(f"q{i}", 1.5e308 + i * 1e306, 1e308, 1e308, 0.0) for i in range(8)]
+    with pytest.raises(OverflowError, match="the sum of the two arm deltas leaves the float range"):
+        _test(evaluations)
+    with pytest.raises(OverflowError, match="the sum of the two arm deltas leaves the float range"):
+        interaction_significance(evaluations, ARMS, "baseline")
+
+
 def test_a_near_range_contrast_that_stays_finite_returns_finite_numbers():
     evaluations = [_ev("q1", BIG, BIG, BIG, BIG), _ev("q2", -BIG, -BIG, -BIG, -BIG), _ev("q3", 1.0, 0.0, 0.0, 0.0)]
     res = _test(evaluations)

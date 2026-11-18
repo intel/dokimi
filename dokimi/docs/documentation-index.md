@@ -57,6 +57,10 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   separate repository, and every location is an explicit flag
   (`--questions-root`, `--tasks-root`, `--repo-root`, `--registry`). Includes a
   pre-flight `catalog check` and what each command does when a root is missing.
+- [finding-codes.md](finding-codes.md) — the codes `catalog check` reports, with
+  their levels and which ones `--ignore` may hide.
+- [catalog-jsonl.md](catalog-jsonl.md) — the JSON and JSONL output of
+  `catalog check`, key by key, for scripts and external studies.
 - [quickstart.md](quickstart.md) — end-to-end LLM evaluation pipeline:
   personas → questions → answers → judge → report. Includes troubleshooting
   and a cost estimate.
@@ -132,6 +136,8 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 
 ## Repository evaluation
 
+- [events-format.md](events-format.md) — the normalized `events.jsonl` trace of a
+  repository run: its lines, the version field and the promise that a version's fields only grow.
 - [repo-evaluation-contract.md](repo-evaluation-contract.md) — implemented core with scoped extensions: what a repository provides to be evaluated as a whole:
   `repo-eval.yaml`, `task.json`, the `grade` entry point and `grade.json`,
   harness profiles, and the guidance reach probe; and how to run its task

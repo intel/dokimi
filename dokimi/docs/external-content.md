@@ -440,6 +440,9 @@ A large catalog is easier to scan one skill at a time:
   Every `SKILL.md` is loaded before the first row, so memory still grows with
   the catalog. A `--jobs` worker that dies ends the scan with exit 1.
 
+The finding codes are listed in [finding codes](finding-codes.md), and the fields of the
+JSON report and of each JSONL row in [catalog check output](catalog-jsonl.md).
+
 `--jsonl`, `--jobs` and `--resume` need `--per-skill`, and `--jsonl` does not
 combine with `--format json`; any other misuse exits 2. From Python,
 `dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
