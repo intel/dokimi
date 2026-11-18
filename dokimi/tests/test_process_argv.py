@@ -33,6 +33,11 @@ def test_a_lone_surrogate_in_an_argv_entry_reaches_the_child_as_a_question_mark(
     assert done.returncode == 0 and done.stdout_bytes == sent
 
 
+def test_a_bytes_argv_entry_still_runs_as_given():
+    done = process.run([PY, "-c", "import sys; print(sys.argv[1])", b"x"], timeout=30, env=INHERIT)  # type: ignore[list-item]
+    assert done.returncode == 0 and done.stdout.strip() == "x"
+
+
 @_POSIX_ONLY
 def test_completed_argv_holds_the_text_sent():
     done = process.run([PY, "-c", "pass", "n\ud800", "plain"], timeout=30, env=INHERIT)
