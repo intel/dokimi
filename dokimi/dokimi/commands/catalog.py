@@ -19,7 +19,7 @@ import json
 import sys
 from pathlib import Path
 from dokimi.commands.catalog_scan import (
-    is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
+    ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
     unrestricted_and_risky,
 )
 from dokimi.utils import InputError
@@ -269,7 +269,7 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
             if row["state"] == "error" else []
         subjects.append({"subject": f"task:{row['name']}", "verdict": "fail" if row["state"] == "error" else "pass",
                          "findings": findings})
-    counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ("ok", "warn", "error")}
+    counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ROW_STATES}
     reason = None
     if failed:
         n = sum(s["verdict"] == "fail" for s in subjects)

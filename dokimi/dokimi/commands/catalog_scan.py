@@ -253,7 +253,7 @@ class _Tally:
             self.reasons.append(reason)
 
 
-_ROW_STATES = ("ok", "warn", "error", "skipped")
+ROW_STATES = ("ok", "warn", "error", "skipped")
 
 
 def _is_row(row: object) -> bool:
@@ -261,7 +261,7 @@ def _is_row(row: object) -> bool:
         isinstance(row, dict)
         and isinstance(row.get("name"), str)
         and isinstance(row.get("relpath"), (str, type(None)))
-        and row.get("state") in _ROW_STATES
+        and row.get("state") in ROW_STATES
         and "error" in row
         and isinstance(row.get("findings"), list)
     )
