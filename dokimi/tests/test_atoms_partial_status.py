@@ -10,6 +10,7 @@ import json
 import pytest
 
 from dokimi.novelty.atoms import load_atoms_record
+from dokimi.novelty.atoms_refusal import has_visible_text
 from dokimi.utils import InputError
 
 _BLOCK = {"reason": "spend_cap", "message": "stopped"}
@@ -58,8 +59,10 @@ _MISSING = object()
 
 
 @pytest.mark.parametrize("reason", ["no_price", "permanent_error"])
-@pytest.mark.parametrize("message", [_MISSING, "", "  ", "\n\t", 5, None, ["x"], "\u200b"],
-                         ids=["absent", "empty", "spaces", "whitespace", "int", "null", "list", "zero-width"])
+@pytest.mark.parametrize("message", [_MISSING, "", "  ", "\n\t", 5, None, ["x"], "\u200b",
+                                     "\u3164", "\u115f", "\uffa0", "\u2800", "\u0301", "\u034f"],
+                         ids=["absent", "empty", "spaces", "whitespace", "int", "null", "list", "zero-width",
+                              "u3164", "u115f", "uffa0", "u2800", "u0301", "u034f"])
 def test_a_partial_file_without_a_usable_message_names_its_stop(tmp_path, reason, message):
     # docs/skill-novelty.md:1216-1217 (`probe` and the other atom readers refuse a partial atoms file)
     path = tmp_path / "atoms.json"
@@ -72,15 +75,27 @@ def test_a_partial_file_without_a_usable_message_names_its_stop(tmp_path, reason
 
 
 @pytest.mark.parametrize("reason", ["no_price", "permanent_error"])
-def test_a_partial_file_with_a_real_message_prints_it_as_is(tmp_path, reason):
+@pytest.mark.parametrize("message", [" bad key ", "\u3164 quota exceeded"], ids=["plain", "filler-then-text"])
+def test_a_partial_file_with_a_real_message_prints_it_as_is(tmp_path, reason, message):
     # docs/skill-novelty.md:1216-1217
     path = tmp_path / "atoms.json"
-    path.write_text(json.dumps({"status": "partial", "partial": {"reason": reason, "message": " bad key "}}),
+    path.write_text(json.dumps({"status": "partial", "partial": {"reason": reason, "message": message}}),
                     encoding="utf-8")
     with pytest.raises(InputError) as exc:
         load_atoms_record(path)
-    assert str(exc.value) == (f"{path} is a partial atoms file:  bad key , so it is not a finished atom set. "
+    assert str(exc.value) == (f"{path} is a partial atoms file: {message}, so it is not a finished atom set. "
                               f"{_ADVICE[reason]}")
+
+
+@pytest.mark.parametrize(("text", "visible"), [
+    ("\u0301", False), ("e\u0301", True), ("\u3164", False), ("\u3164\u200b \u0301", False),
+    ("\u3164a", True), ("\u2800", False), ("\u2800.", True), ("7", True), ("$", True),
+    ("\u00ad", False), ("\ue000", False), ("\u0378", False), ("\x07", False), ("", False),
+    ("\u115f", False), ("\u1160", False), ("\uffa0", False), ("\u034f", False), ("\u00a0", False),
+])
+def test_has_visible_text_needs_a_letter_number_punctuation_or_symbol_that_shows(text, visible):
+    # changelog.d/20261117_140000_atoms-partial-message-fallback.md (#833): a usable message is text that shows
+    assert has_visible_text(text) is visible
 
 
 @pytest.mark.parametrize("reason", [["no_price"], {"a": 1}, 3, None])
