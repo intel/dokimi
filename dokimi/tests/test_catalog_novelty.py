@@ -233,6 +233,18 @@ def test_summary_only_refuses_to_pool_rows_measured_under_two_models(tmp_path):
         _sweep(root, out, "--summary-only")
 
 
+def test_a_template_scaffold_is_not_a_skill_and_costs_nothing(tmp_path, capsys):
+    root, out = _root(tmp_path), tmp_path / "out"
+    for scaffold, text in (("template", "one"), ("templates/nested", "two")):  # distinct: no copy is left out
+        (root / scaffold).mkdir(parents=True)
+        (root / scaffold / "SKILL.md").write_text(SKILL.replace("accel-tuning", f"scaffold-{text}"),
+                                                  encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5")
+    assert sorted(r["key"] for r in _rows(out / "sweep.jsonl")) == ["accel-tuning", "other-skill"]
+    assert len(list(out.glob("*/novelty.json"))) == 2
+    assert "# novelty sweep: 2 measured, 0 partial, 0 error" in capsys.readouterr().out
+
+
 def test_strata_add_a_line_per_stratum(tmp_path, capsys):
     out = tmp_path / "out"
     strata = tmp_path / "strata.csv"
