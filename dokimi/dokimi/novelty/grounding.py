@@ -237,7 +237,8 @@ def _merged(old: dict, mine: list[dict]) -> dict | None:
     for m in symbol:
         inputs.update({(i["kind"], i["path"], i.get("sha256")): i for i in m["source"].get("inputs") or []})
     source["inputs"] = list(inputs.values())
-    return dict(old, known=sorted(kept | fresh), source=source)
+    return dict(old, known=sorted(kept | fresh), source=source,
+                link_context=any(m.get("link_context") for m in symbol))
 
 
 def _absorbed(new: dict, kept: list[dict]) -> bool:

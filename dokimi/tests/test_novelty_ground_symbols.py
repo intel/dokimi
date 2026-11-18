@@ -508,3 +508,15 @@ def _mkl_header(tmp_path):
     include.mkdir(exist_ok=True)
     (include / "mkl.h").write_text(MKL_H, encoding="utf-8")
     return include / "mkl.h"
+
+
+def test_a_refresh_that_merges_into_an_older_check_keeps_the_link_exemption(tmp_path):
+    from dokimi.novelty.grounding import _merged
+    include = _headers(tmp_path)
+    (include / "mkl.h").write_text(MKL_H, encoding="utf-8")
+    old = symbols_check(["cblas_", "mkl_"], [str(include / "*.h")], [])
+    del old["link_context"]  # a check written before the exemption existed
+    merged = _merged(old, [symbols_check(["mkl_"], [str(include / "mkl.h")], [])])
+    assert merged is not None and merged["link_context"] is True
+    result = grade_check(merged, "q", "Use the mkl_rt single dynamic library.", None)
+    assert result.passed is True, result.detail

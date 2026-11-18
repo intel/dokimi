@@ -9,5 +9,5 @@ SPDX-License-Identifier: Apache-2.0
   mkl_intel_lp64, mkl_sequential and mkl_core.`, `Use the mkl_rt single dynamic library.` and
   `target_link_libraries(app MKL::mkl_core)` were refused as "not in source". A name after `-l` or `::`,
   or in a sentence about linking or a library, is not vetoed, and a library file's stem (`mkl_rt` for
-  `libmkl_rt.so`) is a known name. A called name (`mkl_x(`) and a name no header or library declares
-  elsewhere are still vetoed.
+  `libmkl_rt.so`) is a known name. A called name (`mkl_x(`) is still vetoed, and so is an undeclared name
+  outside a link context (`Call mkl_x to set threads`).
