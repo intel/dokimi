@@ -366,8 +366,12 @@ def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
 
 
 _MAIN_LOCK = "requirements.lock.txt"
-_QUOTED = str.maketrans(";&|<>()", "\ue000\ue001\ue002\ue003\ue004\ue005\ue006")
-_UNQUOTED = {letter: operator for operator, letter in _QUOTED.items()}
+_QUOTED = str.maketrans(";&|<>()`", "\ue000\ue001\ue002\ue003\ue004\ue005\ue006\ue008")
+_IN_DOUBLE = str.maketrans("()`", "\ue009\ue00a\ue00b")  # a substitution still runs inside double quotes
+_UNQUOTED = {letter: operator for table in (_QUOTED, _IN_DOUBLE) for operator, letter in table.items()}
+_SUBSTITUTION = re.compile("\\$\\(((?:[^()]|\\([^()]*\\))*)\\)|\\$\ue009((?:[^\ue009\ue00a]|\ue009[^\ue009\ue00a]*\ue00a)*)\ue00a"
+                           "|`([^`]*)`|\ue00b([^\ue00b]*)\ue00b")
+_SHELLS = {"sh", "bash", "dash", "zsh", "ash"}
 
 
 def _requirement_files(tokens: list[str]) -> list[str]:
@@ -395,19 +399,47 @@ def _exec_form(match: re.Match[str]) -> str:
     return shlex.join(words) if isinstance(words, list) and all(isinstance(w, str) for w in words) else match.group(0)
 
 
+def _substitutions(script: str) -> tuple[str, list[str]]:
+    """``script`` with each ``$(...)`` or backtick substitution, bare or in double quotes, cut to one word, and the
+    scripts inside them, which the shell runs too."""
+    inner: list[str] = []
+
+    def cut(match: re.Match[str]) -> str:
+        inner.append(next(group for group in match.groups() if group is not None))
+        return "\ue00c"
+    return _SUBSTITUTION.sub(cut, script), [
+        text.translate(_UNQUOTED).replace("\0", '\\"').replace("\ue007", "\\'") for text in inner]
+
+
+def _nested(commands: list[list[str]], inner: list[str]) -> list[list[str]]:
+    """``commands`` plus the commands of the scripts they run: substitutions and the script of ``sh -c``/``bash -lc``."""
+    scripts = inner + [command[i + 2] for command in commands for i, word in enumerate(command[:-2])
+                       if re.split(r"[/\\]", word)[-1].removesuffix(".exe") in _SHELLS
+                       and re.fullmatch(r"-[a-z]*c[a-z]*", command[i + 1])]
+    return commands + [command for script in scripts for command in _commands(script)]
+
+
+def _quoted(word: str) -> str:
+    """A quoted ``word`` with its operators as letters; in double quotes a substitution keeps its own letters."""
+    return (word.translate(_IN_DOUBLE) if word.startswith('"') else word).translate(_QUOTED)
+
+
 def _commands(script: str) -> list[list[str]]:
     """The commands of a shell ``script`` as word lists: POSIX quoting (a quoted word may span lines), ``#``
     comments, a backslash continuation joined, ``;``/``&``/``|``/newline separating commands, ``(`` and ``)``
-    dropped from the words, the word after a redirection (``>``, ``<``) left out; a quoted operator is a letter."""
+    dropped from the words, the word after a redirection (``>``, ``<``) left out; a quoted operator is a letter.
+    The scripts a command runs (``$(...)``, backticks, ``sh -c``) add their own commands."""
     commands: list[list[str]] = []
     command: list[str] = []
     script = re.sub(r"^\s*RUN\s+(\[.*\])\s*$", _exec_form, script, flags=re.MULTILINE)
-    script = re.sub(r"""('[^']*')|\\(["'])""",  # an escaped quote is a letter, not a quote; '...\' is a whole word
-                    lambda m: m.group(1) or {'"': "\0", "'": "\ue007"}[m.group(2)], script)
+    script = re.sub(r"""('[^']*')|("(?:[^"\\]|\\.)*")|\\(["'])""",  # an escaped quote is a letter; '...\' is a whole word
+                    lambda m: m.group(1) or (m.group(2) or "").replace('\\"', "\0") or {'"': "\0", "'": "\ue007"}[m.group(3)],
+                    script)
     script = re.sub(r"""('[^']*'|"[^"]*")|(?<![^\s;&|()])#[^\n]*""",
-                    lambda m: (m.group(1) or "").translate(_QUOTED), script)
+                    lambda m: _quoted(m.group(1)) if m.group(1) else "", script)
     # after the comments: a comment's backslash or backtick continues nothing
     script = re.sub(r"\\\r?\n|(?<=\s)`\r?\n", " ", script)
+    script, inner = _substitutions(script)
     lexer = shlex.shlex(script, posix=True, punctuation_chars=";&|<>\n")
     lexer.whitespace, lexer.whitespace_split, lexer.escape, lexer.commenters = " \t\r", True, "", ""
     redirected = False
@@ -424,7 +456,7 @@ def _commands(script: str) -> list[list[str]]:
             redirected = False
         elif token.strip("()"):
             command.append(token.strip("()").translate(_UNQUOTED).replace("\0", '"').replace("\ue007", "'"))
-    return [*commands, command]
+    return _nested([*commands, command], inner)
 
 
 def _installs_of_the_main_lock(script: str) -> list[list[str]]:
@@ -434,7 +466,7 @@ def _installs_of_the_main_lock(script: str) -> list[list[str]]:
         return []
     return [
         command for command in _commands(script)
-        if any(re.fullmatch(r"pip[\d.]*(\.exe)?", word.lstrip("@+-").rsplit("/", 1)[-1]) and "install" in command[i + 1:]
+        if any(re.fullmatch(r"pip[\d.]*(\.exe)?", re.split(r"[/\\]", word.lstrip("@+-"))[-1]) and "install" in command[i + 1:]
                for i, word in enumerate(command))
         and _MAIN_LOCK in _requirement_files(command)
     ]
@@ -511,7 +543,25 @@ def test_an_install_of_the_main_lock_without_no_deps_is_found(script: str, ungua
     assert ("--no-deps" not in installs[0]) is unguarded
 
 
+@pytest.mark.parametrize(("script", "unguarded"), [
+    ("echo $(pip install -r requirements.lock.txt)", True),
+    ("echo `pip install -r requirements.lock.txt`", True),
+    ('echo "$(pip install -r requirements.lock.txt)"', True),
+    ("echo $(pip install --no-deps -r requirements.lock.txt)", False),
+    ('bash -lc "pip install -r requirements.lock.txt"', True),
+    ('RUN ["/bin/sh", "-c", "pip install -r requirements.lock.txt"]', True),
+    (".\\.venv\\Scripts\\pip.exe install -r requirements.lock.txt", True),
+    ('echo "it\'s" ; echo \\"x ; pip install -r requirements.lock.txt ; echo "z" ; echo \'w\'', True),
+], ids=["substitution", "backtick-substitution", "quoted-substitution", "guarded-substitution", "shell-c", "exec-form-shell-c",
+        "windows-path", "apostrophe-in-double-quotes"])
+def test_an_install_the_shell_runs_from_a_word_or_a_windows_path_is_found(script: str, unguarded: bool) -> None:
+    installs = _installs_of_the_main_lock(script)
+    assert len(installs) == 1, installs
+    assert ("--no-deps" not in installs[0]) is unguarded
+
+
 @pytest.mark.parametrize("script", ["pip install --require-hashes -r requirements-ci.lock.txt",
+                                    "echo '$(pip install -r requirements.lock.txt)'",
                                     "COPY dokimi/requirements.lock.txt /opt/dokimi-req/",
                                     "pip install --no-deps-x -r requirements-docs.lock.txt"])
 def test_other_locks_and_mentions_of_the_main_lock_are_not_installs_of_it(script: str) -> None:
