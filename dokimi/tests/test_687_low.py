@@ -128,14 +128,16 @@ def test_a_link_at_a_recorded_name_is_not_written_through(tmp_path, converted):
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
-def test_a_link_at_the_record_is_neither_read_nor_written_through(tmp_path, converted):
+def test_a_link_at_the_record_is_neither_read_nor_written_through(tmp_path, converted, caplog):
     (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
     materialize_markdown([doc], out)
     (out / SOURCES_NAME).rename(tmp_path / "kept.json")
     before = (tmp_path / "kept.json").read_text(encoding="utf-8")
     _link(out / SOURCES_NAME, tmp_path / "kept.json")
 
-    assert materialize_markdown([doc], out) == [out / "a-pdf-2.md"]
+    with caplog.at_level(logging.WARNING, logger="dokimi.ingest.docling_loader"):
+        assert materialize_markdown([doc], out) == [out / "a-pdf-2.md"]
+    assert "is a link, which this run replaces" in caplog.text
     assert (tmp_path / "kept.json").read_text(encoding="utf-8") == before
     assert not (out / SOURCES_NAME).is_symlink()
 
@@ -223,13 +225,25 @@ def test_a_name_differing_only_in_letter_case_stays_with_the_deleted_files_sourc
     assert materialize_markdown([lower], out) == [out / "a-pdf-2.md"]
 
 
-def test_a_directory_at_the_record_name_is_refused_naming_the_record(tmp_path, converted):
+def test_a_directory_at_the_record_name_is_refused_naming_the_record(tmp_path, converted, caplog):
     (doc,), out = _docs(tmp_path, "a.pdf"), tmp_path / "md"
     (out / SOURCES_NAME).mkdir(parents=True)
 
-    with pytest.raises(InputError, match=SOURCES_NAME):
-        materialize_markdown([doc], out)
+    with caplog.at_level(logging.WARNING, logger="dokimi.ingest.docling_loader"):
+        with pytest.raises(InputError, match=f"{SOURCES_NAME} is a directory"):
+            materialize_markdown([doc], out)
     assert not list(out.glob("*.md"))
+    assert "writes new ones" not in caplog.text
+
+
+def test_a_source_spelled_in_another_letter_case_is_the_same_source_where_the_platform_folds_case(
+        tmp_path, converted, monkeypatch):
+    (doc,), out = _docs(tmp_path, "manual.pdf"), tmp_path / "md"
+    monkeypatch.setattr(os.path, "normcase", str.lower)  # what Windows does
+    materialize_markdown([doc], out)
+
+    assert materialize_markdown([tmp_path / "RAW" / "MANUAL.PDF"], out) == [out / "manual-pdf.md"]
+    assert sorted(_md(out)) == ["manual-pdf.md"]
 
 
 def test_an_unreadable_record_is_named_and_its_files_are_kept(tmp_path, converted, caplog):
@@ -256,6 +270,16 @@ def test_a_use_case_bullet_that_names_the_keyword_is_kept():
 def test_a_bullet_that_names_the_keyword_opens_no_section():
     readme = "## Features\n- Runs any application\n- Fast\n"
     assert PersonaAnalyzer._extract_use_cases_from_text(readme) == []
+
+
+def test_a_single_hash_heading_closes_the_use_case_section():
+    readme = "## Use cases\n- a\n# Install\n- pip install x\n"
+    assert PersonaAnalyzer._extract_use_cases_from_text(readme) == ["a"]
+
+
+def test_a_dot_bullet_is_an_item():
+    readme = "## Use cases\n• Robotics\n"
+    assert PersonaAnalyzer._extract_use_cases_from_text(readme) == ["robotics"]
 
 
 def test_a_bold_use_case_line_still_opens_a_section():
@@ -298,6 +322,17 @@ def test_a_failed_sidecar_removal_errors_the_cell_and_close_retries_it(tmp_path)
     removals = [i for i, c in enumerate(cli.calls) if _sidecar_rm(c)]
     assert len(removals) == 3
     assert [i for i, c in enumerate(cli.calls) if list(c.argv[1:3]) == ["network", "rm"]][-1] > removals[-1]
+
+
+def test_a_sidecar_removal_killed_by_a_signal_is_not_stopped():
+    sandbox = container_mod.ContainerSandbox(network="n", proxy_name="p", allow=[], binary=None)
+
+    def docker(args, log=None, *, check=True, timeout=None):
+        return reply(stderr="killed", returncode=-9) if args[0] == "rm" else reply()
+
+    with pytest.raises(RuntimeError, match="docker rm p failed"):
+        sandbox.stop_proxy(docker, None)
+    assert not sandbox._stopped
 
 
 def test_a_verifier_sidecar_whose_removal_failed_is_removed_again_on_close():

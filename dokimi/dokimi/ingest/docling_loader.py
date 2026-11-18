@@ -105,10 +105,11 @@ def materialize_markdown(inputs, out_dir) -> list[Path]:
 
 def _source_id(src: Path, out_dir: Path) -> str:
     """The source as the record names it: relative to ``out_dir``, so the two can move together.
-    Links are not followed: a link is a source of its own, whatever it points at."""
-    absolute = os.path.abspath(src)
+    Links are not followed: a link is a source of its own, whatever it points at. Letter case is
+    folded where the platform does (Windows)."""
+    absolute = os.path.normcase(os.path.abspath(src))  # RAW/A.PDF and raw/a.pdf are one file on Windows
     try:
-        return Path(os.path.relpath(absolute, os.path.abspath(out_dir))).as_posix()
+        return Path(os.path.relpath(absolute, os.path.normcase(os.path.abspath(out_dir)))).as_posix()
     except ValueError:  # on another Windows drive there is no relative path
         return Path(absolute).as_posix()
 
@@ -133,8 +134,10 @@ def _read_owners(record: Path) -> dict[str, str]:
     """File name -> source, from the record an earlier run left; empty when there is none to use."""
     if not os.path.lexists(record):
         return {}
+    if record.is_dir() and not record.is_symlink():
+        return {}  # _save_owners refuses before any file is written: no warning that new files follow
     if record.is_symlink():
-        reason = f"{record} is a link"
+        reason = f"{record} is a link, which this run replaces with a record of its own"
     else:
         try:
             return {f["name"]: f["source"] for f in load_artifact("docling_sources", record)["files"]}

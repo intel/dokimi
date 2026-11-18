@@ -14,7 +14,8 @@ SPDX-License-Identifier: Apache-2.0
   numbered copy on its first rerun, then stays put (#687).
 - **`eval personas discover` keeps a use-case bullet that names its section** — a README bullet
   such as `- Web applications` under `## Use cases` was read as a section header and dropped,
-  and the same bullet outside a use-case section opened one (#687).
+  and the same bullet outside a use-case section opened one. A list item now needs a marker (`-`, `*`, `•`) and a space, so a line such as
+  `*Note*: x` or `-item` is no longer an item (#687).
 - **Docker harness cells: an egress sidecar whose removal failed is no longer taken as gone** —
   a `docker rm` of the sidecar that exited non-zero still marked it stopped, so the verifier ran
   beside it and teardown did not try the removal again. The cell now errors before the
