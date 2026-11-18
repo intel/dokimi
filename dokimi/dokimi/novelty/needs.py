@@ -292,13 +292,6 @@ def relevance_summary(matches: dict[str, dict]) -> dict:
     }
 
 
-def save_graph(graph: NeedGraph, path) -> None:
-    """Write a need graph so later runs reuse it instead of paying for it again."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(graph.as_dict(), indent=2), encoding="utf-8")
-
-
 def load_graph(path) -> NeedGraph:
-    """Read a need graph written by :func:`save_graph`."""
+    """Read a need graph file (the ``need_graph.v1`` JSON that ``eval graph`` writes)."""
     return NeedGraph.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
