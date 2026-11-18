@@ -11,4 +11,5 @@ SPDX-License-Identifier: Apache-2.0
   or in a sentence about linking or a library, is not vetoed (`linked list`, `hyperlink` and `std::x` are no link
   context), and a library file's stem (`mkl_rt` for
   `libmkl_rt.so`) is a known name. A called name (`mkl_x(`) is still vetoed, and so is an undeclared name
-  outside a link context (`Call mkl_x to set threads`).
+  outside a link context (`Call mkl_x to set threads`). A key whose name only a link context exempts is
+  `unverifiable`, never `verified`.

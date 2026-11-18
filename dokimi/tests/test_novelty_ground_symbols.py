@@ -505,6 +505,18 @@ def test_a_link_word_inside_another_word_or_a_cxx_namespace_is_no_link_context(t
     assert result.detail == "not in source: cblas_dgemmx"
 
 
+def test_a_key_whose_name_only_a_link_context_exempts_is_never_verified(tmp_path):
+    check = symbols_check(["cblas_"], [str(_headers(tmp_path) / "cblas.h")], [])
+    atoms = [{"id": "a1", "statement": "The CBLAS library exports cblas_dgemmx for batched GEMM.",
+              "question": "q", "answer": "", "meta": None},
+             {"id": "a2", "statement": "The CBLAS library exports cblas_ddot.", "question": "q",
+              "answer": "", "meta": None}]
+    assert add_checks(atoms, [check]) == 2
+    assert verify_keys(atoms) == {"verified": 1, "not_found": 0, "unverifiable": 1}
+    assert atoms[0]["meta"]["key_status"] == {"status": "unverifiable"}
+    assert atoms[1]["meta"]["key_status"] == {"status": "verified"}
+
+
 def test_a_shared_library_stem_with_the_prefix_is_a_known_name_not_a_symbol(tmp_path):
     if shutil.which("nm") is None or shutil.which("cc") is None:
         pytest.skip("needs nm and cc to build a fixture library")

@@ -299,7 +299,8 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
 
     Writes ``meta["key_status"]``: ``verified`` (the key names an option on a checked command
     line, and every such option is in the help), ``not_found`` (with the ``missing`` names), or
-    ``unverifiable`` (the key names no checked option, or one of its checks could not finish).
+    ``unverifiable`` (the key names no checked option, names one only a link context exempts, or one
+    of its checks could not finish).
     This checks the skill's claim, not a model's answer. A ``not_found`` is a review flag, not an
     error: a claim names an option the help lacks, as a version-bound one rightly does. A negative
     claim ("there is no ``--device xpu``") is ``unverifiable``: the clause negates the mention.
@@ -320,7 +321,11 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
             elif result.passed is False:  # every unknown name, not the ten the detail shows
                 missing += [n for n in identifier_names(check, key)[0] or [] if n not in missing]
             elif _key_names(check, key):
-                named = True  # an option the key names on a checked line, and the help lists it
+                # a name only a link context let through is in no source: it confirms nothing
+                if identifier_names(dict(check, link_context=False), key)[0] == []:
+                    named = True  # an option the key names on a checked line, and the help lists it
+                else:
+                    unfinished = True
         status = ("not_found" if missing
                   else "verified" if named and not unfinished else "unverifiable")
         atom["meta"]["key_status"] = {"status": status, **({"missing": missing} if missing else {})}
