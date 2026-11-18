@@ -154,7 +154,7 @@ def _tree_violations() -> list[str]:
 _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
     "int": frozenset({"int", "positive_int"}),
     "float": frozenset({"float"}),
-    "usd": frozenset({"usd_amount", "_usd"}),
+    "usd": frozenset({"positive_usd", "usd_amount", "_usd"}),
 }
 
 # Known clashes, keyed by (leaf, spelling, aspect): each waits for a later F1b migration and
@@ -313,6 +313,14 @@ def test_meaning_clashes_name_each_disagreement_with_its_registry_row():
     switch = [Use("dokimi a", "--n", "_StoreTrueAction", "int", "n", 0, None, False)]
     assert [what for *_, what in meaning_clashes(switch, concepts)] == [
         "is a switch here, but the registry kind is `int`"]
+
+
+def test_a_usd_flag_takes_the_cli_usd_types_and_not_a_bare_float():
+    concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--max-usd", "USD", "usd"),)),)
+    found = [Use("dokimi a", "--max-usd", "_StoreAction", t, "max_usd", None, None, False)
+             for t in ("positive_usd", "_usd", "float")]
+    assert [what for *_, what in meaning_clashes(found, concepts)] == [
+        "has type `float`, kind `usd` takes _usd or positive_usd or usd_amount"]
 
 
 def test_a_new_use_that_clashes_fails_and_an_exception_is_leaf_scoped(monkeypatch):
