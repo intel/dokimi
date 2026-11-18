@@ -171,7 +171,7 @@ def test_a_merge_renumbers_a_generated_id_a_kept_record_has():
      "duplicate question ids in {cache}: 'q_001'"),
     (json.dumps({"questions": [{"id": "q_001", "question": ""}]}), "{cache} is not a usable question set"),
     ('{"questions": [', "Expecting value"),
-    (None, "Is a directory: '{cache}'"),
+    (None, None),  # the OS words it: "Is a directory" on POSIX, "Permission denied" on Windows
 ], ids=["shared-ids", "schema", "truncated", "directory"])
 def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path, monkeypatch, capsys, text, reason):
     """A cache main's ``--force-regen`` wrote with two ``q_001``, one cut short, or a directory: exit 2, no traceback."""
@@ -185,10 +185,13 @@ def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path,
         cli.main()
 
     err = capsys.readouterr().err
-    named = "" if "{cache}" in reason else f" {cache}"
     assert exc_info.value.code == 2 and "Traceback" not in err
-    assert f"Error: the cached question set of an earlier run{named} cannot be used: " in err
-    assert reason.format(cache=cache) in err
+    if reason is None:
+        assert "Error: the cached question set of an earlier run" in err and "cannot be used: " in err
+    else:
+        named = "" if "{cache}" in reason else f" {cache}"
+        assert f"Error: the cached question set of an earlier run{named} cannot be used: " in err
+        assert reason.format(cache=cache) in err
     assert "(fix or delete it to generate a new set; benchmark run: --force-regen)" in err
 
 
