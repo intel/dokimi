@@ -30,7 +30,7 @@ import shutil
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dokimi.artifacts import schema_errors
 from dokimi.measure import SCORE_BOUND, as_float, is_finite
@@ -75,6 +75,10 @@ _NOT_FOUND_EXIT = 127  # docker run: the command (here the image's python3) is n
 _PYTHON3_NOT_FOUND_SIG = "exec python3 failed"  # tini's message under --init, which every container runs with
 
 
+if TYPE_CHECKING:
+    from .suite import SuiteBases
+
+
 @dataclass
 class EvalContext:
     """What every container of one evaluation needs: the trees, the image and the caches."""
@@ -87,6 +91,19 @@ class EvalContext:
     caches: dict[str, Path] = field(default_factory=dict)  # cache name -> host directory
     source_dir: Path | None = None  # host side of {source_dir}
     entry_timeout_s: float = 3600
+    suite: SuiteBases | None = None  # base checkouts of a suite run (suite.py); None: every base is in git_dir
+
+    def git_dir_for(self, task_id: str) -> Path:
+        """The git dir a task's base is checked out from: its suite repository, else ``git_dir``."""
+        return self.suite.git_dirs.get(task_id, self.git_dir) if self.suite else self.git_dir
+
+    def base_dirs(self) -> dict[str, Path | None]:
+        """The git dir of each suite task's base, None for a task whose repository is missing."""
+        return {**dict.fromkeys(self.suite.gaps), **self.suite.git_dirs} if self.suite else {}
+
+    def base_gaps(self) -> dict[str, str]:
+        """Why each suite task has no base checkout; its cells are unsupported, not run."""
+        return dict(self.suite.gaps) if self.suite else {}
 
     def cache_mounts(self) -> list[Mount]:
         image = self.manifest.image

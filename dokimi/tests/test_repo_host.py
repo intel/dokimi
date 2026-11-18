@@ -872,10 +872,10 @@ def test_a_prepare_error_on_the_null_step_is_a_problem_and_the_oracle_still_runs
     root = _repo(tmp_path)
     real = prepare_workspace
 
-    def prepare(git_dir, manifest, task, arm, rd):
+    def prepare(git_dir, manifest, task, arm, rd, **kwargs):
         if rd.name.endswith("__null"):
             raise PrepError("no such revision")
-        return real(git_dir, manifest, task, arm, rd)
+        return real(git_dir, manifest, task, arm, rd, **kwargs)
 
     monkeypatch.setattr("dokimi.repos.selfcheck.prepare_workspace", prepare)
     with pytest.raises(SystemExit) as exc:

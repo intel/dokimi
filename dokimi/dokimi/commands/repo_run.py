@@ -14,7 +14,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
@@ -42,12 +42,19 @@ def _refuse_typed(source, args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     if args.manifest and not args.manifest_file:
-        if os.path.splitdrive(args.manifest)[0]:  # `D:/x`, `D:x`, `//host/share/x`: no `/` check sees a drive
-            raise InputError(f"path escapes the repository: {args.manifest}")
-        try:  # as the host reads it: on Windows `..\x` is `../x`, also for a pinned tree, which is read with `/`
-            tree_path(os.path.normpath(args.manifest).replace(os.path.sep, "/"))
-        except SourceArgumentError as exc:
-            raise InputError(f"path escapes the repository: {args.manifest}") from exc
+        _refuse_escape(args.manifest)
+    if getattr(args, "suite", None) is not None:  # an empty path is given, not omitted: refused below, not skipped
+        _refuse_escape(args.suite)
+
+
+def _refuse_escape(path: str) -> None:
+    """Exit 2 for a path that leaves the tree, as the host reads it."""
+    if os.path.splitdrive(path)[0]:  # `D:/x`, `D:x`, `//host/share/x`: no `/` check sees a drive
+        raise InputError(f"path escapes the repository: {path}")
+    try:  # as the host reads it: on Windows `..\x` is `../x`, also for a pinned tree, which is read with `/`
+        tree_path(os.path.normpath(path).replace(os.path.sep, "/"))
+    except SourceArgumentError as exc:
+        raise InputError(f"path escapes the repository: {path}") from exc
 
 
 def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
@@ -81,6 +88,7 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     # a pinned batch keeps its content until the pin is checked
     staged = export_eval_dir(tree, manifest, content.with_name("content.next") if pin else content)
     _require_grade(staged, manifest, args.task)  # before the pin and the image build
+    suite = _suite_bases(args, tree, staged, manifest, _cache_dir(args))  # its pins go in the batch pin
     runner = DockerRunner(args.docker)
     image, ctx_dir = args.image, None
     if not image:
@@ -94,7 +102,8 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        stamp = {"tree": tree.label, "eval_dir": tree_digest(staged), "image": image}
+        stamp: dict[str, Any] = {"tree": tree.label, "eval_dir": tree_digest(staged), "image": image}
+        stamp.update(_suite_pin(suite))
         if _uses_builtin_graders(staged, manifest):  # else no score depends on them: an upgrade keeps the batch
             stamp["graders"] = graders_digest()
         _pin_batch(out, stamp)
@@ -119,8 +128,29 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     uses_source = any("{source_dir}" in v for v in manifest.entry_points.values())
     source_dir = Path(args.source_dir).resolve() if args.source_dir else (git_dir if uses_source else None)
     ctx = EvalContext(manifest=manifest, git_dir=git_dir, content_dir=content, image=image, runner=runner,
-                      caches=caches, source_dir=source_dir, entry_timeout_s=args.grade_timeout)
+                      caches=caches, source_dir=source_dir, entry_timeout_s=args.grade_timeout, suite=suite)
     return ctx, tree
+
+
+def _suite_bases(args: argparse.Namespace, tree, content: Path, manifest: RepoManifest, cache_dir: Path | None):
+    """The base checkouts of ``--suite`` (contract §2.1), or None: every base is then in the eval source."""
+    if args.suite is None:
+        return None
+    from dokimi.repos.suite import SuiteError, load_suite, resolve_suite
+    from dokimi.repos.workspace import PrepError, load_tasks
+
+    suite = load_suite(tree, args.suite, args.allow_floating_suite_revs)
+    try:  # only the listed tasks are read: an unrelated malformed task.json is not this run's
+        found = {t.id: t for t in load_tasks(content, manifest, list(suite.tasks))}
+    except PrepError as exc:
+        raise SuiteError(suite.path, [str(exc)]) from exc
+    return resolve_suite(suite, {t: str(found[t].raw.get("base", "")) for t in suite.tasks}, cache_dir)
+
+
+def _suite_pin(suite) -> dict[str, Any]:
+    """The commit each suite repository resolved to and the task-to-repository mapping, for the batch pin:
+    a resume with another suite file, or with none, is refused (``_pin_batch``)."""
+    return {} if suite is None else {"suite": suite.pins, "suite_plan": suite.plan}
 
 
 def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
@@ -150,6 +180,9 @@ def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
     return any(isinstance(t.raw, dict) and builtin_name(t.raw.get("grader")) is not None for t in tasks)
 
 
+_SUITE_KEYS = ("suite", "suite_plan")
+
+
 def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
     path = batch_dir / "_eval" / "batch.json"
     if path.exists():
@@ -160,9 +193,10 @@ def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
         if not isinstance(old, dict):
             raise ValueError(f"batch {batch_dir.name} has an unreadable pin ({path}); use another --batch")
         changed = [k for k in pin if old.get(k) != pin[k]]
+        changed += [k for k in _SUITE_KEYS if k in old and k not in pin]  # a suite batch resumed without --suite
         if changed:
             was = ", ".join(f"{k} {old.get(k)}" for k in changed)
-            now = ", ".join(f"{k} {pin[k]}" for k in changed)
+            now = ", ".join(f"{k} {pin.get(k, 'none')}" for k in changed)
             raise ValueError(f"batch {batch_dir.name} was run from {was}, not {now}; use another --batch")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -207,7 +241,8 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         ctx, _ = _context(args, out, source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         arms = [a for spec in args.arm or () for a in spec.split(",") if a]
-        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
+        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs,
+                   ctx.manifest.id, ctx.base_dirs())  # skill paths exist, catalogs hold each expected_skill
         if arms:
             print(f"{len(arms)} arm(s) ok: {', '.join(arms)}", file=sys.stderr)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
@@ -218,13 +253,19 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         sys.exit(1)
     bad = [r for r in results if r["verdict"] != "ok"]
     print(f"{len(results) - len(bad)}/{len(results)} ok; wrote {out / 'check' / 'check.json'}")
+    unavailable = [r["task"] for r in bad if r.get("unsupported_by") == "suite"]
+    if unavailable:  # the base's repository of --suite is missing: not checked, and not a failure
+        print(f"{len(unavailable)} not checked, the repository of their base is missing: " + ", ".join(unavailable))
+    if results and len(unavailable) == len(results):  # a gate that checked nothing is incomplete, not a pass
+        print("✗ incomplete: no task was checked, the repository of every base is missing", file=sys.stderr)
+        sys.exit(1)
     allowed = [r for r in bad if args.allow_unsupported and r.get("unsupported_by") == "host"]
     if allowed:
         print(f"{len(allowed)} unsupported on this host, allowed by --allow-unsupported: "
               + ", ".join(r["task"] for r in allowed))
-    if len(bad) > len(allowed):
+    if len(bad) > len(allowed) + len(unavailable):
         sys.exit(1)
-    if len(bad) == len(results):  # --allow-unsupported passed every task by: none was checked
+    if allowed and len(allowed) == len(results) - len(unavailable):  # every task that could be checked was passed by
         print(f"✗ incomplete: no task passed the self-check (0 ok, {len(allowed)} unsupported)", file=sys.stderr)
         sys.exit(1)
 
@@ -342,14 +383,18 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, source, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
-        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
-        check_mcp_configs(ctx.git_dir, tasks, profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
+        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id,
+                   ctx.base_dirs())  # skill paths exist, catalogs hold each expected_skill
+        check_mcp_configs(ctx.git_dir, tasks, profile, args.tools, ctx.base_dirs())  # a malformed .mcp.json fails here, not in every cell
         skill_pin = pin_skills(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
                                 max_turns=args.max_turns, budget_usd=args.budget, probes=probes) for m in args.model]
-        for task in tasks:  # refuse before anything runs, not cell by cell
+        gaps = ctx.base_gaps()
+        for task in tasks:  # refuse before anything runs, not cell by cell; a suite gap is unsupported, not run
+            if task.id in gaps:
+                continue
             task_caps(task, options[0])
             agent_network(options[0], ctx, task)
             docker_network(ctx.manifest.image.network, task.egress)  # grade has no egress route either
@@ -476,6 +521,12 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
     p.add_argument("source", help=source_help)
     p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
                    help="Manifest path relative to the repository root")
+    p.add_argument("--suite", default=None,
+                   help="Suite manifest (suite_manifest.v1) path relative to the repository root: tasks whose "
+                        "base is a commit of another repository, named as <url>@<sha> (contract §2.1)")
+    p.add_argument("--allow-floating-suite-revs", action="store_true", dest="allow_floating_suite_revs",
+                   help="Let --suite name a branch or tag: it is resolved once, when the run starts, and the "
+                        "batch pins the commit it resolved to")
     p.add_argument("--manifest-file", default=None, dest="manifest_file",
                    help="Read the manifest from this local file instead of from the tree")
     p.add_argument("--task", action="append", default=None, help="Only this task id; repeatable (default: all)")
@@ -505,7 +556,7 @@ _SOURCE_EXIT = (
     "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory; exit 1 for a source that cannot be opened "
     "(clone, fetch, revision) and "
 )
-CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check."
+CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check, or when no task was checked (every one a suite gap)."
 RUN_EXIT = _SOURCE_EXIT + "for a cell that crashed, a batch budget stop or an incomplete batch."
 
 
