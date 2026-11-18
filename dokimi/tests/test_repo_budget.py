@@ -15,6 +15,7 @@ from dokimi.cli import build_parser
 from dokimi.repos.budget import budget as _budget
 from dokimi.repos.source import GitTree, SourceError, WorkTree
 from tests.cli_refusal import refusal
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
 budget = partial(_budget, claude_displaces_agents=True)  # as `repo budget --harness claude-code` calls it
@@ -692,15 +693,12 @@ def test_a_code_span_wrapped_onto_the_next_line_hides_its_import(tmp_path):
 
 def test_code_span_stripping_is_linear_on_backtick_runs():
     """Long backtick runs once made the code-span regex backtrack exponentially (CodeQL py/redos)."""
-    import time
-
     from dokimi.repos.budget import _strip_code_spans
 
-    for text in ("`" * 50_000, "`" + "`a" * 50_000, "``" + "` " * 50_000 + "\n\n@x.md"):
-        started = time.monotonic()
-        _strip_code_spans(text)
-        # Permissive timing check to avoid flakiness on slower/contended runners
-        assert time.monotonic() - started < 5
+    shapes = (lambda k: "`" * k, lambda k: "`" + "`a" * k, lambda k: "``" + "` " * k + "\n\n@x.md")
+    for shape in shapes:
+        ratio, _ = growth(lambda k, shape=shape: partial(_strip_code_spans, shape(k)), 1_000)
+        assert ratio < GROWTH_LIMIT
     assert _strip_code_spans("a `b` c ``d`e`` f") == "a  c  f"
     assert _strip_code_spans("`a\nb` @x.md") == " @x.md"
     assert _strip_code_spans("`a\n\nb` @x.md") == "`a\n\nb` @x.md"
