@@ -203,6 +203,41 @@ def test_bad_task_is_reported(tmp_path, task_extra, needle):
     assert "bad" not in [t.id for t in report.tasks]
 
 
+@pytest.mark.parametrize("rev", [False, True], ids=["tree", "at-head"])
+@pytest.mark.parametrize("target", ["task.json", "../../../../src"], ids=["loop", "directory"])
+def test_task_json_that_is_an_unreadable_link_is_reported_not_raised(tmp_path, target, rev):
+    # #910: a task.json linked to itself or to a directory raised OSError (tree) or SourceError (@rev)
+    root = _repo(tmp_path)
+    link = root / "dev/evals/tasks/bad/task.json"
+    link.parent.mkdir()
+    link.symlink_to(target)
+    if rev:
+        _git_commit(root)
+    tree = GitTree(root, "HEAD") if rev else WorkTree(root)
+    report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+    assert not report.ok
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+    assert "bad" not in [t.id for t in report.tasks]
+
+
+def test_task_json_link_loop_that_raises_runtime_error_is_reported(tmp_path, monkeypatch):
+    # Path.resolve raises RuntimeError for a link loop before Python 3.13 (#910)
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    tree = WorkTree(root)
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = WorkTree._resolve
+
+    def resolve(self, path):
+        if path.endswith("bad/task.json"):
+            raise RuntimeError(f"Symlink loop from {path!r}")
+        return real(self, path)
+
+    monkeypatch.setattr(WorkTree, "_resolve", resolve)
+    report = check_repo(tree, manifest)
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+
+
 @pytest.mark.parametrize("task_id", ["my task", "tab\tid", "a,b"])
 def test_task_id_with_whitespace_or_comma_is_refused(tmp_path, task_id):
     # the workflow splits its tasks, smoke-tasks and exclude-tasks inputs on whitespace and commas,
