@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 from pathlib import Path
 
 import pytest
@@ -187,7 +188,8 @@ def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path,
     err = capsys.readouterr().err
     assert exc_info.value.code == 2 and "Traceback" not in err
     if reason is None:
-        assert "Error: the cached question set of an earlier run" in err and "cannot be used: " in err
+        assert re.search(r"Error: the cached question set of an earlier run.* cannot be used: ", err)
+        assert cache.name in err  # in the OS text: "Is a directory: ..." or Windows' escaped path
     else:
         named = "" if "{cache}" in reason else f" {cache}"
         assert f"Error: the cached question set of an earlier run{named} cannot be used: " in err
