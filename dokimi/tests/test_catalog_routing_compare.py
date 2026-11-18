@@ -162,7 +162,6 @@ def test_alternatives_in_one_run_only_or_different_ones_score_on_the_gold_alone(
      "base.json: no `lexical.per_query` rows: saved before"),
     ('{"mode": "all_vs_all", "result": {"lexical": {"per_query": [{"query": 1}]}}}',
      "base.json: per_query row 1 has no string"),
-    ("[" * 100000, "base.json: nested too deeply"),
 ])
 def test_a_file_that_is_not_a_saved_all_vs_all_run_is_refused_naming_file_and_cause(
         tmp_path, text, message):
@@ -170,6 +169,45 @@ def test_a_file_that_is_not_a_saved_all_vs_all_run_is_refused_naming_file_and_ca
     path.write_text(text, encoding="utf-8")
     with pytest.raises(RoutingInputError, match=message):
         load_run(str(path), "lexical")
+
+
+def test_a_file_nested_too_deeply_is_refused_naming_the_file(tmp_path, monkeypatch):
+    path = tmp_path / "base.json"
+    path.write_text("{}", encoding="utf-8")
+
+    def too_deep(*args, **kwargs):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(json, "loads", too_deep)
+    with pytest.raises(RoutingInputError, match="base.json: nested too deeply"):
+        load_run(str(path), "lexical")
+
+
+@pytest.mark.parametrize("row, message", [
+    ({"query": "q", "gold": "g", "rank": 1, "picked": ["g"]},
+     "base.json: per_query row 2: `picked` is not a string"),
+    ({"query": "q", "gold": "g", "rank": 1},
+     "base.json: per_query row 2: `picked` is not a string"),
+    ({"query": "q", "gold": "g", "picked": "g"},
+     "base.json: per_query row 2: `rank` is not a positive integer or null"),
+    ({"query": "q", "gold": "g", "rank": "1", "picked": "g"},
+     "base.json: per_query row 2: `rank` is not a positive integer or null"),
+    ({"query": "q", "gold": "g", "rank": 0, "picked": "g"},
+     "base.json: per_query row 2: `rank` is not a positive integer or null"),
+    ({"query": "q", "gold": "g", "rank": True, "picked": "g"},
+     "base.json: per_query row 2: `rank` is not a positive integer or null"),
+])
+def test_a_lexical_row_with_a_bad_rank_or_pick_is_refused_naming_file_and_row(
+        tmp_path, row, message):
+    path = _save(tmp_path, "base.json", rows=[_row("ok", "g"), row])
+    with pytest.raises(RoutingInputError, match=message):
+        load_run(path, "lexical")
+
+
+def test_a_lexical_row_with_a_null_rank_or_a_none_or_tie_pick_is_kept(tmp_path):
+    rows = [_row("no words", None), _row("tied", "(tie)"), _row("none", "(none)")]
+    run = load_run(_save(tmp_path, "base.json", rows=rows), "lexical")
+    assert compare_runs(run, run)["unscored"] == {"no_content_word": 1}
 
 
 @pytest.mark.parametrize("arm, row, message", [

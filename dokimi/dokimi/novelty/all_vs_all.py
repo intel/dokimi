@@ -199,13 +199,15 @@ def kept_alternatives(queries_by_skill: dict[str, list[str]],
                       acceptable: Acceptable | None) -> Acceptable:
     """The acceptable names of the queries that are in ``queries_by_skill``, empty entries left out.
 
-    A skill the field left out has no queries here, so its alternatives are moot.
+    A skill the field left out has no queries here, so its alternatives are moot. The gold itself
+    is dropped from its own list, and a query left with no name is omitted.
     """
     kept: Acceptable = {}
     for skill, by_query in (acceptable or {}).items():
         for query, names in by_query.items():
-            if names and query in queries_by_skill.get(skill, ()):
-                kept.setdefault(skill, {})[query] = names
+            others = [n for n in names if n != skill]
+            if others and query in queries_by_skill.get(skill, ()):
+                kept.setdefault(skill, {})[query] = others
     return kept
 
 

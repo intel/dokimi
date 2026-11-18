@@ -73,6 +73,13 @@ def _check_row(path: str, number: int, row: object, arm: str) -> None:
     if acceptable is not None and not (
             isinstance(acceptable, list) and all(isinstance(n, str) for n in acceptable)):
         raise RoutingInputError(f"{where}: `acceptable` is not a list of strings")
+    if arm == "lexical":
+        rank = row.get("rank")
+        if "rank" not in row or not (
+                rank is None or (isinstance(rank, int) and not isinstance(rank, bool) and rank > 0)):
+            raise RoutingInputError(f"{where}: `rank` is not a positive integer or null")
+        if rank is not None and not isinstance(row.get("picked"), str):
+            raise RoutingInputError(f"{where}: `picked` is not a string")
     if arm == "model":
         picks = row.get("picks")
         if picks is not None and not (

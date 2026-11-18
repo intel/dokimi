@@ -133,6 +133,20 @@ def test_the_model_arm_without_alternatives_has_no_acceptable_key():
     assert all("acceptable" not in r for r in model["noise"]["per_query"])
 
 
+def test_the_gold_named_as_its_own_alternative_is_not_counted_twice_in_either_arm():
+    queries = {"linux-perf": ["profile my binary with perf"], "hub": ["slow programs advice"]}
+    alone = {"linux-perf": {"profile my binary with perf": ["linux-perf"]}}
+    mixed = {"hub": {"slow programs advice": ["hub", "db-tuner"]}}
+    plain = all_vs_all(FIELD, queries, client=_hub_client())
+    result = all_vs_all(FIELD, queries, client=_hub_client(), acceptable=alone)
+    assert result == plain
+    both = all_vs_all(FIELD, queries, client=_hub_client(), acceptable=mixed)
+    for arm in (both["lexical"], both["model"]):
+        assert arm["acceptable_rate"]["hub"] == arm["own_rate"]["hub"] == 1.0
+        assert arm["acceptable_picks"] == {"linux-perf": 0, "hub": 0}
+    assert both["lexical"]["per_query"][1]["acceptable"] == ["db-tuner"]
+
+
 def test_an_acceptable_name_outside_the_field_is_refused_naming_skill_query_and_name():
     with pytest.raises(RoutingInputError) as raised:
         all_vs_all(FIELD, STRINGS, acceptable={"linux-perf": {"zzz qqq": ["ghost"]}})

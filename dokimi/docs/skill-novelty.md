@@ -899,8 +899,8 @@ it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported 
 `{"query": "<request>", "acceptable": ["<other skill name>", ...]}`, for a request a second skill
 answers as well as the gold. A file of strings reads and saves as before: no new key is written.
 `acceptable` must be a list of strings and the object has no other key besides `query`, or the file
-is refused naming the file, the skill and the query; the gold named as its own alternative is dropped,
-and a blank `query` is dropped with its object. An acceptable name that is not in the field is refused,
+is refused naming the file, the skill and the query; the gold named as its own alternative is dropped
+(also from a direct `all_vs_all` call, so a pick of the gold is never counted as both), and a blank `query` is dropped with its object. An acceptable name that is not in the field is refused,
 naming the skill, the query and the name, before an `--estimate-only` too; the alternatives of a skill
 the field leaves out (its queries are dropped with a WARNING) are moot and not checked. When the file names
 at least one alternative, each arm adds `acceptable_rate` per gold skill beside `own_rate`: the share of its scored queries
@@ -917,7 +917,9 @@ reads two files `catalog routing` saved and makes no model call. Rows are paired
 `result.lexical.per_query`; `--arm model` reads `result.model.noise.per_query` and is refused when either run was
 made without `--model`. A file that is not JSON, not an all-vs-all result, or has no per-query rows (a file saved before
 the lexical arm kept them) is refused with the file and the cause, and so is a row whose `query` or `gold` is
-not a string, whose `acceptable` is not a list of strings, or, with `--arm model`, whose `picks` is not a list of
+not a string, whose `acceptable` is not a list of strings, or, with the lexical arm, whose `rank` is missing or is
+neither null nor a positive integer, or whose `picked` is not a string while `rank` is set (a `null` rank and the
+picks `(none)` and `(tie)` are kept), or, with `--arm model`, whose `picks` is not a list of
 strings (the message names the file and the row number), and so are two runs with no pair in common. A query in one
 run only is counted and shown by example, and left out of every figure. A row left unscored in either
 run is left out and counted: a lexical row with no content word, and in the model arm a query with no answered call or, with `--reps`, one
