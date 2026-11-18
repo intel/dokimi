@@ -10,7 +10,7 @@
 ### Fixed
 
 - `repo scan` no longer reads Doxygen `///` as a Bazel label.
-- `pipe-to-shell` no longer fires on `curl … | python -c …`, `| python -m json.tool`, or `| node -e …` (not `| sh -e`, `| ruby -E`, or an inline program that execs or evals, on any of its lines, which still runs what it reads; the word in a string literal or in a later command is not read): the program is on the command line and the download is only its input.
+- `pipe-to-shell` no longer fires on `curl … | python -c …`, `| python -m json.tool`, or `| node -e …` (not `| sh -e`, `| ruby -E`, or an inline program that execs or evals, on any of its lines, which still runs what it reads; a double-quoted program is read through its `\"`, and a quoted segment glued to it is part of it; a marker word that ends a string literal or sits in a later command is not read): the program is on the command line and the download is only its input.
 - `description-no-when` accepts "Use to …" and "Use this skill to …".
 - `catalog formats` counts the skills of a Claude plugin in its `skills/` directory, in the directories its `skills` key names, or, with neither, in those a `marketplace.json` next to its `plugin.json` declares by `source`; a skill reached by two paths counts once, and an unreadable `marketplace.json` or a `plugins` that is not a list is a problem, not a crash.
 - `memory lint` refuses a directory with no `MEMORY.md` that looks like a repository root (`.git`, `pyproject.toml`, `CMakeLists.txt`, ...), instead of linting its README and AGENTS.md as memory.

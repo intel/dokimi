@@ -44,8 +44,11 @@ PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
 # A word that runs what it reads (exec, eval, a shell, a child process); a word that ends a string
 # literal ("eval") is data.
 _EXEC = r"(?<!\w)(?:exec|eval|system|popen|spawn|subprocess|child_process|__import__|Function)(?!\w*['\"])"
-# The inline program after ``-c``/``-e``: one quoted string (it may span lines) or one word, none of it running anything.
-_CLEAN_PROGRAM = rf"(?:'(?:(?!{_EXEC})[^'])*'|\"(?:(?!{_EXEC})[^\"])*\"|(?!{_EXEC})[^\s;&|'\"]+)"
+# The inline program after ``-c``/``-e``: one quoted string (it may span lines; a double-quoted one holds ``\"``) or one
+# word, none of it running anything, and ended there: a quoted segment glued to it is part of the program.
+_CLEAN_PROGRAM = (
+    rf"(?:'(?:(?!{_EXEC})[^'])*'|\"(?:\\[\s\S]|(?!{_EXEC})[^\"\\])*\"|(?!{_EXEC})[^\s;&|'\"]+)(?![^\s;&|])"
+)
 # Bounded (500 pieces) so a long line of curl words stays linear; ``||`` is not a pipe, ``|&`` is.
 # A quoted string is taken whole, so a ``&`` or ``;`` in a quoted URL does not end the command.
 PIPE_TO_SHELL = re.compile(
