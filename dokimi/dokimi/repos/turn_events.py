@@ -6,7 +6,9 @@
 A ``turn`` is one model call and the tokens it was billed: ``input`` (uncached), ``output``,
 ``cache_read``, ``cache_write`` and ``prompt_tokens`` (the whole prompt, ``input + cache_read +
 cache_write``). Claude's come from :mod:`dokimi.context.trace` (the parse the context budget uses);
-their sums should match the run's totals when the result's usage equals its per-call usage.
+their ``input`` and cache sums should match the run's totals when the result's usage equals its
+per-call usage. A Claude ``output`` is ``null``: an assistant record carries the output count from
+the start of the stream, not the call's billed one.
 Codex's come from its ``turn.completed`` usage. Copilot's trace carries no usage, so it has no
 turn events. A count the harness did not report is ``null``, never ``0``.
 
@@ -34,7 +36,7 @@ def claude_events(trace: ContextTrace, start: datetime | None) -> list[dict[str,
         event: dict[str, Any] = {
             "kind": "turn", "t": _seconds(call["at"], start), "turn": call["i"],
             "input": call["input_tokens"] if "input_tokens" in seen else None,
-            "output": call["output_tokens"] if "output_tokens" in seen else None,
+            "output": None,  # the record's output count is a stream-start snapshot, not the billed count
             "cache_read": call["cache_read_tokens"] if "cache_read_input_tokens" in seen else None,
             "cache_write": call["cache_write_tokens"] if "cache_creation_input_tokens" in seen else None,
             "prompt_tokens": (call["input_tokens"] + call["cache_read_tokens"] + call["cache_write_tokens"]

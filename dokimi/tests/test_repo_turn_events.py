@@ -3,8 +3,8 @@
 
 """The ``turn`` and ``compaction`` events of ``events.jsonl`` (docs/events-format.md).
 
-The acceptance rule: the turns of a complete Claude trace sum to the run's own token totals, in the
-scope the totals were taken in (tree with subagents, or the parent's alone).
+The acceptance rule: the input and cache counts of a complete Claude trace's turns sum to the run's own
+totals, in the scope the totals were taken in (tree with subagents, or the parent's alone).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from dokimi.repos.event_format import TOOL_KINDS
 from dokimi.repos.events import convert
 from dokimi.repos.process_metrics import process_metrics
 
-TURN_FIELDS = ("input", "output", "cache_read", "cache_write")
+TURN_FIELDS = ("input", "cache_read", "cache_write")
 
 
 def _lines(*records: dict) -> str:
@@ -38,21 +38,22 @@ def _call(msg_id: str, usage: dict, stamp: str, *, blocks: list | None = None, p
 
 
 def _claude_run(*, tree: bool) -> str:
-    """Three model calls: the parent's first call split over two records (one message id, a fuller output on the
-    second), a subagent's call, then the parent's second call; a compaction after the first call."""
+    """Three model calls: the parent's first call split over two records (one message id, the same stream-start
+    usage on both), a subagent's call, then the parent's second call; a compaction after the first call. The
+    result's output counts are the billed ones, so they exceed the records' snapshots."""
     main_a = _usage(3, 5, 100, 0)
     sub = _usage(2, 4, 50, 10)
     main_b = _usage(1, 9, 120, 20)
     if tree:  # the result's modelUsage: the scope the totals sum over subagents
-        totals = {"inputTokens": 6, "outputTokens": 20, "cacheReadInputTokens": 270, "cacheCreationInputTokens": 30}
+        totals = {"inputTokens": 6, "outputTokens": 600, "cacheReadInputTokens": 270, "cacheCreationInputTokens": 30}
         result_usage: dict = {"modelUsage": {"m": totals}}
     else:  # the parent's usage alone
-        result_usage = {"usage": {"input_tokens": 4, "output_tokens": 16, "cache_read_input_tokens": 220,
+        result_usage = {"usage": {"input_tokens": 4, "output_tokens": 400, "cache_read_input_tokens": 220,
                                   "cache_creation_input_tokens": 20}}
     return _lines(
         {"type": "system", "subtype": "init", "model": "m", "claude_code_version": "2.0.0", "tools": []},
         _call("a", main_a, "2026-11-14T10:00:00Z", blocks=[{"type": "text", "text": "thinking"}]),
-        _call("a", {**main_a, "output_tokens": 7}, "2026-11-14T10:00:00.500Z",
+        _call("a", main_a, "2026-11-14T10:00:00.500Z",
               blocks=[{"type": "tool_use", "id": "agent-1", "name": "Agent", "input": {"prompt": "x"}}]),
         {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-14T10:00:03Z",
          "compact_metadata": {"trigger": "auto", "pre_tokens": 150000}},
@@ -72,7 +73,7 @@ def test_the_turns_of_a_tree_scope_run_sum_to_its_totals():
     turns = _turns(transcript.events)
     assert transcript.usage_scope == "tree"
     assert [sum(t[f] for t in turns) for f in TURN_FIELDS] == [
-        transcript.input_tokens, transcript.output_tokens, transcript.cache_read_tokens, transcript.cache_write_tokens]
+        transcript.input_tokens, transcript.cache_read_tokens, transcript.cache_write_tokens]
 
 
 def test_the_turns_of_a_main_scope_run_sum_to_the_parents_totals():
@@ -80,7 +81,7 @@ def test_the_turns_of_a_main_scope_run_sum_to_the_parents_totals():
     parent = [t for t in _turns(transcript.events) if "agent" not in t]
     assert transcript.usage_scope == "main"
     assert [sum(t[f] for t in parent) for f in TURN_FIELDS] == [
-        transcript.input_tokens, transcript.output_tokens, transcript.cache_read_tokens, transcript.cache_write_tokens]
+        transcript.input_tokens, transcript.cache_read_tokens, transcript.cache_write_tokens]
     assert [t["agent"] for t in _turns(transcript.events) if "agent" in t] == ["agent-1"]
 
 
@@ -88,7 +89,7 @@ def test_one_turn_per_model_call_with_its_prompt_and_its_time():
     events = convert("claude-stream-json", _claude_run(tree=True)).events
     turns = _turns(events)
     assert [t["turn"] for t in turns] == [0, 1, 2]  # the subagent's call counts; the split call is one call
-    assert [t["output"] for t in turns] == [7, 4, 9]  # the fuller of the two records
+    assert [t["output"] for t in turns] == [None, None, None]  # a record's output count is no billed count
     assert [t["prompt_tokens"] for t in turns] == [103, 62, 141]  # input + cache_read + cache_write
     assert [t["t"] for t in turns] == [0.0, 2.0, 5.0]  # seconds from the first timestamped line
 
@@ -172,9 +173,9 @@ def test_a_claude_usage_missing_counts_are_null_not_zero():
                  _call("b", {"output_tokens": 4}, "2026-11-14T10:00:02Z"),
                  _call("c", {"input_tokens": 3}, "2026-11-14T10:00:03Z"))
     assert _turns(convert("claude-stream-json", raw).events) == [
-        {"kind": "turn", "t": 0.0, "turn": 0, "input": 10, "output": 2, "cache_read": None, "cache_write": None,
+        {"kind": "turn", "t": 0.0, "turn": 0, "input": 10, "output": None, "cache_read": None, "cache_write": None,
          "prompt_tokens": 10},
-        {"kind": "turn", "t": 1.0, "turn": 1, "input": 5, "output": 4, "cache_read": None, "cache_write": None,
+        {"kind": "turn", "t": 1.0, "turn": 1, "input": 5, "output": None, "cache_read": None, "cache_write": None,
          "prompt_tokens": 5},
         {"kind": "turn", "t": 3.0, "turn": 2, "input": 3, "output": None, "cache_read": None, "cache_write": None,
          "prompt_tokens": 3},
@@ -184,7 +185,7 @@ def test_a_claude_usage_missing_counts_are_null_not_zero():
 def test_an_output_only_claude_usage_leaves_input_and_prompt_tokens_null():
     turn = _turns(convert("claude-stream-json", _lines(_call("a", {"output_tokens": 3}, "2026-11-14T10:00:00Z")))
                   .events)[0]
-    assert turn["input"] is None and turn["prompt_tokens"] is None and turn["output"] == 3
+    assert turn["input"] is None and turn["prompt_tokens"] is None and turn["output"] is None
 
 
 def test_a_split_message_prompt_tokens_is_the_sum_of_its_parts():
@@ -226,3 +227,15 @@ def test_a_turn_before_the_first_useful_command_is_not_a_step():
 def test_a_codex_turn_with_only_cached_input_sets_the_scope_of_its_totals():
     transcript = convert("codex-json", _lines({"type": "turn.completed", "usage": {"cached_input_tokens": 5}}))
     assert (transcript.cache_read_tokens, transcript.usage_scope) == (5, "main")
+
+
+def test_a_claude_turn_never_stores_the_stream_start_output_snapshot_as_its_output():
+    raw = _lines(_call("a", _usage(2, 6, 12836, 3476), "2026-11-14T10:00:00Z", blocks=[{"type": "text", "text": "x"}]),
+                 {"type": "result", "result": "x", "num_turns": 1, "is_error": False, "subtype": "success",
+                  "usage": {"input_tokens": 2, "output_tokens": 353, "cache_read_input_tokens": 12836,
+                            "cache_creation_input_tokens": 3476}})
+    transcript = convert("claude-stream-json", raw)
+    (turn,) = _turns(transcript.events)
+    assert turn["output"] is None and transcript.output_tokens == 353
+    assert [turn[f] for f in TURN_FIELDS] == [
+        transcript.input_tokens, transcript.cache_read_tokens, transcript.cache_write_tokens]

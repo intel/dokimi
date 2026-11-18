@@ -32,15 +32,15 @@ depend on the kind:
 | `read` | `path` (absent on a refused relative read whose file is not known); `rc` 0 or 1 when the harness reported one |
 | `edit` | `path`; `rc`; `deleted` when the file was deleted |
 | `tool` | `name`; `skill` on a `Skill` call |
-| `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output`, `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it is low when a part is `null`) |
+| `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output` (`null` on a Claude turn: its assistant records carry the output count from the start of the stream, not the call's billed count), `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it is low when a part is `null`) |
 | `compaction` | `turn`: the index of the turn it came after, `null` before the first call |
 
 A `turn` is one model call, so a Claude run's trace has one per call. A call
 whose assistant record has no `usage` object writes no `turn`; a `compaction`
-after it has `turn: null` unless an earlier call wrote one. The sums
-of a complete Claude trace's `turn` events should equal the run's `result.json` token
-totals (`input_tokens`, `output_tokens`, `cache_read_tokens`,
-`cache_write_tokens`) when the result's usage equals its per-call usage (not yet checked on a real run), over the same scope: with `usage_scope` `tree` the events
+after it has `turn: null` unless an earlier call wrote one. The `input`,
+`cache_read` and `cache_write` sums of a complete Claude trace's `turn` events should equal the
+run's `result.json` `input_tokens`, `cache_read_tokens` and `cache_write_tokens` when the result's
+usage equals its per-call usage; its `output_tokens` is in the totals only. Over the same scope: with `usage_scope` `tree` the events
 of subagents are in the sum (they carry `agent`), with `main` they are not. A
 model that the result's `modelUsage` lists but that made no assistant record has
 no `turn`; its tokens are in the totals only. Codex
