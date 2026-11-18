@@ -355,3 +355,20 @@ def test_a_copy_checked_out_with_crlf_is_exact_not_edited(upstream_repo, tmp_pat
     assert b"\r\n" in raw
     row = _row(_run(tmp_path / "copy", "--upstream", str(upstream_repo)), "skills/pdf")
     assert (row["match"], row["edited"], row["behind_commits"]) == ("exact", False, 1)
+
+
+def test_a_version_dated_after_head_is_not_negative_months_behind(tmp_path) -> None:
+    text = V1.replace("license: MIT\n", "license: MIT\nmetadata:\n  version: 3\n")
+    manifest = tmp_path / "skew.json"
+    manifest.write_text(json.dumps({
+        "schema": "dokimi.upstream.v1",
+        "name": "acme",
+        "head": {"commit": "abc123", "date": "2026-04-01T00:00:00+00:00"},
+        "skills": [{"path": "skills/pdf/SKILL.md", "content": text, "commit": "c1", "date": "2026-06-01T00:00:00+00:00"}],
+    }), encoding="utf-8")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": text})
+    report = _run(root, "--upstream-manifest", str(manifest))
+    row = _row(report, "skills/pdf")
+    assert (row["match"], row["at_head"], row["version"]) == ("exact", False, "3")
+    assert row["behind_months"] == 0.0
+    assert report["summary"]["median_months_behind"] == 0.0
