@@ -450,6 +450,24 @@ def test_a_bundle_with_many_files_and_large_documents_is_judged_quickly(tmp_path
     assert elapsed < 10
 
 
+@pytest.mark.parametrize(
+    "bomb",
+    ["](/" * 15000, "](" + "/#" * 15000, "](a/ (" * 20000, "[x]: " + "/#" * 15000 + "<"],
+    ids=["unclosed-links", "one-unclosed-link", "unclosed-titles", "reference-definition"],
+)
+def test_a_hostile_line_does_not_stall_the_check(tmp_path, bomb):
+    import time
+
+    # Each line took quadratic time in the folder-link scan: tens of seconds here, and hours at the 1 MiB read cap.
+    texts = {"references/notes.md": bomb + "\nRun scripts/run.py.\n", "scripts/run.py": "x\n", "scripts/unused.py": "x\n"}
+    started = time.process_time()
+    review = _review_with_texts(tmp_path, bomb + "\nRead references/notes.md.\n", texts)
+    elapsed = time.process_time() - started
+    [message] = _unreferenced(review)
+    assert message.startswith("1 of ") and "(scripts/unused.py)" in message
+    assert elapsed < 5
+
+
 def test_a_document_named_by_a_hidden_file_name_is_read(tmp_path):
     review = _review_with_texts(
         tmp_path,

@@ -52,9 +52,9 @@ SEARCH_UNREADABLE = "a named document is not UTF-8, a symlink or a FIFO"
 NON_REFERENCE_STEMS = frozenset({"changelog", "contributing", "notice"})
 # The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
 _FOLDER_DEST = re.compile(
-    r"\]\([^)\n]*/(?:[#?][^)\n]*)?\)"  # ``[x](scripts/)``, ``[x](scripts/#part)``
-    r"|\]\(\s*<?[^)\s<>]*/(?:[#?][^)\s<>]*)?>?(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?\s*\)"  # with a title, or in <...>
-    r"|^\s{0,3}\[[^\]\n]+\]:\s*<?[^\s<>]*/(?:[#?][^\s<>]*)?>?(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$",  # a reference definition ``[x]: scripts/``
+    r"\]\((?:[^)\]\n/]|/(?![#?)]))*/(?:[#?][^)\]\n]*)?\)"  # ``[x](scripts/)``, ``[x](scripts/#part)``
+    r"|\]\(\s*<?(?:[^)\]\s<>/]|/(?![#?)>\s]))*/(?:[#?][^)\]\s<>]*)?>?(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^()\n]*\)))?\s*\)"  # with a title, or in <...>
+    r"|^\s{0,3}\[[^\]\n]+\]:\s*<?(?:[^\s<>/]|/(?![#?\s>]|$))*/(?:[#?][^\s<>]*)?>?(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$",  # a reference definition ``[x]: scripts/``
     re.MULTILINE,
 )
 SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names a file from the skill root
