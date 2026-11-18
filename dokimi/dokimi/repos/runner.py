@@ -43,10 +43,12 @@ import threading
 import uuid
 from collections import Counter
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from dokimi.provenance import UNKNOWN, status_of
 
 from .container import (
     HARNESS_DIR,
@@ -54,12 +56,15 @@ from .container import (
     SUPPORT_DIR,
     WORKSPACE,
     ContainerError,
+    BatchInterrupted,
     ContainerResult,
     ContainerSpec,
     DockerError,
     EgressNotImplemented,
     Mount,
+    clear_halt,
     docker_network,
+    halt_and_kill_started,
 )
 from . import batch_ledger
 from .answers import convert_answer
@@ -309,6 +314,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             process = _process_or_null(ctx, events, agent["trace_errors"], transcript.unknown_reads)
         if meta.get("skills") and started:
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
+        # A Ctrl-C does not kill the grade: the cell is past its agent, so it is recorded (contract §9).
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
     except CellCrash:  # the harness failed before its trace: the cell is not graded, it has no result
@@ -324,6 +330,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
                               "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade}
+    if status_of(task.raw) != UNKNOWN:  # absent means unknown to the report: a task without one writes no key
+        record["task_status"] = status_of(task.raw)
     _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
@@ -403,6 +411,20 @@ def _clear_unsupported_markers(batch_dir: Path, cells: list, unsupported: dict) 
             (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
 
 
+def _run_unsupported(batch_dir: Path, name: str, cell: tuple[Task, str, AgentOptions, int], reason: str, verdict: Any,
+                     host: Any, state: dict[str, Any], lock: threading.Lock, log: Callable[[str], None]) -> None:
+    """Mark a cell of an unsupported task as not run, and count it."""
+    try:
+        counted = _unsupported_cell(batch_dir / name, cell, reason, verdict, host)
+    except (UnreadableResult, OSError) as exc:
+        with lock:
+            state["errors"].append({"cell": name, "error": str(exc), "infra": _is_infra(exc)})
+        log(f"✗ {name}: {exc}")
+        return
+    with lock:
+        state[counted] += 1
+
+
 def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: list[AgentOptions], reps: int,
               batch_dir: Path, jobs: int = 1, force: bool = False, max_batch_usd: float | None = None,
               log=print) -> dict[str, Any]:
@@ -439,15 +461,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         task, arm, opts, rep = cell
         name = cell_name(task.id, arm, opts.model, rep)
         if task.id in unsupported:
-            try:
-                counted = _unsupported_cell(batch_dir / name, cell, unsupported[task.id], verdicts[task.id][1], host)
-            except (UnreadableResult, OSError) as exc:
-                with lock:
-                    state["errors"].append({"cell": name, "error": str(exc), "infra": _is_infra(exc)})
-                log(f"✗ {name}: {exc}")
-                return
-            with lock:
-                state[counted] += 1
+            _run_unsupported(batch_dir, name, cell, unsupported[task.id], verdicts[task.id][1], host, state, lock, log)
             return
         # the harness's cap on this cell (task.json's, else --budget)
         reserved = _reserve(state, lock, max_batch_usd, batch_dir / name,
@@ -457,6 +471,9 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         charged, rec = 0.0, None
         try:
             rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force, host=host)
+        except BatchInterrupted as exc:  # dropped, with nothing recorded: only the charge of an agent that ran
+            charged = exc.charged_usd
+            raise
         except CellCrash as exc:
             charged = exc.charged_usd
             with lock:
@@ -471,11 +488,62 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         if rec is not None and not rec.get("skipped"):
             _log_cell(log, name, rec)
 
-    _map_cells(one, cells, jobs)
+    _run_cells(cells, one, jobs)
     return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
             "errors": state["errors"], "budget_stopped": state["budget_stopped"],
             "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
             "spent_usd": round(state["this_run"], 6), "batch_spent_usd": round(state["spent"], 6)}
+
+
+KILL_RETRY_S = 2.0
+
+
+def _run_cells(cells: list[Any], one: Callable[[Any], None], jobs: int) -> None:
+    """Run every cell in worker threads. A Ctrl-C reaches this main thread only: see _stop_on_interrupt."""
+    pool = ThreadPoolExecutor(max(1, jobs))
+    futures: list[Future[None]] = []  # filled as cells are submitted: an interrupt may land in the middle
+    try:
+        for cell in cells:
+            futures.append(pool.submit(one, cell))
+        for future in futures:  # a worker's exception is raised here, as pool.map raised it
+            future.result()
+    except KeyboardInterrupt:
+        _stop_on_interrupt(pool)
+        raise
+    except BaseException:  # a worker's error: as pool.map did, the cells not started are cancelled
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        pool.shutdown(wait=True)
+
+
+def _stop_on_interrupt(pool: ThreadPoolExecutor) -> None:
+    """Ctrl-C reached the main thread, not the cells in worker threads. Cancel the cells not started, then kill the
+    agent containers the running cells started, by name, and kill again until every worker returns: a container
+    started between two kills is caught by the next one. A grading container is not killed: its cell is past its
+    agent, so the wait includes its grade (contract §9). The halt stays until then, so a cell that asks for an agent
+    container gets an error. Waiting is on the pool, not on the futures: a cell submitted just before the interrupt
+    has no future yet. A further Ctrl-C does not stop the kills."""
+    idle = threading.Event()
+
+    def drain() -> None:
+        pool.shutdown(wait=True)
+        idle.set()
+
+    started = False
+    try:
+        while not idle.is_set():
+            try:
+                if not started:  # the cancel and the drain are retried too: a Ctrl-C can land on either
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    threading.Thread(target=drain, daemon=True).start()
+                    started = True
+                halt_and_kill_started()
+                idle.wait(KILL_RETRY_S)
+            except KeyboardInterrupt:
+                continue
+    finally:
+        clear_halt()
 
 
 SPEND_FILE = "spend.json"
@@ -541,17 +609,6 @@ def _read_batch_spend(batch_dir: Path, capped: bool = True) -> float:
 
 def _write_batch_spend(batch_dir: Path, spent: float) -> None:
     batch_ledger.write_json(batch_dir / "_eval" / SPEND_FILE, {"spent_usd": spent})
-
-
-def _map_cells(one: Callable[[Any], None], cells: list[Any], jobs: int) -> None:
-    with ThreadPoolExecutor(max(1, jobs)) as pool:
-        try:
-            list(pool.map(one, cells))
-        except KeyboardInterrupt:
-            # pool.map submits every cell before it returns the iterator that cancels the queue, so an
-            # interrupt during submission would otherwise let the queued cells start while the pool exits.
-            pool.shutdown(wait=False, cancel_futures=True)
-            raise
 
 
 def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> None:

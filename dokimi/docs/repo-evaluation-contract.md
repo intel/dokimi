@@ -337,6 +337,8 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. On a `guidance:as-skill` catalog arm the generated `<repo>-guidance` skill is refused too (its usage is `guidance_skill_loaded`). `result.json` `skills` records whether the agent used it and whether it used it first |
 | `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
+| `version` | no | framework (reporting) | the task's revision, a non-empty string or an integer; absent is unknown. The grader does not read it, except `dokimi:typecheck`, which reads `version` as the image's mypy version (its row in the grader table) and so must not carry a revision there |
+| `provenance` | no | framework (reporting) | `source` (`hand-written`, `generated:<tool>@<version>` or `imported:<format>`; `eval tasks generate` writes `generated:dokimi-tasks-generate@<dokimi version>`), `reviewed_by` (a non-empty string) and `status` (`candidate`, `validated` or `frozen`); every key optional. `repo report` shows each task's `status` in a column, `unknown` when absent. A malformed block fails `repo validate` (`dokimi/provenance.py`) |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -2390,7 +2392,10 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   both `id`s, until a `--force` run over every arm and model of the batch (the same `--task` and `--reps`) reruns them. A plan naming one cell twice (a
   repeated `--task` or `--model`, or two `--model` strings with one directory
   name, `a/b` and `a:b`, or names that differ only in case) is refused before any agent starts.
-  Ctrl-C lets the running cells finish and starts no queued one. A batch stays on the eval tree it
+  Ctrl-C starts no queued cell and kills, by name, the agent containers the running cells started; a cell whose
+  agent was killed is not recorded and runs again on the next invocation (what a killed agent spent without
+  reporting a cost is open: #834). A cell past its agent is not killed: its grading container finishes (Ctrl-C
+  waits for it), the cell is recorded, and its agent is not run again on resume. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
