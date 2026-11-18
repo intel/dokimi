@@ -270,6 +270,12 @@ def test_a_recursion_error_in_the_decoder_is_json_this_reader_cannot_hold(monkey
         {"error": "JSON this reader cannot hold: maximum recursion depth exceeded while decoding a JSON array"}]
 
 
+def test_a_marker_whose_json_names_the_marker_is_read_whole():
+    ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"grep DOKIMI_OP in logs"}', "")
+
+    assert [(op.type, op.name) for op in ops] == [("tool", "grep DOKIMI_OP in logs")]
+
+
 def test_an_elapsed_too_large_for_a_float_is_zero():
     ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"edit","elapsed_sec":1' + "0" * 400 + "}", "")
 
