@@ -354,7 +354,7 @@ tasks:
   and `repo report` counts the cells neither as failed nor as missing. A cell
   that runs records `base_repo` (`{"repo", "source"}`) in `meta.json`. A base that
   the cached clone of a remote lacks is fetched once before it counts as missing.
-- `repo tasks check` reports these tasks as not checked when their repository is
+- `eval check` reports these tasks as not checked when their repository is
   missing and fails only on the other bad tasks; when every selected task is
   not checked it exits 1 (incomplete), as `repo run` does, since nothing was checked.
 - Not covered yet: `repo validate` checks the bases of the eval tree only; a suite
