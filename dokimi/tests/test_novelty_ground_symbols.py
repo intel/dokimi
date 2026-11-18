@@ -351,6 +351,8 @@ def test_a_same_path_overwrite_keeps_the_old_snapshot_too(tmp_path):
     "return cblas_ddot(n,x,1)/cblas_dgemmx (n,x,1);",
     "return cblas_ddot(n,x,1)/cblas_dgemmx\n(n,x,1);",
     "return a/cblas_dgemmx\t(n,x,1);",
+    "Return x -cblas_dgemmx;",
+    "Return f(x) -cblas_dgemmx;",
 ])
 def test_an_operator_before_a_called_api_name_keeps_the_name(code):
     assert "cblas_dgemmx" in re.findall(symbol_pattern(("cblas_",)), code)

@@ -49,13 +49,13 @@ def symbol_pattern(prefixes: Sequence[str]) -> str:
 
     A name after ``.`` or after ``->`` (with up to 8 blanks) is a member, and ``mkl_types`` in ``mkl_types.h`` is a file name:
     neither is an API name. A name after ``/`` is one only when it is called (``a/cblas_x(``), and
-    a name after ``-`` is one when it is called or follows an operand (``f(x)-cblas_x``).
+    a name after ``-`` is one when it is called or follows an operand (``f(x)-cblas_x``, ``x -cblas_x``).
     """
     alternatives = "|".join(re.escape(p) for p in prefixes)
     # `->` may be followed by up to _MEMBER_GAP blanks (not newlines): one fixed-width lookbehind each.
     # a name after `. ` stays an API name: a sentence's period and a space look the same.
     member = "".join(rf"(?<!->[ \t]{{{n}}})" for n in range(_MEMBER_GAP + 1))
-    return rf"(?<![\w.]){member}(?:(?<!/)(?<![^\w)\]]-)(?<!^-)|(?=(?:{alternatives})\w+\s*\())(?:{alternatives})\w+(?!\.?\w)"
+    return rf"(?<![\w.]){member}(?:(?<!/)(?<![^\w)\]\s]-)(?<!^-)|(?=(?:{alternatives})\w+\s*\())(?:{alternatives})\w+(?!\.?\w)"
 
 
 def header_names(text: str, prefixes: Sequence[str]) -> set[str]:
