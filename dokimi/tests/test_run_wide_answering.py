@@ -67,6 +67,16 @@ def test_answerer_goes_on_after_an_error_that_is_not_run_wide(monkeypatch):
     assert len(answers) == 3
 
 
+def test_answerer_summary_says_how_many_questions_a_stop_left_unasked(capsys):
+    Answerer()._print_summary([], 3)
+    assert "Stopped: 3 of 3 questions not asked" in capsys.readouterr().out
+
+
+def test_answerer_summary_has_no_stop_line_when_every_question_was_asked(capsys):
+    Answerer()._print_summary([{"question_id": "q0"}], 1)
+    assert "Stopped" not in capsys.readouterr().out
+
+
 def test_arm_runner_asks_no_later_question_after_a_run_wide_error(monkeypatch):
     calls = []
     monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", _run_wide_on_first_call(calls))
