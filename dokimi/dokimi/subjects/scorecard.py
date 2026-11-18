@@ -187,10 +187,10 @@ def _digest_ref(ref: str | None, *, base: Path) -> str | None:
     path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
         path = base / path
-    h = hashlib.sha256()
     if path.is_file():
-        h.update(b"f" + hashlib.sha256(path.read_bytes()).digest())
-    elif path.is_dir():
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    h = hashlib.sha256()
+    if path.is_dir():
         h.update(b"d")
         for child in sorted(p for p in path.rglob("*") if p.is_file()):
             h.update(_field(str(child.relative_to(path))))

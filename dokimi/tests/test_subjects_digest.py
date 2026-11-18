@@ -155,6 +155,24 @@ def test_a_file_value_whose_content_spells_the_next_value_differs_from_the_two_v
     assert _digest_values((str(f), "missing-question")) != single
 
 
+def test_a_file_ref_digest_is_the_sha256_of_its_content(tmp_path: Path):
+    # The schema's ref_digest text and evidence.py's content_digest say a file's digest is its content digest.
+    (tmp_path / "SKILL.md").write_bytes(b"body\n")
+    assert _digest_ref("SKILL.md", base=tmp_path) == "sha256:" + hashlib.sha256(b"body\n").hexdigest()
+
+
+def test_a_value_naming_no_file_is_tagged_as_text(tmp_path: Path):
+    assert _digest_values((str(tmp_path / "nope"),)) == "sha256:" + hashlib.sha256(
+        hashlib.sha256(str(tmp_path / "nope").encode()).digest() + b"t").hexdigest()
+
+
+def test_a_value_naming_a_file_is_tagged_with_the_digest_of_its_content(tmp_path: Path):
+    f = tmp_path / "f"
+    f.write_bytes(b"body\n")
+    assert _digest_values((str(f),)) == "sha256:" + hashlib.sha256(
+        hashlib.sha256(str(f).encode()).digest() + b"f" + hashlib.sha256(b"body\n").digest()).hexdigest()
+
+
 def test_an_arm_spec_digest_frames_the_spec_and_each_part_as_fixed_width_fields(tmp_path: Path):
     # #878: the spec and each part were joined with a bare NUL, so this literal moved.
     assert _digest_arm_spec("skill:./a+skill:./b", base=tmp_path) == (
