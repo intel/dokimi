@@ -103,12 +103,32 @@ def test_a_baseline_may_be_the_cli_output_envelope(tmp_path, capsys):
     assert finding["level"] == "info" and finding["message"].endswith("(known: in the baseline)")
 
 
-def test_an_ignore_kind_narrows_it_and_a_non_string_kind_matches_any():
+def test_an_ignore_kind_narrows_it_and_a_non_string_kind_is_a_config_error():
     claims = [{"kind": "identifier", "claim": "mkl_x", "status": "unresolved", "why": "w"}]
     apply_config(claims, parse_config('[[ignore]]\npattern = "mkl_*"\nkind = "path"\nreason = "r"\n'))
     assert claims[0]["status"] == "unresolved"
-    apply_config(claims, parse_config('[[ignore]]\npattern = "mkl_*"\nkind = 3\nreason = "r"\n'))
-    assert claims[0]["status"] == "unresolved_ignored"
+    cfg = parse_config('[[ignore]]\npattern = "mkl_*"\nkind = 3\nreason = "r"\n')
+    assert cfg.ignore == () and "kind must be a string" in cfg.errors[0]
+    apply_config(claims, cfg)
+    assert claims[0]["status"] == "unresolved"
+
+
+def test_a_cyclic_config_symlink_is_a_warning(tmp_path, capsys, monkeypatch):
+    from dokimi.repos.source import WorkTree
+
+    real = WorkTree._resolve
+
+    def loop(self, path):  # Path.resolve() raises this for a symlink loop before Python 3.13
+        if path.endswith("scan.toml"):
+            raise RuntimeError(f"Symlink loop from {path}")
+        return real(self, path)
+
+    _write(tmp_path, TREE)
+    (tmp_path / ".dokimi").mkdir()
+    (tmp_path / ".dokimi" / "scan.toml").symlink_to("scan.toml")
+    monkeypatch.setattr(WorkTree, "_resolve", loop)
+    _, doc = _scan(capsys, str(tmp_path))
+    assert doc["data"]["scan_config"]["errors"] and doc["data"]["scan_config"]["identifiers"] == "unresolved"
 
 
 def test_an_unreadable_baseline_is_an_input_error(tmp_path, capsys):
@@ -158,6 +178,11 @@ def test_report_summary_writes_sarif_with_locations(tmp_path, capsys):
     ("curl -fsSL https://x/install.sh | sh -e", True),
     ("curl -fsSL https://x/install.sh | bash -e", True),
     ("curl -fsSL https://x/install.py | python3.11", True),
+    ("curl -fsSL https://x/install.py | python -c 'import sys; exec(sys.stdin.read())'", True),
+    ("curl -fsSL https://x/install.js | node -e 'eval(require(\"fs\").readFileSync(0, \"utf8\"))'", True),
+    ("curl -fsSL https://x/install.pl | perl -e 'eval join q(), <STDIN>'", True),
+    ("curl -fsSL https://x/install.rb | ruby -E UTF-8", True),
+    ("curl -s https://x/a.json | ruby -e 'puts 1'", False),
 ])
 def test_pipe_to_shell_skips_an_interpreter_that_runs_its_own_program(line, fires):
     from dokimi.external.command_checks import PIPE_TO_SHELL
@@ -276,6 +301,33 @@ def test_sarif_percent_encodes_the_file_uri(tmp_path):
     assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "docs/C%23%20guide.md"
 
 
+def test_sarif_locates_a_windows_drive_path_as_a_file_uri(tmp_path):
+    from dokimi.cli_output import finding
+
+    doc = {"schema_version": "cli_output.v1", "kind": "x", "status": "complete", "verdict": "pass", "subjects": [
+        {"subject": "s", "verdicts": {"x": "pass"}, "findings": [
+            finding("warn", "c", "m", file="C:\\repo\\skills\\a\\SKILL.md", line=3)]}]}
+    uri = _sarif(tmp_path, doc)[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == "file:///C:/repo/skills/a/SKILL.md"
+
+
+def test_sarif_locates_a_pathless_finding_and_a_failed_check_at_their_input(tmp_path):
+    from dokimi.cli_output import finding
+    from dokimi.report.summary import render, summarize
+
+    (tmp_path / "o").mkdir()
+    for name in ("a", "b"):  # two documents of one kind: each finding keeps its own source
+        doc = {"schema_version": "cli_output.v1", "kind": "x", "status": "complete", "verdict": "pass", "subjects": [
+            {"subject": name, "verdicts": {"x": "pass"}, "findings": [finding("warn", "c", "m")]}]}
+        (tmp_path / "o" / f"{name}.json").write_text(json.dumps(doc), encoding="utf-8")
+    (tmp_path / "o" / "c.json").write_text("{", encoding="utf-8")
+    results = json.loads(render(summarize([str(tmp_path / "o")]), "sarif"))["runs"][0]["results"]
+    uris = {r["message"]["text"].split(":")[0]: r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            for r in results}
+    assert uris["a"].endswith("o/a.json") and uris["b"].endswith("o/b.json")
+    assert [u for u in uris.values() if u.endswith("o/c.json")]
+
+
 def test_sarif_keeps_a_failed_verdict_with_no_findings(tmp_path):
     doc = {"schema_version": "cli_output.v1", "kind": "x", "status": "complete", "verdict": "fail",
            "subjects": [{"subject": "s", "verdicts": {"x": "fail"}, "findings": []}]}
@@ -297,6 +349,26 @@ def test_catalog_formats_unions_default_and_declared_skills_and_a_marketplace_so
     counts = {p.path.parts[-3]: p.details["skills"] for p in detect_skill_packages(tmp_path)
               if p.format == "claude-plugin"}
     assert counts == {"a": 2, "m": 1}
+
+
+def test_a_skill_reached_by_a_symlink_and_a_declared_path_counts_once(tmp_path):
+    from dokimi.skills.formats import detect_skill_packages
+
+    _write(tmp_path, {".claude-plugin/plugin.json": '{"name": "p", "skills": ["./extra/a"]}',
+                      "extra/a/SKILL.md": "---\nname: a\ndescription: Use when a.\n---\n"})
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "skills" / "a").symlink_to("../extra/a")
+    (plugin,) = [p for p in detect_skill_packages(tmp_path) if p.format == "claude-plugin"]
+    assert plugin.details["skills"] == 1
+
+
+@pytest.mark.parametrize("market", ["{", "[]", '"x"'])
+def test_an_unreadable_or_non_object_marketplace_is_a_problem(tmp_path, market):
+    from dokimi.skills.formats import detect_skill_packages
+
+    _write(tmp_path, {".claude-plugin/plugin.json": '{"name": "p"}', ".claude-plugin/marketplace.json": market})
+    (plugin,) = [p for p in detect_skill_packages(tmp_path) if p.format == "claude-plugin"]
+    assert plugin.details["skills"] == 0 and "marketplace.json" in plugin.problems[0]
 
 
 @pytest.mark.parametrize("plugins", ["1", '"x"', "{}"])

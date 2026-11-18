@@ -13,6 +13,7 @@ dropped and never shown as a pass. Stdlib only, and no ``GITHUB_*`` variable is 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -148,6 +149,19 @@ def _overall(checks: list[dict[str, Any]]) -> str:
     return "report_only" if checks else "not_run"
 
 
+def _column_key(row: dict[str, Any], used: set[str]) -> str | None:
+    """The column key of one document with subjects: its kind, or the kind and source when an earlier document took
+    the kind. ``used`` collects the keys taken."""
+    check = row["kind"]
+    if row["subjects"]:
+        n = 1
+        while check in used:
+            n += 1
+            check = f"{row['kind']} ({row['source']})" + (f" #{n}" if n > 2 else "")
+        used.add(check)
+    return check
+
+
 def summarize(paths: list[str]) -> dict[str, Any]:
     """The merged document: overall state, one row per input, one row per subject id across inputs."""
     checks: list[dict[str, Any]] = []
@@ -156,14 +170,7 @@ def summarize(paths: list[str]) -> dict[str, Any]:
     for path in expand_inputs(paths):
         row, doc = load(path)
         checks.append(row)
-        # One column key per document: its kind, or the kind and source when an earlier document took the kind.
-        check = row["kind"]
-        if (doc or {}).get("subjects"):
-            n = 1
-            while check in used:
-                n += 1
-                check = f"{row['kind']} ({row['source']})" + (f" #{n}" if n > 2 else "")
-            used.add(check)
+        check = _column_key(row, used)
         for s in (doc or {}).get("subjects") or []:
             if isinstance(s, dict) and isinstance(s.get("subject"), str):
                 entry = subjects.setdefault(s["subject"], {"subject": s["subject"], "verdicts": {}, "findings": []})
@@ -255,13 +262,25 @@ def render_annotations(summary: dict[str, Any]) -> str:
 _SARIF_LEVEL = {"error": "error", "warn": "warning", "warning": "warning"}
 
 
-def render_sarif(summary: dict[str, Any]) -> str:
-    """SARIF 2.1.0: one result per subject finding, so GitHub code scanning, Azure DevOps and the GitLab or
-    Jenkins SARIF importers show it at its file and line. A finding with no file is located at its check's
-    input. A check that failed, could not be read, ended short or carries a bad verdict is a result too, so it is
-    not silent; a subject with a bad verdict and no finding is one as well. Paths are written as percent-encoded URIs."""
+def _sarif_uri(path: str | None) -> str:
+    """A repository-relative path as a percent-encoded URI reference; a drive-qualified Windows path as a
+    ``file:///`` URI, which a relative reference to a directory named ``C:`` would not be."""
     from urllib.parse import quote
 
+    if not path:
+        return "."
+    path = path.replace("\\", "/")
+    if re.match(r"[A-Za-z]:/", path):
+        return "file:///" + quote(path, safe="/:")
+    return quote(path, safe="/")
+
+
+def render_sarif(summary: dict[str, Any]) -> str:
+    """SARIF 2.1.0: one result per subject finding, so GitHub code scanning, Azure DevOps and the GitLab or
+    Jenkins SARIF importers show it at its file and line. A finding with no file is located at its check's input
+    file, as is a check or a verdict that has no finding. A check that failed, could not be read, ended short or
+    carries a bad verdict is a result too, so it is
+    not silent; a subject with a bad verdict and no finding is one as well. Paths are written as percent-encoded URIs."""
     from dokimi._version import __version__
 
     rules: dict[str, dict[str, Any]] = {}
@@ -269,24 +288,26 @@ def render_sarif(summary: dict[str, Any]) -> str:
 
     def result(rule: str, level: str, message: str, uri: str | None, line: Any) -> None:
         rules.setdefault(rule, {"id": rule, "shortDescription": {"text": rule}})
-        loc: dict[str, Any] = {"artifactLocation": {"uri": quote(uri.replace("\\", "/"), safe="/") if uri else "."}}
+        loc: dict[str, Any] = {"artifactLocation": {"uri": _sarif_uri(uri)}}
         if isinstance(line, int) and line >= 1:
             loc["region"] = {"startLine": line}
         results.append({"ruleId": rule, "level": level, "message": {"text": message},
                         "locations": [{"physicalLocation": loc}]})
 
+    used: set[str] = set()
+    source_of = {_column_key(c, used): c["source"] for c in summary["checks"] if c["subjects"]}
     for c in summary["checks"]:
         error = c["state"] in ("failed", "invalid", "not_run", "infra_error")
         if error or c["state"] in _BAD or c["state"] in _STOPPED:
             result(f"dokimi/{c['kind'] or 'input'}/{c['state']}", "error" if error else "warning",
-                   f"{c['kind'] or c['source']}: {c['state']}: {c['reason'] or ''}".rstrip(": "), None, None)
+                   f"{c['kind'] or c['source']}: {c['state']}: {c['reason'] or ''}".rstrip(": "), c["source"], None)
     for s in summary["subjects"]:
         for kind, verdict in s["verdicts"].items():
             if verdict in _BAD and not any(f["check"] == kind for f in s["findings"]):
-                result(f"dokimi/{kind}/{verdict}", "warning", f"{s['subject']}: {verdict}", None, None)
+                result(f"dokimi/{kind}/{verdict}", "warning", f"{s['subject']}: {verdict}", source_of.get(kind), None)
         for f in s["findings"]:
             result(f"dokimi/{f['check']}/{f.get('code')}", _SARIF_LEVEL.get(str(f.get("level")), "note"),
-                   f"{s['subject']}: {f.get('message')}", f.get("file"), f.get("line"))
+                   f"{s['subject']}: {f.get('message')}", f.get("file") or source_of.get(f["check"]), f.get("line"))
     doc = {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
            "runs": [{"tool": {"driver": {"name": "dokimi", "version": __version__,
                                          "informationUri": "https://github.com/intel/dokimi",

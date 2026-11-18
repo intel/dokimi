@@ -202,7 +202,7 @@ def _skill_dirs(base: Path, entries) -> set[Path]:
         if (d / "SKILL.md").is_file():
             found.add(d)
         elif d.is_dir():
-            found.update(p.parent for p in d.glob("*/SKILL.md"))
+            found.update(p.parent.resolve() for p in d.glob("*/SKILL.md"))
     return found
 
 
@@ -213,9 +213,13 @@ def _marketplace_skills(bundle: Path, marketplace: Path, problems: list[str]) ->
     if marketplace.is_file():
         try:
             market = json.loads(marketplace.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            problems.append(f"marketplace.json: unreadable JSON: {exc}")
             return found
-        plugins = market.get("plugins") if isinstance(market, dict) else None
+        if not isinstance(market, dict):
+            problems.append("marketplace.json: not an object")
+            return found
+        plugins = market.get("plugins")
         if plugins is not None and not isinstance(plugins, list):
             problems.append("marketplace.json: plugins is not a list")
             plugins = []

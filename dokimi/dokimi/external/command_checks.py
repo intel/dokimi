@@ -41,18 +41,21 @@ EXAMPLES_SHOWN = 3
 # Prose files: their installs are read from code (fences and spans), as in Markdown.
 PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
 
+# An inline program that runs what it reads: exec, eval, a shell or a child process.
+_NO_EXEC = r"(?![^\n]*\b(?:exec|eval|system|popen|spawn|subprocess|child_process|__import__|Function)\w*)"
 # Bounded (500 pieces) so a long line of curl words stays linear; ``||`` is not a pipe, ``|&`` is.
 # A quoted string is taken whole, so a ``&`` or ``;`` in a quoted URL does not end the command.
 PIPE_TO_SHELL = re.compile(
     r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
     r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?(?:"
-    # `python -c PROGRAM`, `python -m json.tool`, `node -e`, `perl -e`, `ruby -e`: the program is on the command line
-    # and the download is only its input (JSON to parse), so nothing downloaded is run. A shell's `-e` is not that.
+    # An inline program (`python -c`, `node -e`, `ruby -e`, `python -m`) takes the download as data, unless it execs or
+    # evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
     r"(?:(?:ba|z|da|k)?sh|fish)\b"
-    r"|python(?:3(?:\.\d+)?)?(?![\w.])(?![ \t]+-[cm](?![\w-]))"
-    r"|node\b(?![ \t]+-[ep](?![\w-]))"
-    r"|(?:perl|ruby)\b(?![ \t]+-[eE](?![\w-]))"
+    rf"|python(?:3(?:\.\d+)?)?(?![\w.])(?![ \t]+-c(?![\w-]){_NO_EXEC})(?![ \t]+-m(?![\w-]))"
+    rf"|node\b(?![ \t]+-[ep](?![\w-]){_NO_EXEC})"
+    rf"|perl\b(?![ \t]+-[eE](?![\w-]){_NO_EXEC})"
+    rf"|ruby\b(?![ \t]+-e(?![\w-]){_NO_EXEC})"
     r")"
 )
 PERMISSION_BYPASS = re.compile(

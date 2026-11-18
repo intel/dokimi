@@ -292,7 +292,7 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
-(`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
+(`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
 an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
 package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
 file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced

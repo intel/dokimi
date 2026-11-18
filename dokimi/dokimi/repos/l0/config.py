@@ -79,7 +79,10 @@ def parse_config(text: str, source: str = CONFIG_PATH) -> ScanConfig:
             errors.append(f"{source}: ignore entry {i} ({entry['pattern']!r}) needs a reason")
             continue
         kind = entry.get("kind")
-        ignores.append(Ignore(entry["pattern"], entry["reason"].strip(), kind if isinstance(kind, str) else None))
+        if kind is not None and not isinstance(kind, str):  # None would match every kind: a typo must not widen it
+            errors.append(f"{source}: ignore entry {i} ({entry['pattern']!r}) kind must be a string, not {kind!r}")
+            continue
+        ignores.append(Ignore(entry["pattern"], entry["reason"].strip(), kind))
     unknown = sorted(set(data) - {"identifiers", "ignore"})
     if unknown:
         errors.append(f"{source}: unknown key(s) {', '.join(unknown)}")
@@ -94,7 +97,8 @@ def load_config(tree: Any) -> ScanConfig:
         return ScanConfig()
     try:
         return parse_config(tree.read_text(CONFIG_PATH))
-    except (OSError, UnicodeDecodeError, SourceError) as exc:  # SourceError: a dangling or escaping symlink
+    except (OSError, UnicodeDecodeError, SourceError, RuntimeError) as exc:  # SourceError: a dangling or escaping
+        # symlink; RuntimeError: a symlink loop, which Path.resolve() raises before Python 3.13
         return ScanConfig(source=CONFIG_PATH, errors=(f"{CONFIG_PATH}: {exc}",))
 
 
