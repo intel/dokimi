@@ -160,6 +160,27 @@ def test_resume_reviews_again_a_skill_whose_linked_file_is_gone(tmp_path, capsys
     assert code == 0
 
 
+@pytest.mark.parametrize("stamp", [None, "0.0.0-older"])
+def test_resume_reviews_again_a_row_another_dokimi_version_or_none_wrote(tmp_path, capsys, stamp):
+    from dokimi import __version__
+
+    argv = _two_good_skills(tmp_path)
+    assert _run(argv, capsys)[1] == 0
+    rows = _rows(tmp_path / "s1.jsonl")
+    for row in rows:
+        if stamp is None:
+            row.pop("dokimi_version", None)
+        else:
+            row["dokimi_version"] = stamp
+    (tmp_path / "s1.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    out, code = _run([*argv, "--resume"], capsys)
+
+    assert "resumed" not in out
+    assert code == 0
+    assert [row["dokimi_version"] for row in _rows(tmp_path / "s1.jsonl")] == [__version__, __version__]
+
+
 def test_resume_keeps_the_row_of_a_skill_whose_directory_is_unchanged(tmp_path, capsys):
     argv = _two_good_skills(tmp_path)
     out_path = tmp_path / "s1.jsonl"

@@ -79,7 +79,7 @@ Outputs are written under `results/<library>/` or the requested `--out-dir`:
 The benchmark separates model responsibilities because self-judging can inflate scores.
 
 - **Generator model**: creates personas and questions. Default `openai/gpt-6.1-sol` on every command.
-- **Answer model**: answers every question in both conditions (`--model`). Default `openai/gpt-6.1-sol` on every command that has one; `tasks run`, `explore run`, `repo run`, `novelty routing` and `tools preference` have no default `--model`.
+- **Answer model**: answers every question in both conditions (`--model`). Default `openai/gpt-6.1-sol` on every command that has one; `tasks run`, `explore run`, `repo run`, `skill routing`, `catalog routing` and `tools preference` have no default `--model`.
 - **Judge model**: scores answers. It should differ from the answer model/provider for stronger evaluator independence. Default `anthropic/claude-sonnet-5-5` on every command.
 - **Panel judges**: optional role-diverse judges for stricter review.
 
@@ -87,7 +87,7 @@ The defaults live in `dokimi/defaults.py` and changed on 2026-10-13; scores from
 
 `benchmark`, `eval score pointwise`, `eval score panel` and `evaluate` warn when the normalized answer model and judge model match, and so do `arms run --judge` and `subjects run --judge`. Commands that read a saved answers or questions file warn when the judge is the model the file records. Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
 
-Supported providers in the main pipeline (`evaluate`, `benchmark`, `answers generate`, `eval questions generate`, `eval personas discover`) are OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock and `claude-cli`; `openai-codex` only on the commands that call `dokimi.llm` directly (`arms`, `subjects run`, `skill novelty`, `skill shorten`, `novelty routing`, `eval questions analyze|review`, `eval score panel`, `tools preference`).
+Supported providers in the main pipeline (`evaluate`, `benchmark`, `answers generate`, `eval questions generate`, `eval personas discover`) are OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock and `claude-cli`; `openai-codex` only on the commands that call `dokimi.llm` directly (`arms`, `subjects run`, `skill novelty`, `skill shorten`, `skill routing`, `catalog routing`, `eval questions analyze|review`, `eval score panel`, `tools preference`).
 
 ## Question Sources
 
@@ -213,7 +213,7 @@ Every serious run should answer "Can we trust this run?" before interpreting del
 - retrieval hit rate — the share of questions where at least one document reached the `with_docs` prompt, from the per-evaluation `retrieval_hit` the judge and panel record; eval files judged before that field existed show it as not measured, and so do files where fewer than 80% of evaluations record it (`min_retrieval_coverage`), since the rate would then describe a subset,
 - multi-run variance when `--multi-run N` is used.
 
-A check whose input the run did not produce passes without blocking or warning, but is shown as not measured, never as a pass: the verdict line reads e.g. `PASS (1 of 7 not measured)`, and the JSON report lists those checks under `trust.not_measured`.
+A check whose input the run did not produce passes without blocking or warning, but is shown as not measured, never as a pass: the verdict line reads e.g. `PASS (1 of 7 not measured)`, and the JSON report lists those checks under `trust.not_measured`. The same holds for the average delta, the score coefficient of variation and the multi-run variance when the arm means differ, or the scores or per-run averages spread, by more than the float range (scores of about 1e308 in both signs).
 
 For reproducibility:
 

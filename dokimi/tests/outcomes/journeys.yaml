@@ -363,7 +363,7 @@ criteria:
     delivery: available
     enforce: true
     capability: novelty
-    surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "novelty routing --max-usd"]
+    surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "skill routing --max-usd"]
     refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py, dokimi/novelty/cost.py]
     evidence:
       - {id: cjm-novelty-spend-cap, kind: unit, stubs: [model client prices]}
@@ -384,12 +384,12 @@ criteria:
       - id: cjm-novelty-authoring-path
         kind: cli_scenario
         invokes:
-          - "novelty routing --artifact --competitors --queries"
+          - "skill routing --competitors --queries"
           - "skill novelty analyze --estimate-only"
           - "skill novelty atoms --extract-model --out"
           - "skill novelty probe --atoms --model --judge-model"
           - "skill shorten --atoms"
-          - "novelty view --novelty"
+          - "skill novelty view --novelty"
         stubs: [every model client (scripted transport)]
     scope: the CLI path and its intermediate artifacts on scripted models; novelty figures here are not measurements
   AC-J14-004:
@@ -437,7 +437,7 @@ criteria:
   AC-J14-007:
     delivery: partial
     enforce: false
-    surfaces: ["novelty view --novelty", "repo report --json"]
+    surfaces: ["skill novelty view --novelty", "repo report --json"]
     gaps: ["no common re-render for benchmark or arms runs"]
   AC-J02-001:
     delivery: available

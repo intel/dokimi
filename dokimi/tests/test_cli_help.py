@@ -35,7 +35,7 @@ PATHS = list(_command_paths(build_parser()))
 
 def test_the_walk_finds_the_command_tree():
     top = {p[0] for p in PATHS if len(p) == 1}
-    assert {"docs", "eval", "tasks", "novelty", "repo"} <= top
+    assert {"docs", "eval", "tasks", "skill", "repo"} <= top
     assert any(len(p) == 2 for p in PATHS)
 
 
@@ -47,3 +47,11 @@ def test_help_renders(path, capsys):
     out = capsys.readouterr().out
     assert out.startswith("usage: ")
     assert " ".join(path) in out.splitlines()[0]
+
+
+@pytest.mark.parametrize("path", [("eval", "check"), ("repo", "run"), ("eval", "tasks")],
+                         ids=["eval-check", "repo-run", "tasks-generate-in-the-tasks-listing"])
+def test_the_exit_2_help_of_a_source_command_names_the_cache_dir_case(path, capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([*path, "--help"])
+    assert "a --cache-dir that is not a usable directory" in " ".join(capsys.readouterr().out.split())

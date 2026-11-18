@@ -12,7 +12,9 @@ SPDX-License-Identifier: Apache-2.0
 
 The Q&A track (answers, judging, question generation, personas, novelty) can call
 a model through a coding-agent CLI the machine is already signed in to, instead
-of an API key. Today one backend exists, `claude-cli` (Claude Code's `claude -p`).
+of an API key. Three backends exist: `claude-cli` (Claude Code's `claude -p`), `codex-cli` (`codex exec`) and
+`copilot-cli` (`copilot -p`). The Codex and Copilot ones are answering routes only: they take no judge
+default, so `arms run` or `eval` on them needs `--judge-model` and `--judge-provider` named.
 Pass it wherever a command takes `--provider` or `--judge-provider`, except `tools` (it needs tool calling) and the arms that `arms run` and `arms matrix-run` refuse for a CLI provider (see the table).
 
 ## Check what this machine can use
@@ -40,9 +42,10 @@ python cli.py eval score pointwise --product oneTBB --answers answers/oneTBB.jso
 ```
 
 `--model` takes what `claude --model` takes: an alias (`haiku`, `sonnet`,
-`opus`) or a full id (`claude-sonnet-5-5`). The default judge model works on
-`claude-cli` as it does on `anthropic`. When the answerer and the judge are the
-same model, the judge grades its own answers. With `--provider claude-cli`, a
+`opus`) or a full id (`claude-sonnet-5-5`). With no `--judge-model`, the judge on
+`claude-cli` is the first of `opus`, `sonnet`, `haiku` not of the answerer's family.
+When the answerer would be the judge, a judging run exits before any answer and
+asks for `--judge-model`. With `--provider claude-cli`, a
 model that is not a Claude alias or id is refused at parse time.
 
 ## How it differs from an API provider

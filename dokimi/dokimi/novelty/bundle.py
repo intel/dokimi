@@ -60,6 +60,7 @@ from dokimi.metrics.bundle_coverage import (  # noqa: F401
     exclusion_kind,
     named_exclusions,
 )
+from dokimi.utils import key_bytes
 
 from .answer_key import ABSENT, AnswerKeyRecord, parse_answer_key, shown
 from .artifact import load_artifact_text
@@ -247,7 +248,7 @@ class Bundle:
         the same bytes of the same files.
         """
         rows = "\n".join(f"{item.path}:{item.sha256}" for item in self.files)
-        return "sha256:" + hashlib.sha256(rows.encode("utf-8")).hexdigest()
+        return "sha256:" + hashlib.sha256(key_bytes(rows)).hexdigest()
 
     def _counts(self) -> dict:
         """The record's raw counts, from which every coverage figure is derived."""

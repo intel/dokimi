@@ -133,6 +133,17 @@ def test_json_checks_parse_compare_and_contain():
     assert _one({"type": "json", "values": [], "contains": True}, 'Here: {"ok": true} done').passed is True
 
 
+def test_a_contains_json_scan_that_gives_up_is_failed_not_unscored():
+    # Failed tries scan past CONTAINS_JSON_MAX_SCAN before the object: the check fails as "not JSON"
+    # (the same as at the start cap, and as a deeply nested answer), where a regex past its limit is unscored.
+    answer = "[" * 6 + "1," * 100000 + ' {"a": 1}'
+    g = _one({"type": "json", "contains": True}, answer)
+    assert g.checks[0].as_dict() == {"type": "json", "passed": False, "score": 0.0, "detail": "not JSON"}
+    assert _one({"type": "json", "contains": True}, "[" * 20000).checks[0].detail == "not JSON"
+    # Within the budget the same shape is found.
+    assert _one({"type": "json", "contains": True}, "[" * 6 + "1," * 1000 + ' {"a": 1}').passed is True
+
+
 # --- judge, unsupported, weights -----------------------------------------------------------------
 
 
@@ -513,3 +524,9 @@ def test_a_reference_cell_carries_its_answer_error_as_an_arm_cell_does(tmp_path)
     assert scores["skill"]["error"] == "generation_failed: HTTP 500"
     assert "error" not in scores["baseline"]
     save_artifact(kind, payload, tmp_path / "arms.json")  # validates arms.v1 with the error on the cell
+
+
+def test_a_window_cut_inside_a_word_makes_no_negation():
+    # The window starts at "not zzz…": the clipped word "not" must not negate the mention after it.
+    answer = "can" + "not " + "z" * 395 + " mkl"
+    assert reference_checks._negated_before(answer, answer.index("mkl")) is False

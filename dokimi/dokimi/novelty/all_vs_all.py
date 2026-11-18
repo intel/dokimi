@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from .client import LLMClient
+from .query_overlap import shared_query_counts
 from .routing import (
     BM25,
     Candidate,
@@ -88,10 +89,19 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     attractor, and their queries are no sibling queries of each other.
 
     Returns:
-        ``n_skills``, ``n_queries``, ``tied_groups``, and per arm (``lexical``, ``model``):
+        ``n_skills``, ``n_queries``, ``shared_queries`` (``shared``: how many queries, of the
+        ``total`` that have a content word, are listed for two or more skills; when most are, the
+        result reflects the queries, not the descriptions), ``tied_groups``, and per arm (``lexical``, ``model``):
         ``confusion`` (gold skill to picked skill to count, ``(none)`` and ``(tie)`` included),
         ``own_rate`` per gold skill (``None`` when none of its queries was scored), ``n_scored``
         and ``n_unscored`` per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The
+        lexical arm also holds ``per_query``: one row per query, whatever ``repeats`` is, with
+        ``query``, ``gold``, ``rank`` of the gold card and ``picked`` (``rank`` ``None`` and a
+        ``reason`` for a query with no content word). ``picked`` follows the confusion matrix:
+        ``(none)`` when no card shares a word with the query and ``(tie)`` when two or more other
+        cards tie at the top, where ``lexical_routing`` names the first card in the field. ``rank`` and
+        ``picked`` hold for the row's ``gold`` only; each row also keeps ``scores`` (card name to
+        BM25 score), from which :func:`rescore_lexical_row` gives them for a corrected gold. The
         model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (always an object: as
         :func:`dokimi.novelty.routing.repeat_noise` reports it, pooled over every skill's queries,
         with ``n_repeats`` 1 and null agreement for one repeat), ``n_failed``, ``n_abstained`` and
@@ -107,12 +117,15 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     """
     names = [c.name for c in candidates]
     _check_all_vs_all_input(names, queries_by_skill)
+    picks, unscored, rows = _lexical_picks(candidates, queries_by_skill, names)
+    shared, scored = shared_query_counts(queries_by_skill)
     result: dict = {
         "n_skills": len(candidates),
         "n_queries": sum(len(q) for q in queries_by_skill.values()),
+        "shared_queries": {"shared": shared, "total": scored},
         "tied_groups": _tied_groups(candidates),
-        "lexical": _attractor_table(*_lexical_picks(candidates, queries_by_skill, names),
-                                    names, _tied_groups(candidates)),
+        "lexical": dict(_attractor_table(picks, unscored, names, _tied_groups(candidates)),
+                        per_query=rows),
     }
     if client is not None:
         result["model"] = _model_arm(candidates, queries_by_skill, names, client, seed, repeats)
@@ -162,45 +175,80 @@ def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[s
         raise RoutingInputError("no skill in the field has queries to route")
 
 
-def _lexical_pick(bm25: BM25, tokens: list[str], gold: int, candidates: list[Candidate]) -> str:
-    """The card the lexical arm picks for one query written for ``candidates[gold]``.
+def rescore_lexical_row(row: dict, gold: str) -> dict:
+    """``rank`` and ``picked`` of a saved lexical row as if the query were written for ``gold``.
+
+    ``row`` is an item of ``lexical.per_query`` with its ``scores`` (card name to BM25 score, in
+    the order of the field); the result is what a fresh run gives for that query under the
+    corrected gold label, ties included. A row with no content word stays unscored under any
+    gold (``rank`` ``None`` and its ``reason``). ``KeyError`` when ``gold`` is not a card in the row.
+    """
+    if "scores" not in row:
+        return {"rank": None, "reason": row["reason"]}
+    names = list(row["scores"])
+    if gold not in names:
+        raise KeyError(gold)
+    scores = list(row["scores"].values())
+    index = names.index(gold)
+    return {"rank": _gold_rank(scores, index), "picked": _lexical_pick(scores, index, names)}
+
+
+def _gold_rank(scores: list[float], gold: int) -> int:
+    """1 plus the number of other cards scoring at or above the gold, with the pick's tie rule."""
+    return 1 + sum(i != gold and (score > scores[gold]
+                                  or math.isclose(score, scores[gold], rel_tol=1e-12))
+                   for i, score in enumerate(scores))
+
+
+def _lexical_pick(scores: list[float], gold: int, names: list[str]) -> str:
+    """The card the lexical arm picks for one query written for ``names[gold]``.
 
     The gold is a pick only when it scores strictly above every other card. Two or more other
     cards tied at the top are ``(tie)``, not whichever comes first in the field, so the result
     does not depend on the order of the field. One other card tied with the gold is that card:
     the gold sorts after what it ties with, as in ``lexical_routing``.
     """
-    scores = [bm25.score(tokens, i) for i in range(len(candidates))]
     top = max(scores)
     if top <= 0:
         return NO_PICK
     at_top = [i for i, score in enumerate(scores) if math.isclose(score, top, rel_tol=1e-12)]
     others = [i for i in at_top if i != gold]
     if not others:
-        return candidates[gold].name
-    return candidates[others[0]].name if len(others) == 1 else TIE
+        return names[gold]
+    return names[others[0]] if len(others) == 1 else TIE
 
 
 def _lexical_picks(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
-                   names: list[str]) -> tuple[dict[str, Counter], dict[str, int]]:
-    """The lexical arm of :func:`all_vs_all`: picks per gold skill, and the unscored counts.
+                   names: list[str]) -> tuple[dict[str, Counter], dict[str, int], list[dict]]:
+    """The lexical arm of :func:`all_vs_all`: picks per gold skill, unscored counts, and rows.
 
     A query with no content word cannot be scored; it is counted in the second dict and left
-    out of the picks, as ``lexical_routing`` leaves it out of its rates.
+    out of the picks, as ``lexical_routing`` leaves it out of its rates. The third item is one
+    row per query in the shape of ``lexical_routing``'s ``per_query`` plus the ``gold`` skill:
+    ``query``, ``gold``, ``rank`` of the gold card (``None`` with a ``reason`` when unscored)
+    and ``picked``, plus ``scores`` (every card's BM25 score, which do not depend on the gold).
     """
     bm25 = BM25([tokenize(c.card) for c in candidates])
     lexical: dict[str, Counter] = {}
     unscored: dict[str, int] = {}
+    rows: list[dict] = []
     for name, queries in queries_by_skill.items():
         picks: Counter = Counter()
+        gold = names.index(name)
         for query in queries:
             tokens = tokenize(query)
             if not tokens:
                 unscored[name] = unscored.get(name, 0) + 1
+                rows.append({"query": query, "gold": name, "rank": None,
+                             "reason": "no content words"})
                 continue
-            picks[_lexical_pick(bm25, tokens, names.index(name), candidates)] += 1
+            scores = [bm25.score(tokens, i) for i in range(len(candidates))]
+            pick = _lexical_pick(scores, gold, names)
+            picks[pick] += 1
+            rows.append({"query": query, "gold": name, "rank": _gold_rank(scores, gold),
+                         "picked": pick, "scores": dict(zip(names, scores, strict=True))})
         lexical[name] = picks
-    return lexical, unscored
+    return lexical, unscored, rows
 
 
 def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
@@ -218,6 +266,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     first_error = None
     planned = done = 0
     capped: str | None = None
+    stop_reason = "spend_cap"
     for index, name in enumerate(names):
         if name not in queries_by_skill:
             continue
@@ -247,6 +296,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         # A failed call measured nothing: it is not a pick, so it is left out of the counts.
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
         capped = routed.get("cap_stop")
+        stop_reason = routed.get("stop_reason", "spend_cap")
         # Failed calls, and calls the cap refused: neither measured anything.
         unscored_here = routed["n_failed"] + (len(queries) * repeats - len(rows) if capped else 0)
         if unscored_here:
@@ -258,7 +308,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
                model=client.model, seed=seed, repeats=repeats, noise=noise,
                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
     if capped is not None and done < planned:  # a stop on the last planned call leaves none unmade
-        arm["partial"] = partial_record(capped, done, planned)
+        arm["partial"] = partial_record(capped, done, planned, stop_reason)
     return arm
 
 

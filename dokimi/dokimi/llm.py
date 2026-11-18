@@ -26,9 +26,9 @@ What a caller can rely on:
   :func:`resolve_model` is this module's model-name map and :func:`credential_env_var` its
   key-variable map. A provider outside the table is its own litellm route (``azure/<model>``),
   sent no key: litellm reads the vendor's variable raw (``file:`` is not read). A provider in
-  :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``) is a logged-in coding-agent CLI, not an API: no
-  key, no tools, no sampling control (:mod:`dokimi.llm_cli`). An explicit ``api_key`` wins over
-  the environment; either may be ``file:<path>``, and an unreadable file raises ``ValueError``.
+  :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``, ``codex-cli``, ``copilot-cli``) is a logged-in CLI, not an API:
+  no key, no sampling control, and no tools on ``claude-cli`` and ``copilot-cli`` (:mod:`dokimi.llm_cli`). An explicit
+  ``api_key`` wins over the environment; either may be ``file:<path>``, and an unreadable file raises ``ValueError``.
 - **Bedrock bare names.** A name in :data:`dokimi.defaults.BEDROCK_MODEL_IDS`
   runs under its inference profile (:func:`dokimi.defaults.bedrock_profile`);
   ``openai.*`` models take the Converse route.
@@ -147,6 +147,13 @@ def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[st
     return key or None
 
 
+def _litellm() -> Any:
+    """litellm, with its banners off: printed to stdout on a failed call, they break ``--json`` output."""
+    import litellm
+    litellm.suppress_debug_info = True
+    return litellm
+
+
 def resolve_model(model: str, provider: str) -> str:
     """The litellm model string for *model* at *provider*.
 
@@ -160,7 +167,7 @@ def resolve_model(model: str, provider: str) -> str:
         return f"openai/{model}"
     if name == "openai":
         # A name litellm does not take for OpenAI's (glm-5.3, meta-llama/x, claude-*) gets openai/.
-        import litellm
+        litellm = _litellm()
         known = litellm.open_ai_chat_completion_models | litellm.open_ai_text_completion_models
         ours = model in known or "ft:gpt-3.5-turbo" in model or "ft:gpt-4" in model  # as litellm
         routed = (p := model.split("/", 1)[0]) in litellm.provider_list or litellm.JSONProviderRegistry.exists(p) if "/" in model else ours
@@ -220,10 +227,8 @@ def unsupported_sampling_params(
     if (cli := llm_cli.backend(_canonical(provider))) is not None:
         return [n for n in requested if n not in cli.supports]
     try:
-        from litellm import get_supported_openai_params
-
-        supported = get_supported_openai_params(model=resolve_model(model, provider)) or []
-    except Exception:
+        supported = _litellm().get_supported_openai_params(model=resolve_model(model, provider)) or []
+    except Exception:  # noqa: BLE001 - litellm raises many types for an unknown model; [] drops nothing
         return []
     if not supported:
         return []
@@ -269,11 +274,11 @@ _NON_RETRYABLE_EXC_NAMES = frozenset({
     "unsupportedparamserror",
     "contentpolicyviolationerror",
 })
-# So are these messages, which litellm raises under its catch-alls: no key, project or SDK.
-_NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set",
-                           "missing gemini api key", "could not resolve credentials",
-                           "could not resolve project_id", "default credentials were not found",
-                           "google cloud sdk not found")
+# So are these messages, which litellm raises under its catch-alls: no key, project, SDK or AWS credentials.
+_NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set", "missing gemini api key",
+    "could not resolve credentials", "could not resolve project_id", "google cloud sdk not found",
+    "default credentials were not found", "unable to locate credentials", "partial credentials found in",
+    "unable to locate authorization token", "the config profile (", "sso session associated with this profile")
 
 
 def is_retryable(exc: BaseException) -> bool:
@@ -310,16 +315,14 @@ _COST_UNKNOWN_LOGGED: set = set()
 def _has_price_entry(litellm_model: str, model: str) -> bool:
     """Whether litellm's price map has an entry for the routed name, the name without its
     route prefixes (``bedrock/converse/openai.x`` -> ``openai.x``) or the bare model name."""
-    from litellm import model_cost
-
+    model_cost = _litellm().model_cost
     candidates = {litellm_model, model, *litellm_model.split("/", 1)[1:],
                   litellm_model.rsplit("/", 1)[-1]}
     return any(c in model_cost for c in candidates)
 
 
 def cost_per_token(**kwargs: Any) -> tuple[float, float]:  # litellm's, for llm_pricing
-    from litellm import cost_per_token as price
-    return price(**kwargs)
+    return _litellm().cost_per_token(**kwargs)
 
 
 def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = None) -> Optional[float]:
@@ -336,12 +339,10 @@ def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = 
     makes ``completion_cost`` fail with "LLM Provider NOT provided" → null cost.
     """
     try:
-        from litellm import completion_cost
-
         kwargs: Dict[str, Any] = {"completion_response": resp}
         if litellm_model:
             kwargs["model"] = litellm_model
-        cost = completion_cost(**kwargs)
+        cost = _litellm().completion_cost(**kwargs)
         if cost is None:
             raise ValueError("completion_cost returned None")
         cost = float(cost)
@@ -351,7 +352,7 @@ def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = 
         if cost == 0.0 and not _has_price_entry(litellm_model or model, model):
             raise ValueError("model is not in litellm's price map")
         return cost
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - logged once per model; cost is null, never a fake $0
         if model not in _COST_UNKNOWN_LOGGED:
             _COST_UNKNOWN_LOGGED.add(model)
             logger.info("No litellm pricing for model %r; cost_usd will be null (%s)", model, exc)
@@ -564,8 +565,7 @@ class LiteLLMAdapter:
     def __call__(self, request: Request) -> Reply:
         if llm_cli.backend(request.provider) is not None:
             return _cli_reply(request)
-        from litellm import completion
-
+        completion = _litellm().completion
         if request.stream:
             return _stream(completion, request)
         kwargs = _sampling_kwargs(max_tokens=request.max_tokens,
@@ -891,7 +891,7 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
     def parses(raw: str) -> bool:
         try:
             return parse(raw) is not None
-        except Exception:
+        except Exception:  # noqa: BLE001 - a cache predicate: any parse failure means do not cache
             return False
 
     raw, error = "", ""
@@ -900,7 +900,7 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
         raw = ask(asked, draw=draw * attempts + attempt, cache_if=parses)
         try:
             value = parse(raw)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the parse error is kept and re-asked, then raised
             error = str(exc)
         else:
             if value is not None:

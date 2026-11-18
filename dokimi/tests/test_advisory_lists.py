@@ -77,7 +77,7 @@ def test_security_documents_every_ignored_id():
     )
 
 
-NO_LOCK_ADVISORY = "`requirements-fuzz.lock.txt`) reports no\nadvisory."
+NO_LOCK_ADVISORY = "`requirements-conda-lock.lock.txt`) reports no advisory."
 
 
 def _lock_advisory_list() -> str:

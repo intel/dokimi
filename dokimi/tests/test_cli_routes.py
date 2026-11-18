@@ -92,7 +92,7 @@ def test_help_lists_each_root_under_its_section():
             loop,
         ),
         **dict.fromkeys(
-            ("docs", "catalog", "novelty", "repo", "skill"), subjects
+            ("docs", "catalog", "memory", "repo", "skill"), subjects
         ),
         **dict.fromkeys(("eval",), evals),
         **dict.fromkeys(("tools", "trace", "runs", "backends", "data"), data),
@@ -112,11 +112,12 @@ PAID_PATHS = {
     ("tasks", "run"),
     ("explore", "run"),
     ("catalog", "trigger-probe"),
+    ("catalog", "routing"),
     ("skill", "novelty", "analyze"),
     ("skill", "novelty", "atoms"),
     ("skill", "novelty", "probe"),
     ("skill", "shorten"),
-    ("novelty", "routing"),
+    ("skill", "routing"),
     ("repo", "reach"),
     ("repo", "skill-reach"),
     ("repo", "run"),

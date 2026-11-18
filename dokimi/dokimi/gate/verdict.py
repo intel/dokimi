@@ -10,8 +10,8 @@ measured (``value``) against what it allowed (``threshold``), whether it passed,
   is reported, ``"info"`` is an observation. The soft score gate is ``"fail"`` too: it is report-only
   because its caller reads ``passed`` and does not act on ``blocking``. So is a CRITICAL regression:
   ``compare`` reports its ``level``.
-* ``measured``: False when the artifact did not carry the check's input. Such a check passes without having
-  been run and is listed as not measured, never as a pass.
+* ``measured``: False when the artifact did not carry the check's input. The check is listed in
+  ``Verdict.not_measured``, and its ``passed`` is the gate's default reading of the missing input, not a measurement.
 * ``level``: the graded outcome of a gate that grades rather than pass or fail (regression: OK, WARN, CRITICAL).
 * ``basis``: what ``value`` is a share of, for a check whose figure depends on it; ``None`` otherwise.
 
@@ -116,7 +116,7 @@ class Verdict:
 
     @property
     def not_measured(self) -> list[str]:
-        """Checks whose input this run did not produce; they pass without having been run."""
+        """Checks whose input this run did not produce: they were not run on this artifact."""
         return [c.name for c in self.checks if not c.measured]
 
     @property
@@ -132,7 +132,7 @@ class Verdict:
     @property
     def status(self) -> str:
         """``DISABLED``, ``FAIL``, ``WARN``, ``PASS``, or ``NOT MEASURED`` when no check was measured:
-        every check passes unmeasured, so ``PASS`` would be read off a run that cleared nothing."""
+        every check unmeasured, so ``PASS`` would be read off a run that measured nothing."""
         if not self.enabled:
             return "DISABLED"
         if self.blocking:

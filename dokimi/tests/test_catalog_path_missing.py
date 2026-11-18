@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
-from dokimi.external.bundle_paths import _bundle_path, path_missing
+from dokimi.external.bundle_paths import _bundle_path, _words, path_missing
 from tests.test_catalog_validate import _codes, _skill
 
 
@@ -236,6 +236,13 @@ def test_a_missing_escaped_comma_is_named_whole(tmp_path):
     assert finding.message.startswith("'assets/a,b.svg' (in ")
 
 
+def test_a_missing_escaped_semicolon_is_named_whole(tmp_path):
+    # outside quotes, an escaped ``;`` is no shell operator: the name is not cut at it
+    review, _ = _review(tmp_path, r"Copy it with `cp assets/a\;b.svg /tmp/out`." + "\n")
+    [finding] = _path_findings(review)
+    assert finding.message.startswith("'assets/a;b.svg' (in ")
+
+
 def test_an_escaped_quote_does_not_end_a_quoted_name(tmp_path):
     review, _ = _review(
         tmp_path,
@@ -243,6 +250,31 @@ def test_an_escaped_quote_does_not_end_a_quoted_name(tmp_path):
         files=['assets/a"b,c.svg'],
     )
     assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize("char", [";", ",", "'", " "])
+def test_a_backslash_before_other_characters_inside_double_quotes_is_kept(char):
+    # a shell escapes only ``"`` and ``\`` of these inside double quotes: ``"a\;b"`` is the name ``a\;b``
+    assert _words('cp "assets/a\\' + char + 'b.svg" dest') == ["cp", "assets/a\\" + char + "b.svg", "dest"]
+
+
+@pytest.mark.parametrize("char", [";", ","])
+def test_a_missing_name_with_a_kept_backslash_is_named_with_it(tmp_path, char):
+    review, _ = _review(tmp_path, "Copy it with `cp \"assets/a\\" + char + "b.svg\" /tmp/out`.\n")
+    [finding] = _path_findings(review)
+    assert finding.message.startswith(repr("assets/a\\" + char + "b.svg") + " (in ")  # the message quotes the name with repr
+
+
+def test_a_double_backslash_inside_double_quotes_is_one_backslash():
+    assert _words('cp "assets/a\\\\b.svg" dest') == ["cp", "assets/a\\b.svg", "dest"]
+
+
+def test_a_double_backslash_before_the_closing_quote_closes_the_string():
+    assert _words('cp "assets/a\\\\" dest') == ["cp", "assets/a\\", "dest"]
+
+
+def test_an_escaped_quote_inside_double_quotes_is_a_quote():
+    assert _words('cp "assets/a\\"b.svg" dest') == ["cp", 'assets/a"b.svg', "dest"]
 
 
 def test_a_missing_name_with_a_comma_and_an_extension_like_tail_is_named_whole(tmp_path):

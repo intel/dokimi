@@ -172,7 +172,8 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
         "gate": {
             "soft": {
                 "enabled": gate_result.enabled,
-                "passed": gate_result.passed,
+                # A disabled gate was never evaluated: null, not a recorded pass.
+                "passed": gate_result.passed if gate_result.enabled else None,
                 "min_score": gate_result.require("score").threshold,
             }
         },

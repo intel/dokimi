@@ -93,9 +93,10 @@ class TestContext7Client:
         """Test context retrieval with caching."""
         cache_dir = tmp_path / "cache"
         
-        # Mock HTTP response
+        # Mock HTTP response, long enough not to be an error stub
+        content = "Cached content about parallel_for. " * 4
         mock_response = Mock()
-        mock_response.text = "Cached content"
+        mock_response.text = content
         mock_get.return_value = mock_response
         
         client = Context7Client(cache_dir=cache_dir)
@@ -108,9 +109,37 @@ class TestContext7Client:
         # Second call - should use cache
         docs2 = client.get_library_docs("uxlfoundation/oneTBB", "test_query", max_tokens=500)
         assert docs2[0]["cached"]
-        assert docs2[0]["content"] == "Cached content"
+        assert docs2[0]["content"] == content
         assert mock_get.call_count == 1  # No additional HTTP call
     
+    @patch('httpx.get')
+    def test_get_library_docs_sends_a_lone_surrogate_in_the_query_as_a_question_mark(self, mock_get, tmp_path):
+        mock_get.return_value = Mock(text="Documentation about parallel_for. " * 4)
+        client = Context7Client(cache_dir=tmp_path / "cache")
+        for query in ("n\ud800", "n\udcff"):
+            assert not client.get_library_docs("org/x", query)[0]["cached"]
+            assert mock_get.call_args[0][0].endswith("&topic=n%3F")
+        assert mock_get.call_count == 2  # two queries that send the same URL keep their own cache entry
+
+    @patch('httpx.get')
+    @pytest.mark.parametrize(("library_id", "path"), [
+        ("org/n\ud800", "org/n%3F/llms.txt"),
+        ("n\udcff_x", "websites/n%3F_x/llms.txt"),
+        ("org/a-b.c~d", "org/a-b.c~d/llms.txt"),
+        ("org/x%20y:z", "org/x%20y:z/llms.txt"),
+    ])
+    def test_get_library_docs_sends_a_lone_surrogate_in_the_library_id_as_a_question_mark(
+            self, mock_get, tmp_path, library_id, path):
+        mock_get.return_value = Mock(text="Documentation about parallel_for. " * 4)
+        Context7Client(cache_dir=tmp_path / "cache").get_library_docs(library_id, "n\ud800")
+        assert mock_get.call_args[0][0].endswith("/" + path + "?tokens=8000&topic=n%3F")
+
+    @patch('httpx.get')
+    def test_get_library_docs_sends_a_json_surrogate_pair_as_one_character(self, mock_get, tmp_path):
+        mock_get.return_value = Mock(text="Documentation about parallel_for. " * 4)
+        Context7Client(cache_dir=tmp_path / "cache").get_library_docs("org/n\ud83d\ude00", "q\ud83d\ude00")
+        assert mock_get.call_args[0][0].endswith("/org/n%F0%9F%98%80/llms.txt?tokens=8000&topic=q%F0%9F%98%80")
+
     @patch('httpx.get')
     def test_get_library_docs_404(self, mock_get):
         """Test handling of library not found (404)."""

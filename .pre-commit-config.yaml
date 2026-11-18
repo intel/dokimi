@@ -18,7 +18,7 @@
 # `unparseable`, `ttest`, `ans`, deliberate misspellings).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: 25bcf95026b96e2dd3c0aec3090c3d6ef6ca2e6c  # frozen: v0.17.3
+    rev: c0f278f1254ccc8fb09676bcdb8d847e7db493e5  # frozen: v0.17.4
     hooks:
       # Lint only, like the CI job. Ruff reads dokimi/pyproject.toml, the closest
       # config to each file, so extend-exclude and per-file-target-version
@@ -41,9 +41,11 @@ repos:
       - id: check-added-large-files
         # Every file, not only newly added ones (500 KB limit), so CI checks too.
         args: [--enforce-all]
+        # The CLI snapshot is generated and pinned by its own test; it grows with each leaf.
+        exclude: ^dokimi/docs/reference/cli-interface\.json$
 
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: c92afdf2c6ca336aaa8f39e2bd8d48f62dbd8e1f  # frozen: v1.31.1
+    rev: 06a39750ec31860bb44f2acf67182c40016cd1e7  # frozen: v1.32.0
     hooks:
       # The static job's zizmor step: the same command and scope (workflows and the composite actions).
       - id: zizmor

@@ -551,7 +551,7 @@ def test_preflight_unknown_doc_source_format_exits_2(tmp_path, monkeypatch, caps
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
     _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb",
           "--doc-source", "bogus:docs", "--out-dir", str(tmp_path / "out"),
-          "--provider", "openai", "--judge-provider", "openai")
+          "--provider", "openai", "--judge-provider", "openai", "--judge-model", "judge-x")
     with refusal() as exc:
         cli.main()
     assert exc.code == 2
@@ -569,7 +569,7 @@ def test_preflight_refuses_a_local_doc_source_path_that_does_not_exist(tmp_path,
     monkeypatch.setenv("OPENAI_API_KEY", "test")
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
     _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--doc-source", f"{prefix}{docs}",
-          "--out-dir", str(tmp_path / "out"), "--provider", "openai", "--judge-provider", "openai")
+          "--out-dir", str(tmp_path / "out"), "--provider", "openai", "--judge-provider", "openai", "--judge-model", "judge-x")
     if exists:
         cli.main()
         assert "Preflight OK" in capsys.readouterr().out
@@ -588,7 +588,7 @@ def test_external_content_walkthrough_states_the_exit_of_a_preflight_without_key
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
     _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--out-dir", str(tmp_path / "out"),
-          "--provider", "openai", "--judge-provider", "openai")
+          "--provider", "openai", "--judge-provider", "openai", "--judge-model", "judge-x")
     with refusal() as exc:
         cli.main()
     assert exc.code == stated

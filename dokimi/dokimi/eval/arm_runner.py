@@ -15,21 +15,25 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from dokimi.caching import is_empty_reply
-from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
+from dokimi.utils import question_id  # re-exported: callers import it from here
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cell_values, cost_summary, empty_reply_cell, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
+    cell_values, cost_summary, empty_reply_cell, mean_in_range, question_deltas, refusal_kept,
+    summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
+from dokimi.eval.arm_record import question_record
+from dokimi.eval.arm_stop import Halted, RunStopped, halt_if_stopped, mark_not_asked, stop_question
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
@@ -75,32 +79,6 @@ ANSWER_PROMPT_PLAIN = """Answer the following user question. Be specific and inc
 
 MAX_CONTEXT_CHARS = 15_000
 
-# Curated golden sets carry verified answer statements in ``expected_topics``,
-# which are usable as judge ground truth. Auto-generated sets put short keyword
-# labels in the same field (measured: ~14-19 chars/topic, versus 78-207 for the
-# golden sets), and grading a full answer against bare keywords would penalise
-# correct answers. Only promote topics that are prose-length.
-MIN_GROUND_TRUTH_TOPIC_CHARS = 40
-
-
-def _ground_truth_from_topics(q: Dict[str, Any]) -> Optional[str]:
-    """Build judge ground truth from ``expected_topics``, when they are substantive.
-
-    Returns ``None`` for keyword-style topics so that such questions keep using
-    the ungrounded rubric rather than being scored against a word list.
-    """
-    topics = q.get("expected_topics") or []
-    if not isinstance(topics, list):
-        return None
-    statements = [str(t).strip() for t in topics if str(t).strip()]
-    if not statements:
-        return None
-    mean_len = sum(len(s) for s in statements) / len(statements)
-    if mean_len < MIN_GROUND_TRUTH_TOPIC_CHARS:
-        return None
-    return "\n".join(f"- {s}" for s in statements)
-
-
 def _static_arm_kind(treatment: Treatment) -> Dict[str, Any]:
     """The ``arm_kind`` metadata of a treatment whose ``prepare()`` never returned."""
     t = getattr(treatment, "inner", treatment)  # a plugin wrapper
@@ -111,7 +89,6 @@ def _static_arm_kind(treatment: Treatment) -> Dict[str, Any]:
     return {"arm_kind": getattr(t, "arm_kind", None)}
 
 
-
 def _refuse_session_records(recs: Sequence[Record]) -> None:
     """Refuse to judge a session run: its last answer would be scored against its first question."""
     if any(r.raw.get("session_turns") for r in recs):
@@ -119,6 +96,7 @@ def _refuse_session_records(recs: Sequence[Record]) -> None:
             "Session records are measurement-only: the judge would score a session's last "
             "answer against its first question. Judge a single-turn run instead."
         )
+
 
 
 class ArmRunner:
@@ -182,6 +160,8 @@ class ArmRunner:
         # judging without going through the persisted record. See
         # :mod:`dokimi.eval.judge_context`.
         self.judge_context = JudgeContextStore()
+        self.stop_error: Optional[Exception] = None  # a run-wide failure that ended the run
+        self.questions_requested = 0
         self.plugin_set = plugin_set or {
             "plugin_set": "none",
             "plugin_set_id": "sha256:e3b0c44298fc1c149afbf4c8996fb924",
@@ -231,15 +211,29 @@ class ArmRunner:
     ) -> List[Dict[str, Any]]:
         """Answer every question under every arm. Returns one record per question."""
         n = len(questions)
+        self.questions_requested = n
+        self.stop_error = None
         if self.session_turns is not None:
             # Before any answer is paid for: a question short of follow-ups fails the run.
             check_session_questions(questions, self.session_turns)
         results: Dict[int, Dict[str, Any]] = {}
         lock = threading.Lock()
         done = [0]
+        stop = threading.Event()  # set by a run-wide error: questions not yet started are not asked
 
         def _process(idx: int, q: Dict[str, Any]) -> None:
-            rec = self._answer_question(library_name, library_id, q)
+            if stop.is_set():
+                return
+            try:
+                rec = self._answer_question(library_name, library_id, q, stop)
+            except RunStopped as exc:
+                # Keep the question's completed arms (and their spend); the run is marked terminated.
+                with lock:  # the cause is set before the event: a worker that sees it reads it
+                    results[idx] = exc.record
+                    self.stop_error = exc.cause
+                stop.set()  # a CLI usage limit or login: the questions not yet started are not asked
+                print(f"Stopped: {exc.cause}", flush=True)
+                return
             with lock:
                 results[idx] = rec
                 done[0] += 1
@@ -252,10 +246,11 @@ class ArmRunner:
             for f in as_completed(futures):
                 f.result()
 
-        return [results[i] for i in range(n)]
+        return [results[i] for i in sorted(results)]
 
     def _answer_question(
-        self, library_name: str, library_id: Optional[str], q: Dict[str, Any]
+        self, library_name: str, library_id: Optional[str], q: Dict[str, Any],
+        stop: Optional[threading.Event] = None,
     ) -> Dict[str, Any]:
         # Same key order and blank handling as the judge's check, so a record that passes
         # the up-front check is answered with the text the judge will see.
@@ -269,43 +264,44 @@ class ArmRunner:
             turns = session_turns_of(q, question_text, self.session_turns, label=qid)
 
         arms: Dict[str, Any] = {}
-        for treatment in self.treatments:
-            if turns is None:
-                arms[treatment.name] = self._answer_one_arm(
-                    treatment, question_text, library_name, library_id, qid,
-                    verbatim=q.get("prompt_style") == "verbatim",
+        current = ""
+        try:
+            for treatment in self.treatments:
+                current = treatment.name
+                halt_if_stopped(stop)
+                if turns is None:
+                    arms[treatment.name] = self._answer_one_arm(
+                        treatment, question_text, library_name, library_id, qid,
+                        verbatim=q.get("prompt_style") == "verbatim",
+                    )
+                    continue
+                arms[treatment.name] = self._answer_session_arm(
+                    treatment, turns, library_name, library_id, qid
                 )
-                continue
-            arms[treatment.name] = self._answer_session_arm(
-                treatment, turns, library_name, library_id, qid
-            )
-            if self.turn_reminder is not None:
-                arms[treatment.name + REMINDER_ARM_SUFFIX] = self._answer_session_arm(
-                    treatment, turns, library_name, library_id, qid,
-                    reminder=self.turn_reminder,
-                )
-
-        rec = {
-            "question_id": qid,
-            "question_text": question_text,
-            "library_name": library_name,
-            "category": q.get("category"),
-            "difficulty": q.get("difficulty"),
-            "persona": q.get("persona"),
-            "arms": arms,
-        }
-        if turns is not None:
-            rec["session_turns"] = len(turns)
-        # Selection label: present-and-None means "no skill should load", which is
-        # why presence is tested rather than truthiness.
-        if "expected_skill" in q:
-            rec["expected_skill"] = q["expected_skill"]
-        ground_truth = q.get("ground_truth_chunk")
-        if not ground_truth and self.grounded_from_topics:
-            ground_truth = _ground_truth_from_topics(q)
-        if ground_truth:
-            rec["ground_truth_chunk"] = ground_truth
-        return rec
+                if self.turn_reminder is not None:
+                    current = treatment.name + REMINDER_ARM_SUFFIX
+                    halt_if_stopped(stop)
+                    arms[current] = self._answer_session_arm(
+                        treatment, turns, library_name, library_id, qid,
+                        reminder=self.turn_reminder,
+                    )
+        except Halted:  # another question hit a run-wide failure: no further arm of this one is paid for
+            mark_not_asked(arms, self.arm_names)  # the arms the stop never reached; the completed ones are kept
+            partial = question_record(library_name, q, qid, question_text, turns, arms,
+                                      grounded_from_topics=self.grounded_from_topics)
+            cause = self.stop_error  # set under the lock before the stop event (see _process)
+            if cause is None:
+                raise RuntimeError("the run stopped without a run-wide cause") from None
+            raise RunStopped(cause, partial) from None
+        except Exception as exc:
+            if getattr(exc, "run_wide", False) is not True:
+                raise
+            stop_question(arms, self.arm_names, current, exc)  # the record shows where the run stopped
+            partial = question_record(library_name, q, qid, question_text, turns, arms,
+                                      grounded_from_topics=self.grounded_from_topics)
+            raise RunStopped(exc, partial) from exc
+        return question_record(library_name, q, qid, question_text, turns, arms,
+                               grounded_from_topics=self.grounded_from_topics)
 
     def _answer_one_arm(
         self,
@@ -388,6 +384,8 @@ class ArmRunner:
             )
         except Exception as exc:
             logger.exception("Arm %s answer generation failed", treatment.name)
+            if getattr(exc, "run_wide", False) is True:
+                raise  # run() stops the run; the question keeps the cells it has (RunStopped)
             return {"error": f"generation_failed: {exc}", "answer": None,
                     "metadata": cfg_metadata}
 
@@ -646,15 +644,8 @@ class ArmRunner:
                         score["judge_context_sha256"] = digest
                 scores[arm_name] = score
 
-            deltas = {}
-            base = scores.get(baseline_arm)
-            base_agg = base.get("aggregate") if isinstance(base, dict) else None
-            if base_agg is not None:
-                for arm_name, s in scores.items():
-                    if arm_name != baseline_arm and isinstance(s, dict) and s.get("aggregate") is not None:
-                        deltas[arm_name] = round(s["aggregate"] - base_agg, 1)
-
-            return {
+            deltas, delta_errors = question_deltas(scores, baseline_arm)
+            row: Dict[str, Any] = {
                 "question_id": rec.question_id,
                 "question_text": rec.question_text,
                 "category": rec.category,
@@ -662,6 +653,9 @@ class ArmRunner:
                 "scores": scores,
                 "deltas_vs_baseline": deltas,
             }
+            if delta_errors:
+                row["delta_errors"] = delta_errors
+            return row
 
         recs = as_records(records, source="answers", kind="answers")
         # Before any judge call: refuse, do not grade against "".
@@ -762,13 +756,13 @@ class ArmRunner:
 
         summary: Dict[str, Any] = {"per_arm": {}}
         for arm_name, vals in per_arm.items():
-            avg = round(sum(vals) / len(vals), 1) if vals else None
+            avg = round(mean_in_range(vals), 1) if vals else None
             summary["per_arm"][arm_name] = {"avg_aggregate": avg, "n": len(vals), "errors": errors.get(arm_name, 0)}
-        # Paired over the questions both arms scored; the unpaired means above are still reported.
-        # Always present: null for the baseline, and for an arm with no question both arms scored.
+        # Paired over the questions both arms scored. Null for the baseline, an arm with no such
+        # question, and an arm whose score range is refused, which says why in its own delta_error (#750).
         for arm_name, stats in summary["per_arm"].items():
-            stats["delta_vs_baseline"] = (
-                arm_stats.paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
+            stats["delta_vs_baseline"] = None if arm_name == baseline_arm else refusal_kept(
+                stats, "delta_error", partial(arm_stats.paired_delta, evaluations, baseline_arm, arm_name)
             )
 
         # Paired statistics. Every arm is tested against the *same* baseline
@@ -776,17 +770,15 @@ class ArmRunner:
         # p-values get corrected across the family. Unpaired means above are
         # kept as-is for artifact compatibility.
         arm_names = list(summary["per_arm"].keys())
-        significance = arm_stats.arm_significance(
-            evaluations, baseline_arm, arm_names, correction=self.stats_correction
-        )
-        for arm_name, sig in significance.items():
+        significance = refusal_kept(summary, "significance_error", lambda: arm_stats.arm_significance(
+            evaluations, baseline_arm, arm_names, correction=self.stats_correction))
+        for arm_name, sig in (significance or {}).items():
             summary["per_arm"].setdefault(arm_name, {})["significance"] = sig
 
         # Interaction contrasts are their own hypothesis family, corrected
         # among themselves rather than pooled with the arm comparisons above.
-        interactions = interaction_significance(
-            evaluations, arm_names, baseline_arm, correction=self.stats_correction
-        )
+        interactions = refusal_kept(summary, "interactions_error", lambda: interaction_significance(
+            evaluations, arm_names, baseline_arm, correction=self.stats_correction))
         if interactions:
             summary["interactions"] = interactions
 

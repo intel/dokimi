@@ -270,12 +270,13 @@ def test_arms_run_without_judge_never_calls_it(runner_calls, io):
 
 
 def test_arms_run_hands_a_panel_its_roles_and_the_judge_settings(runner_calls, io):
-    # --judge-model left out: parse_args puts the --judge-provider default judge in its place.
+    # --judge-model left out: parse_args puts the --judge-provider default judge in its place, not the
+    # answerer's family (a claude answerer, so the openai judge is the generator).
     _run(_arms_run(io, "--judge", "--judge-panel", "technical_expert,doc_reviewer",
-                   "--judge-provider", "openai", "--judge-temperature", "0.5"))
+                   "--model", "claude-sonnet-5-5", "--judge-provider", "openai", "--judge-temperature", "0.5"))
 
     assert runner_calls.runs == [{
-        **_defaults(io), "judge": None,
+        **_defaults(io), "judge": None, "model": "claude-sonnet-5-5",
         "panel": [("technical_expert", DEFAULT_GENERATOR_MODEL, "openai", 0.5, None),
                   ("doc_reviewer", DEFAULT_GENERATOR_MODEL, "openai", 0.5, None)],
     }]
@@ -315,7 +316,7 @@ def test_matrix_run_with_nothing_set_hands_each_cell_the_defaults(runner_calls, 
 
 def test_matrix_run_hands_a_panel_its_roles_in_each_cell(runner_calls, io):
     _run(_matrix_run(io, "--judge", "--judge-panel", "technical_expert",
-                     "--judge-provider", "openai", "--judge-temperature", "0.5"))
+                     "--model", "claude-sonnet-5-5", "--judge-provider", "openai", "--judge-temperature", "0.5"))
 
     assert runner_calls.runs == _cells({
         **_defaults(io), "judge": None,

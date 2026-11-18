@@ -1,0 +1,3 @@
+### Added
+
+- **The `catalog routing` result records `shared_queries`** — `{"shared": 9, "total": 9}`: how many of the queries with a content word are listed for more than one skill. The shared-query warning went to stderr only, so a file saved with `--out` from a run on queries drawn from one template read later as a normal own-rate table. Files saved before this change lack the key. Two queries are the same when the lexical scorer reads them as the same content words: case, spacing, trailing punctuation and word order do not tell `Quick Start` from `Quick Start.` or `start quick`, while `Straße` and `STRASSE` stay two queries.

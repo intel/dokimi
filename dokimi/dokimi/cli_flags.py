@@ -85,6 +85,8 @@ CONCEPTS: tuple[Concept, ...] = (
         canonical=(
             Flag("--judge", "PROVIDER/MODEL", _MODEL_REF, repeatable=True,
                  meaning="the judge; repeated, it is a panel"),
+            Flag("--judge-aggregate", "{median,majority,unanimous}", "choice",
+                 meaning="how a judge panel's verdicts become one"),
             Flag("--extract-model", "PROVIDER/MODEL", _MODEL_REF),
             Flag("--escalate-model", "PROVIDER/MODEL", _MODEL_REF),
             Flag("--fill-model", "PROVIDER/MODEL", _MODEL_REF),
@@ -146,6 +148,12 @@ CONCEPTS: tuple[Concept, ...] = (
         help="repetitions per cell",
         canonical=(Flag("--reps", "N", "int"),),
         banned=("--repeats", "--work-repeats", "--multi-run", "--trials"),
+    ),
+    Concept(
+        name="against",
+        help="the root of the skills a skill is measured against",
+        canonical=(Flag("--against", "ROOT", "path"),),
+        banned=(),
     ),
     Concept(
         name="concurrency",
@@ -281,6 +289,26 @@ CONCEPTS: tuple[Concept, ...] = (
         ),
         banned=("--doc-source", "--context7-id"),
         note="A documentation source is an arm: --arm docs:SOURCE.",
+    ),
+    Concept(
+        name="api_header",
+        help="a C header whose declared names a veto may check",
+        canonical=(Flag("--header", "PATH", "path", repeatable=True,
+                        meaning="a C header of the API (glob ok)"),),
+        note="Used with --prefix (and --shared-lib) by skill novelty ground.",
+    ),
+    Concept(
+        name="shared_library",
+        help="a shared library whose exported symbols a veto may check",
+        canonical=(Flag("--shared-lib", "PATH", "path", repeatable=True,
+                        meaning="a shared library whose exported (nm -D) names are known"),),
+        note="Used with --prefix (and --header) by skill novelty ground.",
+    ),
+    Concept(
+        name="symbol_prefix",
+        help="the C identifier prefix that scopes the names a veto checks",
+        canonical=(Flag("--prefix", "PREFIX", "text", repeatable=True,
+                        meaning="a C identifier prefix ending in '_' (cblas_)"),),
     ),
     Concept(
         name="force",

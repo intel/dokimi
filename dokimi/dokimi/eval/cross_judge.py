@@ -57,6 +57,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
+from dokimi.eval.comparison_verdict import ComparisonVerdict, decide
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
 from dokimi.eval.question_text import require_question_text
 from dokimi.records import Answer, Record, RecordError, RecordLike, Run, arm_answers, arm_scores
@@ -67,6 +68,24 @@ from dokimi.eval.stats import adjust_pvalues, mean_ci
 logger = logging.getLogger(__name__)
 
 ALPHA = 0.05
+
+#: The arrow of a verdict that reads as a direction: ``+`` for an improvement, ``−`` for a regression.
+_DIRECTION = {ComparisonVerdict.IMPROVED: 1, ComparisonVerdict.REGRESSED: -1}
+
+
+def _sign(mean: Optional[float]) -> int:
+    """+1 or -1 for the direction of a mean delta; 0 for none (missing, a tie, or NaN).
+
+    Read through the seam with the test passed, so only the sign of the mean decides.
+    """
+    return _DIRECTION.get(decide(mean, significant=True), 0)
+
+
+def _nan_mean(row: Dict[str, Any]) -> bool:
+    """True when the row's mean delta is NaN: such a measure has no direction and corroborates no judge."""
+    mean = (row.get("delta") or {}).get("mean")
+    return isinstance(mean, float) and math.isnan(mean)
+
 
 #: Scores (library, question, answer, ground_truth, context) -> aggregate.
 Scorer = Callable[[str, str, str, Optional[str], str], float]
@@ -116,7 +135,7 @@ class Measure:
             "wins": wins, "losses": losses, "ties": len(pairs) - wins - losses, "p_sign": p,
             # Raw; label() replaces it with the Holm-adjusted call over the voting measures.
             "significant": p is not None and p < ALPHA,
-            "sign": 0 if not pairs or delta["mean"] in (None, 0) else (1 if delta["mean"] > 0 else -1),
+            "sign": _sign(delta["mean"]),
         }
 
 
@@ -158,7 +177,8 @@ def label(rows: Sequence[Dict[str, Any]], *, require_validated: bool = False) ->
     rows = [r for r in rows if r["votes"]]
     if not any(r.get("n", 1) for r in rows):  # no voter compared a single question
         return "NOT MEASURED"
-    sig = {r["sign"] for r in rows if r["significant"] and r["sign"]}
+    # A row speaks only when its Holm-adjusted difference is significant (decide), and then for its direction.
+    sig = {_DIRECTION[v] for r in rows if (v := decide(r["sign"], significant=r["significant"])) in _DIRECTION}
     if not sig:
         return "NO DETECTABLE EFFECT"
     if len(sig) == 2:
@@ -166,7 +186,8 @@ def label(rows: Sequence[Dict[str, Any]], *, require_validated: bool = False) ->
     direction = sig.pop()
     arrow = "+" if direction > 0 else "−"
     same = all(r["sign"] in (0, direction) for r in rows)
-    single = len({judge_of(r.get("measure") or str(id(r))) for r in rows if r["significant"]}) == 1
+    judges = {judge_of(r.get("measure") or str(id(r))) for r in rows if r["significant"] and not _nan_mean(r)}
+    single = len(judges) == 1
     return f"{'CONSISTENT' if same else 'LEANING'} {arrow}" + (" (one judge)" if single else "")
 
 
@@ -360,7 +381,7 @@ def score_measure(
             return (qid, arm), float(
                 scorer(library, question, answer, (ground_truth or {}).get(qid), context)
             ), None
-        except Exception as exc:  # an unscored answer drops out of the pairing, it does not kill the run
+        except Exception as exc:  # noqa: BLE001 - an unscored answer drops out of the pairing, it does not kill the run
             return (qid, arm), None, _reason(exc)
 
     if not stored_flags:
