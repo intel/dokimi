@@ -2440,7 +2440,9 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   both `id`s, until a `--force` run over every arm and model of the batch (the same `--task` and `--reps`) reruns them. A plan naming one cell twice (a
   repeated `--task` or `--model`, or two `--model` strings with one directory
   name, `a/b` and `a:b`, or names that differ only in case) is refused before any agent starts.
-  Ctrl-C starts no queued cell and kills, by name, the agent containers the running cells started; a cell whose
+  Ctrl-C starts no queued cell: it sets the halt first, and a cell a worker takes after that is dropped before it
+  reserves budget or prepares a workspace (a cell a worker took before the main thread ran the handler is not
+  stopped by that). It kills, by name, the agent containers the running cells started; a cell whose
   agent was killed is not recorded and runs again on the next invocation (what a killed agent spent without
   reporting a cost is open: #834). A cell past its agent is not killed: its grading container finishes (Ctrl-C
   waits for it), the cell is recorded, and its agent is not run again on resume. A batch stays on the eval tree it
