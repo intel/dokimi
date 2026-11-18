@@ -485,9 +485,13 @@ def _refuse_unsafe_run(args: argparse.Namespace, jsonl: Path) -> None:
                          "(--max-usd-per-skill caps one skill inside it)")
     if jsonl.exists() and not args.resume:
         raise InputError(f"--jsonl {jsonl} exists: pass --resume to continue it, or remove it to start over")
+    from dokimi.novelty.measure import SelfJudgeError, check_self_judge
+
     try:
         cost.role_models(args)
-    except ValueError as exc:
+        _, answerer, judge = cost.clients(copy.copy(args))  # a copy: the run's own cap is set up later
+        check_self_judge(judge, answerer, args.allow_self_judge)  # before a resume drops a row or a file
+    except (ValueError, SelfJudgeError) as exc:
         raise InputError(str(exc)) from exc
 
 

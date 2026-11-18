@@ -132,6 +132,19 @@ def test_a_stop_a_higher_budget_does_not_cure_starts_no_further_skill(tmp_path, 
     assert "2 skill(s) not run" in capsys.readouterr().err
 
 
+def test_a_resume_whose_judge_is_the_answerer_is_refused_before_it_drops_a_row_or_a_file(tmp_path):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    before = (out / "sweep.jsonl").read_bytes()
+    argv = ["catalog", "novelty", str(root), "--out-dir", str(out), "--model", "judge-m",
+            "--judge-model", "judge-m", "--max-usd", "5", "--resume"]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(InputError, match="answering model"):
+        args.func(args)
+    assert (out / "sweep.jsonl").read_bytes() == before
+    assert len(list(out.glob("*/novelty.json"))) == 2
+
+
 def test_resume_keeps_the_measured_rows_and_runs_only_the_rest(tmp_path, capsys):
     root, out = _root(tmp_path), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5", "--limit", "1")
