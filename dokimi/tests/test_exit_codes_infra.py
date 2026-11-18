@@ -167,6 +167,24 @@ def test_a_refused_cell_is_exit_1_and_a_machinery_failure_is_exit_5():
     assert exit_of({"cell": "c", "error": "x", "infra": False}) == 1
 
 
+def test_a_docker_run_that_cannot_start_the_agent_is_infra_and_an_agent_that_fails_is_not(tmp_path):
+    """`docker run` exits 125 when the CLI cannot start the container: an infra crash (exit 5), while the agent's own
+    nonzero exit is its result."""
+    from dokimi import process
+    from dokimi.repos.container import ContainerError, ContainerSpec, DockerRunner
+    from dokimi.repos.runner import _is_infra
+
+    def docker(code):
+        reply = process.reply(stderr="docker: Error response from daemon: no such image\n", returncode=code)
+        return DockerRunner(runner=process.FakeRunner(lambda call: reply))
+
+    spec = ContainerSpec(image="img:t", argv=["true"])
+    with pytest.raises(ContainerError) as exc:
+        docker(125).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    assert _is_infra(exc.value) and "Error response from daemon" in str(exc.value)
+    assert docker(1).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5).returncode == 1
+
+
 def test_a_mount_source_that_vanished_is_a_docker_error(tmp_path):
     """The scratch directory vanished before docker could start the container: infrastructure, exit 5 in repo run."""
     from dokimi import process
