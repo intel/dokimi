@@ -11,6 +11,7 @@ linearly from n to 4n openers.
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 from collections.abc import Callable
@@ -45,9 +46,9 @@ def _letters(i: int) -> str:
     return out
 
 
-def _linear(call: Callable[[str], Any], shape: Callable[[int], str], n: int = 2_000) -> None:
+def _linear(call: Callable[[str], Any], shape: Callable[[int], str], n: int = 2_000, limit: float = GROWTH_LIMIT) -> None:
     ratio, _ = growth(lambda k: partial(call, shape(k)), n)
-    assert ratio < GROWTH_LIMIT
+    assert ratio < limit
 
 
 # session_log.prompt_text ----------------------------------------------------------------------------------------------
@@ -240,6 +241,11 @@ HEREDOC_TABLE = [
     "<<A\nx\n\n  A\n\n",
     "<<\nA\nx\nA\n",
     "echo <<A\n<<B\nx\nB\nA\n",
+    "<<'AB'\nx\nA\n",
+    '<<"AB"\nx\nA\nAB\nz',
+    "<<'AB\nx\nA\n",
+    "<<AB'\nx\nA\n",
+    "<<A1\nA1\n<<A2\nA2\nx\nA2\n",
 ]
 
 
@@ -285,8 +291,25 @@ def test_cli_trace_heredoc_scans_openers_of_distinct_words_in_linear_time() -> N
     _linear(_cli_heredocs, lambda k: "".join(f"<<A{i}\n" for i in range(k)) + "B\n")
 
 
+def _unrelated_closing_lines(k: int) -> str:
+    """``k`` openers of ``A``, then lines of 1, 2, ... ``B``: a number of distinct lengths of the order of the text's square root."""
+    return "<<A\n" * k + "".join("B" * i + "\n" for i in range(1, 16 * math.isqrt(k) + 1))
+
+
+def test_cli_trace_heredoc_scans_openers_in_linear_time_among_closing_lines_of_many_lengths() -> None:
+    _linear(_cli_heredocs, _unrelated_closing_lines, limit=6)  # k times the lengths grows 8-fold, linear work 4-fold
+
+
+def test_cli_trace_heredoc_scans_quoted_openers_a_shorter_closing_line_does_not_close_in_linear_time() -> None:
+    _linear(_cli_heredocs, lambda k: "<<'AB'\n" * k + "A\n")
+
+
 def test_split_commands_scans_heredoc_openers_without_a_closer_in_linear_time() -> None:
     _linear(shell.split_commands, lambda k: "<<A\n" * k)
+
+
+def test_split_commands_scans_heredoc_openers_whose_closing_line_has_no_body_before_it_in_linear_time() -> None:
+    _linear(shell.split_commands, lambda k: "".join(f"<<A{i}\nA{i}\n" for i in range(k)))
 
 
 def test_split_commands_cuts_a_heredoc_body_that_has_a_closer() -> None:

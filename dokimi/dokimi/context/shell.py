@@ -34,7 +34,7 @@ _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
              "perl": re.compile(r"^-[pnalw0-9]*i[^-\s]*$")}
 _HEREDOC_OPEN = r"<<-?\s*['\"]?(\w+)['\"]?([^\n]*)\n"
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_OPEN + r".*?\n\s*\1\s*(?=\n|$)", re.S), re.compile(_HEREDOC_OPEN),
-                          re.compile(r"^[^\S\n]*(\w+)[^\S\n]*$", re.M), word=1)
+                          re.compile(r"^[^\S\n]*(\w+)[^\S\n]*$", re.M), word=1, gap=1)
 
 
 class _Scan:

@@ -11,9 +11,10 @@ stop at the first opener that has none: no later opener has one either.
 from __future__ import annotations
 
 import re
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from itertools import islice
 
 
 def pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str]) -> Iterator[tuple[re.Match[str], re.Match[str]]]:
@@ -50,26 +51,36 @@ class HeredocPattern:
     """A heredoc: ``opener``, a body, then a line holding only the opener's delimiter (``word`` is its group).
 
     ``full`` is the one regex of the whole heredoc and ``lines`` finds a line of one word (group 1).
+    ``quote`` is the opener's group of the quote around the delimiter (0: none; a quoted delimiter is
+    not cut short) and ``gap`` the number of characters the closing line must start past the opener's
+    end (1 when ``full`` wants a body line first).
     """
 
     full: re.Pattern[str]
     opener: re.Pattern[str]
     lines: re.Pattern[str]
     word: int
+    quote: int = 0
+    gap: int = 0
 
     def matches(self, text: str) -> Iterator[re.Match[str]]:
-        """The matches of ``full``, but an opener whose delimiter has no line after it is skipped, not rescanned.
+        """The matches of ``full``, but an opener that no line closes is skipped, not rescanned.
 
-        A delimiter may be cut short by the regex (``<<AB`` closed by a line ``A``), so every prefix of it counts.
+        A delimiter may be cut short by the regex (``<<AB`` closed by a line ``A``) unless it is quoted,
+        so every prefix of it counts; only a line of such a prefix, starting ``gap`` past the opener, closes it.
         """
         last: dict[str, int] = {}
         for line in self.lines.finditer(text):
             last[line.group(1)] = line.start()
-        lengths = sorted({len(w) for w in last}, reverse=True)
+        lengths = sorted({len(w) for w in last})
         pos = 0
         while (o := self.opener.search(text, pos)) is not None:
-            word = o.group(self.word)
-            if any(last.get(word[:n], -1) >= o.end() for n in lengths if n <= len(word)):
+            word, need = o.group(self.word), o.end() + self.gap
+            if self.quote and o.group(self.quote):
+                closed = last.get(word, -1) >= need
+            else:
+                closed = any(last.get(word[:n], -1) >= need for n in islice(lengths, bisect_right(lengths, len(word))))
+            if closed:
                 m = self.full.match(text, o.start())
                 if m is not None:
                     yield m
