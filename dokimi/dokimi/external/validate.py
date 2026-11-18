@@ -85,7 +85,6 @@ import re
 from collections import Counter
 from pathlib import Path, PurePosixPath
 from typing import Optional, Sequence
-from urllib.parse import unquote
 
 import yaml
 
@@ -622,6 +621,14 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
                     )
 
 
+def _unreferenced_findings(skill: Skill, *, at_root: bool) -> list[Finding]:
+    """The bundled files ``SKILL.md`` and the documents it names never mention, or a note that not all were seen."""
+    unreferenced, unchecked = unreferenced_check(skill.path, _link_files(skill.body), at_root=at_root,
+                                                 doc_links=_link_files)
+    return ([Finding("warn", "bundle-file-unreferenced", unreferenced)] if unreferenced is not None else []) + (
+        [Finding("note", "bundle-file-unchecked", unchecked)] if unchecked is not None else [])
+
+
 def review_skills(
     entries: Sequence[SkillCatalogEntry], *, standalone: bool = False
 ) -> list[Optional[SkillReview]]:
@@ -669,13 +676,7 @@ def review_skills(
                 Finding("warn", code, message)
                 for code, message in content_findings(skill, at_root=at_root and not standalone)
             ]
-            unreferenced, unchecked = unreferenced_check(
-                skill.path, _link_files(skill.body), at_root=at_root and not standalone, doc_links=_link_files
-            )
-            if unreferenced is not None:
-                review.findings.append(Finding("warn", "bundle-file-unreferenced", unreferenced))
-            if unchecked is not None:
-                review.findings.append(Finding("note", "bundle-file-unchecked", unchecked))
+            review.findings += _unreferenced_findings(skill, at_root=at_root and not standalone)
             review.findings += [Finding(*item) for item in script_findings(
                 skill.path.parent, checkout=None if standalone else entry.source_root)]
             if not hidden and fmt != FORMAT_UNSUPPORTED:
