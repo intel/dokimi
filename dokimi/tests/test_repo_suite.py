@@ -433,7 +433,7 @@ def test_a_skill_the_scaffold_base_ships_is_refused_before_any_cell(run, capsys)
     assert not list((run["out"] / "b1").glob("*__*/result.json"))
 
 
-def test_a_malformed_mcp_config_in_a_scaffold_base_is_refused_before_any_cell(run, capsys):
+def test_a_malformed_mcp_config_in_a_scaffold_base_is_refused_before_any_cell(run):
     profile = run["tmp"] / "fake.yaml"  # a harness that passes the repository's .mcp.json to the agent
     profile.write_text(yaml.safe_dump({**PROFILE, "args_if_present": {".mcp.json": ["--mcp-config", ".mcp.json"]}}),
                        encoding="utf-8")
@@ -443,10 +443,10 @@ def test_a_malformed_mcp_config_in_a_scaffold_base_is_refused_before_any_cell(ru
     git(scaffold, "commit", "-qm", "bad mcp")
     sha = git(scaffold, "rev-parse", "HEAD")
     _commit_suite(run["root"], sha, _raw(repos={"sc": f"{scaffold}@{sha}"}, tasks=[{"id": "fix_add", "repo": "sc"}]))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:  # cli.main exits 2 on it, a usage error
         run["invoke"]("--suite", ".agent-eval/suite.yaml", "--task", "fix_add", "--arm", "guidance:none")
-    assert exc.value.code == 1
-    assert "not valid JSON" in capsys.readouterr().err
+    assert "not valid JSON" in str(exc.value)
+    assert "--tools read/none" in str(exc.value)
     assert not list((run["out"] / "b1").glob("*__*/result.json"))
 
 

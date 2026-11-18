@@ -774,7 +774,10 @@ failed still do. The probed facts are recorded in `check.json` `host`, and for
 each holds an `unsupported.json` with the reason, and `repo report` lists them
 apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its
-cells is left unrun; a cell that already has a `result.json` keeps it.
+cells is left unrun; a cell that already has a `result.json` keeps it. A harness that exits nonzero
+before its first trace line is not a verdict on the cell: the cell is a crash, the batch exits 5, and it writes
+no `result.json`, so the next run runs it again. A harness the cap killed before its first trace line is a fail
+cell, as before.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
 directory, an unpinned remote), on a pinned local path inside a repository that is not its root and on a `--cache-dir` that is not a usable directory; a
@@ -1481,7 +1484,7 @@ args_if_present:                     # argv added after the "{tools}" element wh
   not a JSON object, or whose `mcpServers` is not an object, is caught up
   front: `repo validate` warns about the one at each task base (at
   the eval tree when the source has no git history) and still succeeds, `repo run --tools all`
-  exits 1 before any cell, and a cell whose arm wrote
+  exits 2 before any cell (a config the CLI rejects is a usage error; the cell is not run, so it is not rerun), and a cell whose arm wrote
   such a file (a `patch:` arm) is a cell error, not a graded run. The check
   reads the task base, so a `patch:` arm that repairs the file does not help.
   Fix or remove the file in the task base; `--tools read` or `none` do not

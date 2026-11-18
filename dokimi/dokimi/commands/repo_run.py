@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 from dokimi.atomic_write import write_text_atomic
 from dokimi import cli_flags
 from dokimi import docker_cmd
+from dokimi.exit_codes import EXIT_INFRA
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.repos.source import SourceArgumentError, tree_path
 from dokimi.utils import tree_digest
@@ -358,8 +359,8 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos import open_source
     from dokimi.repos.arms import check_arms
     from dokimi.repos.batch_ledger import pin_arms, pin_skills, write_skill_pin
-    from dokimi.repos.bases import check_mcp_configs
-    from dokimi.repos.container import docker_network
+    from dokimi.repos.bases import ConfigRefused, check_mcp_configs
+    from dokimi.repos.container import DockerError, docker_network
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.probes import load_probe_file
     from dokimi.repos.runner import (
@@ -410,6 +411,11 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
             write_skill_pin(batch_dir, skill_pin)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
                             max_batch_usd=args.max_batch_usd, log=_progress)
+    except DockerError as exc:  # the docker CLI or daemon failed: infrastructure, not a verdict (§2.6)
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_INFRA)
+    except ConfigRefused as exc:  # a config the agent's CLI rejects: refused before any cell, not rerun (exit 2)
+        raise InputError(str(exc)) from exc  # cli.main prints it and exits 2
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -419,6 +425,14 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     if summary["probe_failed"]:
         print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
               file=sys.stderr)
+    _exit_of_batch(summary)
+
+
+def _exit_of_batch(summary: dict) -> None:
+    """A cell that crashed of the machinery is infrastructure (exit 5, §2.6), never a verdict; a refused cell, a budget
+    stop, a failed probe or a batch with no result is exit 1."""
+    if any(err.get("infra") for err in summary["errors"]):
+        sys.exit(EXIT_INFRA)
     if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
         sys.exit(1)
     if not summary["ran"] and not summary["skipped"]:  # every cell unsupported: the batch holds no result

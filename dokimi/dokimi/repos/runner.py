@@ -57,7 +57,9 @@ from .container import (
     WORKSPACE,
     ContainerError,
     BatchInterrupted,
+    ContainerResult,
     ContainerSpec,
+    DockerError,
     EgressNotImplemented,
     Mount,
     clear_halt,
@@ -77,6 +79,7 @@ from .batch_ledger import (  # re-exported: the names callers and tests take fro
 )
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
+from .transcript import Transcript
 from . import run_context
 from .probes import effective_patterns, probes_for, with_probes
 from .uptake import arm_uptake
@@ -257,7 +260,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     result = ctx.runner.run(spec, stdout=rd / "agent.stdout", stderr=rd / "agent.stderr",
                             timeout_s=caps["timeout_s"])
 
-    # The agent has run and may have spent its cap: from here on the cell is graded, never dropped.
+    # The agent has run and may have spent its cap: from here on the cell is graded, never dropped,
+    # except a crash before its first trace line (CellCrash below).
     agent: dict[str, Any] = {
         "rc": result.returncode, "timed_out": result.timed_out, "wall_s": result.wall_s, "cost_usd": None,
         # A killed harness reports no cost; the batch budget counts the cell's cap instead of $0.
@@ -291,6 +295,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
         started = bool(transcript.events) or transcript.result_seen  # else the agent never started
+        _refuse_a_crash_before_the_trace(opts, raw, transcript, result, started, float(agent["charged_usd"]))
         if started:
             events = transcript.events
             useful_events = None if transcript.dropped_lines else events
@@ -315,6 +320,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         # A Ctrl-C does not kill the grade: the cell is past its agent, so it is recorded (contract §9).
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
+    except CellCrash:  # the harness failed before its trace: the cell is not graded, it has no result
+        raise
     except Exception as exc:  # noqa: BLE001  # the grade run failed to start, or the host failed around it
         # What the agent left behind (a read-only .git, a hostile trace) can break any host step after it.
         # Excluding the run would favour arms that break workspaces (contract §4.2): it fails the task.
@@ -361,8 +368,25 @@ def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: lis
         return None
 
 
+def _is_infra(exc: BaseException) -> bool:
+    """A failure of the machinery (docker, a file that cannot be written or read, a subprocess), not of a cell's
+    input: a refused input (PrepError, an unreadable kept result, an egress the run cannot have) stays exit 1."""
+    return isinstance(exc, (DockerError, OSError, subprocess.SubprocessError))
+
+
+def _refuse_a_crash_before_the_trace(opts: AgentOptions, raw: str, transcript: Transcript, result: ContainerResult,
+                                     started: bool, charged_usd: float) -> None:
+    """Raise :class:`CellCrash` when the harness exited nonzero before its first trace line: a crash of the
+    machinery, not a verdict on the cell."""
+    traced = started or bool(transcript.start_record) or (opts.profile.trace == "text" and bool(raw.strip()))
+    no_trace = not traced and not transcript.is_error and not transcript.errors  # nothing the harness wrote
+    if no_trace and result.returncode != 0 and not result.timed_out:
+        raise CellCrash(f"the harness exited {result.returncode} before its first trace line", charged_usd)
+
+
 class CellCrash(Exception):
-    """A cell whose agent ran but whose ``result.json`` could not be written: its cost still counts."""
+    """A cell whose agent ran but whose ``result.json`` could not be written, or whose harness exited nonzero before
+    any trace line (no result is written, so the next run runs the cell again): its cost still counts."""
 
     def __init__(self, message: str, charged_usd: float):
         super().__init__(message)
@@ -404,7 +428,7 @@ def _run_unsupported(batch_dir: Path, name: str, cell: tuple[Task, str, AgentOpt
         counted = _unsupported_cell(batch_dir / name, cell, reason, verdict, host)
     except (UnreadableResult, OSError) as exc:
         with lock:
-            state["errors"].append({"cell": name, "error": str(exc)})
+            state["errors"].append({"cell": name, "error": str(exc), "infra": _is_infra(exc)})
         log(f"✗ {name}: {exc}")
         return
     with lock:
@@ -464,11 +488,11 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         except CellCrash as exc:
             charged = exc.charged_usd
             with lock:
-                state["errors"].append({"cell": name, "error": str(exc)})
+                state["errors"].append({"cell": name, "error": str(exc), "infra": True})
             log(f"✗ {name}: {exc}")
         except (PrepError, ContainerError, OSError, subprocess.SubprocessError) as exc:
             with lock:
-                state["errors"].append({"cell": name, "error": str(exc)})
+                state["errors"].append({"cell": name, "error": str(exc), "infra": _is_infra(exc)})
             log(f"✗ {name}: {exc}")
         finally:  # the charge is counted and saved even when the cell's result.json was not written (CellCrash)
             _settle(state, lock, batch_dir, reserved, charged, rec)
@@ -568,7 +592,7 @@ def _settle(state: dict[str, Any], lock: threading.Lock, batch_dir: Path, reserv
             try:
                 _write_batch_spend(batch_dir, state["spent"])
             except OSError as exc:
-                state["errors"].append({"cell": SPEND_FILE, "error": str(exc)})
+                state["errors"].append({"cell": SPEND_FILE, "error": str(exc), "infra": True})
 
 
 def _read_batch_spend(batch_dir: Path, capped: bool = True) -> float:

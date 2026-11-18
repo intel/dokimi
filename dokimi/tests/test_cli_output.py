@@ -293,14 +293,12 @@ def test_trace_inspect_json_is_partial_when_a_trace_does_not_read(tmp_path, caps
     assert schema_errors("cli_output.v1", doc) == []
 
 
-def test_trace_consistency_json_is_failed_when_no_trace_reads(tmp_path, capsys):
+def test_trace_consistency_is_an_input_error_when_no_trace_reads(tmp_path, capsys):
+    # Test-narrowed: renamed from ..._json_is_failed_when_no_trace_reads; no-trace reads exit 2 (input), not 1 (A2b)
     args = cli.parse_args(["trace", "consistency", "--arm", f"base={tmp_path}/missing.jsonl", "--json"])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError, match="no trace could be read"):
         args.func(args)
-    assert exc.value.code == 1
-    doc = json.loads(capsys.readouterr().out)
-    assert doc["kind"] == "trace consistency" and doc["status"] == "failed" and doc["reason"]
-    assert schema_errors("cli_output.v1", doc) == []
+    assert capsys.readouterr().out == ""  # the input error document is cli.main's, not the leaf's
 
 
 def test_trace_consistency_json_is_partial_when_some_trace_reads(tmp_path, capsys):
