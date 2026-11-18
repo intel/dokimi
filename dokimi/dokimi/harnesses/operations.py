@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,8 @@ def _op_from_dict(data: dict[str, Any]) -> OperationRecord:
     try:
         elapsed = float(data.get("elapsed_sec") or data.get("duration_sec") or 0.0)
     except (TypeError, ValueError, OverflowError):  # OverflowError: an int too large for a float
+        elapsed = 0.0
+    if not math.isfinite(elapsed):  # 1e400, Infinity and NaN parse to a float no duration is (#687)
         elapsed = 0.0
     metadata = {
         k: v

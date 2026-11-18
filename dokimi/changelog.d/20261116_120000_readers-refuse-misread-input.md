@@ -24,4 +24,5 @@
     list, a number, `null`), or valid JSON that Python cannot hold (nested too deep, an integer
     over 4300 digits), is recorded as a `log_parse_error` operation instead of crashing the
     harness run, and every `log_parse_error`, unparsable JSON included, says why in
-    `metadata.error`; an `elapsed_sec` too large for a float reads as 0, as a non-number does.
+    `metadata.error`; an `elapsed_sec` that is no finite number (an integer too large for a
+    float, `1e400`, `Infinity`, `NaN`) reads as 0, as a non-number does.

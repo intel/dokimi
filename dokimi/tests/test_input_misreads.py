@@ -276,8 +276,10 @@ def test_a_marker_whose_json_names_the_marker_is_read_whole():
     assert [(op.type, op.name) for op in ops] == [("tool", "grep DOKIMI_OP in logs")]
 
 
-def test_an_elapsed_too_large_for_a_float_is_zero():
-    ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"edit","elapsed_sec":1' + "0" * 400 + "}", "")
+@pytest.mark.parametrize("value", ["1" + "0" * 400, "1e400", "-1e400", "Infinity", "NaN", '"inf"'],
+                         ids=["int-over-a-float", "exponent", "negative", "Infinity", "NaN", "inf-string"])
+def test_an_elapsed_that_is_no_finite_float_is_zero(value):
+    ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"edit","elapsed_sec":' + value + "}", "")
 
     assert [(op.type, op.name, op.elapsed_sec) for op in ops] == [("tool", "edit", 0.0)]
 
