@@ -202,13 +202,27 @@ def _registered_choices(value: str) -> frozenset[str]:
     return frozenset()
 
 
+def _choice_clash(flag: cli_flags.Flag, choices: frozenset[str] | None) -> tuple[str, str] | None:
+    if choices == frozenset():
+        return "empty_choices", "has an empty set of allowed choices"
+    if (flag.kind == "choice") != (choices is not None):
+        shape = "has no choices" if choices is None else "has choices"
+        return "choices", f"{shape}, but the registry kind is `{flag.kind}`"
+    if choices is not None:
+        expected = _registered_choices(flag.value)
+        if expected and choices != expected:
+            return "choices", f"has choices {sorted(choices)}, the registry lists {sorted(expected)}"
+    return None
+
+
 def meaning_clashes(found: Sequence[Use],
                     concepts: Iterable[cli_flags.Concept] = cli_flags.CONCEPTS,
                     ) -> list[tuple[str, str, str, str]]:
     """(leaf, spelling, aspect, what clashes) for every use of a canonical spelling that disagrees
     with its registry row. Aspects: ``switch`` (a switch where the kind takes a value, or the
     reverse), ``metavar`` (set, and differs from ``value``), ``choices`` (choices where the kind is
-    not ``choice``, or a missing or divergent set for a ``choice`` row) and ``type``
+    not ``choice``, or a missing or divergent set for a ``choice`` row), ``empty_choices``
+    (an explicit empty set of choices), and ``type``
     (outside ``_TYPES_BY_KIND``). A flag's
     repeatability is not compared.
     """
@@ -224,16 +238,8 @@ def meaning_clashes(found: Sequence[Use],
             clashes.append((*where, "switch", f"is {shape} here, but the registry kind is `{flag.kind}`"))
         if flag.kind != "flag" and use.metavar is not None and use.metavar != flag.value:
             clashes.append((*where, "metavar", f"has metavar `{use.metavar}`, the registry says `{flag.value}`"))
-        if use.choices == frozenset():
-            clashes.append((*where, "choices", "has an empty set of allowed choices"))
-        elif (flag.kind == "choice") != (use.choices is not None):
-            has = "has choices" if use.choices else "has no choices"
-            clashes.append((*where, "choices", f"{has}, but the registry kind is `{flag.kind}`"))
-        elif use.choices:
-            expected = _registered_choices(flag.value)
-            if expected and use.choices != expected:
-                clashes.append((*where, "choices", f"has choices {sorted(use.choices)}, "
-                                f"the registry lists {sorted(expected)}"))
+        if choice_clash := _choice_clash(flag, use.choices):
+            clashes.append((*where, *choice_clash))
         allowed = _TYPES_BY_KIND.get(flag.kind)
         if allowed is not None and use.type not in allowed:
             clashes.append((*where, "type", f"has type `{use.type}`, kind `{flag.kind}` takes "
@@ -351,7 +357,16 @@ def test_empty_choices_are_reported_for_any_kind(kind, value):
     concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--pick", value, kind),)),)
     parser = argparse.ArgumentParser()
     parser.add_argument("--pick", choices=[])
-    assert [aspect for _, _, aspect, _ in meaning_clashes(uses(parser), concepts)] == ["choices"]
+    assert [aspect for _, _, aspect, _ in meaning_clashes(uses(parser), concepts)] == ["empty_choices"]
+
+
+def test_format_exception_does_not_allow_empty_choices():
+    parser = cli.build_parser()
+    node = _subparser(parser, "eval", "import")
+    action = next(action for action in node._actions if "--format" in action.option_strings)
+    action.choices = []
+    problems = meaning_problems(uses(parser))
+    assert any("`--format` has an empty set of allowed choices" in problem for problem in problems)
 
 
 def test_a_usd_flag_requires_a_current_cli_usd_type():
