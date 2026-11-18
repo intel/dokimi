@@ -16,7 +16,6 @@ from dokimi.cli import build_parser
 from dokimi.eval_coverage import LabelledEval, coverage_report, exact_shares, graph_digest, load_graph, read_labels
 from dokimi.novelty.needs import NeedGraph, NeedNode
 from dokimi.novelty.needs import load_graph as novelty_load_graph
-from dokimi.novelty.needs import save_graph
 from dokimi.utils import InputError
 from tests.cli_refusal import refusal
 
@@ -108,10 +107,10 @@ def test_same_files_same_report_and_digest_ignores_node_order(tmp_path):
     assert graph_digest({"nodes": confirmed}) != first["graph"]["digest"]
 
 
-def test_novelty_save_graph_output_loads_as_need_graph(tmp_path):
+def test_an_unstamped_novelty_graph_loads_as_need_graph(tmp_path):
     path = tmp_path / "g.json"
     node = NeedNode("n1", "a need", path_class="core", confirmed_by="user")
-    save_graph(NeedGraph("x", "d", nodes=[node], provenance={"draws": 3}), path)
+    path.write_text(json.dumps(NeedGraph("x", "d", nodes=[node], provenance={"draws": 3}).as_dict()))
 
     assert load_graph(path)["nodes"][0]["confirmed_by"] == "user"
     assert novelty_load_graph(path).as_dict() == json.loads(path.read_text())
