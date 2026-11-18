@@ -482,6 +482,11 @@ def _summary_only(jsonl: Path, strata, args: argparse.Namespace) -> None:
     rows = read_rows(jsonl)
     if not rows:
         raise InputError(f"--jsonl {jsonl} has no rows to summarise")
+    measured_under = {json.dumps([row.get("settings"), row.get("dokimi_version")], sort_keys=True)
+                      for row in rows if row["status"] == "ok"}
+    if len(measured_under) > 1:  # one interval over two answerers or settings is no one model's share
+        raise InputError(f"--jsonl {jsonl} holds ok rows measured under {len(measured_under)} different settings or "
+                         "dokimi versions; a --resume without --limit measures them all alike")
     _emit_summary(summarize(rows, strata, resamples=args.bootstrap_resamples), args)
 
 

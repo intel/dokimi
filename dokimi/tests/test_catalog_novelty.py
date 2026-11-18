@@ -225,6 +225,14 @@ def test_summary_only_needs_no_root(tmp_path, capsys):
     assert "# novelty sweep: 2 measured" in capsys.readouterr().out
 
 
+def test_summary_only_refuses_to_pool_rows_measured_under_two_models(tmp_path):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--limit", "1", "--model", "other-m")
+    with pytest.raises(InputError, match="2 different settings"):
+        _sweep(root, out, "--summary-only")
+
+
 def test_strata_add_a_line_per_stratum(tmp_path, capsys):
     out = tmp_path / "out"
     strata = tmp_path / "strata.csv"

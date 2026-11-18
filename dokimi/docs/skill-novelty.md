@@ -1209,7 +1209,9 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   column (the skill's directory under ROOT, or its name) and a stratum column (`--stratum-column`,
   default `stratum`); a skill the CSV does not name is `(unassigned)`.
 - **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
-  sweep with no model call. `--summary-out FILE` also writes it as JSON.
+  sweep with no model call. `--summary-out FILE` also writes it as JSON. A file whose `ok`
+  rows were measured under different settings or dokimi versions (a `--resume --limit` with a changed
+  `--model`) is refused: one interval would pool two models' shares.
 - **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
   byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
   are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names
