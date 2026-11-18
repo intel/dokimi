@@ -32,3 +32,17 @@ def test_the_cell_records_the_probe_patterns_it_ran_with(setup):  # noqa: F811
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     meta = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/meta.json").read_text())
     assert "nproc" in meta["probes"]["cpu"] and meta["probes"]["packages"] == ["pip list", "pip show", "pip freeze", "conda list"]
+
+def test_commands_the_matcher_cannot_read_cost_only_their_own_probes(setup, monkeypatch):  # noqa: F811
+    deep = "echo " + "$(" * 1500 + "x" + ")" * 1500  # too deep for the matcher: it raises RecursionError
+    calls = [["Bash", {"command": deep}] for _ in range(5)] + [["Bash", {"command": "nproc"}]]
+    monkeypatch.setenv("FAKE_TOOL_USES", json.dumps(calls))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    cell = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    events = [json.loads(line) for line in (cell / "events.jsonl").read_text().splitlines()]
+    assert [(e["kind"], e.get("text")) for e in events if e["kind"] == "probe"] == [("probe", "nproc")]
+    notes = json.loads((cell / "result.json").read_text())["agent"]["trace_errors"]
+    assert [n for n in notes if n.startswith("probe matching failed (RecursionError)")] == notes and len(notes) == 1
+    # one note for the cell: five would fill the runner's five trace_errors slots and the scan would call it unfinished
+    cov = sec.scan_batch(setup["out"] / "b1", "guidance:raw")["coverage"]
+    assert cov["cells"] == 1 and cov["unfinished"] == []

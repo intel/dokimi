@@ -269,7 +269,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
         # Probe events go to events.jsonl only: the counters, first_useful and skill usage score the trace's events
         try:
-            probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes))
+            probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes), probe_errors)
         except Exception as exc:  # noqa: BLE001  # the events go on without probes: the grade must not depend on them
             probed = transcript.events
             probe_errors.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
@@ -296,7 +296,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             first_prompt_tokens=transcript.first_prompt_tokens,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"],
-            trace_errors=(transcript.errors + probe_errors)[:5])
+            trace_errors=(transcript.errors + probe_errors[:1])[:5])  # one probe note: five would fill the list
         run_context.save(rd, run_context.build(opts.profile, model=opts.model, harness_version=opts.harness_version,
                                                argv=argv, transcript=transcript, config_sha256=config_sha),
                          agent["trace_errors"])

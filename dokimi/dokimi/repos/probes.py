@@ -144,15 +144,23 @@ def probes_for(*layers: Mapping[str, Sequence[str]] | None) -> tuple[Probe, ...]
     return tuple(_compile(target, text.strip()) for target in TARGETS for text in config.get(target, ()))
 
 
-def with_probes(events: list[dict[str, Any]], probes: Sequence[Probe]) -> list[dict[str, Any]]:
-    """``events`` with a ``probe`` event after each ``command`` event whose command matches a pattern."""
+def with_probes(events: list[dict[str, Any]], probes: Sequence[Probe],
+                failures: list[str] | None = None) -> list[dict[str, Any]]:
+    """``events`` with a ``probe`` event after each ``command`` event whose command matches a pattern. A command the
+    matcher cannot read gets no probe event and adds a note to ``failures``; the other commands keep theirs."""
     if not probes:
         return events
     out: list[dict[str, Any]] = []
     for event in events:
         out.append(event)
         if event.get("kind") == "command":
-            out.extend(_probe_event(event, probe) for probe in _matching(str(event.get("text", "")), probes))
+            try:
+                matched = _matching(str(event.get("text", "")), probes)
+            except Exception as exc:  # noqa: BLE001  # one command nested too deep must not cost the others their probes
+                if failures is not None:
+                    failures.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
+                continue
+            out.extend(_probe_event(event, probe) for probe in matched)
     return out
 
 
