@@ -263,9 +263,13 @@ directory that is not a listed host. Two cases have their own rules:
 - **A skills directory under a listed host dokimi holds no spec for** (`UNSUPPORTED_HOST_DIRS` in
   `dokimi/external/skill_format.py`: `.cursor`, `.kiro`, `.windsurf`, `.trae`, and the others the corpus
   holds): the frontmatter and description checks do not run, and one `note`, `unsupported-skill-format`,
-  says so. Safety and content checks still run. A loaded skill keeps its `ok` with that note; an unloaded
-  one is `skipped`, with the note. Any other hidden directory, such as `~/.config` above a `skills/` root,
+  says so. A loaded skill gets the safety and content checks and keeps its `ok` with that note; an unloaded
+  one is `skipped`, with the note, unless a command check warns. Any other hidden directory, such as `~/.config` above a `skills/` root,
   is not a host, and its skills get the spec checks.
+
+Under either rule, a `SKILL.md` that did not load still gets the command checks (`pipe-to-shell` and the
+others) and `allowed-tools-unrestricted-bash`, so `--strict` fails a Bash grant with a risky command there
+as it does for a loaded skill.
 
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the

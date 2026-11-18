@@ -345,7 +345,16 @@ def _skill_digest(skill: Skill) -> str:
     return hashlib.sha256(skill.path.read_bytes()).hexdigest()
 
 
-def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
+def _unloaded_safety(candidate: Path, meta: dict, root: Path, standalone: bool) -> list[Finding]:
+    """The command checks and the unrestricted-Bash grant of an unloaded ``SKILL.md`` a format rule exempts,
+    so ``--strict`` fails it as it fails a loaded skill."""
+    at_root = candidate.parent.resolve() == root.resolve() and not standalone
+    found = [Finding("warn", code, message) for code, message in command_findings(candidate, at_root=at_root)]
+    found += [f for f in _tool_findings(meta.get("allowed-tools")) if f.code == "allowed-tools-unrestricted-bash"]
+    return name_risky_commands(found)
+
+
+def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Optional[SkillReview]:
     """A review for an entry that did not load, only when its ``SKILL.md`` is plain Markdown (no frontmatter) or
     has broken YAML; else None.
 
@@ -374,7 +383,7 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     if first.strip() != "---" or not opens_frontmatter(unquoted):  # a rule or prose, not a broken block
         loaded = format_findings(fmt, loaded=False)  # OpenCode loads a file with no frontmatter; a host with no spec gets a note
         if loaded:
-            return SkillReview(findings=loaded)
+            return SkillReview(findings=loaded + _unloaded_safety(candidate, {}, entry.source_root, standalone))
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
         hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
         return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)])
@@ -382,7 +391,7 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     if parse_error is not None:
         return SkillReview(findings=[parse_error])
     gap = format_findings(fmt, meta, loaded=False)
-    return SkillReview(findings=gap) if gap else None
+    return SkillReview(findings=gap + _unloaded_safety(candidate, meta, entry.source_root, standalone)) if gap else None
 
 
 def _relative_to_root(path: Path, root: Path) -> str:
@@ -671,7 +680,7 @@ def review_skills(
     by_name: dict[str, list[tuple[SkillReview, str, str]]] = {}
     for entry in entries:
         if not entry.loaded or entry.skill is None:
-            reviews.append(_unloaded_review(entry))
+            reviews.append(_unloaded_review(entry, standalone))
             continue
         skill = entry.skill
         try:  # any read of SKILL.md after it loaded: an error row, not a crash
