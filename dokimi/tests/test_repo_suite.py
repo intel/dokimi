@@ -292,6 +292,19 @@ def test_a_resume_with_another_suite_file_or_none_is_refused(run, capsys):
         assert "use another --batch" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("flags", [[], ["--allow-floating-suite-revs"]])
+def test_a_batch_whose_full_sha_repository_was_down_resumes_once_it_is_back(run, flags):
+    scaffold, sha = _scaffold(run["tmp"])
+    _commit_suite(run["root"], sha, _raw(repos={"sc": f"{scaffold}@{sha}"}, tasks=[{"id": "fix_add", "repo": "sc"}]))
+    argv = ["--suite", ".agent-eval/suite.yaml", "--task", "fix_add", "--task", "review_add", "--arm", "guidance:none"]
+    away = scaffold.rename(run["tmp"] / "away")
+    run["invoke"](*argv, *flags)
+    assert list((run["out"] / "b1").glob("fix_add__*/unsupported.json"))
+    away.rename(scaffold)
+    run["invoke"](*argv, *flags)
+    assert (run["out"] / "b1/fix_add__guidance-none__m-1__r1/result.json").is_file()
+
+
 def test_a_malformed_task_the_suite_and_the_selection_leave_out_does_not_stop_the_run(run):
     scaffold, sha = _scaffold(run["tmp"])
     write(run["root"], ".agent-eval/tasks/broken/task.json", "{bad")
@@ -505,11 +518,13 @@ def test_a_short_base_fetch_leaves_the_full_clone_without_a_partial_filter(tmp_p
     assert promisor.returncode != 0  # the full clone is not a partial clone
 
 
-def test_a_full_sha_pin_is_recorded_even_when_its_repository_is_down(tmp_path):
+@pytest.mark.parametrize("floating", [False, True])
+def test_a_full_sha_pin_is_recorded_even_when_its_repository_is_down(tmp_path, floating):
     good, sha = _scaffold(tmp_path)
     gone = "b" * 40
     suite = parse_suite(_raw(repos={"good": f"{good}@{sha}", "gone": f"{tmp_path}/missing@{gone}"},
-                             tasks=[{"id": "ok", "repo": "good"}, {"id": "lost", "repo": "gone"}]))
+                             tasks=[{"id": "ok", "repo": "good"}, {"id": "lost", "repo": "gone"}]),
+                        allow_floating=floating)
     found = resolve_suite(suite, {"ok": sha, "lost": gone}, tmp_path / "cache")
     assert found.pins == {"good": sha, "gone": gone}
 
