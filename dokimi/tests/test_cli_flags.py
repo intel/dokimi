@@ -49,7 +49,7 @@ class Use:
     """One option string on one parser, with what the parser does with it.
 
     ``nargs`` is 0 for a switch, ``metavar`` is the explicit one (None when not set) and
-    ``choices`` contains the parser's fixed set of values.
+    ``choices`` contains the parser's fixed set of values (None when unspecified).
     """
 
     leaf: str
@@ -59,7 +59,7 @@ class Use:
     dest: str
     nargs: object = None
     metavar: str | None = None
-    choices: frozenset[str] = frozenset()
+    choices: frozenset[str] | None = None
 
 
 def _type_name(type_: object) -> str:
@@ -88,10 +88,11 @@ def uses(parser: argparse.ArgumentParser) -> list[Use]:
                     walk(sub, f"{path} {name}")
             elif not isinstance(action, (argparse._HelpAction, argparse._VersionAction)):
                 metavar = _metavar_text(action.metavar)
+                choices = None if action.choices is None else frozenset(map(str, action.choices))
                 for option in action.option_strings:
                     found.append(Use(path, option, type(action).__name__,
                                      _type_name(action.type), action.dest,
-                                     action.nargs, metavar, frozenset(map(str, action.choices or ()))))
+                                     action.nargs, metavar, choices))
 
     walk(parser, "dokimi")
     return found
@@ -223,7 +224,9 @@ def meaning_clashes(found: Sequence[Use],
             clashes.append((*where, "switch", f"is {shape} here, but the registry kind is `{flag.kind}`"))
         if flag.kind != "flag" and use.metavar is not None and use.metavar != flag.value:
             clashes.append((*where, "metavar", f"has metavar `{use.metavar}`, the registry says `{flag.value}`"))
-        if (flag.kind == "choice") != bool(use.choices):
+        if use.choices == frozenset():
+            clashes.append((*where, "choices", "has an empty set of allowed choices"))
+        elif (flag.kind == "choice") != (use.choices is not None):
             has = "has choices" if use.choices else "has no choices"
             clashes.append((*where, "choices", f"{has}, but the registry kind is `{flag.kind}`"))
         elif use.choices:
@@ -341,6 +344,14 @@ def test_enumerated_choice_values_match_the_registry(value, choices, clashes):
     parser.add_argument("--pick", choices=choices)
     assert [aspect for _, _, aspect, _ in meaning_clashes(uses(parser), concepts)] == (
         ["choices"] if clashes else [])
+
+
+@pytest.mark.parametrize(("kind", "value"), [("choice", "FORMAT"), ("text", "NAME")])
+def test_empty_choices_are_reported_for_any_kind(kind, value):
+    concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--pick", value, kind),)),)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pick", choices=[])
+    assert [aspect for _, _, aspect, _ in meaning_clashes(uses(parser), concepts)] == ["choices"]
 
 
 def test_a_usd_flag_requires_a_current_cli_usd_type():
