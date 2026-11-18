@@ -245,6 +245,9 @@ build_systems: [bazel, make]              # selects L0 claim-check adapters
 process_metrics:                          # optional repository counters, result.json `process.counters` (§4.1)
   bazel_cmds: '\bbazel(?:isk)?\b'          # a plain regex searches the command text
   icpx_missing: {regex: "icpx is not found", match: output}   # match: text (default), output or any
+
+probes:                                   # optional: target -> patterns of `probe` events (§4.1)
+  cpu: [nproc, "py:os.cpu_count"]         # a listed target replaces its defaults; [] turns it off
 ```
 
 Rules:
@@ -530,6 +533,29 @@ The line format, its version and the promise that comes with it: [events-format.
 - A `read` event may have no `path`: a refused Claude Code Bash read of a
   relative path after an earlier call moved the shell, whose file is not
   known (`{"kind": "read", "denied": true}`).
+- A `probe` event follows the `command` event of a command that asks the host
+  for its facts, one per pattern it matches (a command may give several):
+  `{"t": 4.0, "kind": "probe", "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}`.
+  `target` is one of `cpu`, `gpu`, `os`, `memory`, `packages`, `env`, `network`;
+  `pattern` is the configured pattern it matched; `text`, `rc` and `agent` are the
+  command's. The defaults (`dokimi/repos/probes.py`, `DEFAULT_PROBES`): `cpu` `lscpu`,
+  `/proc/cpuinfo`, `nproc`, `sysctl`, `Get-CimInstance Win32_Processor`,
+  `py:os.cpu_count`, `py:platform.processor`; `gpu` `nvidia-smi`, `rocm-smi`,
+  `py:torch.cuda.is_available`; `os` `uname`, `/etc/os-release`, `sw_vers`, `systeminfo`;
+  `memory` `free`, `/proc/meminfo`; `packages` `pip list`, `pip show`, `pip freeze`,
+  `conda list`; `env` `env`, `printenv`. A pattern is matched on the program the shell or
+  PowerShell runs, with the words it names in any order and case (`grep nproc README` runs
+  `grep`: no probe), on a file a reading command (`cat`, `head`, `grep`, ...) names for a
+  path pattern, and on the call in the code of a `python -c` one-liner for `py:NAME`. A
+  `$( )` substitution or a `bash -c` script counts as a command the agent ran. Not matched:
+  a Python heredoc, a script the agent runs from a file, a pattern with a `|` that is
+  not a pipeline of the same commands, and a launcher the wrapper lists do not know
+  (`docker exec`, `nix develop -c`). `env`, `timeout`, `xargs`, `conda run` and `uv run`
+  run the program after them; `env` with no program after its options is its own probe (`env -S` is not read). Each cell's `meta.json`
+  records the patterns per target (`probes`) that it ran with.
+  A manifest's `probes` (§2) replaces a target's defaults, and `repo run --probes FILE`
+  (YAML or JSON, the same mapping) replaces them again; nothing else changes the events,
+  and the `process_metrics` counters do not count probes.
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
