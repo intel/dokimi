@@ -203,4 +203,6 @@ def test_compare_warns_when_a_labelled_cell_ran_on_a_host_that_misses_its_task(t
 
     cells = [cell("raw", None), cell("skill", False)]  # the treatment ran one labelled cell on a host that misses
     assert any("race" in w and "--label-host" in w for w in _arm_warnings(cells, "raw", "skill", None))
+    undecided = [cell("raw", None), {**cell("skill", True), "host_match": {"met": None, "fields": [], "fingerprint": "f"}}]
+    assert any("race" in w and "--label-host" in w for w in _arm_warnings(undecided, "raw", "skill", None))
     assert not any("--label-host" in w for w in _arm_warnings([cell("raw", None), cell("skill", None)], "raw", "skill", None))
