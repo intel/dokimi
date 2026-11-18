@@ -2,19 +2,20 @@
 
 - **Three readers no longer misread a malformed input** (#687):
   - A question set whose records share an id (`id`, or `question_id` in a v1 set; `1` and `"1"`
-    count as one) is refused, naming the ids, before any answer is paid for, by every command
-    that reads a set to use it: `answers generate`, `arms run`, `report generate`, `eval score
-    reference`, `eval leak`, `eval redteam`, `benchmark run --questions-from` and `data export
-    --kind questions` (`--no-validate` exports it as written) exit 2; `eval questions refine`
-    and `eval score checklist` still read it. `benchmark run` exits 2 too, where it ended in a
-    traceback (exit 5), on a cached `questions/<product>.json` with shared ids, refused by the
-    schema or not JSON (a run cut short), saying to fix or delete it (`--force-regen`), and on
-    such a `--questions-root` golden set, as `benchmark preflight` already did. No command
-    writes such a set any more: `questions refine` keeps it at `<name>.rejected` (exit 2 with
-    `--fill-gaps`, before any model call; else 1). A pipeline run gives a generated question
-    whose id the custom or earlier set already has a free `q_NNN` (generated ids restart at
-    `q_001` on every `--force-regen`, and the merged set held both), and `--fill-gaps` numbers
-    new questions past the `gap_<level>_NNN` ids there.
+    count as one) is refused, naming the ids, before any answer is paid for. `answers generate`,
+    `arms run`, `report generate`, `eval score reference`, `eval leak`, `eval redteam`,
+    `benchmark run --questions-from` and `data export --kind questions` (`--no-validate` exports
+    it as written) exit 2; `evaluate --custom-questions` exits 1, as for any input error there.
+    `eval questions refine`, `analyze` and `review`, `eval score checklist` and `eval judge
+    agreement` still read it. `benchmark run` exits 2 too, where it ended in a traceback (exit
+    5), on a cached `questions/<product>.json` with shared ids, refused by the schema or not
+    JSON (a run cut short), saying to fix or delete it (`--force-regen`), and on such a
+    `--questions-root` golden set, as `benchmark preflight` already did. No command writes such
+    a set any more: `questions refine` keeps it at `<name>.rejected` (exit 2 with `--fill-gaps`,
+    before any model call; else 1). A pipeline run gives a generated question whose id the
+    custom or earlier set already has a free `q_NNN` (generated ids restart at `q_001` on every
+    `--force-regen`, and the merged set held both), and `--fill-gaps` numbers new questions past
+    the `gap_<level>_NNN` ids there.
   - A product registry with `products: null` reads its legacy `libraries:` mapping instead of
     loading no products, and logs a warning that it did. A file with both keys logs that
     `libraries` is ignored, and the warning for a value that is not a mapping names the file and
