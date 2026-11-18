@@ -354,6 +354,15 @@ def test_a_self_check_where_every_selected_task_is_a_suite_gap_exits_1(tmp_path,
     assert [(r["task"], r["unsupported_by"]) for r in report["tasks"]] == [("fix_add", "suite")]
 
 
+def test_a_self_check_names_the_suite_gaps_it_did_not_check(tmp_path, monkeypatch, capsys):
+    gone = f"file://{tmp_path}/missing@{'c' * 40}"
+    code, report = _check(tmp_path, monkeypatch, _raw(repos={"sc": gone}, tasks=[{"id": "fix_add", "repo": "sc"}]),
+                          "--task", "fix_add", "--task", "review_add")
+    out = capsys.readouterr().out
+    assert code == 0 and "1 not checked, the repository of their base is missing: fix_add" in out
+    assert {r["task"]: r["verdict"] for r in report["tasks"]}["review_add"] == "ok"
+
+
 def test_a_suite_gap_is_not_checked_even_when_the_task_also_needs_egress(tmp_path, monkeypatch, capsys):
     gone = f"file://{tmp_path}/missing@{'c' * 40}"
     net = {"net_add": {"family": "review", "grader": "review", "review_patch": "change.patch", "egress": ["example.com"],
