@@ -29,3 +29,24 @@ def test_a_nan_measure_does_not_turn_a_consistent_label_into_leaning():
         nan.record((q, "skill"), s, None)
     rows = [clear.versus("skill", "baseline"), nan.versus("skill", "baseline")]
     assert cj.label(rows) == "CONSISTENT + (one judge)"
+
+
+def _measure(name, skill_scores):
+    m = cj.Measure(name=name, kind="aggregate")
+    for q, s in enumerate(skill_scores):
+        m.record((q, "baseline"), 1.0, None)
+        m.record((q, "skill"), s, None)
+    return m.versus("skill", "baseline")
+
+
+def test_a_significant_nan_measure_is_not_a_second_judge():
+    # p/j is significant (11 wins) but its NaN mean has no direction, so p/a alone carries the verdict
+    rows = [_measure("p/a", [3.0] * 12), _measure("p/j", [3.0] * 11 + [float("nan")])]
+    assert cj.label(rows) == "CONSISTENT + (one judge)"
+
+
+def test_a_significant_finite_measure_with_a_zero_rounded_mean_is_still_a_second_judge():
+    # Finite scores keep their label: a mean delta that rounds to 0 still counts toward the judges
+    rows = [_measure("p/a", [3.0] * 12), _measure("p/j", [1.000001] * 12)]
+    assert rows[1]["sign"] == 0
+    assert cj.label(rows) == "CONSISTENT +"

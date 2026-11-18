@@ -81,6 +81,12 @@ def _sign(mean: Optional[float]) -> int:
     return _DIRECTION.get(decide(mean, significant=True), 0)
 
 
+def _nan_mean(row: Dict[str, Any]) -> bool:
+    """True when the row's mean delta is NaN: such a measure has no direction and corroborates no judge."""
+    mean = (row.get("delta") or {}).get("mean")
+    return isinstance(mean, float) and math.isnan(mean)
+
+
 #: Scores (library, question, answer, ground_truth, context) -> aggregate.
 Scorer = Callable[[str, str, str, Optional[str], str], float]
 
@@ -180,7 +186,8 @@ def label(rows: Sequence[Dict[str, Any]], *, require_validated: bool = False) ->
     direction = sig.pop()
     arrow = "+" if direction > 0 else "−"
     same = all(r["sign"] in (0, direction) for r in rows)
-    single = len({judge_of(r.get("measure") or str(id(r))) for r in rows if r["significant"]}) == 1
+    judges = {judge_of(r.get("measure") or str(id(r))) for r in rows if r["significant"] and not _nan_mean(r)}
+    single = len(judges) == 1
     return f"{'CONSISTENT' if same else 'LEANING'} {arrow}" + (" (one judge)" if single else "")
 
 
