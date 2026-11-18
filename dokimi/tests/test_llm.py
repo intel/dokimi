@@ -139,9 +139,10 @@ def test_file_reads_an_explicit_key_off_the_table_but_not_its_variable(tmp_path,
     key_file = tmp_path / "key"
     key_file.write_text("secret\n", encoding="utf-8")
     monkeypatch.setenv("AZURE_API_KEY", "file:/no/such/key")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", f"file:{key_file}")
     assert resolve_api_key("azure") is None
     assert resolve_api_key("azure", f"file:{key_file}") == "secret"
+    assert resolve_api_key("openai") == "secret"
 
 
 def test_an_unreadable_file_key_raises_even_on_a_cache_hit(tmp_path, cache_dir, fake_llm):
