@@ -74,7 +74,7 @@ def _report_after_failed_snapshot(result: dict, out_md: Path) -> None:
         _write_outputs(((write_run_report, result, out_md),))
     except SystemExit:  # _write_outputs printed the line; the snapshot's failure stands
         pass
-    except Exception:  # noqa: BLE001 - logged with its traceback; the snapshot's failure decides the exit (#829)
+    except Exception:  # logged with its traceback; the snapshot's failure decides the exit (#829)
         logger.exception("the report %s could not be written after the snapshot failed", out_md)
 
 
