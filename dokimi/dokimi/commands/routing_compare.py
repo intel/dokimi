@@ -81,8 +81,11 @@ def print_comparison(result: dict) -> None:
         gold = result["n_correct_gold"]
         print(f"      gold only: BASE {gold['base']}, OTHER {gold['other']}")
     print(f"right in BASE only: {discordant['only_base']}; right in OTHER only: "
-          f"{discordant['only_other']}; exact two-sided sign test p = {result['p_value']:.4g} "
-          f"over {discordant['n_discordant']} discordant")
+          f"{discordant['only_other']}")
+    queries = result["discordant_queries"]
+    print(f"exact two-sided sign test p = {result['p_value']:.4g} over {queries['n_discordant']} "
+          f"discordant distinct queries ({queries['only_base']} for BASE, "
+          f"{queries['only_other']} for OTHER; a request listed twice counts once)")
     if result["acceptable_mismatch"]:
         print(f"note: {result['acceptable_mismatch']} paired queries have acceptable alternatives "
               "in one run only, or different ones; they are scored on the gold alone")

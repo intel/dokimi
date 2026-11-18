@@ -444,12 +444,10 @@ def print_cost(cost: dict) -> None:
 def _acceptable_line(arm: str, section: dict, unit: str) -> str:
     """One arm's own rate next to its gold-or-acceptable rate, both pooled over the scored queries."""
     total = sum(section["n_scored"].values())
-    own = sum(round(rate * section["n_scored"][gold])
-              for gold, rate in section["own_rate"].items() if rate is not None)
-    either = sum(round(rate * section["n_scored"][gold])
-                 for gold, rate in section["acceptable_rate"].items() if rate is not None)
     if not total:
         return f"{arm}: no {unit} scored"
+    own = sum(picks.get(gold, 0) for gold, picks in section["confusion"].items())
+    either = own + sum(section["acceptable_picks"].values())
     return (f"{arm}: gold {own} of {total} {unit} ({own / total:.3f}), gold or acceptable "
             f"{either} of {total} ({either / total:.3f})")
 

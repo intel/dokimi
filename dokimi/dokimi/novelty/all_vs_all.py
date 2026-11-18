@@ -433,7 +433,8 @@ def _attractor_table(picks_by_gold: dict[str, Counter], unscored: dict[str, int]
     is not the 0.0 of a skill the arm really never picked. A pick between skills of one tied
     group is no attractor, and their queries are not sibling queries of each other.
     ``acceptable_hits`` (per gold, the picks that were an acceptable name, not the gold) adds
-    ``acceptable_rate``: the gold or an acceptable name, over the same scored queries.
+    ``acceptable_rate``: the gold or an acceptable name, over the same scored queries, and
+    ``acceptable_picks``, those hits as exact counts per gold.
     """
     tied = {name: set(group) for group in tied_groups for name in group}
 
@@ -456,10 +457,12 @@ def _attractor_table(picks_by_gold: dict[str, Counter], unscored: dict[str, int]
             "from": sorted(wrong, key=lambda gold: (-wrong[gold], gold)),
         })
     attractors.sort(key=lambda row: (-row["wrongly_picked"], row["skill"]))
-    accepted = {} if acceptable_hits is None else {"acceptable_rate": {
-        gold: (round((picks[gold] + acceptable_hits.get(gold, 0)) / scored[gold], 4)
-               if scored[gold] else None)
-        for gold, picks in sorted(picks_by_gold.items())}}
+    accepted = {} if acceptable_hits is None else {
+        "acceptable_rate": {
+            gold: (round((picks[gold] + acceptable_hits.get(gold, 0)) / scored[gold], 4)
+                   if scored[gold] else None)
+            for gold, picks in sorted(picks_by_gold.items())},
+        "acceptable_picks": {gold: acceptable_hits.get(gold, 0) for gold in sorted(picks_by_gold)}}
     return {
         "confusion": {gold: dict(sorted(picks.items()))
                       for gold, picks in sorted(picks_by_gold.items())},

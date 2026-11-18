@@ -56,15 +56,33 @@ def load_run(path: str, arm: str) -> dict:
         where = "model.noise.per_query" if arm == "model" else "lexical.per_query"
         raise RoutingInputError(f"{path}: no `{where}` rows: saved before the arm kept a row per "
                                 "query (#711); run `catalog routing` again")
-    if not all(isinstance(r, dict) and isinstance(r.get("query"), str)
-               and isinstance(r.get("gold"), str) for r in rows):
-        raise RoutingInputError(f"{path}: a per_query row has no string `query` and `gold`")
-    return {"path": path, "rows": rows, "model": (data["result"].get("model") or {}).get("model")}
+    for number, row in enumerate(rows, 1):
+        _check_row(path, number, row, arm)
+    model_arm = data["result"].get("model")
+    name = model_arm.get("model") if isinstance(model_arm, dict) else None
+    return {"path": path, "rows": rows, "model": name if isinstance(name, str) else None}
+
+
+def _check_row(path: str, number: int, row: object, arm: str) -> None:
+    """Refuse a ``per_query`` row whose fields :func:`_entry` reads have the wrong type."""
+    where = f"{path}: per_query row {number}"
+    if not (isinstance(row, dict) and isinstance(row.get("query"), str)
+            and isinstance(row.get("gold"), str)):
+        raise RoutingInputError(f"{where} has no string `query` and `gold`")
+    acceptable = row.get("acceptable")
+    if acceptable is not None and not (
+            isinstance(acceptable, list) and all(isinstance(n, str) for n in acceptable)):
+        raise RoutingInputError(f"{where}: `acceptable` is not a list of strings")
+    if arm == "model":
+        picks = row.get("picks")
+        if picks is not None and not (
+                isinstance(picks, list) and all(isinstance(n, str) for n in picks)):
+            raise RoutingInputError(f"{where}: `picks` is not a list of strings")
 
 
 def _entry(row: dict, arm: str) -> dict:
     """One row as ``{pick, unscored, acceptable}``; ``unscored`` is the reason, else ``None``."""
-    acceptable = row.get("acceptable") if isinstance(row.get("acceptable"), list) else None
+    acceptable = row.get("acceptable")
     if arm == "lexical":
         if row.get("rank") is None:
             return {"pick": None, "unscored": NO_CONTENT_WORD, "acceptable": acceptable}
@@ -105,8 +123,11 @@ def compare_runs(base: dict, other: dict, arm: str = "lexical") -> dict:
     differ, the pair is scored on the gold alone, so both runs always use one key; the count of
     such pairs is ``acceptable_mismatch``. A pair either run leaves unscored (no content word, no
     answered call, or, with repeats, no unique most common pick) is left out and counted under
-    ``unscored``. ``p_value`` is the exact two-sided sign test over the pairs right in one run
-    only (1.0 with none).
+    ``unscored``. A request listed twice for one gold is one query, not two independent ones:
+    ``discordant`` counts pairs, but ``discordant_queries`` and ``p_value`` count each distinct
+    ``(gold, query)`` once, as right in BASE only (more of its pairs right there than in OTHER),
+    in OTHER only, or neither. ``p_value`` is the exact two-sided sign test over those queries
+    (1.0 with none).
     """
     keyed_base, keyed_other = _keyed(base, arm), _keyed(other, arm)
     paired = sorted(set(keyed_base) & set(keyed_other))
@@ -124,6 +145,7 @@ def compare_runs(base: dict, other: dict, arm: str = "lexical") -> dict:
     right = {"base": 0, "other": 0, "base_gold": 0, "other_gold": 0}
     only = {"base": 0, "other": 0}
     changed: list[dict] = []
+    net: Counter = Counter()
     used = mismatch = 0
     for (gold, query, _k), a, b in scored:
         names = _alternatives(a, b)
@@ -137,10 +159,15 @@ def compare_runs(base: dict, other: dict, arm: str = "lexical") -> dict:
         right["other_gold"] += b["pick"] == gold
         only["base"] += ok_a and not ok_b
         only["other"] += ok_b and not ok_a
+        net[(gold, query)] += ok_a - ok_b
         if a["pick"] != b["pick"]:
             changed.append({"gold": gold, "query": query, "base": a["pick"], "other": b["pick"]})
     n_discordant = only["base"] + only["other"]
-    p_value = exact_binomial_two_sided(only["base"], n_discordant) if n_discordant else 1.0
+    units = {"only_base": sum(1 for n in net.values() if n > 0),
+             "only_other": sum(1 for n in net.values() if n < 0)}
+    units["n_discordant"] = units["only_base"] + units["only_other"]
+    p_value = (exact_binomial_two_sided(units["only_base"], units["n_discordant"])
+               if units["n_discordant"] else 1.0)
     return {
         "arm": arm,
         "base": {"path": base["path"], "model": base["model"]},
@@ -153,6 +180,7 @@ def compare_runs(base: dict, other: dict, arm: str = "lexical") -> dict:
         "n_correct_gold": {"base": right["base_gold"], "other": right["other_gold"]},
         "discordant": {"only_base": only["base"], "only_other": only["other"],
                        "n_discordant": n_discordant},
+        "discordant_queries": units,
         "p_value": p_value,
         "changed": changed,
         "unscored": dict(sorted(unscored.items())),

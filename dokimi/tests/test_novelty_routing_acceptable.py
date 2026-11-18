@@ -154,6 +154,25 @@ def test_the_summary_prints_the_gold_or_acceptable_rate_next_to_the_gold_rate(ca
     assert "gold or acceptable" not in capsys.readouterr().out
 
 
+def test_the_pooled_counts_are_exact_at_a_scale_where_a_rate_rounds_to_zero(capsys):
+    from collections import Counter
+
+    from dokimi.novelty.all_vs_all import _attractor_table
+
+    picks = {"a": Counter({"a": 1, "x": 29999}), "b": Counter({"x": 30000})}
+    table = _attractor_table(picks, {"a": 0, "b": 0}, ["a", "b", "x"], [], {"b": 1, "a": 0})
+    assert table["acceptable_rate"]["b"] == 0.0 and table["own_rate"]["a"] == 0.0
+    print_attractors({"tied_groups": [], "lexical": table})
+    assert ("lexical: gold 1 of 60000 queries (0.000), gold or acceptable 2 of 60000 (0.000)"
+            in capsys.readouterr().out)
+
+
+def test_the_summary_says_so_when_no_query_of_an_arm_was_scored(capsys):
+    result = all_vs_all(FIELD, {"linux-perf": ["the of"]}, acceptable={"linux-perf": {"the of": ["hub"]}})
+    print_attractors(result)
+    assert "lexical: no queries scored" in capsys.readouterr().out
+
+
 def _catalog(tmp_path, disabled=()):
     root = tmp_path / "catalog"
     for name in ("a", "b", *disabled):

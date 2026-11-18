@@ -905,7 +905,8 @@ naming the skill, the query and the name, before an `--estimate-only` too; the a
 the field leaves out (its queries are dropped with a WARNING) are moot and not checked. When the file names
 at least one alternative, each arm adds `acceptable_rate` per gold skill beside `own_rate`: the share of its scored queries
 (the same denominator) whose pick is the gold or one of that query's alternatives, and the summary prints
-the pooled gold and gold-or-acceptable counts. `(none)`, `(tie)` and a failed call never count, and the
+the pooled gold and gold-or-acceptable counts, taken from `confusion` and from `acceptable_picks` (the exact
+count per gold skill of picks that were an acceptable name), not from the rounded rates. `(none)`, `(tie)` and a failed call never count, and the
 model arm counts per call as its other counts do. `confusion` and `attractors` stay defined by the
 gold alone: an acceptable pick of another skill is still counted there. The rows of a query with alternatives
 (`lexical.per_query` and `model.noise.per_query`) keep `acceptable`; the rows of other queries do not get the key.
@@ -915,13 +916,18 @@ reads two files `catalog routing` saved and makes no model call. Rows are paired
 (a request listed twice for one gold pairs in order). `--arm lexical` (the default) reads
 `result.lexical.per_query`; `--arm model` reads `result.model.noise.per_query` and is refused when either run was
 made without `--model`. A file that is not JSON, not an all-vs-all result, or has no per-query rows (a file saved before
-the lexical arm kept them) is refused with the file and the cause, and so are two runs with no pair in common. A query in one
+the lexical arm kept them) is refused with the file and the cause, and so is a row whose `query` or `gold` is
+not a string, whose `acceptable` is not a list of strings, or, with `--arm model`, whose `picks` is not a list of
+strings (the message names the file and the row number), and so are two runs with no pair in common. A query in one
 run only is counted and shown by example, and left out of every figure. A row left unscored in either
 run is left out and counted: a lexical row with no content word, and in the model arm a query with no answered call or, with `--reps`, one
 whose most common pick is not unique (the modal pick is the pick otherwise). The report gives the pairs
 scored, each run's number right, the pairs right in BASE only and in OTHER only, the exact two-sided
-sign test p over those discordant pairs (binomial, p = 0.5; 1.0 with none), and the queries whose pick
-changed with both picks. For example, 10 pairs with BASE right on 5 that OTHER misses and OTHER right
+sign test p (binomial, p = 0.5; 1.0 with none), and the queries whose pick
+changed with both picks. The test counts distinct `(gold, query)` queries, not pairs: a request listed
+twice is one query, right in BASE only when more of its pairs are right there than in OTHER, in OTHER only
+when fewer, and neither when equal, so repeating a request does not add evidence (`discordant_queries` in the
+JSON; `discordant` keeps the pair counts). For example, 10 distinct queries with BASE right on 5 that OTHER misses and OTHER right
 on none give p = 0.0625, not significant at 0.05, and 6 and 0 give p = 0.03125. A pair is right when
 the pick is the gold; when both runs name the same `acceptable` for it, the gold or one of those names. When
 only one run names alternatives, or the two differ, that pair is scored on the gold alone and the report prints a note, so the

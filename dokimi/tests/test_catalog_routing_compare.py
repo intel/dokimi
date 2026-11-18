@@ -161,7 +161,8 @@ def test_alternatives_in_one_run_only_or_different_ones_score_on_the_gold_alone(
     ('{"mode": "all_vs_all", "result": {"lexical": {"attractors": []}}}',
      "base.json: no `lexical.per_query` rows: saved before"),
     ('{"mode": "all_vs_all", "result": {"lexical": {"per_query": [{"query": 1}]}}}',
-     "base.json: a per_query row"),
+     "base.json: per_query row 1 has no string"),
+    ("[" * 100000, "base.json: nested too deeply"),
 ])
 def test_a_file_that_is_not_a_saved_all_vs_all_run_is_refused_naming_file_and_cause(
         tmp_path, text, message):
@@ -169,6 +170,51 @@ def test_a_file_that_is_not_a_saved_all_vs_all_run_is_refused_naming_file_and_ca
     path.write_text(text, encoding="utf-8")
     with pytest.raises(RoutingInputError, match=message):
         load_run(str(path), "lexical")
+
+
+@pytest.mark.parametrize("arm, row, message", [
+    ("lexical", {"query": "q", "gold": "g", "rank": 1, "picked": "g", "acceptable": [{}]},
+     "base.json: per_query row 2: `acceptable` is not a list of strings"),
+    ("lexical", {"query": "q", "gold": "g", "rank": 1, "picked": "g", "acceptable": "hub"},
+     "per_query row 2: `acceptable` is not a list of strings"),
+    ("model", {"query": "q", "gold": "g", "picks": [{}]},
+     "base.json: per_query row 2: `picks` is not a list of strings"),
+    ("model", {"query": "q", "gold": "g", "picks": "g"},
+     "per_query row 2: `picks` is not a list of strings"),
+    ("model", {"query": "q", "gold": "g", "picks": ["g"], "acceptable": [3]},
+     "per_query row 2: `acceptable` is not a list of strings"),
+])
+def test_a_row_field_of_the_wrong_type_is_refused_naming_file_and_row(tmp_path, arm, row, message):
+    good = _row("ok", "g") if arm == "lexical" else _model_row("ok", ["g"])
+    key = "rows" if arm == "lexical" else "model_rows"
+    path = _save(tmp_path, "base.json", **{key: [good, row]})
+    with pytest.raises(RoutingInputError, match=message):
+        load_run(path, arm)
+
+
+def test_a_model_section_of_the_wrong_type_does_not_stop_a_lexical_comparison(tmp_path):
+    path = tmp_path / "base.json"
+    path.write_text(json.dumps({"mode": "all_vs_all", "result": {
+        "lexical": {"per_query": [_row("q", "g")]}, "model": "broken"}}), encoding="utf-8")
+    run = load_run(str(path), "lexical")
+    assert run["model"] is None
+    assert compare_runs(run, run)["n_correct"] == {"base": 1, "other": 1}
+
+
+def test_a_request_listed_six_times_is_one_query_for_the_sign_test(tmp_path):
+    base = [_row("dup", "g") for _ in range(6)]
+    other = [_row("dup", "x") for _ in range(6)]
+    result = _compare(tmp_path, base, other)
+    assert result["discordant"] == {"only_base": 6, "only_other": 0, "n_discordant": 6}
+    assert result["discordant_queries"] == {"only_base": 1, "only_other": 0, "n_discordant": 1}
+    assert result["p_value"] == 1.0
+
+
+def test_a_repeated_request_counts_for_the_run_that_got_more_of_its_pairs_right(tmp_path):
+    base = [_row("dup", "g"), _row("dup", "g"), _row("dup", "x"), _row("tie", "g"), _row("tie", "x")]
+    other = [_row("dup", "x"), _row("dup", "x"), _row("dup", "x"), _row("tie", "x"), _row("tie", "g")]
+    result = _compare(tmp_path, base, other)
+    assert result["discordant_queries"] == {"only_base": 1, "only_other": 0, "n_discordant": 1}
 
 
 def test_a_missing_file_is_refused_by_name(tmp_path):
@@ -252,3 +298,26 @@ def test_the_command_scores_alternatives_both_real_runs_carry(tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "scored on gold or acceptable" in printed
     assert "p = 1" in printed
+
+
+def test_the_summary_names_the_queries_left_out_and_caps_the_changed_picks(tmp_path, capsys):
+    base = [_row(f"q{i:02d}", "g") for i in range(25)] + [
+        _row("the and", None), _row("only base", "g")]
+    other = [_row(f"q{i:02d}", "x") for i in range(25)] + [
+        _row("the and", None), _row("only other", "g"), _row("only other 2", "g")]
+    _cli(tmp_path, _save(tmp_path, "base.json", rows=base), _save(tmp_path, "other.json", rows=other))
+    printed = capsys.readouterr().out
+    assert "exact two-sided sign test p = 5.96e-08 over 25 discordant distinct queries" in printed
+    assert "1 paired queries left out, unscored in a run (no content word)" in printed
+    assert "1 queries only in BASE, left out (e.g. g: 'only base')" in printed
+    assert "2 queries only in OTHER, left out (e.g. g: 'only other'; g: 'only other 2')" in printed
+    assert "25 picks changed:" in printed and "  g: 'q19': g -> x" in printed
+    assert "q20" not in printed and "... and 5 more (--out has them all)" in printed
+
+
+def test_the_command_refuses_an_out_path_it_cannot_write(tmp_path):
+    base = _save(tmp_path, "base.json", rows=[_row("one", "g")])
+    target = tmp_path / "taken"
+    target.mkdir()
+    with pytest.raises(InputError, match="cannot write --out"):
+        _cli(tmp_path, base, base, "--out", str(target))
