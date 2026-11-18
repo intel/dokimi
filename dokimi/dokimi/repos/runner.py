@@ -43,10 +43,12 @@ import threading
 import uuid
 from collections import Counter
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from dokimi.provenance import UNKNOWN, status_of
 
 from .container import (
     HARNESS_DIR,
@@ -54,10 +56,16 @@ from .container import (
     SUPPORT_DIR,
     WORKSPACE,
     ContainerError,
+    BatchInterrupted,
+    ContainerResult,
     ContainerSpec,
+    DockerError,
     EgressNotImplemented,
     Mount,
+    clear_halt,
     docker_network,
+    halt_and_kill_started,
+    halted,
 )
 from . import batch_ledger
 from .answers import convert_answer
@@ -72,7 +80,9 @@ from .batch_ledger import (  # re-exported: the names callers and tests take fro
 )
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
+from .transcript import Transcript
 from . import run_context
+from .probes import effective_patterns, probes_for, with_probes
 from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
@@ -101,6 +111,7 @@ class AgentOptions:
     timeout_s: float = 2700
     max_turns: int = 200
     budget_usd: float = 2.0
+    probes: dict[str, tuple[str, ...]] | None = None  # the run's --probes, over the manifest's (repos/probes.py)
 
 
 def execution_record(opts: AgentOptions, arm: str | None = None) -> dict[str, str]:
@@ -223,11 +234,14 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     if rd.exists():
         _rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
+    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir,
+                             base_git_dir=ctx.git_dir_for(task.id))
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
     if match is not None:
         meta["host_match"] = match
+    if ctx.suite is not None and task.id in ctx.suite.meta:  # additive: only a suite task's base is elsewhere
+        meta["base_repo"] = ctx.suite.meta[task.id]
     present = _workspace_args(task, opts, rd, meta)
     _write_json(rd / "meta.json", meta)
     skills: dict[str, Any] | None = None
@@ -251,7 +265,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     result = ctx.runner.run(spec, stdout=rd / "agent.stdout", stderr=rd / "agent.stderr",
                             timeout_s=caps["timeout_s"])
 
-    # The agent has run and may have spent its cap: from here on the cell is graded, never dropped.
+    # The agent has run and may have spent its cap: from here on the cell is graded, never dropped,
+    # except a crash before its first trace line (CellCrash below).
     agent: dict[str, Any] = {
         "rc": result.returncode, "timed_out": result.timed_out, "wall_s": result.wall_s, "cost_usd": None,
         # A killed harness reports no cost; the batch budget counts the cell's cap instead of $0.
@@ -264,10 +279,18 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     uptake_of = (added.get("added") or [], added.get("mcp_servers") or [])
     events = None  # the trace's events once it parsed; none: the uptake is unmeasured
     useful_events = None  # the same events when no line of the trace was dropped: a dropped line may hold the hit
+    probe_errors: list[str] = []  # a probe matcher that raises costs the probe events only, and is noted
+    meta["probes"] = effective_patterns(ctx.manifest.probes, opts.probes)  # the patterns the cell ran with
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
-        (rd / "events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
+        # Probe events go to events.jsonl only: the counters, first_useful and skill usage score the trace's events
+        try:
+            probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes), probe_errors)
+        except Exception as exc:  # noqa: BLE001  # the events go on without probes: the grade must not depend on them
+            probed = transcript.events
+            probe_errors.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
+        (rd / "events.jsonl").write_text(transcript.events_jsonl(probed), encoding="utf-8")
         failed = transcript.is_error or not result.ok  # a crashed review is missing, not clean
         answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE, failed=failed,
                                 messages=transcript.agent_messages)
@@ -277,6 +300,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
         started = bool(transcript.events) or transcript.result_seen  # else the agent never started
+        _refuse_a_crash_before_the_trace(opts, raw, transcript, result, started, float(agent["charged_usd"]))
         if started:
             events = transcript.events
             useful_events = None if transcript.dropped_lines else events
@@ -289,7 +313,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
             first_prompt_tokens=transcript.first_prompt_tokens,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
-            over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
+            over_budget=cost is not None and cost > caps["budget_usd"],
+            trace_errors=(transcript.errors + probe_errors[:1])[:5])  # one probe note: five would fill the list
         run_context.save(rd, run_context.build(opts.profile, model=opts.model, harness_version=opts.harness_version,
                                                argv=argv, transcript=transcript, config_sha256=config_sha),
                          agent["trace_errors"])
@@ -297,8 +322,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             process = _process_or_null(ctx, events, agent["trace_errors"], transcript.unknown_reads)
         if meta.get("skills") and started:
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
+        # A Ctrl-C does not kill the grade: the cell is past its agent, so it is recorded (contract §9).
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
+    except CellCrash:  # the harness failed before its trace: the cell is not graded, it has no result
+        raise
     except Exception as exc:  # noqa: BLE001  # the grade run failed to start, or the host failed around it
         # What the agent left behind (a read-only .git, a hostile trace) can break any host step after it.
         # Excluding the run would favour arms that break workspaces (contract §4.2): it fails the task.
@@ -313,12 +341,21 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "host_fingerprint": fingerprint_id(host) if host is not None else None}
     if match is not None:
         record["host_match"] = match
-    _add_arm_use(record, meta, task, skills, uptake_of, events)
+    return _finish_record(record, rd, task, meta, (skills, uptake_of, events), float(agent["charged_usd"]))
+
+
+def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str, Any], arm_use: tuple[Any, Any, Any],
+                   charged_usd: float) -> dict[str, Any]:
+    """The cell's ``record`` with its task status and arm use, saved as ``result.json``; a run dir it cannot be
+    written to is a :class:`CellCrash` that keeps the charge."""
+    if status_of(task.raw) != UNKNOWN:  # absent means unknown to the report: a task without one writes no key
+        record["task_status"] = status_of(task.raw)
+    _add_arm_use(record, meta, task, *arm_use)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)
     except OSError as exc:
-        raise CellCrash(f"cannot write result.json: {exc}", float(agent["charged_usd"])) from exc
+        raise CellCrash(f"cannot write result.json: {exc}", charged_usd) from exc
     return record
 
 
@@ -339,8 +376,25 @@ def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: lis
         return None
 
 
+def _is_infra(exc: BaseException) -> bool:
+    """A failure of the machinery (docker, a file that cannot be written or read, a subprocess), not of a cell's
+    input: a refused input (PrepError, an unreadable kept result, an egress the run cannot have) stays exit 1."""
+    return isinstance(exc, (DockerError, OSError, subprocess.SubprocessError))
+
+
+def _refuse_a_crash_before_the_trace(opts: AgentOptions, raw: str, transcript: Transcript, result: ContainerResult,
+                                     started: bool, charged_usd: float) -> None:
+    """Raise :class:`CellCrash` when the harness exited nonzero before its first trace line: a crash of the
+    machinery, not a verdict on the cell."""
+    traced = started or bool(transcript.start_record) or (opts.profile.trace == "text" and bool(raw.strip()))
+    no_trace = not traced and not transcript.is_error and not transcript.errors  # nothing the harness wrote
+    if no_trace and result.returncode != 0 and not result.timed_out:
+        raise CellCrash(f"the harness exited {result.returncode} before its first trace line", charged_usd)
+
+
 class CellCrash(Exception):
-    """A cell whose agent ran but whose ``result.json`` could not be written: its cost still counts."""
+    """A cell whose agent ran but whose ``result.json`` could not be written, or whose harness exited nonzero before
+    any trace line (no result is written, so the next run runs the cell again): its cost still counts."""
 
     def __init__(self, message: str, charged_usd: float):
         super().__init__(message)
@@ -375,17 +429,34 @@ def _clear_unsupported_markers(batch_dir: Path, cells: list, unsupported: dict) 
             (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
 
 
-def _verdicts(tasks: list[Task], host: dict[str, Any], label_host: bool) -> tuple[dict, dict]:
-    """``(unmet verdicts, match reports)``: a block-mode batch has the verdicts, a labelled one the reports."""
+def _verdicts(ctx: EvalContext, tasks: list[Task], host: dict[str, Any], label_host: bool) -> tuple[dict, dict]:
+    """``(unmet verdicts, match reports)``: a block-mode batch has the verdicts, a labelled one the reports
+    (and only the suite gaps as verdicts)."""
+    gaps = ctx.base_gaps()  # a task whose base repository is missing is unsupported, as a host miss is
+    suite = {t.id: (gaps[t.id], "suite") for t in tasks if t.id in gaps}
     if label_host:
-        return {}, {t.id: match_report(t, host) for t in tasks}
-    return {t.id: unmet(t, host) for t in tasks}, {}
+        return suite, {t.id: match_report(t, host) for t in tasks}
+    return {t.id: suite.get(t.id) or unmet(t, host) for t in tasks}, {}
 
 
 def _log_labelled(matches: dict[str, dict[str, Any]], log) -> None:
     for task_id, match in matches.items():
         if match["met"] is not True:
             log(f"{task_id}: host {match['fingerprint']} is labelled, not blocked: {match_summary(match)}")
+
+
+def _run_unsupported(batch_dir: Path, name: str, cell: tuple[Task, str, AgentOptions, int], reason: str, verdict: Any,
+                     host: Any, state: dict[str, Any], lock: threading.Lock, log: Callable[[str], None]) -> None:
+    """Mark a cell of an unsupported task as not run, and count it."""
+    try:
+        counted = _unsupported_cell(batch_dir / name, cell, reason, verdict, host)
+    except (UnreadableResult, OSError) as exc:
+        with lock:
+            state["errors"].append({"cell": name, "error": str(exc), "infra": _is_infra(exc)})
+        log(f"✗ {name}: {exc}")
+        return
+    with lock:
+        state[counted] += 1
 
 
 def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: list[AgentOptions], reps: int,
@@ -406,7 +477,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
-    verdicts, matches = _verdicts(tasks, host, label_host)
+    verdicts, matches = _verdicts(ctx, tasks, host, label_host)
     unsupported = {task_id: why for task_id, (why, _) in verdicts.items() if why}
     if force and unsupported:  # --force keeps their finished cells, so those must match this run too
         check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells
@@ -427,16 +498,9 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     def one(cell: tuple[Task, str, AgentOptions, int]) -> None:
         task, arm, opts, rep = cell
         name = cell_name(task.id, arm, opts.model, rep)
+        _drop_if_halted(name)
         if task.id in unsupported:
-            try:
-                counted = _unsupported_cell(batch_dir / name, cell, unsupported[task.id], verdicts[task.id][1], host)
-            except (UnreadableResult, OSError) as exc:
-                with lock:
-                    state["errors"].append({"cell": name, "error": str(exc)})
-                log(f"✗ {name}: {exc}")
-                return
-            with lock:
-                state[counted] += 1
+            _run_unsupported(batch_dir, name, cell, unsupported[task.id], verdicts[task.id][1], host, state, lock, log)
             return
         # the harness's cap on this cell (task.json's, else --budget)
         reserved = _reserve(state, lock, max_batch_usd, batch_dir / name,
@@ -446,25 +510,87 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         charged, rec = 0.0, None
         try:
             rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force, host=host, match=matches.get(task.id))
+        except BatchInterrupted as exc:  # dropped, with nothing recorded: only the charge of an agent that ran
+            charged = exc.charged_usd
+            raise
         except CellCrash as exc:
             charged = exc.charged_usd
             with lock:
-                state["errors"].append({"cell": name, "error": str(exc)})
+                state["errors"].append({"cell": name, "error": str(exc), "infra": True})
             log(f"✗ {name}: {exc}")
         except (PrepError, ContainerError, OSError, subprocess.SubprocessError) as exc:
             with lock:
-                state["errors"].append({"cell": name, "error": str(exc)})
+                state["errors"].append({"cell": name, "error": str(exc), "infra": _is_infra(exc)})
             log(f"✗ {name}: {exc}")
         finally:  # the charge is counted and saved even when the cell's result.json was not written (CellCrash)
             _settle(state, lock, batch_dir, reserved, charged, rec)
         if rec is not None and not rec.get("skipped"):
             _log_cell(log, name, rec)
 
-    _map_cells(one, cells, jobs)
+    _run_cells(cells, one, jobs)
     return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
             "errors": state["errors"], "budget_stopped": state["budget_stopped"],
             "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
             "spent_usd": round(state["this_run"], 6), "batch_spent_usd": round(state["spent"], 6)}
+
+
+KILL_RETRY_S = 2.0
+
+
+def _drop_if_halted(name: str) -> None:
+    """Ctrl-C set the halt: the cell is dropped with nothing reserved, prepared or recorded, so a resume runs it."""
+    if halted():
+        raise BatchInterrupted(f"the batch was interrupted: cell {name} is not started after Ctrl-C")
+
+
+def _run_cells(cells: list[Any], one: Callable[[Any], None], jobs: int) -> None:
+    """Run every cell in worker threads. A Ctrl-C reaches this main thread only: see _stop_on_interrupt."""
+    pool = ThreadPoolExecutor(max(1, jobs))
+    futures: list[Future[None]] = []  # filled as cells are submitted: an interrupt may land in the middle
+    try:
+        for cell in cells:
+            futures.append(pool.submit(one, cell))
+        for future in futures:  # a worker's exception is raised here, as pool.map raised it
+            future.result()
+    except KeyboardInterrupt:
+        _stop_on_interrupt(pool)
+        raise
+    except BaseException:  # a worker's error: as pool.map did, the cells not started are cancelled
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        pool.shutdown(wait=True)
+
+
+def _stop_on_interrupt(pool: ThreadPoolExecutor) -> None:
+    """Ctrl-C reached the main thread, not the cells in worker threads. Set the halt and kill the agent containers
+    the running cells started, by name, then cancel the cells not started, and kill again until every worker
+    returns: a container started between two kills is caught by the next one. A grading container is not killed: its
+    cell is past its agent, so the wait includes its grade (contract §9). The halt stays until then, so a cell that
+    starts drops with nothing recorded and one that asks for an agent container gets an error. The signal waits for
+    the main thread to run its handler, and a cell that starts in that window is not stopped before the halt.
+    Waiting is on the pool, not on the futures: a cell submitted just before the interrupt has no future yet. A
+    further Ctrl-C does not stop the kills."""
+    idle = threading.Event()
+
+    def drain() -> None:
+        pool.shutdown(wait=True)
+        idle.set()
+
+    started = False
+    try:
+        while not idle.is_set():
+            try:
+                halt_and_kill_started()
+                if not started:  # the cancel and the drain are retried too: a Ctrl-C can land on either
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    threading.Thread(target=drain, daemon=True).start()
+                    started = True
+                idle.wait(KILL_RETRY_S)
+            except KeyboardInterrupt:
+                continue
+    finally:
+        clear_halt()
 
 
 SPEND_FILE = "spend.json"
@@ -502,7 +628,7 @@ def _settle(state: dict[str, Any], lock: threading.Lock, batch_dir: Path, reserv
             try:
                 _write_batch_spend(batch_dir, state["spent"])
             except OSError as exc:
-                state["errors"].append({"cell": SPEND_FILE, "error": str(exc)})
+                state["errors"].append({"cell": SPEND_FILE, "error": str(exc), "infra": True})
 
 
 def _read_batch_spend(batch_dir: Path, capped: bool = True) -> float:
@@ -530,17 +656,6 @@ def _read_batch_spend(batch_dir: Path, capped: bool = True) -> float:
 
 def _write_batch_spend(batch_dir: Path, spent: float) -> None:
     batch_ledger.write_json(batch_dir / "_eval" / SPEND_FILE, {"spent_usd": spent})
-
-
-def _map_cells(one: Callable[[Any], None], cells: list[Any], jobs: int) -> None:
-    with ThreadPoolExecutor(max(1, jobs)) as pool:
-        try:
-            list(pool.map(one, cells))
-        except KeyboardInterrupt:
-            # pool.map submits every cell before it returns the iterator that cancels the queue, so an
-            # interrupt during submission would otherwise let the queued cells start while the pool exits.
-            pool.shutdown(wait=False, cancel_futures=True)
-            raise
 
 
 def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> None:

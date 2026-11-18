@@ -31,6 +31,7 @@ from typing import Any
 
 from dokimi.eval.stats import point_biserial
 
+from .atoms_refusal import has_visible_text
 from .measure import ProbeRun
 
 #: Below this, an atom's pass/fail tracks the models' overall standing weakly enough that
@@ -277,7 +278,7 @@ def _refuse_partial(raw: str, data: dict) -> None:
         reason = block.get("reason") if isinstance(block, dict) else None
         message = block.get("message") if isinstance(block, dict) else None
         if isinstance(reason, str) and reason != "spend_cap":
-            if not isinstance(message, str) or not any(ch.isprintable() and not ch.isspace() for ch in message):
+            if not isinstance(message, str) or not has_visible_text(message):
                 message = ("a permanent provider error stopped the measurement" if reason == "permanent_error" else
                            "a call with no known price stopped the measurement; "
                            "price the model or drop --max-usd to run unmetered" if reason == "no_price" else

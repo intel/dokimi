@@ -59,6 +59,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.measure import as_float, is_number
+from dokimi.provenance import STATUSES, UNKNOWN
 from dokimi.utils import same_model
 
 from .batch_ledger import recorded_execution
@@ -220,6 +221,19 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     return finished, sorted((planned | started) - done - unsupported)
 
 
+def _task_status(rec: dict[str, Any]) -> str:
+    """The task's ``provenance.status`` as the host wrote it into the cell's result.json when the cell ran; unknown
+    without one. Not read from the run dir's task.json: the grader had that dir read-write and could rewrite it."""
+    status = rec.get("task_status")
+    return status if status in STATUSES else UNKNOWN
+
+
+def _row_status(recs: list[dict[str, Any]]) -> str:
+    """The one status the row's cells recorded, or ``mixed`` when a resumed batch recorded more than one."""
+    statuses = {_task_status(r) for r in recs}
+    return statuses.pop() if len(statuses) == 1 else "mixed"
+
+
 def refuse_mixed_executions(cells: list[dict[str, Any]], where: str) -> None:
     """One (batch, arm, model) ran with one execution: a ``--force`` run that stopped part way, or a harness
     binary replaced mid-batch, leaves two, and pooling them would blend two setups in one row."""
@@ -336,6 +350,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
             failures = sum(r["grade"]["status"] == "grader_failure" for r in recs)
             score_only = any(r["score_task"] for r in recs)
             row: dict[str, Any] = {"task": key[0], "arm": key[1], "model": key[2], "n": n,
+                                   "status": _row_status(recs),
                                    "grader_failures": failures,
                                    "agent_timeouts": sum(bool(r["agent"]["timed_out"]) for r in recs),
                                    "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
@@ -380,7 +395,7 @@ def format_report(summary: dict[str, Any]) -> str:
     arm_w = max([len(r["arm"]) for r in rows] + [3])
     model_w = max([len(r["model"]) for r in rows] + [5])
     head = (f"{'task':<{width}}  {'arm':<{arm_w}}  {'model':<{model_w}}  {'n':>3}  {'result':<22}  "
-            f"{'grader_fail':>11}  {'missing':>7}  {'cost':>8}  {'turns':>6}")
+            f"{'grader_fail':>11}  {'missing':>7}  {'cost':>8}  {'turns':>6}  {'status':<9}")
     lines = [f"{summary['batch']}: {summary['cells']} finished cells, {len(summary['missing'])} missing, "
              f"${summary['total_cost_usd']:.4f}", head]
     for r in rows:
@@ -392,7 +407,8 @@ def format_report(summary: dict[str, Any]) -> str:
         cost = "-" if r["cost_usd"] is None else f"{r['cost_usd']:.4f}"
         turns = "-" if r["turns"] is None else f"{r['turns']:.1f}"
         lines.append(f"{r['task']:<{width}}  {r['arm']:<{arm_w}}  {r['model']:<{model_w}}  {r['n']:>3}  "
-                     f"{result:<22}  {r['grader_failures']:>11}  {r['missing']:>7}  {cost:>8}  {turns:>6}")
+                     f"{result:<22}  {r['grader_failures']:>11}  {r['missing']:>7}  {cost:>8}  {turns:>6}  "
+                     f"{r['status']:<9}")
         notes = _row_notes(r)
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
