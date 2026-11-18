@@ -139,7 +139,8 @@ no user instructions, rules, or project docs read from it.
   for want of a login is the first sign.
 
 Errors are classed the same way on all three CLIs. A usage limit or a missing login stops the
-run, since every later call would fail too. A rate limit, overload or timeout is retried; a
+run, since every later call would fail too; so does a command line Codex or Copilot rejects (a
+flag a newer release removed). A rate limit, overload or timeout is retried; a
 reply with no text is not retried. The timeout is per call.
 
 Codex and Copilot take no temperature or seed, so `arms run` refuses either flag on them, as it

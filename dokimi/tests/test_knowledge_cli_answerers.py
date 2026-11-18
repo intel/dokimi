@@ -241,6 +241,20 @@ def test_copilot_refuses_a_prompt_too_long_for_one_argument_before_any_call(run)
     assert run.calls == []
 
 
+@pytest.mark.parametrize("provider, stderr", [
+    ("copilot-cli", "error: --no-remote was removed. Use /remote off in a session; manage incoming connections "
+                    "in /environments.\n"),
+    ("copilot-cli", "error: unexpected argument '--no-such-flag' found\n"),
+    ("copilot-cli", "error: unknown option '--no-such-flag'\n"),
+    ("codex-cli", "error: unexpected argument '--no-such-flag' found\n\nUsage: codex exec [OPTIONS] [PROMPT]\n"),
+])
+def test_a_command_line_the_cli_rejects_stops_the_run_and_is_never_retried(run, provider, stderr):
+    run.answers.append(reply("", stderr=stderr, returncode=2))
+    with pytest.raises(llm_cli.CliCallError) as info:
+        llm_cli.call(provider, model="gpt-5", prompt="q")
+    assert info.value.run_wide is True and info.value.retryable is False
+
+
 def test_copilot_error_text_is_run_wide_on_no_login_and_retry_on_rate_limit(run):
     run.answers.append(reply("", stderr="error: not logged in, run copilot login\n", returncode=1))
     with pytest.raises(llm_cli.CliCallError) as info:

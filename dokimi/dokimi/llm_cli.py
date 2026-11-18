@@ -83,6 +83,8 @@ _RETRYABLE_WORDS = ("rate limit", "rate_limit", "overloaded", "timed out")
 #: A status the CLI prints as text, with no ``api_error_status``: ``API Error: 503 ...``. A status word has to
 #: sit before the number, so a 500 inside a message about tokens does not count.
 _STATUS_TEXT = re.compile(r"\b(?:status|code|http|error)\W{0,3}(\d{3})\b")
+#: How Codex and Copilot refuse a command line they no longer parse: every later call fails the same way.
+_ARGV_REJECTED = ("unexpected argument", "unknown option", "was removed")
 
 
 def _text_retryable(lowered: str) -> bool:
@@ -315,7 +317,7 @@ def _codex_error(done: process.Completed, failed: str) -> CliCallError:
     lowered = message.lower()
     # A cap, a missing login or an unknown model is the same for every later call: run-wide, never retried.
     run_wide = any(w in lowered for w in ("usage_limit", "usage limit", "not logged in", "login", "unknown model",
-                                          "model not found"))
+                                          "model not found") + _ARGV_REJECTED)
     return CliCallError(f"codex-cli: {message}", retryable=not run_wide and _text_retryable(lowered),
                         run_wide=run_wide)
 
@@ -411,7 +413,7 @@ def _copilot_parse(done: process.Completed, model: str, provider: str) -> CliRes
         message = (done.stderr.strip() or text or f"exit {done.returncode}")[:500]
         lowered = message.lower()
         run_wide = any(w in lowered for w in ("not logged in", "login", "authenticat", "unknown model",
-                                              "usage limit"))
+                                              "usage limit") + _ARGV_REJECTED)
         raise CliCallError(f"copilot-cli: {message}", retryable=not run_wide and _text_retryable(lowered),
                            run_wide=run_wide)
     # ``-s`` prints the reply alone; the token counts are not on that output, so the record carries none.
