@@ -291,6 +291,26 @@ CONCEPTS: tuple[Concept, ...] = (
         note="A documentation source is an arm: --arm docs:SOURCE.",
     ),
     Concept(
+        name="api_header",
+        help="a C header whose declared names a veto may check",
+        canonical=(Flag("--header", "PATH", "path", repeatable=True,
+                        meaning="a C header of the API (glob ok)"),),
+        note="Used with --prefix (and --shared-lib) by skill novelty ground.",
+    ),
+    Concept(
+        name="shared_library",
+        help="a shared library whose exported symbols a veto may check",
+        canonical=(Flag("--shared-lib", "PATH", "path", repeatable=True,
+                        meaning="a shared library whose exported (nm -D) names are known"),),
+        note="Used with --prefix (and --header) by skill novelty ground.",
+    ),
+    Concept(
+        name="symbol_prefix",
+        help="the C identifier prefix that scopes the names a veto checks",
+        canonical=(Flag("--prefix", "PREFIX", "text", repeatable=True,
+                        meaning="a C identifier prefix ending in '_' (cblas_)"),),
+    ),
+    Concept(
         name="force",
         help="re-run over existing output",
         canonical=(Flag("--force", kind="flag"),),
