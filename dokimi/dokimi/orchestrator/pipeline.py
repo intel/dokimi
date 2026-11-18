@@ -436,12 +436,14 @@ class EvaluationPipeline:
             results["steps"]["evaluation"]["summary"] = {
                 "with_avg": round(summary.with_mean, 1),
                 "without_avg": round(summary.without_mean, 1),
-                "delta_avg": round(summary.delta_mean, 1)
+                "delta_avg": None if summary.delta_mean is None else round(summary.delta_mean, 1)
             }
+            delta_avg = results["steps"]["evaluation"]["summary"]["delta_avg"]
             print(f"✓ Evaluated {len(evaluations)} answers: "
                   f"context={results['steps']['evaluation']['summary']['with_avg']}, "
                   f"baseline={results['steps']['evaluation']['summary']['without_avg']}, "
-                  f"delta={results['steps']['evaluation']['summary']['delta_avg']:+.1f}"
+                  + ("delta=none (a paired difference leaves the float range)" if delta_avg is None
+                     else f"delta={delta_avg:+.1f}")
                   + (f" (over the {summary.paired} scored in both arms; {summary.unpaired} left out)"
                      if summary.unpaired else ""))
         else:
@@ -714,6 +716,9 @@ class EvaluationPipeline:
         
         # Save answers
         answerer.save_answers(answers, self.answers_path, question_set_hash=question_set_hash)
+        if answerer.stop_error is not None:  # saved for what was asked; a stopped run is not judged or reported as whole
+            raise RuntimeError(f"answers stopped after {len(answers)} of {len(questions)} questions: "
+                               f"{answerer.stop_error}")
         
         return answers
     

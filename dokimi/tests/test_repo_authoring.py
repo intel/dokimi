@@ -159,6 +159,7 @@ def test_a_merged_pr_with_a_test_becomes_a_task_with_hidden_tests_and_a_referenc
     out = tmp_path / "tasks"
     _authoring(toy["root"], _pages(_pr1(toy)), out)
     task, d = _task(out, 1), out / "authoring_pr1"
+    assert task["provenance"]["source"].startswith("generated:dokimi-tasks-generate@")
     assert task["id"] == "authoring_pr1" and task["family"] == "feature" and task["grader"] == "dokimi:hidden_tests"
     assert task["base"] == toy["c0"] and task["merge_commit"] == toy["m1"] and task["head_commit"] == toy["h1"]
     assert task["source_pr"] == 1 and task["source_url"] == "https://example.invalid/pull/1"

@@ -74,6 +74,8 @@ def novelty_cell(artifact: dict, *, source: str | None = None) -> dict[str, Any]
     }
     if artifact.get("run_config"):
         cell["run_config"] = dict(artifact["run_config"])
+    if artifact.get("judge_panel"):
+        cell["judge_panel"] = dict(artifact["judge_panel"])
     if source:
         cell["source"] = source
     return cell

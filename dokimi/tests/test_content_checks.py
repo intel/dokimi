@@ -236,7 +236,7 @@ def test_standalone_review_checks_the_bundled_files(tmp_path):
     skill_dir = _skill(tmp_path, "demo", files={"scripts/call.py": 'MODEL = "claude-2.1"\nx = "\u202e"\n'})
 
     codes = sorted(f.code for f in review_skill_dir(skill_dir).findings)
-    assert codes == ["hidden-unicode", "legacy-model-id"]
+    assert codes == ["bundle-file-unreferenced", "hidden-unicode", "legacy-model-id"]  # SKILL.md never names it
 
 
 # ---- scope of the content scan: what is read, not what is reported ------------------------------

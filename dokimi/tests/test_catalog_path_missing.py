@@ -44,7 +44,8 @@ def _review(tmp_path, body, files=()):
 )
 def test_a_span_naming_a_missing_bundled_file_is_a_warning(tmp_path, body):
     review, _ = _review(tmp_path, body, files=["references/metadata.md"])
-    assert _codes(review) == ["path-missing"]
+    # metadata.md is bundled and never named, so bundle-file-unreferenced warns about it too
+    assert sorted(_codes(review)) == ["bundle-file-unreferenced", "path-missing"]
     assert review.state == "warn"
 
 

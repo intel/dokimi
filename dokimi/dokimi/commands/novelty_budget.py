@@ -109,7 +109,7 @@ def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
 #: shared cap refuses the second judge, so its block is a stop record or empty.
 PARTIAL_SUMMARIES = ("paired", "arms", "abstentions", "reversal_resisted",
                      "reversal_resisted_by_arm", "reversal_paired", "confidence_correlation",
-                     "judge2")
+                     "judge2", "judge_panel")
 
 
 def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
@@ -131,9 +131,12 @@ def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
                "message": message}
     # The jobs run arm by arm, so a cut leaves the arms uneven: the summaries over the answers
     # kept would read as results next to status "partial". The runs stay; the summaries go.
+    panel = payload.get("judge_panel")
     for block in PARTIAL_SUMMARIES:
         if block in payload:
             payload[block] = None
+    if panel:
+        payload["judge_panel"] = {k: panel[k] for k in ("judges", "rule") if k in panel}
     exit_partial(message, write_run(payload, out, partial))
 
 
@@ -182,6 +185,7 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
     ``estimate_usd`` is the command's pricing (``dokimi.novelty.cost.estimate_usd``), looked up
     by the caller at call time, so a test that patches ``cost.estimate_usd`` takes effect.
     """
+    from dokimi.novelty import cost
     from dokimi.novelty.measure import parse_arms
     from dokimi.novelty.spans import segment
     from dokimi.utils import InputError
@@ -200,6 +204,7 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
         args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
         context_share=(n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms,
     )
+    cost.add_panel_calls(args, estimate["estimate"])  # after the price, which counts each judge itself
     return estimate, n_tokens
 
 
