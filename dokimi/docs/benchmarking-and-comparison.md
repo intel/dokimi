@@ -615,7 +615,7 @@ under several judges (absolute, and with `--grounded` against each question's
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
 `NOT MEASURED` when no voting measure compared a single question (every call
-errored, or every judge was gated out); `--strict` exits 1 on that too. A
+errored, or every judge was gated out); `--strict` exits 3 on that, and 4 on a `JUDGE-DEPENDENT` arm. A
 `--judges` judge that leaves answers unscored prints how many and its first
 error, which the report keeps under `unscored`; one that scored none of its
 answers exits 1 once the report is written, with or without `--strict`, as

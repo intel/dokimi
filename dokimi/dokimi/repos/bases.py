@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
@@ -58,15 +59,23 @@ def tree_mcp_error(tree: RepoTree) -> str | None:
         return None
 
 
-def check_mcp_configs(git_dir: Any, tasks: list[Any], profile: Any, tools: str) -> None:
+class ConfigRefused(ValueError):
+    """A configuration the agent's CLI rejects, found before any cell runs: a usage error (exit 2), not a crash."""
+
+
+def check_mcp_configs(git_dir: Any, tasks: list[Any], profile: Any, tools: str,
+                      base_dirs: Mapping[str, Any] = {}) -> None:
     """Before a run: refuse a task base whose ``.mcp.json`` the profile would pass to the agent (the ``all`` tool
-    mode) and the agent's CLI would not accept, instead of every cell of the task failing as a task failure."""
+    mode) and the agent's CLI would not accept, instead of every cell of the task failing as a task failure.
+    A task in ``base_dirs`` (a suite's) is read in the git dir it maps to; one mapped to None is not read."""
     if not profile.applied_args(tools, frozenset({MCP_CONFIG})):
         return
-    for base in dict.fromkeys(t.base for t in tasks):
-        problem = tree_mcp_error(GitTree(git_dir, base))
+    for where, base in dict.fromkeys((base_dirs.get(t.id, git_dir) if base_dirs else git_dir, t.base) for t in tasks):
+        if where is None:
+            continue
+        problem = tree_mcp_error(GitTree(where, base))
         if problem:
-            raise ValueError(f"{MCP_CONFIG} at task base {base} is {problem}; `--tools all` passes it to the agent, "
+            raise ConfigRefused(f"{MCP_CONFIG} at task base {base} is {problem}; `--tools all` passes it to the agent, "
                              "which exits on it before its first turn. Fix or remove the file, or use --tools read/none")
 
 

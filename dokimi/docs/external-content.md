@@ -295,7 +295,14 @@ Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and 
 of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
 (Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
-(`mirror-drift`), naming the other copies. Skills with
+(`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
+`.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
+path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
+finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+`_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
+not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no `warn`; it gives a
+`note` (`bundle-file-unchecked`) that says why, when the search cannot see every name: a bundle over 2000 files, more than 50 named
+documents to read, a named document over 1 MiB (truncated: the note names the file, and its names are not read), not UTF-8, a symlink or a FIFO, a folder that cannot be listed. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
 The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
