@@ -50,6 +50,21 @@ def test_the_nearest_repo_holds_a_nested_skill(tmp_path):
     assert set(tally.skills) == {"vendor/x", "."}
 
 
+def test_a_skill_in_a_repo_nested_in_another_counts_once_per_code_in_the_inner_repo(tmp_path):
+    # mono holds vendor/x, its own repo: b belongs to the nearer one, and its two link-missing count once.
+    _repo(tmp_path, "mono")
+    _repo(tmp_path, "mono/vendor/x")
+    _repo(tmp_path, "other")
+    tally = RateTally(tmp_path)
+    for row in (_row("mono/a", "ok"), _row("mono/vendor/x/b", "warn", "link-missing", "link-missing"),
+                _row("other/c", "ok")):
+        tally.add(row)
+
+    summary = tally.summary()
+    assert summary["repos"] == 3
+    assert summary["codes"]["link-missing"] == {"skills": 1, "rate": 0.3333, "repo_rate": 0.3333}
+
+
 def test_a_skill_whose_own_directory_is_a_repo_is_its_repo(tmp_path):
     _repo(tmp_path, "solo")
     tally = RateTally(tmp_path)
