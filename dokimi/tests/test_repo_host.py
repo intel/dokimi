@@ -10,15 +10,18 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.container import ContainerResult, ContainerSpec
+from dokimi import process
+from dokimi.repos.container import ContainerResult, ContainerSpec, DockerRunner
 from dokimi.repos.grading import EvalContext
 from dokimi.repos.host import (
     PROBE,
@@ -767,6 +770,44 @@ def test_run_batch_refuses_a_bad_host_value_before_probing_or_running(tmp_path):
     with pytest.raises(HostSpecError, match="min_cpus must be an integer"):
         run_batch(ctx, [_task({"min_cpus": 0})], ["guidance:none"], [], 1, tmp_path / "batch")
     assert runner.specs == [] and runner.probes == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="os.kill(SIGINT) on Windows terminates the process, not Ctrl-C")
+def test_ctrl_c_in_a_threaded_batch_kills_each_container_a_worker_started(tmp_path, monkeypatch):
+    """Ctrl-C reaches the main thread only: a cell running in a worker thread must not leave its container."""
+    started: list[str] = []
+    killed: list[str] = []
+    gone: dict[str, threading.Event] = {}
+    sent: list[str] = []
+    sent_lock = threading.Lock()
+    main = threading.main_thread().ident
+
+    def answer(call):
+        argv = list(call.argv)
+        if argv[1] == "kill":
+            killed.append(argv[2])
+            gone.setdefault(argv[2], threading.Event()).set()
+            return process.reply()
+        if argv[1] == "run" and PROBE in argv:
+            call.stdout_to.write_text(json.dumps(_probe_out()) + "\n", encoding="utf-8")
+            return process.reply()
+        if argv[1] == "run" and "-agent-" in argv[argv.index("--name") + 1]:
+            name = argv[argv.index("--name") + 1]
+            started.append(name)
+            with sent_lock:
+                first = not sent
+                sent.append(name)
+            if first:  # the user's Ctrl-C, from inside a worker thread, aimed at the main thread
+                signal.pthread_kill(main, signal.SIGINT)
+            gone.setdefault(name, threading.Event()).wait(60)  # a container runs until it is killed
+            return process.reply(returncode=137)
+        return process.reply()
+
+    root = _repo(tmp_path)
+    with pytest.raises(KeyboardInterrupt):
+        _run(root, tmp_path / "runs", DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--jobs", "2")
+    assert started and set(started) <= set(killed), (started, killed)
+    assert not list((tmp_path / "runs").rglob("result.json")), "an interrupted cell must not be recorded"
 
 
 def test_marking_a_cell_unsupported_clears_what_an_unfinished_run_left(tmp_path):
