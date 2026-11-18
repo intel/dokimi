@@ -37,7 +37,7 @@ result differs from its expectation. `out/` is not committed.
 | Timeout | agent killed, the cell is graded (an outcome, not a retry) | inside `Work` |
 | Crash | process dies; no `result.json` → cell is *missing*, the next run fills it | `Crash` |
 | Late result of an old attempt | none after SIGKILL: threads die with the process (a second Ctrl-C is not modelled, open question 4) | `LateCommit`, mutation only |
-| Cancel | Ctrl-C: `KeyboardInterrupt`; queued futures are cancelled, running cells' containers are killed by name | `Cancel`, `CancelGuard` |
+| Cancel | Ctrl-C: `KeyboardInterrupt`; queued futures are cancelled, running cells' agent containers are killed by name, and a cell past its agent is graded, not killed | `Cancel`, `CancelGuard` |
 | Exclusion of concurrent runs on one batch | `batch_lock` (flock on `_eval/lock`) | `Locked` |
 | Execution pinning | `execution.id` in `meta.json`/`result.json`; `check_batch_executions` before any cell | `Configs`, `StartCheck` |
 | Commit | `_write_json(rd / "result.json")`: mkstemp + `os.replace` (atomic) | `Commit` |

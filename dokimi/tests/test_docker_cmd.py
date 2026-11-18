@@ -216,6 +216,35 @@ def test_a_container_a_halt_killed_is_no_result(tmp_path):
         container_mod.clear_halt()
 
 
+def test_a_grading_container_is_neither_killed_nor_refused_by_a_halt(tmp_path):
+    # Ctrl-C lets a cell past its agent finish: its grading container runs on, and it may start after the halt.
+    kills = []
+
+    def answer(call):
+        if call.argv[1] == "kill":
+            kills.append(call.argv)
+        if call.argv[1] == "run":
+            container_mod.halt_and_kill_started()  # the Ctrl-C lands while the grade runs
+            return reply(returncode=0)
+        return reply()
+
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-grade", survives_halt=True)
+    try:
+        result = DockerRunner(runner=FakeRunner(answer)).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e",
+                                                             timeout_s=5)
+        assert result.returncode == 0 and kills == []
+        container_mod.halt_and_kill_started()  # halted: an agent is still refused, a grade may start
+        grade = ContainerSpec(image="img", argv=["true"], name="dokimi-grade2", survives_halt=True)
+        assert DockerRunner(runner=FakeRunner(lambda call: reply())).run(
+            grade, stdout=tmp_path / "o2", stderr=tmp_path / "e2", timeout_s=5).returncode == 0
+        with pytest.raises(container_mod.BatchInterrupted):
+            DockerRunner(runner=FakeRunner(lambda call: reply())).run(
+                ContainerSpec(image="img", argv=["true"], name="dokimi-agent"), stdout=tmp_path / "o3",
+                stderr=tmp_path / "e3", timeout_s=5)
+    finally:
+        container_mod.clear_halt()
+
+
 def test_run_with_a_missing_mount_kills_nothing(tmp_path):
     fake = FakeRunner()
     spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000",

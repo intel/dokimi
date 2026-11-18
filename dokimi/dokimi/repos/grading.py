@@ -154,7 +154,7 @@ def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: s
     if builtin == "hidden_tests" and kind == "grade":
         _run_hidden_tests(ctx, task, run_dir, network, mounts, name)
     spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + extra + ctx.cache_mounts(),
-                         env=ctx.grade_env(task), network=network, name=name)
+                         env=ctx.grade_env(task), network=network, name=name, survives_halt=kind == "grade")
     result = ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
                             timeout_s=ctx.entry_timeout_s)
     if builtin is not None and result.returncode == _NOT_FOUND_EXIT and _python3_not_found_in_stderr(run_dir, kind):
@@ -208,7 +208,8 @@ def _run_hidden_tests(ctx: EvalContext, task: Task, run_dir: Path, network: str,
         values = {**CONTAINER_PATHS, "task": task.id, "out": f"{RUN_DIR}/{HIDDEN_REPORT}", "tests": " ".join(tests)}
         argv = [w for word in shlex.split(template) for w in (tests if word == "{tests}" else [substitute(word, values)])]
         spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + ctx.cache_mounts(),
-                             env=ctx.grade_env(task), network=network, name=name and f"{name}-test")
+                             env=ctx.grade_env(task), network=network, name=name and f"{name}-test",
+                             survives_halt=True)
         run = ctx.runner.run(spec, stdout=run_dir / "test.log", stderr=run_dir / "test.err",
                              timeout_s=ctx.entry_timeout_s)
         record = {"rc": run.returncode, "timed_out": run.timed_out, "wall_s": run.wall_s}

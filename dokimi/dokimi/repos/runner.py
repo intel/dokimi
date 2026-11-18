@@ -296,11 +296,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             process = _process_or_null(ctx, events, agent["trace_errors"], transcript.unknown_reads)
         if meta.get("skills") and started:
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
-        try:
-            graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
-        except BatchInterrupted as exc:  # the agent ran and is charged, though this cell is dropped (contract §9)
-            exc.charged_usd = float(agent["charged_usd"])
-            raise
+        # A Ctrl-C does not kill the grade: the cell is past its agent, so it is recorded (contract §9).
+        graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
     except Exception as exc:  # noqa: BLE001  # the grade run failed to start, or the host failed around it
         # What the agent left behind (a read-only .git, a hostile trace) can break any host step after it.
@@ -483,10 +480,11 @@ def _run_cells(cells: list[Any], one: Callable[[Any], None], jobs: int) -> None:
 
 def _stop_on_interrupt(pool: ThreadPoolExecutor) -> None:
     """Ctrl-C reached the main thread, not the cells in worker threads. Cancel the cells not started, then kill the
-    containers the running cells started, by name, and kill again until every worker returns: a container started
-    between two kills is caught by the next one. The halt stays until then, so a cell that asks for a container gets
-    an error. Waiting is on the pool, not on the futures: a cell submitted just before the interrupt has no future yet.
-    A further Ctrl-C does not stop the kills."""
+    agent containers the running cells started, by name, and kill again until every worker returns: a container
+    started between two kills is caught by the next one. A grading container is not killed: its cell is past its
+    agent, so the wait includes its grade (contract §9). The halt stays until then, so a cell that asks for an agent
+    container gets an error. Waiting is on the pool, not on the futures: a cell submitted just before the interrupt
+    has no future yet. A further Ctrl-C does not stop the kills."""
     idle = threading.Event()
 
     def drain() -> None:

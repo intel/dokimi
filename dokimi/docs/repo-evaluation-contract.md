@@ -2361,8 +2361,10 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   both `id`s, until a `--force` run over every arm and model of the batch (the same `--task` and `--reps`) reruns them. A plan naming one cell twice (a
   repeated `--task` or `--model`, or two `--model` strings with one directory
   name, `a/b` and `a:b`, or names that differ only in case) is refused before any agent starts.
-  Ctrl-C starts no queued cell and kills, by name, the containers the running cells started; a cell so killed
-  is not recorded and runs again on the next invocation, and an agent that ran is still charged. A batch stays on the eval tree it
+  Ctrl-C starts no queued cell and kills, by name, the agent containers the running cells started; a cell whose
+  agent was killed is not recorded and runs again on the next invocation, and an agent that ran is still charged.
+  A cell past its agent is not killed: its grading container finishes (Ctrl-C waits for it), the cell is recorded,
+  and its agent is not run again on resume. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
