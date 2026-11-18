@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 from dokimi.atomic_write import write_text_atomic
 from dokimi import cli_flags
 from dokimi import docker_cmd
-from dokimi.exit_codes import EXIT_INFRA
+from dokimi.exit_codes import EXIT_INFRA, EXIT_USAGE
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.repos.source import SourceArgumentError, tree_path
 from dokimi.utils import tree_digest
@@ -318,7 +318,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos import open_source
     from dokimi.repos.arms import check_arms
     from dokimi.repos.batch_ledger import pin_arms, pin_skills, write_skill_pin
-    from dokimi.repos.bases import check_mcp_configs
+    from dokimi.repos.bases import ConfigRefused, check_mcp_configs
     from dokimi.repos.container import DockerError, docker_network
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.runner import (
@@ -367,6 +367,9 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     except DockerError as exc:  # the docker CLI or daemon failed: infrastructure, not a verdict (§2.6)
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_INFRA)
+    except ConfigRefused as exc:  # a config the agent's CLI rejects: refused before any cell, not rerun (exit 2)
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)

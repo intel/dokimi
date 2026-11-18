@@ -1408,7 +1408,7 @@ args_if_present:                     # argv added after the "{tools}" element wh
   not a JSON object, or whose `mcpServers` is not an object, is caught up
   front: `repo validate` warns about the one at each task base (at
   the eval tree when the source has no git history) and still succeeds, `repo run --tools all`
-  exits 1 before any cell, and a cell whose arm wrote
+  exits 2 before any cell (a config the CLI rejects is a usage error; the cell is not run, so it is not rerun), and a cell whose arm wrote
   such a file (a `patch:` arm) is a cell error, not a graded run. The check
   reads the task base, so a `patch:` arm that repairs the file does not help.
   Fix or remove the file in the task base; `--tools read` or `none` do not

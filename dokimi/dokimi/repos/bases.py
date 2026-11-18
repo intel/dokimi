@@ -58,6 +58,10 @@ def tree_mcp_error(tree: RepoTree) -> str | None:
         return None
 
 
+class ConfigRefused(ValueError):
+    """A configuration the agent's CLI rejects, found before any cell runs: a usage error (exit 2), not a crash."""
+
+
 def check_mcp_configs(git_dir: Any, tasks: list[Any], profile: Any, tools: str) -> None:
     """Before a run: refuse a task base whose ``.mcp.json`` the profile would pass to the agent (the ``all`` tool
     mode) and the agent's CLI would not accept, instead of every cell of the task failing as a task failure."""
@@ -66,7 +70,7 @@ def check_mcp_configs(git_dir: Any, tasks: list[Any], profile: Any, tools: str) 
     for base in dict.fromkeys(t.base for t in tasks):
         problem = tree_mcp_error(GitTree(git_dir, base))
         if problem:
-            raise ValueError(f"{MCP_CONFIG} at task base {base} is {problem}; `--tools all` passes it to the agent, "
+            raise ConfigRefused(f"{MCP_CONFIG} at task base {base} is {problem}; `--tools all` passes it to the agent, "
                              "which exits on it before its first turn. Fix or remove the file, or use --tools read/none")
 
 
