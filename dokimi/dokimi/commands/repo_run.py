@@ -219,15 +219,23 @@ def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None
     """
     from dokimi.commands.cache_dir import CACHE_USE, usable_cache_dir
 
+    def check(path: str, label: str) -> None:  # the resolved path, as `_context` makes it: `missing/..` must not hide a file
+        try:
+            resolved = str(Path(path).resolve())
+        except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop, Python < 3.13
+            why = exc.strerror if isinstance(exc, OSError) and exc.strerror else "a symbolic link loop"
+            raise InputError(f"{label} {path}: cannot resolve it ({why}); pass a directory {CACHE_USE}") from exc
+        usable_cache_dir(resolved, CACHE_USE, label=label)
+
     overrides = dict(_pair(c) for c in args.cache or ())
     names = [c.name for c in manifest.image.caches] if manifest.image is not None else []
     if args.cache_root:
-        usable_cache_dir(str(Path(args.cache_root).resolve()), CACHE_USE, label="--cache-root")
-    for name in names:  # the resolved path, as `_context` makes it: `missing/..` must not hide a file
+        check(args.cache_root, "--cache-root")
+    for name in names:
         if name in overrides:
-            usable_cache_dir(str(Path(overrides[name]).resolve()), CACHE_USE, label=f"--cache {name}")
+            check(overrides[name], f"--cache {name}")
         elif args.cache_root:
-            usable_cache_dir(str((Path(args.cache_root) / name).resolve()), CACHE_USE, label="--cache-root")
+            check(str(Path(args.cache_root) / name), "--cache-root")
 
 
 def _progress(line: str) -> None:
@@ -382,11 +390,10 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.arms import check_arms
     from dokimi.repos.batch_ledger import pin_arms, pin_skills, write_skill_pin
     from dokimi.repos.bases import ConfigRefused, check_mcp_configs
-    from dokimi.repos.container import DockerError, docker_network
+    from dokimi.repos.container import DockerError
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.probes import load_probe_file
-    from dokimi.repos.runner import (
-        AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps, validate_tasks)
+    from dokimi.repos.runner import AgentOptions, batch_lock, harness_version, run_batch, validate_tasks
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
     from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
 
@@ -413,13 +420,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
                                 max_turns=args.max_turns, budget_usd=args.budget, probes=probes) for m in args.model]
-        gaps = ctx.base_gaps()
-        for task in tasks:  # refuse before anything runs, not cell by cell; a suite gap is unsupported, not run
-            if task.id in gaps:
-                continue
-            task_caps(task, options[0])
-            agent_network(options[0], ctx, task)
-            docker_network(ctx.manifest.image.network, task.egress)  # grade has no egress route either
+        _refuse_before_any_cell(ctx, tasks, options[0])
         version = harness_version(ctx, options[0], batch_dir / "_eval")
         for opt in options:
             opt.harness_version = version
@@ -450,6 +451,20 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
               file=sys.stderr)
     _exit_of_batch(summary)
+
+
+def _refuse_before_any_cell(ctx, tasks, option) -> None:
+    """Refuse before anything runs, not cell by cell; a suite gap is unsupported, not run."""
+    from dokimi.repos.container import docker_network
+    from dokimi.repos.runner import agent_network, task_caps
+
+    gaps = ctx.base_gaps()
+    for task in tasks:
+        if task.id in gaps:
+            continue
+        task_caps(task, option)
+        agent_network(option, ctx, task)
+        docker_network(ctx.manifest.image.network, task.egress)  # grade has no egress route either
 
 
 def _exit_of_batch(summary: dict) -> None:

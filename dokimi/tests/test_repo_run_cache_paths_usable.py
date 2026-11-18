@@ -5,6 +5,10 @@
 
 from __future__ import annotations
 
+import errno
+import os
+from pathlib import Path
+
 import pytest
 
 from dokimi.cli import build_parser
@@ -144,3 +148,73 @@ def test_dotdot_through_a_missing_dir_to_a_file_is_refused_before_any_build(comm
     assert exc.code == 2
     assert "is not a directory" in exc.err and "Errno" not in exc.err
     assert setup["runner"].builds == []
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+def test_dotdot_cache_root_to_a_file_is_refused_even_when_every_cache_is_overridden(command, setup):
+    blocker = _file(setup["tmp"])
+    sneaky = f"{setup['tmp']}/missing/../{blocker.name}"
+    exc = _invoke(setup, command, "--cache-root", sneaky, "--cache", f"build-cache={setup['tmp'] / 'mine'}")
+    assert exc.code == 2
+    assert f"--cache-root {blocker} is not a directory; {CLOSING}" in exc.err  # the resolved path
+    assert setup["runner"].builds == []
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+def test_a_cache_root_that_is_a_file_is_refused_even_when_every_cache_is_overridden(command, setup):
+    blocker = _file(setup["tmp"])
+    exc = _invoke(setup, command, "--cache-root", str(blocker), "--cache", f"build-cache={setup['tmp'] / 'mine'}")
+    assert exc.code == 2 and f"--cache-root {blocker} is not a directory; {CLOSING}" in exc.err
+    assert setup["runner"].builds == [] and not (setup["tmp"] / "mine").exists()
+
+
+def _loops_raise(monkeypatch, error):
+    """A symlink to itself fails `Path.resolve()` as it does on Python < 3.13 (3.13 returns the path)."""
+    real = Path.resolve
+
+    def resolve(self, *a, **k):
+        if self.is_symlink() and os.readlink(self) == str(self):
+            raise error
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+
+
+def _loop(path):
+    os.symlink(str(path), str(path))
+    return path
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+@pytest.mark.parametrize("error", [RuntimeError("Symlink loop from 'x'"), OSError(errno.ELOOP, "Too many levels of symbolic links")],
+                         ids=["runtime-error", "os-error"])
+@pytest.mark.parametrize("flag", ["root", "override", "child"])
+def test_a_path_that_cannot_be_resolved_exits_2_naming_the_flag_before_any_build(command, error, flag, setup, monkeypatch):
+    loop = _loop(setup["tmp"] / "loop")
+    _loops_raise(monkeypatch, error)
+    if flag == "child":
+        root = setup["tmp"] / "caches"
+        root.mkdir()
+        loop, label, extra = _loop(root / "build-cache"), "--cache-root", ["--cache-root", str(root)]
+    elif flag == "root":
+        label, extra = "--cache-root", ["--cache-root", str(loop)]
+    else:
+        label, extra = "--cache build-cache", ["--cache", f"build-cache={loop}"]
+    exc = _invoke(setup, command, *extra)
+    assert exc.code == 2
+    assert f"{label} " in exc.err and "cannot resolve it" in exc.err and CLOSING in exc.err
+    assert "Traceback" not in exc.err and "Errno" not in exc.err and setup["runner"].builds == []
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+def test_an_existing_read_only_cache_root_is_accepted(command, setup):
+    root = setup["tmp"] / "caches"
+    (root / "build-cache").mkdir(parents=True)
+    root.chmod(0o555)
+    (root / "build-cache").chmod(0o555)
+    try:
+        exc = _invoke(setup, command, "--cache-root", str(root))
+    finally:
+        (root / "build-cache").chmod(0o755)
+        root.chmod(0o755)
+    assert exc.code == 0 and "--cache" not in exc.err
