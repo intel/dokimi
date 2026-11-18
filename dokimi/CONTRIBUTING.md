@@ -274,8 +274,9 @@ move onto the registry, `cli_flags.py` is data only: no command reads it.
 - **Snapshot.** From `dokimi/`, after `make dev`, run `make cli-snapshot` and commit
   `docs/reference/cli-interface.json` with the change. CI's `typecheck` job and
   `tests/test_cli_flags.py` check it against the code, so a flag change without a
-  regenerated snapshot fails the PR. The ratchet compares spellings only: a reviewer checks
-  that the option's type matches the `kind` of its concept.
+  regenerated snapshot fails the PR. The ratchet checks spellings, switch or value shape,
+  explicit metavars, choices and the parser types for `int`, `float` and `usd` kinds. A
+  reviewer checks the parser types for other kinds.
 - **Non-canonical spelling.** Only if the flag must keep it, add one row to
   `tests/data/cli_flags_allowlist.txt` with the reason after `#`, for example
   `--sample-size  # the spelling the external runner already passes`. An allowlist row
