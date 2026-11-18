@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.atomic_write import write_bytes_atomic, write_text_atomic
+from dokimi.process_io import utf8_bytes
 from ...provenance import generated_by
 from ..manifest import RepoManifest
 from .history import History, addressed, carry
@@ -242,7 +243,7 @@ def _mbox(pr: PullRequest, rev: str, diff: bytes) -> bytes:
             "Date: Thu, 1 Jan 1970 00:00:00 +0000\nMIME-Version: 1.0\n"
             f"Content-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: {encoding}\n"
             f"Subject: [PATCH] {title}\n\n")
-    return head.encode("utf-8") + body
+    return utf8_bytes(head) + body
 
 
 def _write(dest: Path, task: dict[str, Any], gold: list[dict[str, Any]], patch: bytes) -> None:
