@@ -1037,6 +1037,7 @@ named as warnings (the first five by ref, the rest counted). Warnings also name 
 does not vary what it should:
 
 - the same seed, or another model;
+- another judge: `judge_model`, or the panel's `judges` or `rule` in `judge_panel`;
 - calls served from the response cache: `cost.replayed_calls` above zero in either run. A
   replayed answer is the baseline's answer again, so the floor shrinks toward zero;
 - a `run_config` that differs in any key other than `seed` (`max_atoms`, `arms`, `paraphrases`,

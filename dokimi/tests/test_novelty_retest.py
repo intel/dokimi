@@ -164,6 +164,34 @@ def test_a_seed_only_change_gives_no_warning():
     assert pair_runs(first, second, "lenient")["warnings"] == []
 
 
+def _judged(doc, judge="j1", judges=None, rule=None):
+    doc["judge_model"] = judge
+    if judges is not None:
+        doc["judge_panel"] = {"judges": judges, "rule": rule, "added_share_range": [0.1, 0.2]}
+    return doc
+
+
+def test_another_judge_model_is_not_read_as_noise():
+    first = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.5, seed=0), judge="j1")}
+    second = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.6, seed=2), judge="j2")}
+    text = " ".join(pair_runs(first, second, "lenient")["warnings"])
+    assert "graded differently (judge_model)" in text
+
+
+def test_another_judge_panel_or_rule_with_the_same_first_judge_is_not_read_as_noise():
+    first = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.5, seed=0), judges=["j1", "j2"], rule="median")}
+    second = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.6, seed=2), judges=["j1", "j3"], rule="majority")}
+    text = " ".join(pair_runs(first, second, "lenient")["warnings"])
+    assert "graded differently (judges, rule)" in text
+
+
+def test_the_same_panel_with_measured_values_that_vary_gives_no_warning():
+    first = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.5, seed=0), judges=["j1", "j2"], rule="median")}
+    second = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.6, seed=2), judges=["j1", "j2"], rule="median")}
+    second["skill:/s/a"]["judge_panel"]["added_share_range"] = [0.3, 0.5]
+    assert pair_runs(first, second, "lenient")["warnings"] == []
+
+
 def test_a_non_finite_score_is_unscored_not_a_crash():
     first = {"skill:/s/a": _artifact("skill:/s/a", float("nan"))}
     second = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=2)}

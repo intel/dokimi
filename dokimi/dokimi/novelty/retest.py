@@ -71,9 +71,15 @@ def load_runs(path: Path) -> dict[str, dict]:
     return runs
 
 
+def _judging(run: dict) -> dict:
+    panel = _dict(run.get("judge_panel"))
+    return {"judge_model": run.get("judge_model"), "judges": panel.get("judges"),
+            "rule": panel.get("rule")}
+
+
 def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
-    """What makes two runs of one item a poor retest: the same seed, another model, calls
-    replayed from the response cache, or settings that differ beyond the seed."""
+    """What makes two runs of one item a poor retest: the same seed, another model or judge,
+    calls replayed from the response cache, or settings that differ beyond the seed."""
     config_a, config_b = _dict(a.get("run_config")), _dict(b.get("run_config"))
     seed = config_a.get("seed")
     warnings = []
@@ -81,6 +87,11 @@ def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
         warnings.append(f"{ref}: both runs used seed {seed}; a retest needs another seed")
     if a.get("model") != b.get("model"):
         warnings.append(f"{ref}: the runs used different models ({a.get('model')} and {b.get('model')})")
+    judging_a, judging_b = _judging(a), _judging(b)
+    judged = [key for key in judging_a if judging_a[key] != judging_b[key]]
+    if judged:
+        warnings.append(f"{ref}: the runs were graded differently ({', '.join(judged)}); "
+                        "a retest needs the same judge")
     for label, run in (("first", a), ("second", b)):
         replayed = _dict(run.get("cost")).get("replayed_calls") or 0
         if replayed:
