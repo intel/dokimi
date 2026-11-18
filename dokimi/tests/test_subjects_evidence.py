@@ -21,7 +21,8 @@ FIXTURE = Path(__file__).parent / "fixtures" / "artifacts" / "subject_scorecard.
 
 def _significance(delta: float, *, significant: bool) -> dict:
     return {"ci_confidence": 0.95, "ci_lo": delta - 1.5, "ci_hi": delta + 1.5, "ci_method": "student_t",
-            "correction": "holm", "delta_mean": delta, "n": 6, "p_adjusted": 0.001 if significant else 0.4,
+            "correction": "holm", "delta_mean": delta, "n": 6, "family_tested": 2,
+            "p_adjusted": 0.001 if significant else 0.4,
             "significant_adjusted": significant}
 
 

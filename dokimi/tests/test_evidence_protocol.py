@@ -404,3 +404,87 @@ def test_a_mixed_judge_context_is_an_unresolved_input_not_a_measurement_identity
     from dokimi.eval.judge_context import PROTOCOL_MIXED
     protocol = build_protocol({"judge_context": PROTOCOL_MIXED, "repeats": 3})
     assert "judge_context" in protocol["unresolved"] and "judge_context" not in protocol["resolved"]
+
+
+# --- the family multiplier and the recorded judge snapshot (self-review round 10) ----------------
+
+def test_the_family_tested_multiplier_is_a_protocol_input_of_version_2():
+    from dokimi.subjects.evidence_check import PROTOCOL_VERSION, REQUIRED_INPUTS
+
+    assert PROTOCOL_VERSION == "2"
+    assert "family_tested" in REQUIRED_INPUTS
+
+
+def test_a_result_corrected_over_a_different_number_of_tests_is_not_comparable():
+    from test_subjects_evidence import _scorecard
+
+    def skill_result(tested: int) -> dict:
+        scorecard = _scorecard()
+        scorecard["cells"][0].update({
+            "judge_model": "claude-sonnet-5-5-20260901", "judge_provider": "amazon-bedrock",
+            "judge_context": "report-snippets", "judge_sampling": {"temperature": 0.0},
+            "judge_prompt_sha256": "sha256:" + "d" * 64, "repeats": 3})
+        scorecard["cells"][0]["summary"]["per_arm"]["skill:s"]["significance"]["family_tested"] = tested
+        [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+        return skill
+
+    two, six = skill_result(2), skill_result(6)
+
+    assert two["protocol"]["resolved"]["family_tested"] == 2
+    assert two["protocol"]["digest"] != six["protocol"]["digest"]
+    assert compare(six, two) == ["protocol digest differs (family_tested)"]
+
+
+def test_a_family_tested_the_scorecard_does_not_record_is_unresolved():
+    from test_subjects_evidence import _scorecard
+
+    scorecard = _scorecard()
+    del scorecard["cells"][0]["summary"]["per_arm"]["skill:s"]["significance"]["family_tested"]
+    [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+
+    assert "family_tested" in skill["protocol"]["unresolved"]
+    assert any("family_tested" in reason for reason in compare(skill, skill))
+
+
+def test_a_judge_alias_is_resolved_by_the_one_snapshot_the_run_recorded():
+    from test_subjects_evidence import _scorecard
+
+    scorecard = _scorecard()
+    scorecard["cells"][0].update({"judge_model": "opus", "judge_resolved_models": ["claude-opus-5-5-20261101"]})
+    [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+
+    assert skill["judge_model"] == "claude-opus-5-5-20261101"
+    assert skill["protocol"]["resolved"]["judge_model"] == "claude-opus-5-5-20261101"
+    assert "judge_model" not in skill["protocol"]["unresolved"]
+
+
+def test_a_judge_alias_with_two_recorded_snapshots_stays_unresolved():
+    from test_subjects_evidence import _scorecard
+
+    scorecard = _scorecard()
+    scorecard["cells"][0].update({"judge_model": "opus", "judge_resolved_models": [
+        "claude-opus-5-5-20260901", "claude-opus-5-5-20261101"]})
+    [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+
+    assert skill["judge_model"] == "opus"
+    assert "judge_model" in skill["protocol"]["unresolved"]
+    assert any("judge_model" in reason for reason in compare(skill, skill))
+
+
+def test_the_rollup_and_the_scorecard_cell_carry_the_recorded_judge_snapshots(tmp_path: Path):
+    from dokimi.eval.matrix_rollup import build_matrix_rollup
+    from dokimi.subjects import build_subject_scorecard, load_subject
+
+    arms = {"baseline_arm": "none", "judge_model": "opus", "judge_resolved_models": ["claude-opus-5-5-20261101"]}
+    rollup = build_matrix_rollup(library_name="l", out_dir=tmp_path, compute_plugin_deltas=False,
+                                 cell_artifacts=[("c1", tmp_path / "c1.json", arms)])
+    assert rollup["cells"][0]["judge_resolved_models"] == ["claude-opus-5-5-20261101"]
+
+    (tmp_path / "subject.toml").write_text(
+        '[subject]\nid = "s"\nkind = "doc-source"\nref = "local:docs"\n\n'
+        '[suite]\nproducts = ["p"]\nquestions = ["q.json"]\n', encoding="utf-8")
+    scorecard = build_subject_scorecard(
+        load_subject(tmp_path / "subject.toml"), out_dir=tmp_path,
+        awareness_runs=[{"product": "p", "questions": "q.json", "matrix_rollup": "m.json",
+                         "rollup": {"cells": [rollup["cells"][0]]}}])
+    assert scorecard["cells"][0]["judge_resolved_models"] == ["claude-opus-5-5-20261101"]

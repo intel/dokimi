@@ -20,7 +20,7 @@ from typing import Any
 from dokimi import __version__
 from dokimi.eval.comparison_verdict import decide
 from dokimi.eval.sign_flip import ALPHA
-from dokimi.subjects.evidence_check import build_protocol, comparability
+from dokimi.subjects.evidence_check import build_protocol, comparability, is_alias
 
 #: The arm metric the awareness summary carries per arm (``summary.per_arm[arm]``).
 METRIC = "avg_aggregate"
@@ -113,6 +113,11 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
     delta = sig.get("delta_mean") if sig else None
     correction = sig.get("correction")
     judge = cell.get("judge_model")
+    # A claude-cli judge records the snapshot it ran; one recorded id resolves an alias judge (``opus``).
+    # Two ids, or none, leave the alias unresolved: which one scored is not known.
+    snapshots = cell.get("judge_resolved_models")
+    if is_alias(judge) and isinstance(snapshots, list) and len(snapshots) == 1 and isinstance(snapshots[0], str):
+        judge = snapshots[0]
     sampling = cell.get("judge_sampling")
     if sampling is None and cell.get("judge_temperature") is not None:
         sampling = {"temperature": cell.get("judge_temperature")}
@@ -136,6 +141,7 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
         "repeats": cell.get("repeats"),
         "test": test,
         "correction": correction,
+        "family_tested": sig.get("family_tested"),
         "alpha": ALPHA,
         "ci_confidence": sig.get("ci_confidence"),
     })

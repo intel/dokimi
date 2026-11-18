@@ -27,7 +27,7 @@ from dokimi.eval.judge_context import PROTOCOL_MIXED
 
 #: What dokimi's awareness arms measure; a change to what the digest covers bumps the version.
 PROTOCOL_ID = "dokimi.awareness"
-PROTOCOL_VERSION = "1"
+PROTOCOL_VERSION = "2"
 
 #: A value that names a moving target rather than one snapshot. Matched as a whole trailing token,
 #: so ``claude-sonnet-5-5`` is resolved and ``claude-sonnet-latest`` / ``gpt:default`` are not.
@@ -196,8 +196,8 @@ def _verdict_reasons(result: Mapping[str, Any], spec: Mapping[str, Any]) -> list
 
 #: Without a protocol on both sides, the fields that must be equal instead.
 _FALLBACK_KEYS = ("harness", "judge_model", "judge_provider", "metric", "verdict_rule")
-#: The inputs a ``dokimi.awareness`` version 1 protocol names; one it leaves out is unresolved.
-REQUIRED_INPUTS = ("alpha", "ci_confidence", "correction", "eval_set_digest", "judge_context",
+#: The inputs a ``dokimi.awareness`` version 2 protocol names; one it leaves out is unresolved.
+REQUIRED_INPUTS = ("alpha", "ci_confidence", "correction", "eval_set_digest", "family_tested", "judge_context",
                    "judge_model", "judge_prompt_sha256", "judge_provider", "judge_sampling", "metric",
                    "repeats", "test")
 #: Fields a result states that its protocol resolves too: a digest over the resolved inputs cannot

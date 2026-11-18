@@ -36,13 +36,14 @@
       "p_value": 0.004,
       "product": "oneTBB",
       "protocol": {
-        "digest": "sha256:8a3cd1fb5426d92bf07b28f43afef9d4821574e468735b1a7d109f4a1651e3dc",
+        "digest": "sha256:872a6210214f38ed9e5eb5a789c1c9f712d3dbcf952387625323d56c88547730",
         "id": "dokimi.awareness",
         "resolved": {
           "alpha": 0.05,
           "ci_confidence": 0.95,
           "correction": "holm",
           "eval_set_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "family_tested": 2,
           "judge_context": "report-snippets",
           "judge_model": "claude-sonnet-5-5-20261101",
           "judge_prompt_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -56,7 +57,7 @@
           "test": "sign_flip_inversion"
         },
         "unresolved": [],
-        "version": "1"
+        "version": "2"
       },
       "provider": "amazon-bedrock",
       "verdict": "improved",

@@ -36,6 +36,8 @@ def build_matrix_rollup(
             "judge_context": data.get("judge_context"),
             "judge_temperature": data.get("judge_temperature"),
             "judge_prompt_sha256": data.get("judge_prompt_sha256"),
+            **({"judge_resolved_models": data["judge_resolved_models"]}
+               if "judge_resolved_models" in data else {}),
             "summary": data.get("summary", {}),
             "cost_summary": data.get("cost_summary", {}),
         }

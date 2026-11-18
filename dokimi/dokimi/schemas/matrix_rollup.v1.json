@@ -97,6 +97,12 @@
               "null"
             ]
           },
+          "judge_resolved_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "judge_provider": {
             "type": [
               "string",
