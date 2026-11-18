@@ -100,10 +100,10 @@ class HeredocPattern:
                     closed = step.last >= need
             if closed:
                 m = self.full.match(text, o.start())
-                if m is not None:
-                    yield m
-                    pos = m.end()
-                    continue
+                assert m is not None  # a closing line past the opener is what ``full`` ends on
+                yield m
+                pos = m.end()
+                continue
             pos = o.start() + 1
 
     def sub(self, repl: Callable[[re.Match[str]], str], text: str) -> str:
