@@ -10,6 +10,7 @@ from dokimi import records
 from dokimi.records import CONTEXT
 from tests.artifact_fixtures import artifact_fixture
 from dokimi.eval.diagnoser import (
+    SINGLE_CONDITION,
     diagnose,
     summarise_diagnoses,
     DOCS_HELPED,
@@ -220,3 +221,32 @@ def test_summarise_failures_are_the_persisted_records():
 def test_summarise_refuses_a_record_without_question_id():
     with pytest.raises(records.RecordError, match="missing question_id"):
         summarise_diagnoses([{"delta": -1.0, "diagnosis": None}])
+
+
+_JUDGE_JSON = ('{"correctness": 60, "completeness": 60, "specificity": 60, '
+               '"code_quality": 60, "actionability": 60, "aggregate": 60}')
+
+
+def _judge_for_run(run_metadata):
+    judge = Judge.__new__(Judge)
+    judge._accumulate_usage = lambda usage: None
+    judge.temperature = judge.seed = None
+    judge.judge_placeholder = False
+    judge.run_metadata = run_metadata
+    judge.llm = MagicMock()
+    judge.llm.invoke.return_value = MagicMock(content=_JUDGE_JSON)
+    return judge
+
+
+_MISSING_CONTEXT = {"question_id": "q1", "question_text": "How?", "with_docs": None,
+                    "without_docs": {"answer": "an answer"}}
+
+
+def test_judge_does_not_call_a_paired_run_with_a_missing_context_condition_one_condition():
+    row = _judge_for_run({"run_intent": "paired"})._evaluate_answer_pair("L", dict(_MISSING_CONTEXT))
+    assert row["diagnosis"]["label"] != SINGLE_CONDITION
+
+
+def test_judge_calls_a_declared_knowledge_run_one_condition():
+    row = _judge_for_run({"run_intent": "knowledge"})._evaluate_answer_pair("L", dict(_MISSING_CONTEXT))
+    assert row["diagnosis"]["label"] == SINGLE_CONDITION

@@ -17,8 +17,8 @@ import os
 import sys
 from pathlib import Path
 
+from dokimi.cli_types import positive_usd
 from dokimi.exit_codes import EXIT_FAILURE
-from dokimi.commands.novelty_run import usd_amount
 from dokimi.utils import InputError
 
 def _model_ref(value: str) -> tuple[str, str]:
@@ -135,7 +135,7 @@ def register_eval(eval_sub) -> None:
     p.add_argument("--model", type=_model_ref, default=(DEFAULT_JUDGE_PROVIDER, DEFAULT_JUDGE_MODEL),
                    metavar="PROVIDER/MODEL",
                    help=f"Model that lists and maps the requirements (default {DEFAULT_JUDGE_PROVIDER}/{DEFAULT_JUDGE_MODEL})")
-    p.add_argument("--max-usd", type=usd_amount, default=None, dest="max_usd", metavar="X",
+    p.add_argument("--max-usd", type=positive_usd, default=None, dest="max_usd", metavar="X",
                    help="Stop before a model call once this much has been spent (exit 1)")
     p.add_argument("--out", metavar="FILE", default=None, help="skill_coverage.v1 JSON to write")
     p.set_defaults(func=cmd_eval_skill_coverage)

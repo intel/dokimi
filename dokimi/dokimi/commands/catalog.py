@@ -167,6 +167,15 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
     return failed
 
 
+def _refuse_json_conflicts(args: argparse.Namespace) -> None:
+    if not getattr(args, "json", False):
+        return
+    if args.format == "json":
+        raise InputError("--json prints cli_output.v1 with the report under data; drop --format json")
+    if args.jsonl:
+        raise InputError("--jsonl writes one row per skill to a file, so --json would carry none; drop one of them")
+
+
 def _check_scan_flags(args: argparse.Namespace) -> None:
     """Raise InputError on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
     from dokimi.external.validate import FINDING_CODES
@@ -184,6 +193,7 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
     if "unreadable" in (args.ignore or ()):
         # The whole-catalog exit reads the unfiltered findings, --per-skill the filtered rows: ignoring it splits them.
         raise InputError("--ignore unreadable: a SKILL.md the OS will not read always fails the scan, as a load error does")
+    _refuse_json_conflicts(args)
     if args.jsonl and args.format == "json":
         raise InputError("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:
@@ -205,7 +215,7 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
         raise InputError(f"--root is not a directory: {root}")
     _check_scan_flags(args)
 
-    as_json = args.format == "json"
+    as_json = args.format == "json" or getattr(args, "json", False)
     report: dict = {"root": str(root), "skills": [], "tasks": []}
     any_failure = False
     declared = 0
@@ -222,10 +232,48 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
             print(f"no SKILL.md found under {root}", file=sys.stderr)
         if args.kind == "skills" or args.strict or not report["tasks"]:
             any_failure = True
-    if as_json:
+    _finish_scan(args, report, as_json, any_failure)
+
+
+def _finish_scan(args: argparse.Namespace, report: dict, as_json: bool, failed: bool) -> None:
+    """Print the JSON report or the cli_output.v1 document, then exit 1 when the scan failed."""
+    if getattr(args, "json", False):
+        _emit_check(args, report, failed)
+    elif as_json:
         print(json.dumps(report, indent=2))
-    if any_failure:
+    if failed:
         raise SystemExit(1)
+
+
+def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
+    """The cli_output.v1 document of `catalog check --json`: one subject per skill and per task, with its findings.
+
+    A subject's verdict is ``fail`` when it alone fails the exit: a skill that does not load, or with
+    --strict one in ``error`` or granting unrestricted Bash with a risky command; else ``pass``.
+    """
+    from dokimi import cli_output
+
+    subjects = []
+    for row in report["skills"]:
+        file = f"{row['relpath']}/SKILL.md" if row.get("relpath") else row.get("path")
+        bad = bool(row["error"]) or any(f["code"] == "unreadable" for f in row["findings"]) or (
+            args.strict and (row["state"] == "error" or unrestricted_and_risky(row)))
+        findings = [cli_output.finding(f["level"], f["code"], f["message"], file) for f in row["findings"]]
+        if row["error"]:
+            findings.insert(0, cli_output.finding("error", "load-error", str(row["error"]), file))
+        subjects.append({"subject": row["name"], "verdict": "fail" if bad else "pass", "findings": findings})
+    for row in report["tasks"]:
+        findings = [cli_output.finding("error", "task-load-error", str(row["reason"]), row["path"])] \
+            if row["state"] == "error" else []
+        subjects.append({"subject": f"task:{row['name']}", "verdict": "fail" if row["state"] == "error" else "pass",
+                         "findings": findings})
+    counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ("ok", "warn", "error")}
+    reason = None
+    if failed:
+        n = sum(s["verdict"] == "fail" for s in subjects)
+        reason = f"{n} subject(s) fail" + (" under --strict" if args.strict else "") if n else "nothing to scan"
+    cli_output.emit_leaf("catalog check", report, verdict="fail" if failed else "pass", reason=reason,
+                         summary={"skills": counts, "tasks": len(report["tasks"])}, subjects=subjects)
 
 
 def _write_trigger_set(args: argparse.Namespace, queries, catalog_root: Path) -> None:
@@ -535,7 +583,10 @@ def register(sub, positive_int, eval_sub) -> None:
              "probe got an answer, are warnings; targets not checked are counted in one summary line "
              "(off by default: no request is made without it; not with --per-skill)",
     )
-    scan_p.set_defaults(func=cmd_catalog_scan)
+    scan_p.add_argument("--json", action="store_true",
+                        help="Print cli_output.v1 on stdout: the report under data, one subject per skill and task "
+                             "with its findings; the exit code is unchanged")
+    scan_p.set_defaults(func=cmd_catalog_scan, emits_cli_output=True, cli_kind="catalog check")
 
     fm_p = catalog_sub.add_parser(
         "formats",

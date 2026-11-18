@@ -718,3 +718,43 @@ def test_import_path_without_a_format_names_eval_inspect_when_none_is_detected(t
     notes.write_text("just some prose, no eval format here\n")
     with pytest.raises(ValueError, match=r"see `eval inspect .*notes\.txt`"):
         import_path(notes)
+
+
+def test_eval_reference_carries_the_answers_run_intent_into_its_run_metadata(tmp_path):
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps({"questions": [{"id": "1", "question": "Q", "grading": {"checks": [
+        {"type": "match", "values": ["yes"], "location": "any"}]}}]}))
+    a = tmp_path / "a.json"
+    a.write_text(json.dumps({"run_intent": "paired", "answers": [
+        {"question_id": "1", "question_text": "Q", "without_docs": {"answer": "yes"}}]}))
+    out = tmp_path / "e.json"
+    args = build_parser().parse_args(["eval", "score", "reference", "--answers", str(a), "--questions", str(q),
+                                      "-o", str(out), "--no-judge"])
+    args.func(args)
+    assert json.loads(out.read_text())["run_metadata"]["run_intent"] == "paired"
+
+
+
+def test_eval_score_carries_the_answers_run_intent_into_the_judge_metadata(tmp_path, monkeypatch):
+    from dokimi.cli import build_parser
+
+    seen = {}
+
+    class FakeJudge:
+        def __init__(self, **kwargs):
+            seen.update(kwargs["run_metadata"])
+
+        def evaluate_answers(self, *args, **kwargs):
+            return []
+
+        def save_evaluations(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr("dokimi.eval.Judge", FakeJudge)
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps({"run_intent": "paired", "answers": [
+        {"id": "q1", "question": "What?", "answer": "x", "with_docs": None}]}), encoding="utf-8")
+    args = build_parser().parse_args(["eval", "score", "pointwise", "--product", "oneTBB", "--answers", str(answers), "--judge-provider",
+                                      "openai", "--judge-model", "gpt-5.1", "--output", str(tmp_path / "eval.json")])
+    args.func(args)
+    assert seen["run_intent"] == "paired"

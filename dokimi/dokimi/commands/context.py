@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import argparse
 import glob
-import math
 import os
 import sys
 from pathlib import Path
 from typing import NoReturn
 
+from dokimi.cli_types import non_negative_int, unit_interval
 from dokimi.utils import InputError, refuse_device
 
 
@@ -38,12 +38,14 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
             row["compaction_events"] = trace.compactions
         rows.append(row)
 
+    if not rows:  # nothing read is a bad input (exit 2), not a partial result
+        raise InputError("no trace could be read (see stderr)")
     if args.json:  # always a list, one entry per trace that read
-        status = "failed" if not rows else "partial" if failed or skipped else "complete"  # nothing read: failed
+        status = "partial" if failed or skipped else "complete"
         reason = ("one or more traces could not be read (see stderr)" if failed
                   else "lines of a trace were skipped (see stderr)" if skipped else None)
         cli_output.emit_leaf("trace inspect", rows, status=status, reason=reason)
-    elif rows:
+    else:
         _print_text(rows, args)
     if failed:
         sys.exit(1)
@@ -107,7 +109,9 @@ def _refuse(message: str) -> NoReturn:
 
 
 def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list], bool]:
-    """The runs of each arm, and whether some trace could not be read (reported on stderr)."""
+    """The runs of each arm, and whether some trace could not be read (reported on stderr).
+
+    Nothing read at all is a bad input (exit 2), not a partial result."""
     from dokimi.context import TraceError
     from dokimi.context.consistency import read_run
 
@@ -121,6 +125,8 @@ def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list],
             except TraceError as exc:
                 print(f"✗ {exc}", file=sys.stderr)
                 failed = True
+    if not any(loaded.values()):
+        raise InputError("no trace could be read (see stderr)")
     return loaded, failed
 
 
@@ -156,7 +162,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         report[label]["shell"] = args.shell  # the grain the step counts were taken at
 
     if args.json:
-        status = "failed" if not any(loaded.values()) else "partial" if failed else "complete"
+        status = "partial" if failed else "complete"
         cli_output.emit_leaf("trace consistency", report, status=status,
                              reason="one or more traces could not be read (see stderr)" if failed else None)
     else:
@@ -249,20 +255,6 @@ def _session_paths(names: list[str]) -> list[str]:
             seen.add(real)
             paths.append(path)
     return paths
-
-
-def _non_negative_int(value: str) -> int:
-    number = int(value)
-    if number < 0:
-        raise argparse.ArgumentTypeError(f"must be 0 or more, not {value}")
-    return number
-
-
-def _unit_rate(value: str) -> float:
-    rate = float(value)
-    if not math.isfinite(rate) or not 0 <= rate <= 1:
-        raise argparse.ArgumentTypeError(f"must be a number from 0 to 1, not {value}")
-    return rate
 
 
 def _unique_traces(label: str, names: list[str]) -> list[str]:
@@ -369,9 +361,9 @@ def register(sub, positive_int) -> None:
                        "correction (default 10)")
     pre_p.add_argument("--min-sessions", type=positive_int, default=5,
                        help="Fewer sessions than this: no candidates are ranked (default 5)")
-    pre_p.add_argument("--rare-max", type=_non_negative_int, default=3,
+    pre_p.add_argument("--rare-max", type=non_negative_int, default=3,
                        help="A rule triggered in at most this many sessions is rare: listed, not ranked (default 3)")
-    pre_p.add_argument("--in-use-rate", type=_unit_rate, default=0.2,
+    pre_p.add_argument("--in-use-rate", type=unit_interval, default=0.2,
                        help="A rule triggered in at least this share of sessions is in use, not a candidate (default 0.2)")
     pre_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
     pre_p.set_defaults(func=cmd_context_prefilter, emits_cli_output=True, cli_kind="trace prefilter")

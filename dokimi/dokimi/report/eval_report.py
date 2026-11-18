@@ -17,8 +17,10 @@ import argparse
 import json
 import math
 import os
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from typing import Any
 
 from dokimi.artifacts import save_artifact
 # This module defines a local ``stats()`` helper, hence the ``eval_stats`` alias.
@@ -194,6 +196,7 @@ DIAG_MAP = {
     "low_relevance": "🟡 Low relevance",
     "below_rerank_threshold": "🟠 Below rerank threshold",
     "insufficient_data": "⚪ Insufficient data",
+    "single_condition": "⚪ One condition (no delta)",
 }
 
 DIFFICULTY_ORDER = ["easy", "beginner", "intermediate", "medium", "advanced", "hard"]
@@ -205,7 +208,6 @@ def _answers_by_id(answers_path: str) -> dict[str, Record]:
     A missing answers file means no answers in the sidecar. A record that cannot be
     read drops only itself, with a warning naming it.
     """
-    import sys
     from pathlib import Path
 
     try:
@@ -213,12 +215,19 @@ def _answers_by_id(answers_path: str) -> dict[str, Record]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
     items = data.get("answers") if isinstance(data, dict) else data
+    return answers_from_items(items, source=answers_path)
+
+
+def answers_from_items(items: Any, *, source: str) -> dict[str, Record]:
+    """Answers given in a list (an answers file's, or an arms artifact's own), by question key."""
+    import sys
+
     if not isinstance(items, list):
         return {}
     out: dict[str, Record] = {}
     for i, item in enumerate(items):
         try:
-            rec = record(item, source=f"{answers_path} answers", index=i, kind="answers")
+            rec = record(item, source=f"{source} answers", index=i, kind="answers")
         except RecordError as exc:
             print(f"⚠ {exc}; its answers are left out of the Q&A sidecar", file=sys.stderr)
             continue
@@ -256,6 +265,12 @@ def _write_qa_json(path: str, payload: dict) -> None:
         save_artifact("report_qa", payload, path, ensure_ascii=False)  # people read it
     except OSError as exc:
         raise RecordError(f"cannot write {path}: {exc.strerror or exc}") from exc
+
+
+def _sibling_answers_path(eval_path: str) -> str:
+    """The answers file an eval file was judged from: its parent directory ``eval`` becomes ``answers``,
+    for a relative, absolute or native path (``eval/demo.json`` as well as ``/x/eval/demo.json``)."""
+    return re.sub(r"(^|[\\/])eval(?=[\\/][^\\/]*$)", r"\1answers", eval_path, count=1)
 
 
 def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = None):
@@ -533,7 +548,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     if qa_json_out is None:
         qa_json_out = os.path.splitext(out_path)[0] + ".qa.json"
 
-    answers_by_id = _answers_by_id(eval_path.replace("/eval/", "/answers/"))
+    answers_by_id = _answers_by_id(_sibling_answers_path(eval_path))
 
     def _answer_text(a: Record | None, condition: str):
         answer = a.answer(condition) if a is not None else None

@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import sys
 
+from dokimi._version import __version__
+from dokimi.provenance import generated_by
 from dokimi.questions.llm_gen import QuestionGenerator
 
 
@@ -73,6 +75,17 @@ def test_generate_hybrid_merges_persona_and_chunk():
     assert all("question" in q for q in result)
 
 
+def test_generate_hybrid_keeps_each_generator_s_own_stamp():
+    gen = _make_generator()
+    with patch.object(gen, "_call_llm", return_value=["Persona Q?"]), \
+         _patch_chunk_gen(_fake_question_dicts(1)):
+        result = gen.generate_hybrid("oneTBB", [_fake_persona()], ["t1"], "https://x.com",
+                                     total_questions=2, chunk_ratio=0.5, questions_per_topic=1)
+
+    assert {q["question_source"]: q["provenance"] for q in result} == {
+        "persona": generated_by("questions-persona"), "chunk": generated_by("questions-chunk")}
+
+
 def test_generate_hybrid_assigns_sequential_ids():
     gen = _make_generator()
     chunk_qs = _fake_question_dicts(4)
@@ -126,6 +139,17 @@ def test_generate_hybrid_text_field_renamed_to_question():
 
     assert all("question" in q for q in result)
     assert all("text" not in q for q in result)
+
+
+def test_generate_hybrid_stamps_chunk_questions_with_the_chunk_generator():
+    gen = _make_generator()
+    chunk_qs = _fake_question_dicts(2)
+
+    with patch.object(gen, "generate_questions", return_value=[]), \
+         _patch_chunk_gen(chunk_qs):
+        result = gen.generate_hybrid("oneTBB", [], [], "https://x.com", total_questions=2)
+
+    assert {q["provenance"]["source"] for q in result} == {f"generated:dokimi-questions-chunk@{__version__}"}
 
 
 # ── save_questions ────────────────────────────────────────────────────────────

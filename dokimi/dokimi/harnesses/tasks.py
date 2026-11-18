@@ -41,6 +41,8 @@ from typing import Any
 
 import yaml
 
+from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
+
 from . import tbench_v1
 
 # Executable tasks live in a separate evaluation-content checkout, so there is
@@ -127,6 +129,30 @@ class TaskSpec:
     def dockerfile(self) -> str:
         """The Dockerfile, relative to :attr:`build_context`."""
         return str(self._tb.get("dockerfile") or "Dockerfile")
+
+    @property
+    def docker_image(self) -> str | None:
+        """A Harbor task's prebuilt ``[environment] docker_image``, run instead of a build; else ``None``.
+
+        Harbor 0.24 starts from it whenever it is set, also beside an ``environment/Dockerfile``
+        (``environments/definition.py::should_use_prebuilt_docker_image``; only ``--force-build``
+        builds then, and dokimi has no such flag). Other formats build: a staged SWE-bench task's
+        Dockerfile starts ``FROM`` its ``docker_image``.
+        """
+        image = self.environment.get("docker_image")
+        return image if self.format == FORMAT_HARBOR and isinstance(image, str) and image else None
+
+    @property
+    def environment_upload(self) -> Path | None:
+        """``environment/``, when Harbor copies its files into the workdir of the started container.
+
+        Harbor does so for a :attr:`docker_image` task whose non-empty ``environment/`` has no
+        ``Dockerfile`` or ``docker-compose.yaml`` (``should_upload_environment_dir``, same file).
+        """
+        env = self.path / "environment"
+        if self.docker_image is None or any((env / n).exists() for n in ("Dockerfile", "docker-compose.yaml")):
+            return None
+        return env if env.is_dir() and any(env.iterdir()) else None
 
     @property
     def container_env(self) -> dict[str, str]:
@@ -316,6 +342,15 @@ def _read_tables(path: Path, fmt: str) -> tuple[dict[str, Any], str]:
     return read_task_config(path), instruction_path.read_text(encoding="utf-8")
 
 
+def _check_provenance(spec: TaskSpec) -> None:
+    """Warn, never fail, on a malformed metadata ``version`` or ``provenance``: a repository may already use the key."""
+    try:
+        parse_version(spec.metadata.get("version"))
+        parse_provenance(spec.metadata.get("provenance"))
+    except ProvenanceError as exc:
+        _warn_once(f"task {spec.path}: metadata {exc}; its status reads as unknown")
+
+
 def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
     """Load one task by directory path, or by task name relative to *root*.
 
@@ -352,6 +387,7 @@ def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
             f"'environment' is the legacy Harbor spelling); keep only 'sandbox': {path}"
         )
     environment = _table(data.get("sandbox")) or _table(data.get("environment"))
+    _check_docker_image(fmt, environment, path)
     version = data.get("schema_version")
     spec = TaskSpec(
         name=path.name,
@@ -365,6 +401,7 @@ def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
         format=fmt,
         schema_version=str(version) if version is not None else None,
     )
+    _check_provenance(spec)
     drift = legacy_drift(spec)
     if drift:
         _warn_once(
@@ -372,6 +409,14 @@ def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
             f"docker-* and the run artifact use task.md, Harbor-backed harnesses refuse it: {path}"
         )
     return spec
+
+
+def _check_docker_image(fmt: str, environment: dict[str, Any], path: Path) -> None:
+    """Refuse a Harbor ``docker_image`` that is not a string, as Harbor 0.24's ``EnvironmentConfig``
+    (``docker_image: str | None``) does, rather than build a task that names a prebuilt image."""
+    image = environment.get("docker_image")
+    if fmt == FORMAT_HARBOR and image is not None and not isinstance(image, str):
+        raise ValueError(f"task.toml [environment] docker_image must be a string, not {image!r}: {path}")
 
 
 def read_task_config(path: Path) -> dict[str, Any]:
