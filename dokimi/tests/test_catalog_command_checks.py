@@ -441,7 +441,7 @@ def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
         [review] = review_skills(read_skill_manifest(tmp_path / "skills"))
     finally:
         locked.chmod(0o755)
-    assert review.findings == []
+    assert [f.code for f in review.findings] == ["bundle-file-unchecked"]  # the folder cannot be listed: a note
 
 
 @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permissions")

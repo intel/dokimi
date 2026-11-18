@@ -55,6 +55,9 @@ naming such a file is ``path-escapes-skill``. A code span naming a bundled file 
 not have is ``path-missing`` (see :mod:`dokimi.external.bundle_paths`). Other code spans, and code
 fences, are not checked: those are usually examples or paths in the user's own project.
 
+Bundled scripts and documents that ``SKILL.md`` never names are one ``warn`` per skill
+(``bundle-file-unreferenced``, see :mod:`dokimi.external.bundle_refs`).
+
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``); the cues are
 English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``when_cues.WHEN_CUES``),
 and a description in a script none covers is not checked: it gets a ``note`` (``description-when-not-checked``). One whose tokens overlap another skill's at a
@@ -81,15 +84,16 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Optional, Sequence
-from urllib.parse import unquote
 
 import yaml
 
 from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
-from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR, path_missing
+from .bundle_paths import path_missing
+from .link_files import _file_ref, _link_files
 from .catalog import SkillCatalogEntry, _within
+from .bundle_refs import unreferenced_check
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
@@ -138,12 +142,6 @@ STOP_WORDS = frozenset(
     should must may might if else only other such via per about over under more most very
     just""".split()
 )
-# A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
-_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
-# RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
-URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
-# After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
-FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 
 # Every code a review can report: ``catalog check --ignore`` accepts these and no others.
 # tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
@@ -151,6 +149,8 @@ FINDING_CODES = (
     "allowed-tools-unknown",
     "allowed-tools-unrestricted-bash",
     "body-too-large",
+    "bundle-file-unchecked",
+    "bundle-file-unreferenced",
     "description-near-duplicate",
     "description-no-when",
     "description-too-long",
@@ -453,41 +453,6 @@ def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: Ski
     return f"{where} in {o_entry.source_root.as_posix()}"
 
 
-def _file_ref(raw: str, link: bool = False) -> Optional[str]:
-    """The skill-relative file a reference names, or None if it names no file to check.
-
-    None for a URL or any other URI (``tel:``, ``urn:``, ``MAILTO:``), a bare anchor, an
-    absolute path, a placeholder (``URL``, ``TBD``, ``...``), or a template variable (not ``${CLAUDE_SKILL_DIR}``). A
-    ``<...>`` destination (CommonMark) is read as the path inside the brackets. A link
-    destination (``link``) is a URL: its ``#fragment`` and ``?query`` are not part of the path,
-    its backslash escapes of ASCII punctuation (``guide\\_notes.md``) are decoded, and its
-    percent-encoded bytes name the file (``guide%20notes.md``). A code span is literal: a ``#``
-    or a ``%`` in it is in the file's name.
-    """
-    text = raw.strip()
-    if text.startswith("<") and text.endswith(">"):
-        text = text[1:-1].strip()
-    if link:
-        text = _ESCAPE_RE.sub(r"\1", text)
-        text = text.split("#", 1)[0].split("?", 1)[0].strip()
-        text = unquote(text)
-    if not text or "://" in text or text.startswith("/"):
-        return None
-    scheme = URI_SCHEME_RE.match(text)
-    if scheme and not ("." in scheme.group() and FILE_SUFFIX_RE.fullmatch(text[scheme.end() :])):
-        return None
-    text = LOCATION_SUFFIX_RE.sub("", text)  # the file is named before its line or symbol suffix
-    if not text or text.lower() in {"url", "link", "path", "uri", "href", "todo", "tbd", "..."}:  # a stand-in
-        return None
-    if text.startswith(SKILL_DIR_VAR):
-        text = text[len(SKILL_DIR_VAR) :]
-        if not text:
-            return None
-    if any(c in text for c in "${}<>*"):
-        return None
-    return text
-
-
 def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
     """The finding for one link destination (inline or reference), or None when it is fine."""
     text = _file_ref(raw, link=True)
@@ -738,6 +703,13 @@ def review_skills(
                 Finding("warn", code, message)
                 for code, message in content_findings(skill, at_root=at_root and not standalone)
             ]
+            unreferenced, unchecked = unreferenced_check(
+                skill.path, _link_files(skill.body), at_root=at_root and not standalone, doc_links=_link_files
+            )
+            if unreferenced is not None:
+                review.findings.append(Finding("warn", "bundle-file-unreferenced", unreferenced))
+            if unchecked is not None:
+                review.findings.append(Finding("note", "bundle-file-unchecked", unchecked))
             review.findings += [Finding(*item) for item in script_findings(
                 skill.path.parent, checkout=None if standalone else entry.source_root)]
             if not hidden:
