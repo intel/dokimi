@@ -218,6 +218,7 @@ def test_resumable_never_keeps_a_row_whose_directory_could_not_be_digested():
     '{"key": [], "name": "a", "status": "partial", "usd": 0.0}\n',
     '{"key": "a", "status": "ok"}\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": "high"}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0}\n',  # the summary reads new_lenient of an ok row
     '[1]\n',
 ])
 def test_a_row_of_the_wrong_shape_is_a_line_numbered_input_error(tmp_path, bad):

@@ -125,7 +125,8 @@ def _row_problem(row: Any) -> Optional[str]:
         return "`key` and `name` must be strings"
     if not _is_number(row.get("usd")):
         return "`usd` must be a number"
-    if row["status"] == "ok" and not (row.get("new_lenient") is None or _is_number(row["new_lenient"])):
+    if row["status"] == "ok" and not ("new_lenient" in row and (row["new_lenient"] is None
+                                                                or _is_number(row["new_lenient"]))):
         return "`new_lenient` must be a number or null"
     for field in ("new_strict", "tokens"):
         if row.get(field) is not None and not _is_number(row[field]):
