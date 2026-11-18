@@ -228,9 +228,12 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     if rd.exists():
         _rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
+    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir,
+                             base_git_dir=ctx.git_dir_for(task.id))
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
+    if ctx.suite is not None and task.id in ctx.suite.meta:  # additive: only a suite task's base is elsewhere
+        meta["base_repo"] = ctx.suite.meta[task.id]
     present = _workspace_args(task, opts, rd, meta)
     _write_json(rd / "meta.json", meta)
     skills: dict[str, Any] | None = None
@@ -323,14 +326,21 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
                               "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade}
+    return _finish_record(record, rd, task, meta, (skills, uptake_of, events), float(agent["charged_usd"]))
+
+
+def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str, Any], arm_use: tuple[Any, Any, Any],
+                   charged_usd: float) -> dict[str, Any]:
+    """The cell's ``record`` with its task status and arm use, saved as ``result.json``; a run dir it cannot be
+    written to is a :class:`CellCrash` that keeps the charge."""
     if status_of(task.raw) != UNKNOWN:  # absent means unknown to the report: a task without one writes no key
         record["task_status"] = status_of(task.raw)
-    _add_arm_use(record, meta, task, skills, uptake_of, events)
+    _add_arm_use(record, meta, task, *arm_use)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)
     except OSError as exc:
-        raise CellCrash(f"cannot write result.json: {exc}", float(agent["charged_usd"])) from exc
+        raise CellCrash(f"cannot write result.json: {exc}", charged_usd) from exc
     return record
 
 
@@ -416,7 +426,8 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
-    verdicts = {t.id: unmet(t, host) for t in tasks}
+    gaps = ctx.base_gaps()  # a task whose base repository is missing is unsupported, as a host miss is
+    verdicts = {t.id: (gaps[t.id], "suite") if t.id in gaps else unmet(t, host) for t in tasks}
     unsupported = {task_id: why for task_id, (why, _) in verdicts.items() if why}
     if force and unsupported:  # --force keeps their finished cells, so those must match this run too
         check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells
