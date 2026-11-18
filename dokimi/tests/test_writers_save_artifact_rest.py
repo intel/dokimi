@@ -127,6 +127,27 @@ def test_a_refused_snapshot_beside_an_unwritable_report_still_exits_1_and_names_
     assert "Error: docs_run artifact rejected: " in err
 
 
+def test_a_refused_snapshot_beside_a_report_that_crashes_still_exits_1(tmp_path, monkeypatch, capsys, caplog):
+    """A report that cannot be rendered is logged with its traceback; the snapshot's refusal decides the exit
+    (review of #829)."""
+    from dokimi.runner import run as run_mod
+
+    build = run_mod.build_run_manifest
+    monkeypatch.setattr(run_mod, "build_run_manifest", lambda **kw: {**build(**kw), "generated_at": None})
+
+    def crash(_data, _path):
+        raise TypeError("unsupported format string passed to NoneType.__format__")
+
+    monkeypatch.setattr("dokimi.commands.run.write_run_report", crash)
+    out = tmp_path / "current.json"
+    assert _check(monkeypatch, tmp_path, out) == 1
+
+    assert _rejected(out)["run_manifest"]["generated_at"] is None
+    assert capsys.readouterr().err.startswith("Error: docs_run artifact rejected: ")
+    (record,) = [r for r in caplog.records if "could not be written after the snapshot failed" in r.getMessage()]
+    assert record.exc_info[0] is TypeError
+
+
 def test_a_snapshot_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
     """A manifest time that is not text (a writer bug) is refused; the markdown report is still written, as
     `report eval` keeps its markdown when the sidecar is refused (review of #829)."""

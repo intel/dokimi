@@ -6,8 +6,8 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
+import logging
 import math
 import sys
 from pathlib import Path
@@ -22,6 +22,8 @@ from dokimi.runner.compare import CompareInputError, compare_snapshots
 from dokimi.runner.run import DocLoadError, load_benchmark_spec, run_benchmark, save_snapshot
 from dokimi.runner.spec import DocSelectionError
 from dokimi.utils import InputError
+
+logger = logging.getLogger(__name__)
 
 
 def _run_or_exit(root: Path, spec_path: Path) -> dict:
@@ -55,16 +57,25 @@ def _write_outputs(writes) -> None:
 def _write_snapshot_and_report(result: dict, out_json: Path, out_md: Path) -> None:
     """Both files, whatever the other one does; the snapshot's failure decides the exit (1 refused, 2 unwritable).
 
-    After a failed snapshot an unwritable report only prints its ``cannot write`` line.
+    After a failed snapshot the report's own failure is only reported (:func:`_report_after_failed_snapshot`).
     """
     with exit_on_rejected("docs_run"):
         try:
             _write_outputs(((save_snapshot, result, out_json),))
         except BaseException:
-            with contextlib.suppress(SystemExit):  # the report's error is printed; the snapshot's stands
-                _write_outputs(((write_run_report, result, out_md),))
+            _report_after_failed_snapshot(result, out_md)
             raise
     _write_outputs(((write_run_report, result, out_md),))
+
+
+def _report_after_failed_snapshot(result: dict, out_md: Path) -> None:
+    """Write the report; an unwritable path prints its ``cannot write`` line, a crash is logged with its traceback."""
+    try:
+        _write_outputs(((write_run_report, result, out_md),))
+    except SystemExit:  # _write_outputs printed the line; the snapshot's failure stands
+        pass
+    except Exception:  # noqa: BLE001 - logged with its traceback; the snapshot's failure decides the exit (#829)
+        logger.exception("the report %s could not be written after the snapshot failed", out_md)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
