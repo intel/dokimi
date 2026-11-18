@@ -83,7 +83,7 @@ def test_a_second_ctrl_c_during_the_kills_keeps_the_halt_until_the_worker_return
 
 
 def test_an_interrupt_after_an_agent_ran_still_charges_what_it_spent(tmp_path, monkeypatch):
-    """The agent ran and was charged; the halt then refuses its grader. The charge is saved, the cell is not."""
+    """A cell interrupted after its agent ran is dropped; the charge the interrupt carries is saved, the cell is not."""
     from dokimi.repos import runner as runner_mod
 
     def answer(call):
@@ -96,7 +96,7 @@ def test_an_interrupt_after_an_agent_ran_still_charges_what_it_spent(tmp_path, m
     def run_cell(ctx, task, arm, rep, batch_dir, opts, **kw):
         ran.append(1)
         exc = BatchInterrupted("the batch was interrupted while this container ran")
-        exc.charged_usd = 0.5  # what run_cell sets once the agent has charged
+        exc.charged_usd = 0.5  # the charge a dropped cell carries into _settle
         raise exc
 
     monkeypatch.setattr(runner_mod, "run_cell", run_cell)

@@ -61,9 +61,8 @@ SUPPORT_DIR = "/eval/support"
 GRADERS_DIR = "/eval/graders"  # the built-in graders, mounted read-only into the grading container only
 NETWORKS = ("none", "bridge", "host")
 
-# The named containers a run has started and not yet returned, with the kill of each and whether a halt spares it
-# (a grading container, contract §9). A batch's worker threads share them: Ctrl-C reaches only the main thread, so
-# the batch kills them by name (see halt_and_kill_started).
+# The named containers a run has started and not yet returned: the kill of each, and whether a halt spares it
+# (a grading container, contract §9). Ctrl-C reaches only the main thread, so a batch kills them by name.
 _log = logging.getLogger(__name__)
 _live_lock = threading.Lock()
 _live: dict[str, tuple[Callable[[], None], bool]] = {}
