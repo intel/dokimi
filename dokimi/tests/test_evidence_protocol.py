@@ -502,3 +502,20 @@ def test_the_rollup_and_the_scorecard_cell_carry_the_recorded_judge_snapshots(tm
         awareness_runs=[{"product": "p", "questions": "q.json", "matrix_rollup": "m.json",
                          "rollup": {"cells": [rollup["cells"][0]]}}])
     assert scorecard["cells"][0]["judge_resolved_models"] == ["claude-opus-5-5-20261101"]
+
+
+@pytest.mark.parametrize("pid, version, resolved", [
+    ("dokimi.awareness", "1", {}), ("dokimi.awareness", "1", None), ("other.lab", "9", {"repeats": 3}),
+])
+def test_an_unknown_protocol_shared_by_both_sides_never_hides_a_judge_or_rule_change(pid, version, resolved):
+    base = _fixture("verdict_with_rule.json")
+    protocol = {"id": pid, "version": version, "digest": protocol_digest(resolved or {})}
+    if resolved is not None:
+        protocol.update(resolved=resolved, unresolved=[])
+    older = {**base, "protocol": protocol}
+    newer = {**older, "judge_model": "gpt-5.1-2026-01-01", "judge_provider": "openai",
+             "verdict_rule": {**base["verdict_rule"], "alpha": 0.2}}
+
+    assert "protocol id or version unknown: its required inputs cannot be checked" in compare(newer, older)
+    assert mark_against([newer], older)[0]["comparable"] is False
+    assert compare(older, older) == ["protocol id or version unknown: its required inputs cannot be checked"]

@@ -241,6 +241,9 @@ def _protocol_reasons(mine: Mapping[str, Any], theirs: Mapping[str, Any]) -> lis
     reasons = []
     if (mine.get("id"), mine.get("version")) != (theirs.get("id"), theirs.get("version")):
         reasons.append("protocol id or version differs")
+    elif (mine.get("id"), mine.get("version")) != (PROTOCOL_ID, PROTOCOL_VERSION):
+        # an unknown protocol's required inputs cannot be checked, so equal digests prove nothing
+        reasons.append("protocol id or version unknown: its required inputs cannot be checked")
     elif mine.get("digest") != theirs.get("digest"):
         changed = sorted(k for k in set(_resolved(mine)) | set(_resolved(theirs))
                          if _resolved(mine).get(k) != _resolved(theirs).get(k))
@@ -252,7 +255,7 @@ def _protocol_reasons(mine: Mapping[str, Any], theirs: Mapping[str, Any]) -> lis
 
 
 def _unresolved(protocol: Mapping[str, Any]) -> set[str]:
-    """The inputs the protocol lists as unresolved, the ones it omits (``dokimi.awareness`` 1), and
+    """The inputs the protocol lists as unresolved, the ones the current version omits, and
     any resolved value that is null or an alias: a digest over them identifies no fixed measurement."""
     listed = set(protocol.get("unresolved") or [])
     if (protocol.get("id"), protocol.get("version")) == (PROTOCOL_ID, PROTOCOL_VERSION):
