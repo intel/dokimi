@@ -25,10 +25,17 @@ def pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str]) -> Iterat
     found: dict[str, list[re.Match[str]]] = {}
     for m in closer.finditer(text):
         found.setdefault(m.group(1) if m.re.groups else "", []).append(m)
+    cursor: dict[str, int] = {}  # per key: the closers before this index start before the last opener's end
     pos = 0
     while (o := opener.search(text, pos)) is not None:
-        closers = found.get(o.group(1) if o.re.groups else "", [])
-        k = bisect_left(closers, o.end(), key=lambda c: c.start())
+        key = o.group(1) if o.re.groups else ""
+        closers = found.get(key, [])
+        k = cursor.get(key, 0)
+        if k and closers[k - 1].start() >= o.end():  # an opener that ends before the last one did
+            k = bisect_left(closers, o.end(), 0, k, key=lambda c: c.start())
+        while k < len(closers) and closers[k].start() < o.end():
+            k += 1
+        cursor[key] = k
         if k == len(closers):
             pos = o.start() + 1  # a key with no closer after this opener has none after a later one
             continue

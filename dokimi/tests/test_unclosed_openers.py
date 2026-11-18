@@ -26,7 +26,7 @@ from dokimi.metrics import exploration
 from dokimi.repos import cli_traces
 from dokimi.repos.graders import review
 from dokimi.repos.shell_words import _stdout_after_stderr
-from dokimi.text_spans import replace_pairs
+from dokimi.text_spans import pairs, replace_pairs
 from tests.growth_timing import GROWTH_LIMIT, growth
 
 FUZZ_CASES = 3000
@@ -528,3 +528,53 @@ def test_the_last_json_object_matches_the_old_regex_on_random_text() -> None:
 
 def test_the_last_json_object_scans_a_run_of_openers_in_linear_time() -> None:
     _linear(claude_json._last_json_object, lambda k: "{" * k, n=20_000)
+
+
+# text_spans.pairs: closer positions read per opener ---------------------------------------------------------------------
+
+
+class _CountedMatch:
+    """A closer match that counts each read of its position."""
+
+    def __init__(self, m: re.Match[str], reads: list[int]) -> None:
+        self._m, self._reads, self.re = m, reads, m.re
+
+    def start(self) -> int:
+        self._reads[0] += 1
+        return self._m.start()
+
+    def end(self) -> int:
+        return self._m.end()
+
+    def group(self, i: int) -> str:
+        return self._m.group(i)
+
+
+class _CountedCloser:
+    def __init__(self, closer: re.Pattern[str], reads: list[int]) -> None:
+        self._closer, self._reads = closer, reads
+
+    def finditer(self, text: str) -> list[_CountedMatch]:
+        return [_CountedMatch(m, self._reads) for m in self._closer.finditer(text)]
+
+
+def _closer_reads(text: str, opener: str, closer: str) -> int:
+    reads = [0]
+    list(pairs(text, re.compile(opener), _CountedCloser(re.compile(closer), reads)))  # type: ignore[arg-type]
+    return reads[0]
+
+
+@pytest.mark.parametrize("n", [1_000, 4_000])
+def test_pairs_reads_each_closer_position_a_bounded_number_of_times_for_openers_after_all_closers(n: int) -> None:
+    reads = _closer_reads("</r>" * n + "<r>" * n, "<r>", "</r>")
+    assert reads < 3 * n  # a binary search per opener reads about n * log2(n)
+
+
+def test_pairs_reads_each_closer_position_a_bounded_number_of_times_for_complete_pairs() -> None:
+    n = 4_000
+    assert _closer_reads("<r></r>" * n, "<r>", "</r>") < 3 * n
+
+
+def test_pairs_pairs_an_opener_that_ends_before_an_earlier_skipped_one_did() -> None:
+    found = [(o.group(), c.group()) for o, c in pairs("abcd", re.compile("abcd|b"), re.compile("c"))]
+    assert found == [("b", "c")]
