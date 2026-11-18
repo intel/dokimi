@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import errno
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from dokimi.cli import build_parser
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
@@ -168,6 +170,20 @@ def test_a_cache_root_that_is_a_file_is_refused_even_when_every_cache_is_overrid
     assert setup["runner"].builds == [] and not (setup["tmp"] / "mine").exists()
 
 
+@pytest.mark.parametrize("command", COMMANDS)
+def test_a_cache_root_that_is_a_file_is_refused_when_the_manifest_declares_no_cache(command, setup):
+    """The root is checked whether or not a cache uses it (contract §9)."""
+    manifest = setup["root"] / ".agent-eval" / "repo-eval.yaml"
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    data["image"]["caches"] = []
+    manifest.write_text(yaml.safe_dump(data), encoding="utf-8")
+    subprocess.run(["git", "-C", str(setup["root"]), "commit", "-qam", "no caches"], check=True)
+    blocker = _file(setup["tmp"])
+    exc = _invoke(setup, command, "--cache-root", str(blocker))
+    assert exc.code == 2 and f"--cache-root {blocker} is not a directory; {CLOSING}" in exc.err
+    assert setup["runner"].builds == []
+
+
 def _loops_raise(monkeypatch, error):
     """A symlink to itself fails `Path.resolve()` as it does on Python < 3.13 (3.13 returns the path)."""
     real = Path.resolve
@@ -186,10 +202,12 @@ def _loop(path):
 
 
 @pytest.mark.parametrize("command", COMMANDS)
-@pytest.mark.parametrize("error", [RuntimeError("Symlink loop from 'x'"), OSError(errno.ELOOP, "Too many levels of symbolic links")],
+@pytest.mark.parametrize(("error", "why"), [(RuntimeError("Symlink loop from 'x'"), "(a symbolic link loop)"),
+                                            (OSError(errno.ELOOP, "Too many levels of symbolic links"),
+                                             "(Too many levels of symbolic links)")],
                          ids=["runtime-error", "os-error"])
 @pytest.mark.parametrize("flag", ["root", "override", "child"])
-def test_a_path_that_cannot_be_resolved_exits_2_naming_the_flag_before_any_build(command, error, flag, setup, monkeypatch):
+def test_a_path_that_cannot_be_resolved_exits_2_naming_the_flag_before_any_build(command, error, why, flag, setup, monkeypatch):
     loop = _loop(setup["tmp"] / "loop")
     _loops_raise(monkeypatch, error)
     if flag == "child":
@@ -202,7 +220,7 @@ def test_a_path_that_cannot_be_resolved_exits_2_naming_the_flag_before_any_build
         label, extra = "--cache build-cache", ["--cache", f"build-cache={loop}"]
     exc = _invoke(setup, command, *extra)
     assert exc.code == 2
-    assert f"{label} " in exc.err and "cannot resolve it" in exc.err and CLOSING in exc.err
+    assert f"{label} " in exc.err and f"cannot resolve it {why}" in exc.err and CLOSING in exc.err
     assert "Traceback" not in exc.err and "Errno" not in exc.err and setup["runner"].builds == []
 
 

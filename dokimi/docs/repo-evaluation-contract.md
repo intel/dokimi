@@ -2351,7 +2351,8 @@ without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 `--cache NAME=PATH` points one elsewhere. A `--cache-root` or `--cache NAME=PATH` that is a regular file or
 below one, or a `--cache-root` that holds a regular file named after a cache, is refused before the image
 build with exit 2, naming the flag and the path; so is one that cannot be resolved (a symbolic link loop), and a
-`--cache-root` that is a regular file is refused also when every cache has its own `--cache`. An existing
+`--cache-root` that is a regular file is refused also when every cache has its own `--cache` and when the
+manifest declares no cache. An existing
 read-only directory is accepted. `{source_dir}` is the source's own git directory, or
 `--source-dir`.
 
