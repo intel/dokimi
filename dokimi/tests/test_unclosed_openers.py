@@ -306,8 +306,20 @@ def _long_delimiters_unrelated_closing_lines(k: int) -> str:
     return ("<<" + "A" * m + "\n") * m + "".join("B" * i + "\n" for i in range(1, m + 1))
 
 
+def _long_delimiters_one_closing_length(k: int) -> str:
+    """The text of :func:`_long_delimiters_unrelated_closing_lines` in size, with ``m`` closing lines of one length."""
+    m = math.isqrt(k)
+    return ("<<" + "A" * m + "\n") * m + ("B" * m + "\n") * m
+
+
 def test_cli_trace_heredoc_scans_long_delimiters_among_closing_lines_of_many_lengths_in_linear_time() -> None:
-    _linear(_cli_heredocs, _long_delimiters_unrelated_closing_lines, n=200_000, limit=5)  # linear work grows 4-fold, copying prefixes 5.7-fold
+    """The growth is set against linear work on a text of the same size: a big text slows both alike (cache misses), copying prefixes only the first."""
+    def relative() -> float:
+        ratio, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_unrelated_closing_lines(k)), 200_000)
+        linear, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_one_closing_length(k)), 200_000)
+        return ratio / linear
+
+    assert min(relative() for _ in range(5)) < 1.3  # copying prefixes: 1.6 in every attempt; a busy host spoils some attempts
 
 
 def test_cli_trace_heredoc_closes_an_unquoted_opener_by_a_line_of_a_prefix_of_its_delimiter_after_it() -> None:
