@@ -49,7 +49,7 @@ class Use:
     """One option string on one parser, with what the parser does with it.
 
     ``nargs`` is 0 for a switch, ``metavar`` is the explicit one (None when not set) and
-    ``choices`` says whether the parser gives a fixed set of values.
+    ``choices`` contains the parser's fixed set of values.
     """
 
     leaf: str
@@ -59,7 +59,7 @@ class Use:
     dest: str
     nargs: object = None
     metavar: str | None = None
-    choices: bool = False
+    choices: frozenset[str] = frozenset()
 
 
 def _type_name(type_: object) -> str:
@@ -91,7 +91,7 @@ def uses(parser: argparse.ArgumentParser) -> list[Use]:
                 for option in action.option_strings:
                     found.append(Use(path, option, type(action).__name__,
                                      _type_name(action.type), action.dest,
-                                     action.nargs, metavar, bool(action.choices)))
+                                     action.nargs, metavar, frozenset(map(str, action.choices or ()))))
 
     walk(parser, "dokimi")
     return found
@@ -193,13 +193,22 @@ MEANING_EXCEPTIONS: dict[tuple[str, str, str], str] = {
 }
 
 
+def _registered_choices(value: str) -> frozenset[str]:
+    if value.startswith("{") and value.endswith("}"):
+        return frozenset(part.strip() for part in value[1:-1].split(","))
+    if "|" in value:
+        return frozenset(part.strip() for part in value.split("|"))
+    return frozenset()
+
+
 def meaning_clashes(found: Sequence[Use],
                     concepts: Iterable[cli_flags.Concept] = cli_flags.CONCEPTS,
                     ) -> list[tuple[str, str, str, str]]:
     """(leaf, spelling, aspect, what clashes) for every use of a canonical spelling that disagrees
     with its registry row. Aspects: ``switch`` (a switch where the kind takes a value, or the
     reverse), ``metavar`` (set, and differs from ``value``), ``choices`` (choices where the kind is
-    not ``choice``, or the reverse) and ``type`` (outside ``_TYPES_BY_KIND``). A flag's
+    not ``choice``, or a missing or divergent set for a ``choice`` row) and ``type``
+    (outside ``_TYPES_BY_KIND``). A flag's
     repeatability is not compared.
     """
     flags = {flag.spelling: flag for concept in concepts for flag in concept.canonical}
@@ -214,9 +223,14 @@ def meaning_clashes(found: Sequence[Use],
             clashes.append((*where, "switch", f"is {shape} here, but the registry kind is `{flag.kind}`"))
         if flag.kind != "flag" and use.metavar is not None and use.metavar != flag.value:
             clashes.append((*where, "metavar", f"has metavar `{use.metavar}`, the registry says `{flag.value}`"))
-        if (flag.kind == "choice") != use.choices:
+        if (flag.kind == "choice") != bool(use.choices):
             has = "has choices" if use.choices else "has no choices"
             clashes.append((*where, "choices", f"{has}, but the registry kind is `{flag.kind}`"))
+        elif use.choices:
+            expected = _registered_choices(flag.value)
+            if expected and use.choices != expected:
+                clashes.append((*where, "choices", f"has choices {sorted(use.choices)}, "
+                                f"the registry lists {sorted(expected)}"))
         allowed = _TYPES_BY_KIND.get(flag.kind)
         if allowed is not None and use.type not in allowed:
             clashes.append((*where, "type", f"has type `{use.type}`, kind `{flag.kind}` takes "
@@ -295,11 +309,11 @@ def test_meaning_clashes_name_each_disagreement_with_its_registry_row():
         cli_flags.Flag("--name", "NAME", "text"),
     )),)
     found = [
-        Use("dokimi a", "--n", "_StoreAction", "str", "n", None, "SEED", False),
-        Use("dokimi a", "--sw", "_StoreAction", "str", "sw", None, None, False),
-        Use("dokimi a", "--pick", "_StoreAction", "str", "pick", None, None, False),
-        Use("dokimi a", "--name", "_StoreAction", "str", "name", None, "NAME", True),
-        Use("dokimi a", "--name", "_StoreAction", "str", "name", None, "NAME", False),
+        Use("dokimi a", "--n", "_StoreAction", "str", "n", None, "SEED"),
+        Use("dokimi a", "--sw", "_StoreAction", "str", "sw", None, None),
+        Use("dokimi a", "--pick", "_StoreAction", "str", "pick", None, None),
+        Use("dokimi a", "--name", "_StoreAction", "str", "name", None, "NAME", frozenset({"name"})),
+        Use("dokimi a", "--name", "_StoreAction", "str", "name", None, "NAME"),
     ]
     text = [what for _leaf, _option, _aspect, what in meaning_clashes(found, concepts)]
     assert text == [
@@ -310,14 +324,28 @@ def test_meaning_clashes_name_each_disagreement_with_its_registry_row():
         "has choices, but the registry kind is `text`",
     ]
     # The other direction: a switch where the kind takes a value.
-    switch = [Use("dokimi a", "--n", "_StoreTrueAction", "int", "n", 0, None, False)]
+    switch = [Use("dokimi a", "--n", "_StoreTrueAction", "int", "n", 0, None)]
     assert [what for *_, what in meaning_clashes(switch, concepts)] == [
         "is a switch here, but the registry kind is `int`"]
 
 
+@pytest.mark.parametrize(("value", "choices", "clashes"), [
+    ("native|none", ["none", "native"], False),
+    ("native|none", ["native", "none", "auto"], True),
+    ("{warn,fail}", ["warn"], True),
+    ("FORMAT", ["json", "text"], False),
+])
+def test_enumerated_choice_values_match_the_registry(value, choices, clashes):
+    concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--pick", value, "choice"),)),)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pick", choices=choices)
+    assert [aspect for _, _, aspect, _ in meaning_clashes(uses(parser), concepts)] == (
+        ["choices"] if clashes else [])
+
+
 def test_a_usd_flag_takes_the_cli_usd_types_and_not_a_bare_float():
     concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--max-usd", "USD", "usd"),)),)
-    found = [Use("dokimi a", "--max-usd", "_StoreAction", t, "max_usd", None, None, False)
+    found = [Use("dokimi a", "--max-usd", "_StoreAction", t, "max_usd", None, None)
              for t in ("positive_usd", "_usd", "float")]
     assert [what for *_, what in meaning_clashes(found, concepts)] == [
         "has type `float`, kind `usd` takes _usd or positive_usd or usd_amount"]
@@ -325,7 +353,7 @@ def test_a_usd_flag_takes_the_cli_usd_types_and_not_a_bare_float():
 
 def test_a_float_flag_takes_float_and_not_an_int():
     concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--rate", "RATE", "float"),)),)
-    found = [Use("dokimi a", "--rate", "_StoreAction", t, "rate", None, "RATE", False) for t in ("float", "int")]
+    found = [Use("dokimi a", "--rate", "_StoreAction", t, "rate", None, "RATE") for t in ("float", "int")]
     assert [what for *_, what in meaning_clashes(found, concepts)] == [
         "has type `int`, kind `float` takes float"]
 
@@ -347,7 +375,7 @@ def test_a_new_use_that_clashes_fails_and_an_exception_is_leaf_scoped(monkeypatc
 
 
 def test_a_meaning_exception_that_no_longer_clashes_fails():
-    found = [Use("dokimi arms run", "--judge", "_StoreAction", "_judge_ref", "judge", None, "PROVIDER/MODEL", False)]
+    found = [Use("dokimi arms run", "--judge", "_StoreAction", "_judge_ref", "judge", None, "PROVIDER/MODEL")]
     problems = meaning_problems(found, {("dokimi arms run", "--judge", "switch"): "reason"})
     assert problems == ["MEANING_EXCEPTIONS: `--judge` on `dokimi arms run` (switch) no longer clashes; "
                         "delete the row."]
@@ -461,8 +489,8 @@ def test_an_exception_covers_its_aspect_only_on_its_pair():
     # The excepted switch clash on `--judge` stays excepted; a value use of the same spelling on
     # the same leaf is a different clash (metavar), and it is reported.
     found = [
-        Use("dokimi arms run", "--judge", "_StoreTrueAction", "bool", "judge", 0, None, False),
-        Use("dokimi arms run", "--judge", "_StoreAction", "int", "judge", None, "N", False),
+        Use("dokimi arms run", "--judge", "_StoreTrueAction", "bool", "judge", 0, None),
+        Use("dokimi arms run", "--judge", "_StoreAction", "int", "judge", None, "N"),
     ]
     exceptions = {("dokimi arms run", "--judge", "switch"): "reason"}
     problems = meaning_problems(found, exceptions)
@@ -473,7 +501,7 @@ def test_an_exception_covers_its_aspect_only_on_its_pair():
 
 
 def test_a_meaning_exception_needs_a_reason():
-    found = [Use("dokimi arms run", "--judge", "_StoreTrueAction", "bool", "judge", 0, None, False)]
+    found = [Use("dokimi arms run", "--judge", "_StoreTrueAction", "bool", "judge", 0, None)]
     problems = meaning_problems(found, {("dokimi arms run", "--judge", "switch"): " "})
     assert problems == ["MEANING_EXCEPTIONS: `--judge` on `dokimi arms run` (switch) has no reason; "
                         "say why it stays."]
