@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 
 import pytest
@@ -207,3 +208,31 @@ def test_a_kill_that_fails_unexpectedly_is_logged_with_its_traceback(tmp_path, m
         captured["stop"]()  # the kill is retried by the caller: it must not raise, and must not vanish
     assert "docker kill of dokimi-k failed" in caplog.text
     assert caplog.records[-1].exc_info is not None  # with its traceback
+
+
+def test_a_ctrl_c_while_a_grade_runs_records_the_cell_and_the_resume_does_not_rerun_its_agent(tmp_path, monkeypatch):
+    """Contract §9: a cell past its agent is graded and recorded, so an interrupted batch never pays for it twice."""
+    from dokimi.repos import container as container_mod
+
+    agents, halted = [], []
+
+    def answer(call):
+        if call.argv[1] == "run" and PROBE in call.argv:
+            call.stdout_to.write_text(json.dumps(_probe_out()) + "\n", encoding="utf-8")
+        if call.argv[1] == "run" and any(re.search(r"-agent-[0-9a-f]{8}$", word) for word in call.argv):
+            agents.append(1)
+        if call.argv[1] == "run" and not halted and any(re.search(r"-grade-[0-9a-f]{8}$", word) for word in call.argv):
+            halted.append(1)
+            container_mod.halt_and_kill_started()  # the Ctrl-C lands while the first grade runs
+        return process.reply()
+
+    root, runs = _repo(tmp_path), tmp_path / "runs"
+    try:
+        with pytest.raises(BatchInterrupted):
+            _run(root, runs, DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--task", "fix_add")
+    finally:
+        container_mod.clear_halt()
+    assert halted and len(list(runs.rglob("result.json"))) == 1
+    agents.clear()
+    _run(root, runs, DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--task", "fix_add")
+    assert len(agents) == 1 and len(list(runs.rglob("result.json"))) == 2
