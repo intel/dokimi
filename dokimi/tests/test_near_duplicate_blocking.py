@@ -4,7 +4,8 @@
 """The near-duplicate pass compares only the candidate pairs its prefix filter finds (``_near_duplicates``).
 
 The filter must never skip a pair that the all-pairs check would flag, so the findings are compared with a
-brute-force pass over every pair (``_brute_force``), on seeded random descriptions, and the pairs the pass compares in a 5000-skill corpus are counted.
+brute-force pass over every pair (``_brute_force``), on seeded random descriptions, and the pairs the pass
+compares in a 5000-skill corpus are counted.
 """
 
 from __future__ import annotations
