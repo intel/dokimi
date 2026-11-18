@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import yaml
 
@@ -77,3 +79,11 @@ def test_repo_run_with_the_docker_daemon_down_exits_5_before_any_cell(setup, mon
     assert exc.value.code == 5
     assert "failed to connect to the docker API" in capsys.readouterr().err
     assert not list((setup["out"] / "b1").glob("fix_add__*"))
+
+
+def test_a_harness_whose_trace_is_unreadable_is_graded_not_crashed(setup, tmp_path):
+    # A recorded trace error means the agent ran: the cell keeps result.json (behavioural-security.md), no exit 5.
+    body = 'print("this is not stream-json")\nsys.exit(1)\n'
+    _run({**setup, "exe": _stub_harness(tmp_path, body)}, "--arm", "guidance:raw", "--task", "fix_add")
+    res = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text(encoding="utf-8"))
+    assert res["agent"]["trace_errors"]
