@@ -38,6 +38,16 @@ def test_a_bytes_argv_entry_still_runs_as_given():
     assert done.returncode == 0 and done.stdout.strip() == "x"
 
 
+class _BytesPath:
+    def __fspath__(self) -> bytes:
+        return b"x"
+
+
+def test_a_path_like_entry_giving_bytes_runs_as_given():
+    done = process.run([PY, "-c", "import sys; print(sys.argv[1])", _BytesPath()], timeout=30, env=INHERIT)  # type: ignore[list-item]
+    assert done.returncode == 0 and done.stdout.strip() == "x"
+
+
 @_POSIX_ONLY
 def test_completed_argv_holds_the_text_sent():
     done = process.run([PY, "-c", "pass", "n\ud800", "plain"], timeout=30, env=INHERIT)
