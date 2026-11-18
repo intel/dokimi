@@ -47,7 +47,7 @@ def load_run(path: str, arm: str) -> dict:
         raise RoutingInputError(f"{path}: not an all-vs-all routing result (mode {mode!r}): "
                                 "`catalog routing ROOT --queries-by-skill FILE --out FILE` saves one")
     if not isinstance(data.get("result"), dict):
-        raise RoutingInputError(f"{path}: the `result` object is missing")
+        raise RoutingInputError(f"{path}: the `result` object is missing or not an object")
     section = data["result"].get(arm)
     if arm == "model":
         if not isinstance(section, dict):
