@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
-from dokimi.eval.stats import pearson
+from dokimi.eval.correlation import pearson
 from dokimi.utils import InputError
 from .atoms import Atom
 from .client import LLMClient, SpendCapReached, parse_json_object, same_client

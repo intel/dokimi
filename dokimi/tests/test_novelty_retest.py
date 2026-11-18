@@ -14,7 +14,7 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.commands import novelty as novelty_cmd
+from dokimi.commands import novelty_retest as novelty_cmd
 from dokimi.novelty.retest import load_runs, pair_runs, render_markdown, retest_summary
 from dokimi.utils import InputError
 from tests.cli_paths import novelty_argv

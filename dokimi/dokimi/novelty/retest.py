@@ -18,7 +18,7 @@ import math
 import statistics
 from pathlib import Path
 
-from dokimi.eval.stats import pearson
+from dokimi.eval.correlation import pearson
 from dokimi.utils import InputError
 
 NOISE_Z = 1.96  # two-sided 95%

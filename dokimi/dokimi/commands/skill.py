@@ -66,10 +66,10 @@ def register_skill(skill_sub, positive_int) -> None:
         cmd_novelty_atoms,
         cmd_novelty_items,
         cmd_novelty_probe,
-        cmd_novelty_retest,
         cmd_novelty_shorten,
         cmd_novelty_view,
     )
+    from dokimi.commands.novelty_retest import cmd_novelty_retest
     from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
     from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
