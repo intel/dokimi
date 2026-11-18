@@ -10,7 +10,7 @@ spelling that is neither canonical here nor on ``tests/data/cli_flags_allowlist.
 fails the build, and so does a banned synonym whose concept has a canonical spelling,
 unless that spelling is on the allowlist. The same test also compares every use of a canonical
 spelling with its registry row: switch or value (``kind``), metavar (``value``), choices and
-type (``kind``). ``meaning_clashes`` in ``tests/test_cli_flags.py`` says what is compared; a
+type (``int``, ``float`` and ``usd`` rows). ``meaning_clashes`` in ``tests/test_cli_flags.py`` says what is compared; a
 flag's repeatability is not compared.
 
 A concept is one row of the §2.4 audit. Its ``canonical`` spellings are the ones new

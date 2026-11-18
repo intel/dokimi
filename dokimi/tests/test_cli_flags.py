@@ -323,6 +323,13 @@ def test_a_usd_flag_takes_the_cli_usd_types_and_not_a_bare_float():
         "has type `float`, kind `usd` takes _usd or positive_usd or usd_amount"]
 
 
+def test_a_float_flag_takes_float_and_not_an_int():
+    concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--rate", "RATE", "float"),)),)
+    found = [Use("dokimi a", "--rate", "_StoreAction", t, "rate", None, "RATE", False) for t in ("float", "int")]
+    assert [what for *_, what in meaning_clashes(found, concepts)] == [
+        "has type `int`, kind `float` takes float"]
+
+
 def test_a_new_use_that_clashes_fails_and_an_exception_is_leaf_scoped(monkeypatch):
     real = cli.build_parser
 
