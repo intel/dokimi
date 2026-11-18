@@ -279,12 +279,14 @@ def shutdown(self, wait=True, *, cancel_futures=False):
     if cancel_futures:
         cancelled.set()
 ThreadPoolExecutor.shutdown = shutdown
-submitted, real_map = threading.Event(), ThreadPoolExecutor.map
-def pool_map(self, *args, **kwargs):
-    results = real_map(self, *args, **kwargs)  # returns once every cell is submitted and its thread has started
-    submitted.set()
-    return results
-ThreadPoolExecutor.map = pool_map
+submitted, real_submit, count = threading.Event(), ThreadPoolExecutor.submit, []
+def pool_submit(self, *args, **kwargs):
+    future = real_submit(self, *args, **kwargs)
+    count.append(1)
+    if len(count) == 5:  # the fifth of --reps 5: every cell is submitted and its thread has started
+        submitted.set()
+    return future
+ThreadPoolExecutor.submit = pool_submit
 def run_cell(ctx, task, arm, rep, *args, **kwargs):
     if rep <= 2:
         both.wait(30)
