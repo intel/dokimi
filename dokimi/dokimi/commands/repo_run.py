@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi import cli_flags
 from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
@@ -164,7 +165,7 @@ def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
             raise ValueError(f"batch {batch_dir.name} was run from {was}, not {now}; use another --batch")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(pin) + "\n", encoding="utf-8")
+    write_text_atomic(path, json.dumps(pin) + "\n")
 
 
 def _pair(text: str) -> tuple[str, str]:
@@ -319,6 +320,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.bases import check_mcp_configs
     from dokimi.repos.container import docker_network
     from dokimi.repos.harness_profile import load_profile
+    from dokimi.repos.probes import load_probe_file
     from dokimi.repos.runner import (
         AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps, validate_tasks)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
@@ -331,6 +333,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
+        probes = load_probe_file(args.probes) if args.probes else None  # a bad file fails before the containers start
         profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         harness_bin = _harness_bin(args.bin or profile.bin)
         arms = pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
@@ -344,7 +347,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
-                                max_turns=args.max_turns, budget_usd=args.budget) for m in args.model]
+                                max_turns=args.max_turns, budget_usd=args.budget, probes=probes) for m in args.model]
         for task in tasks:  # refuse before anything runs, not cell by cell
             task_caps(task, options[0])
             agent_network(options[0], ctx, task)
@@ -484,8 +487,8 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
 
 
 _SOURCE_EXIT = (
-    "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote) or a "
-    "pinned local path inside a repository (give its root); exit 1 for a source that cannot be opened "
+    "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote), a "
+    "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory; exit 1 for a source that cannot be opened "
     "(clone, fetch, revision) and "
 )
 CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check."
@@ -547,10 +550,14 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                        help="Seconds per agent run unless task.json sets timeout_s (default 2700)")
     run_p.add_argument("--max-turns", type=positive_int, default=200, dest="max_turns",
                        help="Unless task.json sets max_turns (default 200)")
+    run_p.add_argument("--probes", default=None, metavar="FILE",
+                       help="YAML or JSON: target -> probe patterns, over the manifest's `probes` (default: the "
+                       "framework's list; contract §4.1)")
     run_p.add_argument("--budget", type=_usd, default=2.0,
                        help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
     run_p.add_argument("--max-batch-usd", type=_usd, default=None, dest="max_batch_usd",
-                       help="Start no new cell once this invocation has spent this much")
+                       help="Start no new cell once the batch has spent this much, earlier invocations included "
+                            "(and the budgets of the cells in flight)")
     run_p.add_argument("--force", action="store_true", help="Rerun cells that already have result.json")
     run_p.set_defaults(func=cmd_repo_run)
 

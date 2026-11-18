@@ -34,9 +34,18 @@ also holds a PR to:
 - No growth: a file over 800 lines (tests 1000) or a function over complexity 10
   fails unless `scripts/growth_baseline.json` holds it, and then it may only
   shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
+- No new clones: a block of 40+ AST nodes copied elsewhere in `dokimi/`, `scripts/`
+  or `cli.py` (locals renamed or not) fails `scripts/check_duplicates.py` unless
+  `scripts/duplicates_baseline.json` holds it. Extract the shared code instead.
 - Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
   checks types, echoes its input, only checks a mock was called, asserts nothing or
   repeats another (`python scripts/audit_test_quality.py` lists them).
+- No silent test narrowing (`scripts/check_test_narrowing.py`): removing a test,
+  dropping a check, adding skip/xfail, dropping `match=` or widening
+  `pytest.raises`, loosening a tolerance or cutting `parametrize` cases fails
+  unless a commit message or a comment in the test says `Test-narrowed: <reason>`.
+  So does a skip at the top of a module, and a `collect_ignore*` or
+  `pytest_ignore_collect` a `conftest.py` gains (waived by a commit line).
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
@@ -45,6 +54,10 @@ also holds a PR to:
   constraint or the reason, and end with an issue or PR URL when a reader needs
   the backstory. A block of three or more `#` lines fails once the PR adds or
   edits a line in it, so shorten an old block when you touch it.
+- No silent `except` (ruff BLE001, S110, S112): catch the exception you expect, or
+  log it with its traceback, or re-raise. A site that must catch everything says
+  what happens to the failure in `# noqa: BLE001 - <reason>`
+  (`tests/test_noqa_reasons.py` fails a bare code).
 - User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
   test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
   weaken or drop it only together with the doc and the contract. The same
@@ -65,8 +78,10 @@ also holds a PR to:
 - Executable tasks (Docker + oracle solution + pytest verifier) or harnesses:
   `dokimi/docs/contributing-terminal-bench-task.md`. Tasks live in a
   content repository; the framework reads a checkout via `--tasks-root`.
-- Anything else: the index, `dokimi/docs/README.md`. A new doc page also goes
-  in the `nav:` of `dokimi/mkdocs.yml`, the published site.
+- Anything else: the index, `dokimi/docs/documentation-index.md`. A new page
+  at any depth under `dokimi/docs/` goes in that index
+  (`dokimi/tests/test_docs_links.py` checks it) and in the `nav:` of
+  `dokimi/mkdocs.yml`, the published site.
 
 Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
@@ -141,11 +156,27 @@ finds little:
 
 - For each test of changed behaviour, break the code it covers (flip a
   condition, drop a branch), confirm the test fails, then revert the break.
+  CI's `Mutation of changed lines` job (`dokimi/scripts/mutate_changed.py`)
+  does this for the package lines a PR changes, up to 40 mutants, and lists
+  each surviving mutant in its step summary. A survivor whose module has a
+  candidate test file that did not run is `inconclusive`, not a gap. It warns,
+  it does not fail: kill
+  a survivor with an assertion, or say in the description why it is
+  equivalent. Run it locally with
+  `python scripts/mutate_changed.py --base origin/main` from `dokimi/`.
 - For a bug fix, find every other site with the same bug class. Fix the ones
   within this PR's scope; list the rest in the description or an issue.
 - Where it applies, run the changed command on a bad input: missing file,
   empty file, wrong shape, `None` where a value is expected, a Windows path.
   Say in the description what you could not run.
+- Trace new error paths and tests to the contract: a new `raise`, `sys.exit`
+  or refusal names, in its message, docstring or the PR, the doc, contract or
+  issue that asks for it; a test of new behaviour cites the doc line it checks.
+  `python scripts/list_new_error_paths.py --base origin/main` (from `dokimi/`) lists the sites
+  of a `raise`, a `sys.exit` or `SystemExit` call, or a literal `exit_code=N`;
+  refusals through `parser.error` or `return N` are not listed.
+- An unclear requirement goes in the PR description's "Open questions", not
+  into code that guesses: no error path or test the spec cannot be quoted for.
 - Check that the PR title, description, docstrings and changelog fragment say
   what the code does (exit codes especially).
 - Re-review your own fix commits during review with the same care.

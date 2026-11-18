@@ -71,7 +71,8 @@ from typing import Any
 import yaml
 
 from dokimi import process
-from dokimi.utils import retry_writable
+from dokimi.process_io import joined_pairs
+from dokimi.utils import key_bytes, retry_writable
 
 from .events import convert
 from .harness_profile import HarnessProfile
@@ -233,7 +234,7 @@ def resolve_at(case: Case, dirs: dict[str, str]) -> tuple[str, str] | None:
 
 
 def token(salt: str, case_id: str, position: str) -> str:
-    digest = hashlib.sha256(f"{salt}\0{case_id}\0{position}".encode()).hexdigest()
+    digest = hashlib.sha256(key_bytes(f"{salt}\0{case_id}\0{position}")).hexdigest()
     return ("SK" if position == "description" else "SB") + digest[:6].upper()
 
 
@@ -284,12 +285,12 @@ def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, P
             continue
         taken[dest] = case.id
         tok, body_tok = token(salt, case.id, "description"), token(salt, case.id, "body")
-        text = skill_text(case, tok, body_tok)
+        text = joined_pairs(skill_text(case, tok, body_tok))  # a `😀` escape is one character; a lone surrogate is `?`
         link_kind = None
         if case.link == "symlink":
             target = outside / f"case-{n}" / case.dirname  # the index, not the id: an id is not a path
             target.mkdir(parents=True)
-            (target / "SKILL.md").write_bytes(text.encode())
+            (target / "SKILL.md").write_bytes(text.encode("utf-8", "replace"))
             dest.parent.mkdir(parents=True, exist_ok=True)
             try:
                 os.symlink(target, dest, target_is_directory=True)
@@ -299,7 +300,7 @@ def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, P
             link_kind = "symlink"
         else:
             dest.mkdir(parents=True, exist_ok=True)
-            (dest / "SKILL.md").write_bytes(text.encode())
+            (dest / "SKILL.md").write_bytes(text.encode("utf-8", "replace"))
         fixture.placed.append(Placed(case, scope, rel, tok, body_tok, link_kind))
     return fixture
 

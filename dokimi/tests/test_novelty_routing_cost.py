@@ -36,10 +36,10 @@ def _model_run(tmp_path):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary", "tune a slow query"]), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--model", "selector-m", "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary with perf"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--model", "selector-m", "--out", str(out))
     args.func(args)
     return json.loads(out.read_text(encoding="utf-8"))
 
@@ -89,10 +89,10 @@ def test_a_lexical_run_spends_nothing_and_has_no_cost_block(tmp_path):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary with perf"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--out", str(out))
     args.func(args)
     assert "cost" not in json.loads(out.read_text(encoding="utf-8"))
 
@@ -155,10 +155,10 @@ def test_a_live_a_replayed_and_a_usageless_call_are_told_apart(tmp_path, monkeyp
     monkeypatch.setattr(llm, "llm_call_with_usage",
                         lambda prompt, model, **_kw: ('{"pick": 1}', next(replies)))
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--model", "selector-m", "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary with perf"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--model", "selector-m", "--out", str(out))
     args.func(args)
     cost = json.loads(out.read_text(encoding="utf-8"))["cost"]
     assert (cost["llm_calls"], cost["replayed_calls"], cost["usd"]) == (3, 1, None)

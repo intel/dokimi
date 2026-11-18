@@ -18,8 +18,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
-from dokimi.commands.novelty_run import (add_judge2_args, add_spend_cap, judge2_client,
-                                         exit_if_analyze_partial, stamp, stops_at_cap)
+from dokimi.commands.novelty_run import (add_judge2_args, add_panel_args, add_spend_cap,
+                                         attach_panel, exit_if_analyze_partial,
+                                         judge2_client, panel_clients, save_panel_verdicts, stamp,
+                                         usable_cache_dir)
 from dokimi.commands.novelty_routing_inputs import (
     checked_out_path,
     load_all_vs_all_field,
@@ -109,11 +111,13 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
                 file=sys.stderr,
             )
         return
+    cache_dir = usable_cache_dir(args.cache_dir)
     print_run_estimate(args, settings, artifact_bundle.text, cost.estimate_usd)
 
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = cost.clients(args)
-    judge2 = judge2_client(args, answerer, judge, cost.client)
+    panel = panel_clients(args, cost.client)
+    judge2 = judge2_client(args, answerer, judge, cost.client, panel)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
         artifact_kind=artifact_bundle.kind,
@@ -125,7 +129,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
         placebo_text=placebo_text, context_framing=args.context_framing,
-        cache_dir=Path(args.cache_dir) if args.cache_dir else None,
+        cache_dir=cache_dir,
         seed=args.seed,
         include_resources=args.include_resources,
         resource_roles=tuple(args.resource_roles) if args.resource_roles else None,
@@ -134,7 +138,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     try:
         result = analyze(artifact_bundle.text, config,
                          extractor=extractor, answerer=answerer, judge=judge,
-                         artifact_bundle=artifact_bundle)
+                         artifact_bundle=artifact_bundle,
+                         panel=panel, aggregate=args.judge_aggregate)
     except SelfJudgeError as exc:  # the judge is the answering model: the flags contradict
         raise InputError(str(exc)) from exc
     except (ExtractionError, ValueError) as exc:  # a model failure under way
@@ -144,6 +149,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     exit_if_analyze_partial(result, out_json)  # a run the cap stopped keeps what it paid for
     stamp(result.artifact, args, result.measure_result, answerer=answerer, judge=judge, judge2=judge2)
     save_artifact("novelty", result.artifact, out_json)
+    verdicts_path = save_panel_verdicts(result, out_json)
     out_md = out_json.with_suffix(".md")
     out_md.write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
     title = f"{artifact_bundle.name or args.artifact} × {answerer.model}"
@@ -155,6 +161,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     print(f"OK Saved novelty artifact: {out_json}")
     print(f"OK Saved novelty report:   {out_md}")
     print(f"OK Saved annotated view:   {view_path}")
+    if verdicts_path:
+        print(f"OK Saved judge verdicts:   {verdicts_path}")
     _print_headline(result.artifact)
 
 
@@ -198,6 +206,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.novelty import cost
     from dokimi.commands.novelty_atoms_file import (measured_atoms, sampling_record,
                                                     warn_answer_key, warn_unread)
+    from dokimi.novelty.answer_key import parse_answer_key
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.answer_key_check import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
@@ -206,9 +215,10 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.commands.novelty_budget import save_probe_measure
 
     atoms, saved_spans, saved = load_atoms_record(args.atoms)
+    key = parse_answer_key(saved.get("bundle"))  # parsed once at load; the check takes the record
     atoms = measured_atoms(args, atoms, saved, "probe")
     warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
-    verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
+    verdict = check_answer_key(args.artifact, key, source=args.atoms)
     if not verdict.ok:
         raise InputError(verdict.message)
     for note in verdict.notes:
@@ -216,10 +226,12 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     settings = _settings(args)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = cost.clients(args)
+    panel = panel_clients(args, cost.client)
     warn_answer_key(saved, answerer, judge)
     try:  # before the paraphrase calls below, which are paid
-        check_self_judge(judge, answerer, args.allow_self_judge)
-        judge2 = judge2_client(args, answerer, judge, cost.client)
+        for member in (judge, *panel):
+            check_self_judge(member, answerer, args.allow_self_judge)
+        judge2 = judge2_client(args, answerer, judge, cost.client, panel)
     except SelfJudgeError as exc:
         raise InputError(str(exc)) from exc
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
@@ -239,6 +251,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=placebo_text, framing=args.context_framing,
+            panel=panel, aggregate=args.judge_aggregate,
         )
     except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
@@ -249,6 +262,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         probe_set=probe_set, measure_result=result,
         sampling=sampling_record(args, atoms, saved), framing=args.context_framing,
     )
+    attach_panel(payload, result, args.judge_aggregate, answerer.model)
     stamp(payload, args, result, answerer=answerer, judge=judge, judge2=judge2)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     # A run the cap stopped keeps the answers it paid for, as a partial result (and exits).
@@ -376,11 +390,11 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     print_all_vs_all_summary(*summary)
 
 
-def cmd_novelty_routing(args: argparse.Namespace) -> None:
-    """Can this artifact be selected against its competitors? Lexical floor, model on top."""
+def cmd_routing(args: argparse.Namespace) -> tuple[dict, Path, str] | None:
+    """Can a skill (or each skill under a root) be selected against its competitors? Lexical floor, model on top."""
     from dokimi.novelty import cost
     if args.repeats > 1 and not args.model:
-        raise InputError("--repeats needs --model: the lexical floor is deterministic, so repeating it measures nothing")
+        raise InputError("--reps needs --model: the lexical floor is deterministic, so repeating it measures nothing")
     from dokimi.novelty.routing import (
         check_field,
         lexical_routing,
@@ -388,9 +402,8 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     )
 
     if args.all_vs_all:
-        return _cmd_routing_all_vs_all(args)
-    if not args.artifact:
-        raise InputError("pass --artifact <skill:path>, or --all-vs-all for the whole field")
+        _cmd_routing_all_vs_all(args)
+        return None
     gold, body, competitors, left_out, conflicts = load_routing_field(args)
     # Checked before the query file is read, so the message is about the real problem.
     if not competitors and conflicts:
@@ -402,7 +415,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     if args.estimate_only:
         refuse_estimate_without_queries(args, queries, self_derived)
         print_routing_estimate(args, candidates, queries)
-        return
+        return None
     lexical = dict(lexical_routing(candidates, queries, gold=0),
                    queries_self_derived=self_derived)
     out = checked_out_path(args.out, "routing", default=str(_default_dir(args.artifact) / "routing.json"))
@@ -431,11 +444,63 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         payload["cost"] = roll_up_cost([selector])
 
     out = save_result(payload, out, payload.get("model", {}))
-    stop_if_partial(payload, out,
-                    lambda: print_routing_summary(payload, len(competitors), self_derived))
+    try:
+        stop_if_partial(payload, out,
+                        lambda: print_routing_summary(payload, len(competitors), self_derived))
+    except SystemExit as stop:
+        raise RoutingStopped(stop.code, payload, out, gold.name) from None
     print(f"OK Saved routing measurement: {out}")
 
     print_routing_summary(payload, len(competitors), self_derived)
+    return payload, out, gold.name
+
+
+class RoutingStopped(SystemExit):
+    """A routing run the cap or a model error cut short: it exits as before, and carries the saved result for --json."""
+
+    def __init__(self, message: object, payload: dict, out: Path, skill: str) -> None:
+        super().__init__(message)
+        self.result = (payload, out, skill)
+
+
+def cmd_skill_routing(args: argparse.Namespace) -> None:
+    """`skill routing`, and with --json its cli_output.v1 document. Report only: the leaf issues no verdict.
+
+    The lexical floor from self-derived (heading) queries is triage, not a routing rate, so
+    ``summary.queries_self_derived`` is carried next to every score.
+    """
+    if not getattr(args, "json", False):
+        cmd_routing(args)
+        return
+    from dokimi import cli_output
+
+    stopped = None
+    with cli_output.quiet_stdout():
+        try:
+            done = cmd_routing(args)
+        except RoutingStopped as stop:  # the result is saved: its document is printed, then the exit stands
+            done, stopped = stop.result, stop
+    if done is None:  # --estimate-only: an estimate, nothing measured
+        cli_output.emit_leaf("skill routing", None, reason="estimate only, nothing measured")
+        return
+    payload, out, skill = done
+    lexical, model = payload["lexical"], payload.get("model") or {}
+    spent = (payload.get("cost") or {}).get("usd")
+    calls = (payload.get("cost") or {}).get("llm_calls", 0)
+    cost = {"spent_usd": spent or 0.0, "cap_usd": getattr(args, "max_usd", None), "calls": calls,
+            "priced": None if not calls else spent is not None}
+    if cost["cap_usd"] is not None and cost["priced"] is not False:  # an unpriced spend leaves no remainder to state
+        cost["remaining_usd"] = round(cost["cap_usd"] - cost["spent_usd"], 6)
+    partial = payload.get("partial")
+    status = "complete" if partial is None else ("budget_stopped" if partial["reason"] == "spend_cap" else "partial")
+    cli_output.emit_leaf(
+        "skill routing", payload, status=status, reason=partial and partial["message"],
+        subjects=[{"subject": skill, "verdict": None}],
+        summary={"queries_self_derived": payload["queries_self_derived"], "n_candidates": payload["n_candidates"],
+                 "lexical_recall_at_1": lexical.get("recall_at_1"), "model_selection_rate": model.get("selection_rate")},
+        artifacts={"out": str(out)}, cost=cost)
+    if stopped is not None:
+        raise stopped
 
 
 def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derived: bool,
@@ -455,31 +520,27 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
-    from dokimi.novelty import cost
-    from dokimi.commands.novelty_atoms_file import measured_atoms, no_candidate_line, warn_unread
+    from dokimi.commands.novelty_atoms_file import (
+        measured_atoms, no_candidate_line, score_candidates, warn_unread)
     from dokimi.novelty.artifact import load_artifact_ref
+    from dokimi.novelty.answer_key import parse_answer_key
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import entry_point_only
-    from dokimi.novelty.retention import RetentionOracle, error_warning
-    from dokimi.novelty.shorten import build_candidates, pick_best
+    from dokimi.novelty.retention import error_warning
+    from dokimi.novelty.shorten import pick_best
 
     atoms, spans, saved = load_atoms_record(args.atoms)
+    key = parse_answer_key(saved.get("bundle"))  # parsed once at load; the scorer takes the record
     _kind, _name, _description, frontmatter, _body = load_artifact_ref(args.artifact)
     try:
-        spans, atoms, note = entry_point_only(saved.get("bundle"), spans, atoms)
+        spans, atoms, note = entry_point_only(key, spans, atoms)
     except ValueError as exc:
         raise InputError(f"{args.atoms}: {exc}") from exc
     if note:
         print(note, file=sys.stderr)
     warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
     scored = measured_atoms(args, atoms, saved, "shorten")
-    client = cost.client(args.extract_model or args.model, args.provider, "oracle", args) \
-        if not args.lexical_only else None
-    oracle = RetentionOracle(
-        client=client, cache_dir=Path(args.cache_dir) if args.cache_dir else None
-    )
-    candidates = build_candidates(spans, atoms, oracle=oracle, budgets=tuple(args.budgets),
-                                  seed=args.seed, scored_atoms=scored)
+    candidates, oracle = score_candidates(args, spans, atoms, scored)
     oracle_warning = error_warning(oracle)
     if oracle_warning:
         print(f"WARNING {oracle_warning}", file=sys.stderr)
@@ -562,92 +623,6 @@ def _bundle_from_args(args: argparse.Namespace):
     return artifact_bundle
 
 
-def register(sub, positive_int) -> None:
-    """Add the `novelty` group: `routing` and `view` (`skill` took the rest, #94 M2)."""
-    novelty_p = sub.add_parser(
-        "novelty",
-        help="Measure what an artifact's content adds to a model",
-    )
-    novelty_sub = novelty_p.add_subparsers(dest="novelty_cmd", required=True)
-
-    routing_p = novelty_sub.add_parser(
-        "routing", help="Can the artifact be selected against competitors? (name+description)"
-    )
-    routing_p.add_argument("--artifact", default=None,
-                           help="skill:<path> or text:<path> under test (required unless "
-                                "--all-vs-all)")
-    routing_p.add_argument("--all-vs-all", action="store_true", dest="all_vs_all",
-                           help="Route every skill that has queries against the whole field, "
-                                "in turn: a confusion matrix and the attractors, the skills "
-                                "picked for queries written for another skill. Takes "
-                                "--queries-by-skill and --out, and no --artifact")
-    routing_p.add_argument("--queries-by-skill", default=None, dest="queries_by_skill",
-                           help="With --all-vs-all: a JSON object of skill name to the list of "
-                                "requests that should select that skill")
-    routing_p.add_argument("--competitors", nargs="+", default=None,
-                           help="Other artifacts the selector sees. Selection among one "
-                                "candidate is not routing: the sibling confusion is the "
-                                "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
-    routing_p.add_argument("--catalog", default=None,
-                           help="Directory of skills to take the competitors from: every "
-                                "skill the catalog lists (skills.yaml when present, else every "
-                                "SKILL.md under it; a template/ copy and vendored or VCS "
-                                "directories like .git are left out, and a byte-identical copy "
-                                "under another path counts once) except the artifact itself, the "
-                                "siblings a harness lists next to it. Combines with --competitors")
-    routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
-                           help="Keep skills that set disable-model-invocation in the field. "
-                                "Off by default: no harness lists them, so the model cannot "
-                                "select them and a card for one measures a choice that does "
-                                "not exist")
-    routing_p.add_argument("--keep-copies-under", default=None, dest="keep_copies_under",
-                           metavar="DIR",
-                           help="With --catalog: a directory under it, relative to it. For a catalog "
-                                "name whose copies differ, keep only the copies under DIR and leave "
-                                "out the others; the copies under DIR must have one content. Names "
-                                "whose copies agree are not affected")
-    routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
-                           help="Keep catalog and skill: competitors with a spec error in the field. "
-                                "A description over 1024 characters alone never leaves a skill "
-                                "out: it is kept and warned about")
-    routing_p.add_argument("--queries", default=None,
-                           help="JSON list (or one per line) of user-shaped requests that "
-                                "should select this artifact, written independently of it")
-    routing_p.add_argument("--queries-from-headings", action="store_true",
-                           dest="queries_from_headings",
-                           help="Derive queries from the artifact's own headings. Triage "
-                                "only: the artifact then defines both the problem scope and "
-                                "its own relevance, and the result is stamped as such")
-    routing_p.add_argument("--model", default=None,
-                           help="Also ask this model to pick from the same cards. Optional: "
-                                "without it only the free lexical floor is computed")
-    routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
-    routing_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
-    routing_p.add_argument("--seed", type=int, default=0,
-                           help="Seeds only the card order: each query's cards are listed in "
-                                "a seeded random permutation, so a position-biased model scores "
-                                "about 1/N. It does not make the model's answers repeatable; "
-                                "measure that with --repeats")
-    routing_p.add_argument("--repeats", type=positive_int, default=1,
-                           help="Ask the model this many times per query, with the same card "
-                                "order each time, and report per-query agreement and the "
-                                "run-to-run noise floor. Needs --model; costs N times the calls")
-    routing_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
-                           help="Print the calls, input and output tokens and the list-price "
-                                "expected_usd that --model would make, as JSON, and make no model call. "
-                                "Without --model the run is lexical and the bill is zero")
-    routing_p.add_argument("--out", default=None)
-    add_spend_cap(routing_p)
-    routing_p.set_defaults(func=stops_at_cap(cmd_novelty_routing))
-
-    view_p = novelty_sub.add_parser("view", help="Re-render the annotated artifact view")
-    view_p.add_argument("--novelty", required=True, help="novelty.json from `skill novelty analyze`")
-    view_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
-    view_p.add_argument("--format", default="html", choices=["html", "md"])
-    view_p.add_argument("--out", default=None)
-    view_p.set_defaults(func=cmd_novelty_view)
-
-
 def _add_bundle_args(parser: argparse.ArgumentParser, positive_int) -> None:
     """Flags that decide *which files of the artifact* are measured.
 
@@ -712,6 +687,7 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                         help="Provider for the judge. Without --judge-model, the default judge "
                              "that runs on this provider; if none does, the run exits asking "
                              "for --judge-model")
+    add_panel_args(parser)
     parser.add_argument("--extract-model", default=None, dest="extract_model",
                         help="Extractor/adjudicator model (defaults to --judge-model, so the "
                              "answering model never writes its own answer key)")

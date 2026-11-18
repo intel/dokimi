@@ -25,6 +25,7 @@ Tracks and the tools beside them:
   directories; [`task_formats`][dokimi.task_formats] names the format of other
   eval-task files and directories (detection only).
 - [`context`][dokimi.context] reads what a run's context window held.
+- [`memory`][dokimi.memory] reads an agent's memory store and lints it.
 - [`runs`][dokimi.runs] lists what the runs wrote: the artifacts under the runs
   root (`results/`, or `DOKIMI_RUNS_DIR`).
 - Content novelty: [`novelty`][dokimi.novelty]. Repositories as subjects:

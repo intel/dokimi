@@ -10,6 +10,10 @@ Graders and probes read only these events, never a harness-specific trace:
     {"t": 5.0,  "kind": "edit",    "path": "src/foo.cpp"}
     {"t": 20.2, "kind": "tool",    "name": "WebFetch", "denied": true}
     {"t": 2.0,  "kind": "tool",    "name": "Skill", "skill": "lint-fix"}
+    {"t": 4.0,  "kind": "probe",   "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}
+
+A ``probe`` event follows the ``command`` event of a command that asks the host for its facts, one per
+pattern it matches (:mod:`dokimi.repos.probes`, contract §4.1).
 
 ``t`` is seconds since the first timestamped trace line, or ``null`` when the
 format has no timestamps. Paths inside the workspace are made relative to it.
@@ -94,6 +98,7 @@ class _Stream:
     cwd: str  # where the Bash shell starts, relative to workdir
     by_id: dict[str, dict[str, Any]] = field(default_factory=dict)  # tool_use id -> its event
     bash: dict[int, _BashCall] = field(default_factory=dict)  # id() of a Bash call's command event -> the call
+    stop_at: dict[str, int] = field(default_factory=dict)  # message id -> its index in ``stop_reasons``
 
 
 def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
@@ -270,6 +275,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None, stream: _Strea
 
 
 def _apply_init(out: Transcript, rec: dict[str, Any]) -> None:
+    out.start_record = rec
     out.harness_version = rec.get("claude_code_version")
     out.init_model = str(rec["model"]) if rec.get("model") else None
     # Claude Code loads AGENTS.md through a built-in plugin (cc-plugin-agents-md) on some versions
@@ -288,9 +294,19 @@ def _apply_assistant(out: Transcript, rec: dict[str, Any], t: float | None, stre
     # A subagent's model is its definition's, not the run's; "<synthetic>" marks a reply Claude Code wrote itself.
     if model and model != "<synthetic>" and rec.get("parent_tool_use_id") is None:
         out.answered_by.add(str(model))
+    stop = (rec.get("message") or {}).get("stop_reason")
+    if isinstance(stop, str) and rec.get("parent_tool_use_id") is None:
+        mid = (rec.get("message") or {}).get("id")
+        if isinstance(mid, str) and mid in stream.stop_at:  # one reply split over records: the last one counts
+            out.stop_reasons[stream.stop_at[mid]] = stop
+        else:
+            if isinstance(mid, str) and mid:
+                stream.stop_at[mid] = len(out.stop_reasons)
+            out.stop_reasons.append(stop)
 
 
 def _apply_final(out: Transcript, rec: dict[str, Any], stream: _Stream) -> None:
+    out.final_record = rec
     out.answer = str(rec.get("result") or "").strip()
     out.cost_usd = rec.get("total_cost_usd")
     out.result_seen = True

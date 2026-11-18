@@ -3,9 +3,9 @@
 
 """Coding-agent CLIs as LLM providers: a completion through a locally logged-in CLI.
 
-A provider in :data:`BACKENDS` (``claude-cli``) runs one prompt through the CLI the
-user is already signed in to (a Claude subscription, ``claude setup-token``, or
-whatever ``claude auth status`` reports) instead of an API key. :mod:`dokimi.llm`
+A provider in :data:`BACKENDS` (``claude-cli``, ``codex-cli``, ``copilot-cli``) runs one prompt through
+the CLI the user is already signed in to (a Claude subscription, ``claude setup-token``, a ``codex login``,
+a ``copilot login``) instead of an API key. :mod:`dokimi.llm`
 routes a :class:`~dokimi.llm.Request` for such a provider here, so retry, the
 response cache and usage totals work as for any provider.
 
@@ -33,7 +33,7 @@ What differs from an API provider, and what a caller can rely on:
   subscription is charged; it is kept as :attr:`CliResult.list_cost_usd`.
 - **Errors.** A failed call raises :class:`CliCallError` with ``retryable`` set:
   rate limits, overload, 5xx and timeouts are retried; an unknown model, a missing
-  login or a missing binary are not.
+  login or a missing binary are not. Those, and a usage limit, also set ``run_wide``.
 
 :func:`detect` reports whether a backend's binary is installed and signed in
 without calling a model (``cli.py backends``).
@@ -45,6 +45,8 @@ import functools
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +54,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from dokimi import process
 from dokimi.metrics.usage import UsageRecord
+from dokimi.process_io import joined_pairs
 
 #: Variables a Claude Code session sets for its own children, plus the API key. Dropped, so
 #: a call made from inside a session is a session of its own and runs on the CLI's login.
@@ -80,6 +83,8 @@ _RETRYABLE_WORDS = ("rate limit", "rate_limit", "overloaded", "timed out")
 #: A status the CLI prints as text, with no ``api_error_status``: ``API Error: 503 ...``. A status word has to
 #: sit before the number, so a 500 inside a message about tokens does not count.
 _STATUS_TEXT = re.compile(r"\b(?:status|code|http|error)\W{0,3}(\d{3})\b")
+#: How Codex and Copilot refuse a command line they no longer parse: every later call fails the same way.
+_ARGV_REJECTED = ("unexpected argument", "unknown option", "was removed")
 
 
 def _text_retryable(lowered: str) -> bool:
@@ -94,11 +99,16 @@ DEFAULT_TIMEOUT_SEC = 600.0
 
 
 class CliCallError(RuntimeError):
-    """A CLI call that produced no reply; ``retryable`` is what :func:`dokimi.llm.is_retryable` reads."""
+    """A CLI call that produced no reply; ``retryable`` is what :func:`dokimi.llm.is_retryable` reads.
 
-    def __init__(self, message: str, *, retryable: bool):
+    ``run_wide`` marks a failure every later call would meet too (no login, a usage limit, an unknown
+    model, no binary), which :func:`dokimi.novelty.routing_stop.is_run_wide` reads.
+    """
+
+    def __init__(self, message: str, *, retryable: bool, run_wide: bool = False):
         super().__init__(message)
         self.retryable = retryable
+        self.run_wide = run_wide
 
 
 @dataclass(frozen=True)
@@ -136,7 +146,7 @@ class CliBackend:
 
     name: str
     binary: str
-    build_argv: Callable[[str, str], list]  # (model, system-prompt file) -> argv; prompt goes on stdin
+    build_argv: Callable[[str, str, str], list]  # (model, system-prompt file, prompt text) -> argv
     parse: Callable[[process.Completed, str, str], CliResult]  # (completed, model, provider)
     auth_argv: Tuple[str, ...]
     parse_auth: Callable[[process.Completed], Tuple[Optional[bool], str]]  # -> (authenticated, method)
@@ -147,6 +157,9 @@ class CliBackend:
     login_hint: str = ""
     aliases: Tuple[str, ...] = ()
     model_prefixes: Tuple[str, ...] = ()  # full model ids the CLI takes, by prefix
+    any_model: bool = False  # the CLI's own catalogue decides: any model name is passed on
+    prompt_on_stdin: bool = True  # False: the prompt is in the argv (Copilot reads no prompt from stdin)
+    system_in_prompt: bool = False  # True: no system-prompt option, so the system text leads the prompt
 
 
 # ── claude-cli ────────────────────────────────────────────────────────────────
@@ -176,14 +189,14 @@ def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallEr
     lowered = message.lower()
     if any(w in lowered for w in ("authentication", "not logged in", "/login")):
         return CliCallError(f"claude-cli: {message} (sign in: claude setup-token, or claude /login)",
-                            retryable=False)
+                            retryable=False, run_wide=True)
     if "usage limit" in lowered:  # a subscription cap: it resets in hours, a retry cannot help
-        return CliCallError(f"claude-cli: {message}", retryable=False)
+        return CliCallError(f"claude-cli: {message}", retryable=False, run_wide=True)
     if status is None:  # no structured status: the words, and a status the CLI printed as text
         retryable = _text_retryable(lowered)
     else:  # a structured status decides: a 400 that quotes "rate_limit" is still a 400
         retryable = status in _RETRYABLE_STATUS
-    return CliCallError(f"claude-cli: {message}", retryable=retryable)
+    return CliCallError(f"claude-cli: {message}", retryable=retryable, run_wide=status == 404)
 
 
 def _main_model(model_usage: Dict[str, Any], requested: str) -> Optional[str]:
@@ -217,9 +230,9 @@ def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResu
         # No JSON, so no status field: the transient words and the status printed as text are checked.
         # A subscription cap is not transient, as on the JSON path, whatever status it prints.
         lowered = text.lower()
-        retryable = "usage limit" not in lowered and _text_retryable(lowered)
+        capped = "usage limit" in lowered
         raise CliCallError(f"claude-cli: exit {done.returncode}, no JSON reply: {text[:300]}",
-                           retryable=retryable)
+                           retryable=not capped and _text_retryable(lowered), run_wide=capped)
     if payload.get("is_error") or done.returncode != 0:
         raise _claude_error(payload, done)
     u = payload.get("usage") or {}
@@ -261,7 +274,7 @@ def _claude_auth(done: process.Completed) -> Tuple[Optional[bool], str]:
 CLAUDE_CLI = CliBackend(
     name="claude-cli",
     binary="claude",
-    build_argv=_claude_argv,
+    build_argv=lambda model, system_file, _text: _claude_argv(model, system_file),
     parse=_claude_parse,
     # The settings policy of a call: a route set only in settings.json is not a login the call can use.
     auth_argv=("claude", "--setting-sources", "", "auth", "status"),
@@ -274,8 +287,167 @@ CLAUDE_CLI = CliBackend(
     model_prefixes=("claude-",),
 )
 
+# ── codex-cli ─────────────────────────────────────────────────────────────────
+
+
+def _codex_argv(model: str, system_file: str) -> list:
+    """``codex exec`` with the prompt on stdin: a read-only sandbox, no user config (``config.toml``), no rules,
+    no ``AGENTS.md`` (``project_doc_max_bytes=0``), no session written; the system file replaces the base
+    instructions. ``CODEX_HOME`` stays, because the login lives there."""
+    return ["codex", "exec", "--json", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+            "--skip-git-repo-check", "--sandbox", "read-only", "--color", "never", "--model", model,
+            "-c", f"model_instructions_file={json.dumps(system_file)}", "-c", "project_doc_max_bytes=0", "-"]
+
+
+def _codex_events(stdout: str) -> list:
+    """The JSON objects of a ``codex exec --json`` stream; a line that is not one is skipped."""
+    events = []
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def _codex_error(done: process.Completed, failed: str) -> CliCallError:
+    message = (failed or done.stderr.strip() or done.stdout.strip() or f"exit {done.returncode}")[:500]
+    lowered = message.lower()
+    # A cap, a missing login or an unknown model is the same for every later call: run-wide, never retried.
+    run_wide = any(w in lowered for w in ("usage_limit", "usage limit", "not logged in", "login", "authenticat",
+                                          "unauthorized", "unknown model", "model not found") + _ARGV_REJECTED)
+    return CliCallError(f"codex-cli: {message}", retryable=not run_wide and _text_retryable(lowered),
+                        run_wide=run_wide)
+
+
+def _codex_parse(done: process.Completed, model: str, provider: str) -> CliResult:
+    if done.timed_out:
+        raise CliCallError(f"codex-cli: no reply in {done.elapsed_sec:.0f}s", retryable=True)
+    text: Optional[str] = None
+    usage: Dict[str, Any] = {}
+    failed = ""
+    for event in _codex_events(done.stdout):
+        item = event.get("item") if isinstance(event.get("item"), dict) else {}
+        if event.get("type") == "item.completed" and item.get("type") == "agent_message":
+            text = str(item.get("text") or "")
+        elif event.get("type") == "turn.completed" and isinstance(event.get("usage"), dict):
+            usage = event["usage"]
+        elif event.get("type") == "turn.failed":
+            error = event.get("error")
+            failed = str(error.get("message") if isinstance(error, dict) else error or "turn failed")
+    if not failed and done.returncode == 0 and not (text or "").strip():
+        failed = "no reply text"  # an empty, blank or null agent message is a failed call, not an answer
+    if failed or done.returncode != 0 or text is None:
+        raise _codex_error(done, failed)
+    prompt = int(usage.get("input_tokens") or 0)  # includes the cached part, which cached_input_tokens counts again
+    completion = int(usage.get("output_tokens") or 0)
+    record = UsageRecord(
+        prompt_tokens=prompt, completion_tokens=completion, total_tokens=prompt + completion,
+        cache_read_tokens=int(usage.get("cached_input_tokens") or 0), cache_write_tokens=0,
+        cost_usd=None, latency_sec=done.elapsed_sec, model=model, provider=provider,
+        n_calls=1, cost_known_calls=0, resolved_model=model,
+    )
+    return CliResult(text=text, usage=record, model_id=model, finish_reason="stop")
+
+
+def _codex_auth(done: process.Completed) -> Tuple[Optional[bool], str]:
+    lines = (done.stdout or done.stderr).strip().splitlines()
+    return done.returncode == 0, lines[0].strip() if lines else ""
+
+
+CODEX_CLI = CliBackend(
+    name="codex-cli",
+    binary="codex",
+    build_argv=lambda model, system_file, _text: _codex_argv(model, system_file),
+    parse=_codex_parse,
+    auth_argv=("codex", "login", "status"),
+    parse_auth=_codex_auth,
+    # A key or endpoint set in the environment wins over the login: the run would bill that, not the login.
+    env_drop=frozenset({"OPENAI_API_KEY", "OPENAI_BASE_URL"}),
+    env_drop_prefixes=("CODEX_",),  # a Codex session's own variables; CODEX_HOME (the login) is kept
+    env_keep=frozenset({"CODEX_HOME"}),
+    login_hint="codex login",
+    any_model=True,
+)
+
+# ── copilot-cli ───────────────────────────────────────────────────────────────
+
+#: Copilot takes its prompt as the ``-p`` argument, which one Linux argument caps at 128 KiB; a margin is kept.
+COPILOT_ARG_LIMIT = 100_000
+WINDOWS_CMDLINE_LIMIT = 32_767  # CreateProcessW's cap on the whole command line, in UTF-16 units
+
+
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
+def _copilot_argv(model: str, system_file: str, text: str) -> list:
+    """``copilot -p`` with no tools, no custom instructions (AGENTS.md and the like), no MCP servers, no
+    auto-update, no temp dir. The system file is not used: Copilot has no system-prompt
+    option, so the system text leads the prompt (``system_in_prompt``)."""
+    del system_file
+    if len(text.encode("utf-8")) > COPILOT_ARG_LIMIT:
+        raise CliCallError(f"copilot-cli: the prompt is over {COPILOT_ARG_LIMIT} bytes, the most one argument "
+                           "carries", retryable=False)
+    # --allow-all-tools is what non-interactive mode requires; "__none__" is the measured no-tool allow-list
+    # (an empty list leaves every tool on, see repos/profiles/copilot.yaml); --prompt= keeps a leading "-" an argument.
+    argv = ["copilot", f"--prompt={text}", "-s", "--model", model, "--allow-all-tools", "--no-custom-instructions",
+            "--disable-builtin-mcps", "--no-auto-update", "--no-ask-user", "--disallow-temp-dir",
+            "--no-color", "--available-tools", "__none__"]
+    if _is_windows():
+        units = len(subprocess.list2cmdline(argv).encode("utf-16-le")) // 2 + 1  # the terminating NUL counts
+        if units > WINDOWS_CMDLINE_LIMIT:
+            raise CliCallError(f"copilot-cli: the command line is {units} characters, over Windows' "
+                               f"{WINDOWS_CMDLINE_LIMIT}; shorten the prompt or use a stdin-capable provider",
+                               retryable=False, run_wide=False)
+    return argv
+
+
+def _copilot_parse(done: process.Completed, model: str, provider: str) -> CliResult:
+    if done.timed_out:
+        raise CliCallError(f"copilot-cli: no reply in {done.elapsed_sec:.0f}s", retryable=True)
+    text = done.stdout.strip()
+    if done.returncode != 0 or not text:
+        message = (done.stderr.strip() or text or f"exit {done.returncode}")[:500]
+        lowered = message.lower()
+        run_wide = any(w in lowered for w in ("not logged in", "login", "authenticat", "unknown model",
+                                              "usage limit") + _ARGV_REJECTED)
+        raise CliCallError(f"copilot-cli: {message}", retryable=not run_wide and _text_retryable(lowered),
+                           run_wide=run_wide)
+    # ``-s`` prints the reply alone; the token counts are not on that output, so the record carries none.
+    record = UsageRecord(
+        prompt_tokens=0, completion_tokens=0, total_tokens=0, cache_read_tokens=0, cache_write_tokens=0,
+        cost_usd=None, latency_sec=done.elapsed_sec, model=model, provider=provider,
+        n_calls=1, cost_known_calls=0, resolved_model=model,
+    )
+    return CliResult(text=text, usage=record, model_id=model, finish_reason="stop")
+
+
+def _copilot_auth(done: process.Completed) -> Tuple[Optional[bool], str]:
+    """Copilot has no status command: a version line says the binary runs, not that it is signed in."""
+    return None, ""
+
+
+COPILOT_CLI = CliBackend(
+    name="copilot-cli",
+    binary="copilot",
+    build_argv=_copilot_argv,
+    parse=_copilot_parse,
+    auth_argv=("copilot", "--no-auto-update", "--version"),
+    parse_auth=_copilot_auth,
+    # A token or BYOK endpoint in the environment wins over the login (as ANTHROPIC_API_KEY does for claude-cli).
+    env_drop=frozenset({"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_ALLOW_ALL"}),
+    env_drop_prefixes=("COPILOT_PROVIDER_",),
+    login_hint="copilot login",
+    any_model=True,
+    prompt_on_stdin=False,
+    system_in_prompt=True,
+)
+
 #: CLI backends by provider name.
-BACKENDS: Dict[str, CliBackend] = {CLAUDE_CLI.name: CLAUDE_CLI}
+BACKENDS: Dict[str, CliBackend] = {b.name: b for b in (CLAUDE_CLI, CODEX_CLI, COPILOT_CLI)}
 
 
 def backend(provider: str) -> Optional[CliBackend]:
@@ -297,6 +469,8 @@ def accepts_model(provider: str, model: str) -> bool:
     carry a ``[1m]``-style context suffix)."""
     cli = BACKENDS[provider]
     bare = _without_context(model)
+    if cli.any_model:
+        return bool(bare)
     return bare in cli.aliases or bare.startswith(cli.model_prefixes)
 
 
@@ -415,7 +589,7 @@ def _version_line(provider: str) -> str:
 
 def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None,
          timeout: float = DEFAULT_TIMEOUT_SEC, runner: Optional[process.Runner] = None) -> CliResult:
-    """One completion through *provider*'s CLI; the prompt goes on stdin (no ``ARG_MAX``).
+    """One completion through *provider*'s CLI; the prompt goes on stdin (no ``ARG_MAX``) where the CLI reads it so.
 
     Raises:
         CliCallError: the CLI is missing, failed, timed out or returned no reply.
@@ -423,16 +597,19 @@ def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None
     """
     cli = BACKENDS[provider]
     cwd = work_dir(cli.name)
+    system_text = system or DEFAULT_SYSTEM
+    text = f"{system_text}\n\n{prompt}" if cli.system_in_prompt else prompt
     # A private temp dir (mkdtemp, mode 0700) for the one call: the system prompt goes by file.
     with tempfile.TemporaryDirectory(prefix="dokimi-cli-") as tmp:
         system_file = Path(tmp) / "system-prompt.txt"
-        system_file.write_text(system or DEFAULT_SYSTEM, encoding="utf-8")
+        system_file.write_text(joined_pairs(system_text), encoding="utf-8", errors="replace")  # lone surrogate: `?`
         try:
-            done = (runner or process.run)(cli.build_argv(model, str(system_file)), timeout=timeout,
-                                           env=_call_env(cli, cwd), cwd=cwd, input=prompt, capture_limit=None)
+            argv = cli.build_argv(model, str(system_file), text)
+            done = (runner or process.run)(argv, timeout=timeout, env=_call_env(cli, cwd), cwd=cwd,
+                                           input=text if cli.prompt_on_stdin else None, capture_limit=None)
         except FileNotFoundError as exc:
             raise CliCallError(f"{provider}: '{cli.binary}' is not installed or not on PATH ({exc})",
-                               retryable=False) from exc
+                               retryable=False, run_wide=True) from exc
     return cli.parse(done, model, provider)
 
 

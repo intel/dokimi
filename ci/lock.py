@@ -14,8 +14,10 @@ the weekly schedule resolve the latest builds instead. Only builds at least
 
 It solves with py-rattler, which conda's solver cannot do: conda has no option
 that leaves out the builds newer than a date. Usage, from a Python with
-py-rattler and PyYAML (the version .github/workflows/conda-lock.yml installs):
-  python ci/lock.py [--python 3.14 ...] [--min-age-days 7]
+py-rattler and PyYAML (the versions dokimi/requirements-conda-lock.lock.txt pins):
+  python ci/lock.py [--python 3.14 ...] [--min-age-days 7] [--if-stale]
+--if-stale solves only the versions whose lock is missing or whose "# specs:" header differs from the specs today's recipe and
+ci/config.yml give; it keeps a current lock as is, so builds that aged in since do not change it.
 """
 
 import argparse
@@ -63,6 +65,12 @@ def locked_specs(path: Path) -> list[str] | None:
         if line.startswith(SPECS_PREFIX):
             return json.loads(line.removeprefix(SPECS_PREFIX))
     return None
+
+
+def is_current(version: str) -> bool:
+    """Whether the lock of one Python version exists and was solved from today's specs."""
+    path = hooks.lock_path(version, PLATFORM)
+    return path.is_file() and locked_specs(path) == specs(version)
 
 
 def solve(wanted: list[str], min_age_days: int) -> list:
@@ -118,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     parser.add_argument("--python", action="append", help="a declared version; default all")
     parser.add_argument("--min-age-days", type=int, default=7)
+    parser.add_argument("--if-stale", action="store_true",
+                        help="leave the lock of a version alone when its specs header matches today's specs")
     args = parser.parse_args(argv)
     declared = [p.version for p in matrix.declared("conda-build", recipe())]
     unknown = sorted(set(args.python or []) - set(declared))
@@ -125,8 +135,12 @@ def main(argv: list[str] | None = None) -> int:
         raise LockError(f"not declared: {', '.join(unknown)}; declared: {', '.join(declared)}")
     written = set()
     for version in args.python or declared:
-        wanted = specs(version)
         path = hooks.lock_path(version, PLATFORM)
+        if args.if_stale and is_current(version):
+            written.add(path)
+            print(f"lock: {path.relative_to(hooks.ROOT)} is current", flush=True)
+            continue
+        wanted = specs(version)
         path.parent.mkdir(parents=True, exist_ok=True)
         text = render(wanted, solve(wanted, args.min_age_days), args.min_age_days)
         path.write_text(text, encoding="utf-8", newline="\n")  # LF on a Windows host too: the runners read it

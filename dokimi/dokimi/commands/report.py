@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""report subcommand group: eval, generate, model-compare."""
+"""report subcommand group: eval, generate, model-compare, summary."""
 
 from __future__ import annotations
 
@@ -85,11 +85,12 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
 
 
 def _generate_eval_report(eval_path: str, out_path: str) -> None:
-    """``generate_report``; exit 1 when the schema refuses the Q&A sidecar (the markdown is written by then)."""
-    from dokimi.report.eval_report import generate_report
+    """``generate_report``, or the one-condition page of a knowledge run; exit 1 when the schema refuses the Q&A
+    sidecar (the markdown is written by then)."""
+    from dokimi.report.single_condition_report import write_eval_report
 
     with exit_on_rejected("report_qa"):
-        generate_report(eval_path=eval_path, out_path=out_path)
+        write_eval_report(eval_path=eval_path, out_path=out_path)
 
 
 def cmd_report_eval(args: argparse.Namespace) -> None:
@@ -169,6 +170,18 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
     if args.format == "markdown":
         print("\n" + "="*80)
         print(report.split("---")[0])  # Print just the summary section
+
+
+def cmd_report_summary(args: argparse.Namespace) -> None:
+    """Merge cli_output.v1 documents into one summary. Exit 0 once written: the gate stays each leaf's own exit code."""
+    from dokimi.report.summary import render, summarize
+
+    text = render(summarize(args.inputs), args.format)
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
 
 
 def register(sub, positive_int) -> None:
@@ -251,3 +264,15 @@ def register(sub, positive_int) -> None:
         ),
     )
     mc_p.set_defaults(func=cmd_report_model_compare)
+
+    # report summary
+    sm_p = report_sub.add_parser(
+        "summary",
+        help="Merge cli_output.v1 documents (files or directories of *.json) into one summary",
+    )
+    sm_p.add_argument("inputs", nargs="+", metavar="PATH",
+                      help="cli_output.v1 files, or directories whose *.json files are read")
+    sm_p.add_argument("--format", default="markdown", choices=["markdown", "json", "annotations"],
+                      help="markdown (job summary, PR comment, terminal), json, or annotations (::error/::warning lines)")
+    sm_p.add_argument("--out", default=None, help="Write to this file instead of stdout")
+    sm_p.set_defaults(func=cmd_report_summary)

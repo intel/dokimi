@@ -89,8 +89,8 @@ Every command takes its models from `dokimi/defaults.py`, and every surface
 
 The judge is a different family from the answerer, so the judge-independence
 warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
-novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score pointwise`,
-`eval score panel`, `evaluate`, `arms run` and `subjects run` warn. Escalation
+novelty judge to `openai/gpt-6.1-sol`, and a judging run that answers with it on the
+default judge's provider is refused (see below). Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
@@ -101,13 +101,16 @@ A variable naming another model is ignored for these names. The `novelty` judge 
 longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
 Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
 `--provider amazon-bedrock`). `--judge-provider` alone takes the default judge that
-runs there; when none does (measuring `claude-sonnet-5-5` on Bedrock) the run exits
-and asks for `--judge-model`. The other commands with a judge (`benchmark`, `eval`,
-`evaluate`, `arms` and `subjects`) do the same with `--judge-provider` alone:
-`claude-sonnet-5-5` on `anthropic` and `amazon-bedrock`, `gpt-6.1-sol` on `openai`
-(the default answer model, so the judge-independence warning fires where it is
-checked), and on any other provider they exit before the first call and ask for
-`--judge-model`.
+runs on that provider, the same on every surface: `claude-sonnet-5-5` on `anthropic`
+and `amazon-bedrock`, `opus` on `claude-cli` (`sonnet` when the answerer is `opus`),
+`gpt-6.1-sol` on `openai`. When that judge is the model under measurement (`gpt-6.1-sol`
+on `openai`, the default answer model) a judging run exits before its first answer
+and asks for `--judge-model`; so does `--model claude-sonnet-5-5` with the default
+`--judge-provider anthropic`. `eval score` and `eval judge` have no answerer and judge
+with `gpt-6.1-sol` on `openai`. On any other provider (`google`, `google-vertex`,
+`openrouter`) the run exits before the first call and asks for `--judge-model`. A
+matrix (`arms matrix-run --matrix-cells`) has one judge for all its cells; a cell
+whose model is that judge is warned about, not refused.
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
@@ -365,8 +368,14 @@ records its `correction_family`, `family_size` (every member), and `family_teste
 Each row's `p` is one two-sided sign-flip test on the per-question deltas: under
 the null each delta's sign is a fair coin, and p is the share of sign patterns
 whose |sum| reaches the observed one (exact up to 16 changed pairs, Monte Carlo
-with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
-so over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
+with a fixed seed above). The sums are exact, not float sums: a delta of 1e17 does not
+hide five deltas of 1, and a pattern whose sum falls short of the observed one by no more
+than the rounding slack of the deltas (at most 1e-9) still reaches it (0.1 + 0.2 against
+0.3). A delta within 1e-9 of 0 is a tie and carries no sign,
+unless the values of its pair are below 1: float noise in a delta scales with the
+values subtracted, so a pair whose larger value is m below 1 ties within 1e-9 times m
+(a score of 0.3 against 0.1 + 0.2 is a tie; 1e-12 against 0 is a change, as 1e-3 against 0
+is). Each pair keeps its own width whatever the other deltas are, except a pair of zeros, which takes the width of the largest value among all the pairs (at most 1). So over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
 data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed.
 An arm under that floor can never be significant, so it stays out of the
 multiplier, as a `repo compare` row does: it counts in `family_size` but not in
@@ -390,7 +399,9 @@ values are possible:
 A `—` is not a null result. A constant shift is not a `—`: eight pairs that all
 gain +20 have p = 2/2^8 = 0.0078 and the interval [+20, +20]. Cohen's d_z is
 descriptive (no verdict reads it) and renders `—` there, where it is *unbounded*
-rather than negligible; it is 0.0 when every delta is 0.
+rather than negligible; it is 0.0 when every delta is 0. "Constant" is judged at the
+deltas' own scale (spread under 1e-9 of the larger of the mean and the sd), so deltas
+of 1e-12 that differ get a d_z.
 
 The 95% CI inverts the same sign-flip test: it is every shift theta at which the
 test on the deltas minus theta does not reject at 5%, so it excludes zero exactly
@@ -400,7 +411,8 @@ count again, so both ends are open (`null`, printed `-inf` / `+inf`) at 5 or
 fewer pairs and bounded from 6 on. Six or more pairs that all tie get the
 interval [0, 0] with no p and a `—`: nothing speaks against 0, and every other
 shift moves all the pairs to one side, which the test rejects, as it does every
-shift but +20 for eight +20 pairs. `ci_method` is `sign_flip_inversion`; an
+shift but +20 for eight +20 pairs. An end of deltas near
+1.8e308 that the search puts past the float maximum is the maximum, never `inf`. `ci_method` is `sign_flip_inversion`; an
 `arms.json` written before this method holds `student_t`, `percentile_bootstrap`
 or `degenerate` there, and `p_ttest` (with `p_wilcoxon`, `n_wilcoxon`) instead of
 `p`, and the report still renders it.
@@ -422,7 +434,24 @@ artifact also gets `summary.interactions`: the contrast
 `AB − A − B + baseline` computed per question against one shared baseline, which
 is what tells you whether combining two treatments beats the sum of their
 separate effects. Running the arms separately and subtracting run averages does
-not answer that question — the baselines drift between runs.
+not answer that question — the baselines drift between runs. The tie rule above
+applies to the contrast with the largest of the question's four scores as its
+value (AB = 1e-300 with A, B and baseline all zero is a change), and to each arm
+delta with the larger score of its pair.
+
+Scores whose paired difference or interaction contrast leaves the float range are
+refused by the statistics. The run is still saved: `summary.significance_error` or
+`summary.interactions_error` holds the refusal, the section it names is absent, and
+the report prints it in place of the table. An arm whose own paired differences leave
+the range has a null `delta_vs_baseline` and says why in `per_arm.<arm>.delta_error`,
+which the report prints as an arm-labelled note under the significance table (or its
+heading, when no arm has a row); the significance of the other arms stays when the
+family test itself succeeds. A mean of finite scores or of finite paired differences
+whose sum would pass the float range is computed exactly (`statistics.mean`), so the
+per-arm `avg_aggregate` and `delta_vs_baseline` are refused only when a single
+difference leaves the range. A significance row computes the mean, the sd and the
+sign-flip p of such differences too, and is refused only when its sd leaves the range; an interaction row is also refused when the sum of its two arm deltas (its additive expectation) does. The console summary of `arms run` prints
+`(delta not computed: <the refusal>)` for such an arm.
 
 Everything above assumes the judge's continuous 0–100 score. The
 execution-verified task track (`cli.py tasks run`) has a binary outcome per task

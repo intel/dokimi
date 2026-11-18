@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
+from dokimi.repos.event_format import EVENT_VERSION
+
 OUTPUT_LIMIT = 8192
 OUTPUT_KEEP = 4096
 
@@ -46,6 +48,9 @@ class Transcript:
     dropped_lines: int = 0  # trace lines that did not parse or were of no known shape: their events are missing
     init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
     answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
+    start_record: dict[str, Any] = field(default_factory=dict)  # the start-up record as printed (run_context reads it)
+    final_record: dict[str, Any] = field(default_factory=dict)  # the closing record as printed (run_context reads it)
+    stop_reasons: list[str] = field(default_factory=list)  # ``stop_reason`` of each main-thread reply that carried one
 
     def model_resolved(self) -> str | list[str] | None:
         """The model that answered: one name, a sorted list when several did, ``None`` when the trace cannot tell.
@@ -59,8 +64,9 @@ class Transcript:
         """The paths the agent was shown (:func:`shown_read`); a refused or failed read stays in the events only."""
         return {e["path"] for e in self.events if shown_read(e) and e.get("path")}
 
-    def events_jsonl(self) -> str:
-        return "".join(json.dumps(e, sort_keys=True) + "\n" for e in self.events)
+    def events_jsonl(self, events: list[dict[str, Any]] | None = None) -> str:
+        return "".join(json.dumps({**e, "v": EVENT_VERSION}, sort_keys=True) + "\n"
+                       for e in (self.events if events is None else events))
 
 
 def shown_read(event: dict[str, Any]) -> bool:

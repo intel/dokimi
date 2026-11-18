@@ -76,6 +76,12 @@
       "uniqueItems": true,
       "items": {"enum": ["bazel", "make", "cmake", "pytest", "pre-commit"]}
     },
+    "probes": {
+      "description": "Target -> command, file or python patterns whose commands get a probe event (docs/repo-evaluation-contract.md §2, §4.1). A listed target replaces its defaults; [] turns it off.",
+      "type": "object",
+      "propertyNames": {"enum": ["cpu", "gpu", "os", "memory", "packages", "env", "network"]},
+      "additionalProperties": {"type": "array", "items": {"type": "string", "minLength": 1}}
+    },
     "process_metrics": {
       "type": "object",
       "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},

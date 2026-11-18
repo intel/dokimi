@@ -35,6 +35,8 @@ from typing import Any
 
 import yaml
 
+from dokimi.process_io import joined_pairs
+
 from . import tbench_v1
 from .tasks import FORMAT_HARBOR, FORMAT_TBENCH_V1, TaskSpec
 
@@ -97,7 +99,7 @@ def default_cache_root() -> Path:
 
 def _content_key(path: Path, resolved: str = "") -> str:
     """Hash of the task's files and of *resolved*, what the export writes from runtime state."""
-    digest = hashlib.sha256(EXPORT_VERSION.encode() + b"\0" + resolved.encode() + b"\0")
+    digest = hashlib.sha256(EXPORT_VERSION.encode() + b"\0" + resolved.encode("utf-8", "surrogatepass") + b"\0")
     for file in sorted(p for p in path.rglob("*") if p.is_file() and not p.is_symlink()):
         digest.update(os.fsencode(file.relative_to(path).as_posix()) + b"\0")
         digest.update(hashlib.sha256(file.read_bytes()).digest())
@@ -137,8 +139,9 @@ def export(task: TaskSpec, dest: Path) -> Path:
         if script.is_file():
             script.chmod(0o755)
     instruction = task.instruction if task.instruction.endswith("\n") else task.instruction + "\n"
-    (dest / "instruction.md").write_text(instruction, encoding="utf-8")
-    (dest / "task.toml").write_text(_task_toml(task), encoding="utf-8")
+    # A `😀` escape is one character; a lone surrogate is written as `?`, so the file stays valid UTF-8.
+    (dest / "instruction.md").write_text(joined_pairs(instruction), encoding="utf-8", errors="replace")
+    (dest / "task.toml").write_text(joined_pairs(_task_toml(task)), encoding="utf-8", errors="replace")
     return dest
 
 

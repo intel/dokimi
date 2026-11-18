@@ -85,6 +85,8 @@ CONCEPTS: tuple[Concept, ...] = (
         canonical=(
             Flag("--judge", "PROVIDER/MODEL", _MODEL_REF, repeatable=True,
                  meaning="the judge; repeated, it is a panel"),
+            Flag("--judge-aggregate", "{median,majority,unanimous}", "choice",
+                 meaning="how a judge panel's verdicts become one"),
             Flag("--extract-model", "PROVIDER/MODEL", _MODEL_REF),
             Flag("--escalate-model", "PROVIDER/MODEL", _MODEL_REF),
             Flag("--fill-model", "PROVIDER/MODEL", _MODEL_REF),
@@ -146,6 +148,12 @@ CONCEPTS: tuple[Concept, ...] = (
         help="repetitions per cell",
         canonical=(Flag("--reps", "N", "int"),),
         banned=("--repeats", "--work-repeats", "--multi-run", "--trials"),
+    ),
+    Concept(
+        name="against",
+        help="the root of the skills a skill is measured against",
+        canonical=(Flag("--against", "ROOT", "path"),),
+        banned=(),
     ),
     Concept(
         name="concurrency",
