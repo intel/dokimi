@@ -27,6 +27,17 @@ def test_a_surrogate_pair_is_joined_into_its_character():
     assert clip_output("a" + chr(0xD83D) + chr(0xDE00)) == ("a😀", False)
 
 
+def test_an_output_of_exactly_the_limit_is_kept_whole():
+    """#884: an output of exactly ``OUTPUT_LIMIT`` bytes is kept whole, not clipped."""
+    assert clip_output("x" * OUTPUT_LIMIT) == ("x" * OUTPUT_LIMIT, False)
+
+
+def test_a_pair_cut_at_the_end_of_the_head_is_dropped_whole():
+    """#884: a joined pair is one 4-byte character, so a cut through it drops it whole."""
+    clipped, _ = clip_output("a" + (chr(0xD83D) + chr(0xDE00)) * 2100)
+    assert clipped.startswith("a" + "\U0001F600" * 1023 + "\n[... ")
+
+
 def test_a_long_output_with_surrogates_in_the_head_and_the_clipped_middle_is_clipped():
     """#884: the head keeps the lone surrogate as ``?``; the omitted count is of the cleaned bytes."""
     text = "h" + LONE_HIGH + "x" * 20000 + LONE_LOW + "y" * 20000 + "end"
