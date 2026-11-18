@@ -427,6 +427,7 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
     items = _items(root, args.limit)
     if not items:
         raise InputError(f"no SKILL.md under {root}")
+    _refuse_outputs_inside_a_skill(items, out_dir, jsonl)
     fingerprint = _fingerprint(args, placebo_text)
     kept, todo, others = _plan(items, jsonl, args, fingerprint)
     print(f"# catalog novelty: {len(items)} skills under {root}; {len(kept)} measured and kept, "
@@ -450,6 +451,16 @@ def _exit_if_short(run: int, new_rows: list[dict], jsonl: Path) -> None:
     if short:
         raise SystemExit(f"{short} of {run} skill(s) this run took on were not measured (partial, error or "
                          f"not run); the rows are in {jsonl}, and --resume runs them again")
+
+
+def _refuse_outputs_inside_a_skill(items: list[_Item], out_dir: Path, jsonl: Path) -> None:
+    """Refuse an --out-dir or --jsonl inside a skill's directory: what the sweep writes there changes the
+    skill's digest, so every --resume would pay for that skill again."""
+    for flag, path in (("--out-dir", out_dir), ("--jsonl", jsonl)):
+        for item in items:
+            if path.resolve().is_relative_to(item.directory.resolve()):
+                raise InputError(f"{flag} {path} is inside the skill {item.key!r}: its files would change the "
+                                 "skill's digest, so every --resume would measure it again; write it elsewhere")
 
 
 def _refuse_unsafe_summary_out(args: argparse.Namespace, jsonl: Path) -> None:

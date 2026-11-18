@@ -1223,7 +1223,8 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   before it exits, so its paid call is lost unless `DOKIMI_RESPONSE_CACHE` is set. No call after it starts.
   A skill that is measured again (`--resume`) first loses its earlier `novelty.json` and `novelty.md`, so a
   `partial` or `error` row never sits beside a file from an older run. `--summary-out` may not be the
-  `--jsonl` file.
+  `--jsonl` file, and neither `--out-dir` nor `--jsonl` may be inside a skill directory (its files
+  would change the skill's digest, so each `--resume` would measure it again).
 
 ```bash
 dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \

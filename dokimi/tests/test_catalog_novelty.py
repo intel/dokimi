@@ -156,6 +156,16 @@ def test_a_judge_panel_is_refused_rather_than_graded_by_its_first_judge(tmp_path
     assert not (tmp_path / "out").exists()
 
 
+@pytest.mark.parametrize("inside", ["out_dir", "jsonl"])
+def test_an_output_inside_a_skill_is_refused_before_a_paid_call(tmp_path, inside):
+    root = _root(tmp_path)
+    target = root / "other-skill" / "out"
+    out, extra = (target, ()) if inside == "out_dir" else (tmp_path / "out", ("--jsonl", str(target / "s.jsonl")))
+    with pytest.raises(InputError, match="inside the skill 'other-skill'"):
+        _sweep(root, out, "--max-usd", "5", *extra)
+    assert not target.exists()
+
+
 def test_resume_keeps_the_measured_rows_and_runs_only_the_rest(tmp_path, capsys):
     root, out = _root(tmp_path), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5", "--limit", "1")
