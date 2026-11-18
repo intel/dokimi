@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.atomic_write import write_text_atomic
+from ...provenance import generated_by
 from ..graders.hidden_tests import HIDDEN_DIR
 from ..graders.typecheck import REFERENCE_DIR
 from ..manifest import RepoManifest
@@ -137,6 +138,7 @@ def _make(h: History, manifest: RepoManifest, change: Change,
         "hidden_tests": tests, "hidden_files": hidden, **change.fields,
         "patch_files": sorted({p for _, p in rest}),  # the paths the change makes, tests too; as replay's
         "oracle_lines": n_lines, "prompt_dropped": prompt.dropped,
+        "provenance": generated_by("tasks-generate"),
     }
     deleted = [p for s, p in code if s == "D"]
     if deleted:

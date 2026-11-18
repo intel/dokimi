@@ -48,6 +48,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dokimi.provenance import UNKNOWN, status_of
+
 from .container import (
     HARNESS_DIR,
     RUN_DIR,
@@ -317,6 +319,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
                               "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade}
+    if status_of(task.raw) != UNKNOWN:  # absent means unknown to the report: a task without one writes no key
+        record["task_status"] = status_of(task.raw)
     _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
