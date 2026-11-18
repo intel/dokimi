@@ -92,6 +92,13 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     both = threading.Barrier(2)
     ended = threading.Semaphore(0)
     real = repo_runner.run_cell
+    cancelled = threading.Event()
+    real_shutdown = repo_runner.ThreadPoolExecutor.shutdown
+
+    def shutdown(self, wait=True, *, cancel_futures=False):
+        real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+        if cancel_futures:
+            cancelled.set()
 
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
         started.append(rep)
@@ -99,13 +106,15 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
             both.wait(5)  # both threads busy, every cell already submitted to the pool
             if rep == 1:
                 signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)  # emulates Ctrl-C reaching the main thread
-            time.sleep(0.3)  # the main thread takes the interrupt while these cells still run
+            # the cells wait for the cancel, not for time (#874)
+            assert cancelled.wait(30)
         try:
             return real(ctx, task, arm, rep, *args, **kwargs)
         finally:
             ended.release()
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
+    monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "shutdown", shutdown)
     old = signal.signal(signal.SIGINT, signal.default_int_handler)  # a shell may have left SIGINT ignored
     try:
         with pytest.raises(KeyboardInterrupt):
