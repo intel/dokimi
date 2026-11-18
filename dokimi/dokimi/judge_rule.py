@@ -8,7 +8,6 @@ It lives beside :mod:`dokimi.utils` (for :func:`same_model`) rather than in
 an import cycle.
 """
 
-from dokimi import llm_cli
 from dokimi.defaults import (
     BEDROCK_MODEL_IDS,
     DEFAULT_GENERATOR_MODEL,
@@ -20,6 +19,8 @@ from dokimi.utils import same_model
 
 #: The Claude CLI aliases, in the order a judge is picked from them.
 _CLI_ALIASES = ("opus", "sonnet", "haiku")
+#: The CLI answerers whose judge is their own CLI by default: only claude-cli has the alias list the judge is picked from.
+_FOLLOWS_ANSWERER_CLI = frozenset({"claude-cli"})
 
 
 class JudgeIsAnswerer(ValueError):
@@ -66,17 +67,18 @@ def default_judge(answerer: str | None, provider: str | None = None,
     there is taken: its own provider, or Bedrock for a name in ``BEDROCK_MODEL_IDS``. Pairing
     the provider with a model of another provider would send e.g. ``bedrock/gpt-6.1-sol``, so
     with no such default this raises instead. On ``claude-cli`` the judge is the first Claude
-    alias (``opus``, ``sonnet``, ``haiku``) of another family than the answerer. A CLI
-    ``answerer_provider`` with no ``provider`` judges on the same CLI. ``answerer`` ``None``
+    alias (``opus``, ``sonnet``, ``haiku``) of another family than the answerer. A ``claude-cli``
+    ``answerer_provider`` with no ``provider`` judges on the same CLI; the other CLIs keep the API default.
+    ``answerer`` ``None``
     (a command with no answerer) excludes nothing.
 
     Raises:
         JudgeIsAnswerer: ``provider`` runs a default judge, but it is ``answerer``.
         ValueError: ``provider`` runs no default judge at all.
     """
-    if provider is None and answerer_provider is not None and llm_cli.backend(answerer_provider) is not None:
+    if provider is None and answerer_provider in _FOLLOWS_ANSWERER_CLI:
         provider = answerer_provider
-    # Hard-coded for claude-cli; a second CLI backend (codex-cli) needs its own alias list here.
+    # Hard-coded for claude-cli; a second CLI backend needs its own alias list here (and its own entry above).
     if provider == "claude-cli":
         return _claude_cli_judge(answerer, provider)
     return _default_pair(answerer, provider)
@@ -92,8 +94,7 @@ def apply_default_judge(args, *, matrix: bool, named: bool) -> None:
     """
     answerer, answerer_provider = (None, None) if matrix else (getattr(args, "model", None),
                                                                getattr(args, "provider", None))
-    on_cli = answerer_provider is not None and llm_cli.backend(answerer_provider) is not None
-    follow_answerer = on_cli and not named
+    follow_answerer = answerer_provider in _FOLLOWS_ANSWERER_CLI and not named
     try:
         judge_model, picked = default_judge(answerer, None if follow_answerer else args.judge_provider,
                                             answerer_provider)
@@ -128,6 +129,6 @@ def follow_answerer_cli(args, *, matrix: bool, named: bool) -> None:
     """
     answerer_provider = None if matrix else getattr(args, "provider", None)
     if (named or not getattr(args, "judge", True) or getattr(args, "judge_model", None) is None
-            or answerer_provider is None or llm_cli.backend(answerer_provider) is None):
+            or answerer_provider not in _FOLLOWS_ANSWERER_CLI):
         return
     args.judge_provider = answerer_provider

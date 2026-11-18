@@ -22,7 +22,7 @@ needs `--judge-provider` (it does not fall back to `--provider` for the judge);
 `tasks run` and `repo` take `--model` only. The provider is one of `openai`,
 `anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter`, `openai-codex` or
 `claude-cli` (a logged-in Claude Code CLI, no key; see
-[subscription backends](subscription-backends.md));
+[subscription backends](subscription-backends.md)), `codex-cli` or `copilot-cli` (a logged-in Codex or Copilot CLI);
 `arms run --judge-provider` takes `google`, an alias of `google-vertex`, but not
 `openai-codex`.
 Credentials are read from the environment: `OPENAI_API_KEY`,

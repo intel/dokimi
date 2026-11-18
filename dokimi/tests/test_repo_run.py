@@ -57,7 +57,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert meta["agent_network"] == "host"
     assert meta["egress_proxy"] is False and len(meta["start_sha"]) == 40
     events = [json.loads(line) for line in (rd / "events.jsonl").read_text().splitlines()]
-    assert events == [{"kind": "edit", "path": "src/calc.py", "rc": 0, "t": None}]  # relative to /eval/run/workspace
+    assert events == [{"kind": "edit", "path": "src/calc.py", "rc": 0, "t": None, "v": 1}]  # relative to /eval/run/workspace
     assert (rd / "answer.txt").read_text() == "done: src/calc.py"
     assert (rd / "config/settings.json").read_text() == '{"hook": "python3 /eval/support/no_background.py"}'
     result = json.loads((rd / "result.json").read_text())
@@ -124,8 +124,8 @@ def test_an_unreadable_trace_leaves_process_null_and_still_grades(setup, monkeyp
 
 
 def test_an_agent_that_left_no_trace_is_not_given_a_process_metrics_error(setup, monkeypatch):
-    # No events and no turns: the metrics are not run on the missing trace, so they record no failure.
-    monkeypatch.setenv("FAKE_ACTION", "silent")
+    # No events and no turns (exit 0: a nonzero exit is a crash): the metrics are not run on the missing trace.
+    monkeypatch.setenv("FAKE_ACTION", "quiet")
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["process"] is None

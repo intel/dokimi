@@ -40,37 +40,39 @@ def _write_json(path: str, payload: dict) -> None:
 
 
 def _parse_source(args: argparse.Namespace) -> RepoSource:
-    """The source as typed: a malformed string, an unpinned remote or a local path that is not a directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
+    """The source as typed: a malformed string, an unpinned remote, a local path that is not a directory or a ``--cache-dir`` that is not a usable directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
     from dokimi.repos import RepoSource, SourceError
 
     try:
-        return RepoSource.parse(args.source)
+        source = RepoSource.parse(args.source)
     except SourceError as exc:
         raise InputError(str(exc)) from exc
     except OSError as exc:  # Path.is_dir raises PermissionError on Python 3.11-3.13
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    _cache_dir(args)  # a bad --cache-dir is a usage error too, and must not reach a handler of the clone's failures
+    return source
+
+
+def _open_tree(source: RepoSource, args: argparse.Namespace):
+    """The source's tree, cloned into ``--cache-dir`` when remote: a bad ``--cache-dir`` or a pinned local path that is not the repository root is a usage error (2); a clone, fetch or pin resolution failure is 1."""
+    from dokimi.repos import SourceError, open_source
+    from dokimi.repos.source import SourceArgumentError
+
+    cache_dir = _cache_dir(args)  # before the handlers below: InputError is a ValueError
+    try:
+        return open_source(source, cache_dir)
+    except SourceArgumentError as exc:
+        raise InputError(str(exc)) from exc
+    except (SourceError, OSError, ValueError) as exc:  # a cache dir that cannot be made, or git output that is not UTF-8
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
 
 
 def _source_tree(args: argparse.Namespace) -> tuple:
     """The source (source, tree): a malformed string, unpinned remote or pinned local path that is not the repository root is a usage error (2); a clone, fetch or pin resolution failure is 1."""
-    from dokimi.repos import SourceError, open_source
-    from dokimi.repos.source import SourceArgumentError
-
     source = _parse_source(args)
-    # 2 = malformed source string, unpinned remote, pinned local path inside a repository, manifest/profile errors; 1 = clone/fetch/resolve of a pin
-    # (incl. pinned local non-git source, pin absent locally, remote pin missing from origin).
-    try:
-        return source, open_source(source, _cache_dir(args))
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        raise InputError(str(exc)) from exc
-    except SourceError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
-    except (OSError, ValueError) as exc:
-        # A cache dir that cannot be made, or git output that is not UTF-8: a failed read, not a usage error.
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    return source, _open_tree(source, args)
 
 
 def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool = False,
@@ -107,8 +109,10 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
     if args.json:
         reason = None if not failed else (f"{len(report.errors)} error(s)" if not report.ok
                                           else f"{len(report.warnings)} warning(s) under --fail-on-warning")
+        findings = [cli_output.finding("error", "validate-error", str(e), manifest.path) for e in report.errors]
+        findings += [cli_output.finding("warn", "validate-warning", str(w), manifest.path) for w in report.warnings]
         cli_output.emit_leaf("repo validate", report.to_dict(), status="failed" if failed else "complete",
-                             reason=reason)
+                             reason=reason, subjects=[{"subject": manifest.id, "verdict": None, "findings": findings}])
     else:
         mark = "✓" if report.ok else "✗"
         families = ", ".join(f"{k} {v}" for k, v in report.to_dict()["tasks"]["by_family"].items())
@@ -141,6 +145,7 @@ def _read_static(path: str) -> Any:
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
+    from dokimi.commands.repo_scan import scan_subjects
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.l0 import scan_repo
     from dokimi.repos.l0.typecheck import TypecheckError
@@ -169,7 +174,10 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         failed = bool(args.fail_on_fail and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
                              status="failed" if failed else "complete",
-                             reason=_scan_reason(payload, static_errors, args.fail_on_fail) if failed else None)
+                             reason=_scan_reason(payload, static_errors, args.fail_on_fail) if failed else None,
+                             subjects=scan_subjects(payload),
+                             summary={"claims": dict(payload["counts"]), "files": len(payload["files"]),
+                                      "adapters": ", ".join(payload.get("adapters") or []) or "none"})
     else:
         _print_scan_text(manifest, payload, args.out)
     _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
@@ -249,8 +257,8 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
 
 def cmd_repo_fetch(args: argparse.Namespace) -> None:
     """Clone (once) and fetch a pinned remote source into the cache; print the SHA."""
-    from dokimi.repos import RepoSource, SourceError, open_source
-    from dokimi.repos.source import GitTree, SourceArgumentError
+    from dokimi.repos import RepoSource, SourceError
+    from dokimi.repos.source import GitTree
 
     try:  # the source as typed: a usage error
         source = RepoSource.parse(args.source)
@@ -258,13 +266,7 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
             raise SourceError("fetch needs a pinned source: <url-or-path>@<rev>")
     except SourceError as exc:
         raise InputError(str(exc)) from exc
-    try:  # the clone and fetch: a runtime failure (network, git, unknown revision)
-        tree = open_source(source, _cache_dir(args))
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        raise InputError(str(exc)) from exc
-    except (SourceError, OSError, ValueError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    tree = _open_tree(source, args)
     assert isinstance(tree, GitTree)
     if args.json:
         cli_output.emit_leaf("repo fetch", {"sha": tree.sha, "git_dir": str(tree.git_dir)})
@@ -320,23 +322,16 @@ def _saved_reach_inputs(args: argparse.Namespace):
 
 def _reach_from_saved(args: argparse.Namespace) -> None:
     """The matrix or the receipt of a saved reach.json, checked against the source; no harness runs."""
-    from dokimi.repos import ManifestError, SourceError, open_source
+    from dokimi.repos import ManifestError, SourceError
     from dokimi.repos.harness_profile import ProfileError
     from dokimi.repos.receipt import check_receipt_provenance, check_saved_guidance, check_saved_reach
     from dokimi.repos.reach import ReachError, format_matrix
-    from dokimi.repos.source import SourceArgumentError
 
     try:  # the arguments and the saved file as typed: a usage error
         profile, source, reach = _saved_reach_inputs(args)
     except (SourceError, ProfileError, ReachError, OSError, ValueError) as exc:
         raise InputError(str(exc)) from exc
-    try:  # the clone and fetch: a runtime failure
-        tree = open_source(source, _cache_dir(args))
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        raise InputError(str(exc)) from exc
-    except (SourceError, OSError, ValueError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    tree = _open_tree(source, args)
     try:  # the manifest and the file's provenance: a usage error; a failed git read is a fetch failure (1)
         manifest = _load_manifest(tree, args, guidance_default=True)
         check_saved_reach(reach, manifest.id, profile.name, getattr(tree, "sha", None))
@@ -426,9 +421,8 @@ def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
 
 def cmd_repo_reach(args: argparse.Namespace) -> None:
     """L1 reach probe: which guidance files one harness/version/model loads."""
-    from dokimi.repos import RepoSource, SourceError, open_source
+    from dokimi.repos import RepoSource, SourceError
     from dokimi.repos.harness_profile import ProfileError, load_profile
-    from dokimi.repos.source import SourceArgumentError
     from dokimi.repos.reach import ReachError, check_flags, check_kinds, check_shadow, run_reach, save_reach
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
@@ -441,13 +435,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         source = RepoSource.parse(args.source)
     except (SourceError, ProfileError, ReachError) as exc:
         raise InputError(str(exc)) from exc
-    try:  # the clone and fetch: a runtime failure
-        tree = open_source(source, _cache_dir(args))
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        raise InputError(str(exc)) from exc
-    except (SourceError, OSError, ValueError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    tree = _open_tree(source, args)
     manifest, files, planned_count = _reach_plan(args, tree, profile, kinds, only)
     if not args.dry_run:
         print(f"{len(files)} guidance files, {planned_count} scenarios, "
@@ -621,7 +609,14 @@ def _manifest_id(label: str) -> str:
 
 
 def _cache_dir(args: argparse.Namespace) -> Path | None:
-    return Path(args.cache_dir) if args.cache_dir else None
+    """``--cache-dir`` as given, or ``None``; a value no clone can be cached in is a usage error (2) (#765).
+
+    An existing read-only directory passes on purpose: a populated one replays without writing. An empty one
+    is not told apart without the clone URL, so its clone fails later with exit 1.
+    """
+    from dokimi.commands.cache_dir import CLONE_USE, usable_cache_dir
+
+    return usable_cache_dir(args.cache_dir, CLONE_USE)
 
 
 def register(sub, positive_int, eval_sub) -> None:

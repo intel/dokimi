@@ -216,7 +216,7 @@ def test_a_bash_read_of_the_probe_shows_whether_the_directory_guidance_loads(tmp
     assert [s["id"] for s in payload["scenarios"]] == ["bash=sub"] and not payload["scenarios"][0]["error"]
     assert payload["summary"]["matrix"] == {"AGENTS.md": {"bash=sub": "loaded"}, "sub/AGENTS.md": {"bash=sub": cls}}
     events = [json.loads(x) for x in (tmp_path / "out/traces/00-bash_sub.events.jsonl").read_text().splitlines()]
-    assert events[0] == {"t": None, "kind": "read", "path": "sub/REACH_PROBE.txt", "rc": 0}
+    assert events[0] == {"t": None, "kind": "read", "path": "sub/REACH_PROBE.txt", "rc": 0, "v": 1}
 
 
 @pytest.mark.parametrize("mode", ["hook", "permissions"])

@@ -368,8 +368,14 @@ records its `correction_family`, `family_size` (every member), and `family_teste
 Each row's `p` is one two-sided sign-flip test on the per-question deltas: under
 the null each delta's sign is a fair coin, and p is the share of sign patterns
 whose |sum| reaches the observed one (exact up to 16 changed pairs, Monte Carlo
-with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
-so over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
+with a fixed seed above). The sums are exact, not float sums: a delta of 1e17 does not
+hide five deltas of 1, and a pattern whose sum falls short of the observed one by no more
+than the rounding slack of the deltas (at most 1e-9) still reaches it (0.1 + 0.2 against
+0.3). A delta within 1e-9 of 0 is a tie and carries no sign,
+unless the values of its pair are below 1: float noise in a delta scales with the
+values subtracted, so a pair whose larger value is m below 1 ties within 1e-9 times m
+(a score of 0.3 against 0.1 + 0.2 is a tie; 1e-12 against 0 is a change, as 1e-3 against 0
+is). Each pair keeps its own width whatever the other deltas are, except a pair of zeros, which takes the width of the largest value among all the pairs (at most 1). So over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
 data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed.
 An arm under that floor can never be significant, so it stays out of the
 multiplier, as a `repo compare` row does: it counts in `family_size` but not in
@@ -428,7 +434,24 @@ artifact also gets `summary.interactions`: the contrast
 `AB − A − B + baseline` computed per question against one shared baseline, which
 is what tells you whether combining two treatments beats the sum of their
 separate effects. Running the arms separately and subtracting run averages does
-not answer that question — the baselines drift between runs.
+not answer that question — the baselines drift between runs. The tie rule above
+applies to the contrast with the largest of the question's four scores as its
+value (AB = 1e-300 with A, B and baseline all zero is a change), and to each arm
+delta with the larger score of its pair.
+
+Scores whose paired difference or interaction contrast leaves the float range are
+refused by the statistics. The run is still saved: `summary.significance_error` or
+`summary.interactions_error` holds the refusal, the section it names is absent, and
+the report prints it in place of the table. An arm whose own paired differences leave
+the range has a null `delta_vs_baseline` and says why in `per_arm.<arm>.delta_error`,
+which the report prints as an arm-labelled note under the significance table (or its
+heading, when no arm has a row); the significance of the other arms stays when the
+family test itself succeeds. A mean of finite scores or of finite paired differences
+whose sum would pass the float range is computed exactly (`statistics.mean`), so the
+per-arm `avg_aggregate` and `delta_vs_baseline` are refused only when a single
+difference leaves the range. A significance row computes the mean, the sd and the
+sign-flip p of such differences too, and is refused only when its sd leaves the range; an interaction row is also refused when the sum of its two arm deltas (its additive expectation) does. The console summary of `arms run` prints
+`(delta not computed: <the refusal>)` for such an arm.
 
 Everything above assumes the judge's continuous 0–100 score. The
 execution-verified task track (`cli.py tasks run`) has a binary outcome per task
@@ -592,7 +615,7 @@ under several judges (absolute, and with `--grounded` against each question's
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
 `NOT MEASURED` when no voting measure compared a single question (every call
-errored, or every judge was gated out); `--strict` exits 1 on that too. A
+errored, or every judge was gated out); `--strict` exits 3 on that, and 4 on a `JUDGE-DEPENDENT` arm. A
 `--judges` judge that leaves answers unscored prints how many and its first
 error, which the report keeps under `unscored`; one that scored none of its
 answers exits 1 once the report is written, with or without `--strict`, as

@@ -12,6 +12,14 @@ logger = logging.getLogger(__name__)
 from dokimi.llm import LLM, ChatModel, Invoker, check_caller_provider
 from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
+from dokimi.provenance import generated_by
+
+
+def _stamped(questions: List[Dict[str, Any]], tool: str) -> List[Dict[str, Any]]:
+    """Each generated question with the ``provenance`` of the generator ``tool`` (a set by hand is kept)."""
+    for q in questions:
+        q.setdefault("provenance", generated_by(tool))
+    return questions
 
 
 QUESTION_GENERATION_PROMPT = """You are generating technical questions for documentation quality evaluation.
@@ -160,7 +168,7 @@ class QuestionGenerator:
                 all_questions.append(q)
         
         logger.info(f"Generated {len(all_questions)} total questions")
-        return all_questions
+        return _stamped(all_questions, "questions-persona")
 
     def generate_hybrid(
         self,
@@ -231,7 +239,7 @@ class QuestionGenerator:
             f"Hybrid result: {len(persona_qs)} persona + {len(chunk_qs)} chunk "
             f"= {len(all_questions)} total"
         )
-        return all_questions
+        return _stamped(all_questions, "questions-chunk")
     
     def _generate_for_persona(
         self,

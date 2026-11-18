@@ -97,7 +97,7 @@ class RagasSeedExtractor:
             ["parallel_for", "task_arena", "flow_graph", "tbb::blocked_range", ...]
         """
         cache_key = hashlib.sha256(
-            f"{library_id}:{max_topics}:{max_tokens}".encode()
+            f"{library_id}:{max_topics}:{max_tokens}".encode("utf-8", "surrogatepass")
         ).hexdigest()
 
         # Cache hit?

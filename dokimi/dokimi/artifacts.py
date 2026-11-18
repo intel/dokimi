@@ -19,8 +19,9 @@ eval set's coverage of it), ``task_inspect`` (which eval-task format each
 path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs),
 ``dokimi_config`` (a repository's subjects and where their evals are), ``reach_matrix`` (the reach
 conformance matrix), ``security_report`` (unsafe agent behaviour per arm of a run batch), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
-signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set) and
-``report_qa`` (the Q&A sidecar of ``report eval``). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
+signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set),
+``report_qa`` (the Q&A sidecar of ``report eval``) and ``docling_sources`` (which source each file of a
+``data import docling`` output directory came from). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
 
@@ -103,6 +104,8 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "question_panel": "question_panel.v1",
     "question_quality": "question_quality.v1",
     "report_qa": "report_qa.v1",
+    "docling_sources": "docling_sources.v1",
+    "report_summary": "report_summary.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
@@ -116,9 +119,9 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
 
 
 #: What a run is given (question sets, whose bytes ``question_set_hash`` digests, a config, a ledger, a need
-#: graph) and the CLI's route table: :func:`save_artifact` gives them no envelope (#277, #387).
+#: graph), the CLI's route table and the report summary: :func:`save_artifact` gives them no envelope (#277, #387).
 INPUT_KINDS: frozenset[str] = frozenset({"questions", "dokimi_config", "repo_ledger", "need_graph",
-                                         "cli_routes"})
+                                         "cli_routes", "report_summary"})
 
 #: The envelope keys :func:`save_artifact` writes on a run kind, after ``schema_version``.
 ENVELOPE_KEYS: tuple[str, ...] = ("run_id", "dokimi_version")
