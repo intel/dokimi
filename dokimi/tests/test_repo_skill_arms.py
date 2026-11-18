@@ -838,7 +838,7 @@ def test_run_refuses_a_malformed_mcp_json_before_any_cell_when_the_agent_is_give
                                                                                     text):
     code, agents = _claude_run(tmp_path, monkeypatch, text, "--arm", "guidance:raw", "--tools", "all")
     err = capsys.readouterr().err
-    assert code == 1 and agents == []
+    assert code == 2 and agents == []
     assert ".mcp.json" in err and "--tools read/none" in err
     assert not list((tmp_path / "runs" / "b1").glob("fix_add__*"))  # no cell was even prepared
 
