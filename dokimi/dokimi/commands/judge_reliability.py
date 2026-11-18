@@ -286,7 +286,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         CrossJudgeReport, coverage_measure, pairwise_measure, score_measure, scored_answers,
         stored_measure, unreproducible_arms,
     )
-    from dokimi.eval.arm_runner import _ground_truth_from_topics
+    from dokimi.eval.question_text import ground_truth_from_topics
     from dokimi.eval.judge import Judge
 
     data, records = _load_answers(args.answers)
@@ -295,7 +295,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         if not args.questions:
             raise InputError("--grounded needs --questions (their expected_topics are the ground truth)")
         truth = {q: t for q, pts in _load_points(args.questions).items()
-                 if (t := _ground_truth_from_topics({"expected_topics": pts}))}
+                 if (t := ground_truth_from_topics({"expected_topics": pts}))}
 
     def scorer_of(judge):
         def score(library, question, answer, ground_truth, context):

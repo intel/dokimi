@@ -35,6 +35,7 @@ from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFI
 from .graders.hidden_tests import HIDDEN_DIR, hidden_files
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
+from .probes import validate_config
 from .source import RepoTree, SourceError
 from .useful_spec import UsefulSpecError, parse_useful
 
@@ -137,6 +138,7 @@ class RepoManifest:
     explore_tasks: str | None = None
     build_systems: tuple[str, ...] = ()
     process_metrics: dict[str, Counter] = field(default_factory=dict)
+    probes: dict[str, tuple[str, ...]] = field(default_factory=dict)  # target -> patterns (repos/probes.py)
 
     @property
     def runnable(self) -> bool:
@@ -175,6 +177,7 @@ class RepoManifest:
             "build_systems": list(self.build_systems),
             "process_metrics": {name: {"regex": c.pattern.pattern, "match": c.field}
                                 for name, c in self.process_metrics.items()},
+            **({"probes": {t: list(p) for t, p in self.probes.items()}} if self.probes else {}),
         }
 
 
@@ -291,6 +294,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     if duplicates:
         errors.append(f"image/caches: duplicate cache name(s) {duplicates}")
     counters = _parse_counters(raw.get("process_metrics") or {}, errors)
+    probes = _parse_probes(raw.get("probes"), errors)
     if errors:
         raise ManifestError(path, errors)
 
@@ -312,7 +316,17 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         explore_tasks=_norm(raw["explore_tasks"]) if raw.get("explore_tasks") else None,
         build_systems=tuple(raw.get("build_systems") or ()),
         process_metrics=counters,
+        probes=probes,
     )
+
+
+def _parse_probes(raw: Any, errors: list[str]) -> dict[str, tuple[str, ...]]:
+    """The manifest's ``probes`` (repos/probes.py); a bad one is appended to ``errors``."""
+    try:
+        return validate_config(raw, "probes")
+    except ValueError as exc:
+        errors.append(str(exc))
+        return {}
 
 
 def _test_entry_problems(key: str, found: set[str]) -> list[str]:

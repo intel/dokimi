@@ -74,6 +74,7 @@ from .batch_ledger import (  # re-exported: the names callers and tests take fro
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
 from . import run_context
+from .probes import effective_patterns, probes_for, with_probes
 from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
@@ -102,6 +103,7 @@ class AgentOptions:
     timeout_s: float = 2700
     max_turns: int = 200
     budget_usd: float = 2.0
+    probes: dict[str, tuple[str, ...]] | None = None  # the run's --probes, over the manifest's (repos/probes.py)
 
 
 def execution_record(opts: AgentOptions, arm: str | None = None) -> dict[str, str]:
@@ -262,10 +264,18 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     uptake_of = (added.get("added") or [], added.get("mcp_servers") or [])
     events = None  # the trace's events once it parsed; none: the uptake is unmeasured
     useful_events = None  # the same events when no line of the trace was dropped: a dropped line may hold the hit
+    probe_errors: list[str] = []  # a probe matcher that raises costs the probe events only, and is noted
+    meta["probes"] = effective_patterns(ctx.manifest.probes, opts.probes)  # the patterns the cell ran with
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
-        (rd / "events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
+        # Probe events go to events.jsonl only: the counters, first_useful and skill usage score the trace's events
+        try:
+            probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes), probe_errors)
+        except Exception as exc:  # noqa: BLE001  # the events go on without probes: the grade must not depend on them
+            probed = transcript.events
+            probe_errors.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
+        (rd / "events.jsonl").write_text(transcript.events_jsonl(probed), encoding="utf-8")
         failed = transcript.is_error or not result.ok  # a crashed review is missing, not clean
         answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE, failed=failed,
                                 messages=transcript.agent_messages)
@@ -293,7 +303,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
             first_prompt_tokens=transcript.first_prompt_tokens,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
-            over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
+            over_budget=cost is not None and cost > caps["budget_usd"],
+            trace_errors=(transcript.errors + probe_errors[:1])[:5])  # one probe note: five would fill the list
         run_context.save(rd, run_context.build(opts.profile, model=opts.model, harness_version=opts.harness_version,
                                                argv=argv, transcript=transcript, config_sha256=config_sha),
                          agent["trace_errors"])
