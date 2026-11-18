@@ -238,10 +238,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                              base_git_dir=ctx.git_dir_for(task.id))
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
-    if match is not None:
-        meta["host_match"] = match
-    if ctx.suite is not None and task.id in ctx.suite.meta:  # additive: only a suite task's base is elsewhere
-        meta["base_repo"] = ctx.suite.meta[task.id]
+    _add_origin(meta, ctx, task, match)
     present = _workspace_args(task, opts, rd, meta)
     _write_json(rd / "meta.json", meta)
     skills: dict[str, Any] | None = None
@@ -342,6 +339,14 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     if match is not None:
         record["host_match"] = match
     return _finish_record(record, rd, task, meta, (skills, uptake_of, events), float(agent["charged_usd"]))
+
+
+def _add_origin(meta: dict[str, Any], ctx: EvalContext, task: Task, match: dict[str, Any] | None) -> None:
+    """The additive ``meta.json`` keys: ``host_match`` of a labelled run, ``base_repo`` of a suite task."""
+    if match is not None:
+        meta["host_match"] = match
+    if ctx.suite is not None and task.id in ctx.suite.meta:  # only a suite task's base is elsewhere
+        meta["base_repo"] = ctx.suite.meta[task.id]
 
 
 def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str, Any], arm_use: tuple[Any, Any, Any],
