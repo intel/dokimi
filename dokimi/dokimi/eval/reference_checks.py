@@ -386,12 +386,14 @@ def identifier_names(check: Mapping[str, Any], answer: str) -> tuple[Optional[li
     # Both scans share one deadline, as the regex check does: a pathological pattern is unscored.
     deadline = time.monotonic() + REGEX_TIMEOUT
     try:
-        scopes = scope_pairs(str(within), answer, timeout=_left(deadline)) if within else [(answer, "")]
+        spans = scope_spans(str(within), answer, timeout=_left(deadline)) if within else [(0, answer, "")]
         unknown: list[str] = []
-        for scope, rest in scopes:
+        for start, scope, rest in spans:
             for name in scope_options(pattern, scope, timeout=_left(deadline), negated=bool(within), rest=rest):
                 if name in known or (check.get("negations", False) and name.startswith("--no-")
                                      and "--" + name[5:] in known):
+                    continue
+                if check.get("link_context") and _link_mention(answer, start, rest):
                     continue
                 if name not in unknown:
                     unknown.append(name)
@@ -399,7 +401,7 @@ def identifier_names(check: Mapping[str, Any], answer: str) -> tuple[Optional[li
         return None, False
     except regex.error as exc:
         raise CheckError(f"identifiers pattern does not compile: {exc}") from exc
-    return unknown, bool(scopes)
+    return unknown, bool(spans)
 
 
 def scope_pairs(within: str, answer: str, *, timeout: float) -> list[tuple[str, str]]:
@@ -408,8 +410,32 @@ def scope_pairs(within: str, answer: str, *, timeout: float) -> list[tuple[str, 
     A mention the answer negates or warns against (``do not use --x``) is no claim to veto. The text
     after a scope is kept too: a denial may follow a code span that ends the scope ("`--x` does not exist").
     """
-    return [(m.group(0), answer[m.end():]) for m in regex.finditer(within, answer, timeout=timeout)
+    return [(scope, rest) for _, scope, rest in scope_spans(within, answer, timeout=timeout)]
+
+
+def scope_spans(within: str, answer: str, *, timeout: float) -> list[tuple[int, str, str]]:
+    """As :func:`scope_pairs`, each scope with its offset in ``answer`` first."""
+    return [(m.start(), m.group(0), answer[m.end():]) for m in regex.finditer(within, answer, timeout=timeout)
             if not _negated_before(answer, m.start())]
+
+
+#: A sentence about linking or a library (``target_link_libraries`` too, its words run on).
+_LINK_CONTEXT = re.compile(r"link|librar", re.IGNORECASE)
+_SENTENCE_END = re.compile(r"[.;!?\n]")
+_LINK_OPERAND = re.compile(r"(?:-l|::)\s*$")
+
+
+def _link_mention(answer: str, start: int, rest: str) -> bool:
+    """Whether a mention is a link operand (``-l x``, ``MKL::x``) or in a sentence about linking or a library.
+
+    Read only for a check with ``link_context``: a library file's name is no API name, and a call
+    (``x(``) is always an API claim, so a called name is never read as a link operand.
+    """
+    if re.match(r"\s*\(", rest):
+        return False
+    before = _SENTENCE_END.split(answer[max(0, start - _CLAUSE_WINDOW):start])[-1]
+    after = _SENTENCE_END.split(rest[:_CLAUSE_WINDOW], maxsplit=1)[0]
+    return _LINK_OPERAND.search(before) is not None or _LINK_CONTEXT.search(before + after) is not None
 
 
 _NEGATED = re.compile(r"(?i)\bnot\b|n['’]t\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")

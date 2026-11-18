@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Known identifiers of a C library's API, from its headers and its exported symbols.
 
-``skill novelty ground --header`` and ``--library`` pin the names a C API declares, so an answer
+``skill novelty ground --header`` and ``--shared-lib`` pin the names a C API declares, so an answer
 that names ``cblas_dgemmx`` (not in the library) is vetoed the way an invented ``--option`` is.
 Only names with a prefix from ``--prefix`` are read, so an ordinary word is never checked.
 """
@@ -82,6 +82,12 @@ def nm_names(output: str, prefixes: Sequence[str]) -> set[str]:
     return names
 
 
+def library_stem(file_name: str) -> str:
+    """The name a library file is linked by: ``libmkl_rt.so.2`` and ``mkl_rt.2.dll`` are both ``mkl_rt``."""
+    stem = file_name.split(".", 1)[0]
+    return stem[3:] if stem.startswith("lib") else stem
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -149,6 +155,7 @@ def symbols_check(prefixes: Sequence[str], headers: Sequence[str],
     """
     prefixes = check_prefixes(prefixes)
     known: set[str] = set()
+    stems: set[str] = set()
     inputs: list[dict] = []
     sources = [("header", _files(headers, "header")), ("library", _files(libraries, "library"))]
     for kind, paths in sources:
@@ -157,14 +164,17 @@ def symbols_check(prefixes: Sequence[str], headers: Sequence[str],
                 names = header_names(_header_text(path), prefixes)
             else:
                 names = nm_names(_library_output(path), prefixes)
+                stems |= {library_stem(path.name)}
             known |= names
             inputs.append({"kind": kind, "path": str(path), "sha256": _sha256(path)})
     if not known:  # a wrong header would otherwise veto every name the answer mentions
         raise InputError(f"no name with the prefix {', '.join(prefixes)} in the given files")
+    # A library file's name is no symbol, but it is a name the answer may give (``mkl_rt`` for libmkl_rt.so).
+    known |= {s for s in stems if re.fullmatch(r"\w+", s) and s.startswith(prefixes)}
     pattern = symbol_pattern(prefixes)
     return {
         "type": "identifiers", "tier": "verifiable", "role": "veto",
-        "pattern": pattern, "within": pattern,
+        "pattern": pattern, "within": pattern, "link_context": True,
         "known": sorted(known),
         "source": {"kind": "symbols", "prefixes": list(prefixes), "inputs": inputs},
     }

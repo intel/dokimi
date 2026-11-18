@@ -461,3 +461,50 @@ def test_a_tool_version_without_a_tool_is_refused_not_dropped():
     from dokimi.commands.novelty_ground import _refuse_bad_sources
     with pytest.raises(InputError, match="--tool-version"):
         _refuse_bad_sources([], ["cblas.h"], [], ["cblas_"], "2025.1")
+
+
+MKL_H = "void mkl_set_num_threads(int n);\n"
+
+
+@pytest.mark.parametrize("answer", [
+    "Link with mkl_intel_lp64, mkl_sequential and mkl_core.",  # a link sentence names library files
+    "Use the mkl_rt single dynamic library.",  # a library file named in a sentence about the library
+    "target_link_libraries(app MKL::mkl_core)",  # a CMake link operand, a namespace-scoped library
+    "Add -l mkl_core to the link line.",  # a -l operand
+])
+def test_library_names_in_link_context_are_not_vetoed_under_a_shared_prefix(tmp_path, answer):
+    check = symbols_check(["mkl_"], [str(_mkl_header(tmp_path))], [])
+    result = grade_check(check, "q", answer, None)
+    assert result.passed is True, result.detail
+
+
+@pytest.mark.parametrize("answer", [
+    "Call mkl_bogus_fn(1) to set the threads.",  # a call is an API claim, link words or not
+    "Use mkl_bogus_fn to set the threads.",  # a prefixed name no header declares, no link context
+    "Link against mkl_bogus_fn(1) for the threads.",  # a called name stays vetoed in a link sentence
+])
+def test_a_real_missing_symbol_stays_vetoed_under_a_shared_prefix(tmp_path, answer):
+    check = symbols_check(["mkl_"], [str(_mkl_header(tmp_path))], [])
+    result = grade_check(check, "q", answer, None)
+    assert result.passed is False
+    assert result.detail == "not in source: mkl_bogus_fn"
+
+
+def test_a_shared_library_stem_with_the_prefix_is_a_known_name_not_a_symbol(tmp_path):
+    if shutil.which("nm") is None or shutil.which("cc") is None:
+        pytest.skip("needs nm and cc to build a fixture library")
+    source = tmp_path / "fixture.c"
+    source.write_text("int mkl_set_num_threads(int n) { return n; }\n", encoding="utf-8")
+    library = tmp_path / "libmkl_rt.so"
+    subprocess.run(["cc", "-shared", "-fPIC", "-o", str(library), str(source)], check=True)
+    check = symbols_check(["mkl_"], [], [str(library)])
+    assert "mkl_rt" in check["known"]  # the stem of libmkl_rt.so, from its file name
+    result = grade_check(check, "q", "Load mkl_rt before the solve.", None)
+    assert result.passed is True, result.detail
+
+
+def _mkl_header(tmp_path):
+    include = tmp_path / "include"
+    include.mkdir(exist_ok=True)
+    (include / "mkl.h").write_text(MKL_H, encoding="utf-8")
+    return include / "mkl.h"
