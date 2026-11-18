@@ -31,7 +31,8 @@ def _behind_text(row: dict) -> str:
         return "at head"
     commits = "" if row["behind_commits"] is None else f"{row['behind_commits']} commits"
     months = "" if row["behind_months"] is None else f"{row['behind_months']} mo"
-    return ", ".join(part for part in (commits, months) if part) or "unknown"
+    removed = "path removed at head" if row.get("removed_at_head") else ""
+    return ", ".join(part for part in (commits, months, removed) if part) or "unknown"
 
 
 def _text(report: dict) -> str:
@@ -39,7 +40,10 @@ def _text(report: dict) -> str:
     lines = []
     for up in report["upstreams"]:
         head = f"head {up['head_commit']} {up['head_date'] or ''}".strip() if up["head_commit"] else "no head"
-        note = " (shallow clone: older versions are not seen)" if up["history"] == "shallow" else ""
+        note = {
+            "shallow": " (shallow clone: older versions are not seen)",
+            "partial": f" ({up['missing_blobs']} blobs the clone does not hold: their versions are not seen)",
+        }.get(up["history"], "")
         lines.append(f"# upstream {up['name']}: {head}, history {up['history']}{note}")
     median = summary["median_months_behind"]
     lines.append(
@@ -78,11 +82,15 @@ def cmd_catalog_provenance(args: argparse.Namespace) -> None:
         raise InputError(f"skills.yaml: {exc}") from exc
     rows = []
     for entry in entries:
-        if not entry.loaded or entry.skill is None:
-            continue  # a skill that does not load has no bytes to match: `catalog check` reports it
-        skill = entry.skill
-        match = index.match(skill.path.read_bytes(), skill.name)
-        rows.append({"skill": _rel(skill.path.parent, root), "name": skill.name, **upstream.to_row(match)})
+        # A skill that does not load (no description, broken YAML) still has bytes: it is matched like the others.
+        path = entry.skill.path if entry.skill is not None else entry.path
+        if path is not None and path.is_dir():
+            path = path / "SKILL.md"
+        if path is None or not path.is_file():
+            continue  # no file to read: `catalog check` reports it
+        raw = path.read_bytes()
+        match = index.match(raw, upstream.frontmatter_name(raw))
+        rows.append({"skill": _rel(path.parent, root), "name": entry.name, **upstream.to_row(match)})
     report = {
         "root": str(root),
         "upstreams": upstream.upstream_rows(index),

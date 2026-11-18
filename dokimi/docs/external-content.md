@@ -474,7 +474,13 @@ history is `exact` (not edited), and the newest such version is the one reported
 an upstream version with the same frontmatter `name` and a word Jaccard similarity of at least
 0.8 is `similar` (edited). Anything else is `unmatched`. `behind` counts the commits that
 touched the file after the matched version, and the months run from that version's commit date
-to the upstream head. `--format json` adds the upstreams, one row per skill and a `summary`.
+to the upstream head. When the matched path is no longer in the upstream head tree (the skill was
+renamed or deleted), the row says `removed_at_head` and the text adds `path removed at head`: `behind`
+then counts only the commits that touched the old path. A copy that does not load (no `description`,
+broken YAML) is matched by its bytes like the others, and the copy's frontmatter `name`, not its
+directory name, is the name for a `similar` match. A checkout that lacks blobs of its history (a
+partial clone) reports `history: partial` with `missing_blobs`; fetch them for an exact count.
+`--format json` adds the upstreams, one row per skill and a `summary`.
 
 ## 2. The awareness half: question sets
 
