@@ -385,8 +385,8 @@ def _requirement_files(tokens: list[str]) -> list[str]:
         elif token.partition("=")[0].startswith("--requirem") and "=" in token and "--requirement".startswith(
                 token.partition("=")[0]):
             files.append(token.partition("=")[2])
-        elif token.startswith("-r") and not token.startswith("--"):
-            files.append(token[2:])
+        elif re.fullmatch(r"-[A-Za-z]*?r.+", token):
+            files.append(token[token.index("r") + 1:])
     return [re.split(r"[/\\]", name)[-1] for name in files]
 
 
@@ -413,9 +413,9 @@ def _substitutions(script: str) -> tuple[str, list[str]]:
 
 def _nested(commands: list[list[str]], inner: list[str]) -> list[list[str]]:
     """``commands`` plus the commands of the scripts they run: substitutions and the script of ``sh -c``/``bash -lc``."""
-    scripts = inner + [command[i + 2] for command in commands for i, word in enumerate(command[:-2])
+    scripts = inner + [command[j + 1] for command in commands for i, word in enumerate(command[:-2])
                        if re.split(r"[/\\]", word)[-1].removesuffix(".exe") in _SHELLS
-                       and re.fullmatch(r"-[a-z]*c[a-z]*", command[i + 1])]
+                       for j in range(i + 1, len(command) - 1) if re.fullmatch(r"-[a-z]*c[a-z]*", command[j])]
     return commands + [command for script in scripts for command in _commands(script)]
 
 
@@ -497,6 +497,7 @@ def _install_scripts() -> dict[str, str]:
     ("pip install -r requirements.lock.txt", True),
     ("pip install -rrequirements.lock.txt", True),
     ("pip install -qr requirements.lock.txt", True),
+    ("pip install -qrrequirements.lock.txt", True),
     ("# setup `\npip install -r requirements.lock.txt", True),
     ("pip install --no-deps -r requirements.lock.txt --log 'build\\'", False),
     ("pip install --requirem requirements.lock.txt", True),
@@ -531,7 +532,7 @@ def _install_scripts() -> dict[str, str]:
     ('pip install --no-deps -r requirements.lock.txt --log "install\nlog.txt"', False),
     ('pip install --no-deps -r requirements.lock.txt --log "build\\"log.txt"', False),
     ("pip install --log '>' --no-deps -r requirements.lock.txt", False),
-], ids=["short", "joined", "clustered", "comment-backtick", "guarded-single-quoted-backslash", "abbreviated", "abbreviated-equals", "exe", "exec-form", "powershell-backtick",
+], ids=["short", "joined", "clustered", "clustered-joined", "comment-backtick", "guarded-single-quoted-backslash", "abbreviated", "abbreviated-equals", "exe", "exec-form", "powershell-backtick",
         "escaped-apostrophe", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "spacing", "chained",
         "subshell", "continued", "global-option", "python-m-pip", "versioned", "recipe-prefix", "redirected",
         "backslash-path", "comment-line", "quoted-separator", "comment-backslash", "quoted-parentheses", "guarded", "guarded-quoted",
@@ -549,10 +550,12 @@ def test_an_install_of_the_main_lock_without_no_deps_is_found(script: str, ungua
     ('echo "$(pip install -r requirements.lock.txt)"', True),
     ("echo $(pip install --no-deps -r requirements.lock.txt)", False),
     ('bash -lc "pip install -r requirements.lock.txt"', True),
+    ("bash -e -c 'pip install -r requirements.lock.txt'", True),
+    ('bash -eo pipefail -c "pip install -r requirements.lock.txt"', True),
     ('RUN ["/bin/sh", "-c", "pip install -r requirements.lock.txt"]', True),
     (".\\.venv\\Scripts\\pip.exe install -r requirements.lock.txt", True),
     ('echo "it\'s" ; echo \\"x ; pip install -r requirements.lock.txt ; echo "z" ; echo \'w\'', True),
-], ids=["substitution", "backtick-substitution", "quoted-substitution", "guarded-substitution", "shell-c", "exec-form-shell-c",
+], ids=["substitution", "backtick-substitution", "quoted-substitution", "guarded-substitution", "shell-c", "shell-option-c", "shell-option-value-c", "exec-form-shell-c",
         "windows-path", "apostrophe-in-double-quotes"])
 def test_an_install_the_shell_runs_from_a_word_or_a_windows_path_is_found(script: str, unguarded: bool) -> None:
     installs = _installs_of_the_main_lock(script)
