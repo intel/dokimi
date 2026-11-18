@@ -154,7 +154,7 @@ def _tree_violations() -> list[str]:
 _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
     "int": frozenset({"int", "positive_int"}),
     "float": frozenset({"float"}),
-    "usd": frozenset({"positive_usd", "usd_amount", "_usd"}),
+    "usd": frozenset({"positive_usd", "_usd"}),
 }
 
 # Known clashes, keyed by (leaf, spelling, aspect): each waits for a later F1b migration and
@@ -343,12 +343,14 @@ def test_enumerated_choice_values_match_the_registry(value, choices, clashes):
         ["choices"] if clashes else [])
 
 
-def test_a_usd_flag_takes_the_cli_usd_types_and_not_a_bare_float():
+def test_a_usd_flag_requires_a_current_cli_usd_type():
     concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--max-usd", "USD", "usd"),)),)
     found = [Use("dokimi a", "--max-usd", "_StoreAction", t, "max_usd", None, None)
-             for t in ("positive_usd", "_usd", "float")]
+             for t in ("positive_usd", "_usd", "float", "usd_amount")]
     assert [what for *_, what in meaning_clashes(found, concepts)] == [
-        "has type `float`, kind `usd` takes _usd or positive_usd or usd_amount"]
+        "has type `float`, kind `usd` takes _usd or positive_usd",
+        "has type `usd_amount`, kind `usd` takes _usd or positive_usd",
+    ]
 
 
 def test_a_float_flag_takes_float_and_not_an_int():
