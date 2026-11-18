@@ -13,8 +13,9 @@
     `--force-regen`, and the merged set held both), and `--fill-gaps` numbers new questions past
     the `gap_<level>_NNN` ids there.
   - A product registry with `products: null` reads its legacy `libraries:` mapping instead of
-    loading no products. A file with both keys logs that `libraries` is ignored, and the warning
-    for a value that is not a mapping names the file and the key it was read from.
+    loading no products, and logs a warning that it did. A file with both keys logs that
+    `libraries` is ignored, and the warning for a value that is not a mapping names the file and
+    the key it was read from.
   - A `DOKIMI_OP` marker or `operations.jsonl` line that is valid JSON but not an object (a
     list, a number, `null`), or valid JSON that Python cannot hold (nested too deep, an integer
     over 4300 digits), is recorded as a `log_parse_error` operation instead of crashing the

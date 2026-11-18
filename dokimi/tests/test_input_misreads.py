@@ -39,10 +39,23 @@ def _registry(tmp_path: Path, data: dict) -> Path:
     return path
 
 
-def test_a_null_products_key_falls_through_to_libraries(tmp_path):
+def test_a_null_products_key_falls_through_to_libraries(tmp_path, caplog):
     path = _registry(tmp_path, {"products": None, "libraries": {"onetbb": {"name": "oneTBB"}}})
 
-    assert ProductRegistry(path=path).keys() == ["onetbb"]
+    with caplog.at_level(logging.WARNING, logger="dokimi.registry"):
+        keys = ProductRegistry(path=path).keys()
+
+    assert keys == ["onetbb"]
+    assert f"Registry {path}: 'products' is null; reading the legacy 'libraries'." in caplog.text
+
+
+def test_a_libraries_only_registry_loads_without_a_warning(tmp_path, caplog):
+    path = _registry(tmp_path, {"libraries": {"onetbb": {"name": "oneTBB"}}})
+
+    with caplog.at_level(logging.WARNING, logger="dokimi.registry"):
+        keys = ProductRegistry(path=path).keys()
+
+    assert (keys, caplog.text) == (["onetbb"], "")
 
 
 def test_a_registry_with_both_keys_names_the_file_and_the_ignored_one(tmp_path, caplog):

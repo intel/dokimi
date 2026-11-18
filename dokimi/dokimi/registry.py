@@ -88,6 +88,8 @@ class ProductRegistry:
         products = data[key]
         if key == "products" and data.get("libraries") is not None:
             logger.warning(f"Registry {self._path} has both 'products' and 'libraries': 'libraries' is ignored.")
+        elif key == "libraries" and "products" in data:
+            logger.warning(f"Registry {self._path}: 'products' is null; reading the legacy 'libraries'.")
         if not isinstance(products, dict):
             logger.warning(f"Registry {self._path}: '{key}' must be a mapping, got "
                            f"{type(products).__name__} — skipping.")
