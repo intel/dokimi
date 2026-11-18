@@ -18,6 +18,9 @@ from dokimi.repos.source import RepoSource, open_source
 from dokimi.repos.suite import SuiteError, load_suite, parse_suite, resolve_suite
 from dokimi.utils import InputError
 from repo_eval_fixture import PROFILE, FakeRunner, fake_harness, git, make_repo, write
+from test_repo_host import AMD_CPUINFO, HostRunner, _probe_out
+from test_repo_host import _check as _host_check
+from test_repo_host import _repo as _race_repo
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "data" / "suites" / "example-suite.yaml"
 PINNED = "https://example.invalid/scaffold@" + "a" * 40
@@ -342,10 +345,11 @@ def test_a_suite_gap_does_not_abort_the_batch_on_a_skill_its_eval_base_ships(run
     assert list(batch.glob("review_add__*/result.json"))
 
 
-def _check(tmp: Path, monkeypatch, suite: dict, *extra: str, tasks: dict | None = None) -> tuple[int, dict]:
+def _check(tmp: Path, monkeypatch, suite: dict, *extra: str, tasks: dict | None = None,
+           base_of_fix: str | None = None) -> tuple[int, dict]:
     """``eval check --suite`` over a repository whose suite is ``suite``; returns (exit code, check.json)."""
     root, base = make_repo(tmp, tasks)
-    _commit_suite(root, None, suite)
+    _commit_suite(root, base_of_fix, suite)
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
     out = tmp / "check-out"
     args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out", str(out), "--cache-root",
@@ -385,6 +389,32 @@ def test_a_suite_gap_is_not_checked_even_when_the_task_also_needs_egress(tmp_pat
     assert code == 1
     assert "incomplete: no task was checked" in capsys.readouterr().err
     assert report["tasks"][0]["unsupported_by"] == "suite"
+
+
+def test_a_self_check_fails_only_on_the_other_bad_tasks_not_on_a_suite_gap(tmp_path, monkeypatch):
+    gone = f"file://{tmp_path}/missing@{'c' * 40}"
+    code, report = _check(tmp_path, monkeypatch, _raw(repos={"sc": gone}, tasks=[{"id": "fix_add", "repo": "sc"}]),
+                          "--task", "fix_add", "--task", "review_add")
+    assert code == 0
+    assert {r["task"]: r["verdict"] for r in report["tasks"]}["review_add"] == "ok"
+
+
+def test_a_self_check_takes_a_suite_task_base_from_its_scaffold_not_the_eval_tree(tmp_path, monkeypatch):
+    scaffold, sha = _scaffold(tmp_path)  # this commit exists only in the scaffold
+    code, report = _check(tmp_path, monkeypatch, _raw(repos={"sc": f"{scaffold}@{sha}"},
+                                                      tasks=[{"id": "fix_add", "repo": "sc"}]),
+                          "--task", "fix_add", base_of_fix=sha)
+    assert code == 0 and report["tasks"][0]["verdict"] == "ok"
+
+
+def test_a_self_check_with_a_suite_gap_and_only_an_allowed_host_gap_is_incomplete(tmp_path, monkeypatch, capsys):
+    root = _race_repo(tmp_path)
+    gone = f"file://{tmp_path}/missing@{'c' * 40}"
+    _commit_suite(root, None, _raw(repos={"sc": gone}, tasks=[{"id": "fix_add", "repo": "sc"}]))
+    with pytest.raises(SystemExit) as exc:
+        _host_check(root, tmp_path / "a", HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch,
+                    "--suite", ".agent-eval/suite.yaml", "--allow-unsupported", "--task", "fix_add", "--task", "fix_race")
+    assert exc.value.code == 1 and "incomplete" in capsys.readouterr().err
 
 
 def test_a_skill_the_scaffold_base_ships_is_refused_before_any_cell(run, capsys):
@@ -529,7 +559,8 @@ def test_a_full_sha_pin_is_recorded_even_when_its_repository_is_down(tmp_path, f
     assert found.pins == {"good": sha, "gone": gone}
 
 
-def test_a_floating_full_sha_pin_on_no_branch_is_fetched_by_name(tmp_path):
+def test_a_floating_full_sha_pin_on_no_branch_is_fetched_by_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_NO_LAZY_FETCH", "1")  # else the partial clone fetches the commit on its own
     root, sha = _scaffold(tmp_path)
     git(root, "checkout", "-q", "-b", "gone")
     write(root, "src/more.py", "X = 1\n")
