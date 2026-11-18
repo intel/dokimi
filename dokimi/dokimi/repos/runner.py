@@ -330,14 +330,21 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
                               "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade}
+    return _finish_record(record, rd, task, meta, (skills, uptake_of, events), float(agent["charged_usd"]))
+
+
+def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str, Any], arm_use: tuple[Any, Any, Any],
+                   charged_usd: float) -> dict[str, Any]:
+    """The cell's ``record`` with its task status and arm use, saved as ``result.json``; a run dir it cannot be
+    written to is a :class:`CellCrash` that keeps the charge."""
     if status_of(task.raw) != UNKNOWN:  # absent means unknown to the report: a task without one writes no key
         record["task_status"] = status_of(task.raw)
-    _add_arm_use(record, meta, task, skills, uptake_of, events)
+    _add_arm_use(record, meta, task, *arm_use)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)
     except OSError as exc:
-        raise CellCrash(f"cannot write result.json: {exc}", float(agent["charged_usd"])) from exc
+        raise CellCrash(f"cannot write result.json: {exc}", charged_usd) from exc
     return record
 
 
