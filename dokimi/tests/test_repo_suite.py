@@ -443,8 +443,10 @@ def test_a_malformed_mcp_config_in_a_scaffold_base_is_refused_before_any_cell(ru
     git(scaffold, "commit", "-qm", "bad mcp")
     sha = git(scaffold, "rev-parse", "HEAD")
     _commit_suite(run["root"], sha, _raw(repos={"sc": f"{scaffold}@{sha}"}, tasks=[{"id": "fix_add", "repo": "sc"}]))
-    with pytest.raises(InputError, match="not valid JSON"):  # cli.main exits 2 on it, a usage error
+    with pytest.raises(InputError) as exc:  # cli.main exits 2 on it, a usage error
         run["invoke"]("--suite", ".agent-eval/suite.yaml", "--task", "fix_add", "--arm", "guidance:none")
+    assert "not valid JSON" in str(exc.value)
+    assert "--tools read/none" in str(exc.value)
     assert not list((run["out"] / "b1").glob("*__*/result.json"))
 
 
