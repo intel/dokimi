@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -20,6 +20,7 @@ import pytest
 from dokimi import process
 from dokimi.external import review_skill_dir, script_checks
 from dokimi.external.script_checks import script_findings
+from tests.growth_timing import GROWTH_LIMIT, growth
 from tests.test_catalog_validate import _codes, _reviews_by_name, _skill
 
 LINTERS = ("ruff", "shellcheck")
@@ -721,22 +722,24 @@ def test_an_escaped_or_ampersand_redirected_shopt_is_not_a_command_under_real_ba
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-syntax"]
 
 
-@pytest.mark.parametrize(("run", "count"), [(b"<<!\t", 22), (b"x=(", 6000), (b"shopt -" + b"s" * 5000 + b"!", 1)])
-def test_a_repeated_run_of_words_is_checked_in_linear_time(run, count):
-    started = time.monotonic()
-    script_checks._shell_options(run * count + b"\nx\n")
+@pytest.mark.parametrize(("shape", "n"), [
+    (lambda k: b"<<!\t" * k, 5),
+    (lambda k: b"x=(" * k, 1500),
+    (lambda k: b"shopt -" + b"s" * k + b"!", 1250),
+], ids=["heredoc-tab", "assignment-open", "shopt-flags"])
+def test_a_repeated_run_of_words_is_checked_in_linear_time(shape, n):
+    ratio, _ = growth(lambda k: partial(script_checks._shell_options, shape(k) + b"\nx\n"), n)
 
-    assert time.monotonic() - started < 0.5
+    assert ratio < GROWTH_LIMIT
 
 
-@pytest.mark.parametrize("count", [40, 3000])
-def test_a_command_sub_in_quotes_repeated_unclosed_is_read_in_linear_time(count):
+@pytest.mark.parametrize("n", [4, 750])
+def test_a_command_sub_in_quotes_repeated_unclosed_is_read_in_linear_time(n):
     # each level of an unclosed "$( nest was read again by the level above it: exponential in the count, and each
     # later "$( after a failed read was read to the end again: quadratic
-    started = time.monotonic()
-    script_checks._shell_options(b"x=" + b'"$(' * count + b"\nx\n")
+    ratio, _ = growth(lambda k: partial(script_checks._shell_options, b"x=" + b'"$(' * k + b"\nx\n"), n)
 
-    assert time.monotonic() - started < 0.5
+    assert ratio < GROWTH_LIMIT
 
 
 @needs_bash
