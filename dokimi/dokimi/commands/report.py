@@ -85,11 +85,12 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
 
 
 def _generate_eval_report(eval_path: str, out_path: str) -> None:
-    """``generate_report``; exit 1 when the schema refuses the Q&A sidecar (the markdown is written by then)."""
-    from dokimi.report.eval_report import generate_report
+    """``generate_report``, or the one-condition page of a knowledge run; exit 1 when the schema refuses the Q&A
+    sidecar (the markdown is written by then)."""
+    from dokimi.report.single_condition_report import write_eval_report
 
     with exit_on_rejected("report_qa"):
-        generate_report(eval_path=eval_path, out_path=out_path)
+        write_eval_report(eval_path=eval_path, out_path=out_path)
 
 
 def cmd_report_eval(args: argparse.Namespace) -> None:
