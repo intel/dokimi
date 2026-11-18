@@ -113,7 +113,8 @@ def _skill_digest(skill_md: Path) -> str:
     from dokimi.utils import tree_digest
 
     entry = hashlib.sha256(skill_md.read_bytes()).hexdigest()
-    return hashlib.sha256(f"{tree_digest(skill_md.parent, tracked={})}:{entry}".encode("utf-8")).hexdigest()
+    tree = tree_digest(skill_md.parent.resolve(), tracked={})  # resolved: tree_digest hashes a symlinked ROOT by its link text
+    return hashlib.sha256(f"{tree}:{entry}".encode("utf-8")).hexdigest()
 
 
 def _items(root: Path, limit: Optional[int]) -> list[_Item]:

@@ -610,6 +610,22 @@ def test_resume_runs_again_a_symlinked_skill_md_whose_target_changed(tmp_path):
     assert after["linked"] != before["linked"] and after["other-skill"] == before["other-skill"]
 
 
+def test_resume_runs_again_a_skill_root_reached_through_a_symlink_whose_bundled_file_changed(tmp_path, capsys):
+    real = _root(tmp_path, names=("accel-tuning",)) / "accel-tuning"
+    (real / "ref.md").write_text("Reference.\n", encoding="utf-8")
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available")
+    out = tmp_path / "out"
+    _sweep(link, out, "--max-usd", "5", "--include-resources")
+    capsys.readouterr()
+    (real / "ref.md").write_text("Reference, changed.\n", encoding="utf-8")
+    _sweep(link, out, "--max-usd", "5", "--include-resources", "--resume")
+    assert "0 measured and kept, 1 to run" in capsys.readouterr().err
+
+
 def test_a_skill_measured_again_that_ends_partial_or_error_leaves_no_old_novelty_file(tmp_path):
     root, out = _root(tmp_path, names=("accel-tuning",)), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5")
