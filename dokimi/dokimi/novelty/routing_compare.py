@@ -43,9 +43,11 @@ def load_run(path: str, arm: str) -> dict:
     except RecursionError:
         raise RoutingInputError(f"{path}: nested too deeply to read") from None
     mode = data.get("mode") if isinstance(data, dict) else None
-    if mode != "all_vs_all" or not isinstance(data.get("result"), dict):
+    if mode != "all_vs_all":
         raise RoutingInputError(f"{path}: not an all-vs-all routing result (mode {mode!r}): "
                                 "`catalog routing ROOT --queries-by-skill FILE --out FILE` saves one")
+    if not isinstance(data.get("result"), dict):
+        raise RoutingInputError(f"{path}: the `result` object is missing")
     section = data["result"].get(arm)
     if arm == "model":
         if not isinstance(section, dict):

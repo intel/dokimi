@@ -154,10 +154,25 @@ def test_alternatives_in_one_run_only_or_different_ones_score_on_the_gold_alone(
     assert "2 paired queries have acceptable alternatives in one run only" in capsys.readouterr().out
 
 
+def test_the_gold_only_line_is_printed_only_for_a_comparison_with_alternatives(tmp_path, capsys):
+    from dokimi.commands.routing_compare import print_comparison
+
+    base = [_row("q1", "h", acceptable=["h"]), _row("q2", "x", acceptable=["h"])]
+    other = [_row("q1", "g", acceptable=["h"]), _row("q2", "h", acceptable=["h"])]
+    print_comparison(_compare(tmp_path, base, other))
+    assert "gold only: BASE 0, OTHER 1" in capsys.readouterr().out
+
+    plain = [_row("q1", "g"), _row("q2", "x")]
+    print_comparison(_compare(tmp_path, plain, plain))
+    assert "gold only" not in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("text, message", [
     ("{not json", "base.json: not JSON"),
     ('["a list"]', "base.json: not an all-vs-all routing result"),
     ('{"mode": "single"}', "base.json: not an all-vs-all routing result"),
+    ('{"mode": "all_vs_all", "result": null}', "base.json: the `result` object is missing"),
+    ('{"mode": "all_vs_all"}', "base.json: the `result` object is missing"),
     ('{"mode": "all_vs_all", "result": {"lexical": {"attractors": []}}}',
      "base.json: no `lexical.per_query` rows: saved before"),
     ('{"mode": "all_vs_all", "result": {"lexical": {"per_query": [{"query": 1}]}}}',

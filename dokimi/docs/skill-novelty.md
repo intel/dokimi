@@ -898,7 +898,7 @@ it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported 
 **Acceptable alternatives.** A request in the queries file may be an object instead of a string:
 `{"query": "<request>", "acceptable": ["<other skill name>", ...]}`, for a request a second skill
 answers as well as the gold. A file of strings reads and saves as before: no new key is written.
-`acceptable` must be a list of strings and the object has no other key besides `query`, or the file
+`acceptable` must be a list of strings and the object has no key besides `query` and `acceptable`, or the file
 is refused naming the file, the skill and the query; the gold named as its own alternative is dropped
 (also from a direct `all_vs_all` call, so a pick of the gold is never counted as both), and a blank `query` is dropped with its object. An acceptable name that is not in the field is refused,
 naming the skill, the query and the name, before an `--estimate-only` too; the alternatives of a skill
@@ -915,7 +915,8 @@ gold alone: an acceptable pick of another skill is still counted there. The rows
 reads two files `catalog routing` saved and makes no model call. Rows are paired by `(gold, query)`
 (a request listed twice for one gold pairs in order). `--arm lexical` (the default) reads
 `result.lexical.per_query`; `--arm model` reads `result.model.noise.per_query` and is refused when either run was
-made without `--model`. A file that is not JSON, not an all-vs-all result, or has no per-query rows (a file saved before
+made without `--model`. `--out` writes the comparison as JSON and creates a missing parent directory, as
+`catalog routing --out` does. A file that is not JSON, not an all-vs-all result, has no `result` object, or has no per-query rows (a file saved before
 the lexical arm kept them) is refused with the file and the cause, and so is a row whose `query` or `gold` is
 not a string, whose `acceptable` is not a list of strings, or, with the lexical arm, whose `rank` is missing or is
 neither null nor a positive integer, or whose `picked` is not a string while `rank` is set (a `null` rank and the
