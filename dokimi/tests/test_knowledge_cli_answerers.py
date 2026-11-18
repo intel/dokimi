@@ -133,6 +133,20 @@ def test_codex_usage_limit_is_run_wide_and_never_retried(run):
     assert info.value.run_wide and not info.value.retryable
 
 
+@pytest.mark.parametrize("message", [
+    "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: "
+    "https://api.openai.com/v1/responses",  # codex 0.169.1 with no login
+    "unexpected status 401 Unauthorized",
+    "Your authentication token has expired. Please try signing in again.",
+])
+def test_codex_with_no_working_login_stops_the_run(run, message):
+    failed = json.dumps({"type": "turn.failed", "error": {"message": message}})
+    run.answers.append(reply(failed + "\n", returncode=1))
+    with pytest.raises(llm_cli.CliCallError) as info:
+        llm_cli.call("codex-cli", model="gpt-5.5", prompt="q")
+    assert info.value.run_wide is True and info.value.retryable is False
+
+
 def test_codex_rate_limit_is_retried_and_a_missing_reply_is_not(run):
     run.answers.append(reply(json.dumps({"type": "turn.failed", "error": {"message": "429 rate limit exceeded"}}),
                              returncode=1))

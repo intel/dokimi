@@ -316,8 +316,8 @@ def _codex_error(done: process.Completed, failed: str) -> CliCallError:
     message = (failed or done.stderr.strip() or done.stdout.strip() or f"exit {done.returncode}")[:500]
     lowered = message.lower()
     # A cap, a missing login or an unknown model is the same for every later call: run-wide, never retried.
-    run_wide = any(w in lowered for w in ("usage_limit", "usage limit", "not logged in", "login", "unknown model",
-                                          "model not found") + _ARGV_REJECTED)
+    run_wide = any(w in lowered for w in ("usage_limit", "usage limit", "not logged in", "login", "authenticat",
+                                          "unauthorized", "unknown model", "model not found") + _ARGV_REJECTED)
     return CliCallError(f"codex-cli: {message}", retryable=not run_wide and _text_retryable(lowered),
                         run_wide=run_wide)
 
