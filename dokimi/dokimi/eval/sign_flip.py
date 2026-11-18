@@ -8,7 +8,7 @@ over the deltas not within their tie width of 0 (:data:`EPS`, or :func:`tie_widt
 :func:`min_sign_flip_p` is the floor it cannot go below over k changed deltas, ``2 / 2**k`` exact.
 
 ``p(theta)`` is the two-sided sign-flip p of the shifted deltas ``d - theta`` over every delta, as
-:func:`sign_flip_p` computes it on them: a shifted delta within the tie width of its pair (:func:`tie_widths`, kept
+:func:`sign_flip_p` computes it on them (that one adds the deltas as exact integers; this one, below, in floats, so its p can differ at the ends of a row whose deltas floats cannot resolve): a shifted delta within the tie width of its pair (:func:`tie_widths`, kept
 from the original deltas) of 0 is a tie, so a delta tied at 0 counts again once ``theta`` moves off 0. Exact, a sign
 pattern counts when its sum falls short of the observed one by at most the rounding error of adding the deltas summed (:func:`_sum_slack`; :data:`EPS` at most, and no more than the
 largest tie width among them),
@@ -39,12 +39,12 @@ only, no numpy, and :func:`sign_flip_p` needs none.
 from __future__ import annotations
 
 import functools
-import itertools
 import math
 import random
 import statistics
 import sys
 from collections.abc import Sequence
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -113,9 +113,12 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
     """Two-sided p of ``|sum(deltas)|`` when each delta's sign is a fair coin under the null.
 
     ``None`` when every delta is a tie: there is no evidence either way, and 1.0 would read as a measured null.
-    Rounded to 6 places as printed, unless ``exact``. Deltas whose largest magnitude is above ``max float / (8 * n)``
-    (or whose values are all below 2**-664) are scaled by a power of two (exact) first, as in
-    :func:`sign_flip_interval`, so no sum leaves the float range.
+    Rounded to 6 places as printed, unless ``exact``. The sums are exact: each delta is an integer multiple of one
+    power of two, so a delta of 1e300 does not hide five of 1, and the p does not depend on the order or the Python
+    that adds them. A pattern whose sum falls short of the observed one by at most the rounding slack of the deltas
+    (:func:`_sum_slack`, never more than :data:`EPS`) still counts, as sums of decimals do (0.1 + 0.2 against 0.3). Deltas whose largest magnitude is above
+    ``max float / (8 * n)`` (or whose values are all below 2**-664) are divided by a power of two (exact) first, as in
+    :func:`sign_flip_interval`, so the tie cap and the interval's scale agree.
 
     ``magnitudes`` holds the larger value of each pair (:func:`pair_magnitudes`), which sets each tie width
     (:func:`tie_widths`); without it a tie is within :data:`EPS` of 0.
@@ -128,19 +131,40 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
     # the slack on a sum follows the pairs the sum is of, not a tied pair's larger values
     unit = tie_scale(None if magnitudes is None else [magnitudes[i] for i in active])
     k = _scale_exponent(d, unit)
-    if k:  # near the float maximum the sums go to inf/nan: the same p on the deltas divided by a power of two
+    if k:  # the same p on the deltas divided by a power of two, as the interval searches them
         d = [math.ldexp(x, -k) for x in d]
-    eps = _sum_slack(d, EPS * math.ldexp(unit, -k))
-    observed = abs(sum(d)) - eps
+    cap_eps = EPS * math.ldexp(unit, -k)
     if len(d) <= EXACT_MAX:
-        hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
-                   for signs in itertools.product((1, -1), repeat=len(d)))
-        p = hits / 2 ** len(d)
+        p = _enumerated_p(d, cap_eps)
     else:
+        ints, cap = _as_integers(d, cap_eps)
+        observed = _observed(ints, cap)
         rng = random.Random(seed)
-        hits = sum(abs(sum(x if rng.random() < 0.5 else -x for x in d)) >= observed for _ in range(n_resamples))
+        hits = sum(abs(sum(x if rng.random() < 0.5 else -x for x in ints)) >= observed for _ in range(n_resamples))
         p = (hits + 1) / (n_resamples + 1)
     return p if exact else round(p, 6)
+
+
+def _observed(ints: list[int], cap: int) -> int:
+    """The observed ``|sum|`` less the rounding slack of the deltas (:func:`_sum_slack`, in the units of ``ints``)."""
+    return abs(sum(ints)) - min(cap, (len(ints) * sum(map(abs, ints))) >> 52)
+
+
+def _enumerated_p(d: list[float], cap_eps: float) -> float:
+    """The exact p over every sign pattern of ``d``, whose sums are integers: a small delta is not lost against a large one."""
+    ints, cap = _as_integers(d, cap_eps)
+    observed = _observed(ints, cap)
+    sums = [0]
+    for x in ints:
+        sums = [s + x for s in sums] + [s - x for s in sums]
+    return sum(abs(s) >= observed for s in sums) / 2 ** len(d)
+
+
+def _as_integers(values: Sequence[float], cap: float) -> tuple[list[int], int]:
+    """``values`` and ``cap`` as integer multiples of one power of two, so that sums of them are exact; ``cap`` rounded down."""
+    ratios = [v.as_integer_ratio() for v in values]
+    denominator = max(den for _, den in ratios)
+    return [num * (denominator // den) for num, den in ratios], math.floor(Fraction(cap) * denominator)
 
 
 @functools.cache
@@ -173,8 +197,9 @@ class ShiftTest:
     """The sign-flip p of ``deltas - theta`` over every delta at any ``theta``, unrounded; at 0 it is
     :func:`sign_flip_p` of ``deltas``, Monte Carlo draws included, up to rounding. From deltas of about 1e6
     on, a sign pattern whose sum ties the observed one in exact arithmetic (magnitudes that repeat, such as 1e9 + 0.1)
-    can round to one side of it in the product and to the other in ``sum()``, so ``p(0)`` can differ there: the
-    row's own p, not ``p(0)``, places 0 (:func:`sign_flip_interval`)."""
+    can round to one side of it in the product and to the other in the exact sums of :func:`sign_flip_p`, so ``p(0)`` can differ there: the
+    row's own p, not ``p(0)``, places 0 (:func:`sign_flip_interval`). Up to :data:`EXACT_MAX` shifted deltas that span more than
+    40 binary orders of magnitude are summed exactly too, as floats lose the small ones there; more of them are not (#865)."""
 
     def __init__(self, deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES, *,
                  eps: float | Sequence[float] = EPS) -> None:
@@ -197,6 +222,9 @@ class ShiftTest:
         moved = x[x != 0.0]
         if not moved.size:
             return None
+        spread = math.frexp(float(np.abs(moved).max()))[1] - math.frexp(float(np.abs(moved).min()))[1]  # in binary orders
+        if moved.size <= EXACT_MAX and spread > 40:
+            return _enumerated_p(moved.tolist(), float(self.widths[~tied].max()))  # floats lose the small deltas
         eps = _sum_slack(moved.tolist(), float(self.widths[~tied].max()))
         observed = abs(math.fsum(moved.tolist()))  # exactly rounded: sum() rounds differently before 3.12
         if moved.size <= EXACT_MAX:

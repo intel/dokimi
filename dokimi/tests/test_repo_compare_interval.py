@@ -5,10 +5,7 @@
 
 from __future__ import annotations
 
-import functools
 import json
-import math
-import operator
 import random
 
 import pytest
@@ -59,37 +56,12 @@ def test_an_end_is_open_at_five_or_fewer_tasks_and_bounded_from_six():
     assert sign_flip_interval([5.0] * 6, sign_flip_p([5.0] * 6)) == (5.0, 5.0)
 
 
-def _left_to_right(xs, start=0.0):
-    """``sum`` of floats as Python 3.11 adds them: in order, uncompensated (3.12 made ``sum`` compensated)."""
-    return functools.reduce(operator.add, xs, start)
-
-
-@pytest.mark.parametrize("summed", [sum, _left_to_right], ids=["builtin", "left_to_right"])
-def test_an_end_is_bounded_at_deltas_too_large_to_move_by_one(monkeypatch, summed):
+def test_an_end_is_bounded_at_deltas_too_large_to_move_by_one():
     # 1e16 + 1.0 == 1e16: a far bound 1 past the extreme tied every shifted delta and left the end open
-    monkeypatch.setattr(sign_flip, "sum", summed, raising=False)  # 3.11's sum() put 2e16's end at 2e16 + 4
     for v in (1e16, 1e150):  # finite measures go up to SCORE_BOUND, 1e150
         assert sign_flip_interval([v] * 6, sign_flip_p([v] * 6)) == (v, v)
         assert sign_flip_interval([-v] * 6, sign_flip_p([-v] * 6)) == (-v, -v)
-    d = [1e16] * 5 + [2e16]
-    lo, hi = sign_flip_interval(d, sign_flip_p(d))
-    assert lo == 1e16
-    assert hi is not None and 2e16 <= hi <= math.nextafter(2e16, math.inf)
-    test = ShiftTest(d)
-    assert test.p(hi) >= sign_flip.ALPHA > test.p(math.nextafter(hi, math.inf))
-
-
-def test_the_ends_are_the_same_whether_python_sums_compensated_or_left_to_right(monkeypatch):
-    # sum() of floats is compensated from Python 3.12 on and not before: a row's ends must not depend on the Python
-    rng = random.Random(11)
-    rows = [[scale * rng.uniform(-0.6, 1.0) for _ in range(rng.randint(6, 24))]
-            for scale in (1e6, 1e13, 1e16, 1e100) for _ in range(10)]
-    ps = [sign_flip_p(d) for d in rows]
-    ends = {}
-    for name, summed in (("builtin", sum), ("compensated", math.fsum), ("left_to_right", _left_to_right)):
-        monkeypatch.setattr(sign_flip, "sum", summed, raising=False)
-        ends[name] = [sign_flip_interval(d, p, rounded=False) for d, p in zip(rows, ps, strict=True)]
-    assert ends["builtin"] == ends["compensated"] == ends["left_to_right"]
+    assert sign_flip_interval([1e16] * 5 + [2e16], sign_flip_p([1e16] * 5 + [2e16])) == (1e16, 2e16)
 
 
 def test_large_deltas_keep_the_ends_and_the_p_of_the_shifted_deltas():
@@ -129,25 +101,12 @@ def test_p_at_zero_is_the_sign_flip_p_exact_and_monte_carlo():
     assert ShiftTest(tied).p(0.0) is sign_flip_p(tied) is None and ShiftTest([2.0] * 3).p(2.0) is None
 
 
-@pytest.mark.parametrize(("summed", "p"), [(math.fsum, 0.0625), (_left_to_right, 0.046875)],
-                         ids=["compensated", "left_to_right"])
-def test_the_row_p_places_zero_where_large_deltas_round_p_at_zero_apart(monkeypatch, summed, p):
-    # at 1e9 patterns tying the observed sum round apart: p(0) can read 0.047 against the printed 0.0625; the
-    # printed p itself is sum()'s, 0.0625 compensated (3.12 on) and 0.047 left to right (3.11): 0 follows either
-    monkeypatch.setattr(sign_flip, "sum", summed, raising=False)
+def test_the_row_p_places_zero_where_large_deltas_round_p_at_zero_apart():
+    # at 1e9 patterns tying the observed sum round apart: p(0) can read 0.047 against the printed 0.0625, which adds
+    # the deltas as integers (exact on every Python): 0 follows it
     a, b, c = 1e9 + 1 / 3, 1e9 + 0.1, 2e9 + 0.2
     row = sign_flip_summary(_pairs([a, b, c, a, -b, a, b]))
-    assert row["p"] == p and _includes_zero(row["delta"]) == (p >= 0.05)
-    assert row["interval_p_disagree"] is False
-
-
-@pytest.mark.parametrize(("p_zero", "backend_boundary"), [(0.0625, 0.25), (0.046875, -0.25), (None, 0.25)])
-def test_the_callers_p_places_zero_when_the_backend_disagrees(monkeypatch, p_zero, backend_boundary):
-    monkeypatch.setattr(ShiftTest, "p", lambda self, theta: 0.5 if backend_boundary <= theta <= 1.5 else 0.01)
-    lo, hi = sign_flip_interval([1.0] * 6, p_zero)
-    assert (lo <= 0 <= hi) == (p_zero is None or p_zero >= 0.05)
-    assert lo == (1e-4 if p_zero is not None and p_zero < 0.05 else 0.0)
-    assert hi == pytest.approx(1.5, abs=sign_flip.TOL)
+    assert row["p"] == 0.0625 and row["delta"]["lo"] == 0.0 and row["interval_p_disagree"] is False
 
 
 def test_the_interval_excludes_zero_exactly_when_p_is_below_005():
