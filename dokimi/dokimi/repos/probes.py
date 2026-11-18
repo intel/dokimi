@@ -74,6 +74,7 @@ _EXPRESSION = frozenset({"-e", "--regexp", "--expression"})  # a searcher's opti
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
+_PS_ASSIGN = re.compile(r"\$\w+=")
 _DOTTED = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 _SHELL_C = re.compile(r"-[a-z]*c[a-z]*")  # ``-c``, ``-lc``: the next word is a script
@@ -364,6 +365,9 @@ def _views(words: list[str]) -> Iterator[Stage]:
                 i += 1
             elif words[i].startswith("$") and words[i + 1:i + 2] == ["="]:  # PowerShell ``$x = ``: the same
                 i += 2
+            elif _PS_ASSIGN.match(words[i]):  # ``$x=cmd`` or ``$x= cmd``: the same, the command may be in the word
+                rest = words[i].partition("=")[2]
+                words = [*words[:i], *([rest] if rest else []), *words[i + 1:]]
             else:
                 break
         if i >= len(words):
@@ -469,6 +473,15 @@ def _hits(probe: Probe, pipeline: list[list[Stage]]) -> bool:
     return any(_PYTHON.fullmatch(prog) and _calls(args, probe) for views in pipeline for prog, args in views)
 
 
+def _value_span(word: str, values: frozenset[str]) -> int:
+    """How many words a searcher's option takes with its value: 1 for ``--max-count=1``, 2 for ``-m 1`` and for a flag
+    cluster that ends in a value option (``-nA 2``), 0 for a word that is no such option."""
+    name, eq, _ = word.partition("=")
+    if name in values:
+        return 1 if eq else 2
+    return 2 if re.fullmatch(r"-[^-=]{2,}", word) and f"-{word[-1]}" in values else 0
+
+
 def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
     """The words of a reader that can name a file. A searcher's search expression is not one: it is its ``-e`` value, or
     else its first operand, and a pattern file (``-f``) is a file it reads. A searcher's option whose next word is a
@@ -493,8 +506,8 @@ def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
                 elif i + 1 < len(args):
                     operands.append(args[i + 1])
             i += 1 if eq else 2
-        elif name in values:
-            i += 1 if eq else 2
+        elif span := _value_span(word, values):
+            i += span
         elif word.startswith("-") and len(word) > 1:
             i += 1
         else:

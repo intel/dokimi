@@ -425,3 +425,17 @@ def test_a_pattern_that_starts_with_a_launcher_matches_the_program_it_runs():
 def test_a_powershell_command_after_its_options_is_a_probe():
     cmd = "pwsh -NoProfile -ExecutionPolicy Bypass -com Get-CimInstance Win32_Processor"
     assert _matched(cmd) == ["Get-CimInstance Win32_Processor"]
+
+
+@pytest.mark.parametrize("command", ["grep -nA 2 /proc/cpuinfo README", "grep -rm 1 /proc/cpuinfo README"])
+def test_a_search_value_ending_a_flag_cluster_is_no_operand(command):
+    assert _matched(command) == []
+
+
+def test_a_powershell_assignment_without_spaces_is_skipped():
+    assert _matched("$cpu=Get-CimInstance Win32_Processor") == ["Get-CimInstance Win32_Processor"]
+    assert _matched("$cpu= Get-CimInstance Win32_Processor") == ["Get-CimInstance Win32_Processor"]
+
+
+def test_a_command_with_an_unbalanced_quote_is_still_probed():
+    assert _matched('nproc "unterminated') == ["nproc"]
