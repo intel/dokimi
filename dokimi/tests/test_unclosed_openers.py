@@ -300,6 +300,21 @@ def test_cli_trace_heredoc_scans_openers_in_linear_time_among_closing_lines_of_m
     _linear(_cli_heredocs, _unrelated_closing_lines, limit=6)  # k times the lengths grows 8-fold, linear work 4-fold
 
 
+def _long_delimiters_unrelated_closing_lines(k: int) -> str:
+    """About ``k`` characters: as many openers of an ``A`` word as its length m, then lines of 1 to m ``B``."""
+    m = math.isqrt(k)
+    return ("<<" + "A" * m + "\n") * m + "".join("B" * i + "\n" for i in range(1, m + 1))
+
+
+def test_cli_trace_heredoc_scans_long_delimiters_among_closing_lines_of_many_lengths_in_linear_time() -> None:
+    _linear(_cli_heredocs, _long_delimiters_unrelated_closing_lines, n=200_000, limit=5)  # linear work grows 4-fold, copying prefixes 5.7-fold
+
+
+def test_cli_trace_heredoc_closes_an_unquoted_opener_by_a_line_of_a_prefix_of_its_delimiter_after_it() -> None:
+    assert _cli_heredocs("<<ABC\nx\nAB\ny") == _old_cli_heredocs("<<ABC\nx\nAB\ny")
+    assert _cli_heredocs("AB\n<<ABC\nx\n") == _old_cli_heredocs("AB\n<<ABC\nx\n")
+
+
 def test_cli_trace_heredoc_scans_quoted_openers_a_shorter_closing_line_does_not_close_in_linear_time() -> None:
     _linear(_cli_heredocs, lambda k: "<<'AB'\n" * k + "A\n")
 

@@ -11,10 +11,9 @@ stop at the first opener that has none: no later opener has one either.
 from __future__ import annotations
 
 import re
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
-from itertools import islice
+from dataclasses import dataclass, field
 
 
 def pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str]) -> Iterator[tuple[re.Match[str], re.Match[str]]]:
@@ -46,6 +45,14 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
     return "".join(out) + text[pos:]
 
 
+@dataclass
+class _Node:
+    """A node of the trie of closing-line words: the start of the last line that is the word ending here (-1: none)."""
+
+    last: int = -1
+    children: dict[str, _Node] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class HeredocPattern:
     """A heredoc: ``opener``, a body, then a line holding only the opener's delimiter (``word`` is its group).
@@ -68,18 +75,29 @@ class HeredocPattern:
 
         A delimiter may be cut short by the regex (``<<AB`` closed by a line ``A``) unless it is quoted,
         so every prefix of it counts; only a line of such a prefix, starting ``gap`` past the opener, closes it.
+        The prefixes are walked once along a trie of the closing-line words: a step per character of the delimiter.
         """
         last: dict[str, int] = {}
+        trie: _Node = _Node()  # the line words by character; each node holds the start of the last line of its word
         for line in self.lines.finditer(text):
-            last[line.group(1)] = line.start()
-        lengths = sorted({len(w) for w in last})
+            word = line.group(1)
+            last[word] = line.start()
+            node = trie
+            for ch in word:
+                node = node.children.setdefault(ch, _Node())
+            node.last = line.start()
         pos = 0
         while (o := self.opener.search(text, pos)) is not None:
             word, need = o.group(self.word), o.end() + self.gap
             if self.quote and o.group(self.quote):
                 closed = last.get(word, -1) >= need
             else:
-                closed = any(last.get(word[:n], -1) >= need for n in islice(lengths, bisect_right(lengths, len(word))))
+                closed, step = trie.last >= need, trie
+                for ch in word:
+                    if closed or (next_step := step.children.get(ch)) is None:
+                        break
+                    step = next_step
+                    closed = step.last >= need
             if closed:
                 m = self.full.match(text, o.start())
                 if m is not None:
