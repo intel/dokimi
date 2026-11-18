@@ -394,7 +394,8 @@ def test_a_non_finite_judge_temperature_gives_a_reason_not_an_exception(bad):
             "judge_temperature": bad, "judge_prompt_sha256": "e" * 64, "repeats": 3,
             "questions_digest": "sha256:" + "f" * 64}
     row = {"significance": {"delta_mean": 1.0, "p_adjusted": 0.001, "correction": "holm",
-                            "ci_method": "student_t", "ci_confidence": 0.95, "significant_adjusted": True}}
+                            "ci_method": "sign_flip_inversion", "ci_confidence": 0.95,
+                            "significant_adjusted": True}}
     result = _result(cell, "skill:s", row, None)
     assert "judge_sampling" in result["protocol"]["unresolved"]
     assert result["non_comparable"] == ["judge_temperature is not a finite number"]

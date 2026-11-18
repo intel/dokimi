@@ -20,7 +20,7 @@ from typing import Any
 
 from dokimi import __version__
 from dokimi.eval.comparison_verdict import decide
-from dokimi.eval.sign_flip import ALPHA
+from dokimi.eval.sign_flip import ALPHA, METHOD
 from dokimi.subjects.evidence_check import build_protocol, comparability, is_alias
 
 #: The arm metric the awareness summary carries per arm (``summary.per_arm[arm]``).
@@ -125,11 +125,12 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
     # The recorded ci_method, not the current implementation's constant: a historical scorecard keeps
     # the method it ran. Unrecorded, it is None and the protocol lists it as unresolved.
     test = sig.get("ci_method")
-    # The rule the verdict below applies, so a consumer can recompute it from delta and p_value.
-    # p_value is p_adjusted rounded to P_DECIMALS; within that rounding of alpha it cannot be recomputed.
-    rule = {"basis": "p_adjusted", "alpha": ALPHA, "correction": correction, "p_decimals": P_DECIMALS}
-    if test is not None:  # the schema has no null test: an unrecorded one is left out, not written as null
-        rule["test"] = test
+    # Only the sign-flip test decides significant_adjusted by p_adjusted < alpha alone; an older test
+    # (student_t also needed Wilcoxon) states no rule, so a consumer never recomputes another verdict.
+    rule = None
+    if test == METHOD:
+        rule = {"basis": "p_adjusted", "alpha": ALPHA, "correction": correction, "p_decimals": P_DECIMALS,
+                "test": test}
     # Only resolved values enter the digest; what the scorecard does not record stays unresolved.
     protocol = build_protocol({
         "eval_set_digest": _eval_set_digest(cell, suite),
@@ -167,7 +168,7 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
         },
         "p_value": sig.get("p_adjusted"),
         "p_correction": sig.get("correction"),
-        "verdict_rule": rule,
+        **({} if rule is None else {"verdict_rule": rule}),
         "verdict": _verdict(delta, sig),
         "protocol": protocol,
     }

@@ -20,8 +20,8 @@ FIXTURE = Path(__file__).parent / "fixtures" / "artifacts" / "subject_scorecard.
 
 
 def _significance(delta: float, *, significant: bool) -> dict:
-    return {"ci_confidence": 0.95, "ci_lo": delta - 1.5, "ci_hi": delta + 1.5, "ci_method": "student_t",
-            "correction": "holm", "delta_mean": delta, "n": 6, "family_tested": 2,
+    return {"ci_confidence": 0.95, "ci_lo": delta - 1.5, "ci_hi": delta + 1.5,
+            "ci_method": "sign_flip_inversion", "correction": "holm", "delta_mean": delta, "n": 6, "family_tested": 2,
             "p_adjusted": 0.001 if significant else 0.4,
             "significant_adjusted": significant}
 
@@ -55,7 +55,7 @@ def test_each_non_baseline_arm_is_one_result_read_from_the_scorecard(tmp_path: P
     skill = by_arm["skill:s"]
     assert (skill["model"], skill["harness"], skill["n"]) == ("m", "arms-runner", 6)
     assert (skill["n"], skill["delta"]) == (6, 12.0)
-    assert skill["ci"] == {"lo": 10.5, "hi": 13.5, "confidence": 0.95, "method": "student_t"}
+    assert skill["ci"] == {"lo": 10.5, "hi": 13.5, "confidence": 0.95, "method": "sign_flip_inversion"}
     assert (skill["p_value"], skill["p_correction"], skill["verdict"]) == (0.001, "holm", "improved")
     assert by_arm["placebo"]["verdict"] == "inconclusive"
     # Not recorded by the run, so not filled in.
@@ -242,7 +242,8 @@ def test_an_interval_with_no_lower_bound_is_null_and_one_with_no_upper_bound_is_
 
     by_arm = {r["arm"]: r for r in build_skill_evidence(scorecard)["results"]}
     assert by_arm["skill:s"]["ci"] is None
-    assert by_arm["placebo"]["ci"] == {"lo": -0.5, "hi": None, "confidence": 0.95, "method": "student_t"}
+    assert by_arm["placebo"]["ci"] == {"lo": -0.5, "hi": None, "confidence": 0.95,
+                                       "method": "sign_flip_inversion"}
 
 
 def test_the_subject_kind_the_work_results_and_the_scorecard_warnings_are_flagged():
@@ -322,14 +323,40 @@ def test_a_scorecard_keeps_the_test_it_recorded_and_an_unrecorded_one_is_unresol
     significance = scorecard["cells"][0]["summary"]["per_arm"]["skill:s"]["significance"]
     significance["ci_method"] = "student_t"
     [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
-    assert skill["verdict_rule"]["test"] == skill["protocol"]["resolved"]["test"] == "student_t"
+    assert skill["protocol"]["resolved"]["test"] == "student_t"
 
     del significance["ci_method"]
     artifact = build_skill_evidence(scorecard)
     [skill] = [r for r in artifact["results"] if r["arm"] == "skill:s"]
-    assert "test" not in skill["verdict_rule"] and "test" in skill["protocol"]["unresolved"]
+    assert "test" in skill["protocol"]["unresolved"]
     # The historical scorecard exports: the schema has no null test, so the artifact must validate.
     save_artifact("skill_evidence", artifact, tmp_path / "skill_evidence.json")
+
+
+def test_a_stated_verdict_rule_reproduces_the_verdict_of_a_committed_student_t_run(tmp_path: Path):
+    from dokimi.eval.matrix_rollup import build_matrix_rollup
+    from dokimi.subjects import build_subject_scorecard, load_subject
+    from dokimi.subjects.evidence_check import recompute_verdict
+
+    arms = json.loads((FIXTURE.parent / "arms.v1.json").read_text(encoding="utf-8"))
+    rollup = build_matrix_rollup(library_name="l", out_dir=tmp_path, compute_plugin_deltas=False,
+                                 cell_artifacts=[("c1", tmp_path / "c1.json", arms)])
+    (tmp_path / "subject.toml").write_text(
+        '[subject]\nid = "s"\nkind = "doc-source"\nref = "local:docs"\n\n'
+        '[suite]\nproducts = ["oneTBB"]\nquestions = ["questions.json"]\n', encoding="utf-8")
+    scorecard = build_subject_scorecard(
+        load_subject(tmp_path / "subject.toml"),
+        awareness_runs=[{"product": "oneTBB", "questions": "questions.json", "matrix_rollup": "m.json",
+                         "rollup": rollup}],
+        out_dir=tmp_path)
+    by_arm = {r["arm"]: r for r in build_skill_evidence(scorecard)["results"]}
+
+    # docs: t-test p_adjusted 0.025 but Wilcoxon 0.0625, so the run did not call it significant.
+    assert (by_arm["docs"]["p_value"], by_arm["docs"]["verdict"]) == (0.025, "inconclusive")
+    assert "verdict_rule" not in by_arm["docs"]
+    assert "verdict without verdict_rule" in by_arm["docs"]["non_comparable"]
+    for result in by_arm.values():
+        assert "verdict_rule" not in result or recompute_verdict(result) == result["verdict"]
 
 
 def test_a_cell_of_a_two_question_set_suite_is_resolved_only_by_its_own_digest():
