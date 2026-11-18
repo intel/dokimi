@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.atomic_write import write_bytes_atomic, write_text_atomic
+from ...provenance import generated_by
 from ..manifest import RepoManifest
 from .history import History, addressed, carry
 from .merged import Skip, base_of, check_merged, left_out, need_utf8_paths
@@ -217,6 +218,7 @@ def _task(pr: PullRequest, base: str, rev: str, leave_out: list[str], opts: Opti
         "id": task_id(pr), "family": "review", "base": base, "grader": "dokimi:review_replay",
         "score": {"metric": "recall", "max": 1.0}, "review_patch": PATCH, "gold": GOLD, "window": opts.window,
         "source_pr": pr.number, "reviewed_commit": rev, "merge_commit": pr.merge, "prompt": opts.prompt,
+        "provenance": generated_by("tasks-generate"),
     }
     if pr.url:
         task["source_url"] = pr.url

@@ -25,7 +25,8 @@ inputs:
     description: >-
       Directory for the run output, created by this action; empty means
       `$RUNNER_TEMP/dokimi-out`. The caller writes its output under it, and uploads the
-      whole directory as an artifact.
+      whole directory as an artifact. When actions/report summarizes it, its top-level
+      `*.json` files must be cli_output.v1 documents; other files go in subdirectories.
     required: false
     default: ''
 

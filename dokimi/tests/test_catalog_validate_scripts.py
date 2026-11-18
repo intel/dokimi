@@ -38,7 +38,9 @@ def no_linters(monkeypatch):
 
 def _bundle(root: Path, files: dict[str, bytes]) -> Path:
     """A skill ``bundled`` under ``root/skills`` with ``files`` written beside its SKILL.md."""
-    _skill(root / "skills", "bundled", name="bundled", description="Use for bundled work.")
+    # SKILL.md names each file, so the bundle-file-unreferenced warning stays out of these script tests
+    names = "".join(f"Run `{rel}`.\n" for rel in files)
+    _skill(root / "skills", "bundled", name="bundled", description="Use for bundled work.", body=f"# Body\n{names}")
     skill = root / "skills" / "bundled"
     for rel, data in files.items():
         (skill / rel).parent.mkdir(parents=True, exist_ok=True)

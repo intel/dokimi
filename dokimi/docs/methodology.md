@@ -103,6 +103,8 @@ Question records preserve source fields such as `source_type`, `question_source`
 
 ### Question record format
 
+Each question may carry `version` (the author's revision, a string or an integer) and `provenance` (`source`, `reviewed_by`, `status` as `candidate`, `validated` or `frozen`). Every key is optional and an absent one is unknown. `eval questions generate` writes `source` as `generated:dokimi-questions-persona@<dokimi version>`, and the pipeline's chunk-grounded questions carry `generated:dokimi-questions-chunk@<dokimi version>`; a hand-written set is `hand-written` by convention. Both shapes are checked when the set is read: a malformed one is a warning, never a refusal, so files written before the key existed still load.
+
 A question set is a JSON object with a `questions` list. The framework writes it as `questions.v2` (`dokimi/schemas/questions.v2.json`, where every field is documented); `questions.v1` files are still read.
 
 - **v2 (written):** each record needs `id` and a non-empty `question`. A v2 record may not also carry `text`, so no record holds two question texts that readers could disagree on.
@@ -213,7 +215,7 @@ Every serious run should answer "Can we trust this run?" before interpreting del
 - retrieval hit rate — the share of questions where at least one document reached the `with_docs` prompt, from the per-evaluation `retrieval_hit` the judge and panel record; eval files judged before that field existed show it as not measured, and so do files where fewer than 80% of evaluations record it (`min_retrieval_coverage`), since the rate would then describe a subset,
 - multi-run variance when `--multi-run N` is used.
 
-A check whose input the run did not produce passes without blocking or warning, but is shown as not measured, never as a pass: the verdict line reads e.g. `PASS (1 of 7 not measured)`, and the JSON report lists those checks under `trust.not_measured`.
+A check whose input the run did not produce passes without blocking or warning, but is shown as not measured, never as a pass: the verdict line reads e.g. `PASS (1 of 7 not measured)`, and the JSON report lists those checks under `trust.not_measured`. The same holds for the average delta, the score coefficient of variation and the multi-run variance when the arm means differ, or the scores or per-run averages spread, by more than the float range (scores of about 1e308 in both signs).
 
 For reproducibility:
 

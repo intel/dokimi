@@ -55,7 +55,15 @@ Code that spawns takes a ``runner`` argument defaulting to :func:`run`.
 
 from __future__ import annotations
 
-from .process_io import PipeReader, PipeReaderOwner, path_text, utf8_bytes
+from .process_io import (
+    PipeReader,
+    PipeReaderOwner,
+    TRUNCATION_MARKER as TRUNCATION_MARKER,
+    join_capture,
+    read_spool,
+    path_text,
+    utf8_bytes,
+)
 
 import dataclasses
 import os
@@ -74,7 +82,6 @@ from typing import cast, IO, Protocol
 TIMEOUT_RC = 124
 DRAIN_GRACE_SEC = 2.0
 CAPTURE_LIMIT = 1 << 20
-TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture limit ...]\n"
 _POLL_SEC = 0.1
 _CHUNK = 1 << 16
 _POSIX = sys.platform != "win32"
@@ -231,8 +238,8 @@ def run(
             _live.pop(proc.pid, None)
             if sys.platform == "win32" and job:
                 _kernel32.CloseHandle(job)
-    out_bytes, out_cut = _read_spool(stdout_to, capture_limit) if stdout_to else out.value()
-    err_bytes, err_cut = _read_spool(stderr_to, capture_limit) if stderr_to else err.value()
+    out_bytes, out_cut = read_spool(stdout_to, capture_limit) if stdout_to else out.value()
+    err_bytes, err_cut = read_spool(stderr_to, capture_limit) if stderr_to else err.value()
     if not capture_stdout:
         out_bytes, out_cut = b"", False
     rc = TIMEOUT_RC if timed_out else proc.returncode
@@ -371,14 +378,7 @@ class _Capture:
     def value(self) -> tuple[bytes, bool]:
         """The kept bytes, with the marker where the middle was dropped, and whether it was."""
         with self._lock:
-            return _join(bytes(self.head), bytes(self.tail), self.total)
-
-
-def _join(head: bytes, tail: bytes, total: int) -> tuple[bytes, bool]:
-    dropped = total - len(head) - len(tail)
-    if dropped <= 0:
-        return head + tail, False
-    return head + TRUNCATION_MARKER.format(dropped=dropped).encode("utf-8") + tail, True
+            return join_capture(bytes(self.head), bytes(self.tail), self.total)
 
 
 class _Spool:
@@ -393,18 +393,6 @@ class _Spool:
     def __exit__(self, *exc: object) -> None:
         if self.file:  # the child holds its own copy of the descriptor
             self.file.close()
-
-
-def _read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
-    """A spooled stream's bounded head and tail, read back without loading the whole file."""
-    with open(path, "rb") as fh:
-        size = os.fstat(fh.fileno()).st_size
-        if limit is None or size <= limit:
-            return fh.read(), False
-        head = fh.read(limit // 2)
-        tail_len = limit - limit // 2
-        fh.seek(size - tail_len)
-        return _join(head, fh.read(tail_len), size)
 
 
 def _feed(sink, data: bytes) -> None:

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from dokimi.atomic_write import write_text_atomic
+from dokimi.provenance import generated_by
 from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.code_index.symbols import descriptor_names, descriptors
 from dokimi.repos.environment.files import is_generated, is_test_file
@@ -469,7 +470,7 @@ def _task(c: Candidate, granularity: str, opts: Options,
         "id": task_id(c), "family": FAMILY, "base": opts.base, "prompt": prompt, "grader": GRADER,
         "gold": GOLD, "score": {"metric": "f1", "max": 1.0}, "max_turns": opts.max_turns,
         "question": c.kind, "answer_key": key, "symbols": list(c.symbols), "ambiguous_name": c.ambiguous,
-        "code_index": code_index,
+        "code_index": code_index, "provenance": generated_by("tasks-generate"),
     }
     rule = {"files": "files with a reference to the symbol, outside the files that define it",
             "functions": "functions whose range holds a reference to the symbol, outside the files that define it",

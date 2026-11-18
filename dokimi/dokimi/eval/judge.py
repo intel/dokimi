@@ -22,7 +22,8 @@ from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
 from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
-from dokimi.records import BASELINE, CONTEXT, NO_RETRIEVAL_SOURCES, Record, RecordLike, records
+from dokimi.records import (BASELINE, CONTEXT, NO_RETRIEVAL_SOURCES, Record, RecordLike, is_knowledge_run,
+                            knowledge_only, records)
 from dokimi.defaults import ANSWERING_METHOD_VERSION, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
@@ -417,8 +418,11 @@ class Judge:
             "delta": delta,
         }
 
-        # Classify retrieval outcome (why docs helped or didn't)
-        result["diagnosis"] = diagnose(context_answer, delta, context_scored=with_docs_eval is not None)
+        # Classify retrieval outcome (why docs helped or didn't). One condition by design only in a declared
+        # knowledge run: a paired run with a missing context condition is incomplete (see is_knowledge_run).
+        single = knowledge_only(answer) and is_knowledge_run([answer], self.run_metadata)
+        result["diagnosis"] = diagnose(context_answer, delta, context_scored=with_docs_eval is not None,
+                                       single_condition=single)
         # Carried onto the eval record because the trust gate reads eval.v1, not
         # the answers it was judged from.
         result["retrieval_hit"] = answer.retrieval_hit

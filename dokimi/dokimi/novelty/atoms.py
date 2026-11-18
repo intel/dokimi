@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from dokimi.atomic_write import write_text_atomic
 from dokimi.utils import InputError, read_json_input
 
+from .atoms_refusal import partial_atoms_refusal
 from .batching import or_stop, retry_wording
 from .client import LLMClient, OutputTruncated, SpendCapReached, accepting
 from .spans import Span
@@ -786,12 +787,7 @@ def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     if isinstance(data, dict) and ("partial" in data or data.get("status") == "partial"):
         if not isinstance(partial := data.get("partial"), dict) or not partial:  # no run writes this
             raise InputError(f"{path} is marked partial with no `partial` block: truncated or hand-edited")
-        if (reason := partial.get("reason")) in ("no_price", "permanent_error"):  # a higher cap will not help
-            raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so it is not a finished atom set. "
-                             + ("Drop --max-usd to run unmetered" if reason == "no_price" else "Fix the error and rerun"))
-        raise InputError(f"{path} is a partial atoms file: --max-usd stopped the run before it "
-                         "finished, so it is not a finished atom set. Rerun with a higher "
-                         "--max-usd, or without the cap")
+        raise InputError(partial_atoms_refusal(path, partial))
     try:
         atoms, spans = _atoms_from_record(data)
         _check_bundle_shape(data.get("bundle"))
