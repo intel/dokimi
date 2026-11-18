@@ -94,7 +94,7 @@ def test_a_partial_file_with_a_real_message_prints_it_as_is(tmp_path, reason, me
     ("\u115f", False), ("\u1160", False), ("\uffa0", False), ("\u034f", False), ("\u00a0", False),
 ])
 def test_has_visible_text_needs_a_letter_number_punctuation_or_symbol_that_shows(text, visible):
-    # changelog.d/20261117_140000_atoms-partial-message-fallback.md (#833): a usable message is text that shows
+    # changelog.d/20261118_120000_invisible-partial-message.md (#881): a usable message has a letter, number, punctuation or symbol that shows
     assert has_visible_text(text) is visible
 
 
