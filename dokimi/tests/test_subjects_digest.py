@@ -176,9 +176,17 @@ def test_a_value_naming_a_file_is_tagged_with_the_digest_of_its_content(tmp_path
 def test_an_arm_spec_digest_frames_the_spec_and_each_part_as_fixed_width_fields(tmp_path: Path):
     # #878: the spec and each part were joined with a bare NUL, so this literal moved.
     assert _digest_arm_spec("skill:./a+skill:./b", base=tmp_path) == (
-        "sha256:8c142870b5eab2dd85f0380146b5b58e1de2576a17f49bc6312bbfce6b00d7cc")  # gitleaks:allow
+        "sha256:379da7938eee39f099be7c7b413df44ddbce217b3d4918f8299cf7cf7090a6bb")  # gitleaks:allow
     assert _digest_arm_spec("baseline", base=tmp_path) == (
         "sha256:f22917cace49ee841b942ac46ec9a946203ba2f89f8c816143557337cbcdf72c")  # gitleaks:allow
+
+
+def test_an_arm_spec_part_naming_a_file_differs_from_one_naming_no_file_spelled_as_its_content(tmp_path: Path):
+    f = tmp_path / "x"
+    f.write_bytes(b"t" + hashlib.sha256(b"./x").digest())
+    present = _digest_arm_spec("skill:./x", base=tmp_path)
+    f.unlink()
+    assert _digest_arm_spec("skill:./x", base=tmp_path) != present
 
 
 def test_a_file_ref_differs_from_a_missing_ref_spelled_as_its_content(tmp_path: Path):

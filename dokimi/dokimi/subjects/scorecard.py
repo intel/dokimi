@@ -182,22 +182,29 @@ def distribution_digest(ref: str | None, *, base: Path) -> str | None:
 
 
 def _digest_ref(ref: str | None, *, base: Path) -> str | None:
+    return _digest_ref_kind(ref, base=base)[0]
+
+
+def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]:
+    """The digest of *ref* and a tag for what it named: ``f`` a file, ``d`` a directory, ``t`` neither."""
     if not ref:
-        return None
+        return None, b"t"
     path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
         path = base / path
     if path.is_file():
-        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(), b"f"
     h = hashlib.sha256()
+    kind = b"t"
     if path.is_dir():
+        kind = b"d"
         h.update(b"d")
         for child in sorted(p for p in path.rglob("*") if p.is_file()):
             h.update(_field(str(child.relative_to(path))))
             h.update(hashlib.sha256(child.read_bytes()).digest())
     else:
         h.update(b"t" + _field(ref))
-    return "sha256:" + h.hexdigest()
+    return "sha256:" + h.hexdigest(), kind
 
 
 def _digest_arm_spec(spec: str, *, base: Path) -> str:
@@ -207,5 +214,6 @@ def _digest_arm_spec(spec: str, *, base: Path) -> str:
     h.update(_field(spec))
     for part, content_ref in content_refs(spec):
         h.update(_field(part))
-        h.update(_field(_digest_ref(content_ref, base=base) or ""))
+        digest, kind = _digest_ref_kind(content_ref, base=base)
+        h.update(kind + _field(digest or ""))
     return "sha256:" + h.hexdigest()
