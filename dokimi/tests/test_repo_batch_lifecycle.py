@@ -283,7 +283,7 @@ def test_compare_with_a_model_refuses_only_a_mixed_row_of_that_model(setup):
 
 _CTRL_C_DRIVER = """
 import os, signal, sys, threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
@@ -303,21 +303,20 @@ def shutdown(self, wait=True, *, cancel_futures=False):
     if cancel_futures:
         cancelled.set()
 ThreadPoolExecutor.shutdown = shutdown
-submitted, real_submit, count = threading.Event(), ThreadPoolExecutor.submit, []
-def pool_submit(self, *args, **kwargs):
-    future = real_submit(self, *args, **kwargs)
-    count.append(1)
-    if len(count) == 5:  # the fifth of --reps 5: every cell is submitted and its thread has started
-        submitted.set()
-    return future
-ThreadPoolExecutor.submit = pool_submit
+busy, real_result = threading.Event(), Future.result
+def result(self, timeout=None):
+    if threading.current_thread() is threading.main_thread():  # _run_cells is about to wait on its cells
+        if not busy.wait(30):
+            os._exit(3)
+        # raised in the main thread itself: a SIGINT sent from a worker thread just before the main thread blocks
+        # in the wait stays pending until a cell ends (the handler runs on its next bytecode, not in the lock wait)
+        signal.raise_signal(signal.SIGINT)
+    return real_result(self, timeout)
+Future.result = result
 def run_cell(ctx, task, arm, rep, *args, **kwargs):
     if rep <= 2:
         both.wait(30)
-        if rep == 1:
-            if not submitted.wait(30):  # an interrupt inside submit() is a slow thread start, not the Ctrl-C under test
-                os._exit(3)
-            signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
+        busy.set()
         # both workers stay busy until the queue is cancelled, so this checks the cancel, not an early start (#874)
         if not cancelled.wait(30):
             os._exit(4)
