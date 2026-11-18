@@ -26,10 +26,12 @@ import shlex
 from datetime import datetime
 from typing import Any
 
+from dokimi.text_spans import HeredocPattern
+
 from .shell_functions import Functions, define
 from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
-                          _run_name, _runs_dir, _time_keyword, _unquoted)
+                          _run_name, _runs_dir, _stdout_after_stderr, _time_keyword, _unquoted)
 from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
@@ -39,7 +41,9 @@ _COPILOT_READ = {"view"}
 _COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
 _PATCH_FILE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.M)
 _CONTINUATION = re.compile(r"\\\n")
-_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+_HEREDOC_OPEN = r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n"
+_HEREDOC = HeredocPattern(re.compile(_HEREDOC_OPEN + r".*?^[ \t]*\2[ \t]*$", re.S | re.M), re.compile(_HEREDOC_OPEN),
+                          re.compile(r"^[ \t]*(\w+)[ \t]*$", re.M), word=2)
 # a redirect that leaves what a printing command shows on stdout: 2>&1, >&2, 2>/dev/null. A stdout discard
 # (>/dev/null, 1>/dev/null, &>/dev/null) is not one of them: no content reaches the agent, so no read.
 _HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?>&\d+(?=\s|$|[;&|])|(?<![^\s;&|(])(?!1(?![0-9]))\d+>>?\s*/dev/null(?=\s|$|[;&|])")
@@ -48,8 +52,6 @@ _PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?)?\s*p\s*")  # 
 # stderr sent to a file: stdout, what a printing command shows, is unchanged
 # (matched on the part with quoted text masked, so a quote glued to ``2`` or to the target is seen)
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
-# redirects apply in order: after ``2>/dev/null`` or ``2>file``, a ``1>&2`` sends stdout there too, away from the agent
-_STDOUT_AFTER_STDERR = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+.*?(?<![^\s;&|(])1?>&2(?!\d)")
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
@@ -260,7 +262,7 @@ class _Walk:
 
     def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
         before, piped, (mark, unknown), (self.list_start, self.listed) = self.groups.pop()
-        if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
+        if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _stdout_after_stderr(redirects):
             del out[mark:]
             self.unknown = unknown
         if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
@@ -269,7 +271,7 @@ class _Walk:
     def words(self, part: str, after: str = "") -> list[str]:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
         and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell)."""
-        if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
+        if not _stdout_after_stderr(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
             part = _outside_quotes(part, _HARMLESS_REDIRECT)
         part = _outside_quotes(part, _STDERR_FILE)
         try:
