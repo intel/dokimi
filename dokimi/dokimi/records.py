@@ -433,6 +433,68 @@ def arm_names(rec: Record) -> tuple[str, ...]:
     return tuple(c for c in rec.conditions if c not in BINARY)
 
 
+def _holds(rec: Record, condition: str) -> bool:
+    return rec.answer(condition) is not None or rec.score(condition) is not None
+
+
+def _has_context_block(rec: Record) -> bool:
+    """A context answer or score block is present, scored or not."""
+    return rec.answer(CONTEXT) is not None or CONTEXT in rec.scores
+
+
+def knowledge_only(rec: Record) -> bool:
+    """A question answered in the baseline condition alone, by design: no context answer or score, no error.
+
+    A knowledge run (``--doc-source none``) writes ``with_docs: null`` on every question. A question that
+    errored has no baseline either, and is not one of these.
+    """
+    return rec.error is None and not _holds(rec, CONTEXT) and _holds(rec, BASELINE)
+
+
+def held_conditions(recs: Iterable[Record]) -> list[str]:
+    """The condition names the records hold an answer or a score in, in first-seen order (binary or arms)."""
+    held: dict[str, None] = {}
+    for r in recs:
+        listed = arm_names(r)  # an arms record lists every arm it ran, one that failed everywhere too
+        for name in (*listed, CONTEXT, BASELINE):
+            if name in listed or _holds(r, name):
+                held.setdefault(name, None)
+    return list(held)
+
+
+def is_single_condition(recs: Sequence[Record]) -> bool:
+    """Whether a run answered one condition by design: the records hold exactly one, and it is not the context one.
+
+    That one is ``without_docs`` in a binary run, and the arm's name in an ``arms.v1`` run with one arm.
+    """
+    held = held_conditions(recs)
+    return len(held) == 1 and held[0] != CONTEXT
+
+
+#: The ``run_intent`` an answers file stamps: a knowledge run (no docs) or a paired one (with docs).
+KNOWLEDGE_INTENT = "knowledge"
+PAIRED_INTENT = "paired"
+
+
+def is_knowledge_run(recs: Sequence[Record], run: Mapping[str, Any]) -> bool:
+    """Whether the run was declared a knowledge run, which is not the same as one condition by accident.
+
+    The persisted ``run_intent`` decides when the file, or the eval's ``run_metadata``, carries one. An arms
+    file declares its arms, so a run of the ``baseline`` arm alone is one. An unstamped legacy file falls back
+    to the data, but a record that tried retrieval (``retrieval_hit`` is set), or that holds a context answer or
+    score block (even an unscored one), is a paired run whose context was missed, not a knowledge run.
+    """
+    raw_meta = run.get("run_metadata")
+    meta = raw_meta if isinstance(raw_meta, Mapping) else {}
+    intent = run.get("run_intent", meta.get("run_intent"))
+    if intent in (KNOWLEDGE_INTENT, PAIRED_INTENT):
+        return intent == KNOWLEDGE_INTENT
+    declared = run.get("arms")
+    if isinstance(declared, list) and declared:
+        return [a for a in declared if isinstance(a, str)] == ["baseline"]
+    return all(r.retrieval_hit is None and not _has_context_block(r) for r in recs)
+
+
 def has_arms(recs: Iterable[Record]) -> bool:
     """Whether any record holds answers under ``arms`` (an arms run, not a binary file)."""
     return any(isinstance(r.raw.get("arms"), Mapping) for r in recs)

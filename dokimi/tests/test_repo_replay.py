@@ -237,6 +237,7 @@ def test_a_merged_pr_becomes_a_task_with_gold_from_the_reviewers_line_threads(hi
     assert task["window"] == 5 and task["left_out_files"] == [".agent-eval/notes.md", "AGENTS.md"]
     assert task["patch_files"] == ["src/blob.bin", "src/gone.py", "src/long.py", "src/moved.py", "src/nonl.py"]
     assert "```json" in task["prompt"]
+    assert task["provenance"]["source"].startswith("generated:dokimi-tasks-generate@")
     assert "Subject: [PATCH] Change 7\n" in patch and "+v10 pr" in patch and "+v30 pr" in patch
     assert "AGENTS.md" not in patch and "notes.md" not in patch  # without the guidance and eval_dir hunks
     assert "v10 fixed" not in patch  # as reviewed

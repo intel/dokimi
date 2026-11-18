@@ -38,6 +38,8 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `allowed-tools-unknown` | warn | `allowed-tools` names a tool dokimi does not know | yes |
 | `allowed-tools-unrestricted-bash` | warn | `allowed-tools` grants unrestricted Bash; with a risky-command code it also fails `--strict` | yes |
 | `body-too-large` | warn | the SKILL.md body is over the size limit | yes |
+| `bundle-file-unchecked` | note | the search for unreferenced bundled files could not see every name (over 2000 files, over 50 named documents, or a named document that is over 1 MiB, not UTF-8, a symlink or a FIFO), so no count is given | yes |
+| `bundle-file-unreferenced` | warn | bundled scripts and documents that neither `SKILL.md` nor a document it names mentions; the message gives the count and three example paths | yes |
 | `description-near-duplicate` | warn | the description overlaps another skill's (Jaccard similarity at least 0.5 and at least 3 shared words) | yes |
 | `description-no-when` | warn | the description has no "when" clause (the cues are in `when_cues.py`) | yes |
 | `description-too-long` | error | the description is over 1024 characters | yes |

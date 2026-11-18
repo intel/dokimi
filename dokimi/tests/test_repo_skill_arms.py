@@ -16,11 +16,12 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.utils import InputError
 from dokimi.repos.arms import ArmError, Skill, check_arms, resolve_skills, skill_usage, tree_sha256
 from dokimi.repos.events import convert
 from dokimi.repos.report import format_report, summarize
 from dokimi.repos.workspace import PrepError, Task, _install_skills, parse_arm
-from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo, write
+from repo_eval_fixture import FakeRunner, config_runner, fake_harness, git, make_repo, write
 
 
 def _skill(root: Path, rel: str, name: str) -> None:
@@ -451,7 +452,7 @@ def test_unmeasured_skill_usage_is_left_out_of_the_counts(tmp_path):
 
 
 def test_a_harness_that_never_started_leaves_skill_usage_unmeasured(setup, monkeypatch):
-    monkeypatch.setenv("FAKE_ACTION", "startfail")  # exit 1, no trace: not "the agent ignored the skill"
+    monkeypatch.setenv("FAKE_ACTION", "quiet")  # exit 0, no trace: not "the agent ignored the skill" (exit 1 is a crash)
     _run(setup, "--arm", "guidance:raw+skill:skills/lint", "--task", "fix_lint", "--reps", "2")
     monkeypatch.setenv("FAKE_ACTION", "fix")  # ran, used no skill: measured
     _run(setup, "--batch", "b2", "--arm", "guidance:raw+skill:skills/lint", "--task", "fix_lint")
@@ -514,8 +515,7 @@ def test_a_resumed_batch_refuses_other_skills_under_one_arm_name(setup, tmp_path
 
 
 def test_claude_code_gets_mcp_config_only_when_the_workspace_has_the_file(tmp_path, monkeypatch):
-    runner = FakeRunner()
-    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    runner = config_runner(tmp_path, monkeypatch)
     monkeypatch.setenv("FAKE_ACTION", "fix")
     profile = Path(__file__).resolve().parents[1] / "dokimi/repos/profiles/claude-code.yaml"
     exe, _ = fake_harness(tmp_path)
@@ -815,8 +815,7 @@ def test_a_read_of_a_skills_directory_is_not_a_use_of_a_skill():
 
 def _claude_run(tmp_path, monkeypatch, mcp_json, *extra, patch=None):
     """`repo run` with the built-in claude-code profile on a base that ships `mcp_json`; the agent specs."""
-    runner = FakeRunner()
-    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    runner = config_runner(tmp_path, monkeypatch)
     monkeypatch.setenv("FAKE_ACTION", "fix")
     profile = Path(__file__).resolve().parents[1] / "dokimi/repos/profiles/claude-code.yaml"
     exe, _ = fake_harness(tmp_path)
@@ -832,6 +831,9 @@ def _claude_run(tmp_path, monkeypatch, mcp_json, *extra, patch=None):
         code = 0
     except SystemExit as exc:
         code = exc.code
+    except InputError as exc:  # cli.main prints `Error: <message>` and exits 2
+        print(f"Error: {exc}", file=sys.stderr)
+        code = 2
     return code, [s for s in runner.specs if "--strict-mcp-config" in s.argv]
 
 
@@ -840,7 +842,7 @@ def test_run_refuses_a_malformed_mcp_json_before_any_cell_when_the_agent_is_give
                                                                                     text):
     code, agents = _claude_run(tmp_path, monkeypatch, text, "--arm", "guidance:raw", "--tools", "all")
     err = capsys.readouterr().err
-    assert code == 1 and agents == []
+    assert code == 2 and agents == []
     assert ".mcp.json" in err and "--tools read/none" in err
     assert not list((tmp_path / "runs" / "b1").glob("fix_add__*"))  # no cell was even prepared
 
