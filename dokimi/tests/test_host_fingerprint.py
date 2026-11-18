@@ -330,6 +330,8 @@ def test_error_text_is_scrubbed_of_paths_and_truncated():
     ("cannot open FILE:///home/jdoe/x", "cannot open FILE://<path>"),
     ("cannot open file://server/share/Jane Doe/x", "cannot open file:<path>"),
     ("missing \"file:///home/Jane O'Connor/x\", next", "missing \"<path>\", next"),
+    ("missing '/home/Jane O'Connor/x'", "missing '<path>'"),
+    ("missing 'C:\\Users\\O'Connor\\private.txt'", "missing '<path>'"),
     ("cannot open //server/share/Jane Doe/file", "cannot open <path>"),
     ("cannot open '//server/share/Jane Doe/file'", "cannot open '<path>'"),
     ("see https://example.com/a b", "see https://example.com/a b"),
