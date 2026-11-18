@@ -12,6 +12,6 @@ SPDX-License-Identifier: Apache-2.0
   an existing `--jsonl` is not overwritten without it. `--strata CSV` adds bootstrap 95%
   intervals per stratum; `--summary-only` prints the summary of a JSONL with no model call.
   Ctrl-C or SIGTERM cancels the skills not yet started, lets the running ones finish and keeps the
-  rows done; a second signal kills the subprocess calls in flight and starts no further call. Identical
+  rows done; a run that leaves a skill partial, error or not run exits 1 after writing its rows. A second signal kills the subprocess calls in flight and starts no further call. Identical
   skill directories (SKILL.md and bundled files) of one skill count once.
   See `docs/skill-novelty.md`, Corpus sweep.

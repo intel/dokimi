@@ -82,7 +82,8 @@ def test_the_summary_leads_with_the_already_known_share(tmp_path, capsys):
 
 def test_a_per_skill_cap_leaves_a_partial_row_and_the_sweep_goes_on(tmp_path):
     out = tmp_path / "out"
-    _sweep(_root(tmp_path), out, "--max-usd", "5", "--max-usd-per-skill", "0.02")
+    with pytest.raises(SystemExit, match="2 of 2 skill"):  # every skill partial: the run exits nonzero
+        _sweep(_root(tmp_path), out, "--max-usd", "5", "--max-usd-per-skill", "0.02")
     rows = _rows(out / "sweep.jsonl")
     assert [r["status"] for r in rows] == ["partial", "partial"]
     assert {r["reason"] for r in rows} == {"spend_cap"}
@@ -91,10 +92,13 @@ def test_a_per_skill_cap_leaves_a_partial_row_and_the_sweep_goes_on(tmp_path):
 
 def test_the_run_budget_stops_the_skills_it_cannot_pay_for(tmp_path, capsys):
     out = tmp_path / "out"
-    _sweep(_root(tmp_path), out, "--max-usd", "0.05", "--jobs", "1")
+    with pytest.raises(SystemExit, match="2 of 2 skill") as stopped:
+        _sweep(_root(tmp_path), out, "--max-usd", "0.05", "--jobs", "1", "--summary-out", str(tmp_path / "s.json"))
+    assert stopped.value.code not in (0, None)  # a sweep that measured nothing is not a success
     rows = _rows(out / "sweep.jsonl")
     assert len(rows) == 1  # the second skill was never started
     assert rows[0]["status"] == "partial"
+    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["counts"]["partial"] == 1
     assert "1 skill(s) not run: the budget was spent" in capsys.readouterr().err
 
 
@@ -170,7 +174,8 @@ def test_an_unloadable_skill_is_an_error_row_and_costs_nothing(tmp_path):
     root, out = _root(tmp_path), tmp_path / "out"
     (root / "broken").mkdir()
     (root / "broken" / "SKILL.md").write_text("no frontmatter here\n", encoding="utf-8")
-    _sweep(root, out, "--max-usd", "5")
+    with pytest.raises(SystemExit, match="1 of 3 skill"):
+        _sweep(root, out, "--max-usd", "5")
     broken = [r for r in _rows(out / "sweep.jsonl") if r["key"] == "broken"]
     assert broken and broken[0]["status"] == "error"
     assert broken[0]["usd"] == 0
@@ -200,7 +205,8 @@ def test_a_skill_with_no_paired_probe_is_an_error_not_a_share_of_one(tmp_path, m
     monkeypatch.setattr(artifacts, "save_artifact", lambda kind, art, path: path.parent.mkdir(parents=True))
     monkeypatch.setattr(report, "render_novelty_markdown", lambda artifact: "")
     root, out = _root(tmp_path, names=("accel-tuning",)), tmp_path / "out"
-    _sweep(root, out, "--max-usd", "5")
+    with pytest.raises(SystemExit, match="1 of 1 skill"):
+        _sweep(root, out, "--max-usd", "5")
     [row] = _rows(out / "sweep.jsonl")
     assert row["status"] == "error" and row["reason"] == "no_pairs"
     assert row["new_lenient"] is None
@@ -218,7 +224,8 @@ def test_a_save_that_fails_is_that_skills_error_row_and_the_sweep_goes_on(tmp_pa
 
     monkeypatch.setattr(artifacts, "save_artifact", save)
     root, out = _root(tmp_path), tmp_path / "out"
-    _sweep(root, out, "--max-usd", "5")  # must not raise: one skill's save is its row's error
+    with pytest.raises(SystemExit, match="1 of 2 skill"):  # the other skill is still measured and saved
+        _sweep(root, out, "--max-usd", "5")
     rows = {r["key"]: r for r in _rows(out / "sweep.jsonl")}
     assert rows["accel-tuning"]["status"] == "error"
     assert "disk full" in rows["accel-tuning"]["message"]
@@ -545,11 +552,13 @@ def test_a_skill_measured_again_that_ends_partial_or_error_leaves_no_old_novelty
     old = Path(_rows(out / "sweep.jsonl")[0]["novelty_json"])
     assert old.is_file() and old.with_suffix(".md").is_file()
     (root / "accel-tuning" / "SKILL.md").write_text(SKILL + "\nMore text.\n", encoding="utf-8")
-    _sweep(root, out, "--max-usd", "5", "--resume", "--max-usd-per-skill", "0.02")
+    with pytest.raises(SystemExit):
+        _sweep(root, out, "--max-usd", "5", "--resume", "--max-usd-per-skill", "0.02")
     assert _rows(out / "sweep.jsonl")[0]["status"] == "partial"
     assert not old.exists() and not old.with_suffix(".md").exists()
     (root / "accel-tuning" / "SKILL.md").write_text("no frontmatter at all", encoding="utf-8")
-    _sweep(root, out, "--max-usd", "5", "--resume")
+    with pytest.raises(SystemExit):
+        _sweep(root, out, "--max-usd", "5", "--resume")
     assert _rows(out / "sweep.jsonl")[0]["status"] == "error"
     assert not old.exists()
 

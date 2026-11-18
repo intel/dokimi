@@ -440,6 +440,16 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
                            out_dir=out_dir, placebo_text=placebo_text, cache_dir=cache_dir,
                            fingerprint=fingerprint)
     _emit_summary(summarize(kept + new_rows, strata, resamples=args.bootstrap_resamples), args)
+    _exit_if_short(len(todo), new_rows, jsonl)
+
+
+def _exit_if_short(run: int, new_rows: list[dict], jsonl: Path) -> None:
+    """Exit 1 once the rows and the summary are written when a skill this run took on was not measured
+    (partial, error or not run), as the novelty commands do when the budget or a failed call stops them."""
+    short = run - sum(row["status"] == "ok" for row in new_rows)
+    if short:
+        raise SystemExit(f"{short} of {run} skill(s) this run took on were not measured (partial, error or "
+                         f"not run); the rows are in {jsonl}, and --resume runs them again")
 
 
 def _refuse_unsafe_summary_out(args: argparse.Namespace, jsonl: Path) -> None:
