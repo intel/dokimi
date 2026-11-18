@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 
 import pytest
 
 from dokimi.artifacts import load_artifact, validate_artifact
 from dokimi.cli import build_parser
+from dokimi.repos.source import WorkTree
 from tests.test_repo_environment import _repo
 from tests.cli_refusal import refusal
 
@@ -54,3 +57,34 @@ def test_cli_exits_2_when_it_cannot_read_or_write(tmp_path, capsys, case):
     assert exc.code == 2
     prefix = "Error: " if case == "missing source" else "✗ "
     assert capsys.readouterr().err.startswith(prefix)
+
+
+@pytest.mark.outcome("cjm-repo-inspect")
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs a directory mode the user cannot bypass")
+def test_inspect_survives_a_tracked_file_in_an_unreadable_directory(tmp_path, capsys):
+    root = tmp_path / "repo"
+    _repo(root, {"AGENTS.md": "# Guide\n", "sub/f.py": "x = 1\n"})
+    (root / "sub").chmod(0o000)
+    try:
+        args = build_parser().parse_args(["repo", "inspect", str(root)])
+        args.func(args)
+        assert WorkTree(root).files() == ["AGENTS.md"]
+    finally:
+        (root / "sub").chmod(0o755)
+    assert "1 instruction files (1 root)" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs a directory mode the user cannot bypass")
+def test_an_unreadable_directory_keeps_its_readable_siblings_and_a_link_listed(tmp_path):
+    root = tmp_path / "repo"
+    _repo(root, {"a.py": "x = 1\n", "sub/f.py": "x = 1\n", "ok/g.py": "x = 1\n"})
+    (root / "link").symlink_to("nowhere")
+    (root / "into").symlink_to("sub/f.py")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    (root / "sub").chmod(0o000)
+    try:
+        assert WorkTree(root).files() == ["a.py", "into", "link", "ok/g.py"]
+    finally:
+        (root / "sub").chmod(0o755)

@@ -122,6 +122,15 @@ class RepoTree(Protocol):
         ...
 
 
+def _is_entry(path: Path) -> bool:
+    """Whether ``path`` is a file or a link; false when the OS refuses the check, as for a file below
+    a directory that cannot be searched, which the directory walk does not list either."""
+    try:
+        return path.is_symlink() or path.is_file()
+    except OSError:
+        return False
+
+
 class WorkTree:
     """A directory on disk, read as it is (uncommitted changes included); ``files``, when given, is its listing."""
 
@@ -145,8 +154,7 @@ class WorkTree:
             listed = _git_entries(self.root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                                   check=False, warn=True)
             if listed:  # a link is an entry even when it dangles or names a directory, as in git
-                self._files = sorted({p for p in listed
-                                      if (self.root / p).is_file() or (self.root / p).is_symlink()})
+                self._files = sorted({p for p in listed if _is_entry(self.root / p)})
         if self._files is None:
             out: list[str] = []
             for dirpath, dirnames, filenames in os.walk(self.root):
