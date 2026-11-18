@@ -13,6 +13,7 @@ never filled in.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from pathlib import PurePath
 from typing import Any
@@ -171,6 +172,9 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
         "protocol": protocol,
     }
     reasons = comparability(result)
+    temperature = cell.get("judge_temperature")
+    if isinstance(temperature, float) and not math.isfinite(temperature):
+        reasons.append("judge_temperature is not a finite number")
     result["comparable"] = not reasons
     result["non_comparable"] = reasons
     return result

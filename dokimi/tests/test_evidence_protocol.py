@@ -387,6 +387,19 @@ def test_a_non_json_resolved_value_is_a_reason_not_an_exception():
     assert any("is not JSON" in reason for reason in reasons)
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_a_non_finite_judge_temperature_gives_a_reason_not_an_exception(bad):
+    from dokimi.subjects.evidence import _result
+    cell = {"judge_model": "claude-sonnet-5-5-20261101", "judge_provider": "anthropic", "judge_context": "ctx",
+            "judge_temperature": bad, "judge_prompt_sha256": "e" * 64, "repeats": 3,
+            "questions_digest": "sha256:" + "f" * 64}
+    row = {"significance": {"delta_mean": 1.0, "p_adjusted": 0.001, "correction": "holm",
+                            "ci_method": "student_t", "ci_confidence": 0.95, "significant_adjusted": True}}
+    result = _result(cell, "skill:s", row, None)
+    assert "judge_sampling" in result["protocol"]["unresolved"]
+    assert result["non_comparable"] == ["judge_temperature is not a finite number"]
+
+
 def test_a_harness_change_is_a_reason_when_both_sides_carry_a_protocol():
     # harness is not a protocol input, so the digest cannot tell two harnesses apart
     base = _fixture("verdict_with_rule.json")

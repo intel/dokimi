@@ -59,6 +59,14 @@ def canonical_json(value: Any) -> bytes:
                       allow_nan=False).encode("utf-8")
 
 
+def _encodable(value: Any) -> bool:
+    try:
+        canonical_json(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def protocol_digest(resolved: Mapping[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(dict(resolved))).hexdigest()
 
@@ -86,6 +94,8 @@ def build_protocol(inputs: Mapping[str, Any]) -> dict[str, Any]:
     for key in sorted(inputs):
         value = inputs[key]
         if value is None or value == PROTOCOL_MIXED:  # mixed: some scores saw other inputs than the rest
+            unresolved.append(key)
+        elif not _encodable(value):  # NaN or infinity: no bytes to hash, so the input stays out of the digest
             unresolved.append(key)
         elif is_alias(value):
             unresolved.append(key)
