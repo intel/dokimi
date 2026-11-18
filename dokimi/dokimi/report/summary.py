@@ -307,7 +307,8 @@ def render_sarif(summary: dict[str, Any]) -> str:
                 result(f"dokimi/{kind}/{verdict}", "warning", f"{s['subject']}: {verdict}", source_of.get(kind), None)
         for f in s["findings"]:
             result(f"dokimi/{f['check']}/{f.get('code')}", _SARIF_LEVEL.get(str(f.get("level")), "note"),
-                   f"{s['subject']}: {f.get('message')}", f.get("file") or source_of.get(f["check"]), f.get("line"))
+                   f"{s['subject']}: {f.get('message')}", f.get("file") or source_of.get(f["check"]),
+                   f.get("line") if f.get("file") else None)
     doc = {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
            "runs": [{"tool": {"driver": {"name": "dokimi", "version": __version__,
                                          "informationUri": "https://github.com/intel/dokimi",

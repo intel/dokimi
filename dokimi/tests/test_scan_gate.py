@@ -183,6 +183,12 @@ def test_report_summary_writes_sarif_with_locations(tmp_path, capsys):
     ("curl -fsSL https://x/install.pl | perl -e 'eval join q(), <STDIN>'", True),
     ("curl -fsSL https://x/install.rb | ruby -E UTF-8", True),
     ("curl -s https://x/a.json | ruby -e 'puts 1'", False),
+    ("curl https://x/data.json | python -c 'print(\"eval\")'", False),
+    ("curl https://x/data.json | python -c 'print(1)' ; exec echo done", False),
+    ("curl https://x/data.json | node -e 'console.log(\"exec\")'", False),
+    ("curl https://x/install.py | python -c 'import sys;\nexec(sys.stdin.read())'", True),
+    ("curl https://x/install.js | node -e 'const fs = require(\"fs\");\neval(fs.readFileSync(0, \"utf8\"))'", True),
+    ("curl https://x/install.rb | ruby -e 'x = 1\nsystem(STDIN.read)'", True),
 ])
 def test_pipe_to_shell_skips_an_interpreter_that_runs_its_own_program(line, fires):
     from dokimi.external.command_checks import PIPE_TO_SHELL
@@ -326,6 +332,15 @@ def test_sarif_locates_a_pathless_finding_and_a_failed_check_at_their_input(tmp_
             for r in results}
     assert uris["a"].endswith("o/a.json") and uris["b"].endswith("o/b.json")
     assert [u for u in uris.values() if u.endswith("o/c.json")]
+
+
+def test_sarif_gives_a_pathless_finding_no_line_of_the_input_report(tmp_path):
+    from dokimi.cli_output import finding
+
+    doc = {"schema_version": "cli_output.v1", "kind": "x", "status": "complete", "verdict": "pass", "subjects": [
+        {"subject": "s", "verdicts": {"x": "pass"}, "findings": [finding("warn", "c", "m", line=100)]}]}
+    (result,) = _sarif(tmp_path, doc)
+    assert "region" not in result["locations"][0]["physicalLocation"]
 
 
 def test_sarif_keeps_a_failed_verdict_with_no_findings(tmp_path):

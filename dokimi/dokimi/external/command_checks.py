@@ -41,8 +41,11 @@ EXAMPLES_SHOWN = 3
 # Prose files: their installs are read from code (fences and spans), as in Markdown.
 PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
 
-# An inline program that runs what it reads: exec, eval, a shell or a child process.
-_NO_EXEC = r"(?![^\n]*\b(?:exec|eval|system|popen|spawn|subprocess|child_process|__import__|Function)\w*)"
+# A word that runs what it reads (exec, eval, a shell, a child process); a word that ends a string
+# literal ("eval") is data.
+_EXEC = r"(?<!\w)(?:exec|eval|system|popen|spawn|subprocess|child_process|__import__|Function)(?!\w*['\"])"
+# The inline program after ``-c``/``-e``: one quoted string (it may span lines) or one word, none of it running anything.
+_CLEAN_PROGRAM = rf"(?:'(?:(?!{_EXEC})[^'])*'|\"(?:(?!{_EXEC})[^\"])*\"|(?!{_EXEC})[^\s;&|'\"]+)"
 # Bounded (500 pieces) so a long line of curl words stays linear; ``||`` is not a pipe, ``|&`` is.
 # A quoted string is taken whole, so a ``&`` or ``;`` in a quoted URL does not end the command.
 PIPE_TO_SHELL = re.compile(
@@ -52,10 +55,10 @@ PIPE_TO_SHELL = re.compile(
     # An inline program (`python -c`, `node -e`, `ruby -e`, `python -m`) takes the download as data, unless it execs or
     # evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
     r"(?:(?:ba|z|da|k)?sh|fish)\b"
-    rf"|python(?:3(?:\.\d+)?)?(?![\w.])(?![ \t]+-c(?![\w-]){_NO_EXEC})(?![ \t]+-m(?![\w-]))"
-    rf"|node\b(?![ \t]+-[ep](?![\w-]){_NO_EXEC})"
-    rf"|perl\b(?![ \t]+-[eE](?![\w-]){_NO_EXEC})"
-    rf"|ruby\b(?![ \t]+-e(?![\w-]){_NO_EXEC})"
+    rf"|python(?:3(?:\.\d+)?)?(?![\w.])(?![ \t]+-c(?![\w-])[ \t]+{_CLEAN_PROGRAM})(?![ \t]+-m(?![\w-]))"
+    rf"|node\b(?![ \t]+-[ep](?![\w-])[ \t]+{_CLEAN_PROGRAM})"
+    rf"|perl\b(?![ \t]+-[eE](?![\w-])[ \t]+{_CLEAN_PROGRAM})"
+    rf"|ruby\b(?![ \t]+-e(?![\w-])[ \t]+{_CLEAN_PROGRAM})"
     r")"
 )
 PERMISSION_BYPASS = re.compile(
