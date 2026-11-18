@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import sys
 
 from dokimi._version import __version__
+from dokimi.provenance import generated_by
 from dokimi.questions.llm_gen import QuestionGenerator
 
 
@@ -72,6 +73,17 @@ def test_generate_hybrid_merges_persona_and_chunk():
 
     assert len(result) == 4
     assert all("question" in q for q in result)
+
+
+def test_generate_hybrid_keeps_each_generator_s_own_stamp():
+    gen = _make_generator()
+    with patch.object(gen, "_call_llm", return_value=["Persona Q?"]), \
+         _patch_chunk_gen(_fake_question_dicts(1)):
+        result = gen.generate_hybrid("oneTBB", [_fake_persona()], ["t1"], "https://x.com",
+                                     total_questions=2, chunk_ratio=0.5, questions_per_topic=1)
+
+    assert {q["question_source"]: q["provenance"] for q in result} == {
+        "persona": generated_by("questions-persona"), "chunk": generated_by("questions-chunk")}
 
 
 def test_generate_hybrid_assigns_sequential_ids():

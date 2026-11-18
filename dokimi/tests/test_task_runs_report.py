@@ -78,6 +78,14 @@ def test_report_difficulty_rollup_splits_medium_and_hard():
     assert "| hard | 1 |" in md
 
 
+def test_per_task_row_shows_each_task_s_own_provenance_status():
+    data = _artifact()
+    data["tasks"][0]["metadata"]["provenance"] = {"status": "validated"}
+    md = render_task_runs_report(data)
+    assert "| false-sharing | medium | validated |" in md
+    assert "| simd-sort | hard | unknown |" in md
+
+
 def test_report_renders_without_cell_dirs():
     # output_dir is None for every row -> self-report column blank, no crash.
     md = render_task_runs_report(_artifact())
