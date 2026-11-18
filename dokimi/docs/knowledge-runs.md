@@ -130,7 +130,7 @@ no user instructions, rules, or project docs read from it.
   the login is what answers; `CODEX_HOME` is kept. Token counts come from the event stream.
   Cost is not computed: a login is not billed per call.
 - **`copilot-cli`** runs `copilot -p <prompt> -s` with no custom instructions, no built-in
-  MCP servers, no remote session, no auto-update, no questions to the user, and no tools
+  MCP servers, no auto-update, no questions to the user, and no tools
   (`--available-tools __none__`). It has no system-prompt flag, so the system text is prepended to
   the prompt, and the prompt is one command-line argument: a prompt over 100,000 bytes is
   refused before the call. GitHub token and BYOK provider variables are removed from the

@@ -383,7 +383,7 @@ def _is_windows() -> bool:
 
 def _copilot_argv(model: str, system_file: str, text: str) -> list:
     """``copilot -p`` with no tools, no custom instructions (AGENTS.md and the like), no MCP servers, no
-    remote session, no auto-update, no temp dir. The system file is not used: Copilot has no system-prompt
+    auto-update, no temp dir. The system file is not used: Copilot has no system-prompt
     option, so the system text leads the prompt (``system_in_prompt``)."""
     del system_file
     if len(text.encode("utf-8")) > COPILOT_ARG_LIMIT:
@@ -392,7 +392,7 @@ def _copilot_argv(model: str, system_file: str, text: str) -> list:
     # --allow-all-tools is what non-interactive mode requires; "__none__" is the measured no-tool allow-list
     # (an empty list leaves every tool on, see repos/profiles/copilot.yaml); --prompt= keeps a leading "-" an argument.
     argv = ["copilot", f"--prompt={text}", "-s", "--model", model, "--allow-all-tools", "--no-custom-instructions",
-            "--disable-builtin-mcps", "--no-remote", "--no-auto-update", "--no-ask-user", "--disallow-temp-dir",
+            "--disable-builtin-mcps", "--no-auto-update", "--no-ask-user", "--disallow-temp-dir",
             "--no-color", "--available-tools", "__none__"]
     if _is_windows():
         units = len(subprocess.list2cmdline(argv).encode("utf-16-le")) // 2 + 1  # the terminating NUL counts

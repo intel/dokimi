@@ -221,9 +221,10 @@ def test_copilot_runs_with_no_tools_no_custom_instructions_and_the_prompt_in_arg
     argv = call.argv
     assert argv[0] == "copilot" and argv[1] == "--prompt=Be terse.\n\nWhat is parallel_for?"
     assert call.input is None  # Copilot reads no prompt from stdin
-    for flag in ("--no-custom-instructions", "--disable-builtin-mcps", "--no-remote", "--no-auto-update",
+    for flag in ("--no-custom-instructions", "--disable-builtin-mcps", "--no-auto-update",
                  "--disallow-temp-dir", "-s"):
         assert flag in argv
+    assert "--no-remote" not in argv  # Copilot CLI 1.0.104 and later reject the whole command line on it
     assert argv[argv.index("--available-tools") + 1] == "__none__"
     assert "" not in argv  # an empty allow-list would leave every tool on
     assert argv[argv.index("--model") + 1] == "gpt-5"
