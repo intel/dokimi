@@ -106,3 +106,13 @@ def test_a_missing_cell_with_container_only_host_facts_counts_on_the_unfingerpri
     _cell(batch, 2, host=legacy, result=False)
     summary = summarize(batch)
     assert [(r["host_fingerprint"], r["missing"]) for r in summary["rows"]] == [(None, 1)]
+
+
+def test_a_legacy_missing_cell_counts_on_the_unfingerprinted_row_beside_a_fingerprinted_one(tmp_path):
+    batch = tmp_path / "b1"
+    legacy = {"cpus": 4, "cpu_vendor": "GenuineIntel"}  # a pre-collector batch resumed by this version
+    _cell(batch, 1, host=legacy)
+    _cell(batch, 2, host=legacy, result=False)
+    _cell(batch, 3, host=HOST_A, fingerprint=FP_A)
+    rows = {r["host_fingerprint"]: r["missing"] for r in summarize(batch)["rows"]}
+    assert rows == {None: 1, FP_A: 0}
