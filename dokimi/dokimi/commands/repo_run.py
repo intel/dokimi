@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 from dokimi.atomic_write import write_text_atomic
 from dokimi import cli_flags
 from dokimi import docker_cmd
-from dokimi.exit_codes import EXIT_INFRA, EXIT_USAGE
+from dokimi.exit_codes import EXIT_INFRA
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.repos.source import SourceArgumentError, tree_path
 from dokimi.utils import tree_digest
@@ -368,8 +368,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_INFRA)
     except ConfigRefused as exc:  # a config the agent's CLI rejects: refused before any cell, not rerun (exit 2)
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc  # cli.main prints it and exits 2
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)

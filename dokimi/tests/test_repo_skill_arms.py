@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.utils import InputError
 from dokimi.repos.arms import ArmError, Skill, check_arms, resolve_skills, skill_usage, tree_sha256
 from dokimi.repos.events import convert
 from dokimi.repos.report import format_report, summarize
@@ -830,6 +831,9 @@ def _claude_run(tmp_path, monkeypatch, mcp_json, *extra, patch=None):
         code = 0
     except SystemExit as exc:
         code = exc.code
+    except InputError as exc:  # cli.main prints `Error: <message>` and exits 2
+        print(f"Error: {exc}", file=sys.stderr)
+        code = 2
     return code, [s for s in runner.specs if "--strict-mcp-config" in s.argv]
 
 
