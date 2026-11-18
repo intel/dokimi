@@ -125,6 +125,18 @@ def test_task_verdicts_with_repeats_need_every_null_repeat_to_fail():
     assert null_check.task_verdicts(results)["a"] == ("pass", null_check.NO_VERDICT)
 
 
+def test_task_verdicts_with_repeats_need_every_oracle_repeat_to_pass():
+    results = [
+        _row("a", null_check.ORACLE, passed=True),
+        _row("a", null_check.ORACLE, passed=False),
+        _row("a", null_check.NULL, status=null_check.NULL_FAIL),
+        _row("a", null_check.NULL, status=null_check.NULL_FAIL),
+    ]
+    verdicts = null_check.task_verdicts(results)
+    assert verdicts["a"] == ("fail", null_check.NULL_FAIL)
+    assert null_check.all_pass(verdicts) is False
+
+
 def test_all_pass_needs_at_least_one_task_and_both_cells_ok():
     assert null_check.all_pass({}) is False
     assert null_check.all_pass({"a": ("pass", null_check.NULL_FAIL)}) is True
