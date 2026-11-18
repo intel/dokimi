@@ -12,7 +12,6 @@ import json
 import os
 import signal
 import threading
-import time
 
 import pytest
 import yaml
@@ -132,28 +131,44 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
 def test_an_interrupt_during_submission_starts_no_queued_cell(setup, monkeypatch):
     # Ctrl-C lands in the main thread while pool.map is still submitting: the queued cells must not start.
     started = []
+    waited = []
     calls = []
+    ended = threading.Semaphore(0)
+    cancelled = threading.Event()
     real = repo_runner.run_cell
     real_submit = repo_runner.ThreadPoolExecutor.submit
+    real_shutdown = repo_runner.ThreadPoolExecutor.shutdown
 
     def submit(self, fn, *a, **k):
         calls.append(1)
         if len(calls) == 4:
-            time.sleep(0.2)
             raise KeyboardInterrupt
         return real_submit(self, fn, *a, **k)
 
+    def shutdown(self, wait=True, *, cancel_futures=False):
+        real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+        if cancel_futures:
+            cancelled.set()
+
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
         started.append(rep)
-        time.sleep(0.5)  # both workers busy, cell 3 queued
-        return real(ctx, task, arm, rep, *args, **kwargs)
+        try:
+            # both workers stay busy until the queue is cancelled, not for time (#918); a failed assert in a worker
+            # is only a cell error, so the main thread checks the waits too
+            waited.append(cancelled.wait(30))
+            assert waited[-1]
+            return real(ctx, task, arm, rep, *args, **kwargs)
+        finally:
+            ended.release()
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
     monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "submit", submit)
+    monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "shutdown", shutdown)
     with pytest.raises(KeyboardInterrupt):
         _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
-    time.sleep(1)
+    assert all(ended.acquire(timeout=30) for _ in range(2))  # running cells finish, maybe after run_batch raised
     assert sorted(started) == [1, 2]
+    assert waited == [True, True]  # both running cells were released by the cancel
 
 
 def test_a_force_run_stopped_part_way_does_not_pool_two_executions(setup, monkeypatch, capsys):
