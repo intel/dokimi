@@ -94,6 +94,18 @@ def test_a_pair_below_the_band_gets_nothing():
     assert _codes(loaded) == [[], []]
 
 
+def test_a_pair_in_the_band_with_fewer_than_three_shared_words_gets_nothing():
+    first, second = _tokens("kestrel falcon osprey"), _tokens("kestrel falcon heron egret")
+    assert len(first & second) == 2 < NEAR_DUPLICATE_MIN_SHARED and _jaccard(first, second) == SIMILAR_JACCARD
+    loaded = _items([
+        ("bird-a", "kestrel falcon osprey", False),
+        ("bird-b", "kestrel falcon heron egret", False),
+        ("bird-c", "osprey heron egret lantern quartz meadow willow", False),
+    ])
+    _similar_skills(loaded)
+    assert _codes(loaded) == [[], [], []]
+
+
 def test_a_near_duplicate_is_only_the_warning_not_also_a_note():
     loaded = _items([("migration-plan", WARN_A, False), ("migration-check", WARN_B, False)])
     _similar_skills(loaded)
