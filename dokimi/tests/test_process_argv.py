@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 
 import pytest
@@ -42,3 +44,14 @@ def test_fake_runner_records_an_argv_entry_as_sent():
     fake = FakeRunner()
     assert fake(["x", "n\ud800", "n\udcff", _PAIR], timeout=1, env=INHERIT).argv == ("x", "n?", "n\udcff", "a\U0001f600")
     assert fake.calls[0].argv == ("x", "n?", "n\udcff", "a\U0001f600")
+
+
+@_POSIX_ONLY
+def test_a_non_ascii_argv_entry_in_an_ascii_file_system_is_refused_or_sent_as_given():
+    code = ("import sys\nfrom dokimi import process\nfrom dokimi.process import Env\n"
+            "s = 'caf' + chr(0xe9)\n"
+            "done = process.run([sys.executable, '-c', 'pass', s], timeout=30, env=Env.inherit())\n"
+            "print('SENT' if done.argv[-1] == s else 'CHANGED')\n")
+    env = {**os.environ, "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0", "LC_ALL": "C"}
+    done = subprocess.run([PY, "-c", code], capture_output=True, text=True, env=env, timeout=120, check=False)
+    assert done.returncode != 0 or done.stdout.strip() == "SENT", done.stdout + done.stderr

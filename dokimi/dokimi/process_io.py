@@ -31,7 +31,7 @@ def argv_text(text: str) -> str:
     try:
         os.fsencode(joined)
     except UnicodeEncodeError:
-        return "".join(char if _fs_encodable(char) else "?" for char in joined)
+        return "".join("?" if 0xD800 <= ord(char) <= 0xDFFF and not _fs_encodable(char) else char for char in joined)
     return joined
 
 
