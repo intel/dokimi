@@ -2599,6 +2599,25 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   cannot be read (no read permission, a directory, not UTF-8 text) or parsed
   as JSON (a trailing comma, a BOM) is refused the same way, exit 2 before
   writing and naming the path, since whether it holds labels is not known.
+- **The measure bound.** `repo report` reads a score, cost, turn count, token count
+  or `process` count, and `repo compare` also reads a `--metric` value, as a measurement only
+  when it is finite and its magnitude is at most 1e150 (`SCORE_BOUND` in
+  `dokimi/measure.py`), so that sums and squared deltas stay finite; a value past
+  it is no measurement. A `score` metric past it makes the grade a grader failure
+  (`grade.json has no numeric metrics.<name> that is finite and within +-1e+150`;
+  a stored `result.json` whose `grade.score` is past it is read as one too), and
+  `repo compare` counts that grader failure as a score of 0 in its mean, and
+  a `cost_usd`, `num_turns`, token count or `score_max` past it makes `repo
+  report` and `repo compare` refuse that `result.json`. Any other value past it
+  (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_s`,
+  `first_useful_steps`) is left out of the mean and of `n`, as a value that is
+  absent. `first_useful_rate` keeps a cell whose `steps` is past it: the cell
+  has a verdict, so it counts as a non-hit in the rate and in its `n` (steps 5
+  and steps 1e200 give a rate of 0.5 with `n` 2). In `repo compare`
+  a task whose `metric:x` is absent in either arm is unpaired (`no metric:x in
+  baseline or treatment`), so three tasks whose `metric:x` is 1.7e308 in both
+  arms give no `metric:x` row at all, not an overflow, and the same three at
+  1e150 give a row with means of 1e150.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
