@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from collections.abc import Iterable
 from typing import Any
 
+from ..source import SourceError
+
 CONFIG_PATH = ".dokimi/scan.toml"
 IDENTIFIER_POLICIES = ("unresolved", "fail")
 NOT_FOUND = "not found in tracked non-doc files"
@@ -54,7 +56,7 @@ class ScanConfig:
 
 
 def parse_config(text: str, source: str = CONFIG_PATH) -> ScanConfig:
-    """The settings in ``text``; a malformed file keeps the defaults and says why in ``errors``."""
+    """The settings in ``text``; a file with any error keeps the defaults and says why in ``errors``."""
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
@@ -65,7 +67,11 @@ def parse_config(text: str, source: str = CONFIG_PATH) -> ScanConfig:
         errors.append(f"{source}: identifiers must be one of {', '.join(IDENTIFIER_POLICIES)}, not {identifiers!r}")
         identifiers = "unresolved"
     ignores: list[Ignore] = []
-    for i, entry in enumerate(data.get("ignore") or [], 1):
+    raw = data.get("ignore", [])
+    if not isinstance(raw, list):
+        errors.append(f"{source}: ignore must be a list of [[ignore]] tables, not {type(raw).__name__}")
+        raw = []
+    for i, entry in enumerate(raw, 1):
         if not isinstance(entry, dict) or not isinstance(entry.get("pattern"), str) or not entry["pattern"]:
             errors.append(f"{source}: ignore entry {i} needs a non-empty pattern")
             continue
@@ -77,7 +83,9 @@ def parse_config(text: str, source: str = CONFIG_PATH) -> ScanConfig:
     unknown = sorted(set(data) - {"identifiers", "ignore"})
     if unknown:
         errors.append(f"{source}: unknown key(s) {', '.join(unknown)}")
-    return ScanConfig(identifiers, tuple(ignores), source, tuple(errors))
+    if errors:  # one mistake discards every setting, so a half-read file never changes a verdict
+        return ScanConfig(source=source, errors=tuple(errors))
+    return ScanConfig(identifiers, tuple(ignores), source)
 
 
 def load_config(tree: Any) -> ScanConfig:
@@ -86,7 +94,7 @@ def load_config(tree: Any) -> ScanConfig:
         return ScanConfig()
     try:
         return parse_config(tree.read_text(CONFIG_PATH))
-    except (OSError, UnicodeDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, SourceError) as exc:  # SourceError: a dangling or escaping symlink
         return ScanConfig(source=CONFIG_PATH, errors=(f"{CONFIG_PATH}: {exc}",))
 
 
@@ -101,11 +109,12 @@ def apply_config(claims: list[dict[str, Any]], config: ScanConfig, files: Iterab
     stems = file_stems(list(files))
     for claim in claims:
         status = str(claim.get("status", ""))
-        if claim.get("kind") == "identifier" and not status.startswith("ok") \
+        framework = claim.get("source", "framework") == "framework"  # a repository's own verdict is not re-read
+        if framework and claim.get("kind") == "identifier" and not status.startswith("ok") \
                 and (stem := stems.get(str(claim.get("claim")).split("::")[-1])):
             claim["status"], claim["why"] = "ok_stem", f"`{claim['claim']}` names {stem} (no extension)"
             continue
-        if config.identifiers == "unresolved" and claim.get("kind") == "identifier" and status == "fail" \
+        if framework and config.identifiers == "unresolved" and claim.get("kind") == "identifier" and status == "fail" \
                 and NOT_FOUND in str(claim.get("why")):
             claim["status"] = "unresolved_identifier"
             claim["why"] = (f"{claim['why']}; a bare name may be external (an API, a sibling package, a builtin), "

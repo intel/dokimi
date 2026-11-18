@@ -2126,7 +2126,9 @@ the repository cannot fix:
   failing on a missing identifier. Each `[[ignore]]` entry (`pattern`, an fnmatch on the claim text;
   optional `kind`; a required `reason`) turns a matching claim that is not `ok` into
   `unresolved_ignored`. The report's `scan_config` block lists each entry with its hit count, and a
-  malformed file is a warning that keeps the defaults.
+  file with any error (bad TOML, an unknown key, an `[[ignore]]` without a `reason`, a non-list `ignore`) is
+  a warning that discards every setting in it and keeps the defaults. An ignore applies to the claims of
+  `--static` too, after they are merged; the identifier setting applies to the scan's own claims.
 - `--baseline FILE` reads an earlier report (`--out`, or the `--json` document). A `fail` claim that
   report also fails, matched by file, kind and text and not by line, is `baselined`, and the gate
   counts only the rest. The `baseline` block gives `known`, `new` and `fixed`. A repository commits

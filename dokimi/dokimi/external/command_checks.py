@@ -46,11 +46,14 @@ PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
 PIPE_TO_SHELL = re.compile(
     r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
-    r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
-    r"(?:(?:ba|z|da|k)?sh|fish|python(?:3(?:\.\d+)?)?|node|perl|ruby)\b"
-    # `python -c PROGRAM`, `python -m json.tool`, `node -e`, `perl -e`: the program is on the command line and the
-    # download is only its input (JSON to parse), so nothing downloaded is run.
-    r"(?![ \t]+-[cme](?![\w-]))"
+    r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?(?:"
+    # `python -c PROGRAM`, `python -m json.tool`, `node -e`, `perl -e`, `ruby -e`: the program is on the command line
+    # and the download is only its input (JSON to parse), so nothing downloaded is run. A shell's `-e` is not that.
+    r"(?:(?:ba|z|da|k)?sh|fish)\b"
+    r"|python(?:3(?:\.\d+)?)?(?![\w.])(?![ \t]+-[cm](?![\w-]))"
+    r"|node\b(?![ \t]+-[ep](?![\w-]))"
+    r"|(?:perl|ruby)\b(?![ \t]+-[eE](?![\w-]))"
+    r")"
 )
 PERMISSION_BYPASS = re.compile(
     r"(?<![\w-])--dangerously-skip-permissions(?![\w-])|(?<![\w-])--yolo(?![\w-])|\bbypassPermissions\b"

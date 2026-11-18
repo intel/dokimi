@@ -177,8 +177,9 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
         pkg.problems.append("no name")
     bundle = path.parent if fmt == FORMAT_GEMINI_EXTENSION else path.parent.parent
     pkg.details["skills"] = len(list((bundle / "skills").glob("*/SKILL.md")))
-    if fmt == FORMAT_CLAUDE_PLUGIN and not pkg.details["skills"]:
-        pkg.details["skills"] = _declared_skills(bundle, data, path.parent / "marketplace.json")
+    if fmt == FORMAT_CLAUDE_PLUGIN:  # declared directories add to the default one; a skill both name counts once
+        found = _skill_dirs(bundle, "./skills") | _skill_dirs(bundle, data.get("skills"))
+        pkg.details["skills"] = len(found or _marketplace_skills(bundle, path.parent / "marketplace.json", pkg.problems))
     if fmt == FORMAT_GEMINI_EXTENSION:
         pkg.details["context_file"] = data.get("contextFileName") or (
             "GEMINI.md" if (bundle / "GEMINI.md").is_file() else None)
@@ -205,20 +206,24 @@ def _skill_dirs(base: Path, entries) -> set[Path]:
     return found
 
 
-def _declared_skills(bundle: Path, data: dict, marketplace: Path) -> int:
-    """Skills a Claude plugin declares outside ``skills/``: its own ``skills`` key, else the ``source`` (and
-    ``skills``) of each plugin in the marketplace manifest next to it."""
-    found = _skill_dirs(bundle, data.get("skills"))
-    if not found and marketplace.is_file():
+def _marketplace_skills(bundle: Path, marketplace: Path, problems: list[str]) -> set[Path]:
+    """Skills of the ``source`` (its ``skills/`` and its ``skills`` entries) of each plugin in the marketplace
+    manifest next to a plugin that declares none itself."""
+    found: set[Path] = set()
+    if marketplace.is_file():
         try:
             market = json.loads(marketplace.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return 0
-        for plugin in market.get("plugins") or [] if isinstance(market, dict) else []:
+            return found
+        plugins = market.get("plugins") if isinstance(market, dict) else None
+        if plugins is not None and not isinstance(plugins, list):
+            problems.append("marketplace.json: plugins is not a list")
+            plugins = []
+        for plugin in plugins or []:
             if isinstance(plugin, dict) and isinstance(plugin.get("source"), str):
-                source = bundle / plugin["source"]
-                found |= _skill_dirs(source, plugin.get("skills") or ["./"])
-    return len(found)
+                declared = plugin.get("skills") or ["./"]
+                found |= _skill_dirs(bundle / plugin["source"], ["./skills", *(declared if isinstance(declared, list) else [declared])])
+    return found
 
 
 def classify(path: Path) -> Optional[SkillPackage]:

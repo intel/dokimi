@@ -161,13 +161,13 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     except TypecheckError as exc:
         print(f"✗ repo scan --typecheck: {exc}", file=sys.stderr)  # the error says whether the tool or the interpreter
         sys.exit(EXIT_USAGE)
+    baseline_from(args, payload)  # before --out is written: the report holds the annotations, --out may be the baseline
     if args.out:
         try:
             save_artifact("repo_readiness", payload, Path(args.out))
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
             sys.exit(EXIT_USAGE)
-    baseline_from(args, payload)
     static_info = payload["static"]
     static_errors = static_info["errors"] if static_info is not None else []
     for problem in static_errors:  # on stderr in --json mode too

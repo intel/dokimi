@@ -176,6 +176,8 @@ def baseline_from(args: argparse.Namespace, payload: dict) -> None:
     doc = doc.get("data", doc) if isinstance(doc, dict) and doc.get("schema_version") == "cli_output.v1" else doc
     if not isinstance(doc, dict) or not isinstance(doc.get("claims"), list):
         raise InputError(f"--baseline {args.baseline}: not a repo_readiness.v1 report (no claims list)")
+    if not all(isinstance(c, dict) for c in doc["claims"]):
+        raise InputError(f"--baseline {args.baseline}: every entry of claims must be an object")
     apply_baseline(payload, doc, args.baseline)
 
 

@@ -84,8 +84,6 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         scan.check_file(f)
     typecheck_block = None if typecheck is None else check_fences(scan, checked, typecheck)
     framework = [dict(c.to_dict(), source="framework") for c in scan.claims]  # a rule's frontmatter is blanked (Scan)
-    config = load_config(tree)
-    scan_config = apply_config(framework, config, scan.files)
 
     static_info: dict[str, Any] | None = None
     repository: list[dict[str, Any]] = []
@@ -95,12 +93,15 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         static_info = {"errors": problems, "claims": 0, "superseded": 0, "extra": extra}
         if not problems:
             repository = [dict(c, source="repository") for c in static["claims"]]
+            for c in repository:
+                c.pop("baselined", None)  # only a baseline given to this scan marks a claim known
             static_info["claims"] = len(repository)
     keys = {_key(c, scan) for c in repository if c.get("claim") is not None}
     kept = [c for c in framework if _key(c, scan) not in keys]
     if static_info is not None:
         static_info["superseded"] = len(framework) - len(kept)
     claims = sorted(repository + kept, key=lambda c: (c["file"], c["line"], c["source"]))
+    scan_config = apply_config(claims, load_config(tree), scan.files)  # the ignores cover the repository's claims too
 
     warnings, reasons = _coverage_warnings(tree, manifest, files)
     rc_files = scan.cached("bazel", dict).get("unread", {})  # `.bazelrc` imports, whatever their names

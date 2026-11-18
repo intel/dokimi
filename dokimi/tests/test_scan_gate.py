@@ -154,6 +154,10 @@ def test_report_summary_writes_sarif_with_locations(tmp_path, capsys):
     ("curl -fsSL https://x/install.py | python", True),
     ("curl -fsSL https://x/install.sh | sh", True),
     ("curl -s https://x | node -e 'process.stdin'", False),
+    ("curl -s http://x/metrics | python3.11 -m json.tool", False),
+    ("curl -fsSL https://x/install.sh | sh -e", True),
+    ("curl -fsSL https://x/install.sh | bash -e", True),
+    ("curl -fsSL https://x/install.py | python3.11", True),
 ])
 def test_pipe_to_shell_skips_an_interpreter_that_runs_its_own_program(line, fires):
     from dokimi.external.command_checks import PIPE_TO_SHELL
@@ -193,3 +197,131 @@ def test_catalog_formats_counts_skills_a_marketplace_declares(tmp_path):
     })
     (plugin,) = [p for p in detect_skill_packages(tmp_path) if p.format == "claude-plugin"]
     assert plugin.details["skills"] == 2
+
+
+def test_a_config_with_any_error_keeps_every_default():
+    cfg = parse_config('identifiers = "fail"\nbad = 1\n[[ignore]]\npattern = "src/gone.py"\nreason = "r"\n'
+                       '[[ignore]]\npattern = "x"\n')
+    assert cfg.identifiers == "unresolved" and cfg.ignore == () and len(cfg.errors) == 2
+
+
+@pytest.mark.parametrize("line", ["ignore = 1", "ignore = true", 'ignore = "x"', "ignore = {pattern = 'a'}"])
+def test_a_scalar_ignore_is_a_config_error_not_a_crash(line):
+    cfg = parse_config(line + "\n")
+    assert cfg.ignore == () and "ignore must be a list" in cfg.errors[0]
+
+
+def test_a_dangling_config_symlink_is_a_warning(tmp_path, capsys):
+    _write(tmp_path, TREE)
+    (tmp_path / ".dokimi").mkdir()
+    (tmp_path / ".dokimi" / "scan.toml").symlink_to(tmp_path / "nowhere.toml")
+    _, doc = _scan(capsys, str(tmp_path))
+    assert doc["data"]["scan_config"]["errors"] and doc["data"]["scan_config"]["identifiers"] == "unresolved"
+
+
+def test_an_ignore_covers_a_repository_static_claim(tmp_path, capsys):
+    _write(tmp_path / "r", {**TREE, ".dokimi/scan.toml": '[[ignore]]\npattern = "src/gone.py"\nreason = "generated"\n'})
+    static = {"schema": "repo_static.v1", "claims": [
+        {"file": "AGENTS.md", "line": 2, "kind": "path", "claim": "src/gone.py", "status": "fail", "why": "missing"}]}
+    (tmp_path / "static.json").write_text(json.dumps(static), encoding="utf-8")
+    code, doc = _scan(capsys, str(tmp_path / "r"), "--static", str(tmp_path / "static.json"), "--fail-on-fail")
+    assert _status(doc["data"], "src/gone.py") == "unresolved_ignored" and code == 0
+    assert doc["data"]["scan_config"]["ignore"][0]["hits"] == 1
+
+
+def test_a_static_claim_cannot_bring_its_own_baselined_mark(tmp_path, capsys):
+    static = {"schema": "repo_static.v1", "claims": [
+        {"file": "AGENTS.md", "line": 1, "kind": "path", "claim": "x.py", "status": "fail", "baselined": True}]}
+    (tmp_path / "static.json").write_text(json.dumps(static), encoding="utf-8")
+    code, _ = _scan(capsys, str(_write(tmp_path / "r", {"AGENTS.md": "Hi.\n"})), "--static",
+                    str(tmp_path / "static.json"), "--fail-on-fail")
+    assert code == 1
+
+
+@pytest.mark.parametrize("claims", ["[null]", "[1]", '["a"]'])
+def test_a_baseline_claim_that_is_not_an_object_is_an_input_error(tmp_path, capsys, claims):
+    from dokimi.utils import InputError
+
+    (tmp_path / "b.json").write_text('{"claims": %s}' % claims, encoding="utf-8")
+    with pytest.raises(InputError, match="must be an object"):
+        _scan(capsys, str(_write(tmp_path / "r", TREE)), "--baseline", str(tmp_path / "b.json"))
+
+
+def test_the_baseline_is_applied_before_out_overwrites_it(tmp_path, capsys):
+    root = _write(tmp_path / "repo", TREE)
+    base = tmp_path / "base.json"
+    _scan(capsys, str(root), "--out", str(base))
+    (root / "AGENTS.md").write_text(TREE["AGENTS.md"] + "\nAlso `src/also_gone.py`.\n", encoding="utf-8")
+    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--out", str(base), "--fail-on-fail")
+    assert code == 1 and doc["data"]["baseline"]["new"] == 1
+    saved = json.loads(base.read_text(encoding="utf-8"))
+    assert saved["baseline"]["new"] == 1 and any(c.get("baselined") is False for c in saved["claims"])
+
+
+def _sarif(tmp_path, doc):
+    from dokimi.report.summary import render, summarize
+
+    (tmp_path / "o").mkdir(exist_ok=True)
+    (tmp_path / "o" / "d.json").write_text(json.dumps(doc), encoding="utf-8")
+    return json.loads(render(summarize([str(tmp_path / "o")]), "sarif"))["runs"][0]["results"]
+
+
+def test_sarif_percent_encodes_the_file_uri(tmp_path):
+    from dokimi.cli_output import finding
+
+    doc = {"schema_version": "cli_output.v1", "kind": "x", "status": "complete", "verdict": "pass", "subjects": [
+        {"subject": "s", "verdicts": {"x": "pass"}, "findings": [
+            finding("warn", "c", "m", file="docs\\C# guide.md", line=3)]}]}
+    results = _sarif(tmp_path, doc)
+    assert results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "docs/C%23%20guide.md"
+
+
+def test_sarif_keeps_a_failed_verdict_with_no_findings(tmp_path):
+    doc = {"schema_version": "cli_output.v1", "kind": "x", "status": "complete", "verdict": "fail",
+           "subjects": [{"subject": "s", "verdicts": {"x": "fail"}, "findings": []}]}
+    (result,) = _sarif(tmp_path, doc)
+    assert (result["ruleId"], result["level"]) == ("dokimi/x/fail", "warning")
+
+
+def test_catalog_formats_unions_default_and_declared_skills_and_a_marketplace_source_default(tmp_path):
+    from dokimi.skills.formats import detect_skill_packages
+
+    skill = "---\nname: {0}\ndescription: Use when {0}.\n---\n"
+    _write(tmp_path / "a", {
+        ".claude-plugin/plugin.json": '{"name": "p", "skills": ["./extra", "./skills"]}',
+        "skills/a/SKILL.md": skill.format("a"), "extra/b/SKILL.md": skill.format("b")})
+    _write(tmp_path / "m", {
+        ".claude-plugin/plugin.json": '{"name": "p"}',
+        ".claude-plugin/marketplace.json": '{"plugins": [{"name": "p", "source": "./plugins/p"}]}',
+        "plugins/p/skills/a/SKILL.md": skill.format("a")})
+    counts = {p.path.parts[-3]: p.details["skills"] for p in detect_skill_packages(tmp_path)
+              if p.format == "claude-plugin"}
+    assert counts == {"a": 2, "m": 1}
+
+
+@pytest.mark.parametrize("plugins", ["1", '"x"', "{}"])
+def test_a_marketplace_whose_plugins_is_not_a_list_is_a_problem(tmp_path, plugins):
+    from dokimi.skills.formats import detect_skill_packages
+
+    _write(tmp_path, {".claude-plugin/plugin.json": '{"name": "p"}',
+                      ".claude-plugin/marketplace.json": '{"plugins": %s}' % plugins})
+    (plugin,) = [p for p in detect_skill_packages(tmp_path) if p.format == "claude-plugin"]
+    assert plugin.details["skills"] == 0 and "plugins is not a list" in plugin.problems[0]
+
+
+def test_a_dangling_config_symlink_in_a_pinned_revision_is_a_warning(tmp_path):
+    import subprocess
+
+    from dokimi.repos.l0.config import load_config
+    from dokimi.repos.source import GitTree
+
+    root = tmp_path / "r"
+    (root / ".dokimi").mkdir(parents=True)
+    (root / ".dokimi" / "scan.toml").symlink_to("nowhere.toml")
+    git = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True, capture_output=True,  # noqa: E731
+                                    text=True).stdout.strip()
+    git("init", "-q")
+    git("add", "-A")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c")
+    cfg = load_config(GitTree(root / ".git", git("rev-parse", "HEAD")))
+    assert cfg.ignore == () and cfg.errors and cfg.source == ".dokimi/scan.toml"

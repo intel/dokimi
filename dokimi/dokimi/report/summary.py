@@ -258,7 +258,10 @@ _SARIF_LEVEL = {"error": "error", "warn": "warning", "warning": "warning"}
 def render_sarif(summary: dict[str, Any]) -> str:
     """SARIF 2.1.0: one result per subject finding, so GitHub code scanning, Azure DevOps and the GitLab or
     Jenkins SARIF importers show it at its file and line. A finding with no file is located at its check's
-    input. A check that failed or could not be read is a result too, so it is not silent."""
+    input. A check that failed, could not be read, ended short or carries a bad verdict is a result too, so it is
+    not silent; a subject with a bad verdict and no finding is one as well. Paths are written as percent-encoded URIs."""
+    from urllib.parse import quote
+
     from dokimi._version import __version__
 
     rules: dict[str, dict[str, Any]] = {}
@@ -266,17 +269,21 @@ def render_sarif(summary: dict[str, Any]) -> str:
 
     def result(rule: str, level: str, message: str, uri: str | None, line: Any) -> None:
         rules.setdefault(rule, {"id": rule, "shortDescription": {"text": rule}})
-        loc: dict[str, Any] = {"artifactLocation": {"uri": uri or "."}}
+        loc: dict[str, Any] = {"artifactLocation": {"uri": quote(uri.replace("\\", "/"), safe="/") if uri else "."}}
         if isinstance(line, int) and line >= 1:
             loc["region"] = {"startLine": line}
         results.append({"ruleId": rule, "level": level, "message": {"text": message},
                         "locations": [{"physicalLocation": loc}]})
 
     for c in summary["checks"]:
-        if c["state"] in ("failed", "invalid", "not_run", "infra_error"):
-            result(f"dokimi/{c['kind'] or 'input'}/{c['state']}", "error",
+        error = c["state"] in ("failed", "invalid", "not_run", "infra_error")
+        if error or c["state"] in _BAD or c["state"] in _STOPPED:
+            result(f"dokimi/{c['kind'] or 'input'}/{c['state']}", "error" if error else "warning",
                    f"{c['kind'] or c['source']}: {c['state']}: {c['reason'] or ''}".rstrip(": "), None, None)
     for s in summary["subjects"]:
+        for kind, verdict in s["verdicts"].items():
+            if verdict in _BAD and not any(f["check"] == kind for f in s["findings"]):
+                result(f"dokimi/{kind}/{verdict}", "warning", f"{s['subject']}: {verdict}", None, None)
         for f in s["findings"]:
             result(f"dokimi/{f['check']}/{f.get('code')}", _SARIF_LEVEL.get(str(f.get("level")), "note"),
                    f"{s['subject']}: {f.get('message')}", f.get("file"), f.get("line"))
