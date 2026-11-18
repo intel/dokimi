@@ -92,7 +92,7 @@
         },
         "question_set_hash": {
           "type": "string",
-          "description": "sha256 over each questions entry: a digest of its text, then a digest of the file it names when it is a file. Digests written by earlier releases differ for the same entries."
+          "description": "sha256 over each questions entry: a digest of its text, then the one-byte tag `f` and a digest of the file it names when it is a file, or the tag `t` when it names none. Digests written by earlier releases differ for the same entries."
         },
         "tasks": {
           "type": "array",
@@ -108,7 +108,7 @@
     },
     "baseline_digest": {
       "type": "string",
-      "description": "sha256 over the baseline arm spec and, per part that reads local content, the part and the ref_digest of that content, each as a fixed-width digest. Digests written by earlier releases differ for the same spec."
+      "description": "sha256 over the baseline arm spec and, per part that reads local content, a digest of the part, a one-byte tag for what its ref names (`f` a file, `d` a directory, `t` neither) and a digest of the ref_digest of that content, each digest of fixed width. Digests written by earlier releases differ for the same spec."
     },
     "awareness": {
       "type": "object",

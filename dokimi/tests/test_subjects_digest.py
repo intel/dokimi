@@ -189,6 +189,14 @@ def test_an_arm_spec_part_naming_a_file_differs_from_one_naming_no_file_spelled_
     assert _digest_arm_spec("skill:./x", base=tmp_path) != present
 
 
+def test_an_arm_spec_part_naming_a_file_holding_d_differs_from_one_naming_an_empty_directory(tmp_path: Path):
+    (tmp_path / "x").write_bytes(b"d")
+    as_file = _digest_arm_spec("skill:./x", base=tmp_path)
+    (tmp_path / "x").unlink()
+    (tmp_path / "x").mkdir()
+    assert _digest_arm_spec("skill:./x", base=tmp_path) != as_file
+
+
 def test_a_file_ref_differs_from_a_missing_ref_spelled_as_its_content(tmp_path: Path):
     (tmp_path / "doc.md").write_bytes(b"missing.md")
     assert _digest_ref("doc.md", base=tmp_path) != _digest_ref("missing.md", base=tmp_path)
