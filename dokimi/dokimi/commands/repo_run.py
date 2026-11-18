@@ -187,12 +187,12 @@ def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None
     overrides = dict(_pair(c) for c in args.cache or ())
     names = [c.name for c in manifest.image.caches] if manifest.image is not None else []
     if args.cache_root:
-        usable_cache_dir(args.cache_root, CACHE_USE, label="--cache-root")
-    for name in names:
+        usable_cache_dir(str(Path(args.cache_root).resolve()), CACHE_USE, label="--cache-root")
+    for name in names:  # the resolved path, as `_context` makes it: `missing/..` must not hide a file
         if name in overrides:
-            usable_cache_dir(overrides[name], CACHE_USE, label=f"--cache {name}")
+            usable_cache_dir(str(Path(overrides[name]).resolve()), CACHE_USE, label=f"--cache {name}")
         elif args.cache_root:
-            usable_cache_dir(str(Path(args.cache_root) / name), CACHE_USE, label="--cache-root")
+            usable_cache_dir(str((Path(args.cache_root) / name).resolve()), CACHE_USE, label="--cache-root")
 
 
 def _progress(line: str) -> None:

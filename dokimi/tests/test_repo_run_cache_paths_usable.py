@@ -131,3 +131,16 @@ def test_a_cache_of_a_name_the_manifest_does_not_declare_keeps_its_message(setup
     exc = _invoke(setup, "check", "--cache-root", str(setup["tmp"] / "caches"), "--cache", f"nope={blocker}")
     assert exc.code == 1
     assert "--cache names no cache of the manifest: nope" in exc.err
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+@pytest.mark.parametrize("flag", ["root", "override"])
+def test_dotdot_through_a_missing_dir_to_a_file_is_refused_before_any_build(command, flag, setup):
+    """The raw path fails `exists()` at `missing`, so the walk up accepted it; `_context` resolves it to the file."""
+    blocker = _file(setup["tmp"])
+    sneaky = f"{setup['tmp']}/missing/../{blocker.name}"
+    extra = ["--cache-root", sneaky] if flag == "root" else ["--cache", f"build-cache={sneaky}"]
+    exc = _invoke(setup, command, *extra)
+    assert exc.code == 2
+    assert "is not a directory" in exc.err and "Errno" not in exc.err
+    assert setup["runner"].builds == []
