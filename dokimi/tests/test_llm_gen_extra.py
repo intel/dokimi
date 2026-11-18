@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import sys
 
+from dokimi._version import __version__
 from dokimi.questions.llm_gen import QuestionGenerator
 
 
@@ -126,6 +127,17 @@ def test_generate_hybrid_text_field_renamed_to_question():
 
     assert all("question" in q for q in result)
     assert all("text" not in q for q in result)
+
+
+def test_generate_hybrid_stamps_chunk_questions_with_the_chunk_generator():
+    gen = _make_generator()
+    chunk_qs = _fake_question_dicts(2)
+
+    with patch.object(gen, "generate_questions", return_value=[]), \
+         _patch_chunk_gen(chunk_qs):
+        result = gen.generate_hybrid("oneTBB", [], [], "https://x.com", total_questions=2)
+
+    assert {q["provenance"]["source"] for q in result} == {f"generated:dokimi-questions-chunk@{__version__}"}
 
 
 # ── save_questions ────────────────────────────────────────────────────────────
