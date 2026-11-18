@@ -1189,6 +1189,8 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   (`--jobs`, threads). `--max-usd-per-skill` caps one skill inside it; a skill that hits either
   cap is a `partial` row with no novelty file, and the sweep goes on. Once the whole-run budget
   is spent, no further skill starts: it is not in the JSONL, and the run says how many were not run.
+  A skill stopped by a call with no price or by a permanent provider error (see above, routing) stops the
+  sweep the same way, since every later skill would meet it on its first calls.
   A run that leaves any skill it took on `partial`, `error` or not run exits 1 after it has written
   its rows and the summary; a run that measured every one of them exits 0.
 - **Resume.** `--resume` keeps the `ok` rows whose skill directory digest, measurement settings

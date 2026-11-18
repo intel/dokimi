@@ -533,7 +533,8 @@ def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: l
         sink.close()
     not_run = len(todo) - len(new_rows)
     if not_run:
-        print(f"# {not_run} skill(s) not run: the budget was spent or the run was stopped. Rerun with "
+        print(f"# {not_run} skill(s) not run: the budget was spent, a call had no price, a provider error every "
+              "call would meet stopped it, or the run was stopped. Rerun with "
               "--resume (and a higher --max-usd if the budget was spent); set DOKIMI_RESPONSE_CACHE so the "
               "calls already paid replay at $0", file=sys.stderr)
     if stop.requested:
@@ -546,11 +547,21 @@ def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: l
 def _bound(args: argparse.Namespace, **shared: Any) -> Callable[[_Item], Optional[dict]]:
     """The per-skill review with this run's shared pieces bound: the arguments, the budget and the output dir."""
     per_skill = args.max_usd_per_skill or math.inf  # unset: no cap of its own, only the run's
+    halted = threading.Event()  # a skill met a stop every later skill would meet: none starts after it
 
     def review(item: _Item) -> Optional[dict]:
-        return _review_one(item, args=args, per_skill=per_skill, **shared)
+        if halted.is_set():
+            return None
+        row = _review_one(item, args=args, per_skill=per_skill, **shared)
+        if row is not None and row["reason"] in RUN_WIDE_STOPS:
+            halted.set()
+        return row
 
     return review
+
+
+#: The stop reasons a higher budget does not cure: every later skill would meet them on its first calls.
+RUN_WIDE_STOPS = ("no_price", "permanent_error")
 
 
 def register(catalog_sub, positive_int) -> None:

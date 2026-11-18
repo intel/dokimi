@@ -102,6 +102,36 @@ def test_the_run_budget_stops_the_skills_it_cannot_pay_for(tmp_path, capsys):
     assert "1 skill(s) not run: the budget was spent" in capsys.readouterr().err
 
 
+class AuthenticationError(Exception):
+    """Named as the provider's error is: a permanent error every later call meets too."""
+
+
+@pytest.mark.parametrize("failure, reason", [("auth", "permanent_error"), ("unpriced", "no_price")])
+def test_a_stop_a_higher_budget_does_not_cure_starts_no_further_skill(tmp_path, monkeypatch, capsys,
+                                                                     failure, reason):
+    base, offline = _scripted("informed"), novelty_cost.client
+
+    def transport(prompt, system):
+        if failure == "unpriced":
+            return base(prompt, system)[0], UsageRecord(cost_usd=None)
+        if "Extract the checkable knowledge" in prompt or "Does the source text below support" in prompt:
+            return base(prompt, system)[0], UsageRecord(cost_usd=COST)
+        raise AuthenticationError("invalid api key")
+
+    def client(*args, **kwargs):
+        made = offline(*args, **kwargs)
+        made.transport = transport
+        return made
+
+    monkeypatch.setattr(novelty_cost, "client", client)
+    out = tmp_path / "out"
+    with pytest.raises(SystemExit, match="3 of 3 skill"):
+        _sweep(_root(tmp_path, names=("accel-tuning", "other-skill", "third-skill")), out,
+               "--max-usd", "5", "--jobs", "1")
+    assert [(r["key"], r["reason"]) for r in _rows(out / "sweep.jsonl")] == [("accel-tuning", reason)]
+    assert "2 skill(s) not run" in capsys.readouterr().err
+
+
 def test_resume_keeps_the_measured_rows_and_runs_only_the_rest(tmp_path, capsys):
     root, out = _root(tmp_path), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5", "--limit", "1")
