@@ -210,6 +210,23 @@ def test_gpu_without_nvidia_smi_is_absent_and_a_failing_query_is_an_error():
         "present": True, "error": "nvidia-smi --query-gpu=name,driver_version failed"}
 
 
+def test_a_gpu_banner_that_fails_once_does_not_change_the_fingerprint_id():
+    banners = {"n": 0}
+
+    def handler(call, flaky):
+        if call.argv[1:]:
+            return reply("NVIDIA A100, 550.54.14\n")
+        banners["n"] += 1
+        return reply(returncode=1) if flaky and banners["n"] == 1 else reply("CUDA Version: 12.4")
+
+    def gpu_id(flaky):
+        probe = hf.Probe(system="Linux", read=lambda path: None, run=FakeRunner(lambda call: handler(call, flaky)),
+                         env={}, which=lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
+        return fingerprint_id(hf.collect(probe))
+
+    assert gpu_id(flaky=True) == gpu_id(flaky=False)
+
+
 @pytest.mark.parametrize("files, expected", [
     ({"/.dockerenv": ""}, {"container": True, "container_kind": "docker"}),
     ({"/run__.containerenv": ""}, {"container": True, "container_kind": "podman"}),

@@ -176,11 +176,12 @@ def _gpu(probe: Probe) -> dict[str, Any]:
     if rows is None:
         return {"present": True, "error": "nvidia-smi --query-gpu=name,driver_version failed"}
     table = [[cell.strip() for cell in line.split(",")] for line in rows.splitlines() if line.strip()]
-    banner = _spawn(probe, ["nvidia-smi"]) or ""
-    cuda = re.search(r"CUDA Version:\s*(\d+(?:\.\d+)+)", banner)
+    banner = _spawn(probe, ["nvidia-smi"])
+    cuda = re.search(r"CUDA Version:\s*(\d+(?:\.\d+)+)", banner or "")
     first = table[0] if table else []
-    return {"present": True, "count": len(table), "name": first[0] if first else None,
-            "driver_version": first[1] if len(first) > 1 else None, "cuda_version": cuda.group(1) if cuda else None}
+    out: dict[str, Any] = {"present": True, "count": len(table), "name": first[0] if first else None,
+           "driver_version": first[1] if len(first) > 1 else None, "cuda_version": cuda.group(1) if cuda else None}
+    return out if banner is not None else {**out, "error": "nvidia-smi failed"}  # retried, then left out of the id
 
 
 def _python(probe: Probe) -> dict[str, Any]:
