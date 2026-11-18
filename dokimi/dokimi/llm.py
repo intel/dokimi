@@ -28,8 +28,7 @@ What a caller can rely on:
   sent no key: litellm reads the vendor's variable raw (``file:`` is not read). A provider in
   :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``, ``codex-cli``, ``copilot-cli``) is a logged-in CLI, not an API:
   no key, no sampling control, and no tools on ``claude-cli`` and ``copilot-cli`` (:mod:`dokimi.llm_cli`). An explicit
-  ``api_key`` wins; it or a table provider's variable may be ``file:<path>``, and an unreadable file raises
-  ``ValueError``.
+  ``api_key`` wins; it or a table provider's variable may be ``file:<path>``; an unreadable one raises ``ValueError``.
 - **Bedrock bare names.** A name in :data:`dokimi.defaults.BEDROCK_MODEL_IDS`
   runs under its inference profile (:func:`dokimi.defaults.bedrock_profile`);
   ``openai.*`` models take the Converse route.
