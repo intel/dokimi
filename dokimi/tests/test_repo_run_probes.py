@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 
+from dokimi.repos import security as sec
 from test_repo_run import _run, setup  # noqa: F401  # the run fixture, with its helpers
 
 
@@ -22,6 +23,9 @@ def test_a_probe_matcher_that_raises_keeps_the_cell_graded_with_its_events(setup
     assert rec["grade"]["status"] == "graded" and rec["grade"]["success"] is True
     assert (cell / "events.jsonl").exists() and (cell / "answer.txt").exists()
     assert any("probe matching failed" in e and "a chain too deep" in e for e in rec["agent"]["trace_errors"])
+    # the note drops no trace line, so the security scan still measures the cell instead of leaving it unfinished
+    cov = sec.scan_batch(setup["out"] / "b1", "guidance:raw")["coverage"]
+    assert cov["cells"] == 1 and cov["unfinished"] == []
 
 
 def test_the_cell_records_the_probe_patterns_it_ran_with(setup):  # noqa: F811
