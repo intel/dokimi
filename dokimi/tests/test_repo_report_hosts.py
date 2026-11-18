@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from dokimi.repos.host import fingerprint_id
-from dokimi.repos.report import format_report, summarize
+from dokimi.repos.report import CellFileError, _check_host_fields, format_report, summarize
 
 HOST_A = {"cpus": 4, "cpu_vendor": "GenuineIntel", "collectors": {"os": {"system": "Linux"}}}
 HOST_B = {"cpus": 8, "cpu_vendor": "AuthenticAMD", "collectors": {"os": {"system": "Linux"}}}
@@ -116,3 +119,8 @@ def test_a_legacy_missing_cell_counts_on_the_unfingerprinted_row_beside_a_finger
     _cell(batch, 3, host=HOST_A, fingerprint=FP_A)
     rows = {r["host_fingerprint"]: r["missing"] for r in summarize(batch)["rows"]}
     assert rows == {None: 1, FP_A: 0}
+
+
+def test_a_host_match_without_met_is_refused():
+    with pytest.raises(CellFileError, match="host_match"):
+        _check_host_fields(Path("r.json"), {"host_fingerprint": None, "host_match": {"fields": []}})

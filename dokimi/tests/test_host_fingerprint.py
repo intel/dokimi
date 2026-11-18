@@ -338,6 +338,7 @@ def test_error_text_is_scrubbed_of_paths_and_truncated():
     ("missing C:\\Users\\O'Connor\\private.txt", "missing <path>"),
     ("cannot open \\\\server\\users\\O'Connor\\file", "cannot open <path>"),
     ("cannot open path:/home/jdoe/private", "cannot open path:<path>"),
+    ("cannot open ~jdoe/private", "cannot open <path>"),
     ("cannot open /home/Jane Doe/private", "cannot open <path>"),
     ("cannot open /home/Jane Doe/private: Permission denied", "cannot open <path>"),
     ("cannot open /home/张三/private", "cannot open <path>"),

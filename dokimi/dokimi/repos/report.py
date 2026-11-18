@@ -160,7 +160,7 @@ def reading_cells(files: list[str]) -> Iterator[None]:
 
 def _match_usable(match: Any) -> bool:
     """True when ``match`` is a ``host_match`` the report can read: ``met`` and each field's ``met`` a bool or null."""
-    if not isinstance(match, dict) or not isinstance(match.get("met"), (bool, type(None))):
+    if not isinstance(match, dict) or "met" not in match or not isinstance(match["met"], (bool, type(None))):
         return False
     fields = match.get("fields")
     return isinstance(fields, list) and all(
