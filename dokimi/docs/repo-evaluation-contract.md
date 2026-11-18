@@ -2525,8 +2525,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `repo compare` counts that grader failure as a score of 0 in its mean, and
   a `cost_usd`, `num_turns`, token count or `score_max` past it makes `repo
   report` and `repo compare` refuse that `result.json`. Any other value past it
-  (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_*`) is
-  left out of the mean and of `n`, as a value that is absent. In `repo compare`
+  (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_s`,
+  `first_useful_steps`) is left out of the mean and of `n`, as a value that is
+  absent. `first_useful_rate` keeps a cell whose `steps` is past it: the cell
+  has a verdict, so it counts as a non-hit in the rate and in its `n` (steps 5
+  and steps 1e200 give a rate of 0.5 with `n` 2). In `repo compare`
   a task whose `metric:x` is absent in either arm is unpaired (`no metric:x in
   baseline or treatment`), so three tasks whose `metric:x` is 1.7e308 in both
   arms give no `metric:x` row at all, not an overflow, and the same three at

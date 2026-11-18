@@ -16,6 +16,7 @@ from dokimi.repos.compare import CompareError, _compare_measure, _inconclusive_n
 from dokimi.repos.compare_values import task_values
 from dokimi.repos.compare_reach import min_detectable
 from dokimi.repos.grading import SCORE_BOUND
+from dokimi.repos.useful import useful_task_counts, useful_task_values
 
 
 def _side(value: float) -> dict:
@@ -208,6 +209,14 @@ def test_compare_gives_no_row_for_a_metric_past_the_measure_bound_and_lists_its_
     assert [u["reason"] for u in unpaired] == ["no metric:x in baseline or treatment"] * 3
     at = _compare_measure("tr", "m", "metric:x", shared, arm(SCORE_BOUND), arm(SCORE_BOUND), 0, [])
     assert at is not None and at["baseline_mean"] == SCORE_BOUND
+
+
+def test_first_useful_rate_keeps_a_cell_with_steps_past_the_bound_as_a_non_hit():
+    cells = [{"first_useful": {"kind": "edit", "steps": steps, "reason": None, "issued_s": 1.0}}
+             for steps in (5, 1e200)]
+    assert useful_task_values(cells)["first_useful_rate"] == [0.5]
+    counts = useful_task_counts(cells)
+    assert (counts["first_useful_steps"], counts["first_useful_rate"]) == (1, 2)
 
 
 def test_checked_delta_refuses_an_integer_beyond_the_float_range_with_the_requested_error():
