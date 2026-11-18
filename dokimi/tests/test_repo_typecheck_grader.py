@@ -435,7 +435,7 @@ def test_check_task_runs_no_oracle_step_for_a_typecheck_task_without_reference(t
     monkeypatch.setattr(selfcheck, "_check_step",
                         lambda ctx, task, rd, kind, run_it, net, res: ran.append((kind, run_it)))
     monkeypatch.setattr(selfcheck, "isolation_probe", lambda *args, **kwargs: [])
-    ctx = SimpleNamespace(manifest=SimpleNamespace(image=None))
+    ctx = SimpleNamespace(manifest=SimpleNamespace(image=None), base_gaps=dict)  # no suite: no gaps
     res = selfcheck.check_task(ctx, Task("t", raw, bare), tmp_path / "work")
     assert ran == [("null", True), ("oracle", False)]
     assert res["verdict"] == "ok"
@@ -456,7 +456,7 @@ def test_check_task_runs_the_oracle_step_for_a_typecheck_task_with_reference(tmp
     monkeypatch.setattr(selfcheck, "_check_step",
                         lambda ctx, task, rd, kind, run_it, net, res: ran.append((kind, run_it)))
     monkeypatch.setattr(selfcheck, "isolation_probe", lambda *args, **kwargs: [])
-    ctx = SimpleNamespace(manifest=SimpleNamespace(image=None))
+    ctx = SimpleNamespace(manifest=SimpleNamespace(image=None), base_gaps=dict)  # no suite: no gaps
     selfcheck.check_task(ctx, Task("t", raw, with_reference), tmp_path / "work")
     assert ran == [("null", True), ("oracle", True)]
 

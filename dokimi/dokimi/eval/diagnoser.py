@@ -48,6 +48,8 @@ BELOW_THRESHOLD = "below_threshold"  # reserved — not yet emitted by diagnose(
 LOW_RELEVANCE = "low_relevance"
 KNOWLEDGE_SUFFICIENT = "knowledge_sufficient"
 INSUFFICIENT_DATA = "insufficient_data"
+#: A deliberate one-condition (knowledge) run: there is no context arm to compare, so no delta is expected.
+SINGLE_CONDITION = "single_condition"
 
 # Human-readable labels for reports
 DIAGNOSIS_LABELS: Dict[str, str] = {
@@ -57,6 +59,7 @@ DIAGNOSIS_LABELS: Dict[str, str] = {
     LOW_RELEVANCE: "🟡 Low relevance",
     KNOWLEDGE_SUFFICIENT: "🔵 Model knowledge sufficient",
     INSUFFICIENT_DATA: "⚪ Insufficient data",
+    SINGLE_CONDITION: "⚪ One condition (no delta)",
 }
 
 # Brief explanation shown in reports
@@ -67,6 +70,7 @@ DIAGNOSIS_DESCRIPTIONS: Dict[str, str] = {
     LOW_RELEVANCE: "Retrieved docs had low relevance scores — likely off-topic content.",
     KNOWLEDGE_SUFFICIENT: "Docs were retrieved but the model already knew the answer.",
     INSUFFICIENT_DATA: "Delta could not be computed (answer missing or errored).",
+    SINGLE_CONDITION: "One condition by design (a knowledge run): the per-condition score is the result.",
 }
 
 
@@ -75,6 +79,7 @@ def diagnose(
     delta: Optional[float],
     low_relevance_cutoff: float = LOW_RELEVANCE_CUTOFF,
     context_scored: bool = False,
+    single_condition: bool = False,
 ) -> Dict[str, Any]:
     """
     Classify the retrieval outcome for a single question.
@@ -91,6 +96,9 @@ def diagnose(
     context_scored:
         True when the judge scored the context answer (``judge_placeholder``), so a
         ``None`` delta comes from a missing baseline, not from an unjudged miss.
+    single_condition:
+        True for a question of a deliberate one-condition run (:func:`dokimi.records.knowledge_only`):
+        it has no delta by design, so the label is ``single_condition``, not ``insufficient_data``.
 
     Returns
     -------
@@ -99,6 +107,8 @@ def diagnose(
         - ``detail`` : human-readable description
         - ``evidence``: dict of signals used to reach the diagnosis
     """
+    if single_condition:
+        return _result(SINGLE_CONDITION, {})
     if delta is None:
         # A retrieval miss the judge did not score has no delta; it is still an
         # empty retrieval, not a missing or errored answer.

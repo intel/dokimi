@@ -999,7 +999,8 @@ python cli.py skill novelty items --probes m1.json m2.json m3.json
 [reference checks](answer-formats.md); every probe built from it except the reversal gets it,
 and its non-judge checks run on each answer next to the judge. `skill novelty ground --atoms
 atoms.json --tool "perf report"` writes one such check: a veto that fails an answer naming a
-`perf report --flag` the tool's own `--help` does not list. The judge's verdict is kept on
+`perf report --flag` the tool's own `--help` does not list. With `--header` and `--shared-lib` and a
+`--prefix` (`cblas_`), it vetoes a C API name no header declares and no library exports. The judge's verdict is kept on
 each checked run and the record's `checks` block counts how often the judge passed an answer
 a veto failed. Design and evidence: [grading-tiers.md](grading-tiers.md).
 
@@ -1401,7 +1402,7 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
-The cache key carries a version (`retention-cache-v5`). Entries written before failed
+The cache key carries a version (`retention-cache-v6`). Entries written before failed
 adjudications were kept out of the cache can hold a failure stored as `absent`, entries written
 before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`, and
 entries written before a reply cut at the output ceiling was an error can hold a verdict parsed
@@ -1409,6 +1410,13 @@ from a truncated reply, and entries written by a `--lexical-only` run can hold i
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
 `DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
 calls now send 16384 where they sent none, so those entries miss too.
+
+Entries written under `retention-cache-v5` are not read either: that key used to join the
+statement and the text with a bare NUL byte, so a statement ending in NUL and a text starting with
+NUL hashed the same bytes and one atom could replay another atom's verdict. The key now hashes the
+statement's byte length as 8 bytes (big-endian) before the statement, which no statement and text
+can collide on. The old files stay in `--cache-dir` and can be deleted, and the first run after
+upgrading pays the adjudication calls again.
 
 **Pass `--max-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
 16384 output tokens unless `--max-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted

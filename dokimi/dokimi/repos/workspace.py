@@ -61,7 +61,8 @@ from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .overlay_paths import _link_target, _overlay_targets, _path_hits, _supplies_a_file  # noqa: F401
 from .overlays import overlay_names, overlay_of
-from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, isolated_git_env, resolve_rev
+from .source import (GitTree, RepoSource, RepoTree, SourceError, cache_path, clone_once, default_cache_dir,
+                     isolated_git_env, resolve_rev)
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
 from .useful_spec import Useful, parse_useful
 from dokimi.treatments.specs import COMBINE, split_parts
@@ -282,12 +283,7 @@ def source_git_dir(source: RepoSource, tree: RepoTree, cache_dir: Path | None = 
         out = _run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"])
         return Path(out.strip())
     git_dir = cache_path(source.location, cache_dir or default_cache_dir()).with_suffix(".full.git")
-    if not (git_dir / "HEAD").is_file():
-        git_dir.parent.mkdir(parents=True, exist_ok=True)
-        tmp = git_dir.with_name(git_dir.name + ".partial")
-        shutil.rmtree(tmp, ignore_errors=True)
-        _run(["git", "clone", "--bare", "--", source.location, str(tmp)])
-        tmp.rename(git_dir)
+    clone_once(git_dir, lambda tmp: _run(["git", "clone", "--bare", "--", source.location, str(tmp)]), _GIT_TIMEOUT_S)
     sha = getattr(tree, "sha", None)
     if sha and not _has_commit(git_dir, sha):
         _run(["git", "-C", str(git_dir), "fetch", "origin", "--", sha])
@@ -366,8 +362,12 @@ def _apply_review_patch(ws: Path, task: Task, patches: list[dict[str, str]]) -> 
 
 
 def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: str, run_dir: Path,
-                      profile: HarnessProfile | None = None, content_dir: Path | None = None) -> dict[str, Any]:
+                      profile: HarnessProfile | None = None, content_dir: Path | None = None,
+                      base_git_dir: Path | None = None) -> dict[str, Any]:
     """Steps 1-7 into ``run_dir/workspace``; returns the ``meta.json`` fields prep owns.
+
+    The base is checked out from ``base_git_dir`` (default ``git_dir``): a suite task's base is in another
+    repository, while the arm's revisions and guidance are still read from ``git_dir``.
 
     ``arm`` is an :class:`Arm` (``repo run`` parses and pins each once per batch) or an arm
     string, parsed and pinned here. ``content_dir`` (the exported ``{eval_dir}``) is where
@@ -389,17 +389,18 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     if arm.base == OVERLAY_ARM and overlay not in overlay_names():
         names = ", ".join(sorted(overlay_names()))
         raise PrepError(f"guidance:overlay: overlay {overlay!r} is not a builtin overlay name ({names})")
+    base_dir = base_git_dir or git_dir
     try:
-        base_sha = resolve_rev(git_dir, task.base)
+        base_sha = resolve_rev(base_dir, task.base)
     except SourceError as exc:
-        raise PrepError(f"task {task.id}: base {task.base!r} is not in {git_dir}: {exc}") from exc
-    base_date = _run(["git", "-C", str(git_dir), "log", "-1", "--format=%cI", base_sha]).strip()
+        raise PrepError(f"task {task.id}: base {task.base!r} is not in {base_dir}: {exc}") from exc
+    base_date = _run(["git", "-C", str(base_dir), "log", "-1", "--format=%cI", base_sha]).strip()
 
     ws = run_dir / "workspace"
     if ws.exists():
         shutil.rmtree(ws)
     ws.mkdir(parents=True)
-    _checkout_tree(git_dir, base_sha, ws)                                                    # 1
+    _checkout_tree(base_dir, base_sha, ws)                                                   # 1
     shutil.rmtree(ws / manifest.run_paths()[0], ignore_errors=True)                          # 2
     env = _git_env(SNAPSHOT_AUTHOR)
     _git(ws, env, "init", "-q")                                                               # 3

@@ -941,12 +941,12 @@ def _adjusted_significance(
         if paired:
             with_paired, without_paired = zip(*paired, strict=True)
             try:
+                finite_delta.check_sum_range([w - wo for w, wo in paired])  # the section's averages are float sums: +inf
                 sigs[run_id] = significance_test(list(with_paired), list(without_paired), rounded=False)
-            except OverflowError as exc:  # finite deltas whose sum or spread leaves the float range
+            except OverflowError as exc:  # finite deltas whose sum leaves the float range
                 raise InputError(f"run '{run_id}': {exc}") from exc
         else:
             sigs[run_id] = None
-
     # The arms' own correction, so the two verdicts cannot drift; a run with no p, or under the floor rule, stays out.
     family = [sig for rid in run_ids if (sig := sigs[rid])]
     arm_stats._apply_correction(family, correction=correction, label="runs")

@@ -105,6 +105,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "question_panel": "question_panel.v1",
     "question_quality": "question_quality.v1",
     "report_qa": "report_qa.v1",
+    "report_summary": "report_summary.v1",
     "docs_run": "docs_run.v1",
     "dashboard": "dashboard.v1",
     "baseline_manifest": "baseline_manifest.v1",
@@ -120,10 +121,10 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
 }
 
 
-#: What a run is given (question sets, whose bytes ``question_set_hash`` digests, a config, a ledger, a need
-#: graph), the CLI's route table and the baselines index: :func:`save_artifact` gives them no envelope (#277, #387).
+#: What a run is given (question sets, whose bytes ``question_set_hash`` digests, a config, a ledger, a need graph),
+#: the CLI's route table, the report summary and the baselines index: :func:`save_artifact` gives them no envelope (#277, #387).
 INPUT_KINDS: frozenset[str] = frozenset({"questions", "dokimi_config", "repo_ledger", "need_graph",
-                                         "cli_routes", "baseline_manifest"})
+                                         "cli_routes", "report_summary", "baseline_manifest"})
 
 #: The envelope keys :func:`save_artifact` writes on a run kind, after ``schema_version``.
 ENVELOPE_KEYS: tuple[str, ...] = ("run_id", "dokimi_version")
