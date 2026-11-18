@@ -29,6 +29,34 @@ def test_a_copilot_run_wide_message_stops_the_run_and_is_not_retried(message):
     assert exc.value.run_wide is True and exc.value.retryable is False
 
 
+_ARGV_MARKERS = ("unexpected argument", "unknown option", "was removed")
+_CODEX_MARKERS = ("usage_limit", "usage limit", "not logged in", "login", "authenticat", "unauthorized",
+                  "unknown model", "model not found") + _ARGV_MARKERS
+_COPILOT_MARKERS = ("not logged in", "login", "authenticat", "unknown model", "usage limit") + _ARGV_MARKERS
+
+
+def _run_wide_error(parse: str, provider: str, message: str) -> llm_cli.CliCallError:
+    done = process.Completed(argv=("cli",), returncode=1, stderr_bytes=message.encode())
+    with pytest.raises(llm_cli.CliCallError) as exc:
+        getattr(llm_cli, parse)(done, "m", provider)
+    return exc.value
+
+
+@pytest.mark.parametrize(("parse", "provider", "marker"), (
+    [("_codex_parse", "codex-cli", m) for m in _CODEX_MARKERS]
+    + [("_copilot_parse", "copilot-cli", m) for m in _COPILOT_MARKERS]
+))
+def test_every_run_wide_marker_stops_the_run_even_when_the_text_names_a_retryable_status(parse, provider, marker):
+    error = _run_wide_error(parse, provider, f"{marker} (status 429)")
+    assert error.run_wide is True and error.retryable is False
+
+
+@pytest.mark.parametrize(("parse", "provider"), [("_codex_parse", "codex-cli"), ("_copilot_parse", "copilot-cli")])
+def test_a_usage_limit_error_is_run_wide_and_not_retried_though_it_names_a_rate_limit(parse, provider):
+    error = _run_wide_error(parse, provider, "usage limit reached: rate limit, try again later")
+    assert error.run_wide is True and error.retryable is False
+
+
 @pytest.mark.parametrize("provider", ["codex-cli", "copilot-cli"])
 def test_a_cli_answerer_left_without_model_is_refused_at_parse(provider, capsys):
     from dokimi import cli
