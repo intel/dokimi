@@ -471,6 +471,8 @@ MKL_H = "void mkl_set_num_threads(int n);\n"
     "Use the mkl_rt single dynamic library.",  # a library file named in a sentence about the library
     "target_link_libraries(app MKL::mkl_core)",  # a CMake link operand, a namespace-scoped library
     "Add -l mkl_core to the link line.",  # a -l operand
+    "When linking statically, add mkl_intel_lp64 first.",  # a sentence about linking, no operand
+    "target_link_libraries(app PRIVATE\n    MKL::mkl_core)",  # a Pkg:: operand on its own line
 ])
 def test_library_names_in_link_context_are_not_vetoed_under_a_shared_prefix(tmp_path, answer):
     check = symbols_check(["mkl_"], [str(_mkl_header(tmp_path))], [])
@@ -488,6 +490,19 @@ def test_a_real_missing_symbol_stays_vetoed_under_a_shared_prefix(tmp_path, answ
     result = grade_check(check, "q", answer, None)
     assert result.passed is False
     assert result.detail == "not in source: mkl_bogus_fn"
+
+
+@pytest.mark.parametrize("answer", [
+    "Build a linked list and pass it to cblas_dgemmx.",
+    "See the hyperlink: cblas_dgemmx is the batched entry.",
+    "Use cblas_dgemmx, which is linked into the program.",
+    "Pass the matrix to std::cblas_dgemmx.",
+])
+def test_a_link_word_inside_another_word_or_a_cxx_namespace_is_no_link_context(tmp_path, answer):
+    check = symbols_check(["cblas_"], [str(_headers(tmp_path) / "cblas.h")], [])
+    result = grade_check(check, "q", answer, None)
+    assert result.passed is False
+    assert result.detail == "not in source: cblas_dgemmx"
 
 
 def test_a_shared_library_stem_with_the_prefix_is_a_known_name_not_a_symbol(tmp_path):

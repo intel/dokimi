@@ -419,10 +419,14 @@ def scope_spans(within: str, answer: str, *, timeout: float) -> list[tuple[int, 
             if not _negated_before(answer, m.start())]
 
 
-#: A sentence about linking or a library (``target_link_libraries`` too, its words run on).
-_LINK_CONTEXT = re.compile(r"link|librar", re.IGNORECASE)
+#: A sentence about linking or a library, in whole words: a "linked list" or a "hyperlink" is neither.
+_LINK_CONTEXT = re.compile(
+    r"\blink(?:s|ed|ing)?\s+(?:with|against)\b|\blinking\b|\blink\s+line\b|\blinker\b"
+    r"|_link_libraries\b|\blibrar(?:y|ies)\b",
+    re.IGNORECASE)
 _SENTENCE_END = re.compile(r"[.;!?\n]")
-_LINK_OPERAND = re.compile(r"(?:-l|::)\s*$")
+#: A ``-l`` operand or a CMake ``Pkg::target`` (a package name is capitalised; ``std::x`` is C++).
+_LINK_OPERAND = re.compile(r"(?:-l|(?<![\w:])[A-Z]\w*::)\s*$")
 
 
 def _link_mention(answer: str, start: int, rest: str) -> bool:

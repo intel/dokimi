@@ -85,8 +85,9 @@ file in them has a prefixed name, so a wrong file set cannot veto every name. A 
 prefixed name is recorded with its sha256 and adds no name and no warning, so a wrong `--shared-lib`
 next to correct headers is not caught. Key verification works the same way: a key naming `LAPACKE_dgesvv`
 is `not_found`. A prefix a library file or a link line shares (`--prefix mkl_` with `libmkl_rt.so`) does not
-veto the library's name: a file's stem (`mkl_rt`) is a known name, and a name in a link context (a `-l` or `::`
-operand, or a sentence about linking or a library) is not vetoed. A called name (`mkl_x(`) is always an API claim.
+veto the library's name: a file's stem (`mkl_rt`) is a known name, and a name in a link context (a `-l` or CMake `Pkg::`
+operand, or a sentence with `link with`, `link against`, `linking`, `link line`, `linker` or `library`) is not vetoed; a
+`linked list`, a `hyperlink` or `std::x` is no link context. A called name (`mkl_x(`) is always an API claim.
 
 ```bash
 python cli.py skill novelty ground --atoms atoms.json --tool "perf report" --tool "perf record" --tool-version 6.17
