@@ -158,12 +158,13 @@ def test_a_merge_renumbers_a_generated_id_a_kept_record_has():
      "duplicate question ids in {cache}: 'q_001'"),
     (json.dumps({"questions": [{"id": "q_001", "question": ""}]}), "{cache} is not a usable question set"),
     ('{"questions": [', "Expecting value"),
-], ids=["shared-ids", "schema", "truncated"])
+    (None, "Is a directory: '{cache}'"),
+], ids=["shared-ids", "schema", "truncated", "directory"])
 def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path, monkeypatch, capsys, text, reason):
-    """A cache main's ``--force-regen`` wrote with two ``q_001``, or one cut short: an input error, not a traceback."""
+    """A cache main's ``--force-regen`` wrote with two ``q_001``, one cut short, or a directory: exit 2, no traceback."""
     cache = tmp_path / "questions" / "onetbb.json"
     cache.parent.mkdir()
-    cache.write_text(text, encoding="utf-8")
+    cache.mkdir() if text is None else cache.write_text(text, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", "run", "--library", "onetbb",
                                      "--out-dir", str(tmp_path)])
 
