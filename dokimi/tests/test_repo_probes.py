@@ -190,6 +190,11 @@ def test_a_call_inside_a_python_string_is_no_probe():
     ("time bash -c 'nproc'", "nproc"),
     ("FOO=bar bash -c 'nproc'", "nproc"),
     ("bash --noprofile -c 'nproc'", "nproc"),
+    ("! nproc", "nproc"),
+    ('echo "$(printf "(" ; nproc)"', "nproc"),
+    ("python -W ignore -c 'import os; os.cpu_count()'", "py:os.cpu_count"),
+    ("grep --file=/proc/cpuinfo README", "/proc/cpuinfo"),
+    ("2>/dev/null nproc", "nproc"),
     ("C:\\Windows\\System32\\nvidia-smi.exe --query-gpu=name", "nvidia-smi"),
     ("/mnt/c/Program\\ Files/NVIDIA\\ Corporation/NVSMI/nvidia-smi.exe -L", "nvidia-smi"),
 ])
@@ -198,7 +203,10 @@ def test_a_probe_the_shell_runs_in_another_form_is_a_probe(command, pattern):
     assert [e["pattern"] for e in events if e["kind"] == "probe"] == [pattern]
 
 
-@pytest.mark.parametrize("command", ["python echo_args.py -c 'os.cpu_count()'", "rg /proc/cpuinfo README"])
+@pytest.mark.parametrize("command", [
+    "python echo_args.py -c 'os.cpu_count()'", "rg /proc/cpuinfo README", "command -v nproc",
+    "python -- -c 'import os; os.cpu_count()'", "grep 2>/dev/null /proc/cpuinfo README",
+])
 def test_a_script_argument_or_a_search_expression_is_no_probe(command):
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
     assert all(e["kind"] != "probe" for e in events)
