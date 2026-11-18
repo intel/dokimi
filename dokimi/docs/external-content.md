@@ -457,7 +457,7 @@ upstream list: give it the upstreams yourself.
                "commit": "9f1c2ab", "date": "2026-03-01T00:00:00+00:00"}]}
   ```
 
-  `content` is the text of the file, hashed as UTF-8; line endings count. `head`, `commit` and `date` are optional. The git blob
+  `content` is the text of the file, hashed as UTF-8; line endings count, except that a CRLF copy also matches the LF form of its text (as `git hash-object` reads it under `core.autocrlf`), against a manifest or a checkout. `head`, `commit` and `date` are optional. The git blob
   sha is computed from `content`, so a manifest and a checkout agree.
 
 ```text

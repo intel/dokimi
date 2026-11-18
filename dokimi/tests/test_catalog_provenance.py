@@ -339,3 +339,19 @@ def test_upstreams_with_the_same_bytes_tie_to_the_first_one_listed_not_the_newer
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     row = _row(_run(root, "--upstream-manifest", str(first), "--upstream-manifest", str(second)), "skills/pdf")
     assert (row["match"], row["upstream"]) == ("exact", "acme")
+
+
+def test_a_copy_checked_out_with_crlf_is_exact_not_edited(upstream_repo, tmp_path) -> None:
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    _git(vendor, "init", "-q", "-b", "main")
+    _git(vendor, "config", "core.autocrlf", "false")
+    (vendor / "skills/pdf").mkdir(parents=True)
+    (vendor / "skills/pdf/SKILL.md").write_bytes(V1.encode("utf-8"))
+    _git(vendor, "add", "skills/pdf/SKILL.md")
+    _git(vendor, "commit", "-q", "-m", "vendor pdf v1", date="2026-02-01T10:00:00+00:00")
+    _git(tmp_path, "-c", "core.autocrlf=true", "clone", "-q", str(vendor), "copy")
+    raw = (tmp_path / "copy" / "skills/pdf/SKILL.md").read_bytes()
+    assert b"\r\n" in raw
+    row = _row(_run(tmp_path / "copy", "--upstream", str(upstream_repo)), "skills/pdf")
+    assert (row["match"], row["edited"], row["behind_commits"]) == ("exact", False, 1)

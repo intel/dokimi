@@ -15,7 +15,8 @@ A loaded skill is matched in two steps, by its bytes first:
   similarity of at least :data:`SIMILAR_JACCARD` to the copy's text. The copy is edited.
 
 Otherwise the copy is ``unmatched``. Blob shas are git's own (``sha1("blob <size>\\0" + bytes)``), so a checkout, a
-manifest and the copy agree with ``git hash-object``, in a sha-1 or a sha-256 repository.
+manifest and the copy agree with ``git hash-object``, in a sha-1 or a sha-256 repository. A copy with CRLF line
+endings also matches by its LF form, as ``git hash-object`` does in a checkout with ``core.autocrlf``.
 
 The history of a checkout is read in two git calls (``log --raw`` over every ``SKILL.md``, ``ls-tree`` at head) and one
 ``cat-file --batch``. ``behind`` counts the commits that touched the path after the version; the months are the head
@@ -158,7 +159,9 @@ class Index:
 
     def match(self, raw: bytes, name: Optional[str]) -> Optional[Match]:
         """The upstream version a copy with bytes ``raw`` and frontmatter ``name`` came from, or None."""
-        exact = [*self._by_blob.get(blob_sha(raw), []), *self._by_blob.get(blob_sha256(raw), [])]
+        # A CRLF checkout (core.autocrlf) of an LF blob is the same file to git: its LF form is looked up too.
+        forms = (raw, raw.replace(b"\r\n", b"\n")) if b"\r\n" in raw else (raw,)
+        exact = [v for form in forms for sha in (blob_sha(form), blob_sha256(form)) for v in self._by_blob.get(sha, [])]
         if exact:
             best = min(exact, key=_exact_rank)
             return Match("exact", best, edited=False, jaccard=None)
