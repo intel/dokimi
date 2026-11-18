@@ -114,11 +114,15 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
     delta = sig.get("delta_mean") if sig else None
     correction = sig.get("correction")
     judge = cell.get("judge_model")
-    # A claude-cli judge records the snapshot it ran; one recorded id resolves an alias judge (``opus``).
-    # Two ids, or none, leave the alias unresolved: which one scored is not known.
+    # A claude-cli judge records the snapshots it ran: one id is the judge, whatever name was configured.
+    # Two ids leave the judge unresolved (which one scored is not known); an alias stays visible as one.
     snapshots = cell.get("judge_resolved_models")
-    if is_alias(judge) and isinstance(snapshots, list) and len(snapshots) == 1 and isinstance(snapshots[0], str):
-        judge = snapshots[0]
+    protocol_judge = judge
+    if isinstance(snapshots, list) and snapshots and all(isinstance(s, str) for s in snapshots):
+        if len(snapshots) == 1:
+            judge = protocol_judge = snapshots[0]
+        elif not is_alias(judge):
+            protocol_judge = None
     sampling = cell.get("judge_sampling")
     if sampling is None and cell.get("judge_temperature") is not None:
         sampling = {"temperature": cell.get("judge_temperature")}
@@ -135,7 +139,7 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
     protocol = build_protocol({
         "eval_set_digest": _eval_set_digest(cell, suite),
         "metric": METRIC,
-        "judge_model": judge,
+        "judge_model": protocol_judge,
         "judge_provider": cell.get("judge_provider"),
         "judge_context": cell.get("judge_context"),
         "judge_sampling": sampling,

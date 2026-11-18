@@ -504,6 +504,30 @@ def test_the_rollup_and_the_scorecard_cell_carry_the_recorded_judge_snapshots(tm
     assert scorecard["cells"][0]["judge_resolved_models"] == ["claude-opus-5-5-20261101"]
 
 
+def _judged_scorecard(judge: str, snapshots: list[str]) -> dict:
+    from test_subjects_evidence import _scorecard
+
+    scorecard = _scorecard()
+    scorecard["cells"][0].update({
+        "judge_model": judge, "judge_provider": "claude-cli", "judge_context": "ctx",
+        "judge_sampling": {"temperature": 0}, "judge_prompt_sha256": "sha256:" + "d" * 64, "repeats": 3,
+        "judge_resolved_models": snapshots})
+    [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
+    return skill
+
+
+def test_an_undated_judge_name_whose_runs_recorded_other_snapshots_is_not_comparable():
+    older = _judged_scorecard("claude-sonnet-4-5", ["claude-sonnet-4-5-20250929"])
+    newer = _judged_scorecard("claude-sonnet-4-5", ["claude-sonnet-4-5-20260301"])
+    mixed = _judged_scorecard("claude-sonnet-4-5", ["claude-sonnet-4-5-20250929", "claude-sonnet-4-5-20260301"])
+
+    assert older["judge_model"] == "claude-sonnet-4-5-20250929"
+    assert compare(older, older) == []
+    assert compare(newer, older) == ["protocol digest differs (judge_model)"]
+    assert mixed["judge_model"] == "claude-sonnet-4-5"
+    assert "protocol inputs not resolved: judge_model" in compare(mixed, older)
+
+
 @pytest.mark.parametrize("pid, version, resolved", [
     ("dokimi.awareness", "1", {}), ("dokimi.awareness", "1", None), ("other.lab", "9", {"repeats": 3}),
 ])

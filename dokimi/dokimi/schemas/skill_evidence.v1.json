@@ -181,7 +181,7 @@
               "string",
               "null"
             ],
-            "description": "judge snapshot id when the run recorded exactly one for an alias judge, else the configured judge model"
+            "description": "judge snapshot id when the run recorded exactly one, else the configured judge model"
           },
           "judge_provider": {
             "type": [
