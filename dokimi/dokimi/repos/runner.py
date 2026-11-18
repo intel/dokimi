@@ -54,6 +54,7 @@ from .container import (
     SUPPORT_DIR,
     WORKSPACE,
     ContainerError,
+    ContainerResult,
     ContainerSpec,
     DockerError,
     EgressNotImplemented,
@@ -73,6 +74,7 @@ from .batch_ledger import (  # re-exported: the names callers and tests take fro
 )
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
+from .transcript import Transcript
 from . import run_context
 from .probes import effective_patterns, probes_for, with_probes
 from .uptake import arm_uptake
@@ -285,12 +287,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
         started = bool(transcript.events) or transcript.result_seen  # else the agent never started
-        traced = started or bool(transcript.start_record) or (opts.profile.trace == "text" and bool(raw.strip()))
-        no_trace = not traced and not transcript.is_error and not transcript.errors  # nothing the harness wrote
-        if no_trace and result.returncode != 0 and not result.timed_out:
-            # the harness failed before its first line: a crash of the machinery, not a verdict on the cell
-            raise CellCrash(f"the harness exited {result.returncode} before its first trace line",
-                            float(agent["charged_usd"]))
+        _refuse_a_crash_before_the_trace(opts, raw, transcript, result, started, float(agent["charged_usd"]))
         if started:
             events = transcript.events
             useful_events = None if transcript.dropped_lines else events
@@ -357,6 +354,16 @@ def _is_infra(exc: BaseException) -> bool:
     """A failure of the machinery (docker, a file that cannot be written or read, a subprocess), not of a cell's
     input: a refused input (PrepError, an unreadable kept result, an egress the run cannot have) stays exit 1."""
     return isinstance(exc, (DockerError, OSError, subprocess.SubprocessError))
+
+
+def _refuse_a_crash_before_the_trace(opts: AgentOptions, raw: str, transcript: Transcript, result: ContainerResult,
+                                     started: bool, charged_usd: float) -> None:
+    """Raise :class:`CellCrash` when the harness exited nonzero before its first trace line: a crash of the
+    machinery, not a verdict on the cell."""
+    traced = started or bool(transcript.start_record) or (opts.profile.trace == "text" and bool(raw.strip()))
+    no_trace = not traced and not transcript.is_error and not transcript.errors  # nothing the harness wrote
+    if no_trace and result.returncode != 0 and not result.timed_out:
+        raise CellCrash(f"the harness exited {result.returncode} before its first trace line", charged_usd)
 
 
 class CellCrash(Exception):
