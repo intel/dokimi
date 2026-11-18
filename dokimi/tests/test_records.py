@@ -379,3 +379,10 @@ def test_a_whitespace_question_text_falls_back_to_question():
     """A blank question_text is no text, as the judge guard reads it; ``question`` is used."""
     rec = records.record({"question_id": "q1", "question_text": "   ", "question": "How do I X?"})
     assert rec.question_text == "How do I X?"
+
+
+def test_an_arms_file_declaring_one_non_baseline_arm_is_not_a_knowledge_run():
+    from dokimi.records import is_knowledge_run
+
+    assert is_knowledge_run([], {"arms": ["docs"]}) is False
+    assert is_knowledge_run([], {"arms": ["baseline"]}) is True
