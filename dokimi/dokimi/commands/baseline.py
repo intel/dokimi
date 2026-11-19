@@ -238,12 +238,22 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     try:
         _save_manifest(manifest)
     except BaseException:
-        copy.unlink(missing_ok=True)  # a copy no manifest lists would block a retry under the same name
+        _remove_copy(copy)
         raise
 
     print(f"✅ Saved baseline '{name}' → {dest}")
     if summary:
         print(f"   n={summary['n']}  with={summary['avg_with']}  without={summary['avg_without']}  delta={summary['avg_delta']:+}")
+
+
+def _remove_copy(copy: Path) -> None:
+    """Remove a copy no manifest lists (it would block a retry under the same name); one that cannot be
+    removed is named on stderr, so the manifest's failure still decides the exit."""
+    try:
+        copy.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"Error: cannot remove {copy}, which no manifest lists: {exc.strerror or exc}; "
+              "remove it before saving under this name again", file=sys.stderr)
 
 
 def cmd_baseline_list(args: argparse.Namespace) -> None:

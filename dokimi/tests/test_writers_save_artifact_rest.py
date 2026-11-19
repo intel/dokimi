@@ -307,6 +307,26 @@ def test_a_manifest_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path,
         ["b1", "b2"]
 
 
+def test_a_copy_that_cannot_be_removed_after_a_refused_manifest_is_named_and_the_exit_stays_1(
+        tmp_path, monkeypatch, capsys, baselines):
+    """A locked copy (a Windows file lock, say) does not turn the refusal into a crash (review of #829)."""
+    source = _eval(tmp_path, monkeypatch)
+    monkeypatch.setattr(baseline_mod, "_compute_summary", lambda _data: [])
+    unlink = Path.unlink
+
+    def locked(self, missing_ok=False):
+        if self.name == "b1.json":
+            raise PermissionError(13, "Permission denied")
+        unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", locked)
+    assert _cli(monkeypatch, "baseline", "save", "--from-eval", str(source), "--name", "b1") == 1
+
+    err = capsys.readouterr().err
+    assert f"Error: cannot remove {baselines / 'b1.json'}, which no manifest lists: Permission denied" in err
+    assert "Error: baseline_manifest artifact rejected: " in err
+
+
 @pytest.mark.parametrize("entry", ['"saved_at": 123', '"summary": {"n": 0, "avg_delta": null}', '"product": ["a"]'],
                          ids=["saved_at", "summary", "product"])
 def test_an_entry_baseline_list_reads_does_not_block_a_later_save(tmp_path, monkeypatch, capsys, baselines, entry):
