@@ -131,6 +131,14 @@ def test_clearing_the_reward_files_removes_a_directory_with_a_read_only_subdirec
     assert [p.name for p in tmp_path.iterdir()] == ["keep.log"]
 
 
+def test_a_reward_json_directory_that_cannot_be_removed_errors_the_cell(tmp_path, monkeypatch):
+    # Left in place, it would take the next copy (docker cp into an existing directory).
+    monkeypatch.setattr("dokimi.harnesses.verifier_reward.shutil.rmtree", lambda *_a, **_k: None)
+    (tmp_path / "reward.json").mkdir()
+    with pytest.raises(RuntimeError, match=r"could not remove .*reward\.json, left by an earlier run"):
+        clear_reward_files(tmp_path)
+
+
 def _host_claude(reward: str, copy=None) -> DockerSolverHarness:
     def answer(call):
         if call.argv[0] != "docker":
