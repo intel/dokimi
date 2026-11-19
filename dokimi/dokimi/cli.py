@@ -81,9 +81,13 @@ class _RoutedParser(argparse.ArgumentParser):
 
     def parse_known_args(self, args=None, namespace=None):
         ns, extras = super().parse_known_args(args, namespace)
+        help_argv = getattr(ns, "_help_argv", None)  # the leaf's --help command, set by _LeafParser; not an option
+        if help_argv is not None:
+            del ns._help_argv
         # An option before the leaf name ends up here: the parsed leaf's namespace has its kind and --json.
         if extras and _emits_cli_output(ns):
-            _usage_document(getattr(ns, "cli_kind", ns.cmd), f"unrecognized arguments: {' '.join(extras)}")
+            _usage_document(getattr(ns, "cli_kind", ns.cmd), f"unrecognized arguments: {' '.join(extras)}",
+                            help_argv=help_argv)
         return ns, extras
 
     def format_help(self) -> str:
@@ -112,16 +116,20 @@ class _RoutedParser(argparse.ArgumentParser):
         return fmt.format_help()
 
 
-def _usage_document(kind: str, message: str) -> None:
+def _usage_document(kind: str, message: str, *, help_argv: list[str] | None = None) -> None:
     """A --json leaf's usage error (a bad value, a missing or unknown argument) prints its failed document first;
     argparse then prints its usage on stderr and exits 2. One document per run: a leaf that already printed
-    its own (its extras, reported again by the root) keeps it."""
+    its own (its extras, reported again by the root) keeps it. ``help_argv`` is the leaf's ``--help`` command:
+    it goes in ``next`` as a free step, since the caller still has to choose the corrected arguments."""
     from dokimi import cli_output
 
     if cli_output.printed():
         return
-    cli_output.emit(cli_output.error_document(kind, "input", message, run_id=cli_output.current_run_id(),
-                                              reason=message))
+    doc = cli_output.error_document(kind, "input", message, run_id=cli_output.current_run_id(), reason=message)
+    if help_argv:
+        doc["next"] = [{"argv": help_argv, "why": "Show the accepted syntax of this command.",
+                        "spends": False, "est_usd": 0, "kind": "sequence"}]
+    cli_output.emit(doc)
 
 
 def _leaf_kind(parser: argparse.ArgumentParser) -> str:
@@ -176,17 +184,23 @@ class _LeafParser(argparse.ArgumentParser):
     def _document_kind(self) -> str:
         return _leaf_kind(self)  # the kind _document_on_exit writes too
 
+    def _print_usage_document(self, message: str) -> None:
+        _usage_document(self._document_kind(), message, help_argv=[*self.prog.split(), "--help"])
+
     def error(self, message: str) -> NoReturn:
         if self._defaults.get("emits_cli_output") and self._json_argv:
-            _usage_document(self._document_kind(), message)
+            self._print_usage_document(message)
         super().error(message)
 
     def parse_known_args(self, args=None, namespace=None):
         self._json_argv = _json_requested(self, sys.argv[1:] if args is None else args)
         ns, extras = super().parse_known_args(args, namespace)
+        # For the root, which reports extras before the leaf name; a group parser keeps its leaf's, the innermost.
+        if not hasattr(ns, "_help_argv"):
+            ns._help_argv = [*self.prog.split(), "--help"]
         # argparse reports these on the root parser, which knows no leaf: the document comes from here.
         if extras and self._defaults.get("emits_cli_output") and self._json_argv:
-            _usage_document(self._document_kind(), f"unrecognized arguments: {' '.join(extras)}")
+            self._print_usage_document(f"unrecognized arguments: {' '.join(extras)}")
         return ns, extras
 
 
