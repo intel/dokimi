@@ -482,12 +482,18 @@ def _hits(probe: Probe, pipeline: list[list[Stage]]) -> bool:
 
 
 def _value_span(word: str, values: frozenset[str]) -> int:
-    """How many words a searcher's option takes with its value: 1 for ``--max-count=1``, 2 for ``-m 1`` and for a flag
-    cluster that ends in a value option (``-nA 2``), 0 for a word that is no such option."""
+    """How many words a searcher's option takes with its value: 1 for ``--max-count=1``, for ``-m1`` and for ``-g*.md``
+    (the letters after the first value option are its value), 2 for ``-m 1`` and for a flag cluster whose first value
+    option is its last letter (``-nA 2``), 0 for a word that is no such option."""
     name, eq, _ = word.partition("=")
     if name in values:
         return 1 if eq else 2
-    return 2 if re.fullmatch(r"-[^-=]{2,}", word) and f"-{word[-1]}" in values else 0
+    if not re.fullmatch(r"-[^-=]{2,}", word):
+        return 0
+    for at, c in enumerate(word[1:], 1):
+        if f"-{c}" in values:
+            return 2 if at == len(word) - 1 else 1
+    return 0
 
 
 def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:

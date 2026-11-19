@@ -229,9 +229,19 @@ def test_the_value_attached_to_a_short_option_is_no_flags(command, searched):
     ("grep", ("-m1", "warn", "AGENTS.md"), ("AGENTS.md",)),
     ("grep", ("-cm1", "warn", "AGENTS.md"), ("AGENTS.md",)),
     ("grep", ("-nc", "warn", "AGENTS.md"), ("AGENTS.md",)),
+    ("rg", ("-g*.md", "warn", "AGENTS.md"), ("AGENTS.md",)),  # ends in d, --max-depth: still the value of -g
+    ("rg", ("-g*.C", "warn", "AGENTS.md"), ("AGENTS.md",)),  # ends in C, --context
+    ("rg", ("-tm", "pat", "AGENTS.md"), ("AGENTS.md",)),
+    ("grep", ("-nA", "2", "warn", "AGENTS.md"), ("AGENTS.md",)),  # the value is the next word
+    ("grep", ("-A2", "warn", "AGENTS.md"), ("AGENTS.md",)),
 ])
 def test_the_operands_of_a_searcher_do_not_depend_on_how_its_cluster_is_read(program, args, operands):
     assert _operands(program, args) == operands
+
+
+@pytest.mark.parametrize("command", ["rg -g'*.md' warn AGENTS.md", "rg -g'*.C' warn AGENTS.md"])
+def test_a_glob_attached_to_rg_g_that_ends_in_a_value_letter_keeps_the_file(command):
+    assert shell_walked(command).searched == ["AGENTS.md"]
 
 
 def test_the_schema_takes_a_list_of_paths_in_searched():
