@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 import pytest
 
-from tests.growth_timing import growth
+from tests.growth_timing import STEPS, growth
 
 
 class _SteppedClock:
@@ -41,6 +41,54 @@ def test_growth_times_calls_shorter_than_a_clock_step(cost, low, high):
     clock = _SteppedClock()
     ratio, result = growth(lambda size: clock.work(cost(size)), 1_000, clock=clock)
     assert low < ratio < high and result == cost(4_000)
+
+
+def _run(cost, slowed=()):
+    """``growth`` over ``cost``, the 4n samples of attempt ``i`` ``slowed[i]`` times dearer (1 past the tuple).
+
+    Returns the ratio, the result and the attempts made: the 4n calls over those of one attempt, ``reps``
+    samples of ``loops`` calls, ``loops`` the power of two that makes the n call span :data:`STEPS` steps.
+    """
+    clock, calls, reps, loops = _SteppedClock(), [0], 5, 1
+    while loops * cost(1_000) < STEPS * clock.STEP:
+        loops *= 2
+    per_attempt = reps * loops
+
+    def timed(size):
+        if size == 1_000:
+            return clock.work(cost(size))
+        def call():
+            calls[0] += 1
+            attempt = (calls[0] - 1) // per_attempt
+            return clock.work(cost(size) * (slowed[attempt] if attempt < len(slowed) else 1.0))()
+        return call
+
+    ratio, result = growth(timed, 1_000, reps=reps, clock=clock)
+    return ratio, result, calls[0] / per_attempt
+
+
+def test_growth_measures_again_when_the_first_attempt_was_slowed():
+    """#1007: a burst of load on the 4n samples lifts the first ratio to 9; the next attempt's 4 is returned."""
+    ratio, result, attempts = _run(lambda size: size * 1e-7, slowed=(2.25,))
+    assert 3.6 < ratio < 4.4 and result == 4_000 * 1e-7 and attempts == 2
+
+
+def test_growth_returns_the_smallest_ratio_with_its_attempts_result():
+    """#1007: when every attempt is slowed (9, 12, 10), the smallest, 9, is returned, not the last."""
+    ratio, result, attempts = _run(lambda size: size * 1e-7, slowed=(2.25, 3.0, 2.5))
+    assert 8.6 < ratio < 9.4 and result == 4_000 * 1e-7 * 2.25 and attempts == 3
+
+
+def test_growth_of_quadratic_work_stays_near_16_after_all_attempts():
+    """#1007: the retry does not hide a real regression: every attempt shows about 16, and three are made."""
+    ratio, result, attempts = _run(lambda size: size ** 2 * 1e-10)
+    assert 14.4 < ratio < 17.6 and result == 4_000 ** 2 * 1e-10 and attempts == 3
+
+
+def test_growth_of_linear_work_is_measured_once():
+    """#1007: a first attempt under the limit is not repeated, so the retry adds no time on a quiet runner."""
+    ratio, _, attempts = _run(lambda size: size * 1e-7)
+    assert 3.6 < ratio < 4.4 and attempts == 1
 
 
 @pytest.mark.parametrize("enabled", [True, False], ids=["on", "off"])

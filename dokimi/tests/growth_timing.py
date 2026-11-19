@@ -1,7 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""How much a call's CPU time grows from size n to 4n: the bound of the linear-scan tests (#505)."""
+"""How much a call's CPU time grows from size n to 4n: the bound of the linear-scan tests (#505).
+
+A ratio at or above :data:`GROWTH_LIMIT` is measured again, up to :data:`ATTEMPTS` times, and the smallest is kept (#1007).
+"""
 
 from __future__ import annotations
 
@@ -11,7 +14,8 @@ from collections.abc import Callable
 from typing import Any
 
 GROWTH_LIMIT = 8  # CPU time at 4n over that at n: about 4 for linear work, 16 for quadratic
-STEPS = 20  # a sample spans at least this many clock steps, so one step is at most 5% of it
+ATTEMPTS = 3  # a ratio at or above GROWTH_LIMIT is measured again, this many times in all (#1007)
+STEPS = 20 # a sample spans at least this many clock steps, so one step is at most 5% of it
 
 
 def clock_step(clock: Callable[[], float] = time.process_time) -> float:
@@ -43,15 +47,24 @@ def growth(timed: Callable[[int], Callable[[], Any]], n: int, reps: int = 5,
     A sample runs a call ``loops`` times, ``loops`` doubled until the call at n spans :data:`STEPS`
     steps of ``clock``: a coarse clock (Windows) times a short call as 0. Both sizes run as many
     loops; the best of ``reps`` interleaved samples each: a slow or busy runner slows both sizes,
-    not the ratio (#505).
+    not the ratio (#505). A burst of load that hits only one size can still lift the ratio to
+    :data:`GROWTH_LIMIT` or more: then the measurement runs again, up to :data:`ATTEMPTS` in all,
+    and the smallest ratio is returned with its attempt's result (#1007). Quadratic work stays
+    near 16 on every attempt; linear work that passes the first time is measured once.
     """
     calls = [timed(n), timed(4 * n)]
     floor, loops = STEPS * clock_step(clock), 1
     while _sample(clock, calls[0], loops)[0] < floor:
         loops *= 2
-    best, result = [float("inf")] * 2, None
-    for _ in range(reps):
-        for k, call in enumerate(calls):
-            elapsed, result = _sample(clock, call, loops)
-            best[k] = min(best[k], elapsed)
-    return best[1] / best[0], result
+    ratio, result = float("inf"), None
+    for _ in range(ATTEMPTS):
+        best, last = [float("inf")] * 2, None
+        for _ in range(reps):
+            for k, call in enumerate(calls):
+                elapsed, last = _sample(clock, call, loops)
+                best[k] = min(best[k], elapsed)
+        if best[1] / best[0] < ratio:
+            ratio, result = best[1] / best[0], last
+        if ratio < GROWTH_LIMIT:
+            break
+    return ratio, result
