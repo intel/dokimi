@@ -1,0 +1,45 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The condition waits tests use instead of a fixed sleep (``tests/waiting.py``)."""
+
+from __future__ import annotations
+
+import threading
+
+import pytest
+
+from tests.waiting import poll_until, wait_for_event, wait_until
+
+
+def test_wait_until_returns_the_value_of_the_call_that_turned_truthy():
+    calls = []
+
+    def predicate():
+        calls.append(1)
+        return "ready" if len(calls) == 3 else None
+
+    assert wait_until(predicate, 30, what="the third call", interval=0) == "ready"
+    assert len(calls) == 3
+
+
+def test_wait_until_fails_at_the_deadline_naming_what_it_waited_for_and_for_how_long():
+    with pytest.raises(pytest.fail.Exception) as info:
+        wait_until(lambda: False, 0.01, what="the child to print 'up'", interval=0.001)
+    assert str(info.value) == "gave up after 0.01 s waiting for the child to print 'up'"
+
+
+def test_poll_until_returns_false_at_the_deadline_and_true_once_the_predicate_holds():
+    assert poll_until(lambda: 0, 0.01, interval=0.001) is False
+    assert poll_until(lambda: [1], 30) is True
+
+
+def test_wait_for_event_returns_at_once_for_a_set_event():
+    event = threading.Event()
+    event.set()
+    assert wait_for_event(event, 30, what="the worker to start") is None
+
+
+def test_wait_for_event_fails_naming_what_it_waited_for_when_the_event_is_never_set():
+    with pytest.raises(pytest.fail.Exception, match=r"waiting for the worker to start"):
+        wait_for_event(threading.Event(), 0.01, what="the worker to start")
