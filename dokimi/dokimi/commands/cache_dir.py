@@ -45,3 +45,21 @@ def usable_cache_dir(raw: str | None, use: str = RETENTION_USE, *, label: str = 
     if not os.access(probe, needed):
         raise InputError(f"{label} {path}: {probe} is not {word}; pass a directory {use}")
     return path
+
+
+def resolved_cache_dir(raw: str | None, use: str, *, label: str) -> Path | None:
+    """``usable_cache_dir`` of ``raw`` resolved the way the cache is made, so ``missing/..`` cannot hide a file (#827).
+
+    A path that cannot be resolved (an unreadable ancestor, a symbolic link loop) raises ``InputError`` naming ``label``.
+    The resolved path is returned: the cache is made there.
+    """
+    from dokimi.utils import InputError
+
+    if not raw:
+        return None
+    try:
+        resolved = str(Path(raw).resolve())
+    except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop, Python < 3.13
+        why = exc.strerror if isinstance(exc, OSError) and exc.strerror else "a symbolic link loop"
+        raise InputError(f"{label} {raw}: cannot resolve it ({why}); pass a directory {use}") from exc
+    return usable_cache_dir(resolved, use, label=label)

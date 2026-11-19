@@ -616,12 +616,12 @@ def _cache_dir(args: argparse.Namespace) -> Path | None:
     """
     import os
 
-    from dokimi.commands.cache_dir import CLONE_USE, usable_cache_dir
+    from dokimi.commands.cache_dir import CLONE_USE, resolved_cache_dir
 
     env = os.environ.get("DOKIMI_REPO_CACHE")
     if not args.cache_dir and env:
-        return usable_cache_dir(env, CLONE_USE, label="$DOKIMI_REPO_CACHE")
-    return usable_cache_dir(args.cache_dir, CLONE_USE)
+        return resolved_cache_dir(env, CLONE_USE, label="$DOKIMI_REPO_CACHE")
+    return resolved_cache_dir(args.cache_dir, CLONE_USE, label="--cache-dir")
 
 
 def register(sub, positive_int, eval_sub) -> None:

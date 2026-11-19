@@ -217,15 +217,10 @@ def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None
     Checked before the image build: ``_context`` makes each cache directory after it. A ``--cache`` naming no
     cache of the manifest is skipped here (``_context`` refuses it with its own message).
     """
-    from dokimi.commands.cache_dir import CACHE_USE, usable_cache_dir
+    from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
 
-    def check(path: str, label: str) -> None:  # the resolved path, as `_context` makes it: `missing/..` must not hide a file
-        try:
-            resolved = str(Path(path).resolve())
-        except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop, Python < 3.13
-            why = exc.strerror if isinstance(exc, OSError) and exc.strerror else "a symbolic link loop"
-            raise InputError(f"{label} {path}: cannot resolve it ({why}); pass a directory {CACHE_USE}") from exc
-        usable_cache_dir(resolved, CACHE_USE, label=label)
+    def check(path: str, label: str) -> None:  # the resolved path, as `_context` makes it
+        resolved_cache_dir(path, CACHE_USE, label=label)
 
     overrides = dict(_pair(c) for c in args.cache or ())
     names = [c.name for c in manifest.image.caches] if manifest.image is not None else []

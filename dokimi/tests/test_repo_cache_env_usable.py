@@ -66,6 +66,26 @@ def test_repo_fetch_refuses_a_cache_variable_below_a_regular_file_and_makes_noth
     assert sorted(p.name for p in tmp_path.iterdir()) == ["cachefile"]
 
 
+@pytest.mark.parametrize("where", ["variable", "flag"])
+def test_a_missing_dir_then_dotdot_cannot_hide_a_regular_file(where, tmp_path, monkeypatch, capsys):
+    """It passed the check and ended in `[Errno 17] File exists` at the clone: the path is resolved first."""
+    blocker = _file(tmp_path)
+    sneaky = f"{tmp_path}/missing/../{blocker.name}"
+    extra = []
+    if where == "variable":
+        monkeypatch.setenv("DOKIMI_REPO_CACHE", sneaky)
+    else:
+        monkeypatch.delenv("DOKIMI_REPO_CACHE", raising=False)
+        extra = ["--cache-dir", sneaky]
+    _argv(monkeypatch, *_commands(tmp_path)["fetch"], *extra)
+    with refusal() as exc:
+        cli.main()
+    err = capsys.readouterr().err
+    label = "$DOKIMI_REPO_CACHE" if where == "variable" else "--cache-dir"
+    assert exc.code == 2 and f"{label} {blocker} is not a directory; {CLOSING}" in err
+    assert "File exists" not in err and not (tmp_path / "missing").exists()
+
+
 def test_a_cache_dir_flag_wins_over_a_bad_variable(tmp_path, monkeypatch, capsys):
     src = tmp_path / "src"
     src.mkdir()
