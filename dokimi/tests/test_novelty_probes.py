@@ -441,6 +441,14 @@ def test_a_quantifier_beside_a_limiter_the_candidate_keeps_is_rejected():
     ) == []
 
 
+def test_a_quantifier_beside_a_reworded_limiter_is_rejected():
+    # "subset" became "some" and "only" stayed: the restriction is reworded, not removed.
+    assert check_wording(
+        "reversal", source="Only a subset of users can configure the tool.",
+        candidate="Is it true that it is always only some users who can configure the tool?",
+    ) != []
+
+
 def test_a_trailing_tag_question_is_phrasing_not_a_negation():
     # The tag "doesn't it?" is not a negation, so dropping the source's "No" is the inversion.
     assert check_wording(

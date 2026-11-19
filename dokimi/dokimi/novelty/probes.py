@@ -112,6 +112,9 @@ _NEGATIVE_ADJECTIVES = frozenset({"unreliable", "useless", "unsuitable", "unhelp
 _CANCELLING_SKIP = re.compile(
     r"\b(" + "|".join(sorted(_NEGATIVE_ADJECTIVES)) + r")\s+(?:\w+\s+){0,2}?to\s+skip\b", re.I,
 )
+_RESTRICTIONS = frozenset(
+    {"only", "subset", "some", "sometimes", "once", "single", "few", "partial", "partially"}
+)
 _SCOPE_LIMITERS = re.compile(
     r"\b(?:only|subset|some|sometimes|once|single|few|partial(?:ly)?|never|not|no|none|"
     r"cannot|without|except)\b|n't\b",
@@ -336,6 +339,18 @@ def check_wording(kind: str, *, source: str, candidate: str, answer: str = "") -
     return reasons
 
 
+def _limiter_classes(text: str) -> set[str]:
+    """The kinds of scope limiter in ``text``: a restriction ("only", "some") or a negation.
+
+    Rewording one restriction as another ("only a subset" to "only some") keeps the kind, so
+    it is not a limiter dropped.
+    """
+    return {
+        "restriction" if m.lower() in _RESTRICTIONS else "negation"
+        for m in _SCOPE_LIMITERS.findall(text)
+    }
+
+
 def _new_markers(source: str, text: str) -> set[str]:
     """Inversion markers ``text`` has and ``source`` lacks.
 
@@ -344,9 +359,7 @@ def _new_markers(source: str, text: str) -> set[str]:
     meaning; "skip it because it is useless" does not).
     """
     patterns = [_INVERSION_MARKERS]
-    if _SCOPE_LIMITERS.findall(source) and {
-        m.lower() for m in _SCOPE_LIMITERS.findall(source)
-    } - {m.lower() for m in _SCOPE_LIMITERS.findall(text)}:
+    if _limiter_classes(source) - _limiter_classes(text):
         patterns.append(_QUANTIFIER_MARKERS)
     found = {
         m.lower() for pattern in patterns for m in pattern.findall(text)
