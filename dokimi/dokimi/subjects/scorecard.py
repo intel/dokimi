@@ -199,8 +199,9 @@ def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]
     if path.is_dir():
         kind = b"d"
         h.update(b"d")
-        for child in sorted(p for p in path.rglob("*") if p.is_file()):
-            h.update(_field(str(child.relative_to(path))))
+        # POSIX names, ordered by their parts as utils.tree_digest does, so the same tree digests the same on Windows
+        for child in sorted((p for p in path.rglob("*") if p.is_file()), key=lambda p: p.relative_to(path).parts):
+            h.update(_field(child.relative_to(path).as_posix()))
             h.update(hashlib.sha256(child.read_bytes()).digest())
     else:
         h.update(b"t" + _field(ref))

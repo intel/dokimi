@@ -63,13 +63,24 @@ def test_a_ref_with_a_scheme_gets_no_digest_even_when_a_directory_collides(tmp_p
     assert distribution_digest("context7:/org/lib", base=tmp_path) is None
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the pinned digest hashes the POSIX separator of sub/é.md")
 def test_a_directory_ref_of_utf8_names_keeps_its_digest(tmp_path: Path):
     (tmp_path / "ok.md").write_bytes(b"ok\n")
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "é.md").write_bytes(b"two\n")
     assert _digest_ref(str(tmp_path), base=tmp_path) == (
         "sha256:8bebaf0c5b5da4acb85facaa866ec8beabd87373df2c2f38f0fc86a655e1303f")  # gitleaks:allow
+
+
+def test_a_directory_ref_digests_posix_names_in_case_sensitive_order(tmp_path: Path):
+    # The same tree on Windows: "/" in the name, and B.md before a.md, as on Linux.
+    (tmp_path / "a.md").write_bytes(b"a")
+    (tmp_path / "B.md").write_bytes(b"b")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "x.md").write_bytes(b"x")
+    h = hashlib.sha256(b"d")
+    for name, content in (("B.md", b"b"), ("a.md", b"a"), ("sub/x.md", b"x")):
+        h.update(hashlib.sha256(name.encode()).digest() + hashlib.sha256(content).digest())
+    assert _digest_ref(str(tmp_path), base=tmp_path) == "sha256:" + h.hexdigest()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a name that is not UTF-8 cannot be created on Windows")
