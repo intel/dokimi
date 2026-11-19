@@ -51,7 +51,7 @@ from typing import Any
 from dokimi.context.trace import parse_trace
 
 from .cli_traces import _failed_read, codex_json, copilot_json, shell_walked
-from .transcript import Transcript, _parse_time, clip_output, relative_path
+from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
 
@@ -258,7 +258,7 @@ def _deny_read(read: dict[str, Any], unknown: bool) -> None:
 
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
     """The event of one tool_use block; a Bash call's derived reads come before it when the trace ends (:func:`_walk_bash`)."""
-    event = _tool_event(block, t, stream.workdir)
+    event = _tool_event(block, t, stream.workdir, stream.cwd)
     if agent:
         event["agent"] = agent
     if block.get("name") == _SHELL_TOOL:
@@ -354,7 +354,7 @@ def _well_formed_tool_result(block: dict[str, Any]) -> bool:
     return isinstance(block.get("tool_use_id"), str) and bool(block["tool_use_id"])
 
 
-def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> dict[str, Any]:
+def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None, cwd: str = "") -> dict[str, Any]:
     name = str(block.get("name") or "")
     raw_args = block.get("input")
     args: dict[str, Any] = raw_args if isinstance(raw_args, dict) else {}
@@ -369,7 +369,8 @@ def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> 
         if name == "Skill":  # Claude Code names the skill in `skill`; older versions in `command`
             event["skill"] = str(args.get("skill") or args.get("command") or "")
         if name == _GREP_TOOL and args.get("output_mode") == "content" and args.get("path"):
-            event["searched"] = [relative_path(str(args["path"]), workdir)]  # the default mode prints names only
+            # the default mode prints names only; a relative path starts at the directory the harness started in
+            event["searched"] = [relative_path(_from_cwd(str(args["path"]), cwd), workdir)]
     return event
 
 

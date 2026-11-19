@@ -92,6 +92,13 @@ def _jsonl(*records: dict) -> str:
     ("grep warn AGENTS.md | head -c 2KiB", ["AGENTS.md"]),
     ("grep warn AGENTS.md | tail -n +3MB", ["AGENTS.md"]),
     ("grep warn AGENTS.md | tail --follow=name", ["AGENTS.md"]),  # the one valueless option with an optional value
+    ("grep warn AGENTS.md | tail --follow=d", ["AGENTS.md"]),  # a prefix of descriptor
+    ("grep warn AGENTS.md | tail --pid=123 -s 0.5", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | tail --pid 123 --sleep-interval=2", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | tail --max-unchanged-stats=3 -s1", ["AGENTS.md"]),
+    ("grep --line-n warn AGENTS.md", ["AGENTS.md"]),  # an abbreviation of --line-number is no output mode
+    ("grep --co warn AGENTS.md", ["AGENTS.md"]),  # ambiguous: color, colour, context, count
+    ("rg --cou warn AGENTS.md", ["AGENTS.md"]),  # rg reads no abbreviation, so this is no --count
 ])
 def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     walked = shell_walked(command)
@@ -134,11 +141,25 @@ def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     "grep warn AGENTS.md sub/AGENTS.md | tail --zero-terminated=x", "grep warn AGENTS.md sub/AGENTS.md | head -n 1qq",
     "grep warn AGENTS.md sub/AGENTS.md | head -c 2kb", "grep warn AGENTS.md | head -n 20 -- other.md",
     "grep warn AGENTS.md | tail -n 5 - other.md",  # a file after the end of options or beside - is read instead of stdin
+    "grep --qui warn AGENTS.md", "grep --cou warn AGENTS.md", "grep --sil warn AGENTS.md",  # GNU grep reads a prefix
+    "grep --files-witho warn AGENTS.md", "grep --files-with-m warn AGENTS.md", "grep --help warn AGENTS.md",
+    "grep --vers warn AGENTS.md", "git grep --cou warn -- AGENTS.md",
 ])
 def test_a_search_that_shows_no_line_of_a_file_is_not_searched(command):
     got = _process(_call("a", command), _result("a"))
     assert got["guidance_searched"] == [] and got["guidance_read"] == []
     assert got["unknown_reads"] == 0  # unknown_reads counts reads, a search never adds to it
+
+
+@pytest.mark.parametrize("cut", [
+    "tail --follow=bad", "tail --follow=", "tail --pid=bad", "tail --pid", "tail --pid -1", "tail -s bad", "tail -sbad",
+    "tail --sleep-interval=x", "tail --sleep-interval", "tail --max-unchanged-stats=-1", "tail -n bad -n 5",
+    "head -c 1qq -c 5",
+])
+def test_a_cut_stage_the_tool_refuses_before_it_prints_keeps_no_search(cut):
+    command = f"grep warn AGENTS.md sub/AGENTS.md | {cut}"
+    assert shell_walked(command).searched == []
+    assert _process(_call("a", command), _result("a", "", True))["guidance_searched"] == []
 
 
 def test_the_issues_grep_over_two_nested_files_is_searched_and_not_read():
@@ -179,6 +200,16 @@ def test_a_relative_search_after_an_earlier_calls_cd_is_not_counted_and_is_not_a
 
 def test_the_search_starts_in_the_directory_the_harness_started_in():
     got = _process(_call("a", "grep warn AGENTS.md"), _result("a"), cwd="sub")
+    assert got["guidance_searched"] == ["sub/AGENTS.md"]
+
+
+def test_a_relative_grep_tool_path_starts_in_the_directory_the_harness_started_in():
+    given = {"output_mode": "content"}
+    (event,) = _events(_grep_tool("g", path="AGENTS.md", **given), _result("g", "AGENTS.md:1:x"), cwd="sub")
+    assert event["searched"] == ["sub/AGENTS.md"]
+    (event,) = _events(_grep_tool("g", path=f"{WS}/AGENTS.md", **given), _result("g", "x"), cwd="sub")
+    assert event["searched"] == ["AGENTS.md"]  # an absolute path stays where it is
+    got = _process(_grep_tool("g", path="AGENTS.md", **given), _result("g", "x"), cwd="sub")
     assert got["guidance_searched"] == ["sub/AGENTS.md"]
 
 
@@ -231,6 +262,8 @@ def test_codex_searches_follow_the_same_rules(started):
     assert searched("grep -e --help AGENTS.md", 0) == [["AGENTS.md"]]
     assert searched("grep -m0 warn AGENTS.md | head", 0) == [None]
     assert searched("grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", 1) == [None]
+    assert searched("grep warn AGENTS.md sub/AGENTS.md | tail --follow=bad", 1) == [None]
+    assert searched("grep --qui warn AGENTS.md", 0) == [None]
 
 
 def test_copilot_bash_searches_follow_the_same_rules():
@@ -247,6 +280,8 @@ def test_copilot_bash_searches_follow_the_same_rules():
     assert searched("grep -e --help AGENTS.md", 0) == [["AGENTS.md"]]
     assert searched("grep -m0 warn AGENTS.md | head", 0) == [None]
     assert searched("grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", 1) == [None]
+    assert searched("grep warn AGENTS.md sub/AGENTS.md | tail -s bad", 1) == [None]
+    assert searched("grep --cou warn AGENTS.md", 0) == [None]
     powershell = _jsonl({"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "powershell",
                                                                    "arguments": {"command": "grep warn AGENTS.md"}}})
     assert "searched" not in convert("copilot-json", powershell, WS).events[0]  # PowerShell is not parsed

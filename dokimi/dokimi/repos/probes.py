@@ -545,9 +545,9 @@ def _match_limit(word: str, args: Sequence[str], i: int, values: frozenset[str])
     if name in ("-m", "--max-count"):
         return value if eq else (args[i + 1] if i + 1 < len(args) else None)
     if name.startswith("-") and not name.startswith("--"):
-        for at, c in enumerate(name[1:], 2):
-            if f"-{c}" in values:
-                return (name[at:] or (args[i + 1] if i + 1 < len(args) else None)) if c == "m" else None
+        # the caller found a value letter in this word: the cluster ends there, and the rest of it is that letter's value
+        at = next(k for k, c in enumerate(name) if k and f"-{c}" in values)
+        return (name[at + 1:] or (args[i + 1] if i + 1 < len(args) else None)) if name[at] == "m" else None
     return None
 
 
