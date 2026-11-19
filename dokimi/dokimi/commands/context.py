@@ -78,7 +78,9 @@ def _table(rows: list[dict], window: int | None) -> str:
             if value is None:
                 cells.append("–")
             elif key == "peak_fill":
-                cells.append(f"{value:.0%}")
+                # from the token counts: `value` is already rounded to 4 places, and rounding it
+                # again would show 198,999 of 200,000 as 100%
+                cells.append(f"{row['peak_prompt_tokens'] / window:.0%}")
             else:
                 cells.append(f"{value:,}")
         trace = row["trace"].replace("|", "\\|")  # a `|` in a file name would split the cell

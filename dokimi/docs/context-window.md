@@ -51,8 +51,9 @@ run.jsonl: prompt tokens per call: 21390 21673
   `NotebookEdit` or `Write` call in between. A retry after an error and a
   `Read` after an `Edit` are not repeats; what is left is an agent fetching
   again what it already had.
-- **result chars**: the size of every tool result, in characters, since the
-  trace gives no token count for them. The line under the table names the
+- **result chars**: the size of the text in tool results, in characters, since
+  the trace gives no token count for them. Non-text blocks, such as an image
+  a `Read` returns, add nothing. The line under the table names the
   tools whose results weighed most.
 
 `--json` prints one `cli_output.v1` document (`kind` `trace inspect`) whose `data` is a list with one
