@@ -394,3 +394,18 @@ def test_a_cell_named_like_another_cells_partial_file_keeps_its_finished_output(
     finished = json.loads((cells_dir / "x.partial.json").read_text(encoding="utf-8"))
     assert finished["matrix_cell"] == "x.partial" and "partial" not in finished
     assert len(finished["answers"]) == len(QUESTIONS)
+
+
+def test_a_failed_final_save_names_the_partial_file_with_every_answer(tmp_path, monkeypatch, capsys):
+    # --out is a directory: every question is answered and kept, then the whole run's save fails.
+    _fake_llm(monkeypatch)
+    out = tmp_path / "arms.json"
+    out.mkdir()
+    with refusal() as exc:
+        _run(_arms_argv(tmp_path))
+    assert exc.code == 2
+    partial = tmp_path / "arms.partial.json"
+    err = capsys.readouterr().err
+    assert f"Error: cannot write {out}" in err
+    assert f"(4 answered questions are kept in {partial})" in err
+    assert json.loads(partial.read_text(encoding="utf-8"))["partial"]["questions_recorded"] == 4

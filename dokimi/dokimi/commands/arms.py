@@ -643,7 +643,8 @@ def _save_arms_output(output: dict, out_json: Path, out_md: Path, partial: _Part
     try:
         ArmRunner.save(output, out_json)
     except OSError as exc:
-        print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
+        kept = "" if partial is None else partial.note()
+        print(f"Error: cannot write {out_json}: {exc}{kept}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     print(f"OK Saved arms comparison: {out_json}")
     if partial is not None:
