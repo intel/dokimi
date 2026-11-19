@@ -56,7 +56,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from dokimi import process
-from dokimi.utils import retry_writable
+from dokimi.utils import key_bytes, retry_writable
 
 from .events import convert
 from .transcript import Transcript
@@ -194,11 +194,15 @@ def shadow_for(profile: HarnessProfile, tree: RepoTree, kinds: tuple[str, ...]) 
         return None
     if not _safe_path(name):
         raise ReachError(f"{profile.path}: guidance.shadow_file {name!r} is not a path inside a directory")
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:  # the file's text names its path, and is written as UTF-8
+        raise ReachError(f"{profile.path}: guidance.shadow_file {name!r} holds a lone surrogate, which UTF-8 cannot write") from None
     return Shadow(name, frozenset(p.casefold() for p in tree.files()), tree)
 
 
 def token(salt: str, path: str, position: str) -> str:
-    digest = hashlib.sha256(f"{salt}\0{path}\0{position}".encode("utf-8", "surrogateescape")).hexdigest()
+    digest = hashlib.sha256(key_bytes(f"{salt}\0{path}\0{position}")).hexdigest()
     return "RC" + digest[:6].upper()
 
 
@@ -524,7 +528,7 @@ def run_reach(
     probed, groups, unresolved = followable(tree, files)
     shadows = shadow_for(profile, tree, kinds)
     plan = scenarios(probed, kinds, only, shadows)
-    salt = salt or hashlib.sha256(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:12]
+    salt = salt or hashlib.sha256(key_bytes(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}")).hexdigest()[:12]
     base = _make_base(work_dir)
     workspace = base / "ws"
     try:

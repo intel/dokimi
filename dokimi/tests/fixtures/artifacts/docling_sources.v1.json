@@ -1,0 +1,7 @@
+{
+  "schema_version": "docling_sources.v1",
+  "files": [
+    {"name": "manual-pdf-2.md", "source": "../raw/v2/manual.pdf"},
+    {"name": "manual-pdf.md", "source": "../raw/manual.pdf"}
+  ]
+}

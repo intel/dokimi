@@ -134,6 +134,17 @@ def test_a_file_key_is_read(tmp_path, fake_llm, no_cache):
     assert fake_llm.requests[0].api_key == "secret"
 
 
+def test_file_reads_an_explicit_key_off_the_table_but_not_its_variable(tmp_path, monkeypatch):
+    """The module docstring's ``file:`` scope: an explicit key, or a table provider's variable."""
+    key_file = tmp_path / "key"
+    key_file.write_text("secret\n", encoding="utf-8")
+    monkeypatch.setenv("AZURE_API_KEY", "file:/no/such/key")
+    monkeypatch.setenv("OPENAI_API_KEY", f"file:{key_file}")
+    assert resolve_api_key("azure") is None
+    assert resolve_api_key("azure", f"file:{key_file}") == "secret"
+    assert resolve_api_key("openai") == "secret"
+
+
 def test_an_unreadable_file_key_raises_even_on_a_cache_hit(tmp_path, cache_dir, fake_llm):
     fake_llm.push("stored")
     LLM("m", "openai", api_key="k").complete("p")

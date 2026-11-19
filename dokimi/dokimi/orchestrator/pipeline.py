@@ -13,7 +13,7 @@ from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEF
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
-from dokimi.utils import InputError, read_json_input, refuse_device, same_evaluator
+from dokimi.utils import InputError, key_bytes, read_json_input, refuse_device, same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def compute_question_set_hash(questions: List[Dict[str, Any]]) -> str:
         f"{q.get('id', '')}:{q.get('question', q.get('question_text', q.get('text', '')))}"
         for q in questions
     )
-    raw = "\n".join(fingerprints).encode("utf-8")
+    raw = "\n".join(fingerprints).encode("utf-8", "surrogatepass")  # a `\ud800` JSON escape loads as a lone surrogate
     return hashlib.sha256(raw).hexdigest()[:12]
 
 
@@ -427,12 +427,14 @@ class EvaluationPipeline:
             results["steps"]["evaluation"]["summary"] = {
                 "with_avg": round(summary.with_mean, 1),
                 "without_avg": round(summary.without_mean, 1),
-                "delta_avg": round(summary.delta_mean, 1)
+                "delta_avg": None if summary.delta_mean is None else round(summary.delta_mean, 1)
             }
+            delta_avg = results["steps"]["evaluation"]["summary"]["delta_avg"]
             print(f"✓ Evaluated {len(evaluations)} answers: "
                   f"context={results['steps']['evaluation']['summary']['with_avg']}, "
                   f"baseline={results['steps']['evaluation']['summary']['without_avg']}, "
-                  f"delta={results['steps']['evaluation']['summary']['delta_avg']:+.1f}"
+                  + ("delta=none (a paired difference leaves the float range)" if delta_avg is None
+                     else f"delta={delta_avg:+.1f}")
                   + (f" (over the {summary.paired} scored in both arms; {summary.unpaired} left out)"
                      if summary.unpaired else ""))
         else:
@@ -498,7 +500,7 @@ class EvaluationPipeline:
         library_id = self._library_id(mcp_client)
 
         # The id is the registry's for every source, so the topics cache is also keyed on the source.
-        source_key = hashlib.sha256(self.doc_source.encode("utf-8", "surrogateescape")).hexdigest()[:16]
+        source_key = hashlib.sha256(key_bytes(self.doc_source)).hexdigest()[:16]
         extractor = RagasSeedExtractor(mcp_client=mcp_client,
                                        cache_dir=Path(".cache/topics") / source_key)
         topics = extractor.extract_topics(
@@ -703,6 +705,9 @@ class EvaluationPipeline:
         
         # Save answers
         answerer.save_answers(answers, self.answers_path, question_set_hash=question_set_hash)
+        if answerer.stop_error is not None:  # saved for what was asked; a stopped run is not judged or reported as whole
+            raise RuntimeError(f"answers stopped after {len(answers)} of {len(questions)} questions: "
+                               f"{answerer.stop_error}")
         
         return answers
     

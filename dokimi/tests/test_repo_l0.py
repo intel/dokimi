@@ -8,8 +8,8 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import time
 import warnings
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,7 @@ from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import branches, scan_repo
 from dokimi.repos.source import READ_MANY_LIMIT, GitTree, WorkTree
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 MANIFEST = {
     "schema": "repo_manifest.v1",
@@ -601,10 +602,10 @@ def test_stacked_quantifiers_of_a_branch_filter_fold_into_one(pattern, regex):
 def test_a_branch_filter_with_many_stars_matches_in_linear_time():
     """With `re`, `[^/]*a` per star backtracks polynomially: about 4 s here for 80 `a` and a `c`."""
     glob = branches._filter_regex("release/*a*a*a*a*a*a*b")
-    start = time.perf_counter()
-    assert not glob.match("release/" + "a" * 80 + "c")
+    ratio, matched = growth(lambda k: partial(glob.match, "release/" + "a" * k + "c"), 20)
+    assert ratio < GROWTH_LIMIT
+    assert not matched
     assert glob.match("release/" + "a" * 80 + "b")
-    assert time.perf_counter() - start < 1
 
 
 @pytest.mark.parametrize("pattern", ["release/*", "release/**", "release/v?1.x", "release/[0-9]+.x", "release/a?+b",

@@ -524,3 +524,9 @@ def test_a_reference_cell_carries_its_answer_error_as_an_arm_cell_does(tmp_path)
     assert scores["skill"]["error"] == "generation_failed: HTTP 500"
     assert "error" not in scores["baseline"]
     save_artifact(kind, payload, tmp_path / "arms.json")  # validates arms.v1 with the error on the cell
+
+
+def test_a_window_cut_inside_a_word_makes_no_negation():
+    # The window starts at "not zzz…": the clipped word "not" must not negate the mention after it.
+    answer = "can" + "not " + "z" * 395 + " mkl"
+    assert reference_checks._negated_before(answer, answer.index("mkl")) is False

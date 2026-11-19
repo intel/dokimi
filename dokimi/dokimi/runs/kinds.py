@@ -72,6 +72,7 @@ FIELDS: dict[str, KindFields] = {
                                          counts=("receipts",)),
     "task_inspect": KindFields(subject=("root",), counts=("items",)),
     "cli_routes": KindFields(counts=("roots", "leaves", "tombstones")),
+    "report_summary": KindFields(counts=("checks", "subjects")),
     "repo_ledger": KindFields(counts=("rules",)),
     "dokimi_config": KindFields(subject=("subjects[].id",), counts=("subjects", "shared")),
     "headroom": KindFields(counts=("items", "inputs")),
@@ -100,6 +101,7 @@ FIELDS: dict[str, KindFields] = {
     "question_quality": KindFields(subject=("library_name",),
                                    counts=("questions", "trivial_questions", "recommendations")),
     "report_qa": KindFields(time=("generated_at",), counts=("records",)),
+    "docling_sources": KindFields(counts=("files",)),
 }
 
 #: Every schema_version an artifact may carry (current and superseded) -> its kind.

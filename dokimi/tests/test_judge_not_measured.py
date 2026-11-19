@@ -28,7 +28,8 @@ def _strict_exit(argv):
     return 0
 
 
-def test_cross_judge_strict_fails_when_no_arm_was_measured(tmp_path, monkeypatch, capsys):
+def test_cross_judge_strict_is_inconclusive_when_no_arm_was_measured(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._fails_when_no_arm_was_measured; --strict exits 3 (inconclusive) (A2b)
     import json
 
     from dokimi.eval import judge as judge_mod
@@ -53,7 +54,7 @@ def test_cross_judge_strict_fails_when_no_arm_was_measured(tmp_path, monkeypatch
     for argv, arms, exit_code, why in (
         (["--answers", str(errored), "--no-stored", "--judges", "amazon-bedrock/m"], {"skill": "NOT MEASURED"},
          1, "Error: amazon-bedrock/m (aggregate) scored none of its 16 answers"),
-        (["--answers", str(empty)], {}, 1, "✗ incomplete"),
+        (["--answers", str(empty)], {}, 3, "✗ incomplete"),  # inconclusive (§2.6)
     ):
         code = _strict_exit(["eval", "judge", "agreement", *argv, "--output", str(tmp_path / "cj.json"), "--strict"])
         assert code == exit_code
@@ -62,7 +63,8 @@ def test_cross_judge_strict_fails_when_no_arm_was_measured(tmp_path, monkeypatch
         assert {a: r["label"] for a, r in summary["arms"].items()} == arms
 
 
-def test_cross_judge_strict_exits_1_when_only_one_of_several_arms_was_measured(tmp_path, monkeypatch, capsys):
+def test_cross_judge_strict_exits_3_when_only_one_of_several_arms_was_measured(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._exits_1_...; NOT MEASURED exits 3 under --strict (A2b)
     import json
 
     from dokimi.eval import judge as judge_mod
@@ -88,7 +90,7 @@ def test_cross_judge_strict_exits_1_when_only_one_of_several_arms_was_measured(t
     summary = json.loads((tmp_path / "cj.json").read_text())["summary"]
     assert summary["arms"]["skill"]["label"] != "NOT MEASURED"
     assert summary["arms"]["skill2"]["label"] == "NOT MEASURED"
-    assert code == 1
+    assert code == 3
     assert "1 of 2 arm(s) NOT MEASURED: skill2" in capsys.readouterr().err
 
 
@@ -161,19 +163,21 @@ def test_no_voter_left_by_the_validity_gate_is_not_measured():
     assert cj.label([dict(significant)], require_validated=True) == "NOT MEASURED"
 
 
-def test_cross_judge_strict_exits_1_when_require_validated_leaves_no_voter(tmp_path, capsys):
+def test_cross_judge_strict_exits_3_when_require_validated_leaves_no_voter(tmp_path, capsys):
+    # Test-narrowed: renamed from ..._exits_1_...; no voter exits 3 under --strict (A2b)
     import json
 
     path = tmp_path / "run.json"
     path.write_text(json.dumps(_stamped_run()), encoding="utf-8")
     code = _strict_exit(["eval", "judge", "agreement", "--answers", str(path), "--require-validated",
                          "--output", str(tmp_path / "cj.json"), "--strict"])
-    assert code == 1
+    assert code == 3
     assert "1 of 1 arm(s) NOT MEASURED: skill" in capsys.readouterr().err
     assert json.loads((tmp_path / "cj.json").read_text())["summary"]["arms"]["skill"]["label"] == "NOT MEASURED"
 
 
-def test_cross_judge_judge_dependent_exits_1_only_with_strict(tmp_path, monkeypatch, capsys):
+def test_cross_judge_judge_dependent_exits_4_only_with_strict(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._exits_1_only_with_strict; JUDGE-DEPENDENT exits 4 (A2b)
     import json
 
     from dokimi.eval import judge as judge_mod
@@ -193,10 +197,11 @@ def test_cross_judge_judge_dependent_exits_1_only_with_strict(tmp_path, monkeypa
     assert _strict_exit(argv) == 0
     capsys.readouterr()
     assert json.loads((tmp_path / "cj.json").read_text())["summary"]["arms"]["skill"]["label"] == "JUDGE-DEPENDENT"
-    assert _strict_exit([*argv, "--strict"]) == 1
+    assert _strict_exit([*argv, "--strict"]) == 4
 
 
-def test_cross_judge_strict_exits_1_when_one_of_several_arms_is_judge_dependent(tmp_path, monkeypatch, capsys):
+def test_cross_judge_strict_exits_4_when_one_of_several_arms_is_judge_dependent(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._exits_1_...; JUDGE-DEPENDENT arm exits 4 under --strict (A2b)
     import json
 
     from dokimi.eval import judge as judge_mod
@@ -222,7 +227,7 @@ def test_cross_judge_strict_exits_1_when_one_of_several_arms_is_judge_dependent(
     capsys.readouterr()
     arms = json.loads((tmp_path / "cj.json").read_text())["summary"]["arms"]
     assert arms["skill"]["label"] == "JUDGE-DEPENDENT" and arms["skill2"]["label"] == "CONSISTENT +"
-    assert _strict_exit([*argv, "--strict"]) == 1
+    assert _strict_exit([*argv, "--strict"]) == 4
 
 
 def test_cross_judge_strict_exits_0_when_every_arm_is_measured_and_none_is_judge_dependent(

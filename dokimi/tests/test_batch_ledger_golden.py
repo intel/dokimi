@@ -95,6 +95,7 @@ GOLDEN_META_KEYS = [
     "model",
     "model_resolved",
     "patches",
+    "probes",
     "rep",
     "start_sha",
     "task",

@@ -22,7 +22,7 @@ import importlib
 import json
 import os
 import shutil
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -32,6 +32,7 @@ from dokimi.cli import build_parser
 from dokimi.external.trigger_set import TriggerQuery, to_reach, to_skill_creator
 from dokimi.harnesses import discover_tasks
 from dokimi.task_formats import detect, inspect_path
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 
 def _write(path: Path, text: str) -> Path:
@@ -124,6 +125,16 @@ def test_task_without_environment_dockerfile_is_not_claimed_for_docker(tmp_path)
     for task in (_harbor(tmp_path), _task_md(tmp_path)):
         (task / "environment" / "Dockerfile").unlink()
         assert "docker-*" not in _one(task).consumers
+
+
+def test_harbor_task_with_a_prebuilt_docker_image_is_claimed_for_docker(tmp_path):
+    """docs/coding-harnesses.md: docker-* run a Harbor task on its [environment] docker_image."""
+    task = _harbor(tmp_path)
+    (task / "environment" / "Dockerfile").unlink()
+    _write(task / "task.toml", '[metadata]\ndifficulty = "easy"\n[environment]\ndocker_image = "python:3.12-slim"\n')
+    assert _one(task).consumers == ["harbor", "docker-*"]
+    shutil.rmtree(task / "tests")  # still no verifier, no docker-*
+    assert "docker-*" not in _one(task).consumers
 
 
 def test_task_without_tests_or_verifier_is_not_claimed_for_docker(tmp_path):
@@ -500,15 +511,19 @@ def test_inspect_task_follows_local_files_not_hub_datasets(tmp_path):
 
 
 def test_a_flood_of_unclosed_field_specs_is_scanned_in_linear_time(tmp_path):
-    flood = "    a = json_dataset('a.jsonl')\n" + "FieldSpec(" * 20000 + "\n"
-    spec = ("    return Task(dataset=json_dataset('d.jsonl',\n        FieldSpec(\n"
+    def flood(k):
+        return "    a = json_dataset('a.jsonl')\n" + "FieldSpec(" * k + "\n"
+
+    spec =("    return Task(dataset=json_dataset('d.jsonl',\n        FieldSpec(\n"
             "            input='question',\n            target='answer',\n            id='qid',\n"
             "            metadata=['topic', 'source', 'difficulty'],\n"
             "            sandbox='docker',\n        ),\n    ))\n")
-    path = _write(tmp_path / "t.py", "from inspect_ai import Task, task\n@task\ndef t():\n" + flood + spec)
-    start = time.perf_counter()
-    [report] = inspect_path(path)
-    assert time.perf_counter() - start < 1  # 10 s with an unbounded [^)]*
+    def inspect(k):
+        path = _write(tmp_path / f"t{k}.py","from inspect_ai import Task, task\n@task\ndef t():\n" + flood(k) + spec)
+        return partial(inspect_path, path)
+
+    ratio, [report] = growth(inspect, 2500)  # quadratic with an unbounded [^)]*
+    assert ratio < GROWTH_LIMIT
     fields = {Path(r["path"]).name: r.get("fields") for r in report.details["references"]}
     assert fields == {"a.jsonl": None, "d.jsonl": {"input": "question", "target": "answer", "id": "qid"}}
 
