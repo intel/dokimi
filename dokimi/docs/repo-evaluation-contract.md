@@ -780,7 +780,7 @@ no `result.json`, so the next run runs it again. A harness the cap killed before
 cell, as before.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
-directory, an unpinned remote), on a pinned local path inside a repository that is not its root and on a `--cache-dir` that is not a usable directory; a
+directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` (or, without the flag, a `$DOKIMI_REPO_CACHE`) that is not a usable directory and on a `--cache-root` or `--cache NAME=PATH` that is not one; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
 source and exits 2, for an unpinned local directory and for a pinned source (`<repo>@<sha>`) alike; a link in the tree that leads out of it, the default
@@ -2347,8 +2347,15 @@ the `dokimi:typecheck` grader above.
 eval tree to `<out>/_eval/content`, and build the image from the eval tree
 without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 `--image` names one. Cache directories default to
-`~/.cache/dokimi/caches/<id>/<name>`; `--cache NAME=PATH` points one
-elsewhere. `{source_dir}` is the source's own git directory, or
+`~/.cache/dokimi/caches/<id>/<name>`; `--cache-root` moves them all and
+`--cache NAME=PATH` points one elsewhere. A `--cache-root` or `--cache NAME=PATH` that is a regular file or
+below one (checked before a remote source is cloned), or a `--cache-root` that holds a regular file named after a
+cache, is refused before the image build with exit 2, naming the flag and the path; so is one that cannot be resolved (a symbolic link loop), and a
+`--cache-root` that is a regular file is refused also when every cache has its own `--cache` and when the
+manifest declares no cache. Without `--cache-root`, the default root (`caches/<id>` next to `$DOKIMI_REPO_CACHE`
+when it is set) is checked the same way for each cache with no `--cache`, and a `--cache` naming no cache of the
+manifest is refused there too. An existing
+read-only directory is accepted. `{source_dir}` is the source's own git directory, or
 `--source-dir`.
 
 Cloning and fetching a remote source (`url@rev`, in every `repo` command) is
