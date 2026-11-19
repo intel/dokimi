@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`explore list` and `explore run`: no task under the tasks root exits 2, not an empty list."""
+"""`eval tasks list --format localization` and `explore run`: no task under the tasks root exits 2, not an empty list."""
 
 from __future__ import annotations
 
@@ -11,6 +11,13 @@ from dokimi.cli import build_parser
 from tests.cli_refusal import refusal
 
 TASK = "id: t\nproduct: p\nquery: q\nreferences:\n  - path: a.py\n"
+
+
+def test_repo_root_is_refused_for_terminal_bench_tasks(tmp_path, capsys):
+    code, outcome = _refusal(["eval", "tasks", "list", "--tasks-root", str(tmp_path), "--repo-root", str(tmp_path)],
+                             capsys)
+    assert code == 2
+    assert "--repo-root is for --format localization" in outcome.err
 
 
 def _refusal(argv, capsys):
@@ -41,7 +48,7 @@ def bundled_empty(tmp_path, monkeypatch):
     ("bundled_empty", "No explore tasks in the bundled data/explore_tasks."),
 ])
 @pytest.mark.parametrize("argv", [
-    ["explore", "list"],
+    ["eval", "tasks", "list", "--format", "localization"],
     ["explore", "run", "--all"],
 ])
 def test_no_root_and_no_bundled_task_exits_2_naming_tasks_root(fixture, message, argv, request, capsys):
@@ -53,7 +60,7 @@ def test_no_root_and_no_bundled_task_exits_2_naming_tasks_root(fixture, message,
 
 
 @pytest.mark.parametrize("argv", [
-    ["explore", "list"],
+    ["eval", "tasks", "list", "--format", "localization"],
     ["explore", "run", "--all"],
 ])
 def test_missing_tasks_root_exits_2_naming_it(tmp_path, capsys, argv):
@@ -64,7 +71,7 @@ def test_missing_tasks_root_exits_2_naming_it(tmp_path, capsys, argv):
 
 
 @pytest.mark.parametrize("argv", [
-    ["explore", "list"],
+    ["eval", "tasks", "list", "--format", "localization"],
     ["explore", "run", "--all"],
 ])
 def test_tasks_root_with_no_yaml_exits_2(tmp_path, capsys, argv):
@@ -95,13 +102,13 @@ def test_list_with_the_bundled_tasks_still_works(capsys):
 
     if not tasks_mod.EXPLORE_TASKS_ROOT.is_dir():
         pytest.skip("no bundled explore tasks: an installed package has none")
-    args = build_parser().parse_args(["explore", "list"])
+    args = build_parser().parse_args(["eval", "tasks", "list", "--format", "localization"])
     args.func(args)
     assert capsys.readouterr().out.strip()
 
 
 def test_list_with_an_explicit_root_still_works(tmp_path, capsys):
     (tmp_path / "t.yaml").write_text(TASK, encoding="utf-8")
-    args = build_parser().parse_args(["explore", "list", "--tasks-root", str(tmp_path)])
+    args = build_parser().parse_args(["eval", "tasks", "list", "--format", "localization", "--tasks-root", str(tmp_path)])
     args.func(args)
     assert "t\tp\t1 ref(s)" in capsys.readouterr().out

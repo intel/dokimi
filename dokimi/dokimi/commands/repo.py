@@ -30,15 +30,6 @@ def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
     return printable[:max_len]
 
 
-def _write_json(path: str, payload: dict) -> None:
-    """Write a --out report as JSON, or exit 2 with `cannot write`."""
-    try:
-        Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    except OSError as exc:
-        print(f"✗ cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
-
-
 def _parse_source(args: argparse.Namespace) -> RepoSource:
     """The source as typed: a malformed string, an unpinned remote, a local path that is not a directory or a ``--cache-dir`` that is not a usable directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
     from dokimi.repos import RepoSource, SourceError
@@ -92,7 +83,7 @@ def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool 
 
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
-    """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
+    """Validate a repository's repo-eval.yaml and its tasks against one snapshot (`eval check --schema-only`, #94 M1)."""
     from dokimi.repos import check_repo
     from dokimi.repos.source import base_opener
 
@@ -103,15 +94,13 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
     if open_base is None:
         report.notes.append("task bases were not checked: the source has no git history")
 
-    if args.out:
-        _write_json(args.out, report.to_dict())
     failed = not report.ok or bool(args.fail_on_warning and report.warnings)
     if args.json:
         reason = None if not failed else (f"{len(report.errors)} error(s)" if not report.ok
                                           else f"{len(report.warnings)} warning(s) under --fail-on-warning")
         findings = [cli_output.finding("error", "validate-error", str(e), manifest.path) for e in report.errors]
         findings += [cli_output.finding("warn", "validate-warning", str(w), manifest.path) for w in report.warnings]
-        cli_output.emit_leaf("repo validate", report.to_dict(), status="failed" if failed else "complete",
+        cli_output.emit_leaf("eval check", report.to_dict(), status="failed" if failed else "complete",
                              reason=reason, subjects=[{"subject": manifest.id, "verdict": None, "findings": findings}])
     else:
         mark = "✓" if report.ok else "✗"
@@ -634,24 +623,6 @@ def register(sub, positive_int, eval_sub) -> None:
     )
     cache_help = "Clone cache directory (default: $DOKIMI_REPO_CACHE or ~/.cache/dokimi/repos)"
 
-    validate_p = repo_sub.add_parser(
-        "validate", help="Validate the manifest and every task.json against one snapshot"
-    )
-    validate_p.add_argument("source", help=source_help)
-    validate_p.add_argument(
-        "--manifest",
-        default=".agent-eval/repo-eval.yaml",
-        help="Manifest path relative to the repository root (default: .agent-eval/repo-eval.yaml)",
-    )
-    validate_p.add_argument("--manifest-file", default=None, dest="manifest_file",
-                            help="Read the manifest from this local file instead of from the tree, as if it were "
-                            "at --manifest (for a repository that has not added it yet)")
-    validate_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    validate_p.add_argument("--out", default=None, help="Write the full report as JSON to this file")
-    validate_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
-    validate_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
-                            help="Exit 1 when the report has any warning (for a CI gate)")
-    validate_p.set_defaults(func=cmd_repo_validate, emits_cli_output=True, cli_kind="repo validate")
 
     scan_p = repo_sub.add_parser(
         "scan",

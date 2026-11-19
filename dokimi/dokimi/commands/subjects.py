@@ -121,7 +121,7 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
     except (ValueError, FileNotFoundError) as exc:
         raise InputError(f"cannot load subject: {exc}") from exc
     if descriptor.subject.kind == "repo":
-        raise InputError("repo subjects are not run by `subjects run` yet; check them with `repo validate`")
+        raise InputError("repo subjects are not run by `subjects run` yet; check them with `eval check --schema-only`")
     resolve_judge(args, descriptor)
     # Attached, not produced: `skill novelty analyze` makes it, so a bad path fails here,
     # before any cell runs.

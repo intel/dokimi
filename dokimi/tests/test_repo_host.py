@@ -183,7 +183,7 @@ def _cli(argv, monkeypatch, runner):
 
 
 def _check(root, out, runner, monkeypatch, *extra):
-    _cli(["eval", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--out", str(out),
+    _cli(["eval", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--out-dir", str(out),
           "--cache-root", str(out / "caches"), *extra], monkeypatch, runner)
 
 
@@ -941,7 +941,7 @@ def test_a_probe_failure_leaves_no_marker_for_report_to_count(tmp_path, monkeypa
 def test_validate_reports_a_bad_host_shape(tmp_path, monkeypatch, capsys):
     root, _ = make_repo(tmp_path, {"fix_race": dict(RACE, host={"min_cpus": "4", "cpu_vendors": ["Intel"]})})
     with pytest.raises(SystemExit) as exc:
-        _cli(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml"], monkeypatch, HostRunner(None))
+        _cli(["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml"], monkeypatch, HostRunner(None))
     assert exc.value.code == 1
     err = capsys.readouterr()
     assert "host.min_cpus must be an integer >= 1" in err.out + err.err

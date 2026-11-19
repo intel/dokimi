@@ -110,7 +110,6 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("subjects", "evidence"), FREE),
     Leaf(("tasks", "harnesses"), FREE),
     Leaf(("tasks", "run"), PAID),
-    Leaf(("explore", "list"), FREE),
     Leaf(("explore", "run"), PAID),
     Leaf(("catalog", "list"), FREE),
     Leaf(("catalog", "show"), FREE),
@@ -132,7 +131,6 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("skill", "routing"), PAID),
     Leaf(("catalog", "routing"), PAID),
     Leaf(("catalog", "routing-compare"), FREE),
-    Leaf(("repo", "validate"), FREE),
     Leaf(("repo", "scan"), FREE),
     Leaf(("repo", "inspect"), FREE),
     Leaf(("repo", "fetch"), FREE),
@@ -187,6 +185,29 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "list"), FREE),
     Leaf(("data", "schema", "show"), FREE),
 )
+
+def _repo_validate_argv(rest: list[str]) -> list[str]:
+    """The argv `repo validate` moved to (#94 M1). Its ``--out FILE`` wrote the report; the printed argv drops the
+    file, since the report is ``--json`` on stdout now (the user redirects stdout to the file)."""
+    kept: list[str] = []
+    i = 0
+    while i < len(rest):
+        name = rest[i].split("=", 1)[0]
+        if len(name) >= 4 and "--out".startswith(name):  # --out, --ou (argparse prefix) and --out=FILE
+            i += 1 if "=" in rest[i] else 2
+        elif len(name) >= 7 and "--cache-dir".startswith(name):  # `--cache DIR` was --cache-dir; on eval check --cache is NAME=PATH
+            kept.append("--cache-dir" + rest[i][len(name):])
+            i += 1
+        else:
+            kept.append(rest[i])
+            i += 1
+    return ["eval", "check", "--schema-only", *kept]
+
+
+def _explore_list_argv(rest: list[str]) -> list[str]:
+    """The argv `explore list` moved to (#94 M1): `--json` is not a flag of `eval tasks list`, so it is not printed."""
+    return ["eval", "tasks", "list", "--format", "localization", *(t for t in rest if t != "--json")]
+
 
 def _novelty_routing_argv(rest: list[str]) -> list[str]:
     """The argv `novelty routing` moved to, given the argv after it (#94 M3).
@@ -374,6 +395,8 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("questions", "panel-review"), ("eval", "questions", "review")),
     Tombstone(("questions", "import"), ("eval", "import")),
     Tombstone(("tasks", "list"), ("eval", "tasks", "list")),
+    Tombstone(("explore", "list"), ("eval", "tasks", "list"), ("--format", "localization"), rewrite=_explore_list_argv),
+    Tombstone(("repo", "validate"), ("eval", "check"), ("--schema-only",), rewrite=_repo_validate_argv),
     Tombstone(("catalog", "trigger-set"), ("eval", "triggers", "generate")),
     Tombstone(("eval", "score"), ("eval", "score", "pointwise")),
     Tombstone(("eval", "pairwise"), ("eval", "score", "pairwise")),

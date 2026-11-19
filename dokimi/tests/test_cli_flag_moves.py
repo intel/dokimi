@@ -31,6 +31,12 @@ def _tombstone(argv: list[str], capsys) -> str:
      ["eval", "tasks", "generate", "src", "--out-dir", "t"]),
     # a retired command and a moved flag in one argv: the printed line is the final command
     (["repo", "tasks", "check", "src", "--out", "d"], ["eval", "check", "src", "--out-dir", "d"]),
+    # `repo validate --out FILE` wrote the report; the report is --json now, the file is the redirect
+    (["repo", "validate", "src", "--out", "r.json"], ["eval", "check", "--schema-only", "src"]),
+    (["repo", "validate", "src", "--out"], ["eval", "check", "--schema-only", "src"]),  # no value: still dropped
+    (["repo", "validate", "src", "--ou", "r.json"], ["eval", "check", "--schema-only", "src"]),  # argparse prefix
+    (["repo", "validate", "src", "--cache", "c"], ["eval", "check", "--schema-only", "src", "--cache-dir", "c"]),
+    (["explore", "list", "--json"], ["eval", "tasks", "list", "--format", "localization"]),  # --json is no flag of the new leaf
 ])
 def test_an_old_spelling_tombstones_with_the_new_argv(old, new, capsys):
     text = _tombstone(old, capsys)

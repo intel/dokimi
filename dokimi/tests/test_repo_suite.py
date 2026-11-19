@@ -352,7 +352,7 @@ def _check(tmp: Path, monkeypatch, suite: dict, *extra: str, tasks: dict | None 
     _commit_suite(root, base_of_fix, suite)
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
     out = tmp / "check-out"
-    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out", str(out), "--cache-root",
+    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out-dir", str(out), "--cache-root",
                                       str(out / "caches"), "--suite", ".agent-eval/suite.yaml", *extra])
     code = 0
     try:
@@ -463,7 +463,7 @@ def test_an_empty_suite_path_is_refused_by_self_check_too(tmp_path, monkeypatch,
     root, _ = make_repo(tmp_path)
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
     out = tmp_path / "check-out"
-    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out", str(out), "--cache-root",
+    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out-dir", str(out), "--cache-root",
                                       str(out / "caches"), "--suite", "", "--task", "review_add"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)

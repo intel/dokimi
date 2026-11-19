@@ -8,7 +8,7 @@ judge check. Commands run from the dokimi project directory.
 Repository tasks (`repo-eval.yaml` + `task.json`):
 
 ```bash
-python cli.py repo validate <source> --manifest <path/to/repo-eval.yaml> --fail-on-warning
+python cli.py eval check --schema-only <source> --manifest <path/to/repo-eval.yaml> --fail-on-warning
 ```
 
 Harbor tasks: there is no validate command. `eval tasks list` only shows that the
