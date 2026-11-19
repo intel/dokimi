@@ -80,4 +80,4 @@ def test_a_non_ascii_argv_entry_in_an_ascii_file_system_is_refused_or_sent_as_gi
             "print('SENT' if done.argv[-1] == s else 'CHANGED')\n")
     env = {**os.environ, "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0", "LC_ALL": "C"}
     done = subprocess.run([PY, "-c", code], capture_output=True, text=True, env=env, timeout=120, check=False)
-    assert done.returncode != 0 or done.stdout.strip() == "SENT", done.stdout + done.stderr
+    assert (done.returncode != 0 and "UnicodeEncodeError" in done.stderr) or done.stdout.strip() == "SENT", done.stdout + done.stderr
