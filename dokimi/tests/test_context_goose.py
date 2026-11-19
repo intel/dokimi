@@ -224,3 +224,47 @@ def test_a_message_whose_content_is_an_object_is_reported_and_the_rest_still_rea
     assert [e.text for e in session.events] == ["push the branch now"]
     assert len(session.errors) == 2
     assert all(err.endswith("content is not a list of blocks") for err in session.errors)
+
+
+def _prefilter_status(tmp_path, capsys, db):
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), str(db), "--min-sessions", "1", "--json"])
+    args.func(args)
+    captured = capsys.readouterr()
+    return json.loads(captured.out), captured.err
+
+
+def test_a_dropped_session_with_a_bad_message_makes_the_report_partial(tmp_path, capsys):
+    """#938: ``docs/session-prefilter.md`` makes a report ``partial`` when a session had skipped records."""
+    db = _store(tmp_path, {"s1": [("user", _text("Keep the changelog fragment current."), None)], "s2": []})
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp) "
+                 "VALUES ('s2', 'user', '{\"type\": \"text\", \"text\": \"x\"}', 1)")
+    conn.commit()
+    conn.close()
+    report, err = _prefilter_status(tmp_path, capsys, db)
+    assert "content is not a list of blocks" in err
+    assert report["data"]["sessions"] == 1
+    assert report["status"] == "partial"
+
+
+def test_a_store_with_no_bad_message_stays_complete(tmp_path, capsys):
+    """#938: the dropped-session flag does not make a clean store partial."""
+    db = _store(tmp_path, {"s1": [("user", _text("Keep the changelog fragment current."), None)], "s2": []})
+    report, err = _prefilter_status(tmp_path, capsys, db)
+    assert report["status"] == "complete" and "warning" not in err
+
+
+def test_read_sessions_hands_back_the_dropped_sessions(tmp_path):
+    """#938: ``_read_sessions`` appends the sessions it left out to ``dropped``."""
+    from dokimi.commands.context import _read_sessions
+    db = _store(tmp_path, {"s0": [("user", _text("push the branch now"), None)], "s1": []})
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp) "
+                 "VALUES ('s1', 'user', 'not json', 1)")
+    conn.commit()
+    conn.close()
+    dropped: list = []
+    loaded, _ = _read_sessions([str(db)], dropped)
+    assert len(loaded) == 1 and [s.errors for s in dropped] == [["message 2: content is not JSON"]]

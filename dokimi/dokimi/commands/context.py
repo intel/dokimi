@@ -183,7 +183,8 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     except OSError as exc:  # missing, a directory, unreadable: an input refusal, exit 2
         _refuse(f"guidance {guidance}: {exc.strerror or exc}")
 
-    sessions, failed = _read_sessions(args.sessions)
+    unreadable: list = []
+    sessions, failed = _read_sessions(args.sessions, unreadable)
     if not sessions:
         _refuse("no session could be read")
     report = build_report(guidance.name, text, sessions, window=args.window, min_sessions=args.min_sessions,
@@ -191,7 +192,7 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     if not report["claims"]:
         print(f"warning: no rules found in {guidance}", file=sys.stderr)
     if args.json:
-        skipped = any(s.errors for s in sessions)
+        skipped = any(s.errors for s in [*sessions, *unreadable])  # #938: a dropped session's records count
         reason = ("one or more sessions could not be read (see stderr)" if failed
                   else "records of a session were skipped (see stderr)" if skipped else None)
         cli_output.emit_leaf("trace prefilter", report, status="partial" if reason else "complete", reason=reason)
@@ -201,12 +202,13 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _read_sessions(names: list[str]) -> tuple[list, bool]:
+def _read_sessions(names: list[str], dropped: list | None = None) -> tuple[list, bool]:
     """Every readable session of ``names``: JSONL logs or Goose stores; a quoted glob expands.
 
     A file is read once however often it is named (a repeat, a glob that overlaps, a symlink to it). A Claude Code
     session is read with its subagents' transcripts; such a transcript named on its own is skipped with a warning.
-    Logs that share a record (a resumed or forked session) are one session.
+    Logs that share a record (a resumed or forked session) are one session. Given ``dropped``, the Goose sessions
+    left out for holding only unreadable messages are appended there, so their errors can still set the status.
     """
     from dokimi.context.goose_log import is_goose_store, read_goose_store
     from dokimi.context.session_log import SessionError, merge_repeats, read_session_tree, subagent_files
@@ -230,6 +232,8 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
         for session in [*sessions, *unreadable]:
             for problem in session.errors:
                 print(f"warning: {session.name}: {problem}", file=sys.stderr)
+        if dropped is not None:
+            dropped.extend(unreadable)
         for session in sessions:
             if session.sidechain_only:
                 print(f"warning: {path}: a subagent transcript without its session log; skipped", file=sys.stderr)
