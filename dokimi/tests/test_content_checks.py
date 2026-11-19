@@ -68,6 +68,32 @@ def test_legacy_id_in_bundled_script_names_the_file_and_line(tmp_path):
     assert message.startswith("scripts/call.py line 1:")
 
 
+@pytest.mark.parametrize(
+    ("alias", "state"),
+    [
+        ("claude-opus-4-0", "retired by anthropic on 2026-06-15"),
+        ("claude-sonnet-4-0", "retired by anthropic on 2026-06-15"),
+        ("claude-opus-4-1", "retired by anthropic on 2026-08-05"),
+    ],
+)
+def test_alias_of_a_retired_dated_id_is_a_warning(tmp_path, alias, state):
+    # #945: an alias beside a retired dated ID in legacy_models.toml is read as the same retired model.
+    _skill(tmp_path / "skills", "alias-only", body=f'\nCall the API with `model="{alias}"`.\n')
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert f"'{alias}'" in message
+    assert state in message
+
+
+def test_alias_does_not_match_inside_a_dated_id_or_a_longer_name(tmp_path):
+    # #945, and docs/external-content.md: IDs match whole tokens, so adding an alias adds no second match.
+    # The dated ID is one finding, not two; "claude-opus-4-0-beta" is a different name.
+    _skill(tmp_path / "skills", "dated", body="Use claude-opus-4-20250514 and claude-opus-4-0-beta.\n")
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert "'claude-opus-4-20250514'" in message
+
+
 def test_model_id_inside_a_longer_name_or_a_version_step_is_not_matched(tmp_path):
     # "gpt-4" is listed, but "gpt-4.1" is a different model; "-notes" makes the opus ID part of a longer name.
     _skill(

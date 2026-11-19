@@ -29,21 +29,21 @@ replacement = "claude-mythos-5-1 (Project Glasswing) or claude-fable-5-1"
 
 [[model]]
 vendor = "anthropic"
-ids = ["claude-opus-4-1-20250805"]
+ids = ["claude-opus-4-1", "claude-opus-4-1-20250805"]
 status = "retired"
 date = "2026-08-05"
 replacement = "claude-opus-4-8"
 
 [[model]]
 vendor = "anthropic"
-ids = ["claude-opus-4-20250514"]
+ids = ["claude-opus-4-0", "claude-opus-4-20250514"]
 status = "retired"
 date = "2026-06-15"
 replacement = "claude-opus-4-8"
 
 [[model]]
 vendor = "anthropic"
-ids = ["claude-sonnet-4-20250514"]
+ids = ["claude-sonnet-4-0", "claude-sonnet-4-20250514"]
 status = "retired"
 date = "2026-06-15"
 replacement = "claude-sonnet-5-5"
