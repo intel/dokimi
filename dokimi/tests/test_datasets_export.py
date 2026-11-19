@@ -85,6 +85,11 @@ def test_to_jsonl_keeps_a_lone_surrogate_key_apart_from_a_question_mark_key(tmp_
     assert json.loads(path.read_bytes().decode("utf-8")) == {"\ud800": 1, "?": 2}
 
 
+def test_to_jsonl_refuses_a_pair_key_beside_its_character_key(tmp_path):
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([{chr(0xD83D) + chr(0xDE00): 1, "\U0001F600": 2}], tmp_path / "rows.jsonl")
+
+
 def test_export_answers_artifact_jsonl(tmp_path):
     """The answers kind flattens a nested per-arm record, which the questions kind does not
     exercise. This used to point at a captured product run under a path that never existed,

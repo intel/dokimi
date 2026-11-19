@@ -6,6 +6,7 @@
 read_spool reads back a spooled capture; join_capture joins the head and tail of a capture that was cut.
 """
 
+import json
 import os
 import re
 import sys
@@ -32,8 +33,19 @@ def utf8_bytes(text: str) -> bytes:
 
 def json_utf8_bytes(text: str) -> bytes:
     """JSON *text* (from ``json.dumps(..., ensure_ascii=False)``) as UTF-8 with its surrogate pairs joined and each lone
-    surrogate kept as its ``\\udXXX`` escape, which ``json.loads`` reads back: two object keys never collapse into one."""
-    return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", joined_pairs(text)).encode("utf-8")
+    surrogate kept as its ``\\udXXX`` escape, which ``json.loads`` reads back: two object keys never collapse into one.
+    Raises ValueError when joining makes two keys of one object equal (a pair key beside its character): a reader keeps one."""
+    joined = joined_pairs(text)
+    if joined != text:
+        json.loads(joined, object_pairs_hook=_distinct_keys)
+    return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", joined).encode("utf-8")
+
+
+def _distinct_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    keys = {key for key, _ in pairs}
+    if len(keys) < len(pairs):
+        raise ValueError("two object keys are the same once their surrogate pairs are joined; a reader would keep one")
+    return dict(pairs)
 
 
 def argv_text(text: str) -> str:

@@ -281,6 +281,15 @@ def test_write_golden_keeps_a_lone_surrogate_key_apart_from_a_question_mark_key(
     assert json.loads(path.read_bytes().decode("utf-8"))["request"] == {"\ud800": 1, "?": 2}
 
 
+def test_write_golden_refuses_a_pair_key_beside_its_character_key(tmp_path):
+    path = tmp_path / "bare.json"
+
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        fd.write_golden(path, {chr(0xD83D) + chr(0xDE00): 1, "\U0001F600": 2}, version="2.1.318", case="bare")
+
+    assert not path.exists()
+
+
 def _record_with(text: str, headers: dict | None = None) -> dict:
     body = {"model": "claude-haiku-4-5", "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}]}
     return {"path": "/v1/messages", "headers": headers or {}, "body": body}

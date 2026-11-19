@@ -536,6 +536,17 @@ def test_two_object_keys_one_a_lone_surrogate_stay_two_keys_on_reload(tmp_path):
     assert json.loads(out.read_bytes().decode("utf-8"))["questions"][0]["extra"] == extra
 
 
+def test_a_pair_key_beside_its_character_key_is_refused_and_nothing_is_written(tmp_path):
+    out = tmp_path / "q.json"
+    extra = {chr(0xD83D) + chr(0xDE00): 1, "\U0001F600": 2}
+
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        save_artifact("questions", {"questions": [{"id": "q1", "question": "Q", "extra": extra}]}, out,
+                      ensure_ascii=False)
+
+    assert not out.exists() and not list(tmp_path.glob("*.tmp"))
+
+
 @pytest.mark.parametrize(("value", "loaded", "raw_part"), _SURROGATE_CASES[:2])
 def test_a_rejected_payload_with_a_surrogate_is_kept_as_utf8(tmp_path, value, loaded, raw_part):
     out = tmp_path / "a.json"
