@@ -50,6 +50,8 @@ def _verifier(stdout: str, returncode: int):
 
 
 @pytest.mark.parametrize(("output", "expected"), [
+    ("\x1b[31m1 failed\x1b[0m in 0.10s\n", {"failed": 1}),
+    ("===== 2 failed, 1 passed in 0.52 seconds =====\n", {"failed": 2, "passed": 1}),
     (FAILED_TWO, {"failed": 2, "passed": 1}),
     (ERRORS_THREE, {"passed": 1, "error": 3}),
     ("=== 4 failed in 1.00s ===\n", {"failed": 4}),
