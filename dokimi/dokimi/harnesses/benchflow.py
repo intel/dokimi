@@ -407,9 +407,8 @@ class BenchflowHarness:
             "--sandbox", self.sandbox,
             "--skill-mode", self.skill_mode,
             "--jobs-dir", str(jobs_dir),
-            # BenchFlow's default max_retries=2 reruns a whole rollout, even after a reward.
-            # One cell is one attempt, like a Harbor cell; --reps is the only repetition.
-            # (Help text says "Reserved", but cli/main.py maps it to max_retries.)
+            # BenchFlow's default max_retries=2 reruns a rollout; one cell is one attempt (--reps).
+            # Its help says "Reserved", but cli/main.py maps --retry-attempts to max_retries.
             "--retry-attempts", "0",
             # BenchFlow's default idle watchdog ends a prompt after 600 s without
             # a tool call, message or thought, long before a larger task budget;
