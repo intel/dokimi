@@ -131,6 +131,24 @@ def test_clearing_the_reward_files_removes_a_directory_with_a_read_only_subdirec
     assert [p.name for p in tmp_path.iterdir()] == ["keep.log"]
 
 
+@pytest.mark.parametrize("target", ["absent", "host"])
+def test_a_reward_json_that_is_a_symbolic_link_errors_the_cell(tmp_path, target):
+    # docker cp keeps a link; its target would be looked up on the host, absent or someone else's file.
+    host_file = tmp_path / "host-verdict.json"
+    if target == "host":
+        host_file.write_text('{"reward": 1.0}', encoding="utf-8")
+
+    def copies_a_link(call):
+        if call.argv[1] == "cp" and call.argv[2].endswith(":/logs/verifier/reward.json"):
+            Path(call.argv[3]).symlink_to(host_file)
+            return reply()
+        return None
+
+    with pytest.raises(RuntimeError, match="/logs/verifier/reward.json is not a file but a symbolic link"):
+        _verify(tmp_path, DockerCLI(reward="1", answer=copies_a_link))
+    assert not (tmp_path / "o" / "reward.json").is_symlink()
+
+
 def test_a_reward_json_directory_that_cannot_be_removed_errors_the_cell(tmp_path, monkeypatch):
     # Left in place, it would take the next copy (docker cp into an existing directory).
     monkeypatch.setattr("dokimi.harnesses.verifier_reward.shutil.rmtree", lambda *_a, **_k: None)

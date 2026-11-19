@@ -73,17 +73,19 @@ def pull_reward(docker: Docker, container: str, output_dir: Path, log: Any) -> t
 
     ``(None, None)`` when it wrote none; ``(None, why)`` when a copy failed, which stops the search:
     a later file may not stand in for one that could not be read. Raises :class:`RuntimeError` when
-    the first file there is not a file or holds no reward.
+    the first file there is not a regular file or holds no reward.
     """
     clear_reward_files(output_dir)
     for name in REWARD_FILES:
         dest = output_dir / name
         pulled = docker(["cp", f"{container}:/logs/verifier/{name}", str(dest)], log, check=False)
-        if pulled.returncode == 0 and dest.is_file():
+        # A copied link would be read on the host (is_file() follows it), its target not the container's.
+        if pulled.returncode == 0 and dest.is_file() and not dest.is_symlink():
             return reward_file_verdict(name, dest.read_text(encoding="utf-8", errors="replace")), None
-        if pulled.returncode == 0 and dest.exists():  # Harbor takes any path there, then cannot read it
+        if pulled.returncode == 0 and (dest.is_symlink() or dest.exists()):
+            kind = "symbolic link" if dest.is_symlink() else "directory"
             clear_reward_files(output_dir)
-            raise RuntimeError(f"/logs/verifier/{name} is not a file; see run.log")
+            raise RuntimeError(f"/logs/verifier/{name} is not a file but a {kind}; see run.log")
         failed = _copy_error(pulled, name)
         if failed:
             return None, failed
