@@ -718,9 +718,10 @@ that adds one of these words the source lacks: `skip`, `unless`, `unreliable`, `
 `unsuitable`, `unhelpful`, `wrong`, plus the bound and permission words (`any`, `all`, `newer`,
 `safe`, ...); and `entirety` or `always` when the source limits scope (`only`, `subset`,
 `not`, `never`, ...) and the candidate drops that limiter (`Only administrators ...` to `... always only
-administrators ...` keeps it and is rejected). `skip` next to `wrong`, `useless`, `unreliable`,
-`unsuitable` or `unhelpful` cancels (`Is it wrong to skip warm-up?` restates `warm up first`) and is
-rejected. A filler word (`still`, `also`, `even`, `just`) is never one. An
+administrators ...` keeps it and is rejected). `skip` governed by `wrong`, `useless`, `unreliable`,
+`unsuitable` or `unhelpful` (`... to skip`, up to two words between) cancels (`Is it wrong to skip
+warm-up?` restates `warm up first`) and is rejected; the adjective after `skip` (`skip warm-up
+because it is useless`) does not cancel it. A filler word (`still`, `also`, `even`, `just`) is never one. An
 inversion made by a pure antonym with no listed word (`preferable`, `stays the same`, `faster`
 to `slower`, `off` to `on`) is rejected and inflates the rate, while a restatement whose verb
 carries the negation (`does not support` to `lacks support for`) is not detected and is probed

@@ -419,6 +419,15 @@ def test_a_skip_cancelled_by_a_negative_adjective_restates_the_source():
     ) != []
 
 
+def test_an_adjective_describing_what_is_skipped_does_not_cancel_the_skip():
+    source = "When measuring a speedup, warm up first and then time the steady state."
+    assert check_wording(
+        "reversal", source=source,
+        candidate="When measuring a speedup, should you skip warm-up because it is useless "
+        "and time the first cold run?",
+    ) == []
+
+
 def test_a_quantifier_beside_a_limiter_the_candidate_keeps_is_rejected():
     # The candidate keeps "only", so "always" widens nothing; dropping the limiter inverts.
     source = "Only administrators can configure the tool."

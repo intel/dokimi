@@ -108,6 +108,10 @@ _QUANTIFIER_MARKERS = re.compile(
     r"\b(?:entirety|always)\b", re.I,
 )
 _NEGATIVE_ADJECTIVES = frozenset({"unreliable", "useless", "unsuitable", "unhelpful", "wrong"})
+# "wrong to skip" negates the skip; "skip it because it is useless" describes what is skipped.
+_CANCELLING_SKIP = re.compile(
+    r"\b(" + "|".join(sorted(_NEGATIVE_ADJECTIVES)) + r")\s+(?:\w+\s+){0,2}?to\s+skip\b", re.I,
+)
 _SCOPE_LIMITERS = re.compile(
     r"\b(?:only|subset|some|sometimes|once|single|few|partial(?:ly)?|never|not|no|none|"
     r"cannot|without|except)\b|n't\b",
@@ -336,7 +340,8 @@ def _new_markers(source: str, text: str) -> set[str]:
     """Inversion markers ``text`` has and ``source`` lacks.
 
     A quantifier counts only when ``text`` drops a scope limiter of ``source``, and ``skip``
-    cancels against a negative adjective ("wrong to skip" keeps the source's meaning).
+    cancels against a negative adjective that governs it ("wrong to skip" keeps the source's
+    meaning; "skip it because it is useless" does not).
     """
     patterns = [_INVERSION_MARKERS]
     if _SCOPE_LIMITERS.findall(source) and {
@@ -346,8 +351,9 @@ def _new_markers(source: str, text: str) -> set[str]:
     found = {
         m.lower() for pattern in patterns for m in pattern.findall(text)
     } - {m.lower() for pattern in patterns for m in pattern.findall(source)}
-    if "skip" in found and found & _NEGATIVE_ADJECTIVES:
-        found -= {"skip"} | _NEGATIVE_ADJECTIVES
+    cancelling = {m.lower() for m in _CANCELLING_SKIP.findall(text)} & found
+    if "skip" in found and cancelling:
+        found -= {"skip"} | cancelling
     return found
 
 
