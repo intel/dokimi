@@ -18,5 +18,7 @@ SPDX-License-Identifier: Apache-2.0
   same rule, and still reads any `reward.txt` under its run dir first:
   `{"group_score": 0.2, "reward": 0.9}` is 0.9 (it was 0.2, the first labelled number), and a bare
   `0.5`, or several keys without `reward`, now errors the cell (`no verdict: exit N, reward file
-  has no reward`) where it scored 0.5 or the first labelled number; write `{"reward": x}`. See
+  has no reward`) where it scored 0.5 or the first labelled number; write `{"reward": x}`. A
+  Harbor-backed cell whose trial `result.json` has one reward under another name
+  (`"rewards": {"accuracy": 0.5}`) now scores it, as Harbor does, instead of erroring. See
   `docs/coding-harnesses.md`.

@@ -21,7 +21,7 @@ from .models import HarnessResult, OperationRecord
 from .operations import load_operations
 from .harbor_export import harbor_view
 from .tasks import TaskSpec, harbor_task_problem
-from .verifier_reward import _parse_reward_text, reward_in_file
+from .verifier_reward import _parse_reward_text, primary_reward, reward_in_file
 
 
 _PLACEHOLDERS = (
@@ -346,7 +346,7 @@ def _harbor_reward(trial: dict[str, Any]) -> float | None:
     """Verifier result reward: must be finite and in [0, 1], else None (treated as missing)."""
     verifier = trial.get("verifier_result")
     rewards = verifier.get("rewards") if isinstance(verifier, dict) else None
-    value = rewards.get("reward") if isinstance(rewards, dict) else None
+    value = primary_reward(rewards) if isinstance(rewards, dict) else None
     number = _number(value)  # already finite, so inf/nan are None here
     # Reward must be in [0, 1]
     if number is not None and 0.0 <= number <= 1.0:

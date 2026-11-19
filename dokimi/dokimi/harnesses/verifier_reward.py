@@ -17,7 +17,7 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from dokimi import process
 from dokimi.docker_cmd import Docker
@@ -38,6 +38,13 @@ def reward_in_file(name: str, text: str) -> float:
     return reward
 
 
+def primary_reward(rewards: Mapping[str, Any]) -> Any:
+    """The value Harbor takes as a trial's reward: its ``reward`` key, else its only key, else None."""
+    if "reward" in rewards:
+        return rewards["reward"]
+    return next(iter(rewards.values())) if len(rewards) == 1 else None
+
+
 def _json_reward(text: str) -> float:
     try:
         rewards = json.loads(text)
@@ -49,11 +56,8 @@ def _json_reward(text: str) -> float:
     for key, value in rewards.items():
         if not isinstance(value, (int, float)) or (isinstance(value, float) and not math.isfinite(value)):
             raise ValueError(f"has a reward {key!r} that is not a finite number: {value!r}")
-    if "reward" in rewards:
-        value = rewards["reward"]
-    elif len(rewards) == 1:
-        value = next(iter(rewards.values()))
-    else:
+    value = primary_reward(rewards)
+    if value is None:
         raise ValueError(f"has no 'reward' key among {len(rewards)} rewards")
     # bool is an int subclass: true is not a reward.
     if isinstance(value, bool) or not 0.0 <= value <= 1.0:

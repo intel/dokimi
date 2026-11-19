@@ -195,6 +195,29 @@ def test_a_trial_without_a_numeric_reward_is_errored(tmp_path, verifier_result):
     assert result.metrics["error"] == "harbor: trial result.json has no verifier_result.rewards.reward"
 
 
+@pytest.mark.parametrize(("rewards", "expected"), [
+    ({"accuracy": 0.5}, 0.5),  # Harbor's _primary_reward (harbor 0.24.0 cli/jobs.py): the only key
+    ({"accuracy": 0.5, "reward": 0.25}, 0.25),
+])
+def test_a_trial_reward_is_its_reward_key_or_its_only_key(tmp_path, rewards, expected):
+    def set_rewards(trial):
+        trial["verifier_result"] = {"rewards": rewards}
+
+    result = _run(tmp_path, _harbor_writes("pass", edit=set_rewards))
+
+    assert (result.passed, result.reward) == (False, expected)
+
+
+def test_a_trial_with_several_rewards_and_no_reward_key_is_errored(tmp_path):
+    def set_rewards(trial):
+        trial["verifier_result"] = {"rewards": {"accuracy": 1.0, "recall": 1.0}}
+
+    result = _run(tmp_path, _harbor_writes("pass", edit=set_rewards))
+
+    assert (result.passed, result.reward) == (False, None)
+    assert result.metrics["error"] == "harbor: trial result.json has no verifier_result.rewards.reward"
+
+
 @pytest.mark.parametrize("returncode", [0, 1])
 def test_no_result_json_is_errored_never_the_exit_code(tmp_path, returncode):
     # Harbor's own summary on stdout, and a stray reward file: neither is a verdict.
