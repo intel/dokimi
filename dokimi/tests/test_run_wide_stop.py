@@ -101,8 +101,8 @@ def test_arms_run_exits_1_and_names_the_stop_when_the_artifact_is_terminated(mon
     monkeypatch.setattr(arms_cmd, "run_config_from_args", lambda a: SimpleNamespace(product="lib"))
     monkeypatch.setattr(arms_cmd, "_with_named_cell", lambda cfg, cells, cell: cfg)
     monkeypatch.setattr(arms_run, "prepare_arms", lambda cfg, specs, questions: object())
-    monkeypatch.setattr(arms_run, "run_prepared", lambda prepared, cfg, questions: _terminated_output())
-    monkeypatch.setattr(arms_cmd, "_save_arms_output", lambda output, out_json, out_md: None)
+    monkeypatch.setattr(arms_run, "run_prepared", lambda prepared, cfg, questions, on_partial=None: _terminated_output())
+    monkeypatch.setattr(arms_cmd, "_save_arms_output", lambda output, out_json, out_md, partial=None: None)
     args = SimpleNamespace(arms="baseline", questions="q.json", matrix_cells=None, matrix_cell=None,
                            product="lib", out_json=str(tmp_path / "a.json"), out_md=str(tmp_path / "a.md"),
                            baseline_arm="baseline")
@@ -120,7 +120,7 @@ def test_a_matrix_stops_at_the_terminated_cell_after_saving_it(monkeypatch):
     monkeypatch.setattr(arms_run, "cell_config", lambda config, cell: config)
     monkeypatch.setattr(arms_run, "prepare_arms", lambda cfg, specs, questions: object())
     ran, saved = [], []
-    monkeypatch.setattr(arms_run, "run_prepared", lambda prepared, cfg, questions: (ran.append(cfg), _terminated_output())[1])
+    monkeypatch.setattr(arms_run, "run_prepared", lambda prepared, cfg, questions, on_partial=None: (ran.append(cfg), _terminated_output())[1])
     cells = [SimpleNamespace(name="first"), SimpleNamespace(name="second")]
 
     with pytest.raises(arms_run.MatrixCellError) as exc:

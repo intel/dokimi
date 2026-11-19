@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi import cli_flags
+from dokimi.commands.novelty_budget import partial_destination
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import InputError, question_id
@@ -83,17 +84,18 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
         raise InputError(str(exc)) from exc
     except (ValueError, OSError, RecursionError) as exc:
         raise InputError(f"cannot build arms/plugins: {exc}") from exc
+    out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
+    out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
+    partial = _Partial(out_json)
     try:
-        output = run_prepared(prepared, config, questions)
+        output = run_prepared(prepared, config, questions, on_partial=partial.save)
     except EmptyQuestionError:
         raise  # a bad input record, not a run error: cli.main reports it (exit 2)
     except (ValueError, OSError, RecursionError) as exc:
-        print(f"Error running arms: {exc}", file=sys.stderr)
+        print(f"Error running arms: {exc}{partial.note()}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
 
-    out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
-    out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
-    _save_arms_output(output, out_json, out_md)
+    _save_arms_output(output, out_json, out_md, partial)
 
     if output.get("summary", {}).get("per_arm"):
         print("\nSummary (avg aggregate):")
@@ -198,22 +200,30 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
     _check_cells_dir(cells_dir)
     cell_artifacts = []
 
+    partials: dict[str, _Partial] = {}
+
+    def before_run() -> None:  # once every cell is set up: the partial files are named in the dir made here
+        _make_cells_dir(cells_dir)
+        partials.update((cell.name, _Partial(cells_dir / f"{_safe_name(cell.name)}.json")) for cell in cells)
+
     def save_cell(cell, output: dict) -> None:
         safe_name = _safe_name(cell.name)
         cell_json = cells_dir / f"{safe_name}.json"
-        _save_arms_output(output, cell_json, cells_dir / f"{safe_name}.md")
+        _save_arms_output(output, cell_json, cells_dir / f"{safe_name}.md", partials.get(cell.name))
         cell_artifacts.append((cell.name, cell_json, output))
 
     try:
         arms_run.run_matrix(config, cells, specs, loaded_questions, on_cell=save_cell,
-                            before_run=lambda: _make_cells_dir(cells_dir))
+                            before_run=before_run,
+                            on_partial=lambda cell, out: partials[cell.name].save(out))
     except EmptyQuestionError:
         raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
     except arms_run.LibraryIdError as exc:
         raise InputError(str(exc)) from exc
     except arms_run.MatrixCellError as exc:
         verb = "building" if exc.usage else "running"
-        print(f"Error {verb} matrix cell {exc.cell!r}: {exc}", file=sys.stderr)
+        kept = partials[exc.cell].note() if exc.cell in partials else ""
+        print(f"Error {verb} matrix cell {exc.cell!r}: {exc}{kept}", file=sys.stderr)
         sys.exit(EXIT_USAGE if exc.usage else EXIT_FAILURE)
 
     rollup = build_matrix_rollup(
@@ -575,7 +585,48 @@ def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
         sys.exit(EXIT_USAGE)
 
 
-def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
+class _Partial:
+    """The file a run keeps its answered questions in until it saves *out_json* whole (#228 step 4).
+
+    ``<stem>.partial.json`` beside it, or the next free name: never a finished file, as for novelty
+    runs. A path that cannot be named is refused here (``InputError``), before any answer is paid for.
+    """
+
+    def __init__(self, out_json: Path) -> None:
+        try:
+            self.path = partial_destination(out_json)
+        except OSError as exc:
+            raise InputError(f"cannot write {out_json}: {exc}") from exc
+        self.recorded = 0
+        self.failed = False
+
+    def save(self, output: dict) -> None:
+        if self.failed:  # the run is stopping on the first failure: the questions still in flight add no message
+            return
+        try:
+            _save_artifact_or_exit("arms", output, self.path)
+        except BaseException:
+            self.failed = True
+            raise
+        self.recorded = output["partial"]["questions_recorded"]
+
+    def drop(self) -> None:
+        """Remove the file once the run is saved whole; one this run did not write (an earlier run's) stays."""
+        if not self.recorded:
+            return
+        self.recorded = 0
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError as exc:  # the run is saved whole; the stale partial file only takes space
+            print(f"Warning: could not remove {self.path}: {exc}", file=sys.stderr)
+
+    def note(self) -> str:
+        """Where the questions this run answered went, for the message of a run that failed before its save."""
+        return f" ({self.recorded} answered questions are kept in {self.path})" if self.recorded else ""
+
+
+def _save_arms_output(output: dict, out_json: Path, out_md: Path, partial: _Partial | None = None) -> None:
+    """Save the run whole, then drop *partial*, the file it kept while answering."""
     from dokimi.eval.arm_runner import ArmRunner
     from dokimi.report.arms_report import render_arms_report
 
@@ -585,6 +636,8 @@ def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
         print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     print(f"OK Saved arms comparison: {out_json}")
+    if partial is not None:
+        partial.drop()
     _write_report(out_md, render_arms_report(output))
     print(f"OK Saved arms report:     {out_md}")
 

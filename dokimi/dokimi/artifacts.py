@@ -349,7 +349,8 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
     """Read and (optionally) validate an artifact of ``kind`` from ``path``.
 
     Every failure is an :class:`~dokimi.utils.InputError` naming ``path``: a file that is
-    missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema.
+    missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema, and
+    the partial file of an unfinished novelty or arms run.
     """
     data = read_json_input(path)
     if not isinstance(data, dict):
@@ -362,6 +363,11 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
                              "Drop --max-usd to run unmetered" if reason == "no_price" else
                              "Fix the provider error and rerun" if reason == "permanent_error" else
                              "Rerun with a higher --max-usd, or without the cap"))
+    if kind == "arms":
+        from dokimi.records import partial_refusal
+
+        if refusal := partial_refusal(data, str(path)):
+            raise InputError(refusal)
     if validate:
         try:
             validate_artifact(kind, data)
