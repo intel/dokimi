@@ -31,7 +31,8 @@ CASES = [pytest.param(LONE, "n?", id="lone"), pytest.param(PAIR, JOINED, id="pai
 def test_json_is_indented_keeps_non_ascii_and_ends_in_one_newline(tmp_path):
     path = tmp_path / "x.json"
     write_json_atomic(path, {"a": ["é", 1], "b": {}})
-    assert path.read_bytes() == b'{\n  "a": [\n    "\xc3\xa9",\n    1\n  ],\n  "b": {}\n}\n'
+    expected = b'{\n  "a": [\n    "\xc3\xa9",\n    1\n  ],\n  "b": {}\n}\n'
+    assert path.read_bytes() == expected.replace(b"\n", os.linesep.encode("ascii"))
 
 
 def test_json_ends_each_line_with_the_platform_line_separator(tmp_path, monkeypatch):
