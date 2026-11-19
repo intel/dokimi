@@ -170,17 +170,18 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     static_errors = static_info["errors"] if static_info is not None else []
     for problem in static_errors:  # on stderr in --json mode too
         print(f"✗ --static output not merged: {problem}", file=sys.stderr)
+    gate = args.fail_on == "fail"
     if args.json:
-        failed = bool(args.fail_on == "fail" and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
+        failed = bool(gate and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
                              status="failed" if failed else "complete",
-                             reason=_scan_reason(payload, static_errors, args.fail_on == "fail") if failed else None,
+                             reason=_scan_reason(payload, static_errors, gate) if failed else None,
                              subjects=scan_subjects(payload),
                              summary={"claims": dict(payload["counts"]), "files": len(payload["files"]),
                                       "adapters": ", ".join(payload.get("adapters") or []) or "none"})
     else:
         _print_scan_text(manifest, payload, args.out)
-    _scan_gate(payload, args.fail_on == "fail")  # runs first: an invalid --static still gets the incomplete reason
+    _scan_gate(payload, gate)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
 
