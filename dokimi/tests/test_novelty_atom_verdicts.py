@@ -28,7 +28,7 @@ KNOWN = "Which flag enables the accelerator?"
 GATED = "May the accelerator be enabled on driver 1.0?"
 
 
-def _install(monkeypatch, *, conflict: bool):
+def _install(monkeypatch, *, conflict: bool, omit_second: bool = False):
     """Every client answers from the scripted transport, bent as the module docstring says."""
     base = _scripted("informed")
 
@@ -36,7 +36,7 @@ def _install(monkeypatch, *, conflict: bool):
         if "judge how it functions" in prompt:
             rows = [{"n": 1, "needed": True, "scaffolding": False},
                     {"n": 2, "needed": False, "scaffolding": False}]
-            return json.dumps(rows), None
+            return json.dumps(rows[:1] if omit_second else rows), None
         if "Find pairs of statements" in prompt:
             pairs = [{"a": 1, "b": 2, "why": "the flag and the gate disagree"}] if conflict else []
             return json.dumps({"conflicts": pairs}), None
@@ -131,6 +131,17 @@ def test_a_conflict_pair_is_kept_with_atom_ids_and_marks_both_rows(tmp_path, ski
                and r["category"] == "harmful_conflicting" for r in by_id.values())
 
 
+def test_a_conflicting_atom_the_value_judge_skipped_keeps_null_needed_and_scaffolding(
+        tmp_path, skill, monkeypatch):
+    _install(monkeypatch, conflict=True, omit_second=True)
+    rows = _rows(_analyze(tmp_path, skill))
+    answered, skipped = rows[KNOWN], rows[GATED]
+    assert (answered["needed"], answered["scaffolding"]) == (True, False)
+    assert (skipped["needed"], skipped["scaffolding"]) == (None, None)
+    assert (skipped["conflict"], skipped["conflict_why"], skipped["category"]) == (
+        True, "the flag and the gate disagree", "harmful_conflicting")
+
+
 def test_a_run_without_classification_has_null_judged_fields(tmp_path, skill, mixed_models):
     out_dir = _analyze(tmp_path, skill, "plain", "--no-classify")
     sidecar = _load(out_dir / "novelty.atom_verdicts.json")
@@ -200,6 +211,27 @@ def test_view_refuses_verdicts_written_for_another_artifact(tmp_path, skill, mix
         _run(*_view_args(out_dir, atoms_out, sidecar, tmp_path))
     assert "skill:/elsewhere/SKILL.md" in str(exc.value)
     assert _load(out_dir / "novelty.json")["artifact"]["ref"] in str(exc.value)
+    assert not (tmp_path / "v.html").exists()
+
+
+@pytest.mark.parametrize("field, value", [
+    ("model", "model-b"),
+    ("ref_digest", "sha256:another-revision"),
+    ("run_id", "20200101T000000Z-other"),
+])
+def test_view_refuses_verdicts_of_another_run_of_the_same_artifact(
+        tmp_path, skill, mixed_models, field, value):
+    out_dir = _analyze(tmp_path, skill)
+    atoms_out = _atoms_file(tmp_path, skill)
+    sidecar = out_dir / "novelty.atom_verdicts.json"
+    data = _load(sidecar)
+    assert data[field] != value
+    data[field] = value
+    sidecar.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(InputError, match="another analysis") as exc:
+        _run(*_view_args(out_dir, atoms_out, sidecar, tmp_path))
+    assert field.replace("ref_digest", "artifact revision (ref_digest)") in str(exc.value)
+    assert value in str(exc.value)
     assert not (tmp_path / "v.html").exists()
 
 

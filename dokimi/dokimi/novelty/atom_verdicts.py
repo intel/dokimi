@@ -18,16 +18,19 @@ def build_atom_verdicts(result) -> dict:
     """The ``novelty_atoms`` payload: one row per atom the run probed (``result.atoms``).
 
     The judged fields are ``None`` for an atom with no verdict (``--no-classify``, a tier without
-    classification, or an atom the value judge did not answer for), ``outcome`` is ``None`` under
+    classification, or an atom the value judge did not answer for). A conflict can still name
+    that last kind of atom: ``conflict`` and the category stay, ``needed`` and ``scaffolding``
+    are ``None``. ``outcome`` is ``None`` under
     a scoring with no usable pair for the atom, and ``category`` is ``None`` without a verdict.
     """
     rows = []
     for atom in result.atoms:
         verdict = result.verdicts.get(atom.id)
+        answered = verdict is not None and verdict.judged
         rows.append({
             **{key: value for key, value in atom.as_dict().items() if key != "meta"},
-            "needed": verdict.needed if verdict else None,
-            "scaffolding": verdict.scaffolding if verdict else None,
+            "needed": verdict.needed if answered else None,
+            "scaffolding": verdict.scaffolding if answered else None,
             "conflict": verdict.conflict if verdict else None,
             "conflict_why": verdict.conflict_why if verdict else None,
             "outcome": {
@@ -38,6 +41,7 @@ def build_atom_verdicts(result) -> dict:
         })
     return {
         "artifact_ref": result.artifact["artifact"]["ref"],
+        "ref_digest": result.artifact["artifact"].get("ref_digest"),
         "model": result.artifact["model"],
         "with_arm": result.measure_result.with_arm,
         "conflicts": [dict(pair) for pair in result.conflicts],

@@ -7,6 +7,7 @@
   "required": [
     "schema_version",
     "artifact_ref",
+    "ref_digest",
     "model",
     "with_arm",
     "atoms",
@@ -30,6 +31,10 @@
     "artifact_ref": {
       "type": "string",
       "description": "`artifact.ref` of the `novelty` artifact this file was written beside."
+    },
+    "ref_digest": {
+      "type": ["string", "null"],
+      "description": "`artifact.ref_digest` of the `novelty` artifact this file was written beside: the revision of the text the run measured."
     },
     "model": {
       "type": "string",
@@ -86,9 +91,9 @@
           },
           "needed": {
             "type": ["boolean", "null"],
-            "description": "The value judge's answer; null when the atom got no verdict (--no-classify, a tier without classification, or an atom the judge did not answer for)."
+            "description": "The value judge's answer; null when the judge gave the atom none (--no-classify, a tier without classification, or an atom the judge did not answer for, also when a detected conflict names it)."
           },
-          "scaffolding": {"type": ["boolean", "null"]},
+          "scaffolding": {"type": ["boolean", "null"], "description": "The value judge's answer; null as for needed."},
           "conflict": {"type": ["boolean", "null"]},
           "conflict_why": {"type": ["string", "null"]},
           "outcome": {

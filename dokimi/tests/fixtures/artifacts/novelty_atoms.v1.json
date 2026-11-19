@@ -1,6 +1,7 @@
 {
   "schema_version": "novelty_atoms.v1",
   "artifact_ref": "skill:/tmp/run/accel-tuning/SKILL.md",
+  "ref_digest": "sha256:0123456789abcdef",
   "model": "answerer-m",
   "with_arm": "full",
   "conflicts": [

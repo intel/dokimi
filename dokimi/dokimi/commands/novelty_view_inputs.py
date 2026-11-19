@@ -56,6 +56,17 @@ def load_atom_verdicts(path: str | None, artifact: dict, atoms: list) -> tuple[d
             f"{path} is the atom verdicts of {record['artifact_ref']!r}, but --novelty is the "
             f"analysis of {ref!r}: pass the .atom_verdicts.json written beside that novelty.json"
         )
+    # Atom ids hash the statement only, so the ids cannot tell two runs of one artifact apart.
+    for name, mine, theirs in (
+        ("model", record["model"], artifact["model"]),
+        ("artifact revision (ref_digest)", record["ref_digest"], artifact["artifact"].get("ref_digest")),
+        ("run_id", record.get("run_id"), artifact.get("run_id")),
+    ):
+        if mine != theirs and not (name == "run_id" and (mine is None or theirs is None)):
+            raise InputError(
+                f"{path} is from another analysis of {ref!r}: its {name} is {mine!r}, but "
+                f"--novelty has {theirs!r}: pass the .atom_verdicts.json written beside that novelty.json"
+            )
     known = {atom.id for atom in atoms}
     foreign = sorted({row["id"] for row in record["atoms"]} - known)
     if foreign:

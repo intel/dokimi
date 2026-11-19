@@ -403,13 +403,13 @@ Read it in this order:
 `novelty.json` holds totals. Beside it `analyze` writes `novelty.atom_verdicts.json` (the output's stem plus `.atom_verdicts.json`), a `novelty_atoms` artifact with one row per atom the run probed (a capped run's sample):
 
 - `id`, `statement`, `question`, `answer`, `kind`, `tags`, `span_ids` and `faithfulness` (`supported`, `distorted`, `unsupported` or `unchecked`), as in `atoms.json`.
-- `needed`, `scaffolding`, `conflict` and `conflict_why`: the value judge's verdict and the conflict check. They are `null` for an atom with no verdict, and for every atom of a run with `--no-classify` or a tier without classification.
+- `needed`, `scaffolding`, `conflict` and `conflict_why`: the value judge's verdict and the conflict check. `needed` and `scaffolding` are `null` for an atom the value judge gave no answer, even when a detected conflict names it (`conflict` and the category `harmful_conflicting` stay). All four are `null` for an atom with no verdict, and for every atom of a run with `--no-classify` or a tier without classification.
 - `outcome.lenient` and `outcome.strict`: the atom's worst paired outcome (`degraded`, then `added`, `still_missing`, `redundant`) under each scoring; `null` for an atom with no usable pair.
 - `category`: the content category; `null` without a verdict.
 
-Top level: `artifact_ref`, `model`, `with_arm` and `conflicts` (the pairs, as `a`, `b`, `why` with atom ids). To check the grader, filter the rows on `outcome.lenient` and `category`, for example `redundant` outcomes with category `known_inert`, and read each row's `statement` and `span_ids` against the spans. The file is always written, so a file left by an earlier run into the same output is replaced.
+Top level: `artifact_ref`, `ref_digest` (the artifact revision), `model`, `with_arm` and `conflicts` (the pairs, as `a`, `b`, `why` with atom ids). To check the grader, filter the rows on `outcome.lenient` and `category`, for example `redundant` outcomes with category `known_inert`, and read each row's `statement` and `span_ids` against the spans. The file is always written, so a file left by an earlier run into the same output is replaced.
 
-`skill novelty view --novelty novelty.json --atoms atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. It exits 2 when the file's `artifact_ref` is not the `--novelty` artifact's, or when it names an atom `--atoms` does not hold.
+`skill novelty view --novelty novelty.json --atoms atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. It exits 2 when the file's `artifact_ref`, `ref_digest` or `model` differs from the `--novelty` artifact's, when both files carry a `run_id` and the two differ, or when it names an atom `--atoms` does not hold.
 
 ### 2. Span attribution — where in the file
 
