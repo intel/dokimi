@@ -41,8 +41,8 @@ _COPILOT_READ = {"view"}
 _COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
 _PATCH_FILE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.M)
 _CONTINUATION = re.compile(r"\\\n")
-_HEREDOC_OPEN = r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n"
-_HEREDOC = HeredocPattern(re.compile(_HEREDOC_OPEN + r".*?^[ \t]*\2[ \t]*$", re.S | re.M), re.compile(_HEREDOC_OPEN),
+_HEREDOC_DELIMITER = r"<<-?[ \t]*(['\"]?)(\w+)\1"
+_HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
                           re.compile(r"^[ \t]*(\w+)[ \t]*$", re.M), word=2, quote=1)
 # a redirect that leaves what a printing command shows on stdout: 2>&1, >&2, 2>/dev/null. A stdout discard
 # (>/dev/null, 1>/dev/null, &>/dev/null) is not one of them: no content reaches the agent, so no read.

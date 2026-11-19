@@ -349,6 +349,23 @@ def test_heredocs_close_by_a_delimiter_in_the_rest_of_an_earlier_opener_line() -
     assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text)
 
 
+def test_cli_trace_heredoc_scans_many_openers_on_one_line_of_a_closed_heredoc_in_linear_time() -> None:
+    """Every ``<<A`` has a newline after it, so each opener used to scan the rest of the line for it (#933 review)."""
+    _linear(_cli_heredocs, lambda k: "<<A " * k + "\nbody\nA\n", n=40_000)
+    _linear(_cli_heredocs, lambda k: "cat <<EOF\n" + "<<A " * k + "\nEOF\n", n=40_000)
+
+
+def test_split_commands_scans_many_openers_on_one_line_of_a_closed_heredoc_in_linear_time() -> None:
+    _linear(shell.split_commands, lambda k: "<<A " * k + "\nbody\nA\n", n=40_000)
+    _linear(shell.split_commands, lambda k: "cat <<EOF\n" + "<<A " * k + "\nEOF\n", n=40_000)
+
+
+def test_heredocs_with_openers_on_one_line_are_cut_as_before() -> None:
+    for text in ("<<A <<B <<A \nbody\nA\n", "cat <<EOF\n<<A <<A \nEOF\nx", "<<A <<B", "<<A <<B\n", "x <<A <<B \nA\nB\n"):
+        assert _cli_heredocs(text) == _old_cli_heredocs(text), repr(text)
+        assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text), repr(text)
+
+
 def test_cli_trace_heredoc_scans_quoted_openers_a_shorter_closing_line_does_not_close_in_linear_time() -> None:
     _linear(_cli_heredocs, lambda k: "<<'AB'\n" * k + "A\n")
 

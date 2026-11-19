@@ -62,12 +62,14 @@ class _Node:
 
 @dataclass(frozen=True)
 class HeredocPattern:
-    """A heredoc: ``opener``, a body, then a line holding only the opener's delimiter (``word`` is its group).
+    """A heredoc: ``opener``, the rest of its line, a body, then a line holding only the opener's delimiter (``word`` is its group).
 
     ``full`` is the one regex of the whole heredoc and ``lines`` finds a line of one word (group 1).
-    ``quote`` is the opener's group of the quote around the delimiter (0: none; a quoted delimiter is
-    not cut short) and ``gap`` the number of characters the closing line must start past the opener's
-    end (1 when ``full`` wants a body line first).
+    ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line: the newline
+    that ends the line is found once for the openers on it. ``quote`` is the opener's group of the
+    quote around the delimiter (0: none; a quoted delimiter is not cut short) and ``gap`` the number
+    of characters the closing line must start past the end of the opener's line (1 when ``full``
+    wants a body line first).
     """
 
     full: re.Pattern[str]
@@ -85,18 +87,22 @@ class HeredocPattern:
         The prefixes are walked once along a trie of the closing-line words: a step per character of the delimiter.
         A line word longer than the longest delimiter closes nothing and stays out of the trie.
         """
-        openers, start = [], 0
+        openers, start, eol = [], 0, -1
         while (o := self.opener.search(text, start)) is not None:
-            openers.append(o)
+            if o.end() > eol:  # delimiters end in increasing order, so one newline serves every opener before it
+                eol = text.find("\n", o.end())
+                if eol < 0:  # no opener from here on has a line end
+                    break
+            openers.append((o, eol + 1))
             start = o.start() + 1
         if not openers:
             return
-        trie = self._closing_words(text, max(len(o.group(self.word)) for o in openers))
+        trie = self._closing_words(text, max(len(o.group(self.word)) for o, _ in openers))
         pos = 0
-        for o in openers:
+        for o, line_end in openers:
             if o.start() < pos:
                 continue
-            if self._closed(trie, o):
+            if self._closed(trie, o, line_end):
                 m = self.full.match(text, o.start())
                 assert m is not None  # a closing line past the opener is what ``full`` ends on
                 yield m
@@ -117,9 +123,9 @@ class HeredocPattern:
             node.last = line.start()
         return trie
 
-    def _closed(self, trie: _Node, o: re.Match[str]) -> bool:
-        """Whether a line of the opener's delimiter, or of a prefix of it unless it is quoted, starts ``gap`` past the opener."""
-        word, need = o.group(self.word), o.end() + self.gap
+    def _closed(self, trie: _Node, o: re.Match[str], line_end: int) -> bool:
+        """Whether a line of the opener's delimiter, or of a prefix of it unless it is quoted, starts ``gap`` past the end of the opener's line."""
+        word, need = o.group(self.word), line_end + self.gap
         if self.quote and o.group(self.quote):
             node = trie
             for ch in word:

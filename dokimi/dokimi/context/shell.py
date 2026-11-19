@@ -32,8 +32,8 @@ _NO_COMMAND = re.compile(r"^(?:(?:for|select|fi|done|esac|in|function)\b|\}(?=[\
 # `perl -Mstrict` is not an edit.
 _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
              "perl": re.compile(r"^-[pnalw0-9]*i[^-\s]*$")}
-_HEREDOC_OPEN = r"<<-?\s*['\"]?(\w+)['\"]?([^\n]*)\n"
-_HEREDOC = HeredocPattern(re.compile(_HEREDOC_OPEN + r".*?\n\s*\1\s*(?=\n|$)", re.S), re.compile(_HEREDOC_OPEN),
+_HEREDOC_DELIMITER = r"<<-?\s*['\"]?(\w+)['\"]?"
+_HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S), re.compile(_HEREDOC_DELIMITER),
                           re.compile(r"^[^\S\n]*(\w+)[^\S\n]*$", re.M), word=1, gap=1)
 
 
