@@ -144,7 +144,7 @@ flag a newer release removed). A rate limit, overload or timeout is retried; a
 reply with no text is not retried. The timeout is per call. A stopped run keeps its answers and a
 `terminated` block (reason, `questions_recorded` of `questions_requested`); `eval score` copies the
 block into the eval's `run_metadata`, and `report eval` and the arms .md open with a note that the
-numbers cover the recorded questions only.
+numbers cover only questions answered before the stop.
 
 Codex and Copilot take no temperature or seed, so `arms run` refuses either flag on them, as it
 does for `claude-cli`. An agentic arm is refused on all three, for the same reason.

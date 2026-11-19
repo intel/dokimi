@@ -19,7 +19,7 @@ from tests.test_knowledge_cli_answerers import _eval_doc
 
 STOP = {"reason": "usage limit exceeded", "questions_requested": 4, "questions_recorded": 2}
 NOTE = ("> **Stopped early** after 2 of 4 questions: usage limit exceeded. "
-        "Every number below covers those 2 questions only.")
+        "Every number below covers only questions answered before the stop.")
 
 
 def _arms(**extra) -> dict:
@@ -140,6 +140,21 @@ def test_eval_score_reference_carries_the_stop_to_the_one_condition_page(tmp_pat
     out = tmp_path / "report" / "demo.md"
     write_eval_report(str(eval_path), str(out))
     assert out.read_text(encoding="utf-8").splitlines()[3] == NOTE
+
+
+def test_the_note_of_an_eval_that_graded_fewer_questions_claims_no_count_the_page_contradicts(tmp_path):
+    # q2 has no grading in the questions file, so the eval holds 1 of the 2 recorded answers.
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "Question 1?", "grading": {
+        "checks": [{"type": "match", "values": ["yes"], "location": "any"}]}}]}))
+    eval_path = tmp_path / "eval" / "demo.json"
+    _run(["eval", "score", "reference", "--answers", _stopped_answers(tmp_path), "--questions", str(questions),
+          "-o", str(eval_path), "--no-judge"])
+    out = tmp_path / "report" / "demo.md"
+    write_eval_report(str(eval_path), str(out))
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert "| Questions | 1 (1 scored) |" in lines
+    assert lines[3] == NOTE
 
 
 GOOD = ('{"reasoning":"r","correctness":80,"completeness":80,"specificity":80,'

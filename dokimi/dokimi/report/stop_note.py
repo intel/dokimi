@@ -18,7 +18,8 @@ def stop_note(data: Mapping[str, Any]) -> List[str]:
     block = data.get("terminated") or (meta.get("terminated") if isinstance(meta, Mapping) else None)
     if not isinstance(block, Mapping):
         return []
-    recorded = fmt.plain(block.get("questions_recorded"))
     reason = " ".join(fmt.plain(block.get("reason")).split())  # a CLI's multi-line stderr stays in the note
-    return [f"> **Stopped early** after {recorded} of {fmt.plain(block.get('questions_requested'))} questions: "
-            f"{reason}. Every number below covers those {recorded} questions only.", ""]
+    # A bound, not a count: an eval may judge fewer than the recorded questions (--limit, ungraded ones).
+    return [f"> **Stopped early** after {fmt.plain(block.get('questions_recorded'))} of "
+            f"{fmt.plain(block.get('questions_requested'))} questions: {reason}. "
+            "Every number below covers only questions answered before the stop.", ""]
