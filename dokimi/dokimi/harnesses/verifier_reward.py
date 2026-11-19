@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import shutil
 from pathlib import Path
@@ -93,10 +94,22 @@ def clear_reward_files(output_dir: Path) -> None:
     """Remove the cell's copies of the reward files: one left by an earlier run is not this verdict."""
     for name in REWARD_FILES:
         path = output_dir / name
-        if path.is_dir() and not path.is_symlink():  # docker cp keeps a read-only entry read-only
-            shutil.rmtree(path, onerror=retry_writable)
+        if path.is_dir() and not path.is_symlink():
+            _remove_tree(path)
         else:
             path.unlink(missing_ok=True)
+
+
+def _remove_tree(path: Path) -> None:
+    """``shutil.rmtree`` after making each directory writable: docker cp keeps a verifier's ``chmod 555``."""
+    path.chmod(0o700)
+    for root, dirs, _files in os.walk(path):  # top-down: a directory is writable before it is entered
+        for name in dirs:
+            if not os.path.islink(os.path.join(root, name)):
+                os.chmod(os.path.join(root, name), 0o700)
+    shutil.rmtree(path, onerror=retry_writable)  # a read-only file on Windows
+    if path.exists():  # retry_writable ignores a retry that fails, and a stale tree would take the next copy
+        raise RuntimeError(f"could not remove {path}, left by an earlier run; see run.log")
 
 
 def exit_code_verdict(returncode: int) -> float:

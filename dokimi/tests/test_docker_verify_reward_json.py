@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -118,10 +119,12 @@ def test_a_reward_json_that_is_a_directory_errors_the_cell_and_reward_txt_does_n
     assert not (tmp_path / "o" / "reward.json").exists()
 
 
-def test_clearing_the_reward_files_removes_a_directory_with_a_read_only_entry(tmp_path):
-    (tmp_path / "reward.json").mkdir()
-    (tmp_path / "reward.json" / "x").write_text("1", encoding="utf-8")
-    (tmp_path / "reward.json" / "x").chmod(0o444)
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs POSIX modes that bind (not root)")
+def test_clearing_the_reward_files_removes_a_directory_with_a_read_only_subdirectory(tmp_path):
+    # docker cp keeps the verifier's modes; left there, the next copy would land inside it.
+    (tmp_path / "reward.json" / "sub").mkdir(parents=True)
+    (tmp_path / "reward.json" / "sub" / "x").write_text("1", encoding="utf-8")
+    (tmp_path / "reward.json" / "sub").chmod(0o555)
     (tmp_path / "reward.txt").write_text("1", encoding="utf-8")
     (tmp_path / "keep.log").write_text("", encoding="utf-8")
     clear_reward_files(tmp_path)
