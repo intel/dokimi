@@ -43,7 +43,7 @@ def pytest_counts(output: str) -> Optional[dict[str, int]]:
     """Counts by outcome (``passed``, ``failed``, ``error``, ...) of the last pytest summary, or ``None``.
 
     A line that is not a summary (a count line the verifier prints after pytest) must not replace it: only
-    a line with a passed, failed or error count is taken.
+    a line with a passed, failed or error count is taken. Errors from prior summaries are kept.
     """
     found = [line for line in _SUMMARY.findall(_COLOR.sub("", output)) if _OUTCOME.search(line)]
     if not found:
@@ -52,6 +52,10 @@ def pytest_counts(output: str) -> Optional[dict[str, int]]:
     for number, word in _COUNT.findall(found[-1]):
         key = "error" if word.startswith("error") else word
         counts[key] = counts.get(key, 0) + int(number)
+    for earlier in found[:-1]:
+        for number, word in _COUNT.findall(earlier):
+            if word.startswith("error"):
+                counts["error"] = counts.get("error", 0) + int(number)
     return counts
 
 
