@@ -70,9 +70,15 @@ def _is_utf8(line: str) -> bool:
     return True
 
 
+def _lines(text: str) -> list[str]:
+    """``text`` cut at ``\r\n``, ``\r`` or ``\n``: not ``splitlines``, which also cuts at the U+2028,
+    U+2029 and U+0085 a JSON string may hold raw (#687)."""
+    return re.split(r"\r\n|\r|\n", text)
+
+
 def _parse_markers(text: str) -> list[OperationRecord]:
     out: list[OperationRecord] = []
-    for line in text.splitlines():
+    for line in _lines(text):
         if _MARKER not in line:
             continue
         out.append(_parse_record(line.split(_MARKER, 1)[1].strip(), "marker"))
@@ -95,7 +101,7 @@ def _parse_record(text: str, source: str) -> OperationRecord:
 
 def _parse_keyword_lines(text: str, stream: str) -> list[OperationRecord]:
     out: list[OperationRecord] = []
-    for line in text.splitlines():
+    for line in _lines(text):
         if _MARKER in line:
             continue
         lowered = line.lower()

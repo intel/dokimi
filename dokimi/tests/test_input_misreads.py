@@ -323,6 +323,15 @@ def test_a_record_with_a_raw_line_separator_in_a_string_is_one_line(tmp_path):
     assert [(op.type, op.name) for op in ops] == [("tool", "a\u2028b\u2029c\x85d"), ("tool", "edit")]
 
 
+@pytest.mark.parametrize("end", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
+def test_a_marker_with_a_raw_line_separator_in_a_string_is_one_record(end):
+    marker = "DOKIMI_OP " + json.dumps({"type": "tool", "name": "a\u2028b\u2029c\x85d"}, ensure_ascii=False)
+
+    ops = load_operations(None, marker + end + 'DOKIMI_OP {"type":"tool","name":"edit"}' + end, "")
+
+    assert [(op.type, op.name) for op in ops] == [("tool", "a\u2028b\u2029c\x85d"), ("tool", "edit")]
+
+
 def test_a_marker_whose_json_names_the_marker_is_read_whole():
     ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"grep DOKIMI_OP in logs"}', "")
 
