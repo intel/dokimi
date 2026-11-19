@@ -275,6 +275,29 @@ def test_tasks_run_exits_1_when_the_untouched_start_passes(tmp_path, monkeypatch
     assert "null=null_pass" in capsys.readouterr().out
 
 
+def test_incomplete_run_still_prints_completed_null_verdicts(tmp_path, monkeypatch, capsys):
+    import dokimi.harnesses as harnesses
+
+    _harbor(tmp_path, "finished")
+    _harbor(tmp_path, "broken")
+
+    def answer(call):
+        if call.argv[1] == "cp" and call.argv[2].startswith("dokimi-run-broken-"):
+            return reply("could not find the file", returncode=1)
+        return _verifier(ALL_PASS, returncode=0)(call)
+
+    cli = DockerCLI(reward="1.0", answer=answer)
+    real = harnesses.TaskSuiteRunner
+    monkeypatch.setattr(harnesses, "TaskSuiteRunner", lambda **kw: real(runner=cli, **kw))
+    with pytest.raises(SystemExit) as exc:
+        _run(["tasks", "run", "--all", "--tasks-root", str(tmp_path),
+              "--harnesses", "docker-oracle,docker-null", "--out-dir", str(tmp_path / "out")])
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "incomplete" in captured.err
+    assert "finished  oracle=pass  null=null_pass" in captured.out
+
+
 def test_tasks_run_help_lists_docker_oracle(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["tasks", "run", "--help"])

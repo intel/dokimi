@@ -311,8 +311,9 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     print(f"Saved task run report:   {out_md}")
 
     _print_summary(output)
+    null_ok = _print_null_check(output) if "docker-null" in harnesses and not args.dry_run else True
     _check_completion(output, dry_run=args.dry_run)
-    if "docker-null" in harnesses and not args.dry_run and not _print_null_check(output):
+    if not null_ok:
         sys.exit(1)
 
 
