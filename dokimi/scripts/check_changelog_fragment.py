@@ -75,10 +75,17 @@ def changed_files(base: str, head: str) -> list[tuple[str, str]]:
 
 
 def _install_tables(rev: str) -> tuple[Any, Any]:
-    """``[project]`` (bar the dev extra) and ``[tool.setuptools]`` of pyproject.toml at ``rev``."""
+    """``[project]`` (bar ``version`` and the dev extra) and ``[tool.setuptools]`` of
+    pyproject.toml at ``rev``.
+
+    ``version`` is left out (#587): the release PR bumps it and ``scriv collect`` deletes
+    the fragments in the same PR, so there is none to add; the version is recorded in the
+    new CHANGELOG.md section.
+    """
     shown = _git("show", f"{rev}:{PYPROJECT}")
     pyproject = tomllib.loads(shown.stdout) if shown.returncode == 0 else {}
     project = dict(pyproject.get("project", {}))
+    project.pop("version", None)
     project["optional-dependencies"] = {
         k: v for k, v in project.get("optional-dependencies", {}).items() if k != "dev"}
     return project, pyproject.get("tool", {}).get("setuptools")
