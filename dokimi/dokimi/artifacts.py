@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi._version import __version__
-from dokimi.process_io import utf8_bytes
+from dokimi.process_io import json_utf8_bytes
 from dokimi.utils import InputError, read_json_input
 
 logger = logging.getLogger(__name__)
@@ -284,7 +284,8 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
     - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
       people read, such as the ``report_qa`` sidecar); either way it parses to the same payload,
-      except that a lone surrogate is written as ``?`` and a surrogate pair joined.
+      except that a surrogate pair is joined into its character; a lone surrogate stays its
+      ``\\udXXX`` escape, so no two object keys collapse into one.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
@@ -298,11 +299,11 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
         head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
     except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_bytes(utf8_bytes(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
-                                                   ensure_ascii=ensure_ascii)))
+        rejected.write_bytes(json_utf8_bytes(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
+                                                        ensure_ascii=ensure_ascii)))
         raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     payload = {**head, **{k: v for k, v in data.items() if k not in head}}
-    encoded = utf8_bytes(json.dumps(payload, indent=2, ensure_ascii=ensure_ascii))
+    encoded = json_utf8_bytes(json.dumps(payload, indent=2, ensure_ascii=ensure_ascii))
     try:
         validate_artifact(kind, payload)
     except ArtifactValidationError as exc:

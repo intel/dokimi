@@ -7,6 +7,7 @@ read_spool reads back a spooled capture; join_capture joins the head and tail of
 """
 
 import os
+import re
 import sys
 from stat import S_ISFIFO
 import threading
@@ -15,6 +16,7 @@ from contextlib import suppress
 from typing import IO, Protocol
 
 _POSIX = sys.platform != "win32"
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 def joined_pairs(text: str) -> str:
@@ -26,6 +28,12 @@ def joined_pairs(text: str) -> str:
 def utf8_bytes(text: str) -> bytes:
     """*text* as UTF-8 with its surrogate pairs joined (:func:`joined_pairs`) and a lone surrogate sent as ``?``."""
     return joined_pairs(text).encode("utf-8", "replace")
+
+
+def json_utf8_bytes(text: str) -> bytes:
+    """JSON *text* (from ``json.dumps(..., ensure_ascii=False)``) as UTF-8 with its surrogate pairs joined and each lone
+    surrogate kept as its ``\\udXXX`` escape, which ``json.loads`` reads back: two object keys never collapse into one."""
+    return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", joined_pairs(text)).encode("utf-8")
 
 
 def argv_text(text: str) -> str:

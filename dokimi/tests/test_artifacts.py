@@ -506,32 +506,48 @@ def test_a_symlink_loop_is_an_error_and_both_links_survive(tmp_path):
     assert a.is_symlink() and b.is_symlink()
 
 
-_SURROGATE_CASES = [("n\ud800", "n?"), (chr(0xD83D) + chr(0xDE00), "\U0001F600"), ("café", "café")]
+# (value, what it loads as, the bytes it is written as)
+_SURROGATE_CASES = [("n\ud800", "n\ud800", b"n\\ud800"),
+                    (chr(0xD83D) + chr(0xDE00), "\U0001F600", "\U0001F600".encode("utf-8")),
+                    ("café", "café", "café".encode("utf-8"))]
 
 
-@pytest.mark.parametrize(("value", "written"), _SURROGATE_CASES)
-def test_save_artifact_without_ascii_escapes_writes_a_surrogate_as_utf8(tmp_path, value, written):
-    """``ensure_ascii=False`` keeps ``é``; a lone surrogate is ``?`` and a pair is joined (#991)."""
+@pytest.mark.parametrize(("value", "loaded", "raw_part"), _SURROGATE_CASES)
+def test_save_artifact_without_ascii_escapes_writes_a_surrogate_as_utf8(tmp_path, value, loaded, raw_part):
+    """``ensure_ascii=False`` keeps ``é``; a pair is joined and a lone surrogate stays its escape (#991)."""
     out = tmp_path / "q.json"
 
     save_artifact("questions", {"questions": [{"id": "q1", "question": value}]}, out, ensure_ascii=False)
 
     raw = out.read_bytes()
-    assert json.loads(raw.decode("utf-8"))["questions"][0]["question"] == written
-    assert written.encode("utf-8") in raw  # written as is, not as a \u escape
+    assert json.loads(raw.decode("utf-8"))["questions"][0]["question"] == loaded
+    assert raw_part in raw
     assert raw.startswith(b'{\n  "schema_version"')  # indent=2
     assert not list(tmp_path.glob("*.tmp"))
 
 
-@pytest.mark.parametrize(("value", "written"), _SURROGATE_CASES[:2])
-def test_a_rejected_payload_with_a_surrogate_is_kept_as_utf8(tmp_path, value, written):
+def test_two_object_keys_one_a_lone_surrogate_stay_two_keys_on_reload(tmp_path):
+    """A lone surrogate must not collapse onto a ``?`` key: the reload keeps both entries."""
+    out = tmp_path / "q.json"
+    extra = {"\ud800": 1, "?": 2}
+
+    save_artifact("questions", {"questions": [{"id": "q1", "question": "Q", "extra": extra}]}, out, ensure_ascii=False)
+
+    assert json.loads(out.read_bytes().decode("utf-8"))["questions"][0]["extra"] == extra
+
+
+@pytest.mark.parametrize(("value", "loaded", "raw_part"), _SURROGATE_CASES[:2])
+def test_a_rejected_payload_with_a_surrogate_is_kept_as_utf8(tmp_path, value, loaded, raw_part):
     out = tmp_path / "a.json"
 
     with pytest.raises(ArtifactValidationError):
-        save_artifact("answers", {"answers": [{"question_text": value}]}, out, ensure_ascii=False)
+        save_artifact("answers", {"answers": [{"question_text": value, "extra": {"\ud800": 1, "?": 2}}]}, out,
+                      ensure_ascii=False)
 
-    kept = json.loads((tmp_path / "a.json.rejected").read_bytes().decode("utf-8"))
-    assert kept["answers"][0]["question_text"] == written
+    raw = (tmp_path / "a.json.rejected").read_bytes()
+    kept = json.loads(raw.decode("utf-8"))["answers"][0]
+    assert kept["question_text"] == loaded and kept["extra"] == {"\ud800": 1, "?": 2}
+    assert raw_part in raw
     assert not out.exists()
 
 
@@ -546,7 +562,8 @@ def test_a_payload_kept_for_a_malformed_run_id_holds_a_surrogate_as_utf8(monkeyp
                       tmp_path / "q.json", ensure_ascii=False)
 
     kept = (tmp_path / "q.json.rejected").read_bytes()
-    assert json.loads(kept.decode("utf-8"))["answers"][0]["question_text"] == "n? é"
+    assert json.loads(kept.decode("utf-8"))["answers"][0]["question_text"] == "n\ud800 é"
+    assert b"n\\ud800" in kept
     assert "é".encode("utf-8") in kept
     assert kept.startswith(b'{\n  "schema_version"')  # indent=2
 

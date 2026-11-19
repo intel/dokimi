@@ -61,20 +61,28 @@ def test_export_jsonl(tmp_path):
     assert (out / "README.md").exists()
 
 
-@pytest.mark.parametrize(("value", "written"), [
-    ("n\ud800", "n?"),
-    (chr(0xD83D) + chr(0xDE00), "\U0001F600"),
-    ("café", "café"),
+@pytest.mark.parametrize(("value", "written", "loaded"), [
+    ("n\ud800", "n\\ud800", "n\ud800"),
+    (chr(0xD83D) + chr(0xDE00), "\U0001F600", "\U0001F600"),
+    ("café", "café", "café"),
 ])
-def test_to_jsonl_writes_a_surrogate_as_utf8(tmp_path, value, written):
-    """One JSON object per line; a lone surrogate is ``?``, a pair is joined, ``é`` is not escaped (#990)."""
+def test_to_jsonl_writes_a_surrogate_as_utf8(tmp_path, value, written, loaded):
+    """One JSON object per line; a lone surrogate stays its escape, a pair is joined, ``é`` is not escaped (#990)."""
     path = tmp_path / "out" / "rows.jsonl"
 
     to_jsonl([{"a": value}, {"a": "x"}], path)
 
     raw = path.read_bytes()
-    assert raw == (json.dumps({"a": written}, ensure_ascii=False) + '\n{"a": "x"}\n').encode("utf-8")
-    assert [json.loads(line)["a"] for line in raw.decode("utf-8").splitlines()] == [written, "x"]
+    assert raw == ('{"a": "' + written + '"}\n{"a": "x"}\n').encode("utf-8")
+    assert [json.loads(line)["a"] for line in raw.decode("utf-8").splitlines()] == [loaded, "x"]
+
+
+def test_to_jsonl_keeps_a_lone_surrogate_key_apart_from_a_question_mark_key(tmp_path):
+    path = tmp_path / "rows.jsonl"
+
+    to_jsonl([{"\ud800": 1, "?": 2}], path)
+
+    assert json.loads(path.read_bytes().decode("utf-8")) == {"\ud800": 1, "?": 2}
 
 
 def test_export_answers_artifact_jsonl(tmp_path):
