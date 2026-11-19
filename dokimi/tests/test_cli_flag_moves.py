@@ -151,3 +151,10 @@ def test_every_token_move_tombstones_on_each_of_its_leaves(old, new, leaf, capsy
     text = _tombstone([*leaf, old, "8"], capsys)
     assert text.startswith("moved: dokimi ")
     assert " ".join([*leaf, new, "8"]) in text
+
+
+@pytest.mark.parametrize("leaf", sorted(_leaves_with("--retrieval-tokens")))
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_every_retrieval_leaf_refuses_a_count_below_one(leaf, value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        _leaves_with("--retrieval-tokens")[leaf].type(value)

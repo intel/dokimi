@@ -166,7 +166,7 @@ def register(sub, positive_int) -> None:
     gen_a_p.add_argument("--output", default=None, help="Output file (default: answers/{product}.json)")
     gen_a_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for answering")
     gen_a_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
-    cli_flags.add(gen_a_p, "tokens", "--retrieval-tokens", metavar="N", type=int, default=DEFAULT_MAX_TOKENS_PER_QUESTION,
+    cli_flags.add(gen_a_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION,
                   dest="max_tokens", help="Max tokens to retrieve per question")
     gen_a_p.add_argument("--top-k", type=positive_int, default=None, help=f"Number of docs to retrieve before reranking (default from config/products.yaml retrieval.top_k or {DEFAULT_RETRIEVAL_TOP_K})")
     gen_a_p.add_argument("--rerank-threshold", type=float, default=0.3, help="Min relevance score (0-1) to keep docs")
