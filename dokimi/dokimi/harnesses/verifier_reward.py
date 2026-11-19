@@ -71,7 +71,8 @@ def pull_reward(docker: Docker, container: str, output_dir: Path, log: Any) -> t
     """The reward in the first reward file the verifier wrote, in Harbor's order, copied into *output_dir*.
 
     ``(None, None)`` when it wrote none; ``(None, why)`` when a copy failed, which stops the search:
-    a later file may not stand in for one that could not be read.
+    a later file may not stand in for one that could not be read. Raises :class:`RuntimeError` when
+    the first file there is not a file or holds no reward.
     """
     clear_reward_files(output_dir)
     for name in REWARD_FILES:
