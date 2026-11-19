@@ -19,6 +19,7 @@ from docker_cli_fake import DockerCLI, reply
 from dokimi.harnesses import load_task
 from dokimi.harnesses.command import _find_reward
 from dokimi.harnesses.docker_solver import DockerSolverHarness
+from dokimi.harnesses.verifier_reward import clear_reward_files
 
 # What uxl-skills' evaluation/harbor/shared/structured_answer.py writes: the reward and its parts.
 _ANSWER_QUALITY = json.dumps({"reward": 0.5833, "graph_design": 0.6667, "bounded_concurrency": 0.5,
@@ -113,8 +114,18 @@ def test_a_reward_json_that_is_a_directory_errors_the_cell_and_reward_txt_does_n
     # Harbor's reward_json_path.exists() takes it and its read raises (harbor 0.24.0 verifier.py).
     with pytest.raises(RuntimeError, match="/logs/verifier/reward.json is not a file"):
         _verify(tmp_path, DockerCLI(reward="1", answer=_copies_a_directory))
-    assert _verify(tmp_path, DockerCLI(reward="0.0")) == 0.0  # the next run clears the copied directory
+    # Not left for a rerun: docker-claude's solve clears the reward files before any verify.
     assert not (tmp_path / "o" / "reward.json").exists()
+
+
+def test_clearing_the_reward_files_removes_a_directory_with_a_read_only_entry(tmp_path):
+    (tmp_path / "reward.json").mkdir()
+    (tmp_path / "reward.json" / "x").write_text("1", encoding="utf-8")
+    (tmp_path / "reward.json" / "x").chmod(0o444)
+    (tmp_path / "reward.txt").write_text("1", encoding="utf-8")
+    (tmp_path / "keep.log").write_text("", encoding="utf-8")
+    clear_reward_files(tmp_path)
+    assert [p.name for p in tmp_path.iterdir()] == ["keep.log"]
 
 
 def test_exit_zero_without_either_reward_file_still_errors_the_cell(tmp_path):

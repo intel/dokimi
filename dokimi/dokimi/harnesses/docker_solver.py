@@ -81,7 +81,7 @@ from .solver_stream import record_solver, run_solver
 from .task_image import ignore_top_level_skills, ready_image, upload_environment, workdir_args
 from .task_env import _exec_env, unresolved_env  # re-exported
 from .tbench_v1 import reward as _pytest_reward
-from .verifier_reward import REWARD_FILES, exit_code_verdict, pull_reward
+from .verifier_reward import clear_reward_files, exit_code_verdict, pull_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
     _DEFAULT_VERIFY_TIMEOUT,
@@ -396,8 +396,7 @@ class DockerSolverHarness:
         """
         # A rerun must not find its own previous tree or verdict during the solve.
         _rmtree(output_dir / "work")
-        for name in REWARD_FILES:
-            (output_dir / name).unlink(missing_ok=True)
+        clear_reward_files(output_dir)
         if sandbox is not None and self.agent_location == "container":  # a host arm stays on the host
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)

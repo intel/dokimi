@@ -22,6 +22,7 @@ from typing import Any, Mapping, Optional
 
 from dokimi import process
 from dokimi.docker_cmd import Docker
+from dokimi.utils import retry_writable
 
 #: Harbor's order: ``reward.json`` first, ``reward.txt`` only when there is none.
 REWARD_FILES = ("reward.json", "reward.txt")
@@ -72,14 +73,14 @@ def pull_reward(docker: Docker, container: str, output_dir: Path, log: Any) -> t
     ``(None, None)`` when it wrote none; ``(None, why)`` when a copy failed, which stops the search:
     a later file may not stand in for one that could not be read.
     """
-    for name in REWARD_FILES:  # a copy left by an earlier run of the cell is not this verdict
-        _remove(output_dir / name)
+    clear_reward_files(output_dir)
     for name in REWARD_FILES:
         dest = output_dir / name
         pulled = docker(["cp", f"{container}:/logs/verifier/{name}", str(dest)], log, check=False)
         if pulled.returncode == 0 and dest.is_file():
             return reward_file_verdict(name, dest.read_text(encoding="utf-8", errors="replace")), None
         if pulled.returncode == 0 and dest.exists():  # Harbor takes any path there, then cannot read it
+            clear_reward_files(output_dir)
             raise RuntimeError(f"/logs/verifier/{name} is not a file; see run.log")
         failed = _copy_error(pulled, name)
         if failed:
@@ -87,11 +88,14 @@ def pull_reward(docker: Docker, container: str, output_dir: Path, log: Any) -> t
     return None, None
 
 
-def _remove(path: Path) -> None:
-    if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
-    else:
-        path.unlink(missing_ok=True)
+def clear_reward_files(output_dir: Path) -> None:
+    """Remove the cell's copies of the reward files: one left by an earlier run is not this verdict."""
+    for name in REWARD_FILES:
+        path = output_dir / name
+        if path.is_dir() and not path.is_symlink():  # docker cp keeps a read-only entry read-only
+            shutil.rmtree(path, onerror=retry_writable)
+        else:
+            path.unlink(missing_ok=True)
 
 
 def exit_code_verdict(returncode: int) -> float:
