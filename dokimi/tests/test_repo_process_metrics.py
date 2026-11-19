@@ -107,6 +107,15 @@ def test_a_read_that_only_the_second_guidance_glob_matches_is_guidance():
     assert run_process_metrics(ctx, events)["guidance_read"] == [".github/instructions/c.md"]
 
 
+def test_a_guidance_path_outside_the_held_set_is_no_guidance_read():
+    # The held set is what the workspace held as the agent started; None keeps any path the globs match.
+    paths = ["dpnp/tests/AGENTS.md", "dpnp/tests/third_party/AGENTS.md", "dpnp/tests/third_party/cupy/AGENTS.md"]
+    events = [{"kind": "read", "path": p, "rc": 0} for p in paths]
+    ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
+    assert run_process_metrics(ctx, events, 0, frozenset({"dpnp/tests/AGENTS.md"}))["guidance_read"] == paths[:1]
+    assert run_process_metrics(ctx, events)["guidance_read"] == sorted(paths)
+
+
 def test_a_command_the_permissions_denied_is_denied_not_failed():
     # A permission denial comes back as an is_error result (rc 1); a hook denial has rc null. Neither ran.
     events = [{"kind": "command", "text": "rm -rf build", "rc": 1, "denied": True},

@@ -1,0 +1,3 @@
+### Fixed
+
+- **`process:guidance_read` lists only guidance files the workspace held when the agent started** — a Bash call that holds several reads (`cat a/AGENTS.md; cat missing/AGENTS.md 2>/dev/null`) gives each of them `rc` 0, since its exit does not say which file failed, so `guidance_read` listed a path that never existed. `repo run` now takes the workspace files `guidance.globs` match after the arm is applied and before the agent starts, and keeps a read only when its path is in that set: a path that never existed, a file the arm removed and a file the agent created itself no longer count. A read of a file that is there, the `rc` rules, `unknown_reads` and `tool_calls` are unchanged.

@@ -15,7 +15,8 @@ The framework counts what every repository asks of a trace:
 - ``guidance_read``: the sorted workspace paths of ``read`` events (a read tool, or a shell command that only
   prints files, ``cat`` / ``head`` / ``tail`` / ``nl`` / ``sed -n``; a pipe, ``grep`` or ``rg`` is not one) not
   denied that the manifest's guidance globs match; a path outside the workspace (absolute, or with ``..``) is
-  no repository file;
+  no repository file. ``repo run`` keeps only the guidance files the workspace held as the agent started (``is_guidance``
+  tells them): a multi-file read (``cat a missing``) keeps its reads, as its exit does not say which file failed;
 - ``unknown_reads``: the relative shell reads the trace made at a directory the converter could not follow
   (after ``source env.sh``, say), which have no ``read`` event: ``guidance_read`` may miss them. It comes from
   the converter (:attr:`~dokimi.repos.transcript.Transcript.unknown_reads`), not from the events.

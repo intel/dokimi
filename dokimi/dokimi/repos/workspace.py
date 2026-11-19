@@ -581,6 +581,12 @@ def _workspace_files(ws: Path, env: dict[str, str]) -> list[str]:
     return sorted({p for p in listed if p and os.path.lexists(ws / p)})
 
 
+def held_guidance(run_dir: Path, manifest: RepoManifest) -> frozenset[str]:
+    """The guidance files (``guidance.globs``) ``run_dir/workspace`` holds, as the agent starts."""
+    files = _workspace_files(run_dir / "workspace", _git_env(SNAPSHOT_AUTHOR))
+    return frozenset(p for p in files if any(match_glob(g, p) for g in manifest.guidance_globs))
+
+
 def _kept_overlays(ws: Path, tracked: list[str], own: str) -> list[str]:
     """The overlay ``own`` of the base, which the arm keeps; refused without the base ``AGENTS.md`` or without that
     overlay. Each kept file must supply a file: a dangling, cyclic or directory link does not."""
