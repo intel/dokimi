@@ -84,7 +84,7 @@ def test_names_that_differ_only_in_case_are_refused_before_any_agent(setup, caps
     assert not _agents(setup)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="os.kill with SIGINT terminates the process on Windows")
+@pytest.mark.skipif(os.name == "nt", reason="signal.pthread_kill is POSIX-only")
 def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     # CancelContract of cfg/fixed.cfg (cfg/mut_no_cancel_guard.cfg breaks it): SIGINT wakes the main thread and
     # pool.map cancels the queued cells; _thread.interrupt_main() sends no signal and would let them start.
@@ -92,20 +92,29 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     both = threading.Barrier(2)
     ended = threading.Semaphore(0)
     real = repo_runner.run_cell
+    cancelled = threading.Event()
+    real_shutdown = repo_runner.ThreadPoolExecutor.shutdown
+
+    def shutdown(self, wait=True, *, cancel_futures=False):
+        real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+        if cancel_futures:
+            cancelled.set()
 
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
         started.append(rep)
         if rep <= 2:
             both.wait(5)  # both threads busy, every cell already submitted to the pool
             if rep == 1:
-                os.kill(os.getpid(), signal.SIGINT)  # what Ctrl-C sends
-            time.sleep(0.3)  # the main thread takes the interrupt while these cells still run
+                signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)  # emulates Ctrl-C reaching the main thread
+            # the cells wait for the cancel, not for time (#874)
+            assert cancelled.wait(30)
         try:
             return real(ctx, task, arm, rep, *args, **kwargs)
         finally:
             ended.release()
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
+    monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "shutdown", shutdown)
     old = signal.signal(signal.SIGINT, signal.default_int_handler)  # a shell may have left SIGINT ignored
     try:
         with pytest.raises(KeyboardInterrupt):
@@ -259,6 +268,7 @@ def test_compare_with_a_model_refuses_only_a_mixed_row_of_that_model(setup):
 
 _CTRL_C_DRIVER = """
 import os, signal, sys, threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
@@ -272,11 +282,30 @@ import dokimi.repos.container as container
 container.DockerRunner = lambda *a, **k: fake
 os.environ["FAKE_ACTION"] = "fix"
 both, real = threading.Barrier(2), repo_runner.run_cell
+cancelled, real_shutdown = threading.Event(), ThreadPoolExecutor.shutdown
+def shutdown(self, wait=True, *, cancel_futures=False):
+    real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+    if cancel_futures:
+        cancelled.set()
+ThreadPoolExecutor.shutdown = shutdown
+submitted, real_submit, count = threading.Event(), ThreadPoolExecutor.submit, []
+def pool_submit(self, *args, **kwargs):
+    future = real_submit(self, *args, **kwargs)
+    count.append(1)
+    if len(count) == 5:  # the fifth of --reps 5: every cell is submitted and its thread has started
+        submitted.set()
+    return future
+ThreadPoolExecutor.submit = pool_submit
 def run_cell(ctx, task, arm, rep, *args, **kwargs):
     if rep <= 2:
         both.wait(30)
         if rep == 1:
-            os.kill(os.getpid(), signal.SIGINT)
+            if not submitted.wait(30):  # an interrupt inside submit() is a slow thread start, not the Ctrl-C under test
+                os._exit(3)
+            signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
+        # both workers stay busy until the queue is cancelled, so this checks the cancel, not an early start (#874)
+        if not cancelled.wait(30):
+            os._exit(4)
     return real(ctx, task, arm, rep, *args, **kwargs)
 repo_runner.run_cell = run_cell
 signal.signal(signal.SIGINT, signal.default_int_handler)

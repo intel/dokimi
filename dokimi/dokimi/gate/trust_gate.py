@@ -11,6 +11,7 @@ Designed to be called from the report generator; no side-effects.
 
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -182,26 +183,50 @@ def evaluate_trust(
 
     # ── 4. Minimum delta (context arm minus baseline) ─────────────────────
     delta_avg = statistics.mean(with_scores) - statistics.mean(without_scores)
-    checks.append(Check(
-        name="min_delta",
-        passed=delta_avg >= cfg["min_delta"],
-        value=round(delta_avg, 1),
-        threshold=cfg["min_delta"],
-        message=f"Avg delta (context arm minus baseline) = {delta_avg:+.1f} (min {cfg['min_delta']:+})",
-        severity="warn",
-    ))
+    if math.isfinite(delta_avg):
+        checks.append(Check(
+            name="min_delta",
+            passed=delta_avg >= cfg["min_delta"],
+            value=round(delta_avg, 1),
+            threshold=cfg["min_delta"],
+            message=f"Avg delta (context arm minus baseline) = {delta_avg:+.1f} (min {cfg['min_delta']:+})",
+            severity="warn",
+        ))
+    else:
+        # The arm means differ by more than the float range: no delta to judge, as in the stats.
+        checks.append(Check(
+            name="min_delta",
+            passed=True,
+            value=None,
+            threshold=cfg["min_delta"],
+            message="Not measured: the arm means differ by more than the float range",
+            severity="warn",
+            measured=False,
+        ))
 
     # ── 5. Score coefficient of variation (stability) ─────────────────────
-    with_std = statistics.stdev(with_scores) if len(with_scores) > 1 else 0.0
-    cv = (with_std / with_avg) if with_avg > 0 else 1.0
-    checks.append(Check(
-        name="score_cv",
-        passed=cv <= cfg["max_cv"],
-        value=round(cv, 3),
-        threshold=cfg["max_cv"],
-        message=f"Score CV = {cv:.2f} std={with_std:.1f} (max CV {cfg['max_cv']})",
-        severity="warn",
-    ))
+    try:
+        with_std = statistics.stdev(with_scores) if len(with_scores) > 1 else 0.0
+    except OverflowError:  # finite scores whose variance leaves the float range
+        checks.append(Check(
+            name="score_cv",
+            passed=True,
+            value=None,
+            threshold=cfg["max_cv"],
+            message="Not measured: the spread of the context-arm scores is beyond the float range",
+            severity="warn",
+            measured=False,
+        ))
+    else:
+        cv = (with_std / with_avg) if with_avg > 0 else 1.0
+        checks.append(Check(
+            name="score_cv",
+            passed=cv <= cfg["max_cv"],
+            value=round(cv, 3),
+            threshold=cfg["max_cv"],
+            message=f"Score CV = {cv:.2f} std={with_std:.1f} (max CV {cfg['max_cv']})",
+            severity="warn",
+        ))
 
     # ── 6. Inter-rater agreement (panel judge) ────────────────────────────
     agreement_scores = [a for r in valid if (a := r.scores[CONTEXT].agreement) is not None]
@@ -220,20 +245,31 @@ def evaluate_trust(
     checks.append(_retrieval_check(every, cfg))
 
     # ── 8. Multi-run variance (optional) ─────────────────────────────────
-    multirun_std = None
     if multirun_with_averages and len(multirun_with_averages) >= 2:
-        multirun_std = statistics.stdev(multirun_with_averages)
-        checks.append(Check(
-            name="multirun_variance",
-            passed=multirun_std <= cfg["max_multirun_std"],
-            value=round(multirun_std, 2),
-            threshold=cfg["max_multirun_std"],
-            message=(
-                f"Multi-run context-arm std = {multirun_std:.2f} across {len(multirun_with_averages)} runs "
-                f"(max {cfg['max_multirun_std']})"
-            ),
-            severity="fail",
-        ))
+        try:
+            multirun_std = statistics.stdev(multirun_with_averages)
+        except OverflowError:  # finite averages whose variance leaves the float range
+            checks.append(Check(
+                name="multirun_variance",
+                passed=True,
+                value=None,
+                threshold=cfg["max_multirun_std"],
+                message="Not measured: the spread of the per-run context-arm averages is beyond the float range",
+                severity="fail",
+                measured=False,
+            ))
+        else:
+            checks.append(Check(
+                name="multirun_variance",
+                passed=multirun_std <= cfg["max_multirun_std"],
+                value=round(multirun_std, 2),
+                threshold=cfg["max_multirun_std"],
+                message=(
+                    f"Multi-run context-arm std = {multirun_std:.2f} across {len(multirun_with_averages)} runs "
+                    f"(max {cfg['max_multirun_std']})"
+                ),
+                severity="fail",
+            ))
 
     return Verdict(checks=checks)
 

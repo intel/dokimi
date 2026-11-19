@@ -560,7 +560,7 @@ def test_build_timeout_line_in_run_log_is_redacted(tmp_path, monkeypatch):
             task, output_dir=tmp_path / "out")
     log = (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
     assert "BUILD TIMEOUT: after 600.0s: docker build" in log
-    assert "s3cret" not in log and "http_proxy=http://***@proxy.example:912" in log
+    assert "s3cret" not in log and "--build-arg http_proxy -t" in log  # by name: no value on the command line
 
 
 def test_container_outlives_solve_and_verify_timeouts(tmp_path, monkeypatch):

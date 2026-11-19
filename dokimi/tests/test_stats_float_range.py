@@ -63,6 +63,20 @@ def test_paired_test_of_a_delta_just_inside_the_range_still_runs():
     assert stats._deltas([BIG], [-9e306]) == [BIG + 9e306]
 
 
+def test_paired_test_of_finite_deltas_whose_sum_leaves_the_range_runs_on_them():
+    # benchmarking-and-comparison.md: a row is refused only where its sd leaves the float range, not its sum (#832).
+    # 1e308 * g / 9 would be inf already at g = 2, so the deltas are scaled first; their sum is 4.9e308
+    deltas = [1e308 * (g / 9) for g in [2, 4, 3, 5, 6, 9, 7, 8]]
+    assert all(math.isfinite(d) for d in deltas) and not math.isfinite(sum(deltas))
+    result = stats.paired_test(deltas, [0.0] * 8)
+    assert result["delta_mean"] == pytest.approx(6.111111111111111e307, rel=1e-12)
+    assert result["exact"]["delta_mean"] == pytest.approx(6.111111111111111e307, rel=1e-12)
+    assert result["delta_std"] == pytest.approx(2.721655269759087e307, rel=1e-12)
+    assert result["cohens_d"] == 2.245
+    assert (result["p"], result["n_changed"], result["significant"]) == (0.0078, 8, True)
+    assert result["ci_lo"] <= result["delta_mean"] <= result["ci_hi"] and math.isfinite(result["ci_hi"])
+
+
 def test_paired_test_refuses_integers_whose_exact_difference_leaves_the_range():
     with pytest.raises(OverflowError, match="float range"):
         stats.paired_test([10 ** 308] * 4, [-(10 ** 308)] * 4)
@@ -75,10 +89,9 @@ def test_paired_test_keeps_the_meaning_of_a_non_finite_input(bad):
     assert result["significant"] is None
 
 
-def test_paired_summary_paired_delta_and_arm_significance_refuse_the_same_deltas():
+def test_paired_delta_and_arm_significance_refuse_deltas_beyond_the_range_while_paired_summary_has_none():
     evals = _evals(BIG, -BIG)
-    with pytest.raises(OverflowError):
-        stats.paired_summary(evals)
+    assert stats.paired_summary(evals).delta_mean is None  # no raise: #830
     with pytest.raises(OverflowError):
         stats.paired_delta(evals, "without_docs", "with_docs")
     with pytest.raises(OverflowError):

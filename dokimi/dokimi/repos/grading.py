@@ -30,7 +30,7 @@ import shutil
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dokimi.artifacts import schema_errors
 from dokimi.measure import SCORE_BOUND, as_float, is_finite
@@ -75,6 +75,10 @@ _NOT_FOUND_EXIT = 127  # docker run: the command (here the image's python3) is n
 _PYTHON3_NOT_FOUND_SIG = "exec python3 failed"  # tini's message under --init, which every container runs with
 
 
+if TYPE_CHECKING:
+    from .suite import SuiteBases
+
+
 @dataclass
 class EvalContext:
     """What every container of one evaluation needs: the trees, the image and the caches."""
@@ -87,6 +91,19 @@ class EvalContext:
     caches: dict[str, Path] = field(default_factory=dict)  # cache name -> host directory
     source_dir: Path | None = None  # host side of {source_dir}
     entry_timeout_s: float = 3600
+    suite: SuiteBases | None = None  # base checkouts of a suite run (suite.py); None: every base is in git_dir
+
+    def git_dir_for(self, task_id: str) -> Path:
+        """The git dir a task's base is checked out from: its suite repository, else ``git_dir``."""
+        return self.suite.git_dirs.get(task_id, self.git_dir) if self.suite else self.git_dir
+
+    def base_dirs(self) -> dict[str, Path | None]:
+        """The git dir of each suite task's base, None for a task whose repository is missing."""
+        return {**dict.fromkeys(self.suite.gaps), **self.suite.git_dirs} if self.suite else {}
+
+    def base_gaps(self) -> dict[str, str]:
+        """Why each suite task has no base checkout; its cells are unsupported, not run."""
+        return dict(self.suite.gaps) if self.suite else {}
 
     def cache_mounts(self) -> list[Mount]:
         image = self.manifest.image
@@ -154,7 +171,7 @@ def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: s
     if builtin == "hidden_tests" and kind == "grade":
         _run_hidden_tests(ctx, task, run_dir, network, mounts, name)
     spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + extra + ctx.cache_mounts(),
-                         env=ctx.grade_env(task), network=network, name=name)
+                         env=ctx.grade_env(task), network=network, name=name, survives_halt=kind == "grade")
     result = ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
                             timeout_s=ctx.entry_timeout_s)
     if builtin is not None and result.returncode == _NOT_FOUND_EXIT and _python3_not_found_in_stderr(run_dir, kind):
@@ -208,7 +225,8 @@ def _run_hidden_tests(ctx: EvalContext, task: Task, run_dir: Path, network: str,
         values = {**CONTAINER_PATHS, "task": task.id, "out": f"{RUN_DIR}/{HIDDEN_REPORT}", "tests": " ".join(tests)}
         argv = [w for word in shlex.split(template) for w in (tests if word == "{tests}" else [substitute(word, values)])]
         spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + ctx.cache_mounts(),
-                             env=ctx.grade_env(task), network=network, name=name and f"{name}-test")
+                             env=ctx.grade_env(task), network=network, name=name and f"{name}-test",
+                             survives_halt=True)
         run = ctx.runner.run(spec, stdout=run_dir / "test.log", stderr=run_dir / "test.err",
                              timeout_s=ctx.entry_timeout_s)
         record = {"rc": run.returncode, "timed_out": run.timed_out, "wall_s": run.wall_s}
@@ -262,27 +280,34 @@ def _linked_in_task(hidden: Path, rel: str) -> bool:
 def _set_git_config_aside(run_dir: Path) -> None:
     """Move the workspace's ``.git/config``, hooks and other config sources to ``agent-git/`` and
     write a plain config: a filter, diff driver, alias or include the agent set does not run in the
-    grader. The first move is kept, so a regrade does not overwrite the agent's original."""
+    grader. The first move is kept, so a regrade does not overwrite the agent's original: the moves go to
+    a directory renamed to ``agent-git/`` after the last one, and a grade after a crash in between finishes them."""
     dot_git = run_dir / "workspace" / ".git"
     aside = run_dir / AGENT_GIT
-    first = not aside.exists()
-    aside.mkdir(exist_ok=True)
-    if dot_git.is_symlink() or dot_git.is_file():  # the agent's own repository elsewhere: the grader gets none
-        shutil.move(str(dot_git), str(aside / "dot-git"))
-        return
+    if not aside.exists():
+        partial = run_dir / f".{AGENT_GIT}.partial"  # a leading dot: no image.env scratch entry can have the name
+        if partial.is_symlink() or not partial.is_dir():
+            _clear(partial)
+            partial.mkdir()
+        for name, path in _git_config_sources(dot_git):
+            _clear(partial / name)
+            path.rename(partial / name)  # atomic: workspace/ is in the run dir, on its file system
+        partial.rename(aside)
+    for _, path in _git_config_sources(dot_git):  # what a grader wrote since the first move
+        _clear(path)
+    if dot_git.is_dir() and not dot_git.is_symlink():
+        (dot_git / "config").write_text(_PLAIN_GIT_CONFIG, encoding="utf-8")
+
+
+def _git_config_sources(dot_git: Path) -> list[tuple[str, Path]]:
+    """The workspace's git config sources and their names in ``agent-git/``: a ``.git`` file or link (the
+    agent's own repository elsewhere: the grader gets none), else the config, hooks and pointers in ``.git/``."""
+    if dot_git.is_symlink() or dot_git.is_file():
+        return [("dot-git", dot_git)]
     if not dot_git.is_dir():
-        return
-    for name in ("config", "config.worktree", "commondir", "hooks"):
-        path = dot_git / name
-        if not (path.exists() or path.is_symlink()):
-            continue
-        if first:
-            shutil.move(str(path), str(aside / name))
-        elif path.is_dir() and not path.is_symlink():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
-    (dot_git / "config").write_text(_PLAIN_GIT_CONFIG, encoding="utf-8")
+        return []
+    sources = [(name, dot_git / name) for name in ("config", "config.worktree", "commondir", "hooks")]
+    return [(name, path) for name, path in sources if path.exists() or path.is_symlink()]
 
 
 def check_grade(doc: Any) -> list[str]:

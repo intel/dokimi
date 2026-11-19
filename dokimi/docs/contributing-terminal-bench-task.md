@@ -96,7 +96,6 @@ timeout_sec = 300.0
 
 [environment]
 build_timeout_sec = 300.0
-docker_image = "intel-hpc-bench/<task-name>:latest"
 cpus = 4
 memory_mb = 2048
 storage_mb = 5120
@@ -112,10 +111,11 @@ Field by field, with the consumer that actually reads it:
 | `metadata.difficulty` | `eval tasks list`, the task-runs report | `easy` / `medium` / `hard`; drives the difficulty rollup in the Markdown report. Missing renders as `?`. |
 | `metadata.level` | [`difficulty-rubric.md`](./difficulty-rubric.md) | Workflow depth: `triage`, `diagnosis`, `end_to_end`. Optional but recommended for skill evaluation. |
 | `metadata.difficulty_explanation`, `category`, `author_*` | humans | Provenance and review context; carried through in the run artifact. |
+| `metadata.version`, `metadata.provenance` | `load_task` (a malformed value is a warning; the task still loads), the task-runs report | Optional. `version` is the task's revision; it is not the top-level `version`, which is the format version. A `swebench` task's `version` is the upstream package version (e.g. `"3.0"` for django), kept as written, not a revision. `provenance` is `{source, reviewed_by, status}` as in the [repository contract](./repo-evaluation-contract.md#3-taskjson): `status` is `candidate`, `validated` or `frozen`. The task-runs report shows each task's status in a `Status` column; an absent one is `unknown`. |
 | `agent.timeout_sec` | `TaskSpec.timeout_sec`, the solver harnesses | Wall-clock budget for the agent's attempt. Typically 300. |
 | `verifier.timeout_sec` | Harbor, human reviewers | Verifier budget. Keep it small (≤ 60s where possible) so CI stays fast. |
 | `environment.build_timeout_sec` | `docker-*` harnesses | Image-build budget; used instead of the default when set (oneAPI/pip-heavy images need > 10 min). |
-| `environment.docker_image` | Harbor | Image tag Harbor expects to exist (`harbor run` does **not** build it for you). The in-repo `docker-*` harnesses build and tag `dokimi/<task-name>:latest` themselves. |
+| `environment.docker_image` | Harbor, `docker-*` harnesses | A prebuilt image both run instead of building `environment/Dockerfile`, pulled when the daemon lacks it, so leave it out of a task that ships a Dockerfile. Without it, the `docker-*` harnesses build and tag `dokimi/<task-name>:latest`. See [Prebuilt images](./coding-harnesses.md#prebuilt-images-environment-docker_image). |
 | `environment.cpus`, `memory_mb` | `docker-*` harnesses | Container limits (`--cpus`, `--memory`); default to 4 CPUs / 2048 MB when absent. A malformed value falls back to the default rather than failing the run. |
 | `environment.network_mode` | `docker-*` harnesses, Harbor | `"no-network"` (absent means the same), `"allowlist"` with `allowed_hosts`, or `"public"` (NAT'd internet, bridge). It applies to the **verifier** and `docker-oracle`'s solve, not to an agent: an agent solves on an internal network whose only way out is the egress proxy (see `environment.egress`), unless `[agent] network_mode` says otherwise. `[agent]` and `[verifier]` take the same keys for their phase. Any other value, or `allowed_hosts` without `"allowlist"`, errors the run. The image *build* gets host network unless the operator passes `--network build=none`. See [Network policy](./coding-harnesses.md#network-policy). Prefer offline. |
 | `environment.egress` | `docker-claude` | Hosts the agent's solve may reach through the egress proxy, e.g. `["pypi.org", "files.pythonhosted.org"]`. A bare host means `host:443`; `host:port` is accepted. No wildcards (`*.pythonhosted.org`), commas or leading/trailing dots: list each host. A plain-HTTP host is reached directly, so it must be in the operator's `NO_PROXY`. |
@@ -274,6 +274,15 @@ changed — and confirm the license allows redistribution. A task that is
 results are never reported as official upstream benchmark numbers. The content
 repository is the right place for that record, kept next to the tasks it
 describes; keep it current in the same change that adds the task.
+
+Record the status in the task too, as a `provenance` key inside the existing `[metadata]` table (see §3). Keep the table header on its own line:
+
+```toml
+[metadata]
+provenance = { source = "hand-written", reviewed_by = "...", status = "candidate" }
+```
+
+`candidate` is a task nobody has checked yet, `validated` one a reviewer has checked, `frozen` one that must not change. Bump `metadata.version` when you change a task that results were already reported on (a repo `dokimi:typecheck` task has no revision `version`: there it is the pinned mypy version, see the [repository contract](./repo-evaluation-contract.md#3-taskjson)). A task without these keys reads as `unknown`; that is not an error.
 
 ## 10 — CI
 

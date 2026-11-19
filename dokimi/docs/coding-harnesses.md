@@ -155,7 +155,7 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 
 | Format | Recognised by | Kind | Consumed by |
 |---|---|---|---|
-| `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` (with `environment/Dockerfile`) |
+| `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` (with `environment/Dockerfile` or a [prebuilt `docker_image`](#prebuilt-images-environment-docker_image)) |
 | `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` (with `environment/Dockerfile`) |
 | `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export (not a `solution.yaml` task) |
 | `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | `docker-*` via `tasks run --swe-bench` (Python SWE-bench repos) |
@@ -240,6 +240,41 @@ split) rather than a converter here. An export renames `oracle/` and
 `docker-*` harnesses mount both names, so they run the exported task (as long
 as it works in `/app`, for the agent arms); the Harbor-backed harnesses refuse
 it.
+
+### Prebuilt images: `[environment] docker_image`
+
+A Harbor task whose `task.toml` sets `[environment] docker_image` runs on that
+image, as `harbor run` does, and a docker-* run starts from that image instead of
+building: Harbor 0.24 uses it whenever it is set, also beside an
+`environment/Dockerfile` (only Harbor's `--force-build` builds then;
+`should_use_prebuilt_docker_image` in `harbor/environments/definition.py`;
+`run.log` names the Dockerfile not built: remove `docker_image` to build it). A
+task without one builds `dokimi/<task>:latest` from `environment/`, as before; so
+does a staged SWE-bench task, whose Dockerfile starts `FROM` its image. Other
+formats do not read the key.
+
+- The image is pulled only when the daemon does not have it, as Harbor's
+  `docker compose up` does, within the task's `build_timeout_sec`; a pull that
+  runs out of time errors the cell, like a build. A value that is not an image
+  reference (it starts with `-`, or holds a space) is refused before any docker
+  call: docker would read it as a flag. A `docker_image` that is not a string
+  (`docker_image = 5`) fails the task's load, as Harbor's `EnvironmentConfig` refuses
+  it; an empty string is no image.
+- The pull is the daemon's, like the `FROM` image of a `docker build`:
+  `--network build=none` takes the network from a build's `RUN` steps and does
+  not stop it. To run offline, have the image on the daemon first.
+- The container runs in `environment.workdir` when the task declares one (`docker run -w`), as
+  Harbor runs every exec there, so the oracle and the verifier find relative paths; without one,
+  in the image's `WORKDIR`. A task built from its Dockerfile keeps the image's `WORKDIR` even
+  when it declares one (Harbor overrides it there too).
+- After the container starts, the files of a non-empty `environment/` without a
+  `Dockerfile` or `docker-compose.yaml` are copied into `environment.workdir`,
+  else the image's `WORKDIR`, else `/` (Harbor's
+  `should_upload_environment_dir`). A top-level
+  `environment/skills` is left out, as it is left out of a build context.
+- `metrics.image` says which image ran: `{"source": "docker_image", "ref",
+  "pulled", "id", "repo_digests"}` for a prebuilt one (the id and digests of what
+  ran, since a tag moves), `{"source": "build", "ref"}` for a built one.
 
 ## Supported Harnesses
 
@@ -626,7 +661,7 @@ be checked for the same network before their verdicts are compared:
 
 | Phase | Default | What runs |
 |---|---|---|
-| `build` | `public` (host network, host proxy as build args) | `docker build` |
+| `build` | `public` (host network, host proxy as build args) | `docker build` (a [prebuilt image](#prebuilt-images-environment-docker_image)'s pull ignores it) |
 | `solve` | `none` (an in-container agent still reaches its LLM through the sidecar) | the oracle, or the agent |
 | `verify` | `none` | `tests/test.sh` |
 

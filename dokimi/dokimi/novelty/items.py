@@ -31,6 +31,7 @@ from typing import Any
 
 from dokimi.eval.stats import point_biserial
 
+from .atoms_refusal import has_visible_text
 from .measure import ProbeRun
 
 #: Below this, an atom's pass/fail tracks the models' overall standing weakly enough that
@@ -267,12 +268,22 @@ _POOLED_AS_ONE = (
 
 
 def _refuse_partial(raw: str, data: dict) -> None:
-    """A partial probe result (a stop: ``--max-usd`` or a permanent provider error) is not a finished one."""
+    """A partial probe result (a stop: ``--max-usd``, a call with no price or a permanent provider error) is not a finished one.
+
+    The block's ``message`` names the stop for every reason but ``spend_cap``; a record from before the
+    reasons (no block, or a block with no string ``reason``) was a ``--max-usd`` stop.
+    """
     if "partial" in data or data.get("status") == "partial":
         block = data.get("partial")
-        if isinstance(block, dict) and block.get("reason") == "permanent_error":
-            raise ProbeFileError(f"{raw} is a partial probe result ({block.get('message', 'a permanent provider error stopped the measurement')}); "
-                                 "it is not a finished measurement")
+        reason = block.get("reason") if isinstance(block, dict) else None
+        message = block.get("message") if isinstance(block, dict) else None
+        if isinstance(reason, str) and reason != "spend_cap":
+            if not isinstance(message, str) or not has_visible_text(message):
+                message = ("a permanent provider error stopped the measurement" if reason == "permanent_error" else
+                           "a call with no known price stopped the measurement; "
+                           "price the model or drop --max-usd to run unmetered" if reason == "no_price" else
+                           "--max-usd stopped the measurement")
+            raise ProbeFileError(f"{raw} is a partial probe result ({message}); it is not a finished measurement")
         raise ProbeFileError(f"{raw} is a partial probe result (--max-usd stopped the measurement); "
                              "it is not a finished measurement")
 

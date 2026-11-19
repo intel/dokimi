@@ -9,12 +9,13 @@ import os
 import shutil
 import subprocess
 import sys
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 from dokimi.repos.l0.gitignore import GitIgnore
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 IGNORES = {
     ".gitignore": "\n".join([
@@ -155,10 +156,10 @@ def test_many_stars_do_not_backtrack():
     # A backtracking [^/]* per star takes ~15 s here; the line and the path are repository content.
     line = "*a" * 9 + "*b"
     rules = GitIgnore({".gitignore": line}, lambda _: line)
-    start = time.perf_counter()
-    assert rules.ignored_by("pkg/" + "a" * 45) is None
+    ratio, ignored = growth(lambda k: partial(rules.ignored_by, "pkg/" + "a" * k), 6)
+    assert ratio < GROWTH_LIMIT
+    assert ignored is None
     assert rules.ignored_by("pkg/" + "a" * 45 + "b") is not None
-    assert time.perf_counter() - start < 1
 
 
 @pytest.mark.parametrize("line, name, path", [

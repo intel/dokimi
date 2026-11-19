@@ -2,7 +2,6 @@
   "groups": {
     "3c397e7b5b50": {"count": 3, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/repos/cli_traces.py", "dokimi/repos/events.py"]},
     "4751a8be1f57": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/eval/agent_runner.py"]},
-    "87fd5d156635": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/personas/analyzer.py"]},
     "925b1461ae22": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/report/eval_report.py"]},
     "96a248688260": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/commands/baseline.py", "dokimi/eval/judge.py"]},
     "9912f72bb7c0": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/repos/reach.py", "dokimi/repos/skill_reach.py"]},

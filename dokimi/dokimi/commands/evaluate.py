@@ -13,6 +13,7 @@ from pathlib import Path
 
 from dokimi.commands import eval_coverage, eval_graph
 from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.cli_types import non_negative_int
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
     DEFAULT_JUDGE_MODEL,
@@ -203,6 +204,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
             "judge_model": args.judge_model,
             "judge_provider": args.judge_provider,
             "evaluator_independence_warning": same_model_warning,
+            **({"run_intent": run.meta["run_intent"]} if run.meta.get("run_intent") else {}),
         },
     )
 
@@ -439,17 +441,6 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         sys.exit(1 if args.strict else EXIT_INCONCLUSIVE)
 
 
-def _non_negative_int(value: str) -> int:
-    """argparse type: an int >= 0 (0 means "the checkpoint's own default")."""
-    try:
-        n = int(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"expected an integer, got {value!r}") from None
-    if n < 0:
-        raise argparse.ArgumentTypeError(f"must be >= 0, got {n}")
-    return n
-
-
 def register(sub, positive_int):
     """Add the `eval` subcommand group and its `score` and `judge` groups; return the eval subparsers.
 
@@ -551,7 +542,7 @@ def register(sub, positive_int):
                             help="Arm to grade: 'judge' (default, the shipped LLM judge) or "
                                  "'typed:<backend>[:<repo>]' for a local typed-decision "
                                  "baseline arm — needs the [typed-scorer] extra")
-    validity_p.add_argument("--typed-max-len", type=_non_negative_int, default=0, dest="typed_max_len",
+    validity_p.add_argument("--typed-max-len", type=non_negative_int, default=0, dest="typed_max_len",
                             help="Token budget for a typed arm's state (default: the "
                                  "checkpoint's own, 512 for laya English — answers are "
                                  "longer than that and get truncated)")

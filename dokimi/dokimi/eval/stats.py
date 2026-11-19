@@ -64,8 +64,18 @@ import statistics
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from dokimi.eval.finite_delta import check_sum_range, checked_delta
-from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, round_mean, sign_flip_row, within
+from dokimi.eval.arm_summary import mean_in_range
+from dokimi.eval.finite_delta import checked_delta
+from dokimi.eval.sign_flip import (
+    ALPHA,
+    METHOD,
+    min_sign_flip_p,
+    pair_magnitudes,
+    round_mean,
+    sign_flip_row,
+    tie_widths,
+    within,
+)
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 #: Checked without importing scipy, whose OpenBLAS starts a thread per core
@@ -441,7 +451,7 @@ def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -
     """
     arm_vals, base_vals = paired_vectors(evaluations, arm_name, baseline_arm)
     diffs = _deltas(arm_vals, base_vals)
-    return round(sum(diffs) / len(diffs), 1) if diffs else None
+    return round(mean_in_range(diffs), 1) if diffs else None
 
 
 @dataclass(frozen=True)
@@ -459,16 +469,25 @@ class PairedSummary:
     unpaired: int
     with_mean: float
     without_mean: float
-    delta_mean: float
+    delta_mean: Optional[float]
     with_min: float
     with_max: float
     without_min: float
     without_max: float
-    delta_min: float
-    delta_max: float
+    delta_min: Optional[float]
+    delta_max: Optional[float]
     improvements: int
     degradations: int
     neutral: int
+    delta_overflow: int = 0
+
+
+def _pair_delta(treatment: float, control: float) -> Optional[float]:
+    """``treatment - control``, or ``None`` where the difference of two finite scores leaves the float range."""
+    try:
+        return checked_delta(treatment, control)
+    except OverflowError:
+        return None
 
 
 def paired_summary(evaluations: Iterable[RecordLike]) -> PairedSummary:
@@ -478,27 +497,36 @@ def paired_summary(evaluations: Iterable[RecordLike]) -> PairedSummary:
     per-question deltas (``context - baseline``). Averaging each arm over *every* scored
     question instead gives two means over different questions, whose difference is not
     the delta the page prints beside them. An empty input gives zeros throughout.
+
+    A pair whose two finite scores differ by more than the float range has no delta: the
+    delta mean, min and max are then ``None`` (``delta_overflow`` counts those pairs) and the
+    arm means, ranges and counts are kept. Such a pair is counted as an improvement or a
+    degradation by comparing its two scores, not their difference.
     """
+    # https://github.com/intel/dokimi/issues/830
     recs = records(evaluations, source="evaluations", kind="evaluations")
     with_s, without_s = paired_vectors(recs, CONTEXT, BASELINE)
-    deltas = _deltas(with_s, without_s)
-    paired = len(deltas)
+    rows = [(t, c, _pair_delta(t, c)) for t, c in zip(with_s, without_s, strict=True)]
+    deltas = [d for _, _, d in rows if d is not None]
+    overflow = len(rows) - len(deltas)
+    paired = len(rows)
     return PairedSummary(
         total=len(recs),
         paired=paired,
         unpaired=len(recs) - paired,
         with_mean=_mean(with_s) if paired else 0.0,
         without_mean=_mean(without_s) if paired else 0.0,
-        delta_mean=_mean(deltas) if paired else 0.0,
+        delta_mean=None if overflow else _mean(deltas) if paired else 0.0,
         with_min=min(with_s, default=0.0),
         with_max=max(with_s, default=0.0),
         without_min=min(without_s, default=0.0),
         without_max=max(without_s, default=0.0),
-        delta_min=min(deltas, default=0.0),
-        delta_max=max(deltas, default=0.0),
-        improvements=sum(1 for d in deltas if d > 0),
-        degradations=sum(1 for d in deltas if d < 0),
-        neutral=sum(1 for d in deltas if d == 0),
+        delta_min=None if overflow else min(deltas, default=0.0),
+        delta_max=None if overflow else max(deltas, default=0.0),
+        improvements=sum(1 for t, c, d in rows if (t > c if d is None else d > 0)),
+        degradations=sum(1 for t, c, d in rows if (t < c if d is None else d < 0)),
+        neutral=sum(1 for _, _, d in rows if d == 0),
+        delta_overflow=overflow,
     )
 
 
@@ -565,13 +593,15 @@ def _cohens_d(d_mean: float, d_sd: float) -> Optional[float]:
 
 
 def _describe_deltas(
-    deltas: Sequence[float], *, confidence: float, seed: int
+    deltas: Sequence[float], *, confidence: float, seed: int, magnitudes: Optional[Sequence[float]] = None
 ) -> Dict[str, Any]:
     """Effect size, the sign-flip p, and the interval that inverts it, for a delta vector.
 
     ``p`` is the two-sided sign-flip p over the deltas not within ``EPS`` of 0
     (:func:`dokimi.eval.sign_flip.sign_flip_p`, exact up to 16 of them, Monte
-    Carlo from ``seed`` above), left unrounded for the caller to correct and
+    Carlo from ``seed`` above), or not within ``EPS`` times the larger value of
+    their pair when ``magnitudes`` (:func:`dokimi.eval.sign_flip.pair_magnitudes`)
+    are given and below 1, left unrounded for the caller to correct and
     then :func:`_finalize`. Correcting an already-rounded p multiplies its
     quantization error by the family size: a true p of 0.016666 in a family of
     three gives an exact Holm p of 0.049998 (significant), but
@@ -601,14 +631,13 @@ def _describe_deltas(
     d_sd = _sample_sd(d)
     cohens_d = _cohens_d(d_mean, d_sd)
     if all(math.isfinite(x) for x in d):
-        # The sign-flip sums would overflow and read as a measured zero effect.
-        # A finite sum of magnitudes bounds the spread (sd**2 <= sum(x**2) <= that sum squared), so it is finite too.
-        check_sum_range(d)
-        row = sign_flip_row(d, seed=seed, exact=True)
+        if not math.isfinite(d_sd):  # the spread of finite deltas past the float range: refused, as before
+            raise OverflowError("the sd of the deltas leaves the float range")
+        row = sign_flip_row(d, seed=seed, exact=True, magnitudes=magnitudes)
         p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
         p, lo, hi, shown_lo, shown_hi = None, None, None, None, None
-    n_changed = sum(1 for x in d if abs(x) > EPS)
+    n_changed = sum(1 for x, w in zip(d, tie_widths(magnitudes, len(d)), strict=True) if abs(x) > w)
 
     return {
         "n": len(d),
@@ -660,7 +689,7 @@ def paired_test(
     if len(treatment) != len(control) or len(treatment) < 2:
         return None
     deltas = _deltas(treatment, control)
-    result = _describe_deltas(deltas, confidence=confidence, seed=seed)
+    result = _describe_deltas(deltas, confidence=confidence, seed=seed, magnitudes=pair_magnitudes(treatment, control))
     return _finalize(result) if rounded else result
 
 
@@ -702,6 +731,7 @@ def arm_significance(
                 _deltas(treat, base),
                 confidence=confidence,
                 seed=seed,
+                magnitudes=pair_magnitudes(treat, base),
             )
 
     ordered = [a for a in targets if a in out]
