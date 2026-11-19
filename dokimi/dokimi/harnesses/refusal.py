@@ -3,7 +3,7 @@
 
 """What a docker-* harness refuses before it starts, and the task's working tree.
 
-Moved out of :mod:`.docker_solver` unchanged to keep that module under its
+Moved out of :mod:`.docker_solver` to keep that module under its
 growth cap (``scripts/growth_baseline.json``); the names are re-imported there.
 """
 
@@ -40,7 +40,7 @@ def _refuse_unrunnable(task: TaskSpec, mode: str, agent_location: str) -> None:
 
     A probe is refused where its ``claude`` arm is: it would vouch for an arm
     that never runs. It copies neither directory. Oracle mode is refused only
-    for a missing directory.
+    for a missing directory. Null mode checks the verifier copy, with no oracle or agent.
     """
     problem = task.local_docker_problem(oracle=mode == "oracle")
     if problem:

@@ -87,9 +87,6 @@ from .tbench_v1 import reward as _pytest_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
     _DEFAULT_VERIFY_TIMEOUT,
-    FORMAT_SWE_BENCH,
-    FORMAT_TASK_MD,
-    FORMAT_TBENCH_V1,
     ContainerStep,
     TaskSpec,
     _task_build_timeout,
@@ -259,11 +256,10 @@ class DockerSolverHarness:
             (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")
 
         elapsed = time.time() - start
-        metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network, "image": image_record}
         passed, verdict_metrics = self._verdict(reward, verifier)
-        metrics.update(verdict_metrics)
-        metrics.update(_usage_metrics(usage))
-        metrics.update(extra_metrics)
+        metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network,
+                                   "image": image_record, **verdict_metrics}
+        metrics.update({**_usage_metrics(usage), **extra_metrics})
         return HarnessResult(
             harness=self.harness_id,
             task=task.name,
