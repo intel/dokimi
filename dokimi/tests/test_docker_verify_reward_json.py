@@ -28,7 +28,7 @@ _ANSWER_QUALITY = json.dumps({"reward": 0.5833, "graph_design": 0.6667, "bounded
 def _harbor(root: Path) -> Path:
     task = root / "hb-task"
     for sub in ("environment", "solution", "tests"):
-        (task / sub).mkdir(parents=True)
+        (task / sub).mkdir(parents=True, exist_ok=True)
     (task / "solution" / "solve.sh").write_text("#!/bin/bash\n", encoding="utf-8")
     (task / "tests" / "test.sh").write_text("#!/bin/bash\n", encoding="utf-8")
     (task / "instruction.md").write_text("Explain it in /app/answer.md.", encoding="utf-8")
@@ -100,6 +100,21 @@ def test_a_failed_copy_of_reward_json_errors_the_cell_and_reward_txt_does_not_st
 
     with pytest.raises(RuntimeError, match=r"docker cp of /logs/verifier/reward.json failed \(exit 1\)"):
         _verify(tmp_path, DockerCLI(reward="1.0", answer=daemon_down))
+
+
+def _copies_a_directory(call):
+    if call.argv[1] == "cp" and call.argv[2].endswith(":/logs/verifier/reward.json"):
+        (Path(call.argv[3]) / "x").mkdir(parents=True)
+        return reply()
+    return None
+
+
+def test_a_reward_json_that_is_a_directory_errors_the_cell_and_reward_txt_does_not_stand_in(tmp_path):
+    # Harbor's reward_json_path.exists() takes it and its read raises (harbor 0.24.0 verifier.py).
+    with pytest.raises(RuntimeError, match="/logs/verifier/reward.json is not a file"):
+        _verify(tmp_path, DockerCLI(reward="1", answer=_copies_a_directory))
+    assert _verify(tmp_path, DockerCLI(reward="0.0")) == 0.0  # the next run clears the copied directory
+    assert not (tmp_path / "o" / "reward.json").exists()
 
 
 def test_exit_zero_without_either_reward_file_still_errors_the_cell(tmp_path):

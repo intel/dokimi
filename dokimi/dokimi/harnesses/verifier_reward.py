@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -72,16 +73,25 @@ def pull_reward(docker: Docker, container: str, output_dir: Path, log: Any) -> t
     a later file may not stand in for one that could not be read.
     """
     for name in REWARD_FILES:  # a copy left by an earlier run of the cell is not this verdict
-        (output_dir / name).unlink(missing_ok=True)
+        _remove(output_dir / name)
     for name in REWARD_FILES:
         dest = output_dir / name
         pulled = docker(["cp", f"{container}:/logs/verifier/{name}", str(dest)], log, check=False)
         if pulled.returncode == 0 and dest.is_file():
             return reward_file_verdict(name, dest.read_text(encoding="utf-8", errors="replace")), None
+        if pulled.returncode == 0 and dest.exists():  # Harbor takes any path there, then cannot read it
+            raise RuntimeError(f"/logs/verifier/{name} is not a file; see run.log")
         failed = _copy_error(pulled, name)
         if failed:
             return None, failed
     return None, None
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
 
 
 def exit_code_verdict(returncode: int) -> float:

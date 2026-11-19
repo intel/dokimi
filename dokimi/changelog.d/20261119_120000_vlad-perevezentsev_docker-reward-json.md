@@ -12,8 +12,8 @@ SPDX-License-Identifier: Apache-2.0
   now records the verifier's reward, partial credit such as `0.58` included, so its
   `results[].reward`, `pass_rate` and arm deltas change. As in Harbor 0.24.0, `reward.json` is read
   when there is one, else `reward.txt`; it must be a JSON object of finite numbers, and its reward
-  is the `reward` key, or the only key. One that is not such an object, has several keys and no
-  `reward`, or a reward outside [0, 1], errors the cell, also beside a `reward.txt`; a `docker cp`
+  is the `reward` key, or the only key. One that is not a file or not such an object, has several
+  keys and no `reward`, or a reward outside [0, 1], errors the cell, also beside a `reward.txt`; a `docker cp`
   of it that fails errors the cell too. A `command:` harness takes a `reward.json`'s reward by the
   same rule, and still reads any `reward.txt` under its run dir first:
   `{"group_score": 0.2, "reward": 0.9}` is 0.9 (it was 0.2, the first labelled number), and a bare
