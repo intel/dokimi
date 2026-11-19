@@ -39,9 +39,9 @@ def _read_jsonl(path: Path) -> list[OperationRecord]:
     if not path.is_file():
         return []
     out: list[OperationRecord] = []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as exc:
+    try:  # surrogateescape: a byte that is not UTF-8 costs its own line only (#687)
+        lines = path.read_text(encoding="utf-8", errors="surrogateescape").splitlines()
+    except OSError as exc:
         return [
             OperationRecord(
                 type="log_parse_error",
@@ -54,8 +54,18 @@ def _read_jsonl(path: Path) -> list[OperationRecord]:
         line = line.strip()
         if not line:
             continue
-        out.append(_parse_record(line, path.name))
+        out.append(_parse_record(line, path.name) if _is_utf8(line) else OperationRecord(
+            type="log_parse_error", name=path.name, status="error", metadata={"error": "not UTF-8"}))
     return out
+
+
+def _is_utf8(line: str) -> bool:
+    """Whether ``line`` was UTF-8 in the file: a byte that was not is kept as a lone surrogate."""
+    try:
+        line.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _parse_markers(text: str) -> list[OperationRecord]:

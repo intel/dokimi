@@ -293,6 +293,16 @@ def test_an_unusable_elapsed_falls_through_to_duration_sec(elapsed):
     assert [op.elapsed_sec for op in ops] == [5.0]
 
 
+def test_a_line_that_is_not_utf8_costs_only_that_line(tmp_path):
+    (tmp_path / "operations.jsonl").write_bytes(
+        b'{"type":"tool","name":"read"}\n{"name":"\xff"}\n{"type":"tool","name":"edit"}\n')
+
+    ops = load_operations(tmp_path, "", "")
+
+    assert [(op.type, op.name, op.metadata) for op in ops] == [
+        ("tool", "read", {}), ("log_parse_error", "operations.jsonl", {"error": "not UTF-8"}), ("tool", "edit", {})]
+
+
 def test_a_marker_whose_json_names_the_marker_is_read_whole():
     ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"grep DOKIMI_OP in logs"}', "")
 
