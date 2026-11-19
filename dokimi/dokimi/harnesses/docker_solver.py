@@ -72,7 +72,6 @@ from .agent_sandbox import (
     solver_cli_flags,
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
-from .command import _check_reward_copy, _exit_code_verdict, _reward_file_verdict
 from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
 from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, enter_phase, needs_sandbox,
@@ -82,6 +81,7 @@ from .solver_stream import record_solver, run_solver
 from .task_image import ignore_top_level_skills, ready_image, upload_environment, workdir_args
 from .task_env import _exec_env, unresolved_env  # re-exported
 from .tbench_v1 import reward as _pytest_reward
+from .verifier_reward import REWARD_FILES, exit_code_verdict, pull_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
     _DEFAULT_VERIFY_TIMEOUT,
@@ -396,7 +396,8 @@ class DockerSolverHarness:
         """
         # A rerun must not find its own previous tree or verdict during the solve.
         _rmtree(output_dir / "work")
-        (output_dir / "reward.txt").unlink(missing_ok=True)
+        for name in REWARD_FILES:
+            (output_dir / name).unlink(missing_ok=True)
         if sandbox is not None and self.agent_location == "container":  # a host arm stays on the host
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)
@@ -622,7 +623,7 @@ class DockerSolverHarness:
 
     def _verify(self, task: TaskSpec, container: str, output_dir: Path, log,
                 net: Optional[PhasePolicy] = None) -> Optional[float]:
-        """Run the verifier in-container; pull /logs/verifier/reward.txt back out.
+        """Run the verifier in-container; pull its reward.json or reward.txt back out of /logs/verifier.
 
         Mounted at both ``/tests`` (Harbor) and ``/verifier`` (BenchFlow): a
         SkillsBench ``test.sh`` runs ``pytest /verifier/test_outputs.py`` even
@@ -643,21 +644,18 @@ class DockerSolverHarness:
             (output_dir / "verifier_tests.json").write_text(json.dumps(
                 {"parser": step.parser, "exit_code": proc.returncode, "tests": tests}, indent=2), encoding="utf-8")
             return verdict
-        reward_file = output_dir / "reward.txt"
-        pulled = self._docker(
-            ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
-            log, check=False,
-        )
-        if pulled.returncode == 0 and reward_file.is_file():
-            return _reward_file_verdict(reward_file.read_text(encoding="utf-8", errors="replace"))
+        reward, copy_error = pull_reward(self._docker, container, output_dir, log)
+        if reward is not None:
+            return reward
         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
             running = self._docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)
             if running.timed_out:  # no answer is not "stopped": say so, the cell is errored either way
                 raise RuntimeError(f"task container {container} state inspect timed out at verify time; see run.log")
             if (getattr(running, "stdout", "") or "").strip() != "true":
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
-        _check_reward_copy(pulled)  # a failed or hung copy errors the cell: it is not "no reward file"
-        return _exit_code_verdict(proc.returncode)
+        if copy_error:  # a failed or hung copy errors the cell: it is not "no reward file"
+            raise RuntimeError(copy_error)
+        return exit_code_verdict(proc.returncode)
 
     def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:
         return resolve_recorded(task, self.network, agent=self.mode != "oracle", record=record)

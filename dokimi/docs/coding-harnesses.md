@@ -641,7 +641,8 @@ refuses the task instead of running it with the internet the task forbade.
 Both now land as errored cells.
 
 A `command:` harness (including a `--command-template` that wraps `harbor`)
-keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else (no
+keeps its own rule: a `reward.txt` / `reward.json` under the run dir (`reward.txt`
+first; a `reward.json`'s reward as for a `docker-*` verifier, below), else (no
 reward file) a `reward: x` on its output, else exit code 0 is a pass. Exit 126 or 127, a
 signal exit, a Windows crash status (an NTSTATUS error code such as `0xC0000409`), or a reward file with no reward in it is no verdict: the cell is
 errored (`metrics.solver_error`). Only a reward file with a reward in it outranks such an
@@ -1136,11 +1137,15 @@ python cli.py tasks run --tasks <task-name> \
   no reward is found, the adapter's exit code is used as the fallback, except
   for a Harbor-backed cell, which is then errored (see the Harbor grading
   table above), and a `docker-*` cell with a reward-file verifier (`task.toml`
-  or `task.md`), where exit 0 without `/logs/verifier/reward.txt` is errored
-  and a non-zero exit scores 0.0. A terminal-bench v1 verifier keeps its pytest
-  summary as the verdict. A `docker-*` reward file with no number between 0
-  and 1 in it (`PASS`, empty, `75`), or a `docker cp` of it that fails or
-  times out, errors the cell.
+  or `task.md`), where exit 0 without `/logs/verifier/reward.txt` or
+  `reward.json` is errored and a non-zero exit scores 0.0. A terminal-bench v1
+  verifier keeps its pytest summary as the verdict. As in Harbor 0.24.0, a
+  `reward.json` is read when there is one, else `reward.txt`; it is a JSON
+  object of numbers, and the reward is its `reward` key, or its only key (the
+  other keys stay in the cell's copy of the file). A `docker-*` `reward.txt`
+  with no number between 0 and 1 in it (`PASS`, empty, `75`), a `reward.json`
+  that is not such an object or whose reward is not between 0 and 1, or a
+  `docker cp` of either that fails or times out, errors the cell.
 - `results[].metrics`: for LLM harnesses (`docker-claude*`), the per-run
   `UsageRecord` fields — `cost_usd`, `prompt_tokens`, `completion_tokens`,
   `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `latency_sec`,
@@ -1170,7 +1175,7 @@ agent's result event (`solver.json`) and full stream (`solver.jsonl`; the
 values of the agent's credential variables are redacted, also line by line and
 in their JSON-escaped form, but anything else the agent printed, such as a credential file's contents, is not, so do not share
 it),
-`prompt.txt`, `run.log`, `reward.txt`, the agent's final tree (`work/`),
+`prompt.txt`, `run.log`, `reward.txt` or `reward.json`, the agent's final tree (`work/`),
 `egress.jsonl` for a container launch whose sidecar log was read and `isolation_probe.json` for a probe.
 
 ## Statistics on the execution-verified track

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 import shlex
 import shutil
 import time
@@ -22,9 +21,9 @@ from .models import HarnessResult, OperationRecord
 from .operations import load_operations
 from .harbor_export import harbor_view
 from .tasks import TaskSpec, harbor_task_problem
+from .verifier_reward import _parse_reward_text, reward_in_file
 
 
-_REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D+([01](?:\.\d+)?)", re.IGNORECASE)
 _PLACEHOLDERS = (
     "harness",
     "task",
@@ -432,82 +431,14 @@ def _find_reward(output_dir: Path | None, stdout: str, stderr: str) -> float | N
             output_dir.rglob("reward.json")
         )
         for path in candidates:
-            parsed = _parse_reward_text(
-                path.read_text(encoding="utf-8", errors="replace"), reward_file=True
-            )
-            if parsed is not None:
-                return parsed
+            try:
+                return reward_in_file(path.name, path.read_text(encoding="utf-8", errors="replace"))
+            except ValueError:  # no reward in this one: the next file may have it
+                continue
         if candidates:
             return None  # an unreadable reward file is not an absent one: no output fallback
     parsed = _parse_reward_text(stdout)
     return parsed if parsed is not None else _parse_reward_text(stderr)
-
-
-def _exit_code_verdict(returncode: int) -> float:
-    """The verdict of a reward-file verifier that wrote no ``reward.txt``.
-
-    Exit 0 is not a verdict: a verifier that wrote no reward file passed nothing,
-    so the cell is errored, as a verifier that did not run is. Non-zero stays 0.0.
-    """
-    if returncode == 0:
-        raise RuntimeError("verifier exited 0 but wrote no /logs/verifier/reward.txt; see run.log")
-    return 0.0
-
-
-def _reward_file_verdict(text: str) -> float:
-    """The reward in a verifier's ``reward.txt``; one with no number in it is no verdict.
-
-    As in :func:`_exit_code_reward`, whatever the exit code: the cell is errored, not failed.
-    """
-    reward = _parse_reward_text(text, reward_file=True)
-    if reward is None:
-        raise RuntimeError(
-            "/logs/verifier/reward.txt has no reward between 0 and 1 in it; see run.log"
-        )
-    return reward
-
-
-# What docker says when the file is not there (v20+, older CLIs, podman); a daemon error says none.
-_CP_NO_FILE_RE = re.compile(
-    r"could not find the file|no such container:path|could not be found on container", re.I)
-
-
-def _check_reward_copy(pulled: process.Completed) -> None:
-    """Raise unless ``docker cp`` of ``reward.txt`` worked or found no file there.
-
-    A copy that failed or hung says nothing about the verifier, so it is not "no reward file".
-    """
-    if pulled.timed_out:
-        raise RuntimeError("docker cp of /logs/verifier/reward.txt timed out; see run.log")
-    if pulled.returncode != 0 and not _CP_NO_FILE_RE.search(pulled.stderr or ""):
-        raise RuntimeError(
-            f"docker cp of /logs/verifier/reward.txt failed (exit {pulled.returncode}); see run.log"
-        )
-
-
-def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
-    """A reward from a ``reward.txt`` (``reward_file``) or from command output.
-
-    In a reward file a bare number is the whole reward, so partial credit in
-    [0, 1] is accepted (SkillsBench's dialogue-parser writes the passing-test
-    fraction). On stdout/stderr only an exact 0/1 or a labelled
-    ``reward: x`` counts: a command that prints ``0.5`` for some other reason
-    keeps falling back to its exit code, as it always has.
-    """
-    stripped = text.strip()
-    if stripped in {"0", "0.0", "1", "1.0"}:
-        return float(stripped)
-    if reward_file:
-        try:
-            value = float(stripped)
-        except ValueError:
-            value = None
-        if value is not None and 0.0 <= value <= 1.0:
-            return value
-    match = _REWARD_RE.search(text)
-    if match:
-        return float(match.group(1))
-    return None
 
 
 def _tail(text: str, limit: int = 4000) -> str:
