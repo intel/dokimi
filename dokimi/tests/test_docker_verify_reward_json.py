@@ -188,7 +188,6 @@ def test_a_command_harness_reads_reward_json_by_the_same_rule(tmp_path, text, ex
     assert _find_reward(tmp_path, "reward: 1", "") == expected
 
 
-
 @pytest.mark.parametrize(("directory", "beside", "text"), [
     ("reward.txt", "reward.json", '{"reward": 0.5}'),
     ("reward.json", "reward.txt", "0.5"),
