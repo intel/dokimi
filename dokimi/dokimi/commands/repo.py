@@ -350,6 +350,8 @@ def _load_manifest(tree, args: argparse.Namespace, *, guidance_default: bool = F
             }, "<default>")
         return load_manifest(tree, path)
     try:
+        if not Path(args.manifest_file).is_file():  # a FIFO would block the read until a writer opens it (#975)
+            raise OSError("not a regular file")
         raw = yaml.safe_load(Path(args.manifest_file).read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:  # ValueError: not UTF-8
         raise ManifestError(args.manifest_file, [str(exc)]) from exc
