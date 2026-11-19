@@ -36,14 +36,16 @@ def _typecheck_or_exit(args: argparse.Namespace):
 
 def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The rules and the Markdown ``@`` imports Claude Code loads with the default guidance, and the warnings of the rules
-    budget does not count (a linked ``.claude/rules``); both () for a written manifest.
+    budget does not count (a linked ``.claude/rules``); for a written manifest the rules and imports are () and the
+    warnings are the listed paths the tree could not look at.
 
     The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
     imported file reaches the agent as surely as one in CLAUDE.md. They are named by path, not glob, so a repository
     without rules gets no warning for them. A written manifest scans what it says, so a gate on it does not change.
     """
     if manifest.path != "<default>":
-        return (), ()
+        tree.files()  # a path the listing could not look at is a guidance file the scan cannot check
+        return (), tuple(getattr(tree, "skipped", ()))
     from dokimi.repos.budget import RULE_GLOB, budget
     from dokimi.repos.harness_profile import load_profile
 

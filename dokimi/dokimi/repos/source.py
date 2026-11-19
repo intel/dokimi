@@ -19,6 +19,7 @@ import os
 import posixpath
 import re
 import shutil
+import stat
 import sys
 import time
 from dataclasses import dataclass
@@ -129,6 +130,7 @@ class WorkTree:
         self.root = Path(root).resolve()
         self.label = str(self.root)
         self._files: list[str] | None = sorted(files) if files is not None else None
+        self.skipped: list[str] = []  # listed paths left out of ``files()`` because they could not be looked at
 
     def _resolve(self, path: str) -> Path:
         target = (self.root / path).resolve()
@@ -136,8 +138,22 @@ class WorkTree:
             raise SourceArgumentError(f"path escapes the repository: {path}")
         return target
 
+    def _is_entry(self, path: str) -> bool:
+        """Whether a listed path is a file or a link; one that cannot be looked at (a directory above it that
+        cannot be searched) is left out and named in ``skipped``."""
+        target = self.root / path
+        try:  # os.lstat raises on every Python; Path.is_file and Path.is_symlink stop raising on 3.14
+            mode = os.lstat(target).st_mode
+            return stat.S_ISLNK(mode) or stat.S_ISREG(mode)
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        except OSError as exc:
+            self.skipped.append(f"{path}: {exc.strerror or exc}; the file and anything it leads to are not counted")  # "are not counted": repo scan reads it as incomplete
+            return False
+
     def files(self) -> list[str]:
         """Every file, or inside a git working tree the files git would show: tracked or not ignored.
+        A listed path that cannot be looked at (an unsearchable directory above it) is left out and named in ``skipped``.
 
         The root may be a subdirectory of the working tree; ``ls-files -C`` lists paths relative to it.
         """
@@ -145,8 +161,7 @@ class WorkTree:
             listed = _git_entries(self.root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                                   check=False, warn=True)
             if listed:  # a link is an entry even when it dangles or names a directory, as in git
-                self._files = sorted({p for p in listed
-                                      if (self.root / p).is_file() or (self.root / p).is_symlink()})
+                self._files = sorted({p for p in listed if self._is_entry(p)})
         if self._files is None:
             out: list[str] = []
             for dirpath, dirnames, filenames in os.walk(self.root):
