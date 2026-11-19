@@ -387,7 +387,7 @@ def test_a_split_only_catalog_prices_the_paid_command_from_its_split_skills():
 
     assert result.merge == () and len(result.split) == 1
     assert result.paid is not None and result.paid.est_usd == 1.75
-    assert result.paid.argv[5:] == ("--from-check", "--model", "haiku", "--reps", "3", "--budget", "4")
+    assert result.paid.argv[5:] == ("--from-check", "--model", "haiku", "--reps", "3", "--max-usd", "4")
 
 
 def test_a_valid_copy_is_offered_when_the_shallower_original_is_ineligible(tmp_path, capsys):
