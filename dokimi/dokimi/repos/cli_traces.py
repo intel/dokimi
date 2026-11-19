@@ -28,7 +28,7 @@ from datetime import datetime
 from typing import Any, NamedTuple
 
 from .shell_functions import Functions, define
-from .shell_search import Searched, search_program, searched_files
+from .shell_search import Searched, cuts_lines, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
@@ -176,7 +176,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         words = walk.words(part, after)
         if words:
             out.extend(walk.command(words, after, chained, _time_keyword(part)))
-        elif (stage := _search_stage(part)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
+        elif (stage := _search_stage(part, walk.functions)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
             out.extend(walk.piped(walk.words(stage, after, staged=True), _time_keyword(part)))
     walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
     return out, walk
@@ -342,7 +342,12 @@ class _Walk:
 
     def piped(self, words: list[str], timed: bool) -> list[str]:
         """The files a search shows lines of when it is the first stage of ``grep x f | head`` (:func:`_search_stage`);
-        no other command of a pipeline counts, and neither does a ``cd`` or a keyword (``! grep``: its name is ``!``)."""
+        no other command of a pipeline counts, and neither does a ``cd``. A keyword before the search (``if grep x f | head``)
+        is dropped, but not ``!``, which inverts the exit."""
+        while words and words[0] in _KEYWORDS:
+            if words[0] == "!":
+                return []
+            words = words[1:]
         words, via_env, chdir, bypassed = _command_words(words, timed, self.functions)
         name = _run_name(words[0], via_env) if words else None
         search = search_program(name, words[1:]) if name and (bypassed or words[0] not in self.functions) else None
@@ -435,17 +440,12 @@ def _masked(part: str) -> str:
                   part, flags=re.DOTALL)
 
 
-# a pipeline stage that only cuts the output of the one before: ``head -n 20``, ``tail -5``, ``head --lines=5``; a word that
-# is not an option or its number would be a file the stage reads instead of the pipe
-_CUT_STAGE = re.compile(r"\s*(?:head|tail)(?:\s+-[-\w=+]*(?:\s+[+-]?\d+)?)*\s*")
-
-
-def _search_stage(part: str) -> str | None:
-    """The first stage of a pipeline whose other stages are all :data:`_CUT_STAGE` (``grep x AGENTS.md | head -n 20``),
-    else None: the lines of a search that only ``head`` or ``tail`` cut still reach the agent."""
+def _search_stage(part: str, functions: Functions) -> str | None:
+    """The first stage of a pipeline whose other stages all only cut its lines (:func:`~dokimi.repos.shell_search.cuts_lines`:
+    ``grep x AGENTS.md | head -n 20``), else None: the lines of a search that only ``head`` or ``tail`` cut still reach the agent."""
     cuts = [m.start() for m in _PIPE.finditer(_masked(part))]
     stages = [part[a:b] for a, b in zip([0, *(c + 1 for c in cuts)], [*cuts, len(part)], strict=True)]
-    return stages[0] if cuts and all(_CUT_STAGE.fullmatch(s) for s in stages[1:]) else None
+    return stages[0] if cuts and all(cuts_lines(s, functions) for s in stages[1:]) else None
 
 
 def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:

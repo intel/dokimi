@@ -42,7 +42,7 @@ import sys
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Container, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,10 +87,11 @@ from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
+from .held_guidance import held_guidance
 from .host import probe_host, unmet, validate_tasks
 from .manifest import match_glob, scratch_name
 from .process_metrics import process_metrics
-from .workspace import OVERLAY_ARM, PrepError, Task, held_guidance, parse_arm, prepare_workspace
+from .workspace import OVERLAY_ARM, PrepError, Task, parse_arm, prepare_workspace
 
 SUPPORT_HOST = Path(__file__).resolve().parent / "support"
 CONFIG_DIR = f"{RUN_DIR}/config"
@@ -354,7 +355,7 @@ def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str,
 
 
 def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]], unknown_reads: int = 0,
-                        held: frozenset[str] | None = None) -> dict[str, Any]:
+                        held: Container[str] | None = None) -> dict[str, Any]:
     """``result.json`` ``process``: the framework's counts and the manifest's ``process_metrics`` (contract §4.1).
 
     ``held``: the guidance files the workspace held as the agent started; a path outside it is no guidance read
@@ -365,7 +366,7 @@ def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]], unknown_
 
 
 def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str],
-                     unknown_reads: int = 0, held: frozenset[str] | None = None) -> dict[str, Any] | None:
+                     unknown_reads: int = 0, held: Container[str] | None = None) -> dict[str, Any] | None:
     """The cell's ``process``, or None when its metrics raise: a best-effort count must not fail the task."""
     try:
         return run_process_metrics(ctx, events, unknown_reads, held)

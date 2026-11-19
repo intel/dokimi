@@ -496,6 +496,20 @@ def _value_span(word: str, values: frozenset[str]) -> int:
     return 0
 
 
+def _attached_pattern(word: str, values: frozenset[str]) -> tuple[str, str, str] | None:
+    """A short cluster that holds ``-e`` or ``-f``: (the cluster before that letter, the letter, the rest of the word,
+    which is its value, or empty when the value is the next word). ``-ewarn`` is ``-e`` with ``warn``, ``-nf`` is ``-n``
+    and ``-f``. None when a letter that takes a value comes first (``-gfoo`` is ``-g`` with ``foo``) or there is none."""
+    if len(word) < 3 or word[0] != "-" or word[1] == "-":
+        return None
+    for at, c in enumerate(word[1:], 1):
+        if f"-{c}" in values:
+            return None
+        if c in "ef":
+            return word[:at], c, word[at + 1:]
+    return None
+
+
 def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
     """The words of a reader that can name a file. A searcher's search expression is not one: it is its ``-e`` value, or
     else its first operand, and a pattern file (``-f``) is a file it reads. A searcher's option whose next word is a
@@ -504,6 +518,21 @@ def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
         return args
     operands, pattern_files, _ = search_words(program, args)
     return pattern_files + operands
+
+
+def _pattern_option(args: Sequence[str], i: int, values: frozenset[str]) -> tuple[int, str, list[str]] | None:
+    """The option at ``args[i]`` that gives the search expression or a pattern file, else None: (the words it takes, the
+    short flags before it in its cluster, the pattern file it names). ``-e warn``, ``--regexp=warn``, ``-ewarn``, ``-nf F``."""
+    name, eq, value = args[i].partition("=")
+    if name in _EXPRESSION or name in _PATTERN_FILE:
+        before, is_file, inline = "", name in _PATTERN_FILE, value if eq else None
+    elif attached := _attached_pattern(args[i], values):
+        before, letter, rest = attached
+        is_file, inline = letter == "f", rest or None
+    else:
+        return None
+    named = inline if inline is not None else (args[i + 1] if i + 1 < len(args) else None)
+    return (1 if inline is not None else 2), before, [named] if is_file and named is not None else []
 
 
 def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...], frozenset[str]]:
@@ -518,18 +547,15 @@ def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tu
     i = 0
     while i < len(args):
         word = args[i]
-        name, eq, value = word.partition("=")  # ``--file=F``; a plain operand is kept as it is
         if word == "--":
             operands.extend(args[i + 1:])
             break
-        if name in _EXPRESSION or name in _PATTERN_FILE:
+        if pattern := _pattern_option(args, i, values):
+            used, before, pattern_file = pattern
             given = True
-            if name in _PATTERN_FILE:
-                if eq:
-                    pattern_files.append(value)
-                elif i + 1 < len(args):
-                    pattern_files.append(args[i + 1])
-            i += 1 if eq else 2
+            flags.update(_option_names(before, values))
+            pattern_files.extend(pattern_file)
+            i += used
         elif span := _value_span(word, values):
             flags.update(_option_names(word, values))
             i += span

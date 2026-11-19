@@ -7,7 +7,9 @@ follows; the option tables are :mod:`~dokimi.repos.probes`'s."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import re
+import shlex
+from collections.abc import Container, Sequence
 
 from .probes import search_words
 
@@ -21,6 +23,78 @@ _SHORT_NO_LINE_DEFAULT = "qlLc"
 
 class Searched(str):
     """A path a search named: the walker keeps it among the files its printing commands read, and tells them apart by type."""
+
+
+_CUT_LONG = {"head": ("bytes", "lines", "quiet", "silent", "verbose", "zero-terminated", "help", "version"),
+             "tail": ("bytes", "lines", "quiet", "silent", "verbose", "zero-terminated", "help", "version", "follow",
+                      "retry", "pid", "sleep-interval", "max-unchanged-stats")}
+_CUT_FLAGS = {"head": "qvz", "tail": "qvzf"}  # the short options that take no value
+_CUT_VALUED = ("lines", "bytes", "pid", "sleep-interval", "max-unchanged-stats")  # the long ones that take one
+_Parsed = tuple[int, str | None] | None  # (the words an option takes, the line or byte count it sets) or None: not valid
+
+
+def _cut_long(program: str, words: list[str], i: int) -> _Parsed:
+    """The long option ``words[i]`` of ``head`` or ``tail``, an unambiguous prefix of its name too (``--li=5``)."""
+    name, eq, value = words[i][2:].partition("=")
+    hits = [n for n in _CUT_LONG[program] if n == name] or [n for n in _CUT_LONG[program] if n.startswith(name)]
+    if len(hits) != 1 or hits[0] in ("help", "version"):
+        return None
+    if hits[0] not in _CUT_VALUED:
+        return 1, None
+    given = value if eq else (words[i + 1] if i + 1 < len(words) else "")  # else the value is the next word
+    return (1 if eq else 2), (given if hits[0] in ("lines", "bytes") else None)
+
+
+def _cut_short(program: str, words: list[str], i: int) -> _Parsed:
+    """The cluster of short options ``words[i]``: flags, then maybe ``n`` or ``c`` (a count) or tail's ``s``, which takes
+    the rest of the word or the next one."""
+    word = words[i]
+    for at, c in enumerate(word[1:], 2):
+        if c in "nc" or (c == "s" and program == "tail"):
+            attached = word[at:]
+            value = attached or (words[i + 1] if i + 1 < len(words) else "")
+            return (1 if attached else 2), (value if c != "s" else None)
+        if c not in _CUT_FLAGS[program]:
+            return None
+    return 1, None
+
+
+def _cut_count(program: str, words: list[str]) -> str | None:
+    """The count of lines (or bytes) a ``head`` or ``tail`` word list passes on, 10 by default; None when an option is
+    unknown, ``--help`` or ``--version``, or a word is a file the command reads instead of its input."""
+    count, i = "10", 1
+    while i < len(words):
+        word = words[i]
+        if word.startswith("--") and len(word) > 2:
+            parsed = _cut_long(program, words, i)
+        elif re.fullmatch(r"-\d+", word):
+            parsed = 1, word[1:]
+        elif word.startswith("-") and len(word) > 1 and word[1] != "-":
+            parsed = _cut_short(program, words, i)
+        else:
+            return None
+        if parsed is None:
+            return None
+        i, count = i + parsed[0], count if parsed[1] is None else parsed[1]
+    return count
+
+
+def cuts_lines(stage: str, functions: Container[str] = ()) -> bool:
+    """Whether the pipeline stage ``stage`` is a ``head`` or ``tail`` that passes some of the lines it is fed on: its options
+    are known ones (``-n 20``, ``-5``, ``-c10``, ``--lines=5``) and name no file, its count is not zero (``head -n 0``;
+    ``tail -n +0`` is all of them), it is no ``--help`` or ``--version``, and the shell has no function of that name."""
+    try:
+        words = shlex.split(stage)
+    except ValueError:
+        return False
+    if not words or words[0] not in _CUT_FLAGS or words[0] in functions:
+        return False
+    count = _cut_count(words[0], words)
+    match = re.fullmatch(r"([+-]?)(\d+)[A-Za-z]{0,2}", count or "")  # a size suffix (``1k``) is allowed
+    if match is None:
+        return False
+    sign, digits = match.groups()
+    return int(digits) > 0 or (sign == "-" if words[0] == "head" else sign == "+")
 
 
 def search_program(name: str, args: Sequence[str]) -> tuple[str, Sequence[str]] | None:

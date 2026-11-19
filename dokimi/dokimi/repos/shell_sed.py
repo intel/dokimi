@@ -59,12 +59,7 @@ def sed_files(args: list[str]) -> list[str]:
     positional = _sed_positional(scan, args)
     if positional is None or not scan.quiet or scan.script_file:
         return []
-    if scan.scripts:
-        scripts, files = scan.scripts, positional
-    elif positional:
-        scripts, files = positional[:1], positional[1:]
-    else:
-        return []
+    scripts, files = (scan.scripts, positional) if scan.scripts else (positional[:1], positional[1:])
     if not all(_print_only(script) for script in scripts):
         return []  # not a print-only script: its files are not read as printed
     return [f for f in files if f != "-"]  # `-` is stdin: the script still counts it as a position

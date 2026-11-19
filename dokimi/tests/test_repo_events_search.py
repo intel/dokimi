@@ -58,6 +58,20 @@ def _jsonl(*records: dict) -> str:
     ("grep warn AGENTS.md | head -n 20 | tail --lines=5", ["AGENTS.md"]),
     ("grep warn AGENTS.md 2>&1 | head", ["AGENTS.md"]),
     ("if grep warn AGENTS.md; then echo y; fi", ["AGENTS.md"]),
+    ("if grep warn AGENTS.md | head -n 20; then echo yes; fi", ["AGENTS.md"]),  # a keyword before the piped search
+    ("while grep warn AGENTS.md | tail -3; do break; done", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | head -n+5", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | tail -n +0", ["AGENTS.md"]),  # from line 0 on: all of them
+    ("grep warn AGENTS.md | head -n -0", ["AGENTS.md"]),  # all but the last 0
+    ("grep warn AGENTS.md | head -c 100 -q", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | head --li=5", ["AGENTS.md"]),  # an unambiguous prefix of --lines
+    ("grep -ewarn AGENTS.md", ["AGENTS.md"]),  # the expression attached to -e
+    ("rg -ewarn AGENTS.md", ["AGENTS.md"]),
+    ("grep -nefoo AGENTS.md", ["AGENTS.md"]),  # in a cluster
+    ("grep -ne foo AGENTS.md", ["AGENTS.md"]),
+    ("grep -fpatterns.txt AGENTS.md", ["AGENTS.md"]),  # the pattern file attached to -f is read, not searched
+    ("grep -nf patterns.txt AGENTS.md", ["AGENTS.md"]),
+    ("grep -m1 -ewarn AGENTS.md", ["AGENTS.md"]),
 ])
 def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     walked = shell_walked(command)
@@ -81,6 +95,15 @@ def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     "grep() { :; }; grep warn AGENTS.md", "grep() { :; }; grep warn AGENTS.md | head", "grep --help AGENTS.md AGENTS.md",
     "cd -; grep warn AGENTS.md",  # the directory is not known
     "{ grep warn AGENTS.md; } > /dev/null",
+    "grep warn AGENTS.md | head -n 0", "grep warn AGENTS.md | head -n0", "grep warn AGENTS.md | tail -0",  # no line passes
+    "grep warn AGENTS.md | head -c 0", "grep warn AGENTS.md | head --lines=0", "grep warn AGENTS.md | tail -n 0",
+    "grep warn AGENTS.md | head -n +0", "grep warn AGENTS.md | head --lines 0",
+    "grep warn AGENTS.md | head --help", "grep warn AGENTS.md | tail --version", "grep warn AGENTS.md | head --v",
+    "grep warn AGENTS.md | head -n x", "grep warn AGENTS.md | head --bogus", "grep warn AGENTS.md | head -x",
+    "grep warn AGENTS.md | head -n", "grep warn AGENTS.md | head -n 5 | head -n 0",
+    "head() { :; }; grep warn AGENTS.md | head", "tail() { :; }; grep warn AGENTS.md | tail -n 5",  # the function runs
+    "if ! grep warn AGENTS.md | head; then echo no; fi",
+    "grep -fAGENTS.md warn", "grep -nf AGENTS.md warn",  # AGENTS.md is the pattern file
 ])
 def test_a_search_that_shows_no_line_of_a_file_is_not_searched(command):
     got = _process(_call("a", command), _result("a"))
@@ -155,6 +178,8 @@ def test_a_failed_or_refused_grep_tool_call_searched_nothing():
     assert _process(_grep_tool("g", **given), _result("g", "error", True))["guidance_searched"] == []
     refused = {"type": "result", "result": "ok", "permission_denials": [{"tool_name": "Grep", "tool_use_id": "g"}]}
     assert _process(_grep_tool("g", **given), refused)["guidance_searched"] == []
+    (event,) = _events(_grep_tool("g", **given), refused)
+    assert event["denied"] is True and "searched" not in event  # the persisted event says nothing was searched
 
 
 def _codex(command: str, rc: int | None, started: bool) -> str:
@@ -234,6 +259,9 @@ def test_the_value_attached_to_a_short_option_is_no_flags(command, searched):
     ("rg", ("-tm", "pat", "AGENTS.md"), ("AGENTS.md",)),
     ("grep", ("-nA", "2", "warn", "AGENTS.md"), ("AGENTS.md",)),  # the value is the next word
     ("grep", ("-A2", "warn", "AGENTS.md"), ("AGENTS.md",)),
+    ("grep", ("-ewarn", "AGENTS.md"), ("AGENTS.md",)),  # the expression is attached: AGENTS.md is the file
+    ("grep", ("-nfpats", "AGENTS.md"), ("pats", "AGENTS.md")),  # the pattern file is attached; it is read, not an expression
+    ("grep", ("-f", "pats", "AGENTS.md"), ("pats", "AGENTS.md")),
 ])
 def test_the_operands_of_a_searcher_do_not_depend_on_how_its_cluster_is_read(program, args, operands):
     assert _operands(program, args) == operands

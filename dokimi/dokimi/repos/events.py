@@ -177,6 +177,7 @@ def _deny(stream: _Stream, tool_id: Any) -> None:
     """A refused call (a hook's result or a final ``permission_denials`` entry): it never ran."""
     event = stream.by_id[tool_id]
     event["denied"] = True
+    event.pop("searched", None)  # a refused Grep call showed no line
     if id(event) in stream.bash:
         stream.bash[id(event)].result = "denied"
 

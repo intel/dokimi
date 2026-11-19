@@ -6,7 +6,13 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from types import SimpleNamespace
 
+from dokimi.repos import parse_manifest
+from dokimi.repos.held_guidance import held_guidance
+from dokimi.repos.runner import run_process_metrics
+from test_repo_manifest import MANIFEST
 from test_repo_run import _run, setup  # noqa: F401  # the run fixture, with its helpers
 
 
@@ -31,6 +37,35 @@ def test_guidance_searched_lists_the_held_guidance_files_a_grep_showed_lines_of(
     raw, none = _process(setup, "guidance:raw"), _process(setup, "guidance:none")
     assert (raw["guidance_searched"], raw["guidance_read"]) == (["sub/AGENTS.md"], ["AGENTS.md"])
     assert (none["guidance_searched"], none["guidance_read"]) == ([], [])
+
+
+def _held_workspace(tmp_path):
+    ws = tmp_path / "workspace"
+    (ws / "docs").mkdir(parents=True)
+    (ws / "sub").mkdir()
+    (ws / "AGENTS.md").write_text("a\n")
+    (ws / "docs/AGENTS.md").write_text("d\n")
+    (ws / "alias").symlink_to("docs", target_is_directory=True)  # git lists alias, not alias/AGENTS.md
+    (ws / "sub/AGENTS.md").symlink_to("missing.md")  # dangling
+    subprocess.run(["git", "init", "-q", str(ws)], check=True)
+    subprocess.run(["git", "-C", str(ws), "add", "-A"], check=True)
+    return held_guidance(tmp_path, parse_manifest(MANIFEST))
+
+
+def test_a_path_through_a_link_to_a_held_guidance_file_is_held_and_a_dangling_link_is_not(tmp_path):
+    held = _held_workspace(tmp_path)
+    assert "alias/AGENTS.md" in held and "docs/AGENTS.md" in held and "AGENTS.md" in held
+    assert "sub/AGENTS.md" not in held  # its target never existed
+    assert "docs/new/AGENTS.md" not in held and "../AGENTS.md" not in held  # made later, or outside the workspace
+
+
+def test_the_metrics_count_a_search_and_a_read_through_a_directory_link_but_not_a_dangling_one(tmp_path):
+    ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
+    events = [{"kind": "read", "path": "alias/AGENTS.md", "rc": 0},
+              {"kind": "command", "text": "grep x AGENTS.md sub/AGENTS.md", "rc": 0, "searched": ["AGENTS.md", "sub/AGENTS.md"]},
+              {"kind": "read", "path": "sub/AGENTS.md", "rc": 0}]
+    got = run_process_metrics(ctx, events, 0, _held_workspace(tmp_path))
+    assert (got["guidance_read"], got["guidance_searched"]) == (["alias/AGENTS.md"], ["AGENTS.md"])
 
 
 def test_guidance_read_leaves_out_a_file_the_arm_removed(setup, monkeypatch):  # noqa: F811
