@@ -131,6 +131,27 @@ def test_clearing_the_reward_files_removes_a_directory_with_a_read_only_subdirec
     assert [p.name for p in tmp_path.iterdir()] == ["keep.log"]
 
 
+def _host_claude(reward: str, copy=None) -> DockerSolverHarness:
+    def answer(call):
+        if call.argv[0] != "docker":
+            return None
+        if call.argv[1] == "cp":  # the verifier's reward files come from the fake, or from *copy*
+            return copy(call) if copy else None
+        return reply("/app\n")  # the image's WORKDIR, for the host agent's snapshot
+
+    cli = DockerCLI(reward=reward, solver='{"total_cost_usd": 0.42}', answer=answer)
+    return DockerSolverHarness(harness_id="docker-claude-host", mode="claude", agent_location="host", runner=cli)
+
+
+def test_a_docker_claude_rerun_after_a_reward_json_directory_is_scored(tmp_path):
+    task = load_task(_harbor(tmp_path))
+    out = tmp_path / "out"
+    first = _host_claude("1", copy=_copies_a_directory).run(task, model="haiku", output_dir=out)
+    assert first.reward is None and "reward.json is not a file" in first.metrics["error"]
+    second = _host_claude("0.25").run(task, model="haiku", output_dir=out)
+    assert (second.reward, second.metrics.get("error")) == (0.25, None)
+
+
 def test_exit_zero_without_either_reward_file_still_errors_the_cell(tmp_path):
     with pytest.raises(RuntimeError, match="wrote no /logs/verifier/reward.txt or reward.json"):
         _verify(tmp_path, DockerCLI(reward=None))
