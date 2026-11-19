@@ -91,8 +91,9 @@ def _jsonl(*records: dict) -> str:
     ("grep warn AGENTS.md | head -n 1k", ["AGENTS.md"]),  # size suffixes the tools read
     ("grep warn AGENTS.md | head -c 2KiB", ["AGENTS.md"]),
     ("grep warn AGENTS.md | tail -n +3MB", ["AGENTS.md"]),
-    ("grep warn AGENTS.md | tail --follow=name", ["AGENTS.md"]),  # the one valueless option with an optional value
+    ("grep warn AGENTS.md | tail --follow=descriptor", ["AGENTS.md"]),  # the one valueless option with an optional value
     ("grep warn AGENTS.md | tail --follow=d", ["AGENTS.md"]),  # a prefix of descriptor
+    ("grep warn AGENTS.md | tail --follow", ["AGENTS.md"]),  # descriptor by default
     ("grep warn AGENTS.md | tail --pid=123 -s 0.5", ["AGENTS.md"]),
     ("grep warn AGENTS.md | tail --pid 123 --sleep-interval=2", ["AGENTS.md"]),
     ("grep warn AGENTS.md | tail --max-unchanged-stats=3 -s1", ["AGENTS.md"]),
@@ -152,7 +153,8 @@ def test_a_search_that_shows_no_line_of_a_file_is_not_searched(command):
 
 
 @pytest.mark.parametrize("cut", [
-    "tail --follow=bad", "tail --follow=", "tail --pid=bad", "tail --pid", "tail --pid -1", "tail -s bad", "tail -sbad",
+    "tail --follow=bad", "tail --follow=", "tail --follow=name", "tail --follow=n", "tail --follow=nam",  # stdin by name
+    "tail --pid=bad", "tail --pid", "tail --pid -1", "tail -s bad", "tail -sbad",
     "tail --sleep-interval=x", "tail --sleep-interval", "tail --max-unchanged-stats=-1", "tail -n bad -n 5",
     "head -c 1qq -c 5",
 ])
@@ -183,6 +185,17 @@ def test_a_search_of_several_files_keeps_them_all_as_a_multi_file_read_does():
     command = "grep warn AGENTS.md sub/AGENTS.md"
     assert _process(_call("a", command), _result("a"))["guidance_searched"] == ["AGENTS.md", "sub/AGENTS.md"]
     assert _process(_call("a", command), _result("a", "x", True))["guidance_searched"] == ["AGENTS.md", "sub/AGENTS.md"]
+
+
+@pytest.mark.parametrize("command, files", [
+    ("grep warn AGENTS.md | head", ["AGENTS.md"]),  # head exits 0 whether or not grep matched
+    ("grep warn AGENTS.md sub/AGENTS.md", ["AGENTS.md", "sub/AGENTS.md"]),
+])
+def test_a_search_whose_result_has_no_text_showed_no_line(command, files):
+    assert _process(_call("a", command), _result("a", ""))["guidance_searched"] == []
+    (event,) = _events(_call("a", command), _result("a", ""))
+    assert "searched" not in event and event["rc"] == 0
+    assert _process(_call("a", command), _result("a", "AGENTS.md:1:warn"))["guidance_searched"] == files
 
 
 def test_a_refused_search_searched_nothing():
@@ -267,9 +280,10 @@ def test_a_failed_or_refused_grep_tool_call_searched_nothing():
     assert event["denied"] is True and "searched" not in event  # the persisted event says nothing was searched
 
 
-def _codex(command: str, rc: int | None, started: bool) -> str:
+def _codex(command: str, rc: int | None, started: bool, output: str | None = None) -> str:
     item = {"id": "a", "type": "command_execution", "command": command}
-    done = {"type": "item.completed", "item": {**item, "exit_code": rc}}
+    shown = {} if output is None else {"aggregated_output": output}
+    done = {"type": "item.completed", "item": {**item, "exit_code": rc, **shown}}
     return _jsonl(*([{"type": "item.started", "item": item}] if started else []), done)
 
 
@@ -288,16 +302,32 @@ def test_codex_searches_follow_the_same_rules(started):
     assert searched("grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", 1) == [None]
     assert searched("grep warn AGENTS.md sub/AGENTS.md | tail --follow=bad", 1) == [None]
     assert searched("grep --qui warn AGENTS.md", 0) == [None]
+    assert searched("grep warn AGENTS.md sub/AGENTS.md | tail --follow=name", 1) == [None]
+
+
+@pytest.mark.parametrize("started", [True, False], ids=["started", "completed only"])
+def test_a_codex_search_with_an_empty_output_showed_no_line(started):
+    def searched(output):
+        t = convert("codex-json", _codex("grep warn AGENTS.md | head", 0, started, output), WS)
+        return [e.get("searched") for e in t.events if e["kind"] == "command"]
+
+    assert searched("") == [None]
+    assert searched("AGENTS.md:1:warn") == [["AGENTS.md"]]
+    assert searched(None) == [["AGENTS.md"]]  # no output field: not known to be empty
 
 
 def test_copilot_bash_searches_follow_the_same_rules():
-    def searched(command, rc):
+    def searched(command, rc, content=None):
+        result = {} if content is None else {"result": {"content": content}}
         raw = _jsonl({"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "bash",
                                                                 "arguments": {"command": command}}},
                      {"type": "tool.execution_complete", "data": {"toolCallId": "a", "success": rc == 0,
-                                                                  "shellExecution": {"exitCode": rc}}})
+                                                                  "shellExecution": {"exitCode": rc}, **result}})
         return [e.get("searched") for e in convert("copilot-json", raw, WS).events if e["kind"] == "command"]
 
+    assert searched("grep warn AGENTS.md | head", 0, "") == [None]  # it printed nothing
+    assert searched("grep warn AGENTS.md | head", 0, "AGENTS.md:1:warn") == [["AGENTS.md"]]
+    assert searched("grep warn AGENTS.md sub/AGENTS.md | tail --follow=n", 1) == [None]
     assert searched("grep -n warn AGENTS.md", 0) == [["AGENTS.md"]]
     assert searched("grep -n warn AGENTS.md", 1) == [None]
     assert searched("grep warn AGENTS.md sub/AGENTS.md", 1) == [["AGENTS.md", "sub/AGENTS.md"]]

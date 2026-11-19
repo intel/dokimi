@@ -91,6 +91,7 @@ class _BashCall:
     unknown: int = 0  # the relative files it named after a directory change it could not follow, in itself
     searched: list[tuple[str, str]] = field(default_factory=list)  # the files its searches show lines of: as named, relative
     result: str | None = None  # "ok", "error" or "denied"; None while nothing came back
+    silent: bool = False  # the result came back with no text: no search of it showed a line
 
 
 @dataclass
@@ -151,7 +152,9 @@ def _apply_result(out: Transcript, block: dict[str, Any], stream: _Stream) -> No
     if denied:
         _deny(stream, tool_id)
     elif id(result_of) in stream.bash:
-        stream.bash[id(result_of)].result = "error" if block.get("is_error") else "ok"
+        call = stream.bash[id(result_of)]
+        call.result = "error" if block.get("is_error") else "ok"
+        call.silent = output == ""
     if (result_of["kind"] == "read" or result_of.get("name") == "Skill") and not denied:
         # A read that failed (the file does not exist) shows nothing of the file; a failed Skill call, no skill.
         result_of["rc"] = 1 if block.get("is_error") else 0
@@ -244,8 +247,8 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
 
 def _note_searched(call: _BashCall, moved: bool) -> None:
     """Put the files the call's searches show lines of on its command event: not a relative one after the shell moved
-    (its directory is not known; ``unknown_reads`` counts reads only), and none for a call refused or failed as one search of one file."""
-    kept = [rel for raw, rel in call.searched if not (moved and not raw.startswith("/"))]
+    (its directory is not known; ``unknown_reads`` counts reads only), and none for a call refused or failed as one search of one file, or whose result has no text."""
+    kept = [] if call.silent else [rel for raw, rel in call.searched if not (moved and not raw.startswith("/"))]
     if kept:
         call.event["searched"] = kept
 

@@ -28,7 +28,7 @@ from datetime import datetime
 from typing import Any, NamedTuple
 
 from .shell_functions import Functions, define
-from .shell_search import Searched, cuts_lines, search_program, searched_files
+from .shell_search import Searched, cuts_lines, search_program, searched_field, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
@@ -554,7 +554,7 @@ def _codex_command_started(out: Transcript, item: dict[str, Any], workdir: str |
     read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)} for path in paths]
     out.events.extend(read_events)
     event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None,
-                             **_searched_field(searched, workdir)}
+                             **searched_field(searched, workdir)}
     event_reads[id(event)] = (read_events, unknown)
     by_id[_codex_key(item, script)] = event
     out.events.append(event)
@@ -599,6 +599,8 @@ def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[s
     event["rc"] = item.get("exit_code")
     if item.get("aggregated_output"):
         event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
+    elif item.get("aggregated_output") == "":
+        event.pop("searched", None)  # it printed nothing, so no search of it showed a line
     derived, unknown = event_reads.get(id(event), ([], 0))
     if _failed_read(str(event["text"]), event["rc"]):  # drop the read events derived from it, and its unknown ones
         out.unknown_reads -= unknown
@@ -614,8 +616,9 @@ def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str,
         out.unknown_reads += walked.unknown
         for path in walked.reads:
             out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
+    printed = item.get("aggregated_output") != ""  # an empty output: no search of it showed a line
     event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code"),
-             **_searched_field(walked.searched, workdir)}
+             **searched_field(walked.searched if printed else [], workdir)}
     if item.get("aggregated_output"):
         event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
     out.events.append(event)
@@ -630,11 +633,6 @@ def _counted_reads(out: Transcript, script: str, cwd: str) -> tuple[list[str], i
     walked = shell_walked(script, cwd)
     out.unknown_reads += walked.unknown
     return walked.reads, walked.unknown, walked.searched
-
-
-def _searched_field(searched: list[str], workdir: str | None) -> dict[str, Any]:
-    """The ``searched`` field of a command event: the workspace paths its searches showed lines of; none without any."""
-    return {"searched": [relative_path(p, workdir) for p in searched]} if searched else {}
 
 
 def drop_failed_searches(events: list[dict[str, Any]]) -> None:
@@ -756,7 +754,7 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
         # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
         scripts, _, searched = _counted_reads(out, command, cwd) if name == "bash" else ([], 0, [])
         reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
-        return [*reads, {"t": t, "kind": "command", "text": command, "rc": None, **_searched_field(searched, workdir)}]
+        return [*reads, {"t": t, "kind": "command", "text": command, "rc": None, **searched_field(searched, workdir)}]
     if name in _COPILOT_READ | _COPILOT_EDIT:
         path = str(obj.get("path") or obj.get("file_path") or "")
         if not path:  # a call without a path names no file
@@ -792,6 +790,8 @@ def _copilot_result(out: Transcript, call: _Derived, data: dict[str, Any]) -> No
         output = result.get("content") if isinstance(result, dict) else None
         if isinstance(output, str) and output:
             event["output"], event["output_truncated"] = clip_output(output)
+        elif output == "":
+            event.pop("searched", None)  # it printed nothing, so no search of it showed a line
     if failed:
         out.unknown_reads -= unknown
         dropped = {id(e) for e in reads}

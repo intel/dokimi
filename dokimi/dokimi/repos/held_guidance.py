@@ -31,12 +31,14 @@ class HeldGuidance:
 
     def __init__(self, ws: Path, files: Iterable[str]) -> None:
         self.root = os.path.realpath(ws)
-        self.links = self._links()
+        self.links, self.dirs = self._walk()
         self.files = frozenset(at for p in files if (at := self.resolved(p)) is not None)
 
-    def _links(self) -> dict[str, str]:
-        """Each link of the workspace as it is now: its path (absolute, from the real root) and where it points."""
+    def _walk(self) -> tuple[dict[str, str], frozenset[str]]:
+        """Each link of the workspace as it is now (its path, absolute from the real root, and where it points), and
+        its directories that are no link."""
         links: dict[str, str] = {}
+        dirs_here = {self.root}
         for here, dirs, names in os.walk(self.root):
             if here == self.root and ".git" in dirs:
                 dirs.remove(".git")
@@ -44,18 +46,24 @@ class HeldGuidance:
                 path = os.path.join(here, name)
                 if os.path.islink(path):
                     links[path] = str(_link_target(Path(path)))
-        return links
+                elif name in dirs:
+                    dirs_here.add(path)
+        return links, frozenset(dirs_here)
 
     def resolved(self, path: str) -> str | None:
         """Where the workspace path ``path`` leads through the links of the start, relative to the workspace
-        (``..`` first when it leaves it); None for a path that follows more than 40 links, as a loop does."""
+        (``..`` first when it leaves it); None for a path that follows more than 40 links, as a loop does, for a link
+        whose target goes ``..`` out of a name that was no directory at the start (the system fails there), and for a
+        target on another drive (Windows)."""
         here, names = _anchored(os.path.join(self.root, path))
-        pending, hops = names[::-1], 0
+        pending, hops = [(n, False) for n in names[::-1]], 0  # (name, whether a link's target gave it)
         while pending:
-            part = pending.pop()
+            part, from_link = pending.pop()
             if part in ("", "."):
                 continue
             if part == "..":
+                if from_link and (here == self.root or here.startswith(self.root + os.sep)) and here not in self.dirs:
+                    return None
                 here = os.path.dirname(here)
                 continue
             here = os.path.join(here, part)
@@ -67,8 +75,11 @@ class HeldGuidance:
                     here, names = _anchored(target, here)
                 else:
                     here, names = os.path.dirname(here), _anchored(os.sep + target)[1]
-                pending += names[::-1]
-        return os.path.relpath(here, self.root).replace(os.sep, "/")
+                pending += [(n, True) for n in names[::-1]]
+        try:
+            return os.path.relpath(here, self.root).replace(os.sep, "/")
+        except ValueError:  # Windows: a target on another drive has no path from the root
+            return None
 
     def __contains__(self, path: object) -> bool:
         at = self.resolved(str(path))

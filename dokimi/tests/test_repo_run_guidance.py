@@ -73,6 +73,26 @@ def test_a_link_that_loops_through_a_dotdot_component_leads_to_no_held_file(tmp_
     assert "alias/AGENTS.md" not in held and "docs/AGENTS.md" in held
 
 
+def test_a_link_that_goes_up_from_a_name_that_was_no_directory_leads_to_no_held_file(tmp_path):
+    ws = tmp_path / "workspace"
+    (ws / "docs").mkdir(parents=True)
+    (ws / "docs/AGENTS.md").write_text("d\n")
+    (ws / "dangling").symlink_to("missing/../docs", target_is_directory=True)  # open() fails on ``missing``
+    (ws / "afile").symlink_to("docs/AGENTS.md/../../docs")  # AGENTS.md is a file: ENOTDIR
+    (ws / "fine").symlink_to("docs/../docs", target_is_directory=True)
+    subprocess.run(["git", "init", "-q", str(ws)], check=True)
+    subprocess.run(["git", "-C", str(ws), "add", "-A"], check=True)
+    held = held_guidance(tmp_path, parse_manifest(MANIFEST))
+    (ws / "missing").mkdir()  # made later: the start decides
+    assert "dangling/AGENTS.md" not in held and "afile/AGENTS.md" not in held
+    assert "fine/AGENTS.md" in held and "docs/AGENTS.md" in held
+    ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
+    command = {"kind": "command", "text": "grep x docs/AGENTS.md dangling/AGENTS.md", "rc": 0,
+               "searched": ["docs/AGENTS.md", "dangling/AGENTS.md"]}
+    got = run_process_metrics(ctx, [command, {"kind": "read", "path": "dangling/AGENTS.md", "rc": 0}], 0, held)
+    assert (got["guidance_searched"], got["guidance_read"]) == (["docs/AGENTS.md"], [])
+
+
 def test_a_link_the_agent_removed_or_retargeted_still_leads_to_the_file_the_workspace_held(tmp_path):
     held = _held_workspace(tmp_path)
     ws = tmp_path / "workspace"
@@ -93,12 +113,14 @@ def test_a_windows_alias_leads_to_the_held_file_through_the_drive(monkeypatch):
     held = object.__new__(HeldGuidance)
     held.root = root
     held.links = {root + "\\alias": "docs", root + "\\abs": root + "\\docs", root + "\\rooted": "\\repo\\workspace\\docs",
-                  root + "\\dots": "..\\workspace\\docs", root + "\\loop": "loop"}
+                  root + "\\dots": "..\\workspace\\docs", root + "\\loop": "loop", root + "\\ext": "D:\\external"}
+    held.dirs = frozenset({root, root + "\\docs"})
     held.files = frozenset({"docs/AGENTS.md"})
     for path in ("alias/AGENTS.md", "abs/AGENTS.md", "rooted/AGENTS.md", "dots/AGENTS.md", "alias\\AGENTS.md", "docs/AGENTS.md"):
         assert path in held
     assert "other/AGENTS.md" not in held and "loop/AGENTS.md" not in held
     assert held.resolved("alias/AGENTS.md") == "docs/AGENTS.md"
+    assert held.resolved("ext/AGENTS.md") is None and "ext/AGENTS.md" not in held  # D: has no path from C:\repo\workspace
 
 
 def test_the_metrics_count_a_search_and_a_read_through_a_directory_link_but_not_a_dangling_one(tmp_path):

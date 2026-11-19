@@ -37,7 +37,9 @@ depend on the kind:
 of the call that searched, not a `read` event, so `tool_calls` is the same with
 or without it. It names files as the command gave them (made workspace-relative,
 the `cd` before the part applied), whether or not they exist or are guidance; a
-call that was refused, a search that failed as one search of one file, a `Grep`
+call that was refused, a search that failed as one search of one file, a `Bash`
+call, Codex command or Copilot `bash` command whose result is the empty text (a
+`grep` into `head` exits 0 when nothing matched), a `Grep`
 call whose result is empty or `No matches found`, and a relative file after the
 shell moved leave it out.
 

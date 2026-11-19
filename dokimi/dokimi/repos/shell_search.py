@@ -10,8 +10,10 @@ from __future__ import annotations
 import re
 import shlex
 from collections.abc import Container, Sequence
+from typing import Any
 
 from .probes import search_words
+from .transcript import relative_path
 
 _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg"})
 # the options after which a search prints no line of a file: quiet, only the names of files, only counts
@@ -39,8 +41,9 @@ _Parsed =tuple[int, str | None] | None  # (the words an option takes, the line o
 
 
 def _valid_follow(value: str) -> bool:
-    """Whether ``value`` is a mode ``tail --follow=`` takes: ``name`` or ``descriptor``, or a prefix of one."""
-    return bool(value) and ("descriptor".startswith(value) or "name".startswith(value))
+    """Whether ``value`` is a mode ``tail --follow=`` takes on its input: ``descriptor`` or a prefix of it. ``name`` (or a
+    prefix of it) is a mode the tool refuses for stdin, before it prints a line (``cannot follow '-' by name``)."""
+    return bool(value) and "descriptor".startswith(value)
 
 
 def _cut_long(program: str, words: list[str], i: int) -> _Parsed:
@@ -116,6 +119,11 @@ def cuts_lines(stage: str, functions: Container[str] = ()) -> bool:
         return False
     sign, digits = match.groups()
     return int(digits) > 0 or (sign == "-" if words[0] == "head" else sign == "+")
+
+
+def searched_field(searched: list[str], workdir: str | None) -> dict[str, Any]:
+    """The ``searched`` field of a command event: the workspace paths its searches showed lines of; none without any."""
+    return {"searched": [relative_path(p, workdir) for p in searched]} if searched else {}
 
 
 def search_program(name: str, args: Sequence[str]) -> tuple[str, Sequence[str]] | None:
