@@ -80,6 +80,12 @@ def test_a_moved_dry_run_flag_parses_to_the_same_destination_as_its_new_spelling
     (["repo", "reach"], ["--max-usd-per-cell"]),
     (["repo", "skill-reach"], ["--max-usd-per-cell"]),
     (["tools", "preference"], ["--max-usd"]),
+    # add_spend_cap: one --max-usd for the leaves that share it
+    (["skill", "routing"], ["--max-usd"]),
+    (["skill", "novelty", "analyze"], ["--max-usd"]),
+    (["skill", "novelty", "atoms"], ["--max-usd"]),
+    (["skill", "shorten"], ["--max-usd"]),
+    (["eval", "graph"], ["--max-usd"]),
 ])
 def test_the_help_shows_a_spend_flag_with_the_registry_metavar(leaf, flags, capsys):
     # The new spellings keep their old dests (budget, max_batch_usd): help must not show those names.
