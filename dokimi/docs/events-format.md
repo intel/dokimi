@@ -26,11 +26,19 @@ depend on the kind:
 
 | Kind | Fields |
 |---|---|
-| `command` | `text`; `rc` (integer, or `null` when no result came back); `output` and `output_truncated` when the harness returned output |
+| `command` | `text`; `rc` (integer, or `null` when no result came back); `output` and `output_truncated` when the harness returned output; `searched` (a list of workspace paths) when a `grep`, `egrep`, `fgrep`, `rg` or `git grep` part of it named files and showed lines of them (see below) |
 | `read` | `path` (absent on a refused relative read whose file is not known); `rc` 0 or 1 when the harness reported one |
 | `edit` | `path`; `rc`; `deleted` when the file was deleted |
-| `tool` | `name`; `skill` on a `Skill` call |
+| `tool` | `name`; `skill` on a `Skill` call; `searched` (one path) on a Claude Code `Grep` call whose `path` is given and whose `output_mode` is `content` |
 | `probe` | `target`, `pattern`, `text`, `rc`: written by the runner after the `command` event it matched, never by a converter ([§4.1](repo-evaluation-contract.md#41-eventsjsonl)) |
+
+`searched` is the list the `process` count `guidance_searched` is built from
+(contract [§4.1](repo-evaluation-contract.md#41-eventsjsonl)). It is on the event
+of the call that searched, not a `read` event, so `tool_calls` is the same with
+or without it. It names files as the command gave them (made workspace-relative,
+the `cd` before the part applied), whether or not they exist or are guidance; a
+call that was refused, a search that failed as one search of one file, and a
+relative file after the shell moved leave it out.
 
 Any line may also carry `agent` (the id of the parent's `Agent`/`Task` call that
 started it), and `denied: true` when the call was refused and never ran. The

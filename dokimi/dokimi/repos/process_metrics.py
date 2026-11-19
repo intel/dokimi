@@ -17,6 +17,10 @@ The framework counts what every repository asks of a trace:
   denied that the manifest's guidance globs match; a path outside the workspace (absolute, or with ``..``) is
   no repository file. ``repo run`` keeps only the guidance files the workspace held as the agent started (``is_guidance``
   tells them): a multi-file read (``cat a missing``) keeps its reads, as its exit does not say which file failed;
+- ``guidance_searched``: the sorted workspace paths, under the same rules as ``guidance_read``, in the ``searched`` list of
+  a ``command`` event not denied (a ``grep``, ``egrep``, ``fgrep``, ``rg`` or ``git grep`` that showed lines of the file) or of
+  a Claude Code ``Grep`` ``tool`` event (``output_mode`` ``content``). The files are not in ``guidance_read``, and the
+  search is no ``read`` event, so ``tool_calls`` does not count it;
 - ``unknown_reads``: the relative shell reads the trace made at a directory the converter could not follow
   (after ``source env.sh``, say), which have no ``read`` event: ``guidance_read`` may miss them. It comes from
   the converter (:attr:`~dokimi.repos.transcript.Transcript.unknown_reads`), not from the events.
@@ -91,12 +95,17 @@ def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[
     # A read that failed (rc 1: the file does not exist) read no guidance.
     reads = {w for e in events if e.get("kind") == "read" and e.get("path") and not e.get("denied")
              and e.get("rc") in (0, None) and (w := _workspace_path(str(e["path"]))) is not None}
+    # A search that failed as one search of one file, or that a relative path after a shell move left unknown, has no
+    # ``searched`` (the converter drops it); a refused command searched nothing.
+    searched = {w for e in events if e.get("searched") and not e.get("denied") for p in e["searched"]
+                if (w := _workspace_path(str(p))) is not None}
     return {
         "tool_calls": sum(e.get("kind") in KNOWN_KINDS for e in events),
         "commands": len(commands),
         "failed_commands": sum(e.get("rc") not in (0, None) and not e.get("denied") for e in commands),
         "denied_commands": sum(bool(e.get("denied")) for e in commands),
         "guidance_read": sorted(p for p in reads if is_guidance(p)),
+        "guidance_searched": sorted(p for p in searched if is_guidance(p)),
         "unknown_reads": unknown_reads,
         "counters": {name: sum(c.hits(e) for e in commands) for name, c in (counters or {}).items()},
     }

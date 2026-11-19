@@ -50,11 +50,12 @@ from typing import Any
 
 from dokimi.context.trace import parse_trace
 
-from .cli_traces import _failed_read, codex_json, copilot_json, shell_walk
+from .cli_traces import _failed_read, codex_json, copilot_json, shell_walked
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
 
+_GREP_TOOL = "Grep"  # Claude Code's search tool: with ``output_mode`` ``content`` it prints the lines it finds
 _SHELL_TOOL = "Bash"  # a POSIX shell: its command is parsed for the files it prints (not PowerShell's)
 _COMMAND_TOOLS = {_SHELL_TOOL, "PowerShell"}
 _READ_TOOLS = {"Read"}
@@ -87,6 +88,7 @@ class _BashCall:
     reads: list[dict[str, Any]] = field(default_factory=list)  # their read events, put before the command event
     moves: bool = False  # the command may leave its shell in another directory
     unknown: int = 0  # the relative files it named after a directory change it could not follow, in itself
+    searched: list[tuple[str, str]] = field(default_factory=list)  # the files its searches show lines of: as named, relative
     result: str | None = None  # "ok", "error" or "denied"; None while nothing came back
 
 
@@ -152,6 +154,8 @@ def _apply_result(out: Transcript, block: dict[str, Any], stream: _Stream) -> No
     if (result_of["kind"] == "read" or result_of.get("name") == "Skill") and not denied:
         # A read that failed (the file does not exist) shows nothing of the file; a failed Skill call, no skill.
         result_of["rc"] = 1 if block.get("is_error") else 0
+    if result_of.get("name") == _GREP_TOOL and block.get("is_error"):
+        result_of.pop("searched", None)  # a search that failed showed no line
     if result_of["kind"] == "edit" and not denied:
         # A failed edit (old_string not found) left the file as it was: rc 1, so it is no useful result.
         result_of["rc"] = 1 if block.get("is_error") else 0
@@ -183,8 +187,10 @@ def _walk_bash(out: Transcript, stream: _Stream) -> None:
     walked alone: Claude Code starts it in a new shell, which keeps the directory but no function an earlier call
     defined (``cat() { echo hi; }``, then ``cat AGENTS.md``, reads the file)."""
     for call in stream.bash.values():
-        call.named, call.moves, call.unknown = shell_walk(call.text, stream.cwd)
+        walked = shell_walked(call.text, stream.cwd)
+        call.named, call.moves, call.unknown = walked.reads, walked.moved, walked.unknown
         call.reads = [_read(call.event, p, stream.workdir) for p in call.named]
+        call.searched = [(p, relative_path(p, stream.workdir)) for p in walked.searched]
     if stream.bash:
         out.events[:] = [e for event in out.events
                          for e in (*(stream.bash[id(event)].reads if id(event) in stream.bash else ()), event)]
@@ -219,6 +225,7 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
         failed = call.result == "error" and _failed_read(call.text, 1)
         if call.result != "denied" and not failed:
             out.unknown_reads += call.unknown
+            _note_searched(call, moved)
         for read, path in zip(call.reads, call.named, strict=True):
             unknown = moved and not path.startswith("/")  # the shell's directory is not known, nor the file
             if call.result == "denied":  # kept after a move too, with no path when it was relative
@@ -231,6 +238,14 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
         moved |= call.moves and call.result != "denied"
     if dropped:
         out.events[:] = [e for e in out.events if id(e) not in dropped]
+
+
+def _note_searched(call: _BashCall, moved: bool) -> None:
+    """Put the files the call's searches show lines of on its command event: not a relative one after the shell moved
+    (its directory is not known; ``unknown_reads`` counts reads only), and none for a call refused or failed as one search of one file."""
+    kept = [rel for raw, rel in call.searched if not (moved and not raw.startswith("/"))]
+    if kept:
+        call.event["searched"] = kept
 
 
 def _deny_read(read: dict[str, Any], unknown: bool) -> None:
@@ -352,6 +367,8 @@ def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> 
         event.update(kind="tool", name=name)
         if name == "Skill":  # Claude Code names the skill in `skill`; older versions in `command`
             event["skill"] = str(args.get("skill") or args.get("command") or "")
+        if name == _GREP_TOOL and args.get("output_mode") == "content" and args.get("path"):
+            event["searched"] = [relative_path(str(args["path"]), workdir)]  # the default mode prints names only
     return event
 
 

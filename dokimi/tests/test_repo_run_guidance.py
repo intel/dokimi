@@ -23,6 +23,16 @@ def test_guidance_read_lists_only_the_guidance_files_the_workspace_held(setup, m
     assert _process(setup, "guidance:raw")["guidance_read"] == ["sub/AGENTS.md"]
 
 
+def test_guidance_searched_lists_the_held_guidance_files_a_grep_showed_lines_of(setup, monkeypatch):  # noqa: F811
+    # a file that never existed, and one the arm removed (guidance:none), are not listed; a read stays a read
+    call = "grep -n guidance sub/AGENTS.md sub/gone/AGENTS.md; cat AGENTS.md"
+    monkeypatch.setenv("FAKE_TOOL_USES", json.dumps([["Bash", {"command": call}]]))
+    _run(setup, "--arm", "guidance:raw,guidance:none", "--task", "fix_add")
+    raw, none = _process(setup, "guidance:raw"), _process(setup, "guidance:none")
+    assert (raw["guidance_searched"], raw["guidance_read"]) == (["sub/AGENTS.md"], ["AGENTS.md"])
+    assert (none["guidance_searched"], none["guidance_read"]) == ([], [])
+
+
 def test_guidance_read_leaves_out_a_file_the_arm_removed(setup, monkeypatch):  # noqa: F811
     calls = [["Bash", {"command": "cat sub/AGENTS.md"}], ["Bash", {"command": "cat AGENTS.md"}]]
     monkeypatch.setenv("FAKE_TOOL_USES", json.dumps(calls))

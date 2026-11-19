@@ -496,8 +496,18 @@ def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
     value (``rg -g '*.c'``, ``grep -m 1``) takes that word, which is neither."""
     if program not in _SEARCHERS:
         return args
+    operands, pattern_files, _ = search_words(program, args)
+    return pattern_files + operands
+
+
+def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...], frozenset[str]]:
+    """A searcher's command line as (the files and directories it searches, the pattern files it reads (``-f``), the
+    options it was given: ``--quiet`` as written, a short one as ``-q`` also from a cluster, ``-nq``). Its search
+    expression, an ``-e`` value or else the first operand, is none of them."""
     values = _SEARCH_VALUES.get(program, frozenset())
     operands: list[str] = []
+    pattern_files: list[str] = []
+    flags: set[str] = set()
     given = False  # an expression or a pattern file is named, so the first operand is no expression
     i = 0
     while i < len(args):
@@ -510,18 +520,26 @@ def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
             given = True
             if name in _PATTERN_FILE:
                 if eq:
-                    operands.append(value)
+                    pattern_files.append(value)
                 elif i + 1 < len(args):
-                    operands.append(args[i + 1])
+                    pattern_files.append(args[i + 1])
             i += 1 if eq else 2
         elif span := _value_span(word, values):
+            flags.update(_option_names(word))
             i += span
         elif word.startswith("-") and len(word) > 1:
+            flags.update(_option_names(word))
             i += 1
         else:
             operands.append(word)
             i += 1
-    return tuple(operands) if given else tuple(operands[1:])
+    return (tuple(operands) if given else tuple(operands[1:])), tuple(pattern_files), frozenset(flags)
+
+
+def _option_names(word: str) -> set[str]:
+    """The options a word gives: ``--quiet`` (``--max-count=1`` as ``--max-count``), or a short cluster's letters, ``-nq`` as ``-n`` and ``-q``."""
+    name = word.partition("=")[0]
+    return {name} if name.startswith("--") else {f"-{c}" for c in word[1:]}
 
 
 def _calls(args: tuple[str, ...], probe: Probe) -> bool:

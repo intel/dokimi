@@ -65,7 +65,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert result["agent"]["cost_usd"] == 0.01 and result["agent"]["num_turns"] == 3
     assert result["model_resolved"] == "m-1"
     assert result["process"] == {"tool_calls": 1, "commands": 0, "failed_commands": 0, "denied_commands": 0,
-                                 "guidance_read": [], "unknown_reads": 0,
+                                 "guidance_read": [], "guidance_searched": [], "unknown_reads": 0,
                                  "counters": {"bazel": 0, "icpx_missing": 0}}
 
     agents = [s for s in setup["runner"].specs if s.argv and s.argv[0] == f"{HARNESS_DIR}/fake-agent"
@@ -100,7 +100,7 @@ def test_process_metrics_reach_result_json(setup, monkeypatch):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["process"] == {"tool_calls": 3, "commands": 1, "failed_commands": 1, "denied_commands": 0,
-                              "guidance_read": ["AGENTS.md"], "unknown_reads": 0,
+                              "guidance_read": ["AGENTS.md"], "guidance_searched": [], "unknown_reads": 0,
                               "counters": {"bazel": 1, "icpx_missing": 1}}
 
 
