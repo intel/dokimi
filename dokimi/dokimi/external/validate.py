@@ -25,7 +25,9 @@ follow the Agent Skills spec:
   5000 tokens (characters / 4) is a ``warn`` (``body-too-large``).
 - A file with no frontmatter at all does not load, and its load error says "no frontmatter"
   rather than "missing a description" (see the loader). Its one finding is
-  ``not-a-skill-no-frontmatter`` (``error``, see :mod:`dokimi.external.no_frontmatter`).
+  ``not-a-skill-no-frontmatter`` (``error``, see :mod:`dokimi.external.no_frontmatter`), except under
+  OpenCode or a host with no known spec: ``opencode-no-description`` or ``unsupported-skill-format``
+  (see :mod:`dokimi.external.skill_format`).
 
 Identical copies: of the skills whose ``SKILL.md`` bytes are the same, the one
 nearest the root (fewest path parts, ties to path order) is the original, the
@@ -55,6 +57,9 @@ naming such a file is ``path-escapes-skill``. A code span naming a bundled file 
 not have is ``path-missing`` (see :mod:`dokimi.external.bundle_paths`). Other code spans, and code
 fences, are not checked: those are usually examples or paths in the user's own project.
 
+Bundled scripts and documents that ``SKILL.md`` never names are one ``warn`` per skill
+(``bundle-file-unreferenced``, see :mod:`dokimi.external.bundle_refs`).
+
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``); the cues are
 English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``when_cues.WHEN_CUES``),
 and a description in a script none covers is not checked: it gets a ``note`` (``description-when-not-checked``). One whose tokens overlap another skill's at a
@@ -78,23 +83,26 @@ import math
 import os
 import re
 from collections import Counter
-from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Optional, Sequence
-from urllib.parse import unquote
+from typing import Optional, Sequence
 
 import yaml
 
 from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
-from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR, path_missing
+from .bundle_paths import path_missing
+from .link_files import _file_ref, _link_files
 from .catalog import SkillCatalogEntry, _within
+from .bundle_refs import unreferenced_check
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
+from .frontmatter_shape import keeps_load_error, opens_frontmatter
+from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
 from .listing import in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
+from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, opencode_hidden, skill_format
 from .script_checks import script_findings
 from .paths import _exists, _in_checkout, _inside, _resolved
 from .skill_markdown import QUOTE_MARK_RE, link_pieces, outside_fences
@@ -138,12 +146,6 @@ STOP_WORDS = frozenset(
     should must may might if else only other such via per about over under more most very
     just""".split()
 )
-# A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
-_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
-# RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
-URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
-# After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
-FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 
 # Every code a review can report: ``catalog check --ignore`` accepts these and no others.
 # tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
@@ -151,6 +153,8 @@ FINDING_CODES = (
     "allowed-tools-unknown",
     "allowed-tools-unrestricted-bash",
     "body-too-large",
+    "bundle-file-unchecked",
+    "bundle-file-unreferenced",
     "description-near-duplicate",
     "description-no-when",
     "description-too-long",
@@ -171,10 +175,12 @@ FINDING_CODES = (
     "name-missing",
     "not-a-skill-no-frontmatter",
     "not-loaded",
+    "opencode-no-description",
     "package-not-found",
     "path-escapes-skill",
     "path-missing",
     "unreadable",
+    "unsupported-skill-format",
     "permission-bypass-flag",
     "pipe-to-shell",
     "script-crlf",
@@ -182,20 +188,6 @@ FINDING_CODES = (
     "script-syntax",
 )
 
-
-@dataclass
-class Finding:
-    """One check that did not pass: ``level`` is ``note``, ``warn`` or ``error``."""
-
-    level: str
-    code: str
-    message: str
-
-
-def state_of(findings: Iterable[Finding]) -> str:
-    """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
-    levels = {f.level for f in findings}
-    return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
 
 
 def name_risky_commands(findings: list[Finding]) -> list[Finding]:
@@ -211,21 +203,6 @@ def name_risky_commands(findings: list[Finding]) -> list[Finding]:
     ]
 
 
-@dataclass
-class SkillReview:
-    """What :func:`review_skills` found for one loaded skill."""
-
-    findings: list[Finding] = field(default_factory=list)
-    disable_model_invocation: bool = False
-    content_sha256: Optional[str] = None
-    duplicate_of: Optional[str] = (
-        None  # the skill directory of the earlier copy, relative to the catalog root
-    )
-
-    @property
-    def state(self) -> str:
-        """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
-        return state_of(self.findings)
 
 
 def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
@@ -286,29 +263,35 @@ def _tool_findings(allowed: object) -> list[Finding]:
     return findings
 
 
-def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[Finding], bool]:
+def _frontmatter_findings(
+    skill: Skill, *, at_root: bool = False, fmt: str = FORMAT_AGENT_SKILL
+) -> tuple[list[Finding], bool]:
     """The spec checks on the frontmatter of ``skill``, and its ``disable-model-invocation`` flag.
 
     ``at_root``: the ``SKILL.md`` sits directly in the scanned root, so its directory name is the
     name of a checkout, which says nothing about the skill; the name/directory comparison is skipped.
+    ``fmt`` ``opencode``: OpenCode's rules (``skill_format``): ``name`` is optional and a display
+    label, so no name/directory or missing-name finding, no description cap, and a bad name is a warning.
     """
     meta, parse_error = _strict_meta(skill.path.read_text(encoding="utf-8"))
     if parse_error is not None:
         return [parse_error], False
+    opencode = fmt == FORMAT_OPENCODE
     dir_name = _dir_name_of(skill.path.parent)
     findings: list[Finding] = []
     declared = str(meta.get("name") or "").strip()
     if not declared:
-        findings.append(
-            Finding(
-                "warn",
-                "name-missing",
-                "no name in the frontmatter"
-                + ("" if at_root else f"; the directory name {dir_name!r} is used"),
+        if not opencode:  # OpenCode falls back to the path-derived ID without a warning
+            findings.append(
+                Finding(
+                    "warn",
+                    "name-missing",
+                    "no name in the frontmatter"
+                    + ("" if at_root else f"; the directory name {dir_name!r} is used"),
+                )
             )
-        )
     else:
-        if declared != dir_name and not at_root:
+        if declared != dir_name and not at_root and not opencode:
             findings.append(
                 Finding(
                     "error",
@@ -323,10 +306,12 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
         if len(declared) > NAME_MAX:
             problems.append(f"is {len(declared)} characters; the limit is {NAME_MAX}")
         if problems:
+            # OpenCode states the kebab-case rule only for the path-derived ID, and does not enforce it: a warning.
             findings.append(
-                Finding("error", "name-format", f"name {declared!r} {' and '.join(problems)}")
+                Finding("warn" if opencode else "error", "name-format",
+                        f"name {declared!r} {' and '.join(problems)}")
             )
-    if len(skill.description) > DESCRIPTION_MAX:
+    if len(skill.description) > DESCRIPTION_MAX and not opencode:  # OpenCode documents no description cap
         findings.append(
             Finding(
                 "error",
@@ -352,7 +337,7 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
         "yes",
         "on",
     )
-    return findings, hidden
+    return findings, opencode_hidden(meta, hidden) if opencode else hidden
 
 
 def _skill_digest(skill: Skill) -> str:
@@ -360,48 +345,16 @@ def _skill_digest(skill: Skill) -> str:
     return hashlib.sha256(skill.path.read_bytes()).hexdigest()
 
 
-def _has_late_frontmatter(lines: list[str]) -> bool:
-    """Whether a ``---`` line outside a code fence, in the first 20 physical lines, has a ``name:`` or ``description:`` line in its block (up to the next ``---``, outside a fence)."""
-    for i in range(min(len(lines) - 1, 20)):
-        # A fence's state depends only on the lines above it, so the prefix tells whether line i is outside one.
-        above = outside_fences("\n".join(lines[: i + 1]))
-        if lines[i].rstrip() != "---" or not above or above[-1].rstrip() != "---":
-            continue
-        for line in outside_fences("\n".join(lines[i + 1 :])):
-            if line.rstrip() == "---":
-                break
-            if line.startswith(("name:", "description:")):
-                return True
-    return False
+def _unloaded_safety(candidate: Path, meta: dict, root: Path, standalone: bool) -> list[Finding]:
+    """The command checks and the unrestricted-Bash grant of an unloaded ``SKILL.md`` a format rule exempts,
+    so ``--strict`` fails it as it fails a loaded skill."""
+    at_root = candidate.parent.resolve() == root.resolve() and not standalone
+    found = [Finding("warn", code, message) for code, message in command_findings(candidate, at_root=at_root)]
+    found += [f for f in _tool_findings(meta.get("allowed-tools")) if f.code == "allowed-tools-unrestricted-bash"]
+    return name_risky_commands(found)
 
 
-# A YAML key at the start of a line: ``title: x``, ``  name: x``, ``"name": x``, ``{name: x``, ``- name: x``.
-YAML_KEY_RE = re.compile(r"""\s*(?:-\s+)?[{\[]?\s*["']?[\w][\w.-]*["']?\s*:""")
-
-
-FLOW_OPENER_RE = re.compile(r"[\[{](?![^\]\n]*\](?:\(|\[|:))")  # a flow collection, not a link ``[text](url)``, ``[text][ref]`` or ``[ref]: url``
-
-
-def _first_line(block: list[str]) -> str:
-    """The first line of ``block`` that is not blank, stripped."""
-    return next((line.strip() for line in block if line.strip()), "")
-
-
-def _opens_frontmatter(lines: list[str]) -> bool:
-    """Whether the lines open with a ``---`` block that is empty or holds a YAML key (``title:``, ``name:``) before its closing ``---``.
-
-    A code fence in the block is prose, not YAML: its lines are left out, so a ``---`` rule followed by an example fence stays a rule.
-    """
-    block: list[str] = []
-    for line in outside_fences("\n".join(lines))[1:]:
-        if line.rstrip() == "---":
-            return not any(line.strip() for line in block) or any(YAML_KEY_RE.match(line) for line in block) or bool(FLOW_OPENER_RE.match(_first_line(block)))
-        block.append(line)
-    first = _first_line(block)
-    return bool(YAML_KEY_RE.match(first) or FLOW_OPENER_RE.match(first))  # unclosed: a later ``Usage:`` line is prose, not a key
-
-
-def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
+def _unloaded_review(entry: SkillCatalogEntry, standalone: bool = False) -> Optional[SkillReview]:
     """A review for an entry that did not load, only when its ``SKILL.md`` is plain Markdown (no frontmatter) or
     has broken YAML; else None.
 
@@ -424,14 +377,21 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
     unquoted = ["> quoted" if QUOTE_MARK_RE.match(line) else line for line in lines]  # a quoted example is prose too: text, not a key
-    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(unquoted)):
-        return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
-    if first.strip() != "---" or not _opens_frontmatter(unquoted):  # a rule or prose, not a broken block
+    fmt = skill_format(candidate, entry.source_root)
+    if keeps_load_error(fmt, lines, first, unquoted):
+        return None  # a broken skill, not prose or a missing description; the loader's error stands
+    if first.strip() != "---" or not opens_frontmatter(unquoted):  # a rule or prose, not a broken block
+        loaded = format_findings(fmt, loaded=False)  # OpenCode loads a file with no frontmatter; a host with no spec gets a note
+        if loaded:
+            return SkillReview(findings=loaded + _unloaded_safety(candidate, {}, entry.source_root, standalone))
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
         hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
         return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)])
-    _, parse_error = _strict_meta(text)
-    return None if parse_error is None else SkillReview(findings=[parse_error])
+    meta, parse_error = _strict_meta(text)
+    if parse_error is not None:
+        return SkillReview(findings=[parse_error])
+    gap = format_findings(fmt, meta, loaded=False)
+    return SkillReview(findings=gap + _unloaded_safety(candidate, meta, entry.source_root, standalone)) if gap else None
 
 
 def _relative_to_root(path: Path, root: Path) -> str:
@@ -451,41 +411,6 @@ def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: Ski
     if o_entry.source_root.resolve() == entry.source_root.resolve():
         return where
     return f"{where} in {o_entry.source_root.as_posix()}"
-
-
-def _file_ref(raw: str, link: bool = False) -> Optional[str]:
-    """The skill-relative file a reference names, or None if it names no file to check.
-
-    None for a URL or any other URI (``tel:``, ``urn:``, ``MAILTO:``), a bare anchor, an
-    absolute path, a placeholder (``URL``, ``TBD``, ``...``), or a template variable (not ``${CLAUDE_SKILL_DIR}``). A
-    ``<...>`` destination (CommonMark) is read as the path inside the brackets. A link
-    destination (``link``) is a URL: its ``#fragment`` and ``?query`` are not part of the path,
-    its backslash escapes of ASCII punctuation (``guide\\_notes.md``) are decoded, and its
-    percent-encoded bytes name the file (``guide%20notes.md``). A code span is literal: a ``#``
-    or a ``%`` in it is in the file's name.
-    """
-    text = raw.strip()
-    if text.startswith("<") and text.endswith(">"):
-        text = text[1:-1].strip()
-    if link:
-        text = _ESCAPE_RE.sub(r"\1", text)
-        text = text.split("#", 1)[0].split("?", 1)[0].strip()
-        text = unquote(text)
-    if not text or "://" in text or text.startswith("/"):
-        return None
-    scheme = URI_SCHEME_RE.match(text)
-    if scheme and not ("." in scheme.group() and FILE_SUFFIX_RE.fullmatch(text[scheme.end() :])):
-        return None
-    text = LOCATION_SUFFIX_RE.sub("", text)  # the file is named before its line or symbol suffix
-    if not text or text.lower() in {"url", "link", "path", "uri", "href", "todo", "tbd", "..."}:  # a stand-in
-        return None
-    if text.startswith(SKILL_DIR_VAR):
-        text = text[len(SKILL_DIR_VAR) :]
-        if not text:
-            return None
-    if any(c in text for c in "${}<>*"):
-        return None
-    return text
 
 
 def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
@@ -696,6 +621,14 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
                     )
 
 
+def _unreferenced_findings(skill: Skill, *, at_root: bool) -> list[Finding]:
+    """The bundled files ``SKILL.md`` and the documents it names never mention, or a note that not all were seen."""
+    unreferenced, unchecked = unreferenced_check(skill.path, _link_files(skill.body), at_root=at_root,
+                                                 doc_links=_link_files)
+    return ([Finding("warn", "bundle-file-unreferenced", unreferenced)] if unreferenced is not None else []) + (
+        [Finding("note", "bundle-file-unchecked", unchecked)] if unchecked is not None else [])
+
+
 def review_skills(
     entries: Sequence[SkillCatalogEntry], *, standalone: bool = False
 ) -> list[Optional[SkillReview]]:
@@ -720,12 +653,17 @@ def review_skills(
     by_name: dict[str, list[tuple[SkillReview, str, str]]] = {}
     for entry in entries:
         if not entry.loaded or entry.skill is None:
-            reviews.append(_unloaded_review(entry))
+            reviews.append(_unloaded_review(entry, standalone))
             continue
         skill = entry.skill
         try:  # any read of SKILL.md after it loaded: an error row, not a crash
             at_root = skill.path.parent.resolve() == entry.source_root.resolve()
-            findings, hidden = _frontmatter_findings(skill, at_root=at_root)
+            fmt = skill_format(skill.path, entry.source_root)
+            findings, hidden = _frontmatter_findings(skill, at_root=at_root, fmt=fmt)
+            if fmt == FORMAT_UNSUPPORTED:  # no spec to hold the frontmatter and description to: one note, and the safety finding stays
+                findings = format_findings(fmt) + [
+                    f for f in findings if f.code == "allowed-tools-unrestricted-bash"
+                ]
             review = SkillReview(findings=findings, disable_model_invocation=hidden)
             review.findings += _bundle_findings(skill, entry.source_root)
             review.findings += _body_findings(skill)
@@ -738,9 +676,10 @@ def review_skills(
                 Finding("warn", code, message)
                 for code, message in content_findings(skill, at_root=at_root and not standalone)
             ]
+            review.findings += _unreferenced_findings(skill, at_root=at_root and not standalone)
             review.findings += [Finding(*item) for item in script_findings(
                 skill.path.parent, checkout=None if standalone else entry.source_root)]
-            if not hidden:
+            if not hidden and fmt != FORMAT_UNSUPPORTED:
                 review.findings += _description_findings(skill)
             review.content_sha256 = _skill_digest(skill)
         except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:  # the unreadable row
@@ -769,7 +708,7 @@ def review_skills(
             )
         )
     _mirror_drift(loaded)
-    _near_duplicates(loaded)
+    _near_duplicates([x for x in loaded if skill_format(x[1].path, x[0].source_root) != FORMAT_UNSUPPORTED])
     _name_conflicts(by_name)
     return reviews
 

@@ -115,7 +115,7 @@ def test_a_line_of_a_later_major_version_is_not_a_version_1_line():
 
 
 def test_a_reader_skips_a_kind_it_does_not_know():
-    future = {"t": 1.0, "kind": "probe", "name": "p", "v": 1}
+    future = {"t": 1.0, "kind": "no-such-kind", "name": "p", "v": 1}
     assert schema_errors("repo_event.v1", future) == []  # the schema admits any kind
     base = [{"t": 1.0, "kind": "command", "text": "ls", "rc": 0}]
     assert process_metrics([*base, future], lambda _: False)["tool_calls"] == process_metrics(base, lambda _: False)["tool_calls"]
@@ -138,6 +138,6 @@ def test_the_schema_names_exactly_the_known_kinds():
 
 def test_the_doc_names_every_known_kind_and_the_version_field():
     text = DOCS.read_text(encoding="utf-8")
-    for kind in sorted(KNOWN_KINDS):
+    for kind in sorted(KNOWN_KINDS | {"probe"}):  # the runner adds probe events after conversion
         assert f"| `{kind}` |" in text, kind
     assert "`v`" in text and "repo_event.v2.json" in text

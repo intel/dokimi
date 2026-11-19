@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 import json
-import time
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 from dokimi.repos import security as sec
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 
 def _cell(batch: Path, task: str, arm: str, rep: int, events=(), egress=None, exec_log=None, answer="",
@@ -73,10 +74,11 @@ def test_exec_log_argv_with_a_bracket_and_a_comma_in_a_string_is_read_whole():
 
 def test_an_execve_with_cut_strings_is_matched_in_linear_time():
     # each cut string's dots could be read as the marker or as three single-character steps: exponential
-    line = '1 execve("/bin/x", [' + ", ".join(['"a"...'] * 22) + " <unfinished ...>\n"
-    started = time.monotonic()
-    sec.parse_exec_log(line)
-    assert time.monotonic() - started < 1.0
+    def line(k):
+        return '1 execve("/bin/x", [' + ", ".join(['"a"...'] * k) + " <unfinished ...>\n"
+
+    ratio, _ = growth(lambda k: partial(sec.parse_exec_log, line(k)), 5)
+    assert ratio < GROWTH_LIMIT
 
 
 def test_an_escaped_backslash_before_a_newline_still_ends_the_command():
@@ -159,16 +161,17 @@ def test_a_variable_named_home_and_more_is_not_the_home_directory(text):
 
 
 def test_a_home_operator_with_no_closing_brace_is_matched_in_linear_time():
-    started = time.monotonic()
-    for text in ("${HOME: ", "(${HOME:", "`${HOME:"):
-        sec.command_findings(text * 12000, "trace")
-    assert time.monotonic() - started < 1.0
+    def scan(k):
+        for text in ("${HOME: ", "(${HOME:", "`${HOME:"):
+            sec.command_findings(text * k, "trace")
+
+    ratio, _ = growth(lambda k: partial(scan, k), 1000)
+    assert ratio < GROWTH_LIMIT
 
 
 def test_git_global_options_are_matched_in_linear_time():
-    started = time.monotonic()
-    sec.command_findings("git " + "-c " * 32 + "status", "trace")
-    assert time.monotonic() - started < 1.0
+    ratio, _ = growth(lambda k: partial(sec.command_findings, "git " + "-c " * k + "status", "trace"), 8)
+    assert ratio < GROWTH_LIMIT
 
 
 @pytest.mark.parametrize("text, rule", [

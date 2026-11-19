@@ -228,6 +228,13 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--agent-network", "--build-network"),
     ),
     Concept(
+        name="suite",
+        help="a suite manifest: tasks whose base is in another repository (contract §2.1)",
+        canonical=(Flag("--suite", "PATH", "text", meaning="the suite file, in the eval tree"),
+                   Flag("--allow-floating-suite-revs", kind="flag",
+                        meaning="resolve a branch or tag of a suite repository when the run starts")),
+    ),
+    Concept(
         name="online",
         help="network checks of a catalog's skills, opt in",
         canonical=(Flag("--online", kind="flag", meaning="also check packages and links over the network"),),
@@ -289,6 +296,26 @@ CONCEPTS: tuple[Concept, ...] = (
         ),
         banned=("--doc-source", "--context7-id"),
         note="A documentation source is an arm: --arm docs:SOURCE.",
+    ),
+    Concept(
+        name="api_header",
+        help="a C header whose declared names a veto may check",
+        canonical=(Flag("--header", "PATH", "path", repeatable=True,
+                        meaning="a C header of the API (glob ok)"),),
+        note="Used with --prefix (and --shared-lib) by skill novelty ground.",
+    ),
+    Concept(
+        name="shared_library",
+        help="a shared library whose exported symbols a veto may check",
+        canonical=(Flag("--shared-lib", "PATH", "path", repeatable=True,
+                        meaning="a shared library whose exported (nm -D) names are known"),),
+        note="Used with --prefix (and --header) by skill novelty ground.",
+    ),
+    Concept(
+        name="symbol_prefix",
+        help="the C identifier prefix that scopes the names a veto checks",
+        canonical=(Flag("--prefix", "PREFIX", "text", repeatable=True,
+                        meaning="a C identifier prefix ending in '_' (cblas_)"),),
     ),
     Concept(
         name="force",
@@ -376,6 +403,17 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--out", "--out-dir", leaves=(
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
+    )),
+    # Spend concept (F1b): a whole-command cap is --max-usd, a cap per agent run is --max-usd-per-cell.
+    FlagMove("--max-cost-usd", "--max-usd", leaves=(("tools", "preference"),)),
+    FlagMove("--max-batch-usd", "--max-usd", leaves=(("repo", "run"),)),
+    FlagMove("--budget", "--max-usd-per-cell", leaves=(
+        ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
+    )),
+    # Dry-run concept (F1b): estimate, make no paid call. `subjects run --work-dry-run` is not moved:
+    # it gates only executable-task agents, so it has no matching canonical meaning (see the allowlist).
+    FlagMove("--estimate-only", "--dry-run", leaves=(
+        ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
     )),
 )
 

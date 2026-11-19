@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import socket
-import time
 
 import httpx
 import pytest
@@ -15,6 +14,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.external import online_checks, read_skill_manifest, review_skills
 from dokimi.utils import InputError
+from tests.growth_timing import GROWTH_LIMIT, growth
 from tests.test_catalog_validate import _skill
 
 PYPI = "https://pypi.org/simple/{name}/"
@@ -870,9 +870,9 @@ def test_online_still_probes_the_good_skills_when_one_skill_fails_to_load(tmp_pa
 
 def test_a_long_line_with_hash_comments_and_no_install_is_read_in_linear_time():
     # Quadratic on head: 8000 "#" on one line without an install command took 7.5 s.
-    started = time.perf_counter()
-    assert online_checks.extract_packages("`a` #x " * 8000) == []
-    assert time.perf_counter() - started < 2.0
+    ratio, packages = growth(lambda k: lambda: online_checks.extract_packages("`a` #x " * k), 2000)
+    assert ratio < GROWTH_LIMIT
+    assert packages == []
 
 
 def test_a_python_m_pip_install_span_is_split_off_so_its_prose_is_not_read():

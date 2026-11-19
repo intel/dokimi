@@ -12,8 +12,11 @@ import numpy as np
 import pytest
 
 from dokimi.eval.finite_delta import checked_delta, checked_mean
-from dokimi.repos.compare import CompareError, _inconclusive_note, _pair, _round, sign_flip_summary
+from dokimi.repos.compare import CompareError, _compare_measure, _inconclusive_note, _pair, _round, sign_flip_summary
+from dokimi.repos.compare_values import task_values
 from dokimi.repos.compare_reach import min_detectable
+from dokimi.repos.grading import SCORE_BOUND
+from dokimi.repos.useful import useful_task_counts, useful_task_values
 
 
 def _side(value: float) -> dict:
@@ -176,6 +179,44 @@ def test_checked_mean_takes_integers_whose_exact_total_fits_the_float_range(orde
 def test_sign_flip_summary_mean_is_the_exact_mean():
     row = sign_flip_summary([_task(d) for d in (1, 1e16, 1.0, -1e16)])
     assert row["delta"]["mean"] == 0.5
+
+
+def test_sign_flip_summary_leaves_values_past_the_measure_bound_out_of_the_means():
+    # repo-evaluation-contract.md, "The measure bound": a value past SCORE_BOUND is no measurement, so its mean is None, not an overflow (#866)
+    def rows(value: float) -> list[dict]:
+        return [{"task": f"t{i}", "baseline": value, "treatment": value, "delta": 0.0} for i in range(3)]
+
+    for value in (1.7e308, 2 * SCORE_BOUND):
+        past = sign_flip_summary(rows(value), "metric:x")
+        assert (past["baseline_mean"], past["treatment_mean"]) == (None, None)
+    mixed = rows(1.0) + rows(2 * SCORE_BOUND)
+    kept = sign_flip_summary(mixed, "metric:x")
+    assert (kept["baseline_mean"], kept["treatment_mean"]) == (1.0, 1.0)
+    at = sign_flip_summary(rows(SCORE_BOUND), "metric:x")
+    assert (at["baseline_mean"], at["treatment_mean"]) == (SCORE_BOUND, SCORE_BOUND)
+
+
+def test_compare_gives_no_row_for_a_metric_past_the_measure_bound_and_lists_its_tasks_unpaired():
+    def arm(value: float) -> dict:
+        cells = [{"model": "m", "task": f"t{i}", "batch": "b", "cell": f"c{i}", "score_task": False, "agent": {},
+                  "metrics": {"x": value}, "grade": {"status": "ok", "success": True}} for i in range(3)]
+        return task_values(cells, ("x",))
+
+    shared = ["t0", "t1", "t2"]
+    unpaired: list[dict] = []
+    past = _compare_measure("tr", "m", "metric:x", shared, arm(1.7e308), arm(1.7e308), 0, unpaired)
+    assert past is None
+    assert [u["reason"] for u in unpaired] == ["no metric:x in baseline or treatment"] * 3
+    at = _compare_measure("tr", "m", "metric:x", shared, arm(SCORE_BOUND), arm(SCORE_BOUND), 0, [])
+    assert at is not None and at["baseline_mean"] == SCORE_BOUND
+
+
+def test_first_useful_rate_keeps_a_cell_with_steps_past_the_bound_as_a_non_hit():
+    cells = [{"first_useful": {"kind": "edit", "steps": steps, "reason": None, "issued_s": 1.0}}
+             for steps in (5, 1e200)]
+    assert useful_task_values(cells)["first_useful_rate"] == [0.5]
+    counts = useful_task_counts(cells)
+    assert (counts["first_useful_steps"], counts["first_useful_rate"]) == (1, 2)
 
 
 def test_checked_delta_refuses_an_integer_beyond_the_float_range_with_the_requested_error():

@@ -705,6 +705,9 @@ class EvaluationPipeline:
         
         # Save answers
         answerer.save_answers(answers, self.answers_path, question_set_hash=question_set_hash)
+        if answerer.stop_error is not None:  # saved for what was asked; a stopped run is not judged or reported as whole
+            raise RuntimeError(f"answers stopped after {len(answers)} of {len(questions)} questions: "
+                               f"{answerer.stop_error}")
         
         return answers
     

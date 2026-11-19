@@ -38,6 +38,8 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `allowed-tools-unknown` | warn | `allowed-tools` names a tool dokimi does not know | yes |
 | `allowed-tools-unrestricted-bash` | warn | `allowed-tools` grants unrestricted Bash; with a risky-command code it also fails `--strict` | yes |
 | `body-too-large` | warn | the SKILL.md body is over the size limit | yes |
+| `bundle-file-unchecked` | note | the search for unreferenced bundled files could not see every name (over 2000 files, over 50 named documents, or a named document that is over 1 MiB, not UTF-8, a symlink or a FIFO), so no count is given | yes |
+| `bundle-file-unreferenced` | warn | bundled scripts and documents that neither `SKILL.md` nor a document it names mentions; the message gives the count and three example paths | yes |
 | `description-near-duplicate` | warn | the description overlaps another skill's (Jaccard similarity at least 0.5 and at least 3 shared words) | yes |
 | `description-no-when` | warn | the description has no "when" clause (the cues are in `when_cues.py`) | yes |
 | `description-too-long` | error | the description is over 1024 characters | yes |
@@ -58,6 +60,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `name-missing` | warn | the frontmatter has no name | yes |
 | `not-a-skill-no-frontmatter` | error | the SKILL.md is plain Markdown with no frontmatter block | no |
 | `not-loaded` | error | a skill reviewed alone did not load | yes |
+| `opencode-no-description` | warn | an OpenCode `SKILL.md` (under `.opencode/skills`) has no frontmatter or no description; OpenCode loads it but does not advertise it | yes |
 | `package-not-found` | warn | `--online`: a package a command installs is not in its registry | yes |
 | `path-escapes-skill` | warn | a `../` code span names a file outside the skill directory | yes |
 | `path-missing` | warn | a backticked path under `scripts/`, `references/`, `assets/`, `templates/`, `examples/` or `resources/` names no file | yes |
@@ -67,6 +70,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `script-lint` | note | a bundled script has a lint finding | yes |
 | `script-syntax` | warn | a bundled script does not parse | yes |
 | `unreadable` | error | SKILL.md exists but the OS will not read it | no |
+| `unsupported-skill-format` | note | the skill is under a host directory dokimi holds no spec for (`.kiro`, `.cursor`, ...); the frontmatter and description checks were skipped, an unloaded file was not read | yes |
 
 Codes that other commands report (for example `unsafe-path` in `catalog eval`) are not
 in this list; they are documented with their command.

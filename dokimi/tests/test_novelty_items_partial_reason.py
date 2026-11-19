@@ -63,10 +63,19 @@ _FALLBACKS = {
 }
 
 
-@pytest.mark.parametrize("message", [None, 7, ["a"], {"a": 1}, "", "   ", "\n\t ", "\u200b", " \u200b\ufeff "])
+@pytest.mark.parametrize("message", [None, 7, ["a"], {"a": 1}, "", "   ", "\n\t ", "\u200b", " \u200b\ufeff ",
+                                     "\u3164", "\u115f", "\uffa0", "\u2800", "\u0301", "\u034f"])
 @pytest.mark.parametrize("reason", ["no_price", "permanent_error", "other_reason"])
 def test_a_message_with_no_usable_text_is_replaced_by_the_fallback(tmp_path, reason, message):
+    # changelog.d/20261117_140000_atoms-partial-message-fallback.md (#833)
     assert _FALLBACKS[reason] in _refusal(tmp_path, {"partial": {"reason": reason, "message": message}})
+
+
+@pytest.mark.parametrize("message", ["\u3164 quota exceeded", "the provider returned 401"])
+@pytest.mark.parametrize("reason", ["no_price", "permanent_error", "other_reason"])
+def test_a_message_with_visible_text_is_printed_whole(tmp_path, reason, message):
+    # changelog.d/20261117_140000_atoms-partial-message-fallback.md (#833)
+    assert f"({message})" in _refusal(tmp_path, {"partial": {"reason": reason, "message": message}})
 
 
 def test_an_unknown_reason_with_a_message_names_the_message(tmp_path):
