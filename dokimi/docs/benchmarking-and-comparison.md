@@ -160,7 +160,7 @@ python cli.py benchmark run \
   --model gpt-6.1-sol \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --multi-run 3 \
+  --reps 3 \
   --out-dir results/onetbb_sol
 ```
 
@@ -478,7 +478,7 @@ effort is set, which dokimi does not do). The run stops at the probe below, befo
 any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
 pinned, only measured: run the same configuration several times
-(`benchmark run --multi-run N`; for `arms run`, repeat the run into separate
+(`benchmark run --reps N`; for `arms run`, repeat the run into separate
 `--out` files) and quote the spread.
 
 - `--temperature`, `--seed`: sampling for answer generation, recorded in

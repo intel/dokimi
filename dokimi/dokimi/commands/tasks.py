@@ -155,7 +155,7 @@ def _select_swebench(args: argparse.Namespace) -> list:
 def _refuse_repeats(kind: str, names: list[str]) -> None:
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
-        raise InputError(f"Repeated {kind}: {', '.join(repeated)}. List each once; use --repeats to run it again.")
+        raise InputError(f"Repeated {kind}: {', '.join(repeated)}. List each once; use --reps to run it again.")
 
 
 def _select_tasks(args: argparse.Namespace) -> list:
@@ -350,8 +350,8 @@ def register(sub, positive_int, eval_sub) -> None:
     cli_flags.add(run_p, "output", "--out", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md",
                        help="Markdown report path (default: alongside --out)")
-    run_p.add_argument(
-        "--repeats", type=positive_int, default=1,
+    cli_flags.add(
+        run_p, "reps", "--reps", type=positive_int, default=1, dest="repeats",
         help="Run each (task, harness) cell N times for pass-rate/cost variance (default: 1)",
     )
     run_p.add_argument(

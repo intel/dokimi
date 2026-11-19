@@ -441,7 +441,7 @@ def test_parallel_cells_reserve_their_budget_so_the_cap_is_not_passed_at_once(tm
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     capsys.readouterr()
     try:  # two cells in flight, each holding its budget until it is charged: the second may not start
-        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--jobs", "2",
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--concurrency", "2",
              "--max-batch-usd", "0.005")
     except SystemExit:
         pass
@@ -455,7 +455,7 @@ def test_a_cell_reserves_the_budget_its_task_allows_not_the_run_budget(tmp_path,
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     capsys.readouterr()
     try:  # --budget 0.001 is below the task's 0.02: the first cell's reservation is 0.02, so the second may not start
-        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--jobs", "2",
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--concurrency", "2",
              "--budget", "0.001", "--max-batch-usd", "0.005")
     except SystemExit:
         pass
@@ -805,7 +805,7 @@ def test_ctrl_c_in_a_threaded_batch_kills_each_container_a_worker_started(tmp_pa
 
     root = _repo(tmp_path)
     with pytest.raises(KeyboardInterrupt):
-        _run(root, tmp_path / "runs", DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--jobs", "2")
+        _run(root, tmp_path / "runs", DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--concurrency", "2")
     assert started and set(started) <= set(killed), (started, killed)
     assert not list((tmp_path / "runs").rglob("result.json")), "an interrupted cell must not be recorded"
 

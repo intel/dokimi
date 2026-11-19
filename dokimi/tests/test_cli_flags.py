@@ -201,11 +201,8 @@ def test_a_new_banned_synonym_fails_and_names_the_registry_spelling(monkeypatch)
         return parser
 
     monkeypatch.setattr(cli, "build_parser", with_banned_flag)
-    # `--trials` is allowlisted for catalog trigger-probe (a real use on main), so the probe
-    # runs with that row removed: a new leaf must not get the exemption.
-    allow = {k: v for k, v in load_allowlist().items() if k != "--trials"}
-    problems = violations(uses(cli.build_parser()), allow)
-    # Anchored on the injected leaf: catalog trigger-probe's own --trials gives the same text.
+    problems = violations(uses(cli.build_parser()), load_allowlist())
+    # Anchored on the injected leaf.
     assert any(
         p.startswith("dokimi docs check: ") and "`--trials` is a banned synonym of `reps`" in p and "`--reps`" in p
         for p in problems
@@ -219,7 +216,7 @@ def test_an_allowlisted_banned_spelling_still_passes_on_a_new_leaf(monkeypatch):
 
     def on_another_leaf() -> argparse.ArgumentParser:
         parser = real()
-        _subparser(parser, "repo", "scan").add_argument("--jobs", type=int, default=1)
+        _subparser(parser, "repo", "scan").add_argument("--batch", type=int, default=1)
         return parser
 
     monkeypatch.setattr(cli, "build_parser", on_another_leaf)
