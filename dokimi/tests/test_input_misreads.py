@@ -50,6 +50,16 @@ def test_a_null_products_key_falls_through_to_libraries(tmp_path, caplog):
     assert f"Registry {path}: 'products' is null; reading the legacy 'libraries'." in caplog.text
 
 
+def test_null_products_and_libraries_log_only_the_not_a_mapping_warning(tmp_path, caplog):
+    path = _registry(tmp_path, {"products": None, "libraries": None})
+
+    with caplog.at_level(logging.WARNING, logger="dokimi.registry"):
+        keys = ProductRegistry(path=path).keys()
+
+    assert keys == []
+    assert caplog.messages == [f"Registry {path}: 'libraries' must be a mapping, got NoneType — skipping."]
+
+
 def test_a_libraries_only_registry_loads_without_a_warning(tmp_path, caplog):
     path = _registry(tmp_path, {"libraries": {"onetbb": {"name": "oneTBB"}}})
 
