@@ -18,6 +18,7 @@ One JSON object on stdout (`--kind skills`; a `--kind all` scan also has `tasks`
 | `skills` | array of skill rows | one row per declared skill (the row schema below) |
 | `tasks` | array | task rows, empty unless `--kind tasks` or `--kind all` |
 | `online` | object | only with `--online`: the network checks' summary |
+| `listing` | object | `chars`, the total of the rows' `listing_chars` (a mirror with the same name and `content_sha256` counts once; a name whose copies differ is left out); with `--listing-budget` also `budget` and `over_budget` |
 | `granularity` | object | only without `--per-skill`: the merge and split hints |
 
 ## `--per-skill --jsonl PATH`
@@ -41,6 +42,7 @@ The text on stdout is only the counts. A run killed midway keeps the whole lines
 | `content_sha256` | string or null | digest of the SKILL.md text; null when there is no review |
 | `skill_sha256` | string or null | digest of every file in the skill's directory (the scan's own output files excluded); used by `--resume` |
 | `dokimi_version` | string | the dokimi version that wrote the row; `--resume` redoes rows from another version |
+| `listing_chars` | integer or null | characters of the skill's entry in the routing field's listing (`name: description`, then ` - when_to_use` when set); null when the skill is not listed (it does not load, has a spec error other than a long description, or sets `disable-model-invocation`). `--resume` redoes a row without it |
 | `duplicate_of` | string or null | the relpath of the identical copy this skill duplicates; null for the original |
 | `ignored` | array of strings | the `--ignore` codes in effect, sorted (`[]` when none); `--resume` redoes a row written under other codes |
 | `findings` | array of finding objects | the findings left after `--ignore` |

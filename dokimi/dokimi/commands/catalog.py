@@ -19,7 +19,7 @@ import json
 import sys
 from pathlib import Path
 from dokimi.commands.catalog_scan import (
-    ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
+    ROW_STATES, is_plain_markdown, listing_failed, listing_total, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
     unrestricted_and_risky,
 )
 from dokimi.utils import InputError
@@ -84,6 +84,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         _print_strict_reasons(report["skills"], args.strict)
         _print_online(online)
         print()
+    report["listing"] = {"chars": listing_total(report["skills"])}
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
 
@@ -206,9 +207,9 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         # Each worker would open its own connections and cache, and --resume would keep rows that no network check made.
         raise InputError("--online checks the whole catalog at once and does not combine with --per-skill")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
-                                 or args.jobs is not None or args.online or args.ignore):
-        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --jobs, --resume and --online apply to "
-                         "skills; drop them or use --kind skills|all")
+                                 or args.jobs is not None or args.online or args.ignore or args.listing_budget):
+        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --jobs, --resume, --online and "
+                         "--listing-budget apply to skills; drop them or use --kind skills|all")
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
@@ -223,6 +224,7 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
     declared = 0
     if args.kind in ("skills", "all"):
         any_failure, declared = _scan_skills(args, root, report, as_json)
+        any_failure = listing_failed(args, report, as_json) or any_failure
     if args.kind in ("tasks", "all"):
         any_failure = _scan_tasks(args, root, report, as_json) or any_failure
     if args.kind in ("skills", "all") and not declared:
@@ -269,6 +271,13 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
             if row["state"] == "error" else []
         subjects.append({"subject": f"task:{row['name']}", "verdict": "fail" if row["state"] == "error" else "pass",
                          "findings": findings})
+    listing = report.get("listing") or {}
+    if listing.get("over_budget") and "listing-over-budget" not in (args.ignore or ()):
+        # The cap is on the whole listing, not on one skill: its own subject, so the warning and, with --strict, the
+        # failure have a name (#966).
+        message = f"the skill listing is {listing['chars']} characters, over the --listing-budget of {listing['budget']}"
+        subjects.append({"subject": "listing", "verdict": "fail" if args.strict else "pass",
+                         "findings": [cli_output.finding("warn", "listing-over-budget", message, None)]})
     counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ROW_STATES}
     reason = None
     if failed:
@@ -580,6 +589,12 @@ def register(sub, positive_int, eval_sub) -> None:
     scan_p.add_argument(
         "--resume", action="store_true",
         help="With --jsonl: keep the rows already in PATH and review only the skills without one",
+    )
+    scan_p.add_argument(
+        "--listing-budget", type=positive_int, default=None, metavar="CHARS",
+        help="Warn with listing-over-budget when the skills the routing field lists (name, description and "
+             "when_to_use) total more than CHARS characters; with --strict, exit 1. The total is in the "
+             "report under listing",
     )
     scan_p.add_argument(
         "--online", action="store_true",

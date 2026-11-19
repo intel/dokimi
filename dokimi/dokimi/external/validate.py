@@ -100,7 +100,7 @@ from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_
 from .content_checks import content_findings
 from .frontmatter_shape import keeps_load_error, opens_frontmatter
 from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
-from .listing import in_field
+from .listing import entry_chars, in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
 from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, opencode_hidden, skill_format
 from .script_checks import script_findings
@@ -168,6 +168,7 @@ FINDING_CODES = (
     "link-dead",
     "link-escapes-skill",
     "link-missing",
+    "listing-over-budget",
     "mirror-drift",
     "name-conflict",
     "name-format",
@@ -682,6 +683,7 @@ def review_skills(
             if not hidden and fmt != FORMAT_UNSUPPORTED:
                 review.findings += _description_findings(skill)
             review.content_sha256 = _skill_digest(skill)
+            review.listing_chars = entry_chars(skill)
         except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:  # the unreadable row
             unreadable = Finding("error", "unreadable", f"SKILL.md cannot be read: {exc}")
             reviews.append(SkillReview(findings=[unreadable]))

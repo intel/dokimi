@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
 from dokimi import __version__
+from dokimi.external.listing import listed_chars
 from dokimi.external.skill_format import UNSUPPORTED_CODE
 from dokimi.utils import InputError
 
@@ -34,7 +35,8 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     and that review's finding is its only finding.
     ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
-    findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
+    findings with those codes before the state is taken; ``ignored`` records the codes in effect.
+    ``listing_chars`` is the skill's entry in the routing field's listing, None when it is not listed."""
     from dokimi.external.catalog_review import entry_relpath
     from dokimi.external.skill_format import not_a_failed_load
     from dokimi.external.findings import state_of
@@ -59,6 +61,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "skill_sha256": skill_dir_digest(skill, outputs),
         "dokimi_version": __version__,
         "duplicate_of": review.duplicate_of if review else None,
+        "listing_chars": listed_chars(review),
         "ignored": sorted(ignore),
         "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
     }
@@ -237,6 +240,7 @@ class _Tally:
         self.counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
         self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.not_checked = 0
+        self.listed: list[dict] = []  # the rows with a listing_chars, for listing_total
         self.failed = False
         self.reasons: list[str] = []
 
@@ -244,6 +248,8 @@ class _Tally:
         self.counts[row["state"]] += 1
         self.plain += is_plain_markdown(row)
         self.not_checked += not_checked(row)
+        if row.get("listing_chars") is not None:
+            self.listed.append(row)
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
@@ -293,8 +299,8 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
     the kept rows are held. A rewrite is due when a line is half-written, when the last line has no
     newline (the next row would be glued onto it), or when a row is for a skill this run does not
     select, whose directory changed, was written under other ``--ignore`` codes (the file must
-    match the counts printed), or was written by another dokimi version (or before the version was
-    recorded): a finding a newer version adds is not in the old row.
+    match the counts printed), was written by another dokimi version (or before the version was
+    recorded): a finding a newer version adds is not in the old row, or has no ``listing_chars``.
     """
     rows: list[dict] = []
     dirty = False
@@ -307,7 +313,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                 if row is None:
                     continue
                 key = _row_key(row)
-                if (key in selected and "skill_sha256" in row and row["skill_sha256"] == selected[key]
+                if (key in selected and "skill_sha256" in row and "listing_chars" in row and row["skill_sha256"] == selected[key]
                         and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:
@@ -370,6 +376,52 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     print()
 
 
+def listing_total(rows: Iterable[dict]) -> int:
+    """The characters the routing field lists for ``rows``: a byte-identical ``SKILL.md`` under another path
+    (a mirror) is one entry, as ``routing.catalog_competitors`` keeps one card for it (#966).
+
+    A skill is a copy of another when the name and ``content_sha256`` match; the row nearest the root stands for the
+    group. A name whose copies differ is left out whole, as ``routing.catalog_competitors`` drops a conflicting name.
+    """
+    kept: dict[tuple, int] = {}
+    digests: dict[str, set] = {}
+    total = 0
+    for row in rows:
+        chars = row.get("listing_chars")
+        if chars is None:
+            continue
+        sha = row.get("content_sha256")
+        if sha is None:
+            total += chars
+            continue
+        digests.setdefault(row["name"], set()).add(sha)
+        kept.setdefault((row["name"], sha), chars)
+    return total + sum(chars for (name, _), chars in kept.items() if len(digests[name]) == 1)
+
+
+def listing_failed(args, report: dict, as_json: bool) -> bool:
+    """Apply ``--listing-budget`` to ``report["listing"]["chars"]``: one rule for every scan path (#966).
+
+    The whole-catalog scan, ``--per-skill``, ``--jobs`` and ``--resume`` all pass the total of their rows'
+    ``listing_chars`` here, so a kept row is checked against the cap of this run, not the one it was written under.
+    Over the cap is a ``listing-over-budget`` warning, and exit 1 under ``--strict``; ``--ignore listing-over-budget``
+    drops both and the line that carries the total. ``over_budget`` stays in the report either way.
+    Returns True when the scan must exit 1.
+    """
+    cap = getattr(args, "listing_budget", None)
+    listing = report.get("listing")
+    if cap is None or listing is None:
+        return False
+    listing["budget"] = cap
+    listing["over_budget"] = listing["chars"] > cap
+    if not listing["over_budget"] or "listing-over-budget" in (args.ignore or ()):
+        return False
+    if not as_json:
+        print(f"warn listing-over-budget: the skill listing is {listing['chars']} characters, over the "
+              f"--listing-budget of {cap}")
+    return bool(args.strict)
+
+
 def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -> tuple[bool, int]:
     """Review each ``(entry, nested_in)`` pair alone; returns (exit 1 wanted, skills declared).
 
@@ -411,4 +463,5 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
         _print_text(root, declared, tally, len(prior), jsonl, report["skills"])
         for line in tally.reasons:
             print(line)
+    report["listing"] = {"chars": listing_total(tally.listed)}
     return tally.failed, declared
