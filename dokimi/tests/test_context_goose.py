@@ -224,3 +224,29 @@ def test_a_message_whose_content_is_an_object_is_reported_and_the_rest_still_rea
     assert [e.text for e in session.events] == ["push the branch now"]
     assert len(session.errors) == 2
     assert all(err.endswith("content is not a list of blocks") for err in session.errors)
+
+
+def _store_with_bad_messages(tmp_path, bad):
+    db = _store(tmp_path, {"s1": [("user", _text("keep the changelog fragment current"), None)]})
+    conn = sqlite3.connect(db)
+    conn.executemany(
+        "INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES ('s1', 'user', 'not json', ?)",
+        [(100 + n,) for n in range(bad)])
+    conn.commit()
+    conn.close()
+    return db
+
+
+@pytest.mark.parametrize(("bad", "listed", "more"), [(0, 0, 0), (20, 20, 0), (21, 20, 1), (25, 20, 5)])
+def test_skipped_messages_past_the_warning_limit_are_counted_on_stderr(tmp_path, capsys, bad, listed, more):
+    """Issue #963: the 21st skipped message left no line on stderr."""
+    from dokimi.commands.context import _read_sessions
+    db = _store_with_bad_messages(tmp_path, bad)
+    (session,) = read_goose_store(db)
+    assert (len(session.errors), session.errors_dropped) == (listed, more)
+    capsys.readouterr()
+    _read_sessions([str(db)])
+    lines = capsys.readouterr().err.splitlines()
+    assert sum(line.endswith("content is not JSON") for line in lines) == listed
+    tail = [line for line in lines if "more skipped records not listed" in line]
+    assert tail == ([f"warning: {db}#s1: {more} more skipped records not listed"] if more else [])
