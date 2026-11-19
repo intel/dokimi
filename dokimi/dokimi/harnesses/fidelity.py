@@ -39,6 +39,7 @@ from dokimi import docker_cmd, process
 from dokimi.container_policy import ContainerPolicy
 from dokimi.harnesses.agent_sandbox import agent_env
 from dokimi.harnesses.payload_audit import Leak, new_leaks
+from dokimi.process_io import utf8_bytes
 
 #: The Claude Code release the golden is captured with; CI installs this one.
 PINNED_CLAUDE_VERSION = "2.1.318"
@@ -381,7 +382,7 @@ def write_golden(path: Path, request: dict, *, version: str, case: str) -> None:
         "request": request,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_bytes(utf8_bytes(json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n"))
 
 
 def diff_requests(actual: dict, golden: dict, *, max_lines: int = 60) -> List[str]:

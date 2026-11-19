@@ -1,0 +1,3 @@
+### Fixed
+
+- **A lone surrogate in a cached completion, an exported row, an artifact or a fidelity golden** — `caching.store_response`, `datasets_export.to_jsonl`, `save_artifact(..., ensure_ascii=False)` (the `report_qa` sidecar and the `.rejected` copy of a refused payload) and `fidelity.write_golden` encoded their JSON strictly as UTF-8, so a value with a `\ud800` escape raised `UnicodeEncodeError` (`store_response` promised never to raise). Each now writes a lone surrogate as `?` and a `😀` escape pair joined into its character, as the other writers do. Files whose text encodes as UTF-8 are unchanged byte for byte, and a cache entry with a `?` loads as a hit.

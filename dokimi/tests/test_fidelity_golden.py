@@ -255,6 +255,23 @@ def test_golden_round_trip_and_diff(tmp_path):
     assert any(line.startswith(("-", "+")) for line in fd.diff_requests({"model": "<MODEL>", "tools": [1]}, doc["request"]))
 
 
+@pytest.mark.parametrize(("value", "written"), [
+    ("n\ud800", "n?"),
+    (chr(0xD83D) + chr(0xDE00), "\U0001F600"),
+    ("café", "café"),
+])
+def test_write_golden_writes_a_surrogate_as_utf8(tmp_path, value, written):
+    """Same layout as before (indent 1, sorted keys, one trailing newline); a lone surrogate is ``?`` (#992)."""
+    path = tmp_path / "g" / "bare.json"
+
+    fd.write_golden(path, {"b": value, "a": 1}, version="2.1.318", case="bare")
+
+    raw = path.read_bytes()
+    doc = json.loads(raw.decode("utf-8"))
+    assert doc["request"] == {"a": 1, "b": written}
+    assert raw == (json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+
+
 def _record_with(text: str, headers: dict | None = None) -> dict:
     body = {"model": "claude-haiku-4-5", "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}]}
     return {"path": "/v1/messages", "headers": headers or {}, "body": body}
