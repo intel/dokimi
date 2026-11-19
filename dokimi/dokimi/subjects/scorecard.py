@@ -54,12 +54,22 @@ def build_subject_scorecard(
             cells.append({
                 "product": run["product"],
                 "questions": run["questions"],
+                # The digest of this run's own question file: a suite with one file per product
+                # measures a different set in each cell, and suite.question_set_hash covers them all.
+                "questions_digest": _digest_values((run["questions"],)),
                 "matrix_cell": cell.get("matrix_cell"),
                 "artifact": cell.get("artifact"),
                 "model": cell.get("model"),
                 "provider": cell.get("provider"),
                 "harness": cell.get("harness"),
                 "baseline_arm": cell.get("baseline_arm"),
+                "judge_model": cell.get("judge_model"),
+                "judge_provider": cell.get("judge_provider"),
+                "judge_context": cell.get("judge_context"),
+                "judge_temperature": cell.get("judge_temperature"),
+                "judge_prompt_sha256": cell.get("judge_prompt_sha256"),
+                **({"judge_resolved_models": cell["judge_resolved_models"]}
+                   if "judge_resolved_models" in cell else {}),
                 "plugin_set": cell.get("plugin_set"),
                 "summary": cell.get("summary", {}),
                 "cost_summary": cell.get("cost_summary", {}),
@@ -132,14 +142,15 @@ def build_subject_scorecard(
     }
 
 
-def _digest_values(values: tuple[str, ...]) -> str:
+def _digest_values(values: tuple[str, ...]) -> str | None:
     h = hashlib.sha256()
     for value in values:
+        path = Path(value)
+        if not path.is_file():  # the name alone is no identity: the input stays unresolved
+            return None
         h.update(os.fsencode(value))
         h.update(b"\0")
-        path = Path(value)
-        if path.is_file():
-            h.update(path.read_bytes())
+        h.update(path.read_bytes())
     return "sha256:" + h.hexdigest()
 
 
