@@ -258,6 +258,10 @@ def test_a_generator_that_drops_the_version_bound_is_dropped_and_warned_about(tm
     assert paraphrase["reasons"]["anchor_dropped"] == 1
     assert any("paraphrase wordings failed the fidelity check" in w
                for w in artifact["warnings"])
+    assert any("probes.by_kind.paraphrase.rejected_examples" in w for w in artifact["warnings"])
+    [example] = paraphrase["rejected_examples"]
+    assert example["candidate"] == "May it be enabled?"
+    assert "anchor_dropped" in example["reasons"]
 
 
 def test_a_bundle_run_reports_which_file_carried_each_atom(tmp_path):

@@ -213,6 +213,19 @@
                 "type": "object",
                 "description": "Rejection reason tally. Mechanical reasons only; a clean result is the absence of detectable corruption, not proof of fidelity.",
                 "additionalProperties": {"type": "integer"}
+              },
+              "rejected_examples": {
+                "type": "array",
+                "description": "Up to 20 rejected wordings of this kind, with the source they rewrote and the reasons; `reasons` above counts every rejection. Absent from artifacts written before it existed.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "atom_id": {"type": "string"},
+                    "source": {"type": "string"},
+                    "candidate": {"type": "string"},
+                    "reasons": {"type": "array", "items": {"type": "string"}}
+                  }
+                }
               }
             }
           }
