@@ -1,7 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The output concept's moves (issue #94 §2.4, F1b): old spellings tombstone, new ones parse the same."""
+"""The output and tokens concepts' moves (issue #94 §2.4, F1b).
+
+Old spellings tombstone, new ones parse the same.
+"""
 
 from __future__ import annotations
 
