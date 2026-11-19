@@ -14,6 +14,9 @@ SPDX-License-Identifier: Apache-2.0
   when there is one, else `reward.txt`; it must be a JSON object of finite numbers, and its reward
   is the `reward` key, or the only key. One that is not such an object, has several keys and no
   `reward`, or a reward outside [0, 1], errors the cell, also beside a `reward.txt`; a `docker cp`
-  of it that fails errors the cell too. A `command:` harness reads a `reward.json` by the same
-  rule: `{"group_score": 0.2, "reward": 0.9}` is 0.9 (it was 0.2, the first labelled number), a
-  bare `0.5` or several keys without `reward` is no reward. See `docs/coding-harnesses.md`.
+  of it that fails errors the cell too. A `command:` harness takes a `reward.json`'s reward by the
+  same rule, and still reads any `reward.txt` under its run dir first:
+  `{"group_score": 0.2, "reward": 0.9}` is 0.9 (it was 0.2, the first labelled number), and a bare
+  `0.5`, or several keys without `reward`, now errors the cell (`no verdict: exit N, reward file
+  has no reward`) where it scored 0.5 or the first labelled number; write `{"reward": x}`. See
+  `docs/coding-harnesses.md`.
