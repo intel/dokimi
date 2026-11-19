@@ -71,7 +71,7 @@ def _is_utf8(line: str) -> bool:
 
 
 def _lines(text: str) -> list[str]:
-    """``text`` cut at ``\r\n``, ``\r`` or ``\n``: not ``splitlines``, which also cuts at the U+2028,
+    r"""``text`` cut at ``\r\n``, ``\r`` or ``\n``: not ``splitlines``, which also cuts at the U+2028,
     U+2029 and U+0085 a JSON string may hold raw (#687)."""
     return re.split(r"\r\n|\r|\n", text)
 
