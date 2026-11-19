@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import re
 from datetime import datetime, timezone
@@ -137,20 +138,31 @@ def _field(text: str) -> bytes:
     return hashlib.sha256(key_bytes(text)).digest()
 
 
+_ERROR_FILENAME_EXCED_RANGE = 206  # Windows' ENAMETOOLONG
+
+
 def _is_file(path: Path) -> bool:
-    """``path.is_file()``, False when the OS refuses the check (a name past the file-name limit is no file)."""
+    """``path.is_file()``, False for a name past the file-name limit; any other OSError (permission, I/O) propagates."""
     try:
         return path.is_file()
-    except OSError:
-        return False
+    except OSError as exc:
+        if _name_too_long(exc):
+            return False
+        raise
 
 
 def _is_dir(path: Path) -> bool:
-    """``path.is_dir()``, False when the OS refuses the check (a name past the file-name limit is no directory)."""
+    """``path.is_dir()``, False for a name past the file-name limit; any other OSError (permission, I/O) propagates."""
     try:
         return path.is_dir()
-    except OSError:
-        return False
+    except OSError as exc:
+        if _name_too_long(exc):
+            return False
+        raise
+
+
+def _name_too_long(exc: OSError) -> bool:
+    return exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == _ERROR_FILENAME_EXCED_RANGE
 
 
 def _digest_values(values: tuple[str, ...]) -> str:
