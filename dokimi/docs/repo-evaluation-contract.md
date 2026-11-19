@@ -1770,7 +1770,7 @@ it is at conversion time, so a receipt with `--from` also needs the profile's
 compared, and its receipt is the same only for an unchanged profile. The receipt is written
 beside the saved file; a name that resolves to the saved probe is a usage error
 (exit 2), and a write that fails is a runtime failure (exit 1). The probe-only flags (`--model`,
-`--budget`, `--scenarios`, `--only` and the rest) cannot be combined with
+`--max-usd-per-cell`, `--scenarios`, `--only` and the rest) cannot be combined with
 `--from`. The schema is `schemas/effective_instructions.v1.json`; the code is
 `repos/receipt.py`.
 
@@ -2383,7 +2383,7 @@ python cli.py eval check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yam
 python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --arm guidance:none,guidance:raw \
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --batch pilot \
-    --bin /opt/claude-2.1.286/claude --agent-network host --budget 1 --max-batch-usd 20
+    --bin /opt/claude-2.1.286/claude --agent-network host --max-usd-per-cell 1 --max-usd 20
 python cli.py repo report repo-runs/pilot
 python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
 ```
@@ -2464,11 +2464,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   the harness must report its version inside the image, and a probe container
   with the same mounts must see neither `/eval/content` nor `/eval/source`, no
   entry named like a task, and no guidance file above the workspace.
-- `--timeout`, `--max-turns` and `--budget` apply unless `task.json` sets
+- `--timeout`, `--max-turns` and `--max-usd-per-cell` apply unless `task.json` sets
   `timeout_s`, `max_turns` or `budget_usd`. On a timeout the `docker run`
   CLI gets SIGTERM, which it passes to the container, and 10 s to stop it;
   then the CLI's process group is killed, the container is killed by name,
-  and the cell is still graded. `--max-batch-usd` starts no new cell
+  and the cell is still graded. `--max-usd` starts no new cell
   once the batch has spent that much, earlier invocations included (kept in
   `_eval/spend.json`), counting the budget of each cell in flight.
 - Every container runs with `--security-opt no-new-privileges`, `--cap-drop
