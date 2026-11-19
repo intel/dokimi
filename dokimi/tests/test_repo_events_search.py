@@ -65,6 +65,10 @@ def _jsonl(*records: dict) -> str:
     ("grep warn AGENTS.md | head -n -0", ["AGENTS.md"]),  # all but the last 0
     ("grep warn AGENTS.md | head -c 100 -q", ["AGENTS.md"]),
     ("grep warn AGENTS.md | head --li=5", ["AGENTS.md"]),  # an unambiguous prefix of --lines
+    ("grep warn AGENTS.md | head -n 20 2>/dev/null", ["AGENTS.md"]),  # stderr of the cut stage leaves its lines alone
+    ("rg warn AGENTS.md 2>&1 | tail -n 5 2>/dev/null", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | tail -3 2>&1", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | head --quiet", ["AGENTS.md"]),  # a long option that takes no value
     ("grep -ewarn AGENTS.md", ["AGENTS.md"]),  # the expression attached to -e
     ("rg -ewarn AGENTS.md", ["AGENTS.md"]),
     ("grep -nefoo AGENTS.md", ["AGENTS.md"]),  # in a cluster
@@ -103,6 +107,8 @@ def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     "grep warn AGENTS.md | head -n", "grep warn AGENTS.md | head -n 5 | head -n 0",
     "head() { :; }; grep warn AGENTS.md | head", "tail() { :; }; grep warn AGENTS.md | tail -n 5",  # the function runs
     "if ! grep warn AGENTS.md | head; then echo no; fi",
+    "grep warn AGENTS.md | head 2>/dev/null > out.txt", "grep warn AGENTS.md | tail -n 5 2>/dev/null 1>&2",  # stdout goes away
+    "grep warn AGENTS.md | head -n 'x",  # a stage shlex cannot split
     "grep -fAGENTS.md warn", "grep -nf AGENTS.md warn",  # AGENTS.md is the pattern file
 ])
 def test_a_search_that_shows_no_line_of_a_file_is_not_searched(command):

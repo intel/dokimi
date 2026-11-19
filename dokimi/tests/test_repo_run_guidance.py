@@ -59,6 +59,20 @@ def test_a_path_through_a_link_to_a_held_guidance_file_is_held_and_a_dangling_li
     assert "docs/new/AGENTS.md" not in held and "../AGENTS.md" not in held  # made later, or outside the workspace
 
 
+def test_a_link_the_agent_removed_or_retargeted_still_leads_to_the_file_the_workspace_held(tmp_path):
+    held = _held_workspace(tmp_path)
+    ws = tmp_path / "workspace"
+    (ws / "alias").unlink()
+    (ws / "alias").mkdir()  # the agent made a directory of its own where the link was
+    (ws / "alias/AGENTS.md").write_text("mine\n")
+    assert "alias/AGENTS.md" in held and "docs/AGENTS.md" in held
+    ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
+    events = [{"kind": "read", "path": "alias/AGENTS.md", "rc": 0},
+              {"kind": "command", "text": "grep x alias/AGENTS.md", "rc": 0, "searched": ["alias/AGENTS.md"]}]
+    got = run_process_metrics(ctx, events, 0, held)
+    assert (got["guidance_read"], got["guidance_searched"]) == (["alias/AGENTS.md"], ["alias/AGENTS.md"])
+
+
 def test_the_metrics_count_a_search_and_a_read_through_a_directory_link_but_not_a_dangling_one(tmp_path):
     ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
     events = [{"kind": "read", "path": "alias/AGENTS.md", "rc": 0},

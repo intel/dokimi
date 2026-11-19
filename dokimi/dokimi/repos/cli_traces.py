@@ -292,9 +292,7 @@ class _Walk:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
         and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell;
         ``staged``: ``part`` is the first stage of a pipeline, cut out of it, so it ran in a subshell)."""
-        if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
-            part = _outside_quotes(part, _HARMLESS_REDIRECT)
-        part = _outside_quotes(part, _STDERR_FILE)
+        part = _without_stderr(part)
         try:
             words = shlex.split(part) if not _computed(part) else None
         except ValueError:
@@ -445,7 +443,14 @@ def _search_stage(part: str, functions: Functions) -> str | None:
     ``grep x AGENTS.md | head -n 20``), else None: the lines of a search that only ``head`` or ``tail`` cut still reach the agent."""
     cuts = [m.start() for m in _PIPE.finditer(_masked(part))]
     stages = [part[a:b] for a, b in zip([0, *(c + 1 for c in cuts)], [*cuts, len(part)], strict=True)]
-    return stages[0] if cuts and all(cuts_lines(s, functions) for s in stages[1:]) else None
+    return stages[0] if cuts and all(cuts_lines(_without_stderr(s), functions) for s in stages[1:]) else None
+
+
+def _without_stderr(part: str) -> str:
+    """``part`` without the redirects that leave its stdout alone (``2>&1``, ``2>/dev/null``, ``2>file``)."""
+    if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
+        part = _outside_quotes(part, _HARMLESS_REDIRECT)
+    return _outside_quotes(part, _STDERR_FILE)
 
 
 def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:

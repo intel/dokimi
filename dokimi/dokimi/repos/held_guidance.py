@@ -17,16 +17,48 @@ from .workspace import SNAPSHOT_AUTHOR, _git_env, _workspace_files
 
 class HeldGuidance:
     """The guidance files a workspace held as the agent started, as the files they resolve to. ``path in held`` is
-    true for a path that resolves, now, to one of them: a link into the workspace (``alias/AGENTS.md`` through a
-    directory link, ``sub/AGENTS.md`` to ``../AGENTS.md``) counts, a file the agent made does not."""
+    true for a path that leads to one of them through the links the workspace had at the start: a link into the
+    workspace (``alias/AGENTS.md`` through a directory link, ``sub/AGENTS.md`` to ``../AGENTS.md``) counts, also
+    after the agent removed or retargeted the link; a file or a link the agent made does not."""
 
     def __init__(self, ws: Path, files: Iterable[str]) -> None:
         self.root = os.path.realpath(ws)
+        self.links = self._links()
         self.files = frozenset(self.resolved(p) for p in files)
 
+    def _links(self) -> dict[str, str]:
+        """Each link of the workspace as it is now: its path (absolute, from the real root) and where it points."""
+        links: dict[str, str] = {}
+        for here, dirs, names in os.walk(self.root):
+            if here == self.root and ".git" in dirs:
+                dirs.remove(".git")
+            for name in (*dirs, *names):
+                path = os.path.join(here, name)
+                if os.path.islink(path):
+                    links[path] = os.readlink(path)
+        return links
+
     def resolved(self, path: str) -> str:
-        """Where the workspace path ``path`` leads, relative to the workspace (``..`` first when it leaves it)."""
-        return Path(os.path.relpath(os.path.realpath(os.path.join(self.root, path)), self.root)).as_posix()
+        """Where the workspace path ``path`` leads through the links of the start, relative to the workspace
+        (``..`` first when it leaves it); a link loop leaves the path where the loop began."""
+        pending = os.path.join(self.root, path).split(os.sep)[::-1]
+        here, hops = os.sep, 0
+        while pending:
+            part = pending.pop()
+            if part in ("", "."):
+                continue
+            if part == "..":
+                here = os.path.dirname(here)
+                continue
+            here = os.path.join(here, part)
+            if here in self.links and hops < 40:
+                hops, target = hops + 1, self.links[here]
+                if os.path.isabs(target):
+                    here = os.sep
+                else:
+                    here = os.path.dirname(here)
+                pending += target.split(os.sep)[::-1]
+        return Path(os.path.relpath(here, self.root)).as_posix()
 
     def __contains__(self, path: object) -> bool:
         return self.resolved(str(path)) in self.files
