@@ -397,6 +397,8 @@ def test_json_that_python_cannot_load_is_a_line_warning(line):
 
 @pytest.mark.outcome("cjm-context-trace")
 def test_cli_fill_is_rounded_once_from_the_token_counts(tmp_path, capsys):
+    """#962: docs/context-window.md: **fill** is peak over `--window`, rounded once to the
+    table's whole percent."""
     # 198,999 / 200,000 = 99.4995%: rounding to 4 places first gave 99.5% and showed 100%
     t = tmp_path / "fill.jsonl"
     t.write_text(_jsonl(_assistant("m1", _usage(198999, 0, 0))), encoding="utf-8")
@@ -406,6 +408,7 @@ def test_cli_fill_is_rounded_once_from_the_token_counts(tmp_path, capsys):
 
 @pytest.mark.outcome("cjm-context-trace")
 def test_cli_fill_of_a_full_window_is_100_percent(tmp_path, capsys):
+    """#962: docs/context-window.md: **fill** is peak over `--window`; a peak equal to it is 100%."""
     t = tmp_path / "full.jsonl"
     t.write_text(_jsonl(_assistant("m1", _usage(200000, 0, 0))), encoding="utf-8")
     out = _run_cli(["trace", "inspect", str(t), "--window", "200000"], capsys).out
@@ -413,6 +416,8 @@ def test_cli_fill_of_a_full_window_is_100_percent(tmp_path, capsys):
 
 
 def test_result_chars_skips_an_image_block():
+    """#962: docs/context-window.md: **result chars** is the text in tool results, in characters;
+    a non-text block, such as an image a `Read` returns, adds nothing."""
     trace = parse_trace(_jsonl(
         _assistant("m1", _usage(1, 0, 0), _tool_use("t1", "Read", file_path="/a.png"), _tool_use("t2", "Bash", command="x")),
         {"type": "user", "message": {"content": [
