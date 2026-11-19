@@ -10,6 +10,7 @@ UTF-8 encode refuses (https://github.com/intel/dokimi/issues/913).
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -31,6 +32,13 @@ def test_json_is_indented_keeps_non_ascii_and_ends_in_one_newline(tmp_path):
     path = tmp_path / "x.json"
     write_json_atomic(path, {"a": ["é", 1], "b": {}})
     assert path.read_bytes() == b'{\n  "a": [\n    "\xc3\xa9",\n    1\n  ],\n  "b": {}\n}\n'
+
+
+def test_json_ends_each_line_with_the_platform_line_separator(tmp_path, monkeypatch):
+    path = tmp_path / "x.json"
+    monkeypatch.setattr(os, "linesep", "\r\n")
+    write_json_atomic(path, {"a": [1], "b": "x\ny"})
+    assert path.read_bytes() == b'{\r\n  "a": [\r\n    1\r\n  ],\r\n  "b": "x\\ny"\r\n}\r\n'
 
 
 @pytest.mark.parametrize(("value", "expected"), CASES)
