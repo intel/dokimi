@@ -201,6 +201,20 @@ def test_a_file_nested_too_deeply_is_refused_naming_the_file(tmp_path, monkeypat
         load_run(str(path), "lexical")
 
 
+def test_a_number_past_the_integer_digit_limit_is_refused_naming_the_file(tmp_path):
+    path = tmp_path / "base.json"
+    digits = "9" * 5000
+    path.write_text('{"mode": "all_vs_all", "result": {"lexical": {"per_query": [{"query": "q", '
+                    f'"gold": "g", "rank": {digits}, "picked": "g"}}]}}}}}}', encoding="utf-8")
+    with pytest.raises(RoutingInputError, match="base.json: not JSON this reader accepts"):
+        load_run(str(path), "lexical")
+
+
+def test_a_model_row_with_no_picks_is_refused_but_an_empty_list_is_an_unanswered_call(tmp_path):
+    run = load_run(_save(tmp_path, "base.json", model_rows=[_model_row("q", [])]), "model")
+    assert compare_runs(run, run, "model")["unscored"] == {"no_answered_call": 1}
+
+
 @pytest.mark.parametrize("row, message", [
     ({"query": "q", "gold": "g", "rank": 1, "picked": ["g"]},
      "base.json: per_query row 2: `picked` is not a string"),
@@ -237,6 +251,10 @@ def test_a_lexical_row_with_a_null_rank_or_a_none_or_tie_pick_is_kept(tmp_path):
      "base.json: per_query row 2: `picks` is not a list of strings"),
     ("model", {"query": "q", "gold": "g", "picks": "g"},
      "per_query row 2: `picks` is not a list of strings"),
+    ("model", {"query": "q", "gold": "g", "picks": None},
+     "base.json: per_query row 2: `picks` is not a list of strings"),
+    ("model", {"query": "q", "gold": "g"},
+     "base.json: per_query row 2: `picks` is not a list of strings"),
     ("model", {"query": "q", "gold": "g", "picks": ["g"], "acceptable": [3]},
      "per_query row 2: `acceptable` is not a list of strings"),
 ])

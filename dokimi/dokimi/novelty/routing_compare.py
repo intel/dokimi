@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 
@@ -34,14 +35,7 @@ def load_run(path: str, arm: str) -> dict:
             no ``result`` object, or lacks the arm or its ``per_query`` rows (a file saved before
             the lexical arm kept them has none); the message names the file and the cause.
     """
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError) as exc:
-        raise RoutingInputError(f"{path}: cannot read: {exc}") from None
-    except json.JSONDecodeError as exc:
-        raise RoutingInputError(f"{path}: not JSON: {exc}") from None
-    except RecursionError:
-        raise RoutingInputError(f"{path}: nested too deeply to read") from None
+    data = _read_json(path)
     mode = data.get("mode") if isinstance(data, dict) else None
     if mode != "all_vs_all":
         raise RoutingInputError(f"{path}: not an all-vs-all routing result (mode {mode!r}): "
@@ -65,6 +59,21 @@ def load_run(path: str, arm: str) -> dict:
     return {"path": path, "rows": rows, "model": name if isinstance(name, str) else None}
 
 
+def _read_json(path: str) -> Any:
+    """The JSON at ``path``; every way it can fail to load is a :class:`RoutingInputError`."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RoutingInputError(f"{path}: cannot read: {exc}") from None
+    except json.JSONDecodeError as exc:
+        raise RoutingInputError(f"{path}: not JSON: {exc}") from None
+    except ValueError:
+        raise RoutingInputError(f"{path}: not JSON this reader accepts (a number with too many "
+                                "digits)") from None
+    except RecursionError:
+        raise RoutingInputError(f"{path}: nested too deeply to read") from None
+
+
 def _check_row(path: str, number: int, row: object, arm: str) -> None:
     """Refuse a ``per_query`` row whose fields :func:`_entry` reads have the wrong type."""
     where = f"{path}: per_query row {number}"
@@ -84,8 +93,7 @@ def _check_row(path: str, number: int, row: object, arm: str) -> None:
             raise RoutingInputError(f"{where}: `picked` is not a string")
     if arm == "model":
         picks = row.get("picks")
-        if picks is not None and not (
-                isinstance(picks, list) and all(isinstance(n, str) for n in picks)):
+        if not (isinstance(picks, list) and all(isinstance(n, str) for n in picks)):
             raise RoutingInputError(f"{where}: `picks` is not a list of strings")
 
 
