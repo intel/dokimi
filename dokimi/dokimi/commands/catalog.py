@@ -19,7 +19,7 @@ import json
 import sys
 from pathlib import Path
 from dokimi.commands.catalog_scan import (
-    is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row,
+    ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
     unrestricted_and_risky,
 )
 from dokimi.utils import InputError
@@ -54,7 +54,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     only = getattr(args, "only", None)  # `skill check SKILL` reports this one skill (#94 M3)
     if only is not None and only not in {entry.name for entry in skills}:
         raise InputError(f"no skill named {only!r} under {root}")
-    counts = {"ok": 0, "warn": 0, "error": 0}
+    counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
     plain = 0
     unchecked = 0
     failed = False
@@ -69,13 +69,15 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
-        if not skill.loaded or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
+        load_failed = row["error"] is not None  # None for a skill_format exemption, decided before --ignore (skill_row)
+        if load_failed or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
             f"# skills ({shown} declared under {root}; "
-            f"{ok_text(counts['ok'], unchecked)}, {counts['warn']} warn, {counts['error']} error{plain_note(plain)})"
+            f"{ok_text(counts['ok'], unchecked)}, {counts['warn']} warn, {counts['error']} error{plain_note(plain)}"
+            f"{skipped_note(counts['skipped'])})"
         )
         for row in report["skills"]:
             print_skill_row(row)
@@ -267,7 +269,7 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
             if row["state"] == "error" else []
         subjects.append({"subject": f"task:{row['name']}", "verdict": "fail" if row["state"] == "error" else "pass",
                          "findings": findings})
-    counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ("ok", "warn", "error")}
+    counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ROW_STATES}
     reason = None
     if failed:
         n = sum(s["verdict"] == "fail" for s in subjects)
