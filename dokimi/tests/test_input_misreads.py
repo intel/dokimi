@@ -303,6 +303,15 @@ def test_a_line_that_is_not_utf8_costs_only_that_line(tmp_path):
         ("tool", "read", {}), ("log_parse_error", "operations.jsonl", {"error": "not UTF-8"}), ("tool", "edit", {})]
 
 
+@pytest.mark.parametrize("fields,seconds", [
+    ('"elapsed_sec":2,"duration_sec":5', 2.0), ('"duration_sec":5', 5.0), ('"elapsed_sec":"5","duration_sec":9', 5.0),
+], ids=["elapsed-wins", "duration-alone", "numeric-string"])
+def test_a_usable_elapsed_sec_comes_before_duration_sec(fields, seconds):
+    ops = load_operations(None, 'DOKIMI_OP {"type":"tool",' + fields + "}", "")
+
+    assert [op.elapsed_sec for op in ops] == [seconds]
+
+
 def test_a_record_with_a_raw_line_separator_in_a_string_is_one_line(tmp_path):
     """JSON allows U+2028, U+2029 and U+0085 raw in a string; ``str.splitlines`` cut the record there."""
     (tmp_path / "operations.jsonl").write_text(
