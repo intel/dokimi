@@ -37,6 +37,9 @@ def partial_atoms_refusal(path, partial: dict) -> str:
     message = partial.get("message")
     if not isinstance(message, str) or not has_visible_text(message):
         message = stop[0]
-    if message.rstrip().rstrip(".").rstrip().endswith(stop[1]):  # the stop's own text already ends with the advice
+    end = len(message)
+    while end and (message[end - 1] == "." or message[end - 1].isspace()):
+        end -= 1
+    if message[:end].endswith(stop[1]):  # the stop's own text already ends with the advice
         return f"{path} is a partial atoms file: {message}; it is not a finished atom set."
     return f"{path} is a partial atoms file: {message}, so it is not a finished atom set. {stop[1]}"
