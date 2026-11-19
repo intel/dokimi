@@ -122,6 +122,12 @@ def halt_and_kill_started() -> None:
         raise pending
 
 
+def halted() -> bool:
+    """Whether a halt is set: a cell that has not started its work drops instead of starting it."""
+    with _live_lock:
+        return _halted
+
+
 def clear_halt() -> None:
     """Accept containers again, once no cell is running (the batch that halted them has returned)."""
     global _halted

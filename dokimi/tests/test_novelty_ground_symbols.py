@@ -9,6 +9,7 @@ import hashlib
 import re
 import shutil
 import subprocess
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from dokimi.novelty.atoms import Atom, Span, load_atoms_record, save_atoms
 from dokimi.novelty.grounding import add_checks, identifiers_check, verify_keys
 from dokimi.novelty.symbols import header_names, nm_names, symbol_pattern, symbols_check
 from dokimi.utils import InputError
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 PREFIXES = ("cblas_", "LAPACKE_", "mkl_")
 
@@ -439,13 +441,12 @@ def test_an_apostrophe_in_a_directive_text_does_not_hide_the_names_between_two_o
 
 def test_a_long_answer_with_many_mentions_is_scanned_in_linear_time():
     # Every mention used to re-read the whole text before it: 126 KB took about 12 s, past the grader's 1 s.
-    import time
     from dokimi.eval.reference_checks import scope_pairs
     unit = "Then call cblas_dgemm(a, b) on the block. "
-    answer = (unit * 3000)[:126_000]
-    started = time.monotonic()
-    assert len(scope_pairs(symbol_pattern(("cblas_",)), answer, timeout=30)) > 2000
-    assert time.monotonic() - started < 5.0  # a quadratic scan takes 11 s here; the box is shared
+    pattern = symbol_pattern(("cblas_",))
+    ratio, pairs = growth(lambda k: partial(scope_pairs, pattern, unit * k, timeout=30), 750)  # 126 KB at 4n
+    assert ratio < GROWTH_LIMIT
+    assert len(pairs) > 2000
 
 
 def test_a_refresh_with_a_subset_of_the_prefixes_does_not_veto_the_same_names_twice(tmp_path):
