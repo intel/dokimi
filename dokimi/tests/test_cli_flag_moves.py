@@ -134,3 +134,20 @@ def test_help_shows_the_registry_metavar_for_each_token_spelling(flag):
     assert leaves
     assert {path: action.metavar for path, action in leaves.items()} == {
         path: flag.value.split()[0] for path in leaves}
+
+
+_TOKEN_MOVES = [m for m in cli_flags.FLAG_MOVES if m.old in ("--max-tokens", "--budgets")]
+
+
+@pytest.mark.parametrize("move", _TOKEN_MOVES, ids=lambda m: f"{m.old}->{m.new}")
+def test_a_token_move_lists_exactly_the_leaves_that_have_the_new_spelling(move):
+    # a leaf missing here fails with a bare `unrecognized arguments` instead of a `moved:` line
+    assert sorted(move.leaves) == sorted(_leaves_with(move.new))
+
+
+@pytest.mark.parametrize(("old", "new", "leaf"), [
+    (m.old, m.new, leaf) for m in _TOKEN_MOVES for leaf in m.leaves])
+def test_every_token_move_tombstones_on_each_of_its_leaves(old, new, leaf, capsys):
+    text = _tombstone([*leaf, old, "8"], capsys)
+    assert text.startswith("moved: dokimi ")
+    assert " ".join([*leaf, new, "8"]) in text
