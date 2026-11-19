@@ -1435,7 +1435,9 @@ recorded sample) or, with `all_atoms: true`, every one, so a rate over a sample 
 the file's; records written before it have no `sampling`. Every novelty
 `ref_digest` is the bundle's `measured_digest` (the measured files' paths and text digests);
 the subject scorecard's `subject.ref_digest` is a different hash, of every file under the
-subject path, and the two are not meant to match. `shorten`
+subject path (each file's path and content as separate fixed-width digests; a scorecard
+written by an earlier release hashed them differently, so its `ref_digest` differs for
+the same tree), and the two are not meant to match. `shorten`
 rewrites one file, so with a bundle-derived atom set it scores only the entry point's spans
 and says so.
 
