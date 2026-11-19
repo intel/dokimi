@@ -15,6 +15,7 @@ from functools import partial
 
 import pytest
 
+from dokimi.eval.reference_checks import _fenced_body, parse_json
 from dokimi.repos.answers import _has_header_tail
 from tests.growth_timing import GROWTH_LIMIT, growth
 
@@ -84,4 +85,76 @@ def test_header_tail_random_texts_match_old_regex() -> None:
 def test_header_tail_scan_is_linear(shape, n: int) -> None:  # type: ignore[no-untyped-def]
     ratio, found = growth(lambda k: partial(_has_header_tail, shape(k)), n)
     assert found is False
+    assert ratio < GROWTH_LIMIT
+
+
+# --- eval/reference_checks._FENCE ----------------------------------------------------------------
+
+_OLD_FENCE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n\s*```\s*$", re.S)
+
+_FENCE_TABLE = [
+    ("", None),
+    ('{"a": 1}', None),
+    ("```\nx\n```", "x"),
+    ("```json\n{}\n```", "{}"),
+    ("```JSON\n{}\n```", None),
+    ("```json {}```", None),
+    ("```\n\n```", ""),
+    ("```\n\n\nx\n\n```", "x"),
+    ("```\nx\n\n\n```\n\n", "x"),
+    ("```\nx\n``` tail", None),
+    ("```\nx```", None),
+    ("x\n```\ny\n```", None),
+    ("```\na\n```\nb\n```", "a\n```\nb"),
+    ("```\na\n```\nb\n``` c", None),
+    ("```\nx ``` y\n```", "x ``` y"),
+    ("```\r\nx\r\n```\r\n", "x\r"),
+    ("  ```json\n  x\n  ```  ", "  x"),
+    ("```json\n\n```", ""),
+    ("``````", None),
+    ("```\n```", None),
+]
+
+
+@pytest.mark.parametrize(("text", "body"), _FENCE_TABLE)
+def test_fence_table_matches_old_regex(text: str, body: str | None) -> None:
+    old = _OLD_FENCE.match(text)
+    assert (old.group(1) if old else None) == body
+    assert _fenced_body(text) == body
+
+
+def test_fence_random_texts_match_old_regex() -> None:
+    pieces = ["```", "json", "\n", " ", "\t", "x", "{}"]
+    texts = _random_texts(pieces, 926, longest=14)
+    rng = random.Random(9260)
+    blanks = ["", "\n", " ", "\n ", "\n\n", "\t\n"]  # the opener and the closer of a block, mostly well formed
+    for _ in range(CASES):
+        body = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 6)))
+        texts.append(rng.choice(blanks) + "```" + rng.choice(["", "json"]) + rng.choice(blanks) + "\n" + body
+                     + "\n" + rng.choice(blanks) + "```" + rng.choice(blanks + ["x", "```"]))
+    old = [_OLD_FENCE.match(t) for t in texts]
+    assert sum(1 for m in old if m) > CASES // 4
+    assert sum(1 for m in old if m and m.group(1) == "") > 0
+    assert [t for t, m in zip(texts, old, strict=True) if _fenced_body(t) != (m.group(1) if m else None)] == []
+
+
+def test_parse_json_unwraps_a_fenced_block() -> None:
+    assert parse_json('\n```json\n\n{"a": [1]}\n\n```\n') == (True, {"a": [1]})
+    assert parse_json("```\n```") == (False, None)
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "```\n" + "\n" * k,  # blank lines after an opener with no closer: cubic as the lazy body retried at each
+    lambda k: "```\n" + "\n " * k,
+    lambda k: "```\n" + "\n" * k + "x\n``` y",  # the closer is there but text follows it
+], ids=["blank-lines", "blank-lines-spaces", "closer-then-text"])
+def test_fence_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, body = growth(lambda k: partial(_fenced_body, shape(k)), 200)
+    assert body is None
+    assert ratio < GROWTH_LIMIT
+
+
+def test_fence_body_scan_is_linear_when_the_block_closes() -> None:
+    ratio, body = growth(lambda k: partial(_fenced_body, "```\n" + "\n" * k + "x\n" + "\n" * k + "```"), 200)
+    assert body == "x"
     assert ratio < GROWTH_LIMIT
