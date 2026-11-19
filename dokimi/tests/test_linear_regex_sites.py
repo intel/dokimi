@@ -18,6 +18,7 @@ import pytest
 from dokimi.eval.reference_checks import _fenced_body, parse_json
 from dokimi.novelty.symbols import _blank_skipped, header_names
 from dokimi.repos.answers import _has_header_tail
+from dokimi.repos.l0.core import _TRAILING_COMMENT, logical_lines
 from tests.growth_timing import GROWTH_LIMIT, growth
 
 CASES = 3000
@@ -230,4 +231,64 @@ def test_c_skip_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
 def test_c_skip_scan_is_linear_when_the_closer_is_far() -> None:
     ratio, blanked = growth(lambda k: partial(_blank_skipped, "/* a " * k + "*/ b"), 1500)
     assert blanked == "  b"
+    assert ratio < GROWTH_LIMIT
+
+
+# --- repos/l0/core.py: the trailing comment of a command line ------------------------------------
+
+_OLD_COMMENT = r"\s+#.*$"
+
+_COMMENT_TABLE = [
+    ("", ""),
+    ("cmd", "cmd"),
+    ("cmd # c", "cmd"),
+    ("cmd#c", "cmd#c"),
+    ("cmd   # c  ", "cmd"),
+    ("  # c", ""),
+    ("cmd\t# c", "cmd"),
+    ("a # b # c", "a"),
+    ("#", "#"),
+    (" #", ""),
+    ("cmd # c\n", "cmd\n"),
+    ("a\nb # c", "a\nb"),
+    ("a # b\nc", "a # b\nc"),
+    ("a # b\nc # d", "a # b\nc"),
+    ("a\r\n# c\r\n", "a\n"),
+    ("a\u00a0# c", "a"),
+    ("x  \n  # c", "x"),
+]
+
+
+@pytest.mark.parametrize(("text", "stripped"), _COMMENT_TABLE)
+def test_trailing_comment_table_matches_old_regex(text: str, stripped: str) -> None:
+    assert re.sub(_OLD_COMMENT, "", text) == stripped
+    assert _TRAILING_COMMENT.sub("", text) == stripped
+
+
+def test_trailing_comment_random_texts_match_old_regex() -> None:
+    texts = _random_texts([" ", "\t", "\n", "#", "x", "\\"], 931, longest=14)
+    stripped = [re.sub(_OLD_COMMENT, "", t) for t in texts]
+    assert sum(1 for t, s in zip(texts, stripped, strict=True) if t != s) > CASES // 4
+    assert [t for t, s in zip(texts, stripped, strict=True) if _TRAILING_COMMENT.sub("", t) != s] == []
+
+
+def test_logical_lines_joins_a_continuation_and_keeps_a_comment_after_a_backslash() -> None:
+    assert logical_lines([(1, "a \\"), (2, "b # c")]) == [(1, "a  b")]
+    assert logical_lines([(1, "a \\ # c"), (2, "# d")]) == [(1, "a \\ # c"), (2, "# d")]
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "x" + " " * k,  # a run of whitespace and no `#`: every start inside the run took the rest of it
+    lambda k: "x" + "\t" * k,
+    lambda k: "x" + "\u00a0" * k,
+], ids=["spaces", "tabs", "no-break-spaces"])
+def test_trailing_comment_strip_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, stripped = growth(lambda k: partial(_TRAILING_COMMENT.sub, "", shape(k)), 1500)
+    assert stripped.startswith("x")
+    assert ratio < GROWTH_LIMIT
+
+
+def test_logical_lines_is_linear_on_a_long_whitespace_run() -> None:
+    ratio, lines = growth(lambda k: partial(logical_lines, [(1, "x" + " " * k), (2, "y" + " " * k + "\\")]), 1500)
+    assert [n for n, _ in lines] == [1, 2]
     assert ratio < GROWTH_LIMIT
