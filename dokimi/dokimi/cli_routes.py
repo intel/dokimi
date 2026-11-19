@@ -186,21 +186,50 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "show"), FREE),
 )
 
+_RETIRED_VALIDATE_OPTIONS: tuple[str, ...] = (
+    "--manifest", "--manifest-file", "--cache-dir", "--out", "--json", "--fail-on-warning", "--help",
+)
+_RETIRED_VALIDATE_VALUE_OPTIONS: frozenset[str] = frozenset({"--manifest", "--manifest-file", "--cache-dir", "--out"})
+
+
+def _retired_validate_option(tok: str) -> str | None:
+    """The retired `repo validate` option that ``tok`` names: exact, or the one prefix of it that argparse
+    would take on that parser. A prefix the retired parser also could not tell apart (``--m``) names none."""
+    name = tok.split("=", 1)[0]
+    if not name.startswith("--"):
+        return None
+    if name in _RETIRED_VALIDATE_OPTIONS:
+        return name
+    hits = [opt for opt in _RETIRED_VALIDATE_OPTIONS if opt.startswith(name)]
+    return hits[0] if len(hits) == 1 else None
+
+
 def _repo_validate_argv(rest: list[str]) -> list[str]:
     """The argv `repo validate` moved to (#94 M1). Its ``--out FILE`` wrote the report; the printed argv drops the
-    file, since the report is ``--json`` on stdout now (the user redirects stdout to the file)."""
+    file, since the report is ``--json`` on stdout now (the user redirects stdout to the file).
+
+    Each retired option is printed under its full name, so the new leaf reads it as the retired parser did: its
+    prefixes can mean something else there (``--j`` is ``--jobs`` on eval check). A ``--`` ends the options, and
+    the rest of the argv is printed as it was given."""
     kept: list[str] = []
     i = 0
     while i < len(rest):
-        name = rest[i].split("=", 1)[0]
-        if len(name) >= 4 and "--out".startswith(name):  # --out, --ou (argparse prefix) and --out=FILE
-            i += 1 if "=" in rest[i] else 2
-        elif len(name) >= 7 and "--cache-dir".startswith(name):  # `--cache DIR` was --cache-dir; on eval check --cache is NAME=PATH
-            kept.append("--cache-dir" + rest[i][len(name):])
-            i += 1
-        else:
+        if rest[i] == "--":
+            kept.extend(rest[i:])
+            break
+        opt = _retired_validate_option(rest[i])
+        if opt is None:
             kept.append(rest[i])
             i += 1
+            continue
+        _, eq, value = rest[i].partition("=")
+        nxt = rest[i + 1] if i + 1 < len(rest) else None
+        if nxt is not None and opt in _RETIRED_VALIDATE_VALUE_OPTIONS and not eq and _is_plain(nxt):  # --opt VALUE
+            args, i = [opt, nxt], i + 2  # argparse: an option is no value; `-` and -1 are
+        else:
+            args, i = [f"{opt}{eq}{value}"], i + 1
+        if opt != "--out":  # --out FILE is dropped: the report is --json on stdout
+            kept.extend(args)
     return ["eval", "check", "--schema-only", *kept]
 
 

@@ -36,12 +36,31 @@ def _tombstone(argv: list[str], capsys) -> str:
     (["repo", "validate", "src", "--out"], ["eval", "check", "--schema-only", "src"]),  # no value: still dropped
     (["repo", "validate", "src", "--ou", "r.json"], ["eval", "check", "--schema-only", "src"]),  # argparse prefix
     (["repo", "validate", "src", "--cache", "c"], ["eval", "check", "--schema-only", "src", "--cache-dir", "c"]),
+    # the retired parser's prefixes resolve to its own options, not to the new leaf's (--j was --json only;
+    # --jobs and --json collide on eval check; --c was --cache-dir only, --cache and --cache-root collide too)
+    (["repo", "validate", "src", "--j"], ["eval", "check", "--schema-only", "src", "--json"]),
+    (["repo", "validate", "src", "--c", "c"], ["eval", "check", "--schema-only", "src", "--cache-dir", "c"]),
+    (["repo", "validate", "src", "--o", "r.json"], ["eval", "check", "--schema-only", "src"]),
+    (["repo", "validate", "src", "--f"], ["eval", "check", "--schema-only", "src", "--fail-on-warning"]),
+    (["repo", "validate", "src", "--manifest-f", "m.yaml"],
+     ["eval", "check", "--schema-only", "src", "--manifest-file", "m.yaml"]),
+    # a value option takes the next token only when that token is not an option: `--out` with none is
+    # dropped, and the option after it is still printed (the retired parser refused the whole argv)
+    (["repo", "validate", "src", "--out", "--fail-on-warning"],
+     ["eval", "check", "--schema-only", "src", "--fail-on-warning"]),
+    (["repo", "validate", "src", "--out", "--json"], ["eval", "check", "--schema-only", "src", "--json"]),
+    # argparse takes a negative number as a value (the retired parser had no option that looks like one)
+    (["repo", "validate", "src", "--out", "-1"], ["eval", "check", "--schema-only", "src"]),
+    # a `--` ends the options: a source named --out after it stays the source
+    (["repo", "validate", "--", "--out"], ["eval", "check", "--schema-only", "--", "--out"]),
+    (["repo", "validate", "src", "--", "--out", "r.json"],
+     ["eval", "check", "--schema-only", "src", "--", "--out", "r.json"]),
     (["explore", "list", "--json"], ["eval", "tasks", "list", "--format", "localization"]),  # --json is no flag of the new leaf
 ])
 def test_an_old_spelling_tombstones_with_the_new_argv(old, new, capsys):
     text = _tombstone(old, capsys)
-    assert text.startswith("moved: dokimi ")
     assert " ".join(new) in text
+    assert text == "moved: dokimi " + " ".join(new) + "\n"  # exact: a stray token after the hint fails too
     assert cli_flags.registry_problems() == []
 
 
