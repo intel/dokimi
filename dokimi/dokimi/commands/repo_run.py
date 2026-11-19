@@ -546,7 +546,7 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
                    help="Full-history clone mounted as {source_dir} (default: the source's own git dir)")
     p.add_argument("--grade-timeout", type=positive_int, default=3600, dest="grade_timeout",
                    help="Seconds per grade/oracle run (default 3600)")
-    cli_flags.add(p, "concurrency", "--concurrency", "-j", type=positive_int, default=1, dest="jobs",
+    cli_flags.add(p, "concurrency", "--concurrency", "-j", type=positive_int, default=1, dest="jobs", metavar="N",
                   help="Parallel tasks or cells (default 1)")
     p.add_argument("--docker", default="docker", help="docker CLI (default: docker)")
     p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)

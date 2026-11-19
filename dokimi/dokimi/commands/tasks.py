@@ -351,7 +351,7 @@ def register(sub, positive_int, eval_sub) -> None:
     run_p.add_argument("--out-md", default=None, dest="out_md",
                        help="Markdown report path (default: alongside --out)")
     cli_flags.add(
-        run_p, "reps", "--reps", type=positive_int, default=1, dest="repeats",
+        run_p, "reps", "--reps", type=positive_int, default=1, dest="repeats", metavar="N",
         help="Run each (task, harness) cell N times for pass-rate/cost variance (default: 1)",
     )
     run_p.add_argument(

@@ -76,3 +76,19 @@ def test_a_moved_concurrency_flag_parses_to_the_same_destination_as_its_new_spel
 ])
 def test_an_old_spelling_is_not_moved_on_a_leaf_that_never_had_it(argv):
     assert cli_routes.moved_flags_argv(argv) is None
+
+
+@pytest.mark.parametrize(("argv", "usage"), [
+    (["tasks", "run"], "--reps N"),
+    (["subjects", "run"], "--reps N"),
+    (["benchmark", "run"], "--reps N"),
+    (["catalog", "trigger-probe"], "--reps N"),
+    (["repo", "run"], "--concurrency, -j N"),
+    (["eval", "check"], "--concurrency, -j N"),
+    (["catalog", "check"], "--concurrency N"),
+])
+def test_help_shows_the_registry_metavar_not_the_old_name(argv, usage, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.parse_args([*argv, "--help"])
+    assert exc.value.code == 0
+    assert usage in capsys.readouterr().out

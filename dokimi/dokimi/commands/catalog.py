@@ -573,7 +573,7 @@ def register(sub, positive_int, eval_sub) -> None:
              "only the counts",
     )
     cli_flags.add(
-        scan_p, "concurrency", "--concurrency", type=positive_int, default=None, dest="jobs",
+        scan_p, "concurrency", "--concurrency", type=positive_int, default=None, dest="jobs", metavar="N",
         help="--per-skill: review this many skills in parallel worker processes (default 1)",
     )
     scan_p.add_argument(

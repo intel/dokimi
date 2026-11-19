@@ -189,7 +189,7 @@ def register(catalog_sub, positive_int) -> None:
                    help="skill-reach QuerySet, skill-creator set (with --target) or questions with expected_skill")
     p.add_argument("--target", help="Target skill of a skill-creator set")
     p.add_argument("--model", help="--model passed to claude (default: the harness default)")
-    cli_flags.add(p, "reps", "--reps", type=positive_int, default=1, dest="trials",
+    cli_flags.add(p, "reps", "--reps", type=positive_int, default=1, dest="trials", metavar="N",
                   help="Fresh runs per query (default: 1)")
     p.add_argument("--max-turns", type=positive_int, default=3, dest="max_turns",
                    help="claude --max-turns (default: 3); runs that hit it are counted in max_turns_hit")
