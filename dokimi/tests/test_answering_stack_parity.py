@@ -70,9 +70,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("shared", "retrieval.passed", ("max_results", "max_tokens"), ("max_results", "max_tokens")),
     ("shared", "retrieval.max_results", 3, 3),
     ("shared", "retrieval.max_tokens", 4000, 4000),
-    # The retrieval budget is a Stack P setting (default 4000); the arms commands set none, so the
-    # client default of 8000 applies.
-    ("only", "retrieval.max_tokens.unset_on_a", 4000, 8000),
+    # D7: the arms commands have no retrieval budget flag (step 5), so the client default 8000 applies.
+    ("D7", "retrieval.max_tokens.unset_on_a", 4000, 8000),
     # D2 no docs found
     ("D2", "empty.answer_kinds", ("plain",), ("plain", "plain")),
     ("D2", "empty.with_docs_answer", "placeholder", "model_reply"),
