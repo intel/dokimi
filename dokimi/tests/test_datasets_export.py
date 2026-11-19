@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.datasets_export import dataset_card, export_artifact, flatten
+from dokimi.datasets_export import dataset_card, export_artifact, flatten, to_jsonl
 
 from tests.cli_refusal import refusal
 
@@ -59,6 +59,22 @@ def test_export_jsonl(tmp_path):
     assert len(lines) == 2
     assert json.loads(lines[0])["library"] == "oneTBB"
     assert (out / "README.md").exists()
+
+
+@pytest.mark.parametrize(("value", "written"), [
+    ("n\ud800", "n?"),
+    (chr(0xD83D) + chr(0xDE00), "\U0001F600"),
+    ("café", "café"),
+])
+def test_to_jsonl_writes_a_surrogate_as_utf8(tmp_path, value, written):
+    """One JSON object per line; a lone surrogate is ``?``, a pair is joined, ``é`` is not escaped (#990)."""
+    path = tmp_path / "out" / "rows.jsonl"
+
+    to_jsonl([{"a": value}, {"a": "x"}], path)
+
+    raw = path.read_bytes()
+    assert raw == (json.dumps({"a": written}, ensure_ascii=False) + '\n{"a": "x"}\n').encode("utf-8")
+    assert [json.loads(line)["a"] for line in raw.decode("utf-8").splitlines()] == [written, "x"]
 
 
 def test_export_answers_artifact_jsonl(tmp_path):
