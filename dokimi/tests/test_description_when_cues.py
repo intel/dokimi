@@ -298,7 +298,7 @@ def test_a_cue_found_description_gets_no_not_checked_note(tmp_path):
 
 
 def test_an_english_when_clause_passes_in_a_script_no_cue_list_covers():
-    assert when_clause_found("Δημιουργεί αναφορές. Use when needed.") is True
+    assert when_clause_found("Δημιουργεί αναφορές. Use when a release is cut.") is True
 
 
 def test_a_lint_note_row_still_reads_ok(capsys):
@@ -343,3 +343,55 @@ def test_the_counts_line_does_not_read_a_not_checked_skill_as_a_plain_ok(tmp_pat
     args.func(args)
     header = capsys.readouterr().out.splitlines()[0]
     assert "; 1 ok (1 not checked), 0 warn, 0 error" in header
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        pytest.param(
+            "Use to launch /v1/chat/completions or /v1/completions, troubleshoot a launch, or check model support.",
+            id="use-to-launch",
+        ),
+        pytest.param("Use to find the dominant op under real concurrent traffic.", id="use-to-find"),
+        pytest.param("Use after model-can-it-fit to validate predicted memory.", id="after-name-then-purpose"),
+        pytest.param("Use before a release is cut.", id="before-plain-words"),
+        pytest.param("Use it after pre-commit hooks run.", id="after-hyphen-then-more"),
+        pytest.param("Run deployment readiness checks. Use before go-live.", id="before-go-live"),
+        pytest.param("Run post-merge checks. Use after code-freeze.", id="after-one-hyphen-event"),
+        pytest.param("Runs annual reconciliation. Use before end-of-year.", id="before-end-of-year"),
+        pytest.param("Runs annual reconciliation. Use after start-of-quarter.", id="after-start-of-quarter"),
+        pytest.param("Formats SQL. Use when needed to tidy a migration file.", id="needed-then-purpose"),
+        pytest.param("Formats SQL. Use when needed, e.g. before a review.", id="needed-comma"),
+        pytest.param("Formats SQL. Use when the user asks for formatting, or when needed.", id="needed-after-real-clause"),
+        pytest.param("Formats SQL. Use this skill when needed.", id="use-this-skill-alone"),
+    ],
+)
+def test_969_a_use_phrase_that_names_a_situation_is_accepted(description):
+    """#969: ``use to``, ``use after <more than a name>`` and a filler beside a real clause count as a when clause."""
+    assert when_clause_found(description) is True
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        pytest.param("Benchmarks a server. Use after sglang-xpu-run. Not for vLLM servers.", id="after-name-period"),
+        pytest.param("Benchmarks a server. Use before sglang-xpu-run", id="before-name-end"),
+        pytest.param("Benchmarks a server. Use after `sglang-xpu-run`; not for vLLM.", id="after-code-name"),
+        pytest.param("Formats SQL queries. Use before.", id="before-nothing"),
+        pytest.param("Formats SQL queries. Use after.", id="after-nothing"),
+        pytest.param("Formats SQL queries. Use it before", id="before-nothing-end"),
+        pytest.param("Formats SQL queries and normalises keyword casing. Use when needed.", id="when-needed"),
+        pytest.param("Formats SQL. Use if it is necessary!", id="if-it-is-necessary"),
+        pytest.param("Formats SQL. Use whenever it\u2019s appropriate", id="whenever-curly-its-appropriate-end"),
+        pytest.param("Formats SQL. (Use when relevant)", id="when-relevant-paren"),
+        pytest.param("Formats SQL queries. Use when needed.   Use if useful?", id="two-fillers"),
+    ],
+)
+def test_969_a_use_phrase_that_names_no_situation_is_flagged(description):
+    """#969: ``use after <skill name>`` and ``use when needed`` state no situation, so ``description-no-when`` fires."""
+    assert when_clause_found(description) is False
+
+
+def test_969_an_empty_description_is_flagged():
+    """#969: the filler strip keeps the empty description a plain False."""
+    assert when_clause_found("") is False
