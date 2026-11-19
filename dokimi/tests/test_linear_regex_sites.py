@@ -16,6 +16,7 @@ from functools import partial
 import pytest
 
 from dokimi.eval.reference_checks import _fenced_body, parse_json
+from dokimi.novelty.symbols import _blank_skipped, header_names
 from dokimi.repos.answers import _has_header_tail
 from tests.growth_timing import GROWTH_LIMIT, growth
 
@@ -157,4 +158,76 @@ def test_fence_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
 def test_fence_body_scan_is_linear_when_the_block_closes() -> None:
     ratio, body = growth(lambda k: partial(_fenced_body, "```\n" + "\n" * k + "x\n" + "\n" * k + "```"), 200)
     assert body == "x"
+    assert ratio < GROWTH_LIMIT
+
+
+# --- novelty/symbols._C_SKIP ---------------------------------------------------------------------
+
+_OLD_C_SKIP = re.compile(
+    r'/\*.*?\*/|//(?:\\\n|[^\n])*|"(?:\\.|[^"\\\n])*"|\'(?:\\(?:x[0-9A-Fa-f]+|[0-7]{1,3}|.)|[^\'\\\n])\'', re.DOTALL)
+
+_C_TABLE = [
+    ("", ""),
+    ("int a;", "int a;"),
+    ("a /* c */ b", "a   b"),
+    ("a /**/ b", "a   b"),
+    ("a /*/ b", "a /*/ b"),
+    ("a /*/ b */ c", "a   c"),
+    ("a /* open", "a /* open"),
+    ("/* open /* open", "/* open /* open"),
+    ('a "/* s */" b', "a   b"),
+    ('a /* " */ b "s" c', "a   b   c"),
+    ("a /* // */ b", "a   b"),
+    ("a // /* x\nb */ c", "a  \nb */ c"),
+    ("a // x \\\n y\nb", "a  \nb"),
+    ("a // x \\\\\nb", "a  "),
+    ("a '\\x41' b '\\077' c 'd' e", "a   b   c   e"),
+    ("a 'ab' b", "a 'ab' b"),
+    ('a "open', 'a "open'),
+    ('a "open\nb "s" c', 'a "open\nb   c'),
+    ('/* open "s" \'c\' // l\nx', "/* open      \nx"),
+    ('x /* open "s" y', 'x /* open   y'),
+    ("/* a */ /* open", "  /* open"),
+    ("/* open */ */", "  */"),
+    ("//*/ a /* b */", " "),
+    ("/*/*/ x", "  x"),
+    ("*/ /* x", "*/ /* x"),
+]
+
+
+@pytest.mark.parametrize(("text", "blanked"), _C_TABLE)
+def test_c_skip_table_matches_old_regex(text: str, blanked: str) -> None:
+    assert _OLD_C_SKIP.sub(" ", text) == blanked
+    assert _blank_skipped(text) == blanked
+
+
+def test_c_skip_random_texts_match_old_regex() -> None:
+    texts = _random_texts(["/*", "*/", "//", '"', "'", "\\", "\n", "a", " ", "x41", "7"], 928, longest=16)
+    blanked = [_OLD_C_SKIP.sub(" ", t) for t in texts]
+    assert sum(1 for t, b in zip(texts, blanked, strict=True) if t != b) > CASES // 2
+    assert sum(1 for t, b in zip(texts, blanked, strict=True) if t == b) > CASES // 20
+    assert [t for t, b in zip(texts, blanked, strict=True) if _blank_skipped(t) != b] == []
+
+
+def test_header_names_skips_comments_and_literals() -> None:
+    text = '/* mkl_a /* mkl_b */ mkl_c "mkl_d" /* mkl_e\n// mkl_f\nint mkl_g;'
+    assert header_names(text, ["mkl_"]) == {"mkl_c", "mkl_e", "mkl_g"}  # the unclosed `/*` hides nothing
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "/* " * k,  # openers and no closer: each rescanned the rest of the text
+    lambda k: "/*a" * k,
+    lambda k: '/* "x" ' * k,
+    lambda k: "/* a\n" * k,
+    lambda k: "/* a */ " * k + "/* b " * k,  # closed comments, then openers with none
+], ids=["openers", "adjacent", "strings", "lines", "closed-then-open"])
+def test_c_skip_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, shape(k)), 1500)
+    assert blanked.count("/*") >= 6000
+    assert ratio < GROWTH_LIMIT
+
+
+def test_c_skip_scan_is_linear_when_the_closer_is_far() -> None:
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, "/* a " * k + "*/ b"), 1500)
+    assert blanked == "  b"
     assert ratio < GROWTH_LIMIT
