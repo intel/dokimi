@@ -220,8 +220,14 @@ def test_ranking_orders_by_new_share_per_1k_tokens():
     assert ranked[0]["new_per_1k_tokens"] == pytest.approx(1.0)
 
 
+def test_ranking_breaks_rate_ties_by_key():
+    rows = [_ok("b", 0.5, tokens=500), _ok("a", 0.5, tokens=500)]
+    assert [row["key"] for row in summarize(rows, resamples=50)["ranking"]] == ["a", "b"]
+
+
 def test_ranking_leaves_out_rows_that_are_not_measured_or_have_no_size():
-    rows = [_ok("a", 0.2, tokens=800), _ok("sizeless", 0.9, tokens=None), _row("b", "partial"),
+    rows = [_ok("a", 0.2, tokens=800), _ok("sizeless", 0.9, tokens=None),
+            _ok("zero-size", 0.9, tokens=0), _row("b", "partial"),
             _row("c", "error")]
     assert [r["key"] for r in summarize(rows, resamples=50)["ranking"]] == ["a"]
 
