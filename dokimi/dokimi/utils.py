@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequen
 from dokimi import llm_cli
 from dokimi.defaults import BEDROCK_MODEL_IDS
 from dokimi.process_io import disk_path_text, exact_path_text, flagged, worktree_changed
+from dokimi.yaml_unique import load_unique_keys
 
 if TYPE_CHECKING:
     from dokimi.process import Env
@@ -45,9 +46,9 @@ def parse_frontmatter_strict(text: str) -> "Tuple[Dict[str, Any], str]":
     every other caller.
 
     Raises:
-        yaml.YAMLError: The frontmatter block is not valid YAML, or does not load: a value
-            PyYAML cannot build (the date ``2026-99-99``) or nesting too deep for the parser,
-            raised by PyYAML as ``ValueError`` or ``RecursionError`` and re-raised as this.
+        yaml.YAMLError: The frontmatter block is not valid YAML, repeats a key in one mapping, or
+            does not load: a value PyYAML cannot build (the date ``2026-99-99``) or nesting too
+            deep for the parser, raised by PyYAML as ``ValueError`` or ``RecursionError`` and re-raised as this.
     """
     return _split_frontmatter(text, strict=True)
 
@@ -70,7 +71,6 @@ def describe_yaml_error(exc: Exception) -> str:
 
 def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str]":
     import yaml
-
     if not text:
         return {}, ""
 
@@ -87,7 +87,7 @@ def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str
             raw_meta = "\n".join(lines[1:idx])
             body = "\n".join(lines[idx + 1:]).lstrip("\n")
             try:
-                meta = yaml.safe_load(raw_meta) or {}
+                meta = (load_unique_keys(raw_meta) if strict else yaml.safe_load(raw_meta)) or {}
             except yaml.YAMLError:
                 if strict:
                     raise
