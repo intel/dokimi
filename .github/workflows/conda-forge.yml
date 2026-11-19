@@ -42,7 +42,7 @@ jobs:
   # (requires-python) and the newest; a PR solves the newest only, as in ci.yml's test matrix.
   conda-forge-deps:
     name: conda-forge dependency solve (py${{ matrix.python-version }})
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
