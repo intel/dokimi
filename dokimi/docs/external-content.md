@@ -108,7 +108,7 @@ hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the ch
 is checked alone, since its directory is the whole repository. It needs no key and calls no model.
 Two checks, both `warn`:
 
-- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired.
+- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired. A Cyrillic or Greek look-alike letter or a fullwidth letter counts as its Latin letter.
   The finding gives the file and line, the vendor's status and date, and the replacement
   the vendor names. IDs match whole tokens and case-sensitively: `gpt-4.1` does not match
   `gpt-4`, and `GPT-4` in prose does not match at all. The list is
@@ -117,9 +117,15 @@ Two checks, both `warn`:
   lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
   `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
   `replacement` are the vendor's, verbatim, or empty when it gives none.
-- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
-  tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
-  a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
+- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a bidi mark (U+200E, U+200F,
+  U+061C) with no Hebrew or Arabic letter beside it, a Unicode tag character (U+E0000 to U+E007F), a stray
+  zero-width character (U+200B, U+2060, or a U+FEFF after the start of the file), a soft hyphen (U+00AD), an
+  invisible operator or deprecated format character (U+2061 to U+2064, U+206A to U+206F), or a blank
+  filler (U+034F, U+180E, U+115F, U+1160, U+3164, U+FFA0, U+2800). A variation selector (U+FE00 to U+FE0F,
+  U+E0100 to U+E01EF) is reported at the start of the text, after another selector, or after an ASCII
+  character other than a keycap base (`#`, `*`, `0` to `9`); after an emoji, a symbol or an ideograph it is
+  not. U+034F is not reported beside a non-ASCII letter or mark, U+115F and U+1160 beside Hangul, and U+2800
+  beside Braille. Each is reported with its line and codepoint; five
   per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
   or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
   Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
@@ -328,7 +334,7 @@ or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python
 (`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
 an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
 package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
-file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
+file, a local path, a URL or a `git+` source is not counted. These checks read a Cyrillic or Greek look-alike letter, or a fullwidth letter, as its Latin letter, so `сurl | bash` with a Cyrillic `с` is still a `pipe-to-shell`; the letter list is short, and a look-alike outside it escapes. Installs are read from code only: the fenced
 blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
 text file, such as a script. The scan reads at most 200
 bundled files of 256 KiB or less; a binary or non-UTF-8 file counts toward the 200 too and is not checked. A skill at the root of a

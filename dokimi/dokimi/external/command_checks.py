@@ -20,6 +20,9 @@ code spans of a prose file (Markdown, .mdx, .txt, .rst, .adoc), and the whole of
 (a script, say). So "pip install to get started" in a sentence is not an install. A skill at the
 root of a scanned checkout reads its own ``SKILL.md`` only, since its bundled files are the rest of that
 checkout.
+
+The text is read in each of its :func:`dokimi.external.lookalikes.readings`, so a Cyrillic, Greek or fullwidth
+look-alike letter does not hide a command.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from typing import Iterator
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
+from .lookalikes import fold, readings
 from .skill_markdown import CODE_SPAN_RE
 
 BUNDLED_MAX_BYTES = 256 * 1024
@@ -212,11 +216,22 @@ def _unpinned_npx(rest: str) -> list[str]:
     return names
 
 
-def _unpinned_installs(code: str) -> list[str]:
-    found = [f"pip {n}" for m in PIP.finditer(code) for n in _unpinned_pip(m.group(1))]
-    found += [f"npm {n}" for m in NPM.finditer(code) for n in _unpinned_npm(m.group(1))]
-    found += [f"npx {n}" for m in NPX.finditer(code) for n in _unpinned_npx(m.group(1))]
+def _unpinned_at(code: str) -> list[tuple[int, str]]:
+    """``(offset in code, "pip name")`` of each unpinned install."""
+    found = [(m.start(), f"pip {n}") for m in PIP.finditer(code) for n in _unpinned_pip(m.group(1))]
+    found += [(m.start(), f"npm {n}") for m in NPM.finditer(code) for n in _unpinned_npm(m.group(1))]
+    found += [(m.start(), f"npx {n}") for m in NPX.finditer(code) for n in _unpinned_npx(m.group(1))]
     return found
+
+
+def _unpinned_in_readings(texts: list[str], markdown: bool) -> list[str]:
+    """The unpinned installs of every reading of a text. One found in two readings at the same offset, with the
+    same folded name, is counted once; an install at another offset is another install."""
+    seen: dict[tuple[int, str], str] = {}
+    for reading in texts:
+        for offset, label in _unpinned_at(_code_text(reading, markdown)):
+            seen.setdefault((offset, fold(label)), label)
+    return [seen[key] for key in sorted(seen)]
 
 
 def _is_skill_dir(path: Path) -> bool:
@@ -272,8 +287,9 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
 
     findings: list[tuple[str, str]] = []
     unpinned: list[str] = []
-    for rel, text in sources:
-        pipes = _lines_of(text, PIPE_TO_SHELL.finditer(text))
+    for rel, raw in sources:
+        # Each reading of the text: folding a character that is not a letter can also end a match the raw text has.
+        pipes = _lines_of(raw, (m for r in readings(raw) for m in PIPE_TO_SHELL.finditer(r)))
         if pipes:
             where = ", ".join(str(n) for n in pipes)
             findings.append((
@@ -281,7 +297,7 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
                 f"a download is piped into a shell or interpreter in {rel} (line {where}); "
                 "save the file, read it, then run it",
             ))
-        bypass = _lines_of(text, PERMISSION_BYPASS.finditer(text))
+        bypass = _lines_of(raw, (m for r in readings(raw) for m in PERMISSION_BYPASS.finditer(r)))
         if bypass:
             where = ", ".join(str(n) for n in bypass)
             findings.append((
@@ -289,7 +305,7 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
                 f"{rel} names a flag or mode that turns off the agent's permission prompts (line {where}); "
                 "say what it may run unprompted, or drop it",
             ))
-        unpinned += _unpinned_installs(_code_text(text, rel.lower().endswith(PROSE_SUFFIXES)))
+        unpinned += _unpinned_in_readings(readings(raw), rel.lower().endswith(PROSE_SUFFIXES))
 
     if unpinned:
         shown = ", ".join(unpinned[:EXAMPLES_SHOWN]) + (", ..." if len(unpinned) > EXAMPLES_SHOWN else "")
