@@ -398,11 +398,11 @@ def test_runner_unknown_for_ruby_tests(tmp_path):
 
 
 def test_fail_on_error_exits_zero_for_runner_unknown(tmp_path, capsys):
-    """--fail-on-error should exit 0 for warning-level runner-unknown."""
+    """--fail-on fail should exit 0 for warning-level runner-unknown."""
     root = tmp_path / "toy"
     _repo(root, {"AGENTS.md": "x", "pyproject.toml": "[project]\n", "tests/test_a.py": "x"})
     out = tmp_path / "env.json"
-    args = build_parser().parse_args(["repo", "inspect", str(root), "--out", str(out), "--fail-on-error"])
+    args = build_parser().parse_args(["repo", "inspect", str(root), "--out", str(out), "--fail-on", "fail"])
     args.func(args)  # Should exit 0 because runner-unknown is a warning
     text = capsys.readouterr().out
     assert "WARNING" in text or "runner-unknown" in text

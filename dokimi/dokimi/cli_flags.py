@@ -214,6 +214,8 @@ CONCEPTS: tuple[Concept, ...] = (
         help="exit non-zero on warnings or failures",
         canonical=(Flag("--fail-on", "{warn,fail}", "choice"),),
         banned=("--strict", "--fail-on-warning", "--fail-on-error", "--fail-on-fail"),
+        note="A leaf takes the values it can gate on: warn, fail, or both. --strict stays where it "
+             "gates a verdict (an exit code of its own), not a finding level; the allowlist says why.",
     ),
     Concept(
         name="run_name",
@@ -404,5 +406,11 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
     )),
+    # Fail-on concept (F1b): a gate on warnings or failures is `--fail-on {warn,fail}`. The moved
+    # leaves gate on the level their old flag gated on; `--strict` keeps its other meanings.
+    FlagMove("--fail-on-warning", "--fail-on=warn", leaves=(("repo", "validate"), ("repo", "budget"))),
+    FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
+    FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
+    FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
 )
 

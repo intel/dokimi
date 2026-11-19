@@ -88,7 +88,7 @@ jobs:
         run: python scripts/check_duplicates.py
       - name: guidance self-scan (L0)
         if: ${{ !cancelled() }}
-        run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on-fail
+        run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on fail
       # Static audit of the workflow files: unpinned actions, template injection,
       # credential persistence, over-broad token permissions.
       - name: zizmor

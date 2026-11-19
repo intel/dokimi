@@ -25,7 +25,7 @@ SPDX-License-Identifier: Apache-2.0
 > manifest for bases in other repositories (§2.1), and the `repo` subject kind:
 >
 > ```bash
-> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on-warning]
+> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on warn]
 > python cli.py repo fetch <url@rev> [--json]     # bare, blob-less clone cached per URL
 > ```
 >
@@ -40,7 +40,7 @@ SPDX-License-Identifier: Apache-2.0
 >
 > ```bash
 > python cli.py repo scan <source> --manifest <path> [--static <repo_static.json>] [--out readiness.json]
->     [--json] [--fail-on-fail]
+>     [--json] [--fail-on fail]
 > ```
 >
 > `repo budget` sizes what the tree puts into an agent's context (no manifest,
@@ -63,7 +63,7 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > Usage:
 >
 > ```bash
-> python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
+> python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on warn]
 > ```
 >
 > `--out` carries the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`), stamped with its
@@ -72,7 +72,7 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash
-> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
+> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on fail]
 > ```
 >
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
@@ -2154,7 +2154,7 @@ a glob with no match, a missing `also_scan` file, no guidance at all, and a
 guidance file that cannot be read (a link that dangles or leaves the tree, a
 binary file, a file over 2 MB), named with the reason. A `--static`
 file that cannot be read or is not JSON exits 2; a document that fails the
-`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on-fail` also exits 1
+`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
 read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
@@ -2162,7 +2162,7 @@ does not fail the gate, so a file the gate must see belongs in `also_scan`.
 `incomplete_reasons` lists the warnings that make the scan `incomplete`, as
 they appear in `warnings` and in its order (`[]` for a complete scan). The text
 output prints them after the warnings, on one `incomplete: ...` line, and when
-`--fail-on-fail` exits 1 on an incomplete scan it prints them on stderr as
+`--fail-on fail` exits 1 on an incomplete scan it prints them on stderr as
 `✗ scan incomplete: ...`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
@@ -2241,7 +2241,7 @@ tree and is listed under `not_observed`. A stage is `blocked` by an error,
 `attention` on a warning, and at best `no_known_blocker`, never ready:
 `not_observed` lists what the tree cannot show, such as whether the commands
 pass, CI secrets and the agent's network. `risk` is the worst of the launch
-observations. There is no overall score. `--fail-on-error` exits 1 when any
+observations. There is no overall score. `--fail-on fail` exits 1 when any
 finding is an error.
 
 With `--index FILE`, a SCIP index of the tree (§1.2), the report adds a
@@ -2294,7 +2294,7 @@ Whether the index is current is not checked: `not_observed` says so.
 `--typecheck` type-checks every fence tagged
 `python`, `py` or `python3` in the guidance files, with `--typecheck-tool mypy|basedpyright`
 (default mypy). Each fence that parses is one
-`python_fence` claim, so the report and `--fail-on-fail` treat it like any other
+`python_fence` claim, so the report and `--fail-on fail` treat it like any other
 claim:
 
 - `ok`: the tool reports no error in the fence.

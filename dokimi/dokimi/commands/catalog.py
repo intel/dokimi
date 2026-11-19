@@ -18,6 +18,8 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
+from dokimi import cli_flags
 from dokimi.commands.catalog_scan import (
     is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row,
     unrestricted_and_risky,
@@ -355,7 +357,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         print(f"warning: {summary['label_unresolved']} questions have an unresolved @field label; "
               "they are left unlabelled and dropped from --format reach/skill-creator", file=sys.stderr)
     if summary["unknown_expected"] or (
-        args.strict and (summary["names_skill"] or summary["exam_framing"] or summary["label_unresolved"])
+        args.fail_on == "warn" and (summary["names_skill"] or summary["exam_framing"] or summary["label_unresolved"])
     ):
         # Refuse before writing, so a pipeline that only checks for the file
         # cannot pick up a set with a mistyped label. A lint gate verdict: exit 1, as on main.
@@ -626,8 +628,8 @@ def register(sub, positive_int, eval_sub) -> None:
                       help="Rewrite each question into first-person user voice (model sees only the question)")
     ts_p.add_argument("--model", help="Model for --rewrite")
     ts_p.add_argument("--provider", default="openai", help="Provider for --rewrite (default: openai)")
-    ts_p.add_argument("--strict", action="store_true",
-                      help="Exit 1 if any query names a skill, keeps exam framing, or has an unresolved @field label")
+    cli_flags.add(ts_p, "fail_on", "--fail-on", choices=("warn",), default=None,
+                  help="warn: exit 1 if any query names a skill, keeps exam framing, or has an unresolved @field label")
     ts_p.add_argument("--out", required=True, help="Output JSON path")
     ts_p.set_defaults(func=cmd_catalog_trigger_set)
 
