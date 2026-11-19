@@ -9,8 +9,8 @@ observation, labelled with the #228 difference it belongs to (D1-D9), or
 "shared"/"only" for the parts that match or exist on one side only.
 
 A later PR that changes one difference flips the rows for that difference, and
-only the rows whose comment names it (the D9 delta also moves with D3, see the
-table), so the diff of that PR shows the change in numbers. A difference that is
+only the rows whose comment names it (the D9 delta moved with D3 in step 3, see
+the table), so the diff of that PR shows the change in numbers. A difference that is
 gone has no row left and is listed in :data:`RESOLVED`. Each row is
 ``(difference, key, p_value, a_value)``: P is Stack P (``EvaluationPipeline``
 plus ``Answerer``), A is Stack A (``ArmRunner``).
@@ -127,7 +127,7 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("D9", "significance.n", 5, 6),
     ("D9", "significance.correction", None, "holm"),
     ("D9", "significance.significant", None, None),
-    # what the judge sees per case: no docs (D2), reranker raises (D3), ground-truth chunk (D5)
+    # what the judge sees per case: no docs (D2), reranker raises and ground-truth chunk (D5)
     (
         "D2",
         "judge.contexts.q-empty",
