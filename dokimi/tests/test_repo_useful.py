@@ -552,8 +552,10 @@ def test_an_edit_path_is_matched_after_normalization_and_one_outside_the_workspa
 def test_a_stored_non_finite_or_huge_number_is_no_measure(steps):
     recs = [{"first_useful": {"kind": "edit", "reason": None, "issued_s": 1.0, "steps": steps}}]
     assert useful_task_values(recs)["first_useful_steps"] == [None]
-    assert useful_task_values(recs)["first_useful_rate"] == [0.0]
-    assert useful_counts(recs) == {"observed": 0, "measured": 1, "unmeasured": 0}
+    # contract "The measure bound": a steps that is no measure is neither a hit nor a miss (#922)
+    assert useful_task_values(recs)["first_useful_rate"] == [None]
+    assert useful_task_counts(recs)["first_useful_rate"] == 0
+    assert useful_counts(recs) == {"observed": 0, "measured": 0, "unmeasured": 1}
     # a cell that observed no hit has no timing either: its issued_s is not a timed hit
     assert useful_task_values(recs)["first_useful_s"] == [None]
     assert useful_task_counts(recs)["first_useful_s"] == 0
