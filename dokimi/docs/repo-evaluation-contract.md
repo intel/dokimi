@@ -571,8 +571,12 @@ The line format, its version and the promise that comes with it: [events-format.
 - `output` is optional: the command's output as the harness returned it.
   Whether stdout and stderr are merged depends on the harness (Claude Code
   merges them), so graders must not rely on telling them apart. Output over
-  8 KB keeps its first and last 4 KB around a `[... N bytes omitted ...]`
-  line, and `output_truncated` is `true`; build errors are usually at the end.
+  8 KB (8,192 bytes) keeps up to 4,096 bytes at each end around a
+  `[... N bytes omitted ...]` line, and `output_truncated` is `true`; build
+  errors are usually at the end. A UTF-8 character that a cut splits is dropped
+  whole, so an end can keep fewer than 4,096 bytes, and `N` counts every byte
+  not kept, the dropped partial characters included. Output of exactly 8,192
+  bytes is kept whole.
 - `rc` is what the harness reports. Where it reports only success or failure
   (Claude Code), `rc` is `0` or `1`; a Claude Code `Skill` tool event carries it
   too (`1`: the skill was not loaded). It is `null` when no result came back,

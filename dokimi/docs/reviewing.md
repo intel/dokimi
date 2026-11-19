@@ -252,7 +252,8 @@ these, in order, before writing what it showed (the fields:
   content: the same file, within `window` lines of a thread, with no judge.
   `dokimi repo report <batch> --hits` finds the pairs but cuts each comment
   and finding to 100 characters (200 with `--json`): read each pair you cite
-  in full, the thread's `comment` in the task's `gold.json` (or at its `url`),
+  in full, the thread's `comment` in the file named by the task's `gold` field in
+  `task.json` (default `gold.json`; or at the thread's `url`),
   then the finding in the cell's `answer.txt`.
   `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
   every credited pair (`same point`, `related` or `unrelated`) and gives
