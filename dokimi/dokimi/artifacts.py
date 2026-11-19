@@ -20,7 +20,8 @@ path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell
 ``dokimi_config`` (a repository's subjects and where their evals are), ``reach_matrix`` (the reach
 conformance matrix), ``security_report`` (unsafe agent behaviour per arm of a run batch), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
 signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set),
-``report_qa`` (the Q&A sidecar of ``report eval``), ``docs_run`` (a ``docs check`` snapshot),
+``report_qa`` (the Q&A sidecar of ``report eval``), ``docling_sources`` (which source each file of a
+``data import docling`` output directory came from), ``docs_run`` (a ``docs check`` snapshot),
 ``dashboard`` (the data of ``dashboard generate``) and ``baseline_manifest`` (the index of saved
 eval baselines). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
@@ -105,6 +106,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "question_panel": "question_panel.v1",
     "question_quality": "question_quality.v1",
     "report_qa": "report_qa.v1",
+    "docling_sources": "docling_sources.v1",
     "report_summary": "report_summary.v1",
     "docs_run": "docs_run.v1",
     "dashboard": "dashboard.v1",

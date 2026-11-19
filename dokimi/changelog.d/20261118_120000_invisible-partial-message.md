@@ -1,0 +1,3 @@
+### Fixed
+
+- **A partial-file message of only invisible characters now names the stop instead of printing a blank slot** — `load_atoms_record` and `skill novelty items` took a `no_price` or `permanent_error` message as usable when it had a printable, non-space character, so a message of only U+3164, U+115F, U+FFA0, U+2800 or a combining mark (U+0301, U+034F) printed as an empty slot. A message is now usable when it has a letter, number, punctuation or symbol that shows; one with none, or only a blank-rendering filler (U+115F, U+1160, U+3164, U+FFA0, U+2800), gets the reason's own text. A message with a visible character among invisible ones is printed whole. (#881)

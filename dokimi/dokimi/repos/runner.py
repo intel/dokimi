@@ -65,6 +65,7 @@ from .container import (
     clear_halt,
     docker_network,
     halt_and_kill_started,
+    halted,
 )
 from . import batch_ledger
 from .answers import convert_answer
@@ -471,6 +472,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     def one(cell: tuple[Task, str, AgentOptions, int]) -> None:
         task, arm, opts, rep = cell
         name = cell_name(task.id, arm, opts.model, rep)
+        _drop_if_halted(name)
         if task.id in unsupported:
             _run_unsupported(batch_dir, name, cell, unsupported[task.id], verdicts[task.id][1], host, state, lock, log)
             return
@@ -509,6 +511,12 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
 KILL_RETRY_S = 2.0
 
 
+def _drop_if_halted(name: str) -> None:
+    """Ctrl-C set the halt: the cell is dropped with nothing reserved, prepared or recorded, so a resume runs it."""
+    if halted():
+        raise BatchInterrupted(f"the batch was interrupted: cell {name} is not started after Ctrl-C")
+
+
 def _run_cells(cells: list[Any], one: Callable[[Any], None], jobs: int) -> None:
     """Run every cell in worker threads. A Ctrl-C reaches this main thread only: see _stop_on_interrupt."""
     pool = ThreadPoolExecutor(max(1, jobs))
@@ -529,12 +537,14 @@ def _run_cells(cells: list[Any], one: Callable[[Any], None], jobs: int) -> None:
 
 
 def _stop_on_interrupt(pool: ThreadPoolExecutor) -> None:
-    """Ctrl-C reached the main thread, not the cells in worker threads. Cancel the cells not started, then kill the
-    agent containers the running cells started, by name, and kill again until every worker returns: a container
-    started between two kills is caught by the next one. A grading container is not killed: its cell is past its
-    agent, so the wait includes its grade (contract §9). The halt stays until then, so a cell that asks for an agent
-    container gets an error. Waiting is on the pool, not on the futures: a cell submitted just before the interrupt
-    has no future yet. A further Ctrl-C does not stop the kills."""
+    """Ctrl-C reached the main thread, not the cells in worker threads. Set the halt and kill the agent containers
+    the running cells started, by name, then cancel the cells not started, and kill again until every worker
+    returns: a container started between two kills is caught by the next one. A grading container is not killed: its
+    cell is past its agent, so the wait includes its grade (contract §9). The halt stays until then, so a cell that
+    starts drops with nothing recorded and one that asks for an agent container gets an error. The signal waits for
+    the main thread to run its handler, and a cell that starts in that window is not stopped before the halt.
+    Waiting is on the pool, not on the futures: a cell submitted just before the interrupt has no future yet. A
+    further Ctrl-C does not stop the kills."""
     idle = threading.Event()
 
     def drain() -> None:
@@ -545,11 +555,11 @@ def _stop_on_interrupt(pool: ThreadPoolExecutor) -> None:
     try:
         while not idle.is_set():
             try:
+                halt_and_kill_started()
                 if not started:  # the cancel and the drain are retried too: a Ctrl-C can land on either
                     pool.shutdown(wait=False, cancel_futures=True)
                     threading.Thread(target=drain, daemon=True).start()
                     started = True
-                halt_and_kill_started()
                 idle.wait(KILL_RETRY_S)
             except KeyboardInterrupt:
                 continue

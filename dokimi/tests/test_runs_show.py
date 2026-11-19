@@ -69,6 +69,7 @@ CONTENTS = {
     "question_panel.v1": {"questions": 2},
     "question_quality.v1": {"questions": 2, "trivial_questions": 1, "recommendations": 1},
     "report_qa.v1": {"records": 1},
+    "docling_sources.v1": {"files": 2},
     "docs_run.v1": {"docs": 2},
     "dashboard.v1": {"products": 1},
     "baseline_manifest.v1": {"baselines": 2},

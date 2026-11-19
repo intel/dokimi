@@ -101,6 +101,7 @@ FIELDS: dict[str, KindFields] = {
     "question_quality": KindFields(subject=("library_name",),
                                    counts=("questions", "trivial_questions", "recommendations")),
     "report_qa": KindFields(time=("generated_at",), counts=("records",)),
+    "docling_sources": KindFields(counts=("files",)),
     "docs_run": KindFields(time=("run_manifest.generated_at",), counts=("docs",)),
     "dashboard": KindFields(subject=("products[].product",), model=("products[].judge_model",),
                             time=("generated_at",), counts=("products",)),
