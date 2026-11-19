@@ -236,3 +236,16 @@ def test_an_existing_read_only_cache_root_is_accepted(command, setup):
         (root / "build-cache").chmod(0o755)
         root.chmod(0o755)
     assert exc.code == 0 and "--cache" not in exc.err
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+def test_with_no_cache_root_a_file_where_the_default_root_goes_exits_2_before_any_build(command, setup, monkeypatch):
+    """The default root sits next to $DOKIMI_REPO_CACHE, which itself passes its check."""
+    base = setup["tmp"] / "x"
+    (base / "repos").mkdir(parents=True)
+    blocker = _file(base, "caches")
+    monkeypatch.setenv("DOKIMI_REPO_CACHE", str(base / "repos"))
+    exc = _invoke(setup, command)
+    assert exc.code == 2
+    assert f"the build cache root (from $DOKIMI_REPO_CACHE) {blocker / 'toy' / 'build-cache'} has {blocker} above it" in exc.err
+    assert CLOSING in exc.err and "Errno" not in exc.err and setup["runner"].builds == []

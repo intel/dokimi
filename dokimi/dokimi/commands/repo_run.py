@@ -214,10 +214,13 @@ def _pair(text: str) -> tuple[str, str]:
 def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None:
     """Refuse a ``--cache-root`` or ``--cache NAME=PATH`` no cache directory can be made in (usage error, exit 2) (#826).
 
+    Without ``--cache-root``, each cache with no ``--cache`` is checked under the default root ``_context`` uses.
+
     Checked before the image build: ``_context`` makes each cache directory after it. A ``--cache`` naming no
     cache of the manifest is skipped here (``_context`` refuses it with its own message).
     """
     from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
+    from dokimi.repos.source import default_cache_dir
 
     def check(path: str, label: str) -> None:  # the resolved path, as `_context` makes it
         resolved_cache_dir(path, CACHE_USE, label=label)
@@ -231,6 +234,9 @@ def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None
             check(overrides[name], f"--cache {name}")
         elif args.cache_root:
             check(str(Path(args.cache_root) / name), "--cache-root")
+        else:  # the default root `_context` uses, below $DOKIMI_REPO_CACHE when it is set
+            env = " (from $DOKIMI_REPO_CACHE)" if os.environ.get("DOKIMI_REPO_CACHE") else ""
+            check(str(default_cache_dir().parent / "caches" / manifest.id / name), f"the build cache root{env}")
 
 
 def _progress(line: str) -> None:
