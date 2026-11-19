@@ -30,6 +30,7 @@ from dokimi.report.eval_report import (
     fmt_question,
     generate_report,
 )
+from dokimi.report.stop_note import stop_note
 
 #: Rows in the lowest-scoring table.
 WEAK_SPOTS = 10
@@ -79,6 +80,7 @@ def render(evals: Sequence[Record], meta: Dict[str, Any], library: str, generate
         f"# {library} Knowledge Report",
         f"_Generated: {generated}_",
         "",
+        *stop_note(meta),
         "## Run Configuration",
         "| | |",
         "|---|---|",
@@ -121,12 +123,14 @@ def render(evals: Sequence[Record], meta: Dict[str, Any], library: str, generate
 
 def _report_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
     """The run's metadata for the page: an eval file keeps the answer model in ``run_metadata``, an
-    arms artifact keeps it at its top level (``model``, ``provider``)."""
+    arms artifact keeps it, and its ``terminated`` block, at its top level (``model``, ``provider``)."""
     meta = dict(data.get("run_metadata") or {})
     if data.get("model"):
         meta.setdefault("answer_model", data["model"])
     if data.get("provider"):
         meta.setdefault("answer_provider", data["provider"])
+    if data.get("terminated"):
+        meta.setdefault("terminated", data["terminated"])
     return meta
 
 

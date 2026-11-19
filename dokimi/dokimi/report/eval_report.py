@@ -26,6 +26,7 @@ from dokimi.artifacts import save_artifact
 # This module defines a local ``stats()`` helper, hence the ``eval_stats`` alias.
 from dokimi.eval import stats as eval_stats
 from dokimi.records import BASELINE, CONTEXT, Record, RecordError, record, records
+from dokimi.report.stop_note import stop_note
 
 try:
     from zoneinfo import ZoneInfo
@@ -304,6 +305,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         f"# {library} Documentation Quality Report",
         f"_Generated: {datetime.now(tz=_TZ).strftime('%Y-%m-%d %H:%M %Z') if _TZ else datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_",
         "",
+        *stop_note(data),
         "## Run Configuration",
         "| | |",
         "|---|---|",
