@@ -256,3 +256,69 @@ def test_report_eval_sidecar_does_not_overwrite_an_out_without_md(tmp_path, monk
     cli.main()
     assert not out.read_text(encoding="utf-8").lstrip().startswith("{")
     assert (tmp_path / "report.qa.json").exists()
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("# n\ud800\n", b"# n?\n"),
+    ("a\ud83d\ude00b\n", "a\U0001F600b\n".encode("utf-8")),
+    ("café\n", "café\n".encode("utf-8")),
+], ids=["lone-surrogate", "surrogate-pair", "non-ascii"])
+def test_write_report_text_writes_a_lone_surrogate_as_a_question_mark_and_joins_a_pair(tmp_path, text, expected):
+    import os
+
+    from dokimi.commands._output import write_report_text
+
+    target = tmp_path / "new" / "dir" / "r.md"
+    write_report_text(target, text)
+    assert target.read_bytes() == expected.replace(b"\n", os.linesep.encode())
+
+
+def test_write_report_text_writes_the_bytes_write_text_writes_for_text_that_encodes(tmp_path):
+    from dokimi.commands._output import write_report_text
+
+    text = "# tést\r\nline\n\n| a | ✓ |\n"
+    ours, theirs = tmp_path / "ours.md", tmp_path / "theirs.md"
+    write_report_text(ours, text)
+    theirs.write_text(text, encoding="utf-8")
+    assert ours.read_bytes() == theirs.read_bytes()
+
+
+def _checklist_report():
+    from dokimi.eval.checklist import ChecklistReport, PointVerdict
+
+    verdicts = {"q1": {"baseline": [PointVerdict("n\ud800", False, True)], "skill": [PointVerdict("n\ud800", True, False)]}}
+    return ChecklistReport(judge="p/j", baseline_arm="baseline", verdicts=verdicts, questions={"q1": "q"})
+
+
+def _pairwise_report():
+    from dokimi.eval.pairwise import ArmPairwiseReport, PairVerdict
+
+    return ArmPairwiseReport(judge="p/j", baseline_arm="baseline",
+                             verdicts={"n\ud800": {"q1": PairVerdict(1, "A", "B")}})
+
+
+def _cross_judge_report():
+    from dokimi.eval.cross_judge import CrossJudgeReport, Measure
+
+    scores = {("q1", "baseline"): 50.0, ("q1", "skill"): 60.0, ("q2", "baseline"): 50.0, ("q2", "skill"): 70.0}
+    return CrossJudgeReport(baseline_arm="baseline", measures=[Measure(name="n\ud800", kind="aggregate", scores=scores)])
+
+
+def _explore_markdown():
+    from dokimi.report.exploration_report import render_explore_report
+
+    return render_explore_report({"summary": {"per_arm": {"n\ud800": {"n": 1}}}})
+
+
+@pytest.mark.parametrize("render", [
+    lambda: _pairwise_report().format_markdown(),
+    lambda: _checklist_report().format_markdown(),
+    lambda: _cross_judge_report().format_markdown(),
+    _explore_markdown,
+], ids=["eval-pairwise", "eval-checklist", "eval-cross-judge", "explore"])
+def test_write_text_or_exit_writes_a_report_with_a_lone_surrogate_as_a_question_mark(tmp_path, render):
+    from dokimi.commands._output import write_text_or_exit
+
+    target = tmp_path / "r.md"
+    write_text_or_exit(target, render(), code=2)
+    assert "n?" in target.read_text(encoding="utf-8")

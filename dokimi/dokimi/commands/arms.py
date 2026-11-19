@@ -556,9 +556,10 @@ def _with_named_cell(config: ArmsRunConfig, matrix_cells: str | None,
 
 def _write_report(path: Path, text: str) -> None:
     """Write a Markdown report, or exit 1 naming ``path`` when it cannot be written."""
+    from dokimi.commands._output import write_report_text
+
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        write_report_text(path, text)
     except OSError as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)

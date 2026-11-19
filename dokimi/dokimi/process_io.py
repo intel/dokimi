@@ -28,6 +28,12 @@ def utf8_bytes(text: str) -> bytes:
     return joined_pairs(text).encode("utf-8", "replace")
 
 
+def text_file_bytes(text: str) -> bytes:
+    """What ``Path.write_text(text, encoding="utf-8")`` writes on this platform (``\\n`` as ``os.linesep``) for text that
+    encodes; a lone surrogate is a ``?`` and a pair is joined (:func:`utf8_bytes`), where ``write_text`` raises."""
+    return utf8_bytes(text if os.linesep == "\n" else text.replace("\n", os.linesep))
+
+
 def argv_text(text: str) -> str:
     """An argv entry as the child gets it: pairs joined (:func:`joined_pairs`), and each character ``os.fsencode`` cannot
     encode (a lone surrogate) a ``?``. On POSIX U+DC80..U+DCFF stay: ``os.fsdecode`` makes them of a non-UTF-8 file name."""
