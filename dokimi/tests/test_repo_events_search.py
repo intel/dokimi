@@ -13,6 +13,7 @@ import pytest
 from dokimi.artifacts import schema_errors
 from dokimi.repos.cli_traces import shell_walk, shell_walked
 from dokimi.repos.events import convert
+from dokimi.repos.probes import _operands
 from dokimi.repos.process_metrics import process_metrics
 from test_repo_events_bash import WS, _call, _denials, _events, _result
 
@@ -207,6 +208,30 @@ def test_a_piped_computed_directory_change_keeps_the_next_calls_reads():
     # not piped, the same command does move the shell: the next call's relative read is dropped
     assert _process(_call("a", 'eval "$(conda shell.bash hook)"'), _result("a"), _call("b", "cat AGENTS.md"),
                     _result("b"))["guidance_read"] == []
+
+
+@pytest.mark.parametrize("command, searched", [
+    ("rg -tc warn AGENTS.md", ["AGENTS.md"]),  # -t takes the type c; it is not -c
+    ("rg '-g*.lock' warn AGENTS.md", ["AGENTS.md"]),  # -g takes the glob; l and c are not flags (unquoted, the shell expands it)
+    ("grep -m1 warn AGENTS.md", ["AGENTS.md"]),
+    ("grep -cm1 warn AGENTS.md", []),  # the count flag comes before the value option
+    ("grep -nc warn AGENTS.md", []),
+    ("rg -ntc warn AGENTS.md", ["AGENTS.md"]),
+    ("rg -ct warn AGENTS.md", []),
+])
+def test_the_value_attached_to_a_short_option_is_no_flags(command, searched):
+    assert shell_walked(command).searched == searched
+
+
+@pytest.mark.parametrize("program, args, operands", [
+    ("rg", ("-tc", "warn", "AGENTS.md"), ("AGENTS.md",)),
+    ("rg", ("-g*.lock", "warn", "AGENTS.md"), ("AGENTS.md",)),
+    ("grep", ("-m1", "warn", "AGENTS.md"), ("AGENTS.md",)),
+    ("grep", ("-cm1", "warn", "AGENTS.md"), ("AGENTS.md",)),
+    ("grep", ("-nc", "warn", "AGENTS.md"), ("AGENTS.md",)),
+])
+def test_the_operands_of_a_searcher_do_not_depend_on_how_its_cluster_is_read(program, args, operands):
+    assert _operands(program, args) == operands
 
 
 def test_the_schema_takes_a_list_of_paths_in_searched():

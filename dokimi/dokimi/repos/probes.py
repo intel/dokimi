@@ -525,10 +525,10 @@ def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tu
                     pattern_files.append(args[i + 1])
             i += 1 if eq else 2
         elif span := _value_span(word, values):
-            flags.update(_option_names(word))
+            flags.update(_option_names(word, values))
             i += span
         elif word.startswith("-") and len(word) > 1:
-            flags.update(_option_names(word))
+            flags.update(_option_names(word, values))
             i += 1
         else:
             operands.append(word)
@@ -536,10 +536,19 @@ def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tu
     return (tuple(operands) if given else tuple(operands[1:])), tuple(pattern_files), frozenset(flags)
 
 
-def _option_names(word: str) -> set[str]:
-    """The options a word gives: ``--quiet`` (``--max-count=1`` as ``--max-count``), or a short cluster's letters, ``-nq`` as ``-n`` and ``-q``."""
+def _option_names(word: str, values: frozenset[str] = frozenset()) -> set[str]:
+    """The options a word gives: ``--quiet`` (``--max-count=1`` as ``--max-count``), or a short cluster's letters, ``-nq`` as
+    ``-n`` and ``-q``. A cluster ends at its first letter that takes a value: the rest of the word is that value (``rg -tc``
+    is ``-t`` with the type ``c``, ``grep -cm1`` is ``-c`` and ``-m`` with 1)."""
     name = word.partition("=")[0]
-    return {name} if name.startswith("--") else {f"-{c}" for c in word[1:]}
+    if name.startswith("--"):
+        return {name}
+    names: set[str] = set()
+    for c in word[1:]:
+        names.add(f"-{c}")
+        if f"-{c}" in values:
+            break
+    return names
 
 
 def _calls(args: tuple[str, ...], probe: Probe) -> bool:
