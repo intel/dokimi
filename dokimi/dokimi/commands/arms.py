@@ -87,6 +87,7 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
     out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
     out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
     partial = _Partial(out_json)
+    partial.name()  # an --out whose partial file cannot be named is refused before any answer is paid for
     try:
         output = run_prepared(prepared, config, questions, on_partial=partial.save)
     except EmptyQuestionError:
@@ -202,7 +203,7 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
 
     partials: dict[str, _Partial] = {}
 
-    def before_run() -> None:  # once every cell is set up: the partial files are named in the dir made here
+    def before_run() -> None:  # once every cell is set up; each cell names its partial file at its first save
         _make_cells_dir(cells_dir)
         partials.update((cell.name, _Partial(cells_dir / f"{_safe_name(cell.name)}.json")) for cell in cells)
 
@@ -589,22 +590,30 @@ class _Partial:
     """The file a run keeps its answered questions in until it saves *out_json* whole (#228 step 4).
 
     ``<stem>.partial.json`` beside it, or the next free name: never a finished file, as for novelty
-    runs. A path that cannot be named is refused here (``InputError``), before any answer is paid for.
+    runs. It is named at :meth:`name` or the first save, so a matrix cell passes over the files the
+    cells before it finished.
     """
 
     def __init__(self, out_json: Path) -> None:
-        try:
-            self.path = partial_destination(out_json)
-        except OSError as exc:
-            raise InputError(f"cannot write {out_json}: {exc}") from exc
+        self.out_json = out_json
+        self._path: Path | None = None
         self.recorded = 0
         self.failed = False
+
+    def name(self) -> Path:
+        """The file's path, named on the first call; ``InputError`` when it cannot be named."""
+        if self._path is None:
+            try:
+                self._path = partial_destination(self.out_json)
+            except OSError as exc:
+                raise InputError(f"cannot write {self.out_json}: {exc}") from exc
+        return self._path
 
     def save(self, output: dict) -> None:
         if self.failed:  # the run is stopping on the first failure: the questions still in flight add no message
             return
         try:
-            _save_artifact_or_exit("arms", output, self.path)
+            _save_artifact_or_exit("arms", output, self.name())
         except BaseException:
             self.failed = True
             raise
@@ -615,14 +624,15 @@ class _Partial:
         if not self.recorded:
             return
         self.recorded = 0
+        path = self.name()
         try:
-            self.path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
         except OSError as exc:  # the run is saved whole; the stale partial file only takes space
-            print(f"Warning: could not remove {self.path}: {exc}", file=sys.stderr)
+            print(f"Warning: could not remove {path}: {exc}", file=sys.stderr)
 
     def note(self) -> str:
         """Where the questions this run answered went, for the message of a run that failed before its save."""
-        return f" ({self.recorded} answered questions are kept in {self.path})" if self.recorded else ""
+        return f" ({self.recorded} answered questions are kept in {self.name()})" if self.recorded else ""
 
 
 def _save_arms_output(output: dict, out_json: Path, out_md: Path, partial: _Partial | None = None) -> None:

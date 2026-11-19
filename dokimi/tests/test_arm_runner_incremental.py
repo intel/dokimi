@@ -375,3 +375,22 @@ def test_a_run_that_kept_nothing_leaves_an_earlier_runs_partial_file_alone(tmp_p
     _run(argv)
     assert json.loads((tmp_path / "arms.json").read_text(encoding="utf-8"))["answers"] == []
     assert json.loads(earlier.read_text(encoding="utf-8"))["partial"]["questions_recorded"] == 3
+
+
+def test_a_cell_named_like_another_cells_partial_file_keeps_its_finished_output(tmp_path, monkeypatch):
+    # Cell `x.partial` finishes cells/x.partial.json before cell `x` runs: x's partial file is
+    # named when x first saves, so it passes over that finished file instead of replacing it.
+    _fake_llm(monkeypatch)
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"cells": [
+        {"name": name, "model": "m", "provider": "openai", "harness": "arms-runner"} for name in ("x.partial", "x")
+    ]}), encoding="utf-8")
+    out_dir = tmp_path / "out"
+    _run(["arms", "matrix-run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
+          "--arms", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
+
+    cells_dir = out_dir / "cells"
+    assert sorted(p.name for p in cells_dir.iterdir()) == ["x.json", "x.md", "x.partial.json", "x.partial.md"]
+    finished = json.loads((cells_dir / "x.partial.json").read_text(encoding="utf-8"))
+    assert finished["matrix_cell"] == "x.partial" and "partial" not in finished
+    assert len(finished["answers"]) == len(QUESTIONS)
