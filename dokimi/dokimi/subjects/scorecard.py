@@ -8,6 +8,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import re
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -138,31 +139,33 @@ def _field(text: str) -> bytes:
     return hashlib.sha256(key_bytes(text)).digest()
 
 
-_ERROR_FILENAME_EXCED_RANGE = 206  # Windows' ENAMETOOLONG
+_ABSENT_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP, errno.ENAMETOOLONG)
+_ABSENT_WINERRORS = (21, 123, 206, 1921)  # not ready, invalid name, name too long (ENAMETOOLONG), cannot resolve
+
+
+def _stat_mode(path: Path) -> int | None:
+    """The st_mode of *path*, None when it names nothing (missing, a name past the file-name limit, a loop); permission and I/O errors propagate.
+
+    ``Path.is_file()`` and ``is_dir()`` return False for every OSError on Python 3.14, so they would hide those errors.
+    """
+    try:
+        return path.stat().st_mode
+    except OSError as exc:
+        if exc.errno in _ABSENT_ERRNOS or getattr(exc, "winerror", None) in _ABSENT_WINERRORS:
+            return None
+        raise
+    except ValueError:  # an embedded NUL
+        return None
 
 
 def _is_file(path: Path) -> bool:
-    """``path.is_file()``, False for a name past the file-name limit; any other OSError (permission, I/O) propagates."""
-    try:
-        return path.is_file()
-    except OSError as exc:
-        if _name_too_long(exc):
-            return False
-        raise
+    mode = _stat_mode(path)
+    return mode is not None and stat.S_ISREG(mode)
 
 
 def _is_dir(path: Path) -> bool:
-    """``path.is_dir()``, False for a name past the file-name limit; any other OSError (permission, I/O) propagates."""
-    try:
-        return path.is_dir()
-    except OSError as exc:
-        if _name_too_long(exc):
-            return False
-        raise
-
-
-def _name_too_long(exc: OSError) -> bool:
-    return exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) == _ERROR_FILENAME_EXCED_RANGE
+    mode = _stat_mode(path)
+    return mode is not None and stat.S_ISDIR(mode)
 
 
 def _digest_values(values: tuple[str, ...]) -> str:

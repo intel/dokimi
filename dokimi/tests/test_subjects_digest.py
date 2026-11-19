@@ -338,40 +338,58 @@ def test_a_long_file_name_inside_a_directory_ref_is_still_hashed(tmp_path: Path)
     assert _digest_ref(str(tmp_path), base=tmp_path) != before
 
 
-def _refuse(monkeypatch, name: str, exc: OSError) -> None:
-    def probe(self: Path) -> bool:
+def _refuse(monkeypatch, exc: Exception) -> None:
+    # Fail the stat itself: Python 3.14's is_file()/is_dir() swallow every OSError, so a stub of them would hide that.
+    def stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
         raise exc
 
-    monkeypatch.setattr(Path, name, probe)
+    monkeypatch.setattr(Path, "stat", stat)
 
 
-@pytest.mark.parametrize("probe", ["is_file", "is_dir"])
-def test_a_permission_error_from_the_probe_propagates_instead_of_digesting_as_text(tmp_path: Path, monkeypatch, probe):
+def test_a_permission_error_from_the_stat_propagates_instead_of_digesting_as_text(tmp_path: Path, monkeypatch):
     # An existing file under an unsearchable directory must not get a text-only digest that ignores its content.
-    _refuse(monkeypatch, probe, PermissionError(13, "Permission denied"))
-    if probe == "is_file":
-        with pytest.raises(PermissionError):
-            _digest_values(("private/SKILL.md",))
+    _refuse(monkeypatch, PermissionError(13, "Permission denied"))
+    with pytest.raises(PermissionError):
+        _digest_values(("private/SKILL.md",))
     with pytest.raises(PermissionError):
         _digest_ref("private/SKILL.md", base=tmp_path)
     with pytest.raises(PermissionError):
         distribution_digest("private/SKILL.md", base=tmp_path)
 
 
-@pytest.mark.parametrize("probe", ["is_file", "is_dir"])
-def test_an_io_error_from_the_probe_propagates(tmp_path: Path, monkeypatch, probe):
-    _refuse(monkeypatch, probe, OSError(5, "Input/output error"))
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads through a mode 000 directory")
+def test_a_file_under_an_unsearchable_directory_is_an_error_not_a_text_digest(tmp_path: Path):
+    private = tmp_path / "private"
+    private.mkdir()
+    (private / "SKILL.md").write_text("body")
+    private.chmod(0)
+    try:
+        with pytest.raises(PermissionError):
+            _digest_ref("private/SKILL.md", base=tmp_path)
+        with pytest.raises(PermissionError):
+            _digest_values((str(private / "SKILL.md"),))
+    finally:
+        private.chmod(0o700)
+
+
+def test_an_io_error_from_the_stat_propagates(tmp_path: Path, monkeypatch):
+    _refuse(monkeypatch, OSError(5, "Input/output error"))
     with pytest.raises(OSError, match="Input/output error"):
         _digest_ref("a/SKILL.md", base=tmp_path)
 
 
-@pytest.mark.parametrize("probe", ["is_file", "is_dir"])
-def test_a_windows_name_too_long_error_reads_as_naming_nothing(tmp_path: Path, monkeypatch, probe):
-    exc = OSError("The filename or extension is too long")
-    exc.winerror = 206  # type: ignore[attr-defined]  # set by the OS on Windows only
-    _refuse(monkeypatch, probe, exc)
+@pytest.mark.parametrize("winerror", [21, 123, 206, 1921])  # not ready, invalid name, name too long, cannot resolve
+def test_a_windows_error_for_a_name_that_cannot_exist_reads_as_naming_nothing(tmp_path: Path, monkeypatch, winerror):
+    exc = OSError("The name cannot be resolved")
+    exc.winerror = winerror  # type: ignore[attr-defined]  # set by the OS on Windows only
+    _refuse(monkeypatch, exc)
     assert _digest_values(("a/SKILL.md",)) == "sha256:" + hashlib.sha256(_field_of("a/SKILL.md") + b"t").hexdigest()
     assert distribution_digest("a/SKILL.md", base=tmp_path) is None
+
+
+def test_a_value_with_a_nul_names_no_file(tmp_path: Path):
+    assert _digest_values(("a\0b",)) == "sha256:" + hashlib.sha256(_field_of("a\0b") + b"t").hexdigest()
+    assert distribution_digest("a\0b", base=tmp_path) is None
 
 
 def _field_of(text: str) -> bytes:
