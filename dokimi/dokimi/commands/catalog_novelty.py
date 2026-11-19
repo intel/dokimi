@@ -128,7 +128,7 @@ def _items(root: Path, limit: Optional[int]) -> list[_Item]:
     candidates: list[_Item] = []
     for skill_md in walk_skill_files(root):
         directory = skill_md.parent
-        if not skill_md.is_file() or TEMPLATE_DIR_NAMES.intersection(directory.relative_to(root).parts):
+        if not (skill_md.is_file() or skill_md.is_symlink()) or TEMPLATE_DIR_NAMES.intersection(directory.relative_to(root).parts):
             continue
         error: Optional[str] = None
         try:
@@ -425,10 +425,11 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
     _refuse_unsafe_run(args, jsonl)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     cache_dir = usable_cache_dir(args.cache_dir)
-    items = _items(root, args.limit)
-    if not items:
+    all_items = _items(root, None)
+    if not all_items:
         raise InputError(f"no SKILL.md under {root}")
-    _refuse_outputs_inside_a_skill(items, out_dir, jsonl)
+    _refuse_outputs_inside_a_skill(all_items, out_dir, jsonl)
+    items = all_items[:args.limit]
     fingerprint = _fingerprint(args, placebo_text)
     kept, todo, others = _plan(items, jsonl, args, fingerprint)
     print(f"# catalog novelty: {len(items)} skills under {root}; {len(kept)} measured and kept, "

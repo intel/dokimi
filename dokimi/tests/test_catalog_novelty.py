@@ -156,13 +156,14 @@ def test_a_judge_panel_is_refused_rather_than_graded_by_its_first_judge(tmp_path
     assert not (tmp_path / "out").exists()
 
 
+@pytest.mark.parametrize("limit", [(), ("--limit", "1")])
 @pytest.mark.parametrize("inside", ["out_dir", "jsonl"])
-def test_an_output_inside_a_skill_is_refused_before_a_paid_call(tmp_path, inside):
+def test_an_output_inside_a_skill_is_refused_before_a_paid_call(tmp_path, inside, limit):
     root = _root(tmp_path)
     target = root / "other-skill" / "out"
     out, extra = (target, ()) if inside == "out_dir" else (tmp_path / "out", ("--jsonl", str(target / "s.jsonl")))
     with pytest.raises(InputError, match="inside the skill 'other-skill'"):
-        _sweep(root, out, "--max-usd", "5", *extra)
+        _sweep(root, out, "--max-usd", "5", *extra, *limit)
     assert not target.exists()
 
 
@@ -265,6 +266,29 @@ def test_an_unloadable_skill_is_an_error_row_and_costs_nothing(tmp_path):
     assert broken[0]["usd"] == 0
 
 
+@pytest.mark.skipif(os.name == "nt", reason="chmod does not stop a read on Windows")
+def test_an_unreadable_skill_md_is_an_error_row_with_no_digest(tmp_path):
+    from dokimi.commands.catalog_novelty import _items
+
+    root = _root(tmp_path)
+    (root / "other-skill" / "SKILL.md").chmod(0)
+    items = {item.key: item for item in _items(root, None)}
+    assert items["other-skill"].error is not None
+    assert items["other-skill"].sha256 is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating a symlink needs a privilege on Windows")
+def test_a_skill_md_symlink_to_a_missing_file_is_an_error_row_not_a_skipped_skill(tmp_path):
+    from dokimi.commands.catalog_novelty import _items
+
+    root = _root(tmp_path)
+    (root / "broken").mkdir()
+    (root / "broken" / "SKILL.md").symlink_to(tmp_path / "missing.md")
+    items = {item.key: item for item in _items(root, None)}
+    assert items["broken"].error is not None
+    assert items["broken"].sha256 is None
+
+
 def test_a_narrower_resume_keeps_the_paid_rows_of_the_skills_it_does_not_select(tmp_path):
     root, out = _root(tmp_path), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5")
@@ -320,7 +344,7 @@ def test_a_save_that_fails_is_that_skills_error_row_and_the_sweep_goes_on(tmp_pa
     ["--max-file-words", "100"], ["--max-resource-words", "100"], ["--model", "other-m"],
     ["--judge-model", "other-judge"], ["--arms", "no_artifact,full,shuffled"], ["--budgets", "0.5"], ["--seed", "1"],
     ["--include-resources"], ["--context-framing", "neutral"], ["--no-paraphrase"], ["--max-atoms", "3"],
-    ["--no-reversal"],
+    ["--no-reversal"], ["--max-tokens", "77"],
 ])
 def test_resume_runs_again_the_rows_measured_under_other_input_limits(tmp_path, capsys, flag):
     root, out = _root(tmp_path), tmp_path / "out"
