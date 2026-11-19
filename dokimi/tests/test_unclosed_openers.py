@@ -14,6 +14,7 @@ import json
 import math
 import random
 import re
+import tracemalloc
 from collections.abc import Callable
 from functools import partial
 from typing import Any
@@ -325,6 +326,27 @@ def test_cli_trace_heredoc_scans_long_delimiters_among_closing_lines_of_many_len
 def test_cli_trace_heredoc_closes_an_unquoted_opener_by_a_line_of_a_prefix_of_its_delimiter_after_it() -> None:
     assert _cli_heredocs("<<ABC\nx\nAB\ny") == _old_cli_heredocs("<<ABC\nx\nAB\ny")
     assert _cli_heredocs("AB\n<<ABC\nx\n") == _old_cli_heredocs("AB\n<<ABC\nx\n")
+
+
+def test_cli_trace_heredoc_keeps_no_line_longer_than_the_longest_delimiter_in_memory() -> None:
+    """A closed heredoc of 52000 one-word lines of 80 characters (4.2 MB) took 1.1 GB when every line word went into the trie (#933 review)."""
+    rng = random.Random(0)
+    body = "\n".join(rng.randbytes(40).hex() for _ in range(52_000))
+    text = "cat <<EOF > f\n" + body + "\nEOF\n"
+    tracemalloc.start()
+    try:
+        cut = _cli_heredocs(text)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert cut == _old_cli_heredocs(text) == "cat  > f\n"
+    assert peak < 40 * len(text)  # the trie held about 250 bytes per character
+
+
+def test_heredocs_close_by_a_delimiter_in_the_rest_of_an_earlier_opener_line() -> None:
+    text = "<<A <<LONGER\nx\nLONGER\n"
+    assert _cli_heredocs(text) == _old_cli_heredocs(text)
+    assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text)
 
 
 def test_cli_trace_heredoc_scans_quoted_openers_a_shorter_closing_line_does_not_close_in_linear_time() -> None:

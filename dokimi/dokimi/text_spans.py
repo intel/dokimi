@@ -83,35 +83,55 @@ class HeredocPattern:
         A delimiter may be cut short by the regex (``<<AB`` closed by a line ``A``) unless it is quoted,
         so every prefix of it counts; only a line of such a prefix, starting ``gap`` past the opener, closes it.
         The prefixes are walked once along a trie of the closing-line words: a step per character of the delimiter.
+        A line word longer than the longest delimiter closes nothing and stays out of the trie.
         """
-        last: dict[str, int] = {}
-        trie: _Node = _Node()  # the line words by character; each node holds the start of the last line of its word
-        for line in self.lines.finditer(text):
-            word = line.group(1)
-            last[word] = line.start()
-            node = trie
-            for ch in word:
-                node = node.children.setdefault(ch, _Node())
-            node.last = line.start()
+        openers, start = [], 0
+        while (o := self.opener.search(text, start)) is not None:
+            openers.append(o)
+            start = o.start() + 1
+        if not openers:
+            return
+        trie = self._closing_words(text, max(len(o.group(self.word)) for o in openers))
         pos = 0
-        while (o := self.opener.search(text, pos)) is not None:
-            word, need = o.group(self.word), o.end() + self.gap
-            if self.quote and o.group(self.quote):
-                closed = last.get(word, -1) >= need
-            else:
-                closed, step = trie.last >= need, trie
-                for ch in word:
-                    if closed or (next_step := step.children.get(ch)) is None:
-                        break
-                    step = next_step
-                    closed = step.last >= need
-            if closed:
+        for o in openers:
+            if o.start() < pos:
+                continue
+            if self._closed(trie, o):
                 m = self.full.match(text, o.start())
                 assert m is not None  # a closing line past the opener is what ``full`` ends on
                 yield m
                 pos = m.end()
+            else:
+                pos = o.start() + 1
+
+    def _closing_words(self, text: str, longest: int) -> _Node:
+        """The trie of the words of the lines in ``text`` that are no longer than ``longest``; each node holds the start of the last line of its word."""
+        trie = _Node()
+        for line in self.lines.finditer(text):
+            word = line.group(1)
+            if len(word) > longest:
                 continue
-            pos = o.start() + 1
+            node = trie
+            for ch in word:
+                node = node.children.setdefault(ch, _Node())
+            node.last = line.start()
+        return trie
+
+    def _closed(self, trie: _Node, o: re.Match[str]) -> bool:
+        """Whether a line of the opener's delimiter, or of a prefix of it unless it is quoted, starts ``gap`` past the opener."""
+        word, need = o.group(self.word), o.end() + self.gap
+        if self.quote and o.group(self.quote):
+            node = trie
+            for ch in word:
+                node = node.children.get(ch, _Node())
+            return node.last >= need
+        closed, step = trie.last >= need, trie
+        for ch in word:
+            if closed or (next_step := step.children.get(ch)) is None:
+                break
+            step = next_step
+            closed = step.last >= need
+        return closed
 
     def sub(self, repl: Callable[[re.Match[str]], str], text: str) -> str:
         """``full.sub(repl, text)``."""
