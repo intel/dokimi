@@ -19,15 +19,6 @@ _SHOWS_NO_LINE = frozenset({"--quiet", "--silent", "--files-with-matches", "--fi
                             "--count-matches", "--name-only"})
 _SHORT_NO_LINE = {"rg": "qlc"}  # rg's -L follows links; for the others it lists the files without a match
 _SHORT_NO_LINE_DEFAULT = "qlLc"
-# GNU grep's long options: it reads an unambiguous prefix of one (``--qui``) as the option; rg and git grep are not held to this
-_GNU_GREP_LONG = frozenset({
-    "basic-regexp", "extended-regexp", "fixed-regexp", "fixed-strings", "perl-regexp", "after-context", "before-context",
-    "binary-files", "byte-offset", "context", "color", "colour", "count", "dereference-recursive", "devices", "directories",
-    "exclude", "exclude-from", "exclude-dir", "file", "files-with-matches", "files-without-match", "group-separator",
-    "help", "include", "ignore-case", "no-ignore-case", "initial-tab", "label", "line-buffered", "line-number",
-    "line-regexp", "max-count", "no-filename", "no-group-separator", "no-messages", "null", "null-data", "only-matching",
-    "quiet", "recursive", "regexp", "invert-match", "silent", "text", "binary", "unix-byte-offsets", "version",
-    "with-filename", "word-regexp"})
 
 
 class Searched(str):
@@ -135,14 +126,6 @@ def search_program(name: str, args: Sequence[str]) -> tuple[str, Sequence[str]] 
     return (name, args) if name in _SEARCHERS else None
 
 
-def _grep_long(flag: str) -> str:
-    """GNU grep's long option that ``flag`` abbreviates (``--cou`` is ``--count``); ``flag`` when it is none or ambiguous."""
-    if not flag.startswith("--") or flag[2:] in _GNU_GREP_LONG:
-        return flag
-    hits = [n for n in _GNU_GREP_LONG if n.startswith(flag[2:])]
-    return f"--{hits[0]}" if len(hits) == 1 and len(flag) > 2 else flag
-
-
 def searched_files(program: str, args: Sequence[str]) -> list[str]:
     """The operands of a search that prints lines of them (the pattern is none, nor a pattern file, nor stdin ``-``).
 
@@ -150,8 +133,6 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
     forms, ``--help`` and ``--version`` as options (``grep -e --help f`` searches for the text), a match limit of zero
     (``-m0``). A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
     operands, _, flags, limit = search_words(program, args)
-    if program != "rg":
-        flags = frozenset(_grep_long(f) for f in flags)
     short = _SHORT_NO_LINE.get(program, _SHORT_NO_LINE_DEFAULT)
     if any(f in _SHOWS_NO_LINE or (len(f) == 2 and f[1] in short) for f in flags):
         return []

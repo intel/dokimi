@@ -32,7 +32,7 @@ class HeldGuidance:
     def __init__(self, ws: Path, files: Iterable[str]) -> None:
         self.root = os.path.realpath(ws)
         self.links = self._links()
-        self.files = frozenset(self.resolved(p) for p in files)
+        self.files = frozenset(at for p in files if (at := self.resolved(p)) is not None)
 
     def _links(self) -> dict[str, str]:
         """Each link of the workspace as it is now: its path (absolute, from the real root) and where it points."""
@@ -46,9 +46,9 @@ class HeldGuidance:
                     links[path] = str(_link_target(Path(path)))
         return links
 
-    def resolved(self, path: str) -> str:
+    def resolved(self, path: str) -> str | None:
         """Where the workspace path ``path`` leads through the links of the start, relative to the workspace
-        (``..`` first when it leaves it); a link loop leaves the path where the loop began."""
+        (``..`` first when it leaves it); None for a path that follows more than 40 links, as a loop does."""
         here, names = _anchored(os.path.join(self.root, path))
         pending, hops = names[::-1], 0
         while pending:
@@ -59,7 +59,9 @@ class HeldGuidance:
                 here = os.path.dirname(here)
                 continue
             here = os.path.join(here, part)
-            if here in self.links and hops < 40:
+            if here in self.links:
+                if hops == 40:
+                    return None
                 hops, target = hops + 1, self.links[here]
                 if os.path.isabs(target) or target[:1] in (os.sep, os.altsep):  # ``\x`` is rooted on the drive of the link
                     here, names = _anchored(target, here)
@@ -69,7 +71,8 @@ class HeldGuidance:
         return os.path.relpath(here, self.root).replace(os.sep, "/")
 
     def __contains__(self, path: object) -> bool:
-        return self.resolved(str(path)) in self.files
+        at = self.resolved(str(path))
+        return at is not None and at in self.files
 
 
 def held_guidance(run_dir: Path, manifest: RepoManifest) -> HeldGuidance:

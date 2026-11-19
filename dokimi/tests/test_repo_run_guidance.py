@@ -61,6 +61,18 @@ def test_a_path_through_a_link_to_a_held_guidance_file_is_held_and_a_dangling_li
     assert "docs/new/AGENTS.md" not in held and "../AGENTS.md" not in held  # made later, or outside the workspace
 
 
+def test_a_link_that_loops_through_a_dotdot_component_leads_to_no_held_file(tmp_path):
+    ws = tmp_path / "workspace"
+    (ws / "docs").mkdir(parents=True)
+    (ws / "docs/AGENTS.md").write_text("d\n")
+    (ws / "alias").symlink_to("alias/../docs", target_is_directory=True)  # each pass of the pending ``..`` returns to docs
+    subprocess.run(["git", "init", "-q", str(ws)], check=True)
+    subprocess.run(["git", "-C", str(ws), "add", "-A"], check=True)
+    held = held_guidance(tmp_path, parse_manifest(MANIFEST))
+    assert held.resolved("alias/AGENTS.md") is None
+    assert "alias/AGENTS.md" not in held and "docs/AGENTS.md" in held
+
+
 def test_a_link_the_agent_removed_or_retargeted_still_leads_to_the_file_the_workspace_held(tmp_path):
     held = _held_workspace(tmp_path)
     ws = tmp_path / "workspace"

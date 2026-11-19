@@ -56,6 +56,7 @@ from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relativ
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
 
 _GREP_TOOL = "Grep"  # Claude Code's search tool: with ``output_mode`` ``content`` it prints the lines it finds
+_NO_GREP_LINES = ("", "No matches found")  # what a Grep result says when it prints no line
 _SHELL_TOOL = "Bash"  # a POSIX shell: its command is parsed for the files it prints (not PowerShell's)
 _COMMAND_TOOLS = {_SHELL_TOOL, "PowerShell"}
 _READ_TOOLS = {"Read"}
@@ -154,8 +155,8 @@ def _apply_result(out: Transcript, block: dict[str, Any], stream: _Stream) -> No
     if (result_of["kind"] == "read" or result_of.get("name") == "Skill") and not denied:
         # A read that failed (the file does not exist) shows nothing of the file; a failed Skill call, no skill.
         result_of["rc"] = 1 if block.get("is_error") else 0
-    if result_of.get("name") == _GREP_TOOL and block.get("is_error"):
-        result_of.pop("searched", None)  # a search that failed showed no line
+    if result_of.get("name") == _GREP_TOOL and (block.get("is_error") or (output or "").strip() in _NO_GREP_LINES):
+        result_of.pop("searched", None)  # a search that failed, or found no line to show (``offset`` past the last), showed none
     if result_of["kind"] == "edit" and not denied:
         # A failed edit (old_string not found) left the file as it was: rc 1, so it is no useful result.
         result_of["rc"] = 1 if block.get("is_error") else 0

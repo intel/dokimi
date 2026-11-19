@@ -75,6 +75,14 @@ _SEARCH_VALUES = {"grep": _GREP_VALUES, "egrep": _GREP_VALUES, "fgrep": _GREP_VA
                   "awk": frozenset({"-F", "-v"})}  # a searcher's options whose next word is a value, not an operand
 _PATTERN_FILE = frozenset({"-f", "--file"})  # a searcher's option whose value is a file it reads, and no expression
 _EXPRESSION = frozenset({"-e", "--regexp", "--expression"})  # a searcher's option whose value is the search expression
+_GNU_GREP_LONG = frozenset({
+    "basic-regexp", "extended-regexp", "fixed-regexp", "fixed-strings", "perl-regexp", "after-context", "before-context",
+    "binary-files", "byte-offset", "context", "color", "colour", "count", "dereference-recursive", "devices", "directories",
+    "exclude", "exclude-from", "exclude-dir", "file", "files-with-matches", "files-without-match", "group-separator",
+    "help", "include", "ignore-case", "no-ignore-case", "initial-tab", "label", "line-buffered", "line-number",
+    "line-regexp", "max-count", "no-filename", "no-group-separator", "no-messages", "null", "null-data", "only-matching",
+    "quiet", "recursive", "regexp", "invert-match", "silent", "text", "binary", "unix-byte-offsets", "version",
+    "with-filename", "word-regexp"})  # GNU grep's long options
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
@@ -551,6 +559,17 @@ def _match_limit(word: str, args: Sequence[str], i: int, values: frozenset[str])
     return None
 
 
+def _gnu_long(program: str, word: str) -> str:
+    """``word`` with the long option it names written in full, for GNU grep (``--max=1`` is ``--max-count=1``): it reads an
+    unambiguous prefix of an option as the option. rg and git grep are not held to this, and nor is a word that is no long
+    option or whose prefix is ambiguous (``--exclu`` is ``--exclude``, ``--exclude-from`` or ``--exclude-dir``)."""
+    name, eq, value = word.partition("=")
+    if program == "rg" or not name.startswith("--") or len(name) == 2 or name[2:] in _GNU_GREP_LONG:
+        return word
+    hits = [n for n in _GNU_GREP_LONG if n.startswith(name[2:])]
+    return f"--{hits[0]}{eq}{value}" if len(hits) == 1 else word
+
+
 def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...], frozenset[str], str | None]:
     """A searcher's command line as (the files and directories it searches, the pattern files it reads (``-f``), the
     options it was given: ``--quiet`` as written, a short one as ``-q`` also from a cluster, ``-nq``, the value of its
@@ -563,8 +582,9 @@ def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tu
     limit: str | None = None
     given = False  # an expression or a pattern file is named, so the first operand is no expression
     i = 0
+    args = list(args)
     while i < len(args):
-        word = args[i]
+        word = args[i] = _gnu_long(program, args[i])
         if word == "--":
             operands.extend(args[i + 1:])
             break

@@ -234,6 +234,30 @@ def test_a_grep_tool_call_that_shows_no_line_of_a_guidance_file_is_not_searched(
         assert all("searched" not in e for e in _events(_grep_tool("g", **given), _result("g")))
 
 
+@pytest.mark.parametrize("text", ["No matches found", "", "  \n"])
+def test_a_grep_tool_call_that_printed_no_line_searched_nothing(text):
+    given = {"path": f"{WS}/AGENTS.md", "output_mode": "content", "offset": "50"}
+    (event,) = _events(_grep_tool("g", **given), _result("g", text))
+    assert "searched" not in event  # the persisted event says nothing was searched
+    assert _process(_grep_tool("g", **given), _result("g", text))["guidance_searched"] == []
+
+
+@pytest.mark.parametrize("command, searched", [
+    ("grep -e warn --exclude-d AGENTS.md other.txt", ["other.txt"]),  # --exclude-d is --exclude-dir: AGENTS.md is its value
+    ("grep -e warn --exclude-f=AGENTS.md other.txt", ["other.txt"]),
+    ("grep --max=1 warn AGENTS.md", ["AGENTS.md"]),  # --max=1 is --max-count=1
+    ("grep --max 1 warn AGENTS.md", ["AGENTS.md"]),
+    ("grep --max=0 warn AGENTS.md", []),  # a zero match limit prints no line (#1013)
+    ("grep --aft 2 warn AGENTS.md", ["AGENTS.md"]),
+    ("grep -e warn --incl '*.md' AGENTS.md", ["AGENTS.md"]),
+    ("rg -e warn --exclude-d AGENTS.md other.txt", ["AGENTS.md", "other.txt"]),  # rg reads no prefix
+])
+def test_a_gnu_grep_long_option_abbreviation_takes_its_value_word(command, searched):
+    assert shell_walked(command, "").searched == searched
+    process = _process(_call("a", command), _result("a"))
+    assert process["guidance_searched"] == [p for p in searched if p.endswith("AGENTS.md")]
+
+
 def test_a_failed_or_refused_grep_tool_call_searched_nothing():
     given = {"path": f"{WS}/AGENTS.md", "output_mode": "content"}
     assert _process(_grep_tool("g", **given), _result("g", "error", True))["guidance_searched"] == []

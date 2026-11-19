@@ -37,8 +37,9 @@ depend on the kind:
 of the call that searched, not a `read` event, so `tool_calls` is the same with
 or without it. It names files as the command gave them (made workspace-relative,
 the `cd` before the part applied), whether or not they exist or are guidance; a
-call that was refused, a search that failed as one search of one file, and a
-relative file after the shell moved leave it out.
+call that was refused, a search that failed as one search of one file, a `Grep`
+call whose result is empty or `No matches found`, and a relative file after the
+shell moved leave it out.
 
 Any line may also carry `agent` (the id of the parent's `Agent`/`Task` call that
 started it), and `denied: true` when the call was refused and never ran. The
