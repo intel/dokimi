@@ -73,12 +73,16 @@ def test_a_directory_ref_of_utf8_names_keeps_its_digest(tmp_path: Path):
 
 def test_a_directory_ref_digests_posix_names_in_case_sensitive_order(tmp_path: Path):
     # The same tree on Windows: "/" in the name, and B.md before a.md, as on Linux.
+    # By components a/b comes before a-c, though the string "a-c" sorts before "a/b".
     (tmp_path / "a.md").write_bytes(b"a")
     (tmp_path / "B.md").write_bytes(b"b")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "b").write_bytes(b"ab")
+    (tmp_path / "a-c").write_bytes(b"ac")
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "x.md").write_bytes(b"x")
     h = hashlib.sha256(b"d")
-    for name, content in (("B.md", b"b"), ("a.md", b"a"), ("sub/x.md", b"x")):
+    for name, content in (("B.md", b"b"), ("a/b", b"ab"), ("a-c", b"ac"), ("a.md", b"a"), ("sub/x.md", b"x")):
         h.update(hashlib.sha256(name.encode()).digest() + hashlib.sha256(content).digest())
     assert _digest_ref(str(tmp_path), base=tmp_path) == "sha256:" + h.hexdigest()
 

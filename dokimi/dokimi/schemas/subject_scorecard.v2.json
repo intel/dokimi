@@ -54,7 +54,7 @@
             "string",
             "null"
           ],
-          "description": "sha256 of the ref: for a file, the sha256 of its content; for a directory, of the byte `d` and then, per file in case-sensitive order of its relative POSIX path, a sha256 of that path and a sha256 of its content; for a ref that names no path, of the byte `t` and a sha256 of its text. Digests written by earlier releases hashed the raw bytes next to NUL separators and differ for the same ref, except that of a single file."
+          "description": "sha256 of the ref: for a file, the sha256 of its content; for a directory, of the byte `d` and then, per file in the order of its relative path's components, compared as code points, a sha256 of its relative POSIX path and a sha256 of its content; for a ref that names no path, of the byte `t` and a sha256 of its text. Digests written by earlier releases hashed the raw bytes next to NUL separators and differ for the same ref, except that of a single file."
         },
         "distribution_digest": {
           "type": [
