@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import threading
+from types import SimpleNamespace
 
 import pytest
 
+from tests import waiting
 from tests.waiting import poll_until, wait_for_event, wait_until
 
 
@@ -32,6 +34,19 @@ def test_wait_until_fails_at_the_deadline_naming_what_it_waited_for_and_for_how_
 def test_poll_until_returns_false_at_the_deadline_and_true_once_the_predicate_holds():
     assert poll_until(lambda: 0, 0.01, interval=0.001) is False
     assert poll_until(lambda: [1], 30) is True
+
+
+def test_poll_until_never_sleeps_past_the_deadline_so_a_late_condition_is_not_accepted(monkeypatch):
+    clock = [0.0]
+    naps: list[float] = []
+
+    def nap(seconds):
+        naps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(waiting, "time", SimpleNamespace(monotonic=lambda: clock[0], sleep=nap))
+    assert poll_until(lambda: clock[0] >= 0.5, 0.01, interval=1) is False
+    assert naps == [0.01]
 
 
 def test_wait_for_event_returns_at_once_for_a_set_event():

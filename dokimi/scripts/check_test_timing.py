@@ -41,31 +41,103 @@ WAIVER = re.compile(r"#\s*timing-ok\b(?::(?P<reason>.*))?$")
 HINT = "(python scripts/check_test_timing.py --update)"
 
 
-def _bindings(tree: ast.Module) -> tuple[dict[str, str], dict[str, str]]:
-    """``(module aliases, function aliases)``: ``t -> time`` and ``nap -> time.sleep``."""
-    modules: dict[str, str] = {}
-    names: dict[str, str] = {}
-    for node in ast.walk(tree):
+FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+Scope = tuple[dict[str, str | None], bool]  # (name -> "time" or "time.sleep" or None, is a class body)
+
+
+def _own_names(scope: ast.AST) -> dict[str, str | None]:
+    """What the names bound in ``scope`` itself mean: a module (``t -> time``), a function
+    (``nap -> time.sleep``), or ``None`` for any other binding, which shadows an outer import."""
+    names: dict[str, str | None] = {}
+    if isinstance(scope, FUNCTIONS):
+        a = scope.args
+        for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg):
+            if arg is not None:
+                names[arg.arg] = None
+    body = [scope.body] if isinstance(scope, ast.Lambda) else scope.body  # type: ignore[attr-defined]
+    for stmt in body:
+        _bind(stmt, names)
+    return names
+
+
+def _bind_import(node: ast.Import | ast.ImportFrom, names: dict[str, str | None]) -> None:
+    for alias in node.names:
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in TARGETS:
-                    modules[alias.asname or alias.name] = alias.name
-        elif isinstance(node, ast.ImportFrom) and node.module in TARGETS and node.level == 0:
-            for alias in node.names:
-                if alias.name in TARGETS[node.module]:
-                    names[alias.asname or alias.name] = f"{node.module}.{alias.name}"
-    return modules, names
+            bound = alias.asname or alias.name.split(".")[0]
+            full = alias.name if alias.asname else alias.name.split(".")[0]
+            names[bound] = full if full in TARGETS else None
+        elif node.module in TARGETS and node.level == 0 and alias.name in TARGETS[node.module]:
+            names[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+        else:
+            names[alias.asname or alias.name] = None
 
 
-def _resolve(call: ast.Call, modules: dict[str, str], names: dict[str, str]) -> str | None:
+def _bind(node: ast.AST, names: dict[str, str | None]) -> None:
+    """Record the names ``node`` binds in its scope, without entering a nested function, class or lambda."""
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        _bind_import(node, names)
+    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        names[node.name] = None
+    elif not isinstance(node, ast.Lambda):
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            names[node.id] = None
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names[node.name] = None
+        for child in ast.iter_child_nodes(node):
+            _bind(child, names)
+
+
+def _resolve(call: ast.Call, scopes: list[Scope]) -> str | None:
+    """``"time.sleep"`` or ``"threading.Timer"`` when ``call`` is one, by the innermost binding of its name."""
+    def meaning(name: str) -> str | None:
+        for names, _ in scopes:
+            if name in names:
+                return names[name]
+        return None
+
     func = call.func
     if isinstance(func, ast.Name):
-        return names.get(func.id)
+        target = meaning(func.id)
+        return target if target and "." in target else None
     if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-        module = modules.get(func.value.id)
-        if module and func.attr in TARGETS[module]:
+        module = meaning(func.value.id)
+        if module in TARGETS and func.attr in TARGETS[module]:
             return f"{module}.{func.attr}"
     return None
+
+
+def _calls(tree: ast.Module) -> list[tuple[ast.Call, str]]:
+    """Every call that resolves to a sleep or timer, with its target. A name means what the innermost
+    scope that binds it says; a class body is not visible from the functions inside it."""
+    found: list[tuple[ast.Call, str]] = []
+
+    def walk(node: ast.AST, scopes: list[Scope]) -> None:
+        if isinstance(node, ast.Call):
+            target = _resolve(node, scopes)
+            if target:
+                found.append((node, target))
+        if isinstance(node, (*FUNCTIONS, ast.ClassDef)):
+            outer: list[ast.AST] = []
+            if isinstance(node, ast.ClassDef):
+                outer = [*node.decorator_list, *node.bases, *node.keywords]
+            else:
+                a = node.args
+                outer = [*a.defaults, *(d for d in a.kw_defaults if d is not None)]
+                if not isinstance(node, ast.Lambda):
+                    outer += node.decorator_list
+            for child in outer:
+                walk(child, scopes)
+            inner = [(_own_names(node), isinstance(node, ast.ClassDef))]
+            inner += [s for s in scopes if not s[1]]
+            body = [node.body] if isinstance(node, ast.Lambda) else node.body
+            for child in body:
+                walk(child, inner)
+            return
+        for child in ast.iter_child_nodes(node):
+            walk(child, scopes)
+
+    walk(tree, [(_own_names(tree), False)])
+    return found
 
 
 def _waivers(text: str) -> tuple[set[int], list[int]]:
@@ -86,15 +158,11 @@ def _waivers(text: str) -> tuple[set[int], list[int]]:
 def scan(text: str, filename: str) -> tuple[dict[str, int], list[int]]:
     """``({"time.sleep": n, "threading.Timer": m}, bare waiver lines)`` of one file's source."""
     tree = ast.parse(text, filename=filename)
-    modules, names = _bindings(tree)
     ok, bare = _waivers(text)
     counts: dict[str, int] = {}
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        target = _resolve(node, modules, names)
+    for node, target in _calls(tree):
         lines = {node.lineno, node.end_lineno or node.lineno}
-        if target and not lines & ok:
+        if not lines & ok:
             counts[target] = counts.get(target, 0) + 1
     return counts, bare
 
@@ -152,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--baseline", type=Path, default=BASELINE, help="baseline file to read and write")
     args = ap.parse_args(argv)
 
+    if not args.tests_root.is_dir():
+        print(f"--tests-root {args.tests_root} is not a directory")
+        return 2
     per_file, per_target, problems = measure(args.tests_root)
     summary = (f"{sum(per_file.values())} sleep/Timer call(s) in {len(per_file)} file(s): "
                + ", ".join(f"{n} {t}" for t, n in sorted(per_target.items())))

@@ -70,6 +70,18 @@ def test_update_writes_a_first_baseline_when_there_is_none(tmp_path):
     assert entries(tmp_path) == {"tests/sub/test_deep.py": 1, "tests/test_old.py": 1}
 
 
+@pytest.mark.parametrize("flags", [(), ("--update",)])
+def test_a_tests_root_that_is_not_a_directory_exits_2_and_leaves_the_baseline_alone(tmp_path, capsys, flags):
+    baseline = {"tests/test_old.py": 1}
+    (tmp_path / "baseline.json").write_text(json.dumps({"files": baseline}), encoding="utf-8")
+    (tmp_path / "a_file.py").write_text(SLEEP, encoding="utf-8")
+    for root in (tmp_path / "missing", tmp_path / "a_file.py"):
+        argv = ["--tests-root", str(root), "--baseline", str(tmp_path / "baseline.json"), *flags]
+        assert ctt.main(argv) == 2
+        assert "is not a directory" in capsys.readouterr().out
+        assert entries(tmp_path) == baseline
+
+
 def test_a_missing_baseline_fails_without_update(tmp_path, capsys):
     assert run(tmp_path, {"test_old.py": SLEEP}, None) == 1
     assert "no baseline.json" in capsys.readouterr().out
@@ -100,6 +112,25 @@ def test_each_way_to_import_a_sleep_or_timer_is_counted(source):
 ])
 def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     assert ctt.scan(source, "x.py") == ({}, [])
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("def test_a():\n    import time as t\n    t.sleep(1)\n\n\ndef test_b():\n    import threading as t\n",
+     {"time.sleep": 1}),
+    ("def test_a():\n    import threading as t\n\n\ndef test_b():\n    import time as t\n    t.sleep(1)\n",
+     {"time.sleep": 1}),
+    ("def test_a():\n    from time import sleep as nap\n    nap(1)\n\n\ndef test_b():\n    nap(1)\n",
+     {"time.sleep": 1}),
+    ("import time as t\n\n\ndef test_a(t):\n    t.sleep(1)\n\n\ndef test_b():\n    t.sleep(1)\n",
+     {"time.sleep": 1}),
+    ("import time\n\n\ndef test_a():\n    time = FakeClock()\n    time.sleep(1)\n", {}),
+    ("from time import sleep\n\n\ndef test_a():\n    def sleep(s):\n        pass\n    sleep(1)\n", {}),
+    ("import time\n\n\ndef test_a():\n    def inner():\n        time.sleep(1)\n    inner()\n", {"time.sleep": 1}),
+    ("import time\n\n\nclass T:\n    time = None\n\n    def test_a(self):\n        time.sleep(1)\n",
+     {"time.sleep": 1}),
+])
+def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
+    assert ctt.scan(source, "x.py") == (expected, [])
 
 
 def test_a_waiver_with_a_reason_is_not_counted():

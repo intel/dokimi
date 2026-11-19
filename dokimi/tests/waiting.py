@@ -26,9 +26,10 @@ def poll_until(predicate: Callable[[], object], timeout: float, interval: float 
     while True:
         if predicate():
             return True
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             return False
-        time.sleep(interval)
+        time.sleep(min(interval, remaining))
 
 
 def wait_until(predicate: Callable[[], T], timeout: float, *, what: str, interval: float = 0.02) -> T:
