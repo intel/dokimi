@@ -1,0 +1,47 @@
+{
+  "schema_version": "novelty_atoms.v1",
+  "artifact_ref": "skill:/tmp/run/accel-tuning/SKILL.md",
+  "model": "answerer-m",
+  "with_arm": "full",
+  "conflicts": [
+    {
+      "a": "a1b2c3d4e5f6",
+      "b": "0f9e8d7c6b5a",
+      "why": "one says 8 threads, the other 16"
+    }
+  ],
+  "atoms": [
+    {
+      "id": "a1b2c3d4e5f6",
+      "statement": "Set --threads to 8 for training runs.",
+      "question": "How many threads for a training run?",
+      "answer": "8",
+      "kind": "proposition",
+      "tags": [],
+      "span_ids": ["s0001"],
+      "faithfulness": "supported",
+      "needed": true,
+      "scaffolding": false,
+      "conflict": true,
+      "conflict_why": "one says 8 threads, the other 16",
+      "outcome": {"lenient": "added", "strict": "still_missing"},
+      "category": "harmful_conflicting"
+    },
+    {
+      "id": "0f9e8d7c6b5a",
+      "statement": "Set --threads to 16 for training runs.",
+      "question": "How many threads for a training run?",
+      "answer": "16",
+      "kind": "proposition",
+      "tags": [],
+      "span_ids": ["s0002"],
+      "faithfulness": "unchecked",
+      "needed": null,
+      "scaffolding": null,
+      "conflict": null,
+      "conflict_why": null,
+      "outcome": {"lenient": null, "strict": null},
+      "category": null
+    }
+  ]
+}

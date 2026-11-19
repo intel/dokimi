@@ -259,5 +259,6 @@
 --alpha  # repo security: the one-sided Fisher level per violation class, no registry concept yet (#360)
 --canary  # repo security: a planted fake secret to look for, repeatable (#360)
 --canaries-file  # repo security: the same canaries one per line (#360)
+--atom-verdicts  # skill novelty view (#1005): the per-atom verdicts file `analyze` writes; no registry concept yet
 --tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
 --tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet

@@ -115,6 +115,13 @@ class AnalyzeResult:
     #: Set when ``--max-usd`` (or a call with no price) stopped the run: ``artifact`` is then the
     #: partial record (:mod:`.analyze_partial`) and this is its ``partial`` block.
     partial: dict | None = None
+    #: What :mod:`.atom_verdicts` writes out; empty on a partial result, and the last three
+    #: without classification.
+    outcomes: dict = field(default_factory=dict)
+    strict_outcomes: dict = field(default_factory=dict)
+    verdicts: dict = field(default_factory=dict)
+    categories: dict = field(default_factory=dict)
+    conflicts: list = field(default_factory=list)
 
 
 def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
@@ -351,6 +358,8 @@ def _analyze(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
         )
     outcomes = measure.atom_outcomes(measure_result.runs, with_arm=measure_result.with_arm)
+    strict_outcomes = measure.atom_outcomes(
+        measure_result.runs, with_arm=measure_result.with_arm, scoring="strict")
     # What *kind* of knowledge the model lacked, not just how much (skill-novelty-evidence.md
     # §10.1). The slices are the actionable cut for an author; the caveats ride along in the report.
     by_knowledge_kind = {
@@ -362,6 +371,7 @@ def _analyze(
     }
 
     categories: dict[str, str] = {}
+    verdicts: dict[str, classify.AtomVerdict] = {}
     conflicts: list[dict] = []
     conflict_coverage = None
     if config.classify_content and atom_list:
@@ -507,6 +517,11 @@ def _analyze(
         spans=span_list,
         measure_result=measure_result,
         extracted_atoms=extracted,
+        outcomes=outcomes,
+        strict_outcomes=strict_outcomes,
+        verdicts=verdicts,
+        categories=categories,
+        conflicts=conflicts,
     )
 
 
