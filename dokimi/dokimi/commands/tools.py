@@ -212,7 +212,7 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     pref_p.add_argument("--max-tokens", type=positive_int, default=2048, dest="max_tokens",
                         help="Per call; reasoning models spend part of it before the tool call (default: 2048)")
     pref_p.add_argument("--concurrency", type=positive_int, default=8)
-    cli_flags.add(pref_p, "spend", "--max-usd", type=positive_usd, default=None, dest="max_usd",
+    cli_flags.add(pref_p, "spend", "--max-usd", type=positive_usd, default=None, dest="max_usd", metavar="X",
                         help="Start no new call once the priced calls have spent this much; the calls "
                              "not started are recorded as skipped and, if there are any, the command "
                              "exits 3 (default: no cap)")

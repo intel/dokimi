@@ -122,7 +122,7 @@ def add_skill_reach_parser(repo_sub, positive_int) -> None:
                          "hold guidance or a skills dir.")
     skill_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
     skill_p.add_argument("--max-turns", type=positive_int, default=4, dest="max_turns")
-    cli_flags.add(skill_p, "spend", "--max-usd-per-cell", type=float, default=None, dest="budget",
+    cli_flags.add(skill_p, "spend", "--max-usd-per-cell", type=float, default=None, dest="budget", metavar="X",
                   help="Per-scenario USD cap (default: 0.10). Refused for a harness with no spend-cap flag "
                        "(codex, copilot): the timeout is their only bound")
     skill_p.add_argument("--timeout", type=positive_int, default=300, help="Per-scenario seconds")

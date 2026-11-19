@@ -73,3 +73,18 @@ def test_a_moved_dry_run_flag_parses_to_the_same_destination_as_its_new_spelling
     assert new is not None
     assert build_parser().parse_args(new).estimate_only is True
     assert build_parser().parse_args(new[:-1]).estimate_only is False
+
+
+@pytest.mark.parametrize(("leaf", "flags"), [
+    (["repo", "run"], ["--max-usd-per-cell", "--max-usd"]),
+    (["repo", "reach"], ["--max-usd-per-cell"]),
+    (["repo", "skill-reach"], ["--max-usd-per-cell"]),
+    (["tools", "preference"], ["--max-usd"]),
+])
+def test_the_help_shows_a_spend_flag_with_the_registry_metavar(leaf, flags, capsys):
+    # The new spellings keep their old dests (budget, max_batch_usd): help must not show those names.
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([*leaf, "--help"])
+    usage = " ".join(capsys.readouterr().out.split())
+    for flag in flags:
+        assert f"[{flag} X]" in usage

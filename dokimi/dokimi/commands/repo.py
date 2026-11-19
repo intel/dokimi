@@ -755,7 +755,7 @@ def register(sub, positive_int, eval_sub) -> None:
     reach_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
     reach_p.add_argument("--max-turns", type=positive_int, default=None, dest="max_turns",
                          help="Turn cap per scenario (default: 4)")
-    cli_flags.add(reach_p, "spend", "--max-usd-per-cell", type=float, default=None, dest="budget",
+    cli_flags.add(reach_p, "spend", "--max-usd-per-cell", type=float, default=None, dest="budget", metavar="X",
                   help="Per-scenario USD cap (default: 0.10)")
     reach_p.add_argument("--timeout", type=positive_int, default=None, help="Per-scenario seconds (default: 300)")
     reach_p.add_argument("--keep", action="store_true", help="Keep the temporary workspace")
