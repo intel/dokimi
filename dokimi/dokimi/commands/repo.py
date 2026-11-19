@@ -292,7 +292,9 @@ def _reach_entry(args: argparse.Namespace) -> None:
 
 
 def _probe_flags_given(args: argparse.Namespace) -> list[str]:
-    return [f"--{k.replace('_', '-')}" for k, default in _PROBE_ONLY.items() if getattr(args, k) != default]
+    spelled = {"budget": "--max-usd-per-cell", "out": "--out-dir"}  # the probe flags whose dest is not their spelling
+    return [spelled.get(k, f"--{k.replace('_', '-')}") for k, default in _PROBE_ONLY.items()
+            if getattr(args, k) != default]
 
 
 def _saved_reach_inputs(args: argparse.Namespace):
@@ -611,12 +613,17 @@ def _manifest_id(label: str) -> str:
 def _cache_dir(args: argparse.Namespace) -> Path | None:
     """``--cache-dir`` as given, or ``None``; a value no clone can be cached in is a usage error (2) (#765).
 
-    An existing read-only directory passes on purpose: a populated one replays without writing. An empty one
-    is not told apart without the clone URL, so its clone fails later with exit 1.
+    Without the flag, a non-empty ``$DOKIMI_REPO_CACHE`` is checked and returned the same way (#827); the flag wins.
+    A read-only directory passes: a populated one replays without writing; an empty one fails later with exit 1.
     """
-    from dokimi.commands.cache_dir import CLONE_USE, usable_cache_dir
+    import os
 
-    return usable_cache_dir(args.cache_dir, CLONE_USE)
+    from dokimi.commands.cache_dir import CLONE_USE, resolved_cache_dir
+
+    env = os.environ.get("DOKIMI_REPO_CACHE")
+    if not args.cache_dir and env:
+        return resolved_cache_dir(env, CLONE_USE, label="$DOKIMI_REPO_CACHE")
+    return resolved_cache_dir(args.cache_dir, CLONE_USE, label="--cache-dir")
 
 
 def register(sub, positive_int, eval_sub) -> None:
@@ -753,7 +760,8 @@ def register(sub, positive_int, eval_sub) -> None:
     reach_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
     reach_p.add_argument("--max-turns", type=positive_int, default=None, dest="max_turns",
                          help="Turn cap per scenario (default: 4)")
-    reach_p.add_argument("--budget", type=float, default=None, help="Per-scenario USD cap (default: 0.10)")
+    cli_flags.add(reach_p, "spend", "--max-usd-per-cell", type=float, default=None, dest="budget", metavar="X",
+                  help="Per-scenario USD cap (default: 0.10)")
     reach_p.add_argument("--timeout", type=positive_int, default=None, help="Per-scenario seconds (default: 300)")
     reach_p.add_argument("--keep", action="store_true", help="Keep the temporary workspace")
     reach_p.add_argument("--format", choices=["matrix", "receipt"], default="matrix",

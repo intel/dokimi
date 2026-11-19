@@ -32,7 +32,10 @@ def review_skill_dir(path: Path | str) -> SkillReview:
 
     A skill that does not load gets one ``error`` finding: its review's own (``not-a-skill-no-frontmatter``
     for plain Markdown, ``frontmatter-parse`` for broken YAML), else ``not-loaded`` with the loader's
-    message. Raises ``ValueError`` when *path* is not a directory or holds no ``SKILL.md``.
+    message. The exception is a plain-Markdown ``SKILL.md`` under ``.opencode`` (state ``warn``,
+    ``opencode-no-description``) or a host with no known spec (state ``ok``, one ``unsupported-skill-format``
+    note); see :mod:`dokimi.external.skill_format`.
+    Raises ``ValueError`` when *path* is not a directory or holds no ``SKILL.md``.
     """
     skill_dir = Path(path)
     if not skill_dir.is_dir():
