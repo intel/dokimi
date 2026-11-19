@@ -875,8 +875,7 @@ where a single-artifact run names the first card in the field. `rank` and `picke
 only, so each row also keeps `scores` (card name to BM25 score, in the order of the field), which do not depend
 on the gold: `rescore_lexical_row(row, gold)` in `dokimi.novelty.all_vs_all` gives `rank` and `picked` for a
 corrected gold, ties included, and keeps a row with no content word unscored. A saved run can be rescored from them for corrected gold labels (one gold per row), split by
-query set half, or compared query by query with another run; scoring a set of acceptable golds per query is not
-shipped (#710). The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
+query set half, or compared query by query with another run (`catalog routing-compare`, below). The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
 with one repeat. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
@@ -895,6 +894,48 @@ in the field, or no queries at all. A query file that names a skill the field le
 two different skills share) drops that skill's queries with a WARNING naming the flag that keeps it; the run
 goes on with the rest, and is refused only when no query is left. A name no rule explains is refused, since
 it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported in one error.
+
+**Acceptable alternatives.** A request in the queries file may be an object instead of a string:
+`{"query": "<request>", "acceptable": ["<other skill name>", ...]}`, for a request a second skill
+answers as well as the gold. A file of strings reads and saves as before: no new key is written.
+`acceptable` must be a list of strings and the object has no key besides `query` and `acceptable`, or the file
+is refused naming the file, the skill and the query; the gold named as its own alternative is dropped
+(also from a direct `all_vs_all` call, so a pick of the gold is never counted as both), and a blank `query` is dropped with its object. An acceptable name that is not in the field is refused,
+naming the skill, the query and the name, before an `--estimate-only` too; the alternatives of a skill
+the field leaves out (its queries are dropped with a WARNING) are moot and not checked. When the file names
+at least one alternative, each arm adds `acceptable_rate` per gold skill beside `own_rate`: the share of its scored queries
+(the same denominator) whose pick is the gold or one of that query's alternatives, and the summary prints
+the pooled gold and gold-or-acceptable counts, taken from `confusion` and from `acceptable_picks` (the exact
+count per gold skill of picks that were an acceptable name), not from the rounded rates. `(none)`, `(tie)` and a failed call never count, and the
+model arm counts per call as its other counts do. `confusion` and `attractors` stay defined by the
+gold alone: an acceptable pick of another skill is still counted there. The rows of a query with alternatives
+(`lexical.per_query` and `model.noise.per_query`) keep `acceptable`; the rows of other queries do not get the key.
+
+**Comparing two saved runs.** `catalog routing-compare BASE.json OTHER.json [--arm lexical|model] [--out FILE]`
+reads two files `catalog routing` saved and makes no model call. Rows are paired by `(gold, query)`
+(a request listed twice for one gold pairs in order). `--arm lexical` (the default) reads
+`result.lexical.per_query`; `--arm model` reads `result.model.noise.per_query` and is refused when either run was
+made without `--model`. `--out` writes the comparison as JSON and creates a missing parent directory, as
+`catalog routing --out` does. A file that is not JSON, not an all-vs-all result, has no `result` object, or has no per-query rows (a file saved before
+the lexical arm kept them) is refused with the file and the cause, and so is a row whose `query` or `gold` is
+not a string, whose `acceptable` is not a list of strings, or, with the lexical arm, whose `rank` is missing or is
+neither null nor a positive integer, or whose `picked` is not a string while `rank` is set (a `null` rank and the
+picks `(none)` and `(tie)` are kept), or, with `--arm model`, whose `picks` is not a list of
+strings (the message names the file and the row number), and so are two runs with no pair in common. A query in one
+run only is counted and shown by example, and left out of every figure. A row left unscored in either
+run is left out and counted: a lexical row with no content word, and in the model arm a query with no answered call or, with `--reps`, one
+whose most common pick is not unique (the modal pick is the pick otherwise). The report gives the pairs
+scored, each run's number right, the pairs right in BASE only and in OTHER only, the exact two-sided
+sign test p (binomial, p = 0.5; 1.0 with none), and the queries whose pick
+changed with both picks. The test counts distinct `(gold, query)` queries, not pairs: a request listed
+twice is one query, right in BASE only when more of its pairs are right there than in OTHER, in OTHER only
+when fewer, and neither when equal, so repeating a request does not add evidence (`discordant_queries` in the
+JSON; `discordant` keeps the pair counts). For example, 10 distinct queries with BASE right on 5 that OTHER misses and OTHER right
+on none give p = 0.0625, not significant at 0.05, and 6 and 0 give p = 0.03125. A pair is right when
+the pick is the gold; when both runs name the same `acceptable` for it, the gold or one of those names. When
+only one run names alternatives, or the two differ, that pair is scored on the gold alone and the report prints a note, so the
+two runs are never scored on different keys. `--out` writes the same figures as JSON (`mode` `routing_compare`; no schema, as
+for `catalog routing --out`).
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
 across every skill in the field: the call count is the number of queries in `queries.json` that have a
@@ -999,7 +1040,8 @@ python cli.py skill novelty items --probes m1.json m2.json m3.json
 [reference checks](answer-formats.md); every probe built from it except the reversal gets it,
 and its non-judge checks run on each answer next to the judge. `skill novelty ground --atoms
 atoms.json --tool "perf report"` writes one such check: a veto that fails an answer naming a
-`perf report --flag` the tool's own `--help` does not list. The judge's verdict is kept on
+`perf report --flag` the tool's own `--help` does not list. With `--header` and `--shared-lib` and a
+`--prefix` (`cblas_`), it vetoes a C API name no header declares and no library exports. The judge's verdict is kept on
 each checked run and the record's `checks` block counts how often the judge passed an answer
 a veto failed. Design and evidence: [grading-tiers.md](grading-tiers.md).
 

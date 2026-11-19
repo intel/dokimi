@@ -505,6 +505,9 @@ def register(sub, positive_int, eval_sub) -> None:
     from dokimi.commands.routing_parser import add_catalog_routing
 
     add_catalog_routing(catalog_sub, positive_int)  # catalog routing: all-vs-all (#94 M3)
+    from dokimi.commands.routing_compare import add_routing_compare
+
+    add_routing_compare(catalog_sub)  # catalog routing-compare: two saved runs (#710)
 
     from dokimi.commands import catalog_novelty
 

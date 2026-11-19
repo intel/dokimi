@@ -43,6 +43,7 @@ from dokimi.artifacts import (
     schema_errors,
     schema_version_for,
 )
+from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
 from dokimi.questions.normalizer import canonical_question, record_id
 from dokimi.utils import question_id, read_json_input
 
@@ -213,6 +214,20 @@ def _explain(path: Path, data: dict, errors: list[str]) -> str:
             f"dokimi/schemas/{SCHEMA_VERSIONS[KIND]}.json, or drop the record.")
 
 
+def _warn_provenance(path: Path, records: list) -> None:
+    """A malformed ``version`` or ``provenance`` on a record is a WARNING, never a refusal: the schema accepts any
+    value so that files written before the key existed still load, and the value is kept as written."""
+    for i, q in enumerate(records):
+        if not isinstance(q, dict):
+            continue
+        for key, check in (("version", parse_version), ("provenance", parse_provenance)):
+            try:
+                check(q.get(key))
+            except ProvenanceError as exc:
+                qid = question_id(q)
+                logger.warning("%s: question %s: %s; kept as written", path, qid if qid is not None else i, exc)
+
+
 def load_questions(path: Path | str, *, validate: bool = True, flag: str | None = None) -> QuestionSet:
     """Read a question set in any shape this framework has read, and return it as questions.v2.
 
@@ -225,6 +240,9 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
     :class:`~dokimi.artifacts.ArtifactValidationError` names each failing record and the fix; so
     must a ``schema_version`` this reader does not know. A set that is not a list of questions at
     all (e.g. ``{"questions": {...}}``) is refused either way.
+
+    A malformed ``version`` or ``provenance`` on a record is logged at WARNING and kept as written; it does not
+    refuse the set.
 
     With ``flag`` (the option the file was given to) the file is read by
     :func:`dokimi.utils.read_json_input`: an unreadable, non-UTF-8 or non-JSON file raises
@@ -250,6 +268,7 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
              for qid in (question_id(q),) if isinstance(qid, (str, int))}
     read = [_read_record(q, i, seen, taken) if isinstance(q, dict) else q
             for i, q in enumerate(records)]
+    _warn_provenance(path, read)
     artifact = upgrade_questions({**data, "questions": read})
 
     source_version: str | None

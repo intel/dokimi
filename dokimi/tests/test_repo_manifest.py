@@ -190,6 +190,8 @@ def test_missing_and_non_yaml_manifest(tmp_path):
         ({"expected_skill": 3}, "expected_skill must be a skill name"),
         ({"useful": {"command": "("}}, "useful command is not a valid regex"),
         ({"useful": {"edit": []}}, "useful must be"),  # a definition names one kind and at least one target
+        ({"version": 2.0}, "version must be"),
+        ({"provenance": {"status": "done"}}, "provenance.status"),
     ],
 )
 def test_bad_task_is_reported(tmp_path, task_extra, needle):

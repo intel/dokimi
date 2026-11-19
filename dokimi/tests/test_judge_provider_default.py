@@ -392,3 +392,23 @@ def test_a_named_judge_provider_is_kept_for_a_claude_cli_answerer_when_the_judge
     args = parse_args([*COMMANDS[command], "--provider", "claude-cli", "--model", "haiku", *judge,
                        "--judge-provider", "anthropic"])
     assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
+
+
+def test_a_copilot_or_codex_answerer_keeps_the_api_default_judge():
+    from dokimi.judge_rule import default_judge
+
+    assert default_judge("gpt-5.1", None, "copilot-cli")[1] != "copilot-cli"
+    assert default_judge("gpt-5.1", None, "codex-cli")[1] != "codex-cli"
+    assert default_judge("sonnet", None, "claude-cli")[1] == "claude-cli"
+
+
+def test_apply_default_judge_on_a_copilot_answerer_keeps_the_judge_provider():
+    from types import SimpleNamespace
+
+    from dokimi.judge_rule import apply_default_judge
+
+    args = SimpleNamespace(model="gpt-5.1", provider="copilot-cli", judge=True, judge_provider="openai",
+                           judge_model=None)
+    apply_default_judge(args, matrix=False, named=False)
+    assert args.judge_provider == "openai"
+

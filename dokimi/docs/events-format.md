@@ -30,6 +30,7 @@ depend on the kind:
 | `read` | `path` (absent on a refused relative read whose file is not known); `rc` 0 or 1 when the harness reported one |
 | `edit` | `path`; `rc`; `deleted` when the file was deleted |
 | `tool` | `name`; `skill` on a `Skill` call |
+| `probe` | `target`, `pattern`, `text`, `rc`: written by the runner after the `command` event it matched, never by a converter ([§4.1](repo-evaluation-contract.md#41-eventsjsonl)) |
 
 Any line may also carry `agent` (the id of the parent's `Agent`/`Task` call that
 started it), and `denied: true` when the call was refused and never ran. The

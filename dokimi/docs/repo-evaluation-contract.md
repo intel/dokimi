@@ -21,8 +21,8 @@ SPDX-License-Identifier: Apache-2.0
 > Implemented so far (slice S1): the `repo_manifest.v1` schema, validation of
 > the manifest and of every `task.json` against one repository snapshot
 > (with git history, every task base must resolve and the guidance globs are
-> evaluated at each base), the `repo_static.v1` schema (§4.4), and the `repo`
-> subject kind:
+> evaluated at each base), the `repo_static.v1` schema (§4.4), the suite
+> manifest for bases in other repositories (§2.1), and the `repo` subject kind:
 >
 > ```bash
 > python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on-warning]
@@ -245,6 +245,9 @@ build_systems: [bazel, make]              # selects L0 claim-check adapters
 process_metrics:                          # optional repository counters, result.json `process.counters` (§4.1)
   bazel_cmds: '\bbazel(?:isk)?\b'          # a plain regex searches the command text
   icpx_missing: {regex: "icpx is not found", match: output}   # match: text (default), output or any
+
+probes:                                   # optional: target -> patterns of `probe` events (§4.1)
+  cpu: [nproc, "py:os.cpu_count"]         # a listed target replaces its defaults; [] turns it off
 ```
 
 Rules:
@@ -313,6 +316,54 @@ Rules:
   harness short-lived credentials scoped to the model endpoint. Every
   connection through the proxy is logged with the run.
 
+### 2.1 Suite manifest (`suite_manifest.v1`)
+
+A task's `base` is normally a commit of the eval tree's source (§1.1). A task
+whose base is in another repository, such as a scaffold that a benchmark shares
+or a library at a fixed revision, is listed in a suite file kept in the eval
+tree:
+
+```yaml
+schema: suite_manifest.v1
+id: linreg-cpu-solver
+repos:
+  sklearn-scaffold: https://github.com/example/scikit-learn-scaffold@<40-hex sha>
+  numpy-scaffold: /path/to/numpy-scaffold@<40-hex sha>
+tasks:
+  - id: solver-pick-cholesky
+    repo: sklearn-scaffold
+```
+
+- `repo run --suite <path>` reads the file from the eval tree; the path is
+  relative to its root and may not leave it. Each listed task takes its base
+  checkout from the repository it names; its `task.json` keeps the rest of the
+  task. A task the suite does not list keeps its eval-tree base. Every listed
+  task must be a task of `tasks` (§2), or the run stops before any cell.
+- Each repository is `<url>@<rev>` or a local `<path>@<rev>`, as in §1.1. The
+  revision must be a full commit SHA. A branch, tag or other ref is refused
+  unless the run passes `--allow-floating-suite-revs`; it is resolved again
+  when each run starts, and the batch pin (`_eval/batch.json`, key `suite`)
+  records the commits. A resume is refused with `use another --batch` when the
+  revision now resolves to another commit: the batch does not follow a
+  moved branch or tag, and it does not reuse a later commit. The pin also
+  records the suite file's path, the task-to-repository mapping and the
+  repository locations (key `suite_plan`): a resume with another suite file, or
+  without `--suite`, is refused.
+- A repository that cannot be opened, or a base that is not a commit of it,
+  leaves that task's cells unsupported (§9): `unsupported.json` gives the reason,
+  and `repo report` counts the cells neither as failed nor as missing. A cell
+  that runs records `base_repo` (`{"repo", "source"}`) in `meta.json`. A base that
+  the cached clone of a remote lacks is fetched once before it counts as missing.
+- `eval check` reports these tasks as not checked when their repository is
+  missing and fails only on the other bad tasks; when every selected task is
+  not checked it exits 1 (incomplete), as `repo run` does, since nothing was checked.
+- Not covered yet: `repo validate` checks the bases of the eval tree only; a suite
+  task's `{source_dir}` is still the eval-tree source; and a `guidance:rev:<sha>`
+  arm is pinned against the eval-tree source.
+
+The schema is `dokimi/schemas/suite_manifest.v1.json`; an example is
+`data/suites/example-suite.yaml`.
+
 ## 3. `task.json`
 
 The framework interprets the **core** and **workspace** keys. Every other key
@@ -334,6 +385,8 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. On a `guidance:as-skill` catalog arm the generated `<repo>-guidance` skill is refused too (its usage is `guidance_skill_loaded`). `result.json` `skills` records whether the agent used it and whether it used it first |
 | `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
+| `version` | no | framework (reporting) | the task's revision, a non-empty string or an integer; absent is unknown. The grader does not read it, except `dokimi:typecheck`, which reads `version` as the image's mypy version (its row in the grader table) and so must not carry a revision there |
+| `provenance` | no | framework (reporting) | `source` (`hand-written`, `generated:<tool>@<version>` or `imported:<format>`; `eval tasks generate` writes `generated:dokimi-tasks-generate@<dokimi version>`), `reviewed_by` (a non-empty string) and `status` (`candidate`, `validated` or `frozen`); every key optional. `repo report` shows each task's `status` in a column, `unknown` when absent. A malformed block fails `repo validate` (`dokimi/provenance.py`) |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -530,6 +583,29 @@ The line format, its version and the promise that comes with it: [events-format.
 - A `read` event may have no `path`: a refused Claude Code Bash read of a
   relative path after an earlier call moved the shell, whose file is not
   known (`{"kind": "read", "denied": true}`).
+- A `probe` event follows the `command` event of a command that asks the host
+  for its facts, one per pattern it matches (a command may give several):
+  `{"t": 4.0, "kind": "probe", "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}`.
+  `target` is one of `cpu`, `gpu`, `os`, `memory`, `packages`, `env`, `network`;
+  `pattern` is the configured pattern it matched; `text`, `rc` and `agent` are the
+  command's. The defaults (`dokimi/repos/probes.py`, `DEFAULT_PROBES`): `cpu` `lscpu`,
+  `/proc/cpuinfo`, `nproc`, `sysctl`, `Get-CimInstance Win32_Processor`,
+  `py:os.cpu_count`, `py:platform.processor`; `gpu` `nvidia-smi`, `rocm-smi`,
+  `py:torch.cuda.is_available`; `os` `uname`, `/etc/os-release`, `sw_vers`, `systeminfo`;
+  `memory` `free`, `/proc/meminfo`; `packages` `pip list`, `pip show`, `pip freeze`,
+  `conda list`; `env` `env`, `printenv`. A pattern is matched on the program the shell or
+  PowerShell runs, with the words it names in any order and case (`grep nproc README` runs
+  `grep`: no probe), on a file a reading command (`cat`, `head`, `grep`, ...) names for a
+  path pattern, and on the call in the code of a `python -c` one-liner for `py:NAME`. A
+  `$( )` substitution or a `bash -c` script counts as a command the agent ran. Not matched:
+  a Python heredoc, a script the agent runs from a file, a pattern with a `|` that is
+  not a pipeline of the same commands, and a launcher the wrapper lists do not know
+  (`docker exec`, `nix develop -c`). `env`, `timeout`, `xargs`, `conda run` and `uv run`
+  run the program after them; `env` with no program after its options is its own probe (`env -S` is not read). Each cell's `meta.json`
+  records the patterns per target (`probes`) that it ran with.
+  A manifest's `probes` (§2) replaces a target's defaults, and `repo run --probes FILE`
+  (YAML or JSON, the same mapping) replaces them again; nothing else changes the events,
+  and the `process_metrics` counters do not count probes.
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
@@ -698,7 +774,10 @@ failed still do. The probed facts are recorded in `check.json` `host`, and for
 each holds an `unsupported.json` with the reason, and `repo report` lists them
 apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its
-cells is left unrun; a cell that already has a `result.json` keeps it.
+cells is left unrun; a cell that already has a `result.json` keeps it. A harness that exits nonzero
+before its first trace line is not a verdict on the cell: the cell is a crash, the batch exits 5, and it writes
+no `result.json`, so the next run runs it again. A harness the cap killed before its first trace line is a fail
+cell, as before.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
 directory, an unpinned remote), on a pinned local path inside a repository that is not its root and on a `--cache-dir` that is not a usable directory; a
@@ -1405,7 +1484,7 @@ args_if_present:                     # argv added after the "{tools}" element wh
   not a JSON object, or whose `mcpServers` is not an object, is caught up
   front: `repo validate` warns about the one at each task base (at
   the eval tree when the source has no git history) and still succeeds, `repo run --tools all`
-  exits 1 before any cell, and a cell whose arm wrote
+  exits 2 before any cell (a config the CLI rejects is a usage error; the cell is not run, so it is not rerun), and a cell whose arm wrote
   such a file (a `patch:` arm) is a cell error, not a graded run. The check
   reads the task base, so a `patch:` arm that repairs the file does not help.
   Fix or remove the file in the task base; `--tools read` or `none` do not
@@ -2361,7 +2440,12 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   both `id`s, until a `--force` run over every arm and model of the batch (the same `--task` and `--reps`) reruns them. A plan naming one cell twice (a
   repeated `--task` or `--model`, or two `--model` strings with one directory
   name, `a/b` and `a:b`, or names that differ only in case) is refused before any agent starts.
-  Ctrl-C lets the running cells finish and starts no queued one. A batch stays on the eval tree it
+  Ctrl-C starts no queued cell: it sets the halt first, and a cell a worker takes after that is dropped before it
+  reserves budget or prepares a workspace (a cell a worker took before the main thread ran the handler is not
+  stopped by that). It kills, by name, the agent containers the running cells started; a cell whose
+  agent was killed is not recorded and runs again on the next invocation (what a killed agent spent without
+  reporting a cost is open: #834). A cell past its agent is not killed: its grading container finishes (Ctrl-C
+  waits for it), the cell is recorded, and its agent is not run again on resume. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
@@ -2517,6 +2601,25 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   cannot be read (no read permission, a directory, not UTF-8 text) or parsed
   as JSON (a trailing comma, a BOM) is refused the same way, exit 2 before
   writing and naming the path, since whether it holds labels is not known.
+- **The measure bound.** `repo report` reads a score, cost, turn count, token count
+  or `process` count, and `repo compare` also reads a `--metric` value, as a measurement only
+  when it is finite and its magnitude is at most 1e150 (`SCORE_BOUND` in
+  `dokimi/measure.py`), so that sums and squared deltas stay finite; a value past
+  it is no measurement. A `score` metric past it makes the grade a grader failure
+  (`grade.json has no numeric metrics.<name> that is finite and within +-1e+150`;
+  a stored `result.json` whose `grade.score` is past it is read as one too), and
+  `repo compare` counts that grader failure as a score of 0 in its mean, and
+  a `cost_usd`, `num_turns`, token count or `score_max` past it makes `repo
+  report` and `repo compare` refuse that `result.json`. Any other value past it
+  (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_s`,
+  `first_useful_steps`) is left out of the mean and of `n`, as a value that is
+  absent. `first_useful_rate` keeps a cell whose `steps` is past it: the cell
+  has a verdict, so it counts as a non-hit in the rate and in its `n` (steps 5
+  and steps 1e200 give a rate of 0.5 with `n` 2). In `repo compare`
+  a task whose `metric:x` is absent in either arm is unpaired (`no metric:x in
+  baseline or treatment`), so three tasks whose `metric:x` is 1.7e308 in both
+  arms give no `metric:x` row at all, not an overflow, and the same three at
+  1e150 give a row with means of 1e150.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
