@@ -2349,8 +2349,8 @@ without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 `--image` names one. Cache directories default to
 `~/.cache/dokimi/caches/<id>/<name>`; `--cache-root` moves them all and
 `--cache NAME=PATH` points one elsewhere. A `--cache-root` or `--cache NAME=PATH` that is a regular file or
-below one, or a `--cache-root` that holds a regular file named after a cache, is refused before the image
-build with exit 2, naming the flag and the path; so is one that cannot be resolved (a symbolic link loop), and a
+below one (checked before a remote source is cloned), or a `--cache-root` that holds a regular file named after a
+cache, is refused before the image build with exit 2, naming the flag and the path; so is one that cannot be resolved (a symbolic link loop), and a
 `--cache-root` that is a regular file is refused also when every cache has its own `--cache` and when the
 manifest declares no cache. Without `--cache-root`, the default root (`caches/<id>` next to `$DOKIMI_REPO_CACHE`
 when it is set) is checked the same way for each cache with no `--cache`, and a `--cache` naming no cache of the

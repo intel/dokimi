@@ -208,13 +208,27 @@ def _pair(text: str) -> tuple[str, str]:
     return name, path
 
 
+def _check_cache_flags(args: argparse.Namespace) -> None:
+    """Refuse a ``--cache-root`` or a ``--cache NAME=PATH`` path no cache directory can be made in (exit 2) (#826).
+
+    They need no manifest, so they are checked before the source is opened (a remote one is cloned or fetched).
+    A ``--cache`` that is not ``NAME=PATH`` is left to ``_context``.
+    """
+    from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
+
+    if args.cache_root:
+        resolved_cache_dir(args.cache_root, CACHE_USE, label="--cache-root")
+    for name, sep, path in (c.partition("=") for c in args.cache or ()):
+        if name and sep and path:
+            resolved_cache_dir(path, CACHE_USE, label=f"--cache {name}")
+
+
 def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None:
-    """Refuse a ``--cache-root`` or ``--cache NAME=PATH`` no cache directory can be made in (usage error, exit 2) (#826).
+    """Refuse a cache under the root no cache directory can be made in (usage error, exit 2) (#826).
 
-    Without ``--cache-root``, each cache with no ``--cache`` is checked under the default root ``_context`` uses.
-
-    Checked before the image build: ``_context`` makes each cache directory after it. A ``--cache`` naming no
-    cache of the manifest is a usage error too.
+    Each cache with no ``--cache`` is checked under ``--cache-root``, or else under the default root ``_context``
+    uses. Checked before the image build: ``_context`` makes each cache directory after it. A ``--cache`` naming
+    no cache of the manifest is a usage error too.
     """
     from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
     from dokimi.repos.source import default_cache_dir
@@ -227,12 +241,10 @@ def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None
     unknown = sorted(set(overrides) - set(names))
     if unknown:
         raise InputError(f"--cache names no cache of the manifest: {', '.join(unknown)}")
-    if args.cache_root:
-        check(args.cache_root, "--cache-root")
-    for name in names:
+    for name in names:  # the root and the overrides are checked by `_check_cache_flags`
         if name in overrides:
-            check(overrides[name], f"--cache {name}")
-        elif args.cache_root:
+            continue
+        if args.cache_root:
             check(str(Path(args.cache_root) / name), "--cache-root")
         else:  # the default root `_context` uses, below $DOKIMI_REPO_CACHE when it is set
             env = " (from $DOKIMI_REPO_CACHE)" if os.environ.get("DOKIMI_REPO_CACHE") else ""
@@ -266,6 +278,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     out = Path(args.out).resolve()
     source = _parse_source(args)
     _refuse_typed(source, args)  # before the manifest, the image build and the tasks
+    _check_cache_flags(args)  # before the source is opened
     try:
         ctx, _ = _context(args, out, source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
@@ -402,6 +415,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
 
     source = _parse_source(args)  # as typed, before the build and the pin: a usage error
     _refuse_typed(source, args)  # before the arms and the harness
+    _check_cache_flags(args)  # before `pin_arms` opens the source
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)

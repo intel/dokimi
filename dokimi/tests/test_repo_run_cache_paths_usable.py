@@ -134,8 +134,7 @@ def test_with_no_cache_root_the_default_root_is_used_and_an_override_alone_is_ch
 
 @pytest.mark.parametrize("command", COMMANDS)
 def test_a_cache_of_a_name_the_manifest_does_not_declare_exits_2_before_any_build(command, setup):
-    blocker = _file(setup["tmp"])
-    exc = _invoke(setup, command, "--cache-root", str(setup["tmp"] / "caches"), "--cache", f"nope={blocker}")
+    exc = _invoke(setup, command, "--cache-root", str(setup["tmp"] / "caches"), "--cache", f"nope={setup['tmp'] / 'c'}")
     assert exc.code == 2
     assert "--cache names no cache of the manifest: nope" in exc.err
     assert setup["runner"].builds == [] and not list((setup["tmp"] / "out").rglob("content"))  # nothing exported
@@ -251,3 +250,19 @@ def test_with_no_cache_root_a_file_where_the_default_root_goes_exits_2_before_an
     assert exc.code == 2
     assert f"the build cache root (from $DOKIMI_REPO_CACHE) {blocker / 'toy' / 'build-cache'} has {blocker} above it" in exc.err
     assert CLOSING in exc.err and "Errno" not in exc.err and setup["runner"].builds == []
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+@pytest.mark.parametrize("flag", ["root", "override"])
+def test_a_bad_cache_path_is_refused_before_a_remote_source_is_cloned(command, flag, setup):
+    """No manifest is needed to check them: a missing remote would otherwise fail its clone first (exit 1)."""
+    blocker = _file(setup["tmp"])
+    extra = ["--cache-root", str(blocker)] if flag == "root" else ["--cache", f"build-cache={blocker}"]
+    argv = _argv(setup, command, "--cache-dir", str(setup["tmp"] / "clones"), *extra)
+    argv[2] = f"file://{setup['tmp']}/nothere@HEAD"
+    args = build_parser().parse_args(argv)
+    with refusal() as exc:
+        args.func(args)
+    label = "--cache-root" if flag == "root" else "--cache build-cache"
+    assert exc.code == 2 and f"{label} {blocker} is not a directory; {CLOSING}" in exc.err
+    assert not (setup["tmp"] / "clones").exists()
