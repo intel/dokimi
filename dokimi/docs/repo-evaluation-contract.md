@@ -2353,7 +2353,8 @@ below one, or a `--cache-root` that holds a regular file named after a cache, is
 build with exit 2, naming the flag and the path; so is one that cannot be resolved (a symbolic link loop), and a
 `--cache-root` that is a regular file is refused also when every cache has its own `--cache` and when the
 manifest declares no cache. Without `--cache-root`, the default root (`caches/<id>` next to `$DOKIMI_REPO_CACHE`
-when it is set) is checked the same way for each cache with no `--cache`. An existing
+when it is set) is checked the same way for each cache with no `--cache`, and a `--cache` naming no cache of the
+manifest is refused there too. An existing
 read-only directory is accepted. `{source_dir}` is the source's own git directory, or
 `--source-dir`.
 

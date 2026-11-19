@@ -118,9 +118,6 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     if ctx_dir is not None:
         shutil.rmtree(ctx_dir)
     overrides = dict(_pair(c) for c in args.cache or ())
-    unknown = sorted(set(overrides) - {c.name for c in manifest.image.caches})
-    if unknown:
-        raise ValueError(f"--cache names no cache of the manifest: {', '.join(unknown)}")
     cache_root = Path(args.cache_root) if args.cache_root else default_cache_dir().parent / "caches" / manifest.id
     caches = {}
     for c in manifest.image.caches:
@@ -217,7 +214,7 @@ def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None
     Without ``--cache-root``, each cache with no ``--cache`` is checked under the default root ``_context`` uses.
 
     Checked before the image build: ``_context`` makes each cache directory after it. A ``--cache`` naming no
-    cache of the manifest is skipped here (``_context`` refuses it with its own message).
+    cache of the manifest is a usage error too.
     """
     from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
     from dokimi.repos.source import default_cache_dir
@@ -227,6 +224,9 @@ def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None
 
     overrides = dict(_pair(c) for c in args.cache or ())
     names = [c.name for c in manifest.image.caches] if manifest.image is not None else []
+    unknown = sorted(set(overrides) - set(names))
+    if unknown:
+        raise InputError(f"--cache names no cache of the manifest: {', '.join(unknown)}")
     if args.cache_root:
         check(args.cache_root, "--cache-root")
     for name in names:

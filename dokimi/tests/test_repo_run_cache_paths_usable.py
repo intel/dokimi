@@ -132,11 +132,13 @@ def test_with_no_cache_root_the_default_root_is_used_and_an_override_alone_is_ch
     assert list(home.rglob("build-cache")) and "--cache" not in exc.err
 
 
-def test_a_cache_of_a_name_the_manifest_does_not_declare_keeps_its_message(setup):
+@pytest.mark.parametrize("command", COMMANDS)
+def test_a_cache_of_a_name_the_manifest_does_not_declare_exits_2_before_any_build(command, setup):
     blocker = _file(setup["tmp"])
-    exc = _invoke(setup, "check", "--cache-root", str(setup["tmp"] / "caches"), "--cache", f"nope={blocker}")
-    assert exc.code == 1
+    exc = _invoke(setup, command, "--cache-root", str(setup["tmp"] / "caches"), "--cache", f"nope={blocker}")
+    assert exc.code == 2
     assert "--cache names no cache of the manifest: nope" in exc.err
+    assert setup["runner"].builds == [] and not list((setup["tmp"] / "out").rglob("content"))  # nothing exported
 
 
 @pytest.mark.parametrize("command", COMMANDS)
