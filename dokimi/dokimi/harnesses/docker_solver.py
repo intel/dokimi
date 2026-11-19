@@ -673,7 +673,7 @@ class DockerSolverHarness:
         return resolve_recorded(task, self.network, agent=self.mode not in ("oracle", "null"), record=record)
 
     def _solve_in_container(self) -> bool:
-        return self.mode == "oracle" or self.agent_location == "container"
+        return self.mode == "oracle" or (self.mode != "null" and self.agent_location == "container")
 
     def _network_metrics(self, plan: NetworkPlan) -> dict[str, Any]:  # a host agent's solve is not ours
         skill = skill_needs(self._resolve_skill_dir(), plan) if self.mode == "claude" else None
@@ -685,7 +685,8 @@ class DockerSolverHarness:
         if not (agent or needs_sandbox(plan, solve_in_container=self._solve_in_container())):
             return None
         return ContainerSandbox.open(container, self._docker, log, source_env=operator_source_env(),
-                                     task_egress=list(plan.solve.hosts), with_agent=agent and self.mode == "claude",
+                                     task_egress=list(plan.solve.hosts) if self.mode != "null" else [],
+                                     with_agent=agent and self.mode == "claude",
                                      include_llm=agent, runner=self.runner)
 
     def _verify_phase(self, task: TaskSpec, net: PhasePolicy, container: str, output_dir: Path, log,

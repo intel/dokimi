@@ -199,6 +199,17 @@ def test_docker_null_run_with_fixture_errors_is_not_ok(tmp_path):
     assert result.passed is False
 
 
+def test_docker_null_ignores_the_solve_network(tmp_path):
+    task = load_task(_harbor(tmp_path))
+    cli = DockerCLI(reward="0.0", answer=_verifier(FAILED_TWO, returncode=1))
+    harness = DockerSolverHarness("docker-null", mode="null", runner=cli, network=("solve=allowlist:example.org",))
+    result = harness.run(task, output_dir=tmp_path / "out")
+
+    assert result.metrics["network"]["solve_enforced"] is False
+    assert all(args[0] != "network" for args in cli.args)
+    assert result.passed is True
+
+
 def test_docker_oracle_run_has_no_null_check_metric(tmp_path):
     task = load_task(_harbor(tmp_path))
     cli = DockerCLI(reward="1.0", solver="")
