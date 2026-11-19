@@ -120,7 +120,7 @@ def test_bash_n_gets_the_script_on_stdin_with_no_environment(tmp_path):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert findings == [("warn", "script-syntax", "run.sh does not parse as shell: line 2: syntax error")]
+    assert findings == [("warn", "script-syntax", "run.sh does not parse as shell: line 2: syntax error", "run.sh")]
     [call] = runner.calls
     assert call.argv == ("/usr/bin/bash", "-n")  # the script is never a file argument
     assert call.input == b"if true; then\n"
@@ -133,7 +133,7 @@ def test_a_crlf_shell_script_is_reported_once_and_not_passed_to_bash(tmp_path):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert [code for _, code, _ in findings] == ["script-crlf"]
+    assert [code for _, code, *_ in findings] == ["script-crlf"]
     assert runner.calls == []
 
 
@@ -147,7 +147,7 @@ def test_ruff_and_shellcheck_counts_go_in_one_script_lint_note(tmp_path):
     findings = script_findings(skill, which=_tools("ruff", "shellcheck", "bash"), runner=runner)
 
     assert findings == [("note", "script-lint",
-                         "bundled-script lint: ruff 3 (S602 x2, S607 x1); shellcheck 1 (SC2086 x1)")]
+                         "bundled-script lint: ruff 3 (S602 x2, S607 x1); shellcheck 1 (SC2086 x1)", None)]
     ruff_call = next(c for c in runner.calls if c.argv[0].endswith("ruff"))
     assert "--isolated" in ruff_call.argv and "--no-cache" in ruff_call.argv
     assert ruff_call.argv[ruff_call.argv.index("--select") + 1] == "S,E9,F63,F7,F82"
@@ -160,7 +160,7 @@ def test_shellcheck_json_wrapped_in_an_object_is_read_too(tmp_path):
 
     findings = script_findings(skill, which=_tools("shellcheck"), runner=runner)
 
-    assert findings == [("note", "script-lint", "bundled-script lint: shellcheck 1 (SC2086 x1)")]
+    assert findings == [("note", "script-lint", "bundled-script lint: shellcheck 1 (SC2086 x1)", None)]
 
 
 def test_no_linter_on_path_adds_no_finding_and_spawns_nothing(tmp_path):
@@ -240,7 +240,7 @@ def test_a_script_with_an_env_bash_shebang_is_checked_as_bash(tmp_path):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert [code for _, code, *_ in findings] == ["script-syntax"]
 
 
 def test_a_skill_at_the_checkout_root_has_no_script_bundle(tmp_path, no_linters):
@@ -282,7 +282,7 @@ def test_a_python_syntax_error_is_not_counted_again_by_ruff(tmp_path):
 
     findings = script_findings(skill, which=_tools("ruff"), runner=runner)
 
-    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert [code for _, code, *_ in findings] == ["script-syntax"]
 
 
 def test_review_skill_dir_checks_the_scripts_of_a_skill_reviewed_alone(tmp_path, no_linters):
@@ -313,7 +313,7 @@ def test_env_options_and_assignments_do_not_hide_the_shell(tmp_path, shebang):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert [code for _, code, *_ in findings] == ["script-syntax"]
     assert len(runner.calls) == 1
 
 
@@ -328,7 +328,7 @@ def test_env_s_escaped_separators_do_not_hide_the_shell(tmp_path, shebang):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert [code for _, code, *_ in findings] == ["script-syntax"]
     assert len(runner.calls) == 1
 
 
@@ -596,7 +596,7 @@ def test_a_comment_mentioning_extglob_does_not_hide_an_extglob_error(tmp_path):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert [code for _, code, *_ in findings] == ["script-syntax"]
     [call] = runner.calls
     assert call.argv == ("/usr/bin/bash", "-n")
 
@@ -606,7 +606,7 @@ def test_a_shebang_option_that_changes_no_parse_keeps_the_check(tmp_path, sheban
     skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
     runner = process.FakeRunner(lambda call: process.reply(stderr="bash: syntax error\n", returncode=2))
 
-    assert [code for _, code, _ in script_findings(skill, which=_tools("bash"), runner=runner)] == ["script-syntax"]
+    assert [code for _, code, *_ in script_findings(skill, which=_tools("bash"), runner=runner)] == ["script-syntax"]
     assert runner.calls[0].argv == ("/usr/bin/bash", "-n")
 
 
@@ -625,7 +625,7 @@ def test_a_sh_shebang_is_checked_by_bash_n(tmp_path, interpreter):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert [code for _, code, *_ in findings] == ["script-syntax"]
     assert runner.calls[0].argv == ("/usr/bin/bash", "-n")
 
 
@@ -643,7 +643,7 @@ def test_the_suffix_is_matched_in_any_case(tmp_path):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert sorted(message.split(" does not")[0] for _, _, message in findings) == ["RUN.SH", "Tool.PY"]
+    assert sorted(message.split(" does not")[0] for _, _, message, _ in findings) == ["RUN.SH", "Tool.PY"]
 
 
 def test_the_suffix_is_matched_in_any_case_for_the_linters(tmp_path):
@@ -656,7 +656,7 @@ def test_the_suffix_is_matched_in_any_case_for_the_linters(tmp_path):
     shellcheck_call = next((c for c in runner.calls if c.argv[0].endswith("shellcheck")), None)
     assert ruff_call is not None and [Path(a).name for a in ruff_call.argv if a.endswith(".PY")] == ["Tool.PY"]
     assert shellcheck_call is not None and [Path(a).name for a in shellcheck_call.argv if a.endswith(".SH")] == ["RUN.SH"]
-    assert [code for _, code, _ in findings] == ["script-lint"]
+    assert [code for _, code, *_ in findings] == ["script-lint"]
 
 
 @pytest.mark.parametrize("line", [
@@ -843,7 +843,7 @@ def test_a_shebang_flag_word_or_end_of_options_that_changes_no_parse_keeps_the_c
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert [code for _, code, *_ in findings] == ["script-syntax"]
     assert runner.calls[0].argv == ("/usr/bin/bash", "-n")
 
 
@@ -870,7 +870,7 @@ def test_a_linter_report_longer_than_the_capture_limit_still_gives_its_note(tmp_
 
     findings = script_findings(skill, which=_tools("ruff"), runner=_linter_runner(ruff=many))
 
-    assert findings == [("note", "script-lint", f"bundled-script lint: ruff {len(many)} (S602 x{len(many)})")]
+    assert findings == [("note", "script-lint", f"bundled-script lint: ruff {len(many)} (S602 x{len(many)})", None)]
 
 
 def test_a_nested_skills_scripts_are_not_reported_on_the_outer_skill(tmp_path):
@@ -882,7 +882,7 @@ def test_a_nested_skills_scripts_are_not_reported_on_the_outer_skill(tmp_path):
 
     assert script_findings(skill, which=_tools("bash"), runner=runner) == []
     assert runner.calls == []
-    assert [code for _, code, _ in script_findings(skill / "inner", which=_tools("bash"), runner=runner)] == [
+    assert [code for _, code, *_ in script_findings(skill / "inner", which=_tools("bash"), runner=runner)] == [
         "script-syntax"]
 
 
@@ -893,7 +893,7 @@ def test_the_script_walk_reads_at_most_the_file_cap(tmp_path, monkeypatch):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert [message.split(" ")[0] for _, _, message in findings] == ["a.sh", "b.sh"]
+    assert [message.split(" ")[0] for _, _, message, _ in findings] == ["a.sh", "b.sh"]
     assert len(runner.calls) == 2
 
 
@@ -905,7 +905,7 @@ def test_the_syntax_message_does_not_name_the_bash_that_ran_it(tmp_path):
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
     assert findings == [("warn", "script-syntax",
-                         "run.sh does not parse as shell: line 2: syntax error near unexpected token `then'")]
+                         "run.sh does not parse as shell: line 2: syntax error near unexpected token `then'", "run.sh")]
 
 
 @pytest.mark.parametrize("line", [
@@ -940,3 +940,42 @@ def test_a_shopt_after_a_double_quoted_command_substitution_with_quotes_is_valid
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + QUOTES_IN_COMMAND_SUB})
 
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+def _check_json(root: Path, capsys) -> list[dict]:
+    """The findings of every subject in `catalog check --json` on ``root``."""
+    from tests.test_catalog_skill_format import main
+
+    main(["catalog", "check", "--root", str(root), "--kind", "skills", "--json"])
+    return [f for s in json.loads(capsys.readouterr().out)["subjects"] for f in s["findings"]]
+
+
+@pytest.mark.parametrize("crlf", ["alpha", "beta"])
+def test_the_json_finding_names_which_same_named_script_has_crlf(tmp_path, capsys, no_linters, crlf):
+    """#961: two scripts named run.sh; the structured `script` says which one, `file` stays SKILL.md."""
+    files = {f"scripts/{d}/run.sh": b"#!/bin/sh\necho hi\n" for d in ("alpha", "beta")}
+    files[f"scripts/{crlf}/run.sh"] = b"#!/bin/sh\r\necho hi\r\n"
+    _bundle(tmp_path, files)
+
+    [found] = [f for f in _check_json(tmp_path, capsys) if f["code"] == "script-crlf"]
+
+    assert found["script"] == f"scripts/{crlf}/run.sh"
+    assert found["file"] == "skills/bundled/SKILL.md"
+
+
+def test_the_json_finding_names_the_python_script_that_does_not_parse(tmp_path, capsys, no_linters):
+    """#961: script-syntax carries the script path too."""
+    _bundle(tmp_path, {"scripts/a/tool.py": b"def (:\n", "scripts/b/tool.py": b"x = 1\n"})
+
+    [found] = [f for f in _check_json(tmp_path, capsys) if f["code"] == "script-syntax"]
+
+    assert found["script"] == "scripts/a/tool.py"
+
+
+def test_a_json_finding_not_about_a_script_has_no_script_key(tmp_path, capsys, no_linters):
+    """#961: `script` is optional; a finding about the skill alone does not carry it."""
+    _skill(tmp_path / "skills", "plain", name="plain", description="x", body="# Body\n")
+
+    findings = _check_json(tmp_path, capsys)
+
+    assert findings and all("script" not in f for f in findings)

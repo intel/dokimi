@@ -311,7 +311,8 @@ At most 200 files of a bundle are walked: every file counts, `SKILL.md` and non-
 order (a directory's files sorted by name, then its subdirectories). Files past the cap are not checked and give
 no finding; a subdirectory with its own `SKILL.md` is another skill and is skipped.
 A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
-Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
+Nothing is run or imported. In `catalog check --json` a `script-crlf` or `script-syntax` finding carries `script`, the
+script's path relative to the skill directory, while `file` stays the skill's `SKILL.md`. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
 `ast.parse` rejects is a `warn` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
 goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
