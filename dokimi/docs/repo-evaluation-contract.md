@@ -2231,6 +2231,9 @@ The report keeps observations apart from findings:
   for an agent to read, far below what a disk-size lint flags). From a
   blob-less clone sizes are not read, since listing them would fetch every
   blob; the report says so under `not_observed`.
+  A file below a directory that cannot be searched (`chmod 000`) is left out,
+  in a git working tree as in a plain directory; a link stays listed, even when
+  it dangles or names a file there.
 
 Each finding has a `rule`, a `severity` (`error`, `warning`, `info`) and,
 separately, a `confidence`, the `stages` it affects (`orient`, `bootstrap`,

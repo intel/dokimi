@@ -78,6 +78,8 @@ def test_inspect_survives_a_tracked_file_in_an_unreadable_directory(tmp_path, ca
 @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
                     reason="needs a directory mode the user cannot bypass")
 def test_an_unreadable_directory_keeps_its_readable_siblings_and_a_link_listed(tmp_path):
+    """#906, docs/repo-evaluation-contract.md §8.1 `files`: a file below an unsearchable directory is left out;
+    its siblings and a link, dangling or into that directory, stay listed."""
     root = tmp_path / "repo"
     _repo(root, {"a.py": "x = 1\n", "sub/f.py": "x = 1\n", "ok/g.py": "x = 1\n"})
     (root / "link").symlink_to("nowhere")
