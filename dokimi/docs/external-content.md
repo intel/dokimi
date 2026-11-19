@@ -381,6 +381,16 @@ names a planned, paid follow-up command (a model run over the candidates), which
 yet available; its flags may change before it lands. The thresholds are conservative and
 the section is a shortlist, not a judgement.
 
+`--listing-budget CHARS` (opt in, whole-catalog skill scans) adds the size of the skill
+listing: for each skill a harness would list, its name plus its description and `when_to_use`
+capped at 1,536 characters, with identical copies of a `SKILL.md` counted once (identical files that load under different
+names, because the front matter has no `name`, are two entries). It prints
+`# listing budget: <chars>/<CHARS> characters across <n> distinct skills`, and above the cap a
+`warn listing-over-budget` line that names the longest listing lines until their sum covers
+the excess. It is advisory: the exit code does not change. `--format json` carries it under
+`listing_budget` (`chars`, `skills`, `cap`, `excess`, `largest`). It exits 2 with `--per-skill`
+or `--kind tasks`.
+
 ### Network checks (`--online`, opt in)
 
 `catalog check` opens no connection by default. `--online` adds two checks that

@@ -103,6 +103,7 @@
 --libraries
 --library
 --limit
+--listing-budget  # catalog check (#970): advisory cap on the skill listing size
 --listing-budget-fraction  # catalog trigger-probe (#217) adds it: no registry concept yet
 --manifest
 --manifest-file
