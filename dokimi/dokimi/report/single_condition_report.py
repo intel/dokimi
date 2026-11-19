@@ -30,7 +30,7 @@ from dokimi.report.eval_report import (
     fmt_question,
     generate_report,
 )
-from dokimi.report.stop_note import stop_note
+from dokimi.report.stop_note import stop_note, with_stop
 
 #: Rows in the lowest-scoring table.
 WEAK_SPOTS = 10
@@ -129,9 +129,7 @@ def _report_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
         meta.setdefault("answer_model", data["model"])
     if data.get("provider"):
         meta.setdefault("answer_provider", data["provider"])
-    if data.get("terminated"):
-        meta.setdefault("terminated", data["terminated"])
-    return meta
+    return with_stop(meta, data)
 
 
 def _write_qa(eval_path: str, out_path: str, qa_json_out: Optional[str], evals: Sequence[Record],

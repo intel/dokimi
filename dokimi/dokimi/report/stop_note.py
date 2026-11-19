@@ -23,3 +23,11 @@ def stop_note(data: Mapping[str, Any]) -> List[str]:
     return [f"> **Stopped early** after {fmt.plain(block.get('questions_recorded'))} of "
             f"{fmt.plain(block.get('questions_requested'))} questions: {reason}. "
             "Every number below covers only questions answered before the stop.", ""]
+
+
+def with_stop(meta: Any, data: Mapping[str, Any]) -> Any:
+    """*meta*, a report's copy of the ``run_metadata`` of *data*, with the ``terminated`` block at the top of
+    *data* (an arms artifact) when it has none of its own: the Q&A export then records the stop the page notes."""
+    if not data.get("terminated"):
+        return meta
+    return {"terminated": data["terminated"], **(meta or {})}

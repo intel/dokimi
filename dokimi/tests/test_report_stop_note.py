@@ -108,10 +108,17 @@ def test_report_eval_opens_with_the_stop_and_changes_nothing_else(tmp_path, doc,
     assert _page(tmp_path, _with_stop(doc, where)) == [*old[:2], NOTE, "", *old[2:]]
 
 
-def test_the_one_condition_qa_export_keeps_the_stop_of_an_arms_artifact(tmp_path):
-    _page(tmp_path, _with_stop(_knowledge_arms_doc(), "top"))
+@pytest.mark.parametrize("doc", [
+    _knowledge_arms_doc(),  # the one-condition export
+    _eval_doc({"q1": 80.0, "q2": 40.0}, with_context=True),  # the paired export
+])
+@pytest.mark.parametrize("where", ["top", "run_metadata"])
+def test_the_qa_export_keeps_the_stop_the_page_notes(tmp_path, doc, where):
+    doc = {**doc, "run_metadata": doc.get("run_metadata", {"answer_model": "m"})}
+    _page(tmp_path, _with_stop(doc, where))
     qa = json.loads((tmp_path / "report" / "demo.qa.json").read_text(encoding="utf-8"))
     assert qa["run_metadata"]["terminated"] == STOP
+    assert qa["run_metadata"]["answer_model"] == "m"
 
 
 def _stopped_answers(tmp_path: Path) -> str:
