@@ -43,6 +43,20 @@ def _score(artifact: dict, scoring: str) -> float | None:
     return float(value)
 
 
+def _unprobed(artifact: dict) -> bool:
+    """A run whose extraction left no atom to probe: its ``k0`` of 0.0 is no measurement."""
+    return _dict(artifact.get("atoms")).get("n_probed") == 0
+
+
+def _config_value(config: dict, key: str):
+    """``run_config[key]``; a tier compares by ``name`` and ``overrides``, since its
+    ``forfeits`` follow how many atoms a run happened to extract."""
+    value = config.get(key)
+    if key == "tier" and isinstance(value, dict):
+        return {k: v for k, v in value.items() if k != "forfeits"}
+    return value
+
+
 def _named(refs: list[str]) -> str:
     more = f" and {len(refs) - NAMED} more" if len(refs) > NAMED else ""
     return ", ".join(refs[:NAMED]) + more
@@ -63,8 +77,8 @@ def load_runs(path: Path) -> dict[str, dict]:
         if not isinstance(artifact, dict) or not isinstance(artifact.get("artifact"), dict):
             raise InputError(f"{file} is not a novelty artifact (no artifact block)")
         ref = artifact["artifact"].get("ref")
-        if not ref:
-            raise InputError(f"{file} has no artifact ref; it is not a novelty artifact")
+        if not isinstance(ref, str) or not ref:
+            raise InputError(f"{file} has no non-empty string artifact ref; it is not a novelty artifact")
         if ref in runs:
             raise InputError(f"artifact {ref} appears twice under {path}; keep one run per item")
         runs[ref] = artifact
@@ -72,14 +86,12 @@ def load_runs(path: Path) -> dict[str, dict]:
 
 
 def _judging(run: dict) -> dict:
-    panel = _dict(run.get("judge_panel"))
-    return {"judge_model": run.get("judge_model"), "judges": panel.get("judges"),
-            "rule": panel.get("rule")}
+    return {"judge_model": run.get("judge_model")}
 
 
 def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
     """What makes two runs of one item a poor retest: the same seed, another model or judge,
-    calls replayed from the response cache, or settings that differ beyond the seed."""
+    changed content, calls replayed from the response cache, or settings that differ beyond the seed."""
     config_a, config_b = _dict(a.get("run_config")), _dict(b.get("run_config"))
     seed = config_a.get("seed")
     warnings = []
@@ -87,6 +99,10 @@ def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
         warnings.append(f"{ref}: both runs used seed {seed}; a retest needs another seed")
     if a.get("model") != b.get("model"):
         warnings.append(f"{ref}: the runs used different models ({a.get('model')} and {b.get('model')})")
+    digest_a, digest_b = _dict(a.get("artifact")).get("ref_digest"), _dict(b.get("artifact")).get("ref_digest")
+    if digest_a != digest_b:
+        warnings.append(f"{ref}: the content changed between the runs (ref_digest {digest_a} and "
+                        f"{digest_b}); they measure different items")
     judging_a, judging_b = _judging(a), _judging(b)
     judged = [key for key in judging_a if judging_a[key] != judging_b[key]]
     if judged:
@@ -101,7 +117,7 @@ def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
             )
     differing = sorted(
         key for key in config_a.keys() | config_b.keys()
-        if key != "seed" and config_a.get(key) != config_b.get(key)
+        if key != "seed" and _config_value(config_a, key) != _config_value(config_b, key)
     )
     if differing:
         warnings.append(
@@ -126,7 +142,8 @@ def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> 
             continue
         a, b = first[ref], second[ref]
         score_a, score_b = _score(a, scoring), _score(b, scoring)
-        if score_a is None or score_b is None or a.get("partial") or b.get("partial"):
+        if (score_a is None or score_b is None or a.get("partial") or b.get("partial")
+                or _unprobed(a) or _unprobed(b)):
             unscored.append(ref)
             continue
         warnings.extend(_pair_warnings(ref, a, b))
@@ -146,7 +163,7 @@ def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> 
         )
     if unscored:
         warnings.append(
-            f"{len(unscored)} item(s) have no usable {scoring} score or a partial run: "
+            f"{len(unscored)} item(s) have no usable {scoring} score, no probed atom or a partial run: "
             f"{_named(unscored)}"
         )
     return {"pairs": pairs, "unmatched": unmatched, "unscored": unscored, "warnings": warnings}

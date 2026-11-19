@@ -181,8 +181,7 @@ def test_another_judge_model_is_not_read_as_noise():
 def test_another_judge_panel_or_rule_with_the_same_first_judge_is_not_read_as_noise():
     first = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.5, seed=0), judges=["j1", "j2"], rule="median")}
     second = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.6, seed=2), judges=["j1", "j3"], rule="majority")}
-    text = " ".join(pair_runs(first, second, "lenient")["warnings"])
-    assert "graded differently (judges, rule)" in text
+    assert pair_runs(first, second, "lenient")["warnings"] == []
 
 
 def test_the_same_panel_with_measured_values_that_vary_gives_no_warning():
@@ -306,3 +305,85 @@ def test_the_command_refuses_runs_with_no_item_in_common(tmp_path):
     second = _write_runs(tmp_path / "b", {"skill:/s/two": _artifact("skill:/s/two", 0.5)})
     with pytest.raises(InputError, match="no item scored in both runs"):
         _run_retest(tmp_path, first, second)
+
+
+def test_the_zero_pair_refusal_names_the_excluded_items_on_stderr(tmp_path, capsys):
+    first = _write_runs(tmp_path / "a", {"skill:/s/one": _artifact("skill:/s/one", 0.5)})
+    second = _write_runs(tmp_path / "b", {"skill:/s/two": _artifact("skill:/s/two", 0.5)})
+    with pytest.raises(InputError, match="no item scored in both runs"):
+        _run_retest(tmp_path, first, second)
+    err = capsys.readouterr().err
+    assert "skill:/s/one" in err
+    assert "skill:/s/two" in err
+
+
+def test_the_zero_pair_refusal_names_unscored_items_on_stderr(tmp_path, capsys):
+    first = _write_runs(tmp_path / "a", {"skill:/s/one": _artifact("skill:/s/one", 0.5, partial=True)})
+    second = _write_runs(tmp_path / "b", {"skill:/s/one": _artifact("skill:/s/one", 0.5, seed=2)})
+    with pytest.raises(InputError, match="no item scored in both runs"):
+        _run_retest(tmp_path, first, second)
+    assert "skill:/s/one" in capsys.readouterr().err
+
+
+def test_a_ref_that_is_not_a_string_is_refused_as_bad_input(tmp_path):
+    (tmp_path / "x").mkdir()
+    (tmp_path / "x" / "novelty.json").write_text('{"artifact": {"ref": ["skill:/s/a"]}}', encoding="utf-8")
+    with pytest.raises(InputError, match="not a novelty artifact"):
+        load_runs(tmp_path)
+
+
+def test_changed_content_between_the_runs_is_not_read_as_noise():
+    first = _artifact("skill:/s/a", 0.5, seed=0)
+    second = _artifact("skill:/s/a", 0.6, seed=2)
+    first["artifact"]["ref_digest"] = "aaa"
+    second["artifact"]["ref_digest"] = "bbb"
+    text = " ".join(pair_runs({"skill:/s/a": first}, {"skill:/s/a": second}, "lenient")["warnings"])
+    assert "content changed" in text
+
+
+def test_the_same_content_digest_gives_no_warning():
+    first = _artifact("skill:/s/a", 0.5, seed=0)
+    second = _artifact("skill:/s/a", 0.6, seed=2)
+    first["artifact"]["ref_digest"] = second["artifact"]["ref_digest"] = "aaa"
+    assert pair_runs({"skill:/s/a": first}, {"skill:/s/a": second}, "lenient")["warnings"] == []
+
+
+def test_a_run_with_no_probed_atom_is_unscored_not_a_zero():
+    first = _artifact("skill:/s/a", 0.0, seed=0)
+    first["atoms"] = {"n": 0, "n_probed": 0}
+    second = _artifact("skill:/s/a", 0.4, seed=2)
+    paired = pair_runs({"skill:/s/a": first}, {"skill:/s/a": second}, "lenient")
+    assert paired["pairs"] == []
+    assert paired["unscored"] == ["skill:/s/a"]
+
+
+def test_tier_forfeits_that_follow_the_atom_count_are_not_a_settings_change():
+    base = {"name": "triage", "overrides": {}}
+    first = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=0, config={"tier": {**base, "forfeits": []}})}
+    second = {"skill:/s/a": _artifact("skill:/s/a", 0.6, seed=2, config={"tier": {**base, "forfeits": ["sampled"]}})}
+    assert pair_runs(first, second, "lenient")["warnings"] == []
+
+
+def test_another_tier_name_still_warns():
+    first = {"skill:/s/a": _artifact("skill:/s/a", 0.5, seed=0, config={"tier": {"name": "triage", "overrides": {}}})}
+    second = {"skill:/s/a": _artifact("skill:/s/a", 0.6, seed=2, config={"tier": {"name": "full", "overrides": {}}})}
+    assert "tier" in " ".join(pair_runs(first, second, "lenient")["warnings"])
+
+
+def test_a_constant_side_has_no_correlation_even_when_its_mean_does_not_round():
+    from dokimi.eval.correlation import pearson
+
+    assert pearson([0.1] * 3, [0.2, 0.5, 0.9]) is None
+    assert pearson([0.2, 0.5, 0.9], [0.1] * 3) is None
+
+
+def test_confidence_correlation_is_the_pearson_r_of_confidence_and_correctness():
+    from types import SimpleNamespace
+
+    from dokimi.novelty.measure import MeasureResult
+
+    rows = [SimpleNamespace(confidence=c, correct=lambda _mode, ok=ok: ok)
+            for c, ok in ((0.1, False), (0.5, True), (0.9, True))]
+    result = MeasureResult.__new__(MeasureResult)
+    result.runs = rows
+    assert result.confidence_correlation() == pytest.approx(0.866, abs=0.001)

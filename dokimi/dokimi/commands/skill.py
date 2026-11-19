@@ -178,7 +178,8 @@ def register_skill(skill_sub, positive_int) -> None:
         "retest", help="Noise floor from two analyze runs of the same items (no model calls)")
     retest_p.add_argument("--baseline", required=True,
                           help="The baseline: a directory of `skill novelty analyze` output, or one "
-                               "novelty.json. A run saved under another name (--out-json) is not read")
+                               "file, read whatever its name. In a directory only files named "
+                               "novelty.json are read (not an --out-json under another name)")
     retest_p.add_argument("--retest", required=True,
                           help="The retest: same items, another --seed, a fresh --cache-dir, and no "
                                "DOKIMI_RESPONSE_CACHE replay (a replayed call warns)")

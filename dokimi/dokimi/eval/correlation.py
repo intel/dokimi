@@ -15,7 +15,7 @@ def pearson(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
     themselves.
     """
     n = len(xs)
-    if n < 2:
+    if n < 2 or len(set(xs)) == 1 or len(set(ys)) == 1:
         return None
     mean_x, mean_y = sum(xs) / n, sum(ys) / n
     dx = [x - mean_x for x in xs]

@@ -18,6 +18,8 @@ def cmd_novelty_retest(args: argparse.Namespace) -> None:
                                        retest_summary)
 
     paired = pair_runs(load_runs(Path(args.baseline)), load_runs(Path(args.retest)), args.scoring)
+    for warning in paired["warnings"]:
+        print(f"WARNING: {warning}", file=sys.stderr)
     if not paired["pairs"]:
         raise InputError("no item scored in both runs: there is nothing to measure a floor from")
     summary = retest_summary(paired["pairs"], args.scoring)
@@ -32,8 +34,6 @@ def cmd_novelty_retest(args: argparse.Namespace) -> None:
               f"{summary['n_below_floor']} of {summary['n_comparisons']} comparisons below the floor.")
         if summary["small_sample"]:
             print(f"Caveat: fewer than {SMALL_SAMPLE_N} items; read the floor as an order of magnitude.")
-    for warning in paired["warnings"]:
-        print(f"WARNING: {warning}", file=sys.stderr)
     if args.out_dir:
         out = Path(args.out_dir)
         out.mkdir(parents=True, exist_ok=True)
