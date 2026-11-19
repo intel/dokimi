@@ -295,3 +295,48 @@ def test_the_scorecard_carries_a_distribution_digest_per_member(tmp_path: Path, 
     # The standalone member has a digest; the bundled one has resources, so neither its file nor its directory does.
     digests = [member["distribution_digest"] for member in scorecard["subject"]["members"]]
     assert digests == ["sha256:" + hashlib.sha256(b"member body").hexdigest(), None, None]
+
+
+_LONG = "x" * 5000  # past NAME_MAX and PATH_MAX, so the OS refuses the probe with ENAMETOOLONG
+
+
+def test_a_question_value_longer_than_the_name_limit_digests_as_text():
+    # #911: _digest_values(("x" * 300,)) raised OSError: [Errno 36] File name too long from Path.is_file().
+    digest = _digest_values((_LONG,))
+    assert digest == "sha256:" + hashlib.sha256(_field_of(_LONG) + b"t").hexdigest()
+    assert digest == _digest_values((_LONG,)) != _digest_values((_LONG + "y",))
+
+
+def test_a_ref_longer_than_the_name_limit_digests_as_naming_nothing(tmp_path: Path):
+    # #911: _digest_ref("x" * 300, base=Path("/tmp")) raised OSError: [Errno 36] File name too long.
+    digest = _digest_ref(_LONG, base=tmp_path)
+    assert digest == "sha256:" + hashlib.sha256(b"t" + _field_of(_LONG)).hexdigest()
+    assert digest != _digest_ref(_LONG + "y", base=tmp_path)
+    assert _digest_ref("local:" + _LONG, base=tmp_path) == "sha256:" + hashlib.sha256(
+        b"t" + _field_of("local:" + _LONG)).hexdigest()
+
+
+def test_an_arm_spec_with_a_ref_longer_than_the_name_limit_is_digested(tmp_path: Path):
+    # #911: the arm spec digest probes each part's ref the same way.
+    digest = _digest_arm_spec(f"skill:./{_LONG}", base=tmp_path)
+    assert digest.startswith("sha256:") and digest == _digest_arm_spec(f"skill:./{_LONG}", base=tmp_path)
+    assert digest != _digest_arm_spec(f"skill:./{_LONG}y", base=tmp_path)
+
+
+def test_a_distribution_digest_of_a_ref_longer_than_the_name_limit_is_none(tmp_path: Path):
+    # #911: distribution_digest probed the ref with is_dir() and raised OSError.
+    assert distribution_digest(_LONG, base=tmp_path) is None
+    assert distribution_digest("local:" + _LONG, base=tmp_path) is None
+
+
+def test_a_long_file_name_inside_a_directory_ref_is_still_hashed(tmp_path: Path):
+    # #911: only the probe of a user text is guarded; the files of a directory are read as before.
+    name = "y" * 200
+    (tmp_path / name).write_bytes(b"a")
+    before = _digest_ref(str(tmp_path), base=tmp_path)
+    (tmp_path / name).write_bytes(b"b")
+    assert _digest_ref(str(tmp_path), base=tmp_path) != before
+
+
+def _field_of(text: str) -> bytes:
+    return hashlib.sha256(text.encode()).digest()

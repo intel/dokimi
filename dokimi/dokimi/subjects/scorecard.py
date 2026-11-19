@@ -137,13 +137,29 @@ def _field(text: str) -> bytes:
     return hashlib.sha256(key_bytes(text)).digest()
 
 
+def _is_file(path: Path) -> bool:
+    """``path.is_file()``, False when the OS refuses the check (a name past the file-name limit is no file)."""
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
+def _is_dir(path: Path) -> bool:
+    """``path.is_dir()``, False when the OS refuses the check (a name past the file-name limit is no directory)."""
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
 def _digest_values(values: tuple[str, ...]) -> str:
     """Per value: its text's digest, then a tag for file or no file, then the file's digest when it names one."""
     h = hashlib.sha256()
     for value in values:
         h.update(_field(value))
         path = Path(value)
-        if path.is_file():
+        if _is_file(path):
             h.update(b"f" + hashlib.sha256(path.read_bytes()).digest())
         else:
             h.update(b"t")
@@ -168,9 +184,9 @@ def distribution_digest(ref: str | None, *, base: Path) -> str | None:
     path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
         path = base / path
-    if path.is_dir():
+    if _is_dir(path):
         skill_dir = path
-    elif path.name == "SKILL.md" and path.is_file():
+    elif path.name == "SKILL.md" and _is_file(path):
         skill_dir = path.parent
     else:
         return None
@@ -192,11 +208,11 @@ def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]
     path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
         path = base / path
-    if path.is_file():
+    if _is_file(path):
         return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(), b"f"
     h = hashlib.sha256()
     kind = b"t"
-    if path.is_dir():
+    if _is_dir(path):
         kind = b"d"
         h.update(b"d")
         # POSIX names, ordered by their parts as utils.tree_digest does, so the same tree digests the same on Windows
