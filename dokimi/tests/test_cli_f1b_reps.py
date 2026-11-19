@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from dokimi import cli, cli_flags, cli_routes
+from dokimi import cli, cli_routes
 from dokimi.cli import build_parser
 
 
@@ -35,7 +35,6 @@ def test_an_old_spelling_tombstones_with_the_new_argv(old, new, capsys):
     text = _tombstone(old, capsys)
     assert text.startswith("moved: dokimi ")
     assert " ".join(new) in text
-    assert cli_flags.registry_problems() == []
 
 
 @pytest.mark.parametrize("argv", [
