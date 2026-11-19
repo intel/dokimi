@@ -292,7 +292,7 @@ def _reach_entry(args: argparse.Namespace) -> None:
 
 
 def _probe_flags_given(args: argparse.Namespace) -> list[str]:
-    spelled = {"budget": "--max-usd-per-cell"}  # the one probe flag whose dest is not its spelling
+    spelled = {"budget": "--max-usd-per-cell", "out": "--out-dir"}  # the probe flags whose dest is not their spelling
     return [spelled.get(k, f"--{k.replace('_', '-')}") for k, default in _PROBE_ONLY.items()
             if getattr(args, k) != default]
 
