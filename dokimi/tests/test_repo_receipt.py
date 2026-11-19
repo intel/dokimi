@@ -326,6 +326,22 @@ def test_from_prints_the_matrix_of_the_saved_probe_and_runs_nothing(tmp_path, mo
     assert capsys.readouterr().out == format_matrix(load_reach(tmp_path / "out" / "reach.json")) + "\n"
 
 
+@pytest.mark.parametrize("fmt", ["matrix", "receipt"])
+def test_from_a_saved_probe_with_a_failed_scenario_exits_1_after_printing(tmp_path, monkeypatch, capsys, fmt):
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch))
+    args = build_parser().parse_args(live)
+    args.func(args)
+    capsys.readouterr()
+    saved = tmp_path / "out" / "reach.json"
+    document = json.loads(saved.read_text(encoding="utf-8"))
+    document["scenarios"][0]["error"] = "exit 1"
+    saved.write_text(json.dumps(document), encoding="utf-8")
+    args = build_parser().parse_args(_from_argv(live, "--from", str(saved), "--format", fmt))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1 and capsys.readouterr().out.strip()
+
+
 def test_from_a_missing_file_is_a_usage_error(tmp_path, monkeypatch, capsys):
     live = _end_to_end_args(tmp_path, monkeypatch)
     args = build_parser().parse_args(_from_argv(live, "--from", str(tmp_path / "nope.json")))
