@@ -209,7 +209,8 @@ Expect `passed: 1` / `pass_rate: 1.0` in the summary. Add `docker-null` to the
 same run (`--harnesses docker-oracle,docker-null`) for the null check: the
 untouched start must fail the tests, or the tests check nothing. The run exits 1
 and names each task that fails it. A pytest error at setup or collection
-(`fixture_error`) fails the check too; fix the fixture first. The oracle solves with
+(`fixture_error`) also fails the check. Inspect the verifier log to see whether
+the error came from the fixture or the missing solution. The oracle solves with
 `network_mode`'s network, which a `docker-claude` agent never gets, so also run
 the probe, and before a sweep one `docker-claude` cell (paid) if the solve
 needs the network:

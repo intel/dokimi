@@ -6,10 +6,10 @@
 A ``docker-null`` cell builds the task image, runs no solve and runs the verifier.
 Its status says what the verifier found:
 
-- ``null_fail``: the tests ran and some failed. The check passes.
+- ``null_fail``: the verifier graded the start as failing. The check passes.
 - ``null_pass``: the verifier passed on the untouched start, so the tests do not check the task.
-- ``fixture_error``: pytest reports errors (setup or collection), so no test judged the start.
-  Not a pass: the fixture is broken, not the solution missing.
+- ``fixture_error``: pytest reported setup or collection errors. A test can error in setup
+  because the expected solution is missing.
 - ``no_verdict``: no usable grading evidence, or a verifier that timed out.
 
 A task passes when its ``docker-oracle`` cell passes and its ``docker-null`` cell is ``null_fail``.

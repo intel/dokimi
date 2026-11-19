@@ -292,10 +292,13 @@ latency, turns):
   it to validate that a task image + verifier work end to end.
 - `docker-null` — no solve: the verifier runs on the untouched start, and its
   tests must fail there (the null check, intel/dokimi#808). It gives a verdict
-  only with `docker-oracle` in the same `tasks run`; that run exits 1 unless
-  every task's oracle passes and its null cell is `null_fail`. A pytest setup or
-  collection error is `fixture_error`, not a pass. The cell's `null_check`
-  metric holds the status.
+  only with `docker-oracle` in the same `tasks run`; omitting it is bad input
+  (exit 2). Outside `--dry-run`, the run exits 1 unless every task's oracle
+  passes and its null cell is `null_fail`. A failing pytest test is enough
+  when no setup or collection error occurred. A verifier without a pytest
+  summary can report a failing grade in `reward.txt`. Pytest setup or
+  collection errors are recorded separately as `fixture_error`. The cell's
+  `null_check` metric holds the status.
 - `docker-claude` — solve with `claude -p --output-format stream-json`
   **inside the task container**, with egress to the LLM endpoint only (see
   [What the agent can reach](#what-the-agent-can-reach)). The final result
