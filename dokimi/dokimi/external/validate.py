@@ -623,6 +623,11 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
     indexed. A passing pair with ``s`` shared words has at least ``_min_overlap`` of them, so its
     rarest shared word sits inside both skills' prefixes and the pair is a candidate. Non-candidates
     could not pass, so the findings, and their order, match comparing every pair.
+
+    The candidate set is a small share of all pairs, not a linear number of them: the common words of
+    a catalog keep it quadratic. On the 1250- and 5000-skill catalog-like corpora of
+    ``tests/test_near_duplicate_blocking.py`` it is 2.3% of all pairs at both sizes (18166 and 283510
+    pairs), so the pairs compared grow about 15.6x for 4x the skills.
     """
     shown = [item for item in loaded if not item[2].disable_model_invocation]
     tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
