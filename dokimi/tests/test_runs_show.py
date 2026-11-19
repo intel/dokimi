@@ -543,6 +543,23 @@ def test_an_artifact_file_of_the_run_ids_name_is_shown_instead(monkeypatch, caps
     assert _show(monkeypatch, capsys, "nightly-1").out.startswith("path:       nightly-1\n")
 
 
+@pytest.mark.parametrize("body", ["notes", "", "{}", '{"schema_version": "nope.v9"}'])
+def test_a_file_of_the_run_ids_name_that_is_not_an_artifact_does_not_shadow_the_run(
+        monkeypatch, capsys, runs, body):
+    """#972: docs/runs.md says only a file ``runs show`` can open wins over a run_id."""
+    (runs / "nightly-1").write_text(body, encoding="utf-8")
+
+    assert _show(monkeypatch, capsys, "nightly-1").out.startswith("run_id:     nightly-1\n")
+
+
+def test_with_no_such_run_a_file_that_is_not_an_artifact_keeps_its_error(monkeypatch, capsys,
+                                                                         runs):
+    (runs / "nightly-5").write_text("notes", encoding="utf-8")
+
+    assert _fails(monkeypatch, capsys, "nightly-5") == (
+        "Error: nightly-5 is not an artifact: it does not open with a schema_version\n")
+
+
 def test_with_no_such_run_a_directory_or_an_outside_path_keeps_its_error(monkeypatch, capsys,
                                                                          runs):
     (runs / "nightly-3").mkdir()
