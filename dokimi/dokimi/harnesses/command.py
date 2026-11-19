@@ -431,6 +431,8 @@ def _find_reward(output_dir: Path | None, stdout: str, stderr: str) -> float | N
             output_dir.rglob("reward.json")
         )
         for path in candidates:
+            if not path.is_file():  # a directory of that name holds no reward, like an empty file
+                continue
             try:
                 return reward_in_file(path.name, path.read_text(encoding="utf-8", errors="replace"))
             except ValueError:  # no reward in this one: the next file may have it
