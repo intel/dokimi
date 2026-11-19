@@ -75,3 +75,28 @@ def test_whole_catalog_json_keys_are_documented(tmp_path, capsys):
     documented_top = set(re.findall(r"^\| `([a-z0-9_]+)` \|", top, re.MULTILINE))
     assert set(report) <= documented_top | {"online"}
     assert {"root", "skills", "tasks", "granularity"} <= set(report)
+
+
+def _envelope_bullet(start: str) -> str:
+    doc = (DOCS / "benchmarking-and-comparison.md").read_text(encoding="utf-8")
+    section = doc.split("### The run envelope", 1)[1]
+    match = re.search(r"^- " + re.escape(start) + r".*?(?=^- |\n\n|\Z)", section, re.DOTALL | re.MULTILINE)
+    assert match, start
+    return match.group(0)
+
+
+def test_run_envelope_guide_names_the_catalog_receipts_that_share_run_id():
+    """#939: ``report.md`` carries no ``run_id``; the guide names the JSON receipts that do."""
+    bullet = _envelope_bullet("`run_id` is made once")
+    for name in ("catalog.json", "plan.json", "result.json"):
+        assert f"`{name}`" in bullet
+    assert "`report.md`" in bullet
+    assert "carries no `run_id`" in bullet
+
+
+def test_run_envelope_guide_places_cost_in_cli_output_stdout():
+    """#939: ``cost`` is in the ``cli_output.v1`` stdout, not in the saved catalog receipts."""
+    bullet = _envelope_bullet("Only `repo hits judge`")
+    assert "`cli_output.v1`" in bullet
+    assert "stdout" in bullet
+    assert "no top-level `cost`" in bullet
