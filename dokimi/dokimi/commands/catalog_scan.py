@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
 from dokimi import __version__
+from dokimi.external.catalog_rates import RateTally, text_lines
 from dokimi.utils import InputError
 
 
@@ -210,15 +211,17 @@ class _Tally:
     the :func:`strict_reason` line of each row that fails that last way.
     """
 
-    def __init__(self, strict: bool) -> None:
+    def __init__(self, strict: bool, root: Path) -> None:
         self.strict = strict
         self.counts = {"ok": 0, "warn": 0, "error": 0}
         self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.not_checked = 0
         self.failed = False
         self.reasons: list[str] = []
+        self.rates = RateTally(root)  # the shares per skill and per repo (catalog_rates)
 
     def add(self, row: dict) -> None:
+        self.rates.add(row)
         self.counts[row["state"]] += 1
         self.plain += is_plain_markdown(row)
         self.not_checked += not_checked(row)
@@ -344,6 +347,8 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     else:
         for row in rows:
             print_skill_row(row)
+    for line in text_lines(tally.rates.summary()):
+        print(line)
     print("# granularity: not run with --per-skill (run without it for the merge and split hints)")
     print()
 
@@ -369,7 +374,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
                 for key, (entry, _) in zip(keys, pairs, strict=True)}
     ignore = frozenset(args.ignore or ())
     sink = _Jsonl(jsonl, args.resume, selected, ignore) if jsonl is not None else None
-    tally = _Tally(args.strict)
+    tally = _Tally(args.strict, root)
     prior = sink.prior if sink is not None else []
     for row in prior:
         tally.add(row)
@@ -385,6 +390,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
     finally:
         if sink is not None:
             sink.close()
+    report["rates"] = tally.rates.summary()
     if not as_json:
         _print_text(root, declared, tally, len(prior), jsonl, report["skills"])
         for line in tally.reasons:
