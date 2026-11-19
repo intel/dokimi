@@ -84,11 +84,12 @@ class ProductRegistry:
             logger.warning(f"Registry {self._path} has no 'products' key — skipping.")
             return None
         # a null `products:` must not hide the legacy key (#687)
-        key = "products" if data.get("products") is not None or "libraries" not in data else "libraries"
+        legacy = "products" not in data or (data["products"] is None and data.get("libraries") is not None)
+        key = "libraries" if legacy else "products"
         products = data[key]
         if key == "products" and data.get("libraries") is not None:
             logger.warning(f"Registry {self._path} has both 'products' and 'libraries': 'libraries' is ignored.")
-        elif key == "libraries" and "products" in data and products is not None:
+        elif key == "libraries" and "products" in data:
             logger.warning(f"Registry {self._path}: 'products' is null; reading the legacy 'libraries'.")
         if not isinstance(products, dict):
             logger.warning(f"Registry {self._path}: '{key}' must be a mapping, got "
