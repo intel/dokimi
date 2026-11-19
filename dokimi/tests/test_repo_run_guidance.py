@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import json
+import ntpath
 import subprocess
 from types import SimpleNamespace
 
+from dokimi.repos import held_guidance as held_module
 from dokimi.repos import parse_manifest
-from dokimi.repos.held_guidance import held_guidance
+from dokimi.repos.held_guidance import HeldGuidance, held_guidance
 from dokimi.repos.runner import run_process_metrics
 from test_repo_manifest import MANIFEST
 from test_repo_run import _run, setup  # noqa: F401  # the run fixture, with its helpers
@@ -71,6 +73,20 @@ def test_a_link_the_agent_removed_or_retargeted_still_leads_to_the_file_the_work
               {"kind": "command", "text": "grep x alias/AGENTS.md", "rc": 0, "searched": ["alias/AGENTS.md"]}]
     got = run_process_metrics(ctx, events, 0, held)
     assert (got["guidance_read"], got["guidance_searched"]) == (["alias/AGENTS.md"], ["alias/AGENTS.md"])
+
+
+def test_a_windows_alias_leads_to_the_held_file_through_the_drive(monkeypatch):
+    root = "C:\\repo\\workspace"
+    monkeypatch.setattr(held_module, "os", SimpleNamespace(path=ntpath, sep="\\", altsep="/"))  # the path rules of Windows
+    held = object.__new__(HeldGuidance)
+    held.root = root
+    held.links = {root + "\\alias": "docs", root + "\\abs": root + "\\docs", root + "\\rooted": "\\repo\\workspace\\docs",
+                  root + "\\dots": "..\\workspace\\docs", root + "\\loop": "loop"}
+    held.files = frozenset({"docs/AGENTS.md"})
+    for path in ("alias/AGENTS.md", "abs/AGENTS.md", "rooted/AGENTS.md", "dots/AGENTS.md", "alias\\AGENTS.md", "docs/AGENTS.md"):
+        assert path in held
+    assert "other/AGENTS.md" not in held and "loop/AGENTS.md" not in held
+    assert held.resolved("alias/AGENTS.md") == "docs/AGENTS.md"
 
 
 def test_the_metrics_count_a_search_and_a_read_through_a_directory_link_but_not_a_dangling_one(tmp_path):

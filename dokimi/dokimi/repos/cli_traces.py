@@ -363,8 +363,6 @@ class _Walk:
     def searching(self, program: str, args: Sequence[str], chdir: bool) -> list[str]:
         """The files a search shows lines of (:func:`~dokimi.repos.shell_search.searched_files`), as :class:`Searched`
         paths among the reads. One at a directory not known is dropped, and not counted in ``unknown``, which counts reads."""
-        if _asks_for_help(list(args)):
-            return []
         return [Searched(p) for p in self.named(searched_files(program, args), chdir)]
 
     def named(self, files: list[str], chdir: bool) -> list[str]:

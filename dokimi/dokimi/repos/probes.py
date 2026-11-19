@@ -63,10 +63,14 @@ _PWSH = frozenset({"pwsh", "powershell"})  # PowerShell: its script follows ``-C
 _PWSH_VALUES = frozenset({"-executionpolicy", "-ep", "-workingdirectory", "-wd", "-settingsfile", "-configurationname",
                           "-inputformat", "-outputformat"})  # PowerShell options whose next word is their value
 _GREP_VALUES = frozenset({"-m", "-A", "-B", "-C", "-d", "-D", "--max-count", "--after-context", "--before-context",
-                          "--context", "--label", "--binary-files", "--directories", "--devices"})
-_RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not", "--type-add", "-m", "--max-count",
-                        "-A", "-B", "-C", "--after-context", "--before-context", "--context", "-M", "--max-columns", "-j",
-                        "--threads", "-E", "--encoding", "-r", "--replace", "-d", "--max-depth", "--sort", "--sortr"})
+                          "--context", "--label", "--binary-files", "--directories", "--devices", "--include", "--exclude",
+                          "--exclude-from", "--exclude-dir", "--group-separator"})
+_RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not", "--type-add", "--type-clear", "-m",
+                        "--max-count", "-A", "-B", "-C", "--after-context", "--before-context", "--context", "-M",
+                        "--max-columns", "-j", "--threads", "-E", "--encoding", "-r", "--replace", "-d", "--max-depth",
+                        "--sort", "--sortr", "--ignore-file", "--pre", "--pre-glob", "--color", "--colors", "--engine",
+                        "--max-filesize", "--path-separator", "--context-separator", "--field-context-separator",
+                        "--field-match-separator", "--dfa-size-limit", "--regex-size-limit", "--hyperlink-format"})
 _SEARCH_VALUES = {"grep": _GREP_VALUES, "egrep": _GREP_VALUES, "fgrep": _GREP_VALUES, "rg": _RG_VALUES,
                   "awk": frozenset({"-F", "-v"})}  # a searcher's options whose next word is a value, not an operand
 _PATTERN_FILE = frozenset({"-f", "--file"})  # a searcher's option whose value is a file it reads, and no expression
@@ -516,7 +520,7 @@ def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
     value (``rg -g '*.c'``, ``grep -m 1``) takes that word, which is neither."""
     if program not in _SEARCHERS:
         return args
-    operands, pattern_files, _ = search_words(program, args)
+    operands, pattern_files, _, _ = search_words(program, args)
     return pattern_files + operands
 
 
@@ -535,14 +539,28 @@ def _pattern_option(args: Sequence[str], i: int, values: frozenset[str]) -> tupl
     return (1 if inline is not None else 2), before, [named] if is_file and named is not None else []
 
 
-def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...], frozenset[str]]:
+def _match_limit(word: str, args: Sequence[str], i: int, values: frozenset[str]) -> str | None:
+    """The value ``args[i]`` gives to ``-m`` / ``--max-count`` (``-m0``, ``-nm 0``, ``--max-count=0``), else None."""
+    name, eq, value = word.partition("=")
+    if name in ("-m", "--max-count"):
+        return value if eq else (args[i + 1] if i + 1 < len(args) else None)
+    if name.startswith("-") and not name.startswith("--"):
+        for at, c in enumerate(name[1:], 2):
+            if f"-{c}" in values:
+                return (name[at:] or (args[i + 1] if i + 1 < len(args) else None)) if c == "m" else None
+    return None
+
+
+def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...], frozenset[str], str | None]:
     """A searcher's command line as (the files and directories it searches, the pattern files it reads (``-f``), the
-    options it was given: ``--quiet`` as written, a short one as ``-q`` also from a cluster, ``-nq``). Its search
-    expression, an ``-e`` value or else the first operand, is none of them."""
+    options it was given: ``--quiet`` as written, a short one as ``-q`` also from a cluster, ``-nq``, the value of its
+    last ``-m`` / ``--max-count`` or None). Its search expression, an ``-e`` value or else the first operand, is none
+    of them, and nor is the value of an option in the table (``--exclude AGENTS.md``)."""
     values = _SEARCH_VALUES.get(program, frozenset())
     operands: list[str] = []
     pattern_files: list[str] = []
     flags: set[str] = set()
+    limit: str | None = None
     given = False  # an expression or a pattern file is named, so the first operand is no expression
     i = 0
     while i < len(args):
@@ -558,6 +576,7 @@ def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tu
             i += used
         elif span := _value_span(word, values):
             flags.update(_option_names(word, values))
+            limit = _match_limit(word, args, i, values) or limit
             i += span
         elif word.startswith("-") and len(word) > 1:
             flags.update(_option_names(word, values))
@@ -565,7 +584,7 @@ def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tu
         else:
             operands.append(word)
             i += 1
-    return (tuple(operands) if given else tuple(operands[1:])), tuple(pattern_files), frozenset(flags)
+    return (tuple(operands) if given else tuple(operands[1:])), tuple(pattern_files), frozenset(flags), limit
 
 
 def _option_names(word: str, values: frozenset[str] = frozenset()) -> set[str]:

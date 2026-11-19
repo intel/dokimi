@@ -76,6 +76,22 @@ def _jsonl(*records: dict) -> str:
     ("grep -fpatterns.txt AGENTS.md", ["AGENTS.md"]),  # the pattern file attached to -f is read, not searched
     ("grep -nf patterns.txt AGENTS.md", ["AGENTS.md"]),
     ("grep -m1 -ewarn AGENTS.md", ["AGENTS.md"]),
+    ("grep -e --help AGENTS.md", ["AGENTS.md"]),  # --help is the text searched for, not an option
+    ("rg -e --version AGENTS.md", ["AGENTS.md"]),
+    ("grep -ne --help AGENTS.md", ["AGENTS.md"]),
+    ("grep --regexp --help AGENTS.md", ["AGENTS.md"]),
+    ("grep -m 5 -e warn AGENTS.md", ["AGENTS.md"]),
+    ("grep -e warn --exclude AGENTS.md other.txt", ["other.txt"]),  # AGENTS.md is the value of --exclude
+    ("grep -e warn --include '*.md' --exclude-dir sub AGENTS.md", ["AGENTS.md"]),
+    ("rg warn --ignore-file AGENTS.md other.txt", ["other.txt"]),
+    ("rg --color never warn AGENTS.md", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | head -n 20 --", ["AGENTS.md"]),  # the end of options, and stdin named explicitly
+    ("grep warn AGENTS.md | tail -n 20 -", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | head -n 20 -- -", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | head -n 1k", ["AGENTS.md"]),  # size suffixes the tools read
+    ("grep warn AGENTS.md | head -c 2KiB", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | tail -n +3MB", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | tail --follow=name", ["AGENTS.md"]),  # the one valueless option with an optional value
 ])
 def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     walked = shell_walked(command)
@@ -110,6 +126,14 @@ def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     "grep warn AGENTS.md | head 2>/dev/null > out.txt", "grep warn AGENTS.md | tail -n 5 2>/dev/null 1>&2",  # stdout goes away
     "grep warn AGENTS.md | head -n 'x",  # a stage shlex cannot split
     "grep -fAGENTS.md warn", "grep -nf AGENTS.md warn",  # AGENTS.md is the pattern file
+    "grep -m0 warn AGENTS.md | head", "grep -m 0 warn AGENTS.md | head", "grep --max-count=0 warn AGENTS.md | head",
+    "grep --max-count 0 warn AGENTS.md", "grep -nm0 warn AGENTS.md", "rg -m0 warn AGENTS.md", "grep -m 5 -m 0 warn AGENTS.md",
+    "grep --help -e warn AGENTS.md", "rg -e warn --version AGENTS.md",  # --help and --version as options
+    "grep -e warn --exclude AGENTS.md", "rg warn --ignore-file AGENTS.md",  # AGENTS.md is an option's value, stdin is searched
+    "grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", "grep warn AGENTS.md sub/AGENTS.md | head --verbose=1",
+    "grep warn AGENTS.md sub/AGENTS.md | tail --zero-terminated=x", "grep warn AGENTS.md sub/AGENTS.md | head -n 1qq",
+    "grep warn AGENTS.md sub/AGENTS.md | head -c 2kb", "grep warn AGENTS.md | head -n 20 -- other.md",
+    "grep warn AGENTS.md | tail -n 5 - other.md",  # a file after the end of options or beside - is read instead of stdin
 ])
 def test_a_search_that_shows_no_line_of_a_file_is_not_searched(command):
     got = _process(_call("a", command), _result("a"))
@@ -204,6 +228,9 @@ def test_codex_searches_follow_the_same_rules(started):
     assert searched("rg -n warn dpnp/AGENTS.md", 1) == [None]  # one file, failed
     assert searched("grep warn AGENTS.md sub/AGENTS.md", 1) == [["AGENTS.md", "sub/AGENTS.md"]]
     assert searched("grep -q warn AGENTS.md", 0) == [None]
+    assert searched("grep -e --help AGENTS.md", 0) == [["AGENTS.md"]]
+    assert searched("grep -m0 warn AGENTS.md | head", 0) == [None]
+    assert searched("grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", 1) == [None]
 
 
 def test_copilot_bash_searches_follow_the_same_rules():
@@ -217,6 +244,9 @@ def test_copilot_bash_searches_follow_the_same_rules():
     assert searched("grep -n warn AGENTS.md", 0) == [["AGENTS.md"]]
     assert searched("grep -n warn AGENTS.md", 1) == [None]
     assert searched("grep warn AGENTS.md sub/AGENTS.md", 1) == [["AGENTS.md", "sub/AGENTS.md"]]
+    assert searched("grep -e --help AGENTS.md", 0) == [["AGENTS.md"]]
+    assert searched("grep -m0 warn AGENTS.md | head", 0) == [None]
+    assert searched("grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", 1) == [None]
     powershell = _jsonl({"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "powershell",
                                                                    "arguments": {"command": "grep warn AGENTS.md"}}})
     assert "searched" not in convert("copilot-json", powershell, WS).events[0]  # PowerShell is not parsed

@@ -11,8 +11,16 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from .manifest import RepoManifest, match_glob
-from .overlay_paths import _supplies_a_file
+from .overlay_paths import _link_target, _supplies_a_file
 from .workspace import SNAPSHOT_AUTHOR, _git_env, _workspace_files
+
+
+def _anchored(path: str, near: str = "") -> tuple[str, list[str]]:
+    """``path`` as (its anchor, its names): ``/`` on POSIX, ``C:\\`` on Windows (the drive of ``near`` when ``path`` names
+    none), so the first name is never the drive and a join with the anchor stays absolute."""
+    drive, rest = os.path.splitdrive(path)
+    anchor = (drive or os.path.splitdrive(near)[0]) + os.sep
+    return anchor, rest.replace(os.altsep or os.sep, os.sep).split(os.sep)
 
 
 class HeldGuidance:
@@ -35,14 +43,14 @@ class HeldGuidance:
             for name in (*dirs, *names):
                 path = os.path.join(here, name)
                 if os.path.islink(path):
-                    links[path] = os.readlink(path)
+                    links[path] = str(_link_target(Path(path)))
         return links
 
     def resolved(self, path: str) -> str:
         """Where the workspace path ``path`` leads through the links of the start, relative to the workspace
         (``..`` first when it leaves it); a link loop leaves the path where the loop began."""
-        pending = os.path.join(self.root, path).split(os.sep)[::-1]
-        here, hops = os.sep, 0
+        here, names = _anchored(os.path.join(self.root, path))
+        pending, hops = names[::-1], 0
         while pending:
             part = pending.pop()
             if part in ("", "."):
@@ -53,12 +61,12 @@ class HeldGuidance:
             here = os.path.join(here, part)
             if here in self.links and hops < 40:
                 hops, target = hops + 1, self.links[here]
-                if os.path.isabs(target):
-                    here = os.sep
+                if os.path.isabs(target) or target[:1] in (os.sep, os.altsep):  # ``\x`` is rooted on the drive of the link
+                    here, names = _anchored(target, here)
                 else:
-                    here = os.path.dirname(here)
-                pending += target.split(os.sep)[::-1]
-        return Path(os.path.relpath(here, self.root)).as_posix()
+                    here, names = os.path.dirname(here), _anchored(os.sep + target)[1]
+                pending += names[::-1]
+        return os.path.relpath(here, self.root).replace(os.sep, "/")
 
     def __contains__(self, path: object) -> bool:
         return self.resolved(str(path)) in self.files

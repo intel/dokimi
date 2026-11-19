@@ -30,7 +30,9 @@ _CUT_LONG = {"head": ("bytes", "lines", "quiet", "silent", "verbose", "zero-term
                       "retry", "pid", "sleep-interval", "max-unchanged-stats")}
 _CUT_FLAGS = {"head": "qvz", "tail": "qvzf"}  # the short options that take no value
 _CUT_VALUED = ("lines", "bytes", "pid", "sleep-interval", "max-unchanged-stats")  # the long ones that take one
-_Parsed = tuple[int, str | None] | None  # (the words an option takes, the line or byte count it sets) or None: not valid
+# a count: digits, with the size suffix the GNU tools read (``b``, ``k``, ``KiB``, ``MB``, ...), after a sign for head/tail
+_COUNT = r"([+-]?)(\d+)(?:[bkKmMGTPEZYRQ](?:iB|B|D)?)?"
+_Parsed =tuple[int, str | None] | None  # (the words an option takes, the line or byte count it sets) or None: not valid
 
 
 def _cut_long(program: str, words: list[str], i: int) -> _Parsed:
@@ -39,8 +41,8 @@ def _cut_long(program: str, words: list[str], i: int) -> _Parsed:
     hits = [n for n in _CUT_LONG[program] if n == name] or [n for n in _CUT_LONG[program] if n.startswith(name)]
     if len(hits) != 1 or hits[0] in ("help", "version"):
         return None
-    if hits[0] not in _CUT_VALUED:
-        return 1, None
+    if hits[0] not in _CUT_VALUED:  # a flag takes no value; only tail's ``--follow`` has an optional attached one
+        return (1, None) if not eq or hits[0] == "follow" else None
     given = value if eq else (words[i + 1] if i + 1 < len(words) else "")  # else the value is the next word
     return (1 if eq else 2), (given if hits[0] in ("lines", "bytes") else None)
 
@@ -65,7 +67,12 @@ def _cut_count(program: str, words: list[str]) -> str | None:
     count, i = "10", 1
     while i < len(words):
         word = words[i]
-        if word.startswith("--") and len(word) > 2:
+        if word == "-":  # the input named explicitly
+            i += 1
+            continue
+        if word == "--":  # the end of the options: only ``-`` may follow
+            return count if all(w == "-" for w in words[i + 1:]) else None
+        if word.startswith("--"):
             parsed = _cut_long(program, words, i)
         elif re.fullmatch(r"-\d+", word):
             parsed = 1, word[1:]
@@ -90,7 +97,7 @@ def cuts_lines(stage: str, functions: Container[str] = ()) -> bool:
     if not words or words[0] not in _CUT_FLAGS or words[0] in functions:
         return False
     count = _cut_count(words[0], words)
-    match = re.fullmatch(r"([+-]?)(\d+)[A-Za-z]{0,2}", count or "")  # a size suffix (``1k``) is allowed
+    match = re.fullmatch(_COUNT, count or "")
     if match is None:
         return False
     sign, digits = match.groups()
@@ -109,9 +116,12 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
     """The operands of a search that prints lines of them (the pattern is none, nor a pattern file, nor stdin ``-``).
 
     None for a run that prints no line of a file: ``-q``, ``-l``, ``-L`` (not rg's), ``-c``, ``--files`` and the long
-    forms. A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
-    operands, _, flags = search_words(program, args)
+    forms, ``--help`` and ``--version`` as options (``grep -e --help f`` searches for the text), a match limit of zero
+    (``-m0``). A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
+    operands, _, flags, limit = search_words(program, args)
     short = _SHORT_NO_LINE.get(program, _SHORT_NO_LINE_DEFAULT)
     if any(f in _SHOWS_NO_LINE or (len(f) == 2 and f[1] in short) for f in flags):
+        return []
+    if "--help" in flags or "--version" in flags or (limit is not None and limit.isdigit() and int(limit) == 0):
         return []
     return [o for o in operands if o != "-"]
