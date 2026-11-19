@@ -134,6 +134,7 @@ def test_an_interrupt_during_submission_starts_no_queued_cell(setup, monkeypatch
     waited = []
     calls = []
     ended = threading.Semaphore(0)
+    entered = threading.Semaphore(0)
     cancelled = threading.Event()
     real = repo_runner.run_cell
     real_submit = repo_runner.ThreadPoolExecutor.submit
@@ -142,6 +143,8 @@ def test_an_interrupt_during_submission_starts_no_queued_cell(setup, monkeypatch
     def submit(self, fn, *a, **k):
         calls.append(1)
         if len(calls) == 4:
+            # both workers are inside run_cell before the interrupt, so none is cancelled while still queued
+            assert all(entered.acquire(timeout=30) for _ in range(2))
             raise KeyboardInterrupt
         return real_submit(self, fn, *a, **k)
 
@@ -152,6 +155,7 @@ def test_an_interrupt_during_submission_starts_no_queued_cell(setup, monkeypatch
 
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
         started.append(rep)
+        entered.release()
         try:
             # both workers stay busy until the queue is cancelled, not for time (#918); a failed assert in a worker
             # is only a cell error, so the main thread checks the waits too
