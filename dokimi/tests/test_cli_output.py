@@ -470,6 +470,22 @@ def test_a_failed_inspect_gate_under_json_says_why(monkeypatch, capsys, tmp_path
     assert doc["reason"] == f"{doc['data']['counts']['error']} error(s) under --fail-on fail"
 
 
+def test_inspect_fail_on_warn_gates_on_a_warning_finding(monkeypatch, capsys, tmp_path):
+    from tests.test_repo_environment import _repo
+
+    # runner-unknown is a WARNING and the tree has no ERROR: --fail-on fail passes, --fail-on warn fails
+    _repo(tmp_path, {"AGENTS.md": "x", "Gemfile": "gem 'rake'\n", "spec/a_spec.rb": "x"})
+    _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "fail"])
+    assert json.loads(capsys.readouterr().out)["status"] == "complete"
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "warn"])
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)
+    counts = doc["data"]["counts"]
+    assert counts["error"] == 0 and counts["warning"]
+    assert doc["reason"] == f"0 error(s), {counts['warning']} warning(s) under --fail-on warn"
+
+
 def test_emit_refuses_a_payload_value_that_is_not_json(capsys):
     # --json and --out share one document: a value JSON cannot hold is an error, not a str() in the output
     with pytest.raises(TypeError):

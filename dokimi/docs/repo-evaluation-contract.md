@@ -25,7 +25,7 @@ SPDX-License-Identifier: Apache-2.0
 > manifest for bases in other repositories (§2.1), and the `repo` subject kind:
 >
 > ```bash
-> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on warn]
+> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on warn|fail]
 > python cli.py repo fetch <url@rev> [--json]     # bare, blob-less clone cached per URL
 > ```
 >
@@ -72,7 +72,7 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash
-> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on fail]
+> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on warn|fail]
 > ```
 >
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
@@ -2242,7 +2242,7 @@ tree and is listed under `not_observed`. A stage is `blocked` by an error,
 `not_observed` lists what the tree cannot show, such as whether the commands
 pass, CI secrets and the agent's network. `risk` is the worst of the launch
 observations. There is no overall score. `--fail-on fail` exits 1 when any
-finding is an error.
+finding is an error, and `--fail-on warn` when any is an error or a warning.
 
 With `--index FILE`, a SCIP index of the tree (§1.2), the report adds a
 `structure` section. The index's root prefix is found by matching its document

@@ -228,13 +228,15 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
             sys.exit(EXIT_USAGE)
-    failed = bool(args.fail_on == "fail" and payload["counts"]["error"])
+    c = payload["counts"]
+    failed = bool(args.fail_on and (c["error"] or (args.fail_on == "warn" and c["warning"])))
     if args.json:
         cli_output.emit_leaf("repo inspect", stamp("repo_environment", dict(payload)),
                              status="failed" if failed else "complete",
-                             reason=f"{payload['counts']['error']} error(s) under --fail-on fail" if failed else None)
+                             reason=f"{c['error']} error(s)" + (f", {c['warning']} warning(s)" if args.fail_on == "warn"
+                                                                 else "") + f" under --fail-on {args.fail_on}"
+                             if failed else None)
     else:
-        c = payload["counts"]
         roots = sum(i["scope"] == "root" for i in payload["instructions"])
         print(f"{payload['repo']['tree']}: {len(payload['instructions'])} instruction files ({roots} root), "
               f"{len(payload['checks'])} check surfaces, risk {payload['risk']}")
@@ -649,8 +651,9 @@ def register(sub, positive_int, eval_sub) -> None:
     validate_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     validate_p.add_argument("--out", default=None, help="Write the full report as JSON to this file")
     validate_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
-    cli_flags.add(validate_p, "fail_on", "--fail-on", choices=("warn",), default=None,
-                  help="warn: exit 1 when the report has any warning (for a CI gate)")
+    cli_flags.add(validate_p, "fail_on", "--fail-on", choices=("warn", "fail"), default=None,
+                  help="warn: exit 1 when the report has any warning or error; fail: exit 1 on an error, as "
+                  "without the flag (for a CI gate)")
     validate_p.set_defaults(func=cmd_repo_validate, emits_cli_output=True, cli_kind="repo validate")
 
     scan_p = repo_sub.add_parser(
@@ -706,8 +709,9 @@ def register(sub, positive_int, eval_sub) -> None:
                            "the tree; exit 2 when it cannot be read or none of its documents is a file of the tree")
     inspect_p.add_argument("--out", default=None, help="Write the repo_environment.v1 report to this file")
     inspect_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
-    cli_flags.add(inspect_p, "fail_on", "--fail-on", choices=("fail",), default=None,
-                  help="fail: exit 1 when any finding has severity error, the top severity (for a CI gate)")
+    cli_flags.add(inspect_p, "fail_on", "--fail-on", choices=("warn", "fail"), default=None,
+                  help="fail: exit 1 when any finding has severity error, the top severity; warn: also on "
+                  "severity warning (for a CI gate)")
     inspect_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     inspect_p.set_defaults(func=cmd_repo_inspect, emits_cli_output=True, cli_kind="repo inspect")
 

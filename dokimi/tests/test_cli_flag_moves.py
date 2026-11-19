@@ -114,6 +114,9 @@ def test_each_fail_on_leaf_takes_only_the_level_it_gates_on():
     parser = cli.build_parser()
     assert parser.parse_args(["repo", "budget", "src", "--fail-on", "warn"]).fail_on == "warn"
     assert parser.parse_args(["repo", "scan", "src", "--fail-on", "fail"]).fail_on == "fail"
+    for leaf in ("validate", "inspect"):  # both levels, as memory lint and repo security take them
+        for level in ("warn", "fail"):
+            assert parser.parse_args(["repo", leaf, "src", "--fail-on", level]).fail_on == level
     with pytest.raises(SystemExit) as exc:
         parser.parse_args(["repo", "scan", "src", "--fail-on", "warn"])
     assert exc.value.code == 2
