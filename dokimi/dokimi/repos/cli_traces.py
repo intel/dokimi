@@ -177,7 +177,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         if words:
             out.extend(walk.command(words, after, chained, _time_keyword(part)))
         elif (stage := _search_stage(part)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
-            out.extend(walk.piped(walk.words(stage, after), _time_keyword(part)))
+            out.extend(walk.piped(walk.words(stage, after, staged=True), _time_keyword(part)))
     walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
     return out, walk
 
@@ -288,9 +288,10 @@ class _Walk:
         if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
             self.back(before)
 
-    def words(self, part: str, after: str = "") -> list[str]:
+    def words(self, part: str, after: str = "", staged: bool = False) -> list[str]:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
-        and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell)."""
+        and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell;
+        ``staged``: ``part`` is the first stage of a pipeline, cut out of it, so it ran in a subshell)."""
         if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
             part = _outside_quotes(part, _HARMLESS_REDIRECT)
         part = _outside_quotes(part, _STDERR_FILE)
@@ -300,7 +301,7 @@ class _Walk:
             return []
         if words is None:
             if _runs_dir(part, self.dirs, self.functions):  # ``builtin cd "$D"``: where it went is not known
-                self.lose(_in_own_shell(part, after))
+                self.lose(_in_own_shell(part, after) and not staged)
             return []
         while words[:1] == ["{"]:  # a brace group runs in this shell: its cd and reads count
             words = words[1:]

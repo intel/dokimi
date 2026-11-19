@@ -11,7 +11,7 @@ import json
 import pytest
 
 from dokimi.artifacts import schema_errors
-from dokimi.repos.cli_traces import shell_walked
+from dokimi.repos.cli_traces import shell_walk, shell_walked
 from dokimi.repos.events import convert
 from dokimi.repos.process_metrics import process_metrics
 from test_repo_events_bash import WS, _call, _denials, _events, _result
@@ -188,6 +188,25 @@ def test_copilot_bash_searches_follow_the_same_rules():
     powershell = _jsonl({"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "powershell",
                                                                    "arguments": {"command": "grep warn AGENTS.md"}}})
     assert "searched" not in convert("copilot-json", powershell, WS).events[0]  # PowerShell is not parsed
+
+
+@pytest.mark.parametrize("script", [
+    "cd $D | head; cat AGENTS.md",
+    "source $ENV 2>&1 | tail -3; cat AGENTS.md",
+    'eval "$(conda shell.bash hook)" 2>&1 | tail -2; cat AGENTS.md',
+    'source "$HOME/.bashrc" 2>&1 | tail -1; cat AGENTS.md',
+])
+def test_a_computed_directory_change_piped_into_head_or_tail_moves_no_shell(script):
+    assert shell_walk(script) == (["AGENTS.md"], False, 0)  # the stage ran in a pipeline's subshell
+    assert shell_walked(script).searched == []
+
+
+def test_a_piped_computed_directory_change_keeps_the_next_calls_reads():
+    lines = (_call("a", 'eval "$(conda shell.bash hook)" 2>&1 | tail -2'), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))
+    assert _process(*lines)["guidance_read"] == ["AGENTS.md"]
+    # not piped, the same command does move the shell: the next call's relative read is dropped
+    assert _process(_call("a", 'eval "$(conda shell.bash hook)"'), _result("a"), _call("b", "cat AGENTS.md"),
+                    _result("b"))["guidance_read"] == []
 
 
 def test_the_schema_takes_a_list_of_paths_in_searched():
