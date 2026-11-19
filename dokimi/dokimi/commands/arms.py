@@ -330,7 +330,7 @@ def register(sub, positive_int) -> None:
     arms_run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
     arms_run_p.add_argument("--max-iterations", type=positive_int, default=6, dest="max_iterations",
                             help="Max tool-call rounds for agentic arms (agent:/skill-agent:, default: 6)")
-    cli_flags.add(arms_run_p, "tokens", "--max-output-tokens", type=positive_int, default=None, dest="max_tokens",
+    cli_flags.add(arms_run_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens",
                   help="Output-token ceiling per answer. Raise for reasoning models, which "
                   "can spend the provider default entirely on reasoning and return empty text")
     arms_run_p.add_argument("--grounded-from-topics", action="store_true", dest="grounded_from_topics",
@@ -447,7 +447,7 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
     parser.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
     parser.add_argument("--max-iterations", type=positive_int, default=6, dest="max_iterations",
                         help="Max tool-call rounds for agentic arms (agent:/skill-agent:, default: 6)")
-    cli_flags.add(parser, "tokens", "--max-output-tokens", type=positive_int, default=None, dest="max_tokens",
+    cli_flags.add(parser, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens",
                   help="Output-token ceiling per answer. Raise for reasoning models, which "
                   "can spend the provider default entirely on reasoning and return empty text")
     parser.add_argument("--grounded-from-topics", action="store_true", dest="grounded_from_topics",

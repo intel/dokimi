@@ -109,3 +109,28 @@ def test_an_old_token_spelling_tombstones_with_the_new_argv(old, new, capsys):
 ])
 def test_the_token_spellings_parse_to_the_same_value(argv, dest, value):
     assert getattr(cli.build_parser().parse_args(argv), dest) == value
+
+
+def _leaves_with(spelling: str) -> dict[tuple[str, ...], argparse.Action]:
+    """Each leaf of the CLI tree (its argv path) that has ``spelling``, with the action behind it."""
+    found: dict[tuple[str, ...], argparse.Action] = {}
+
+    def walk(node: argparse.ArgumentParser, path: tuple[str, ...]) -> None:
+        for action in node._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, sub in action.choices.items():
+                    walk(sub, (*path, name))
+            elif spelling in action.option_strings:
+                found[path] = action
+
+    walk(cli.build_parser(), ())
+    return found
+
+
+@pytest.mark.parametrize("flag", [f for c in cli_flags.CONCEPTS if c.name == "tokens" for f in c.canonical])
+def test_help_shows_the_registry_metavar_for_each_token_spelling(flag):
+    # without a metavar argparse prints the dest, the old `MAX_TOKENS` / `BUDGETS`
+    leaves = _leaves_with(flag.spelling)
+    assert leaves
+    assert {path: action.metavar for path, action in leaves.items()} == {
+        path: flag.value.split()[0] for path in leaves}

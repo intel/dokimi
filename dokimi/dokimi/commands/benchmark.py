@@ -494,7 +494,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
                              help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     bench_run_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
-    cli_flags.add(bench_run_p, "tokens", "--retrieval-tokens", type=positive_int,
+    cli_flags.add(bench_run_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
                   default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                   help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_run_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency",
@@ -532,7 +532,7 @@ def register(sub, positive_int) -> None:
     # Preflight makes no LLM call, but it plans the run that `benchmark run` makes, so it refuses the judge that run refuses.
     bench_pre_p.set_defaults(judge=True)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
-    cli_flags.add(bench_pre_p, "tokens", "--retrieval-tokens", type=positive_int,
+    cli_flags.add(bench_pre_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
                   default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
     bench_pre_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency")
     bench_pre_p.add_argument("--questions-from", default=None, dest="questions_from", help="Question-set source for fair comparison")
@@ -555,7 +555,7 @@ def register(sub, positive_int) -> None:
                                help=JUDGE_MODEL_HELP)
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                                choices=JUDGE_PROVIDERS)
-    cli_flags.add(bench_batch_p, "tokens", "--retrieval-tokens", type=positive_int,
+    cli_flags.add(bench_batch_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
                   default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                   help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_batch_p.add_argument("--force-regen", action="store_true", dest="force_regen",

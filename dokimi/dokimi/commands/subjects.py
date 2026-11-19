@@ -261,7 +261,7 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k")
     run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
     run_p.add_argument("--max-iterations", type=positive_int, default=6, dest="max_iterations")
-    cli_flags.add(run_p, "tokens", "--max-output-tokens", type=positive_int, default=None, dest="max_tokens",
+    cli_flags.add(run_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens",
                   help="Output-token ceiling per answer. Raise for reasoning models, which "
                   "can spend the provider default entirely on reasoning and return empty text")
     run_p.add_argument("--grounded-from-topics", action="store_true", dest="grounded_from_topics",

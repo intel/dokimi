@@ -209,7 +209,7 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                         help="Comma list of factors (default: vendor_name,assertive,social_proof,long_desc,exclusion)")
     pref_p.add_argument("--reps", type=positive_int, default=3,
                         help="Calls per item at the provider's default sampling (default: 3)")
-    cli_flags.add(pref_p, "tokens", "--max-output-tokens", type=positive_int, default=2048, dest="max_tokens",
+    cli_flags.add(pref_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=2048, dest="max_tokens",
                   help="Per call; reasoning models spend part of it before the tool call (default: 2048)")
     pref_p.add_argument("--concurrency", type=positive_int, default=8)
     pref_p.add_argument("--max-cost-usd", type=positive_usd, default=None, dest="max_cost_usd",
