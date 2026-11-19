@@ -327,6 +327,20 @@ def test_a_copy_that_cannot_be_removed_after_a_refused_manifest_is_named_and_the
     assert "Error: baseline_manifest artifact rejected: " in err
 
 
+def test_a_copy_already_gone_when_the_manifest_save_fails_is_not_reported(
+        tmp_path, monkeypatch, capsys, baselines):
+    """Nothing is left to clear, so no 'cannot remove' line; the manifest's failure decides the exit."""
+    source = _eval(tmp_path, monkeypatch)
+
+    def gone_then_refused(_manifest):
+        (baselines / "b1.json").unlink()
+        raise SystemExit(1)
+
+    monkeypatch.setattr(baseline_mod, "_save_manifest", gone_then_refused)
+    assert _cli(monkeypatch, "baseline", "save", "--from-eval", str(source), "--name", "b1") == 1
+    assert "cannot remove" not in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("entry", ['"saved_at": 123', '"summary": {"n": 0, "avg_delta": null}', '"product": ["a"]'],
                          ids=["saved_at", "summary", "product"])
 def test_an_entry_baseline_list_reads_does_not_block_a_later_save(tmp_path, monkeypatch, capsys, baselines, entry):
