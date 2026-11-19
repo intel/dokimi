@@ -33,13 +33,13 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
 
     try:  # the arguments as typed: a usage error
         if args.budget is not None and (not math.isfinite(args.budget) or args.budget <= 0):
-            raise SkillReachError(f"--budget must be > 0, got {args.budget:g}")
+            raise SkillReachError(f"--max-usd-per-cell must be > 0, got {args.budget:g}")
         profile = load_profile(args.harness)
         # Only a profile whose invoke passes {budget} can cap the spend; the others are bounded by the timeout.
         capped = any("{budget}" in element for element in profile.invoke)
         if args.budget is not None and not capped:
-            raise SkillReachError(f"--budget: {profile.name} has no spend-cap flag, so the cap would not be "
-                                  "enforced; drop --budget (the timeout bounds each run)")
+            raise SkillReachError(f"--max-usd-per-cell: {profile.name} has no spend-cap flag, so the cap would "
+                                  "not be enforced; drop --max-usd-per-cell (the timeout bounds each run)")
         budget = args.budget if args.budget is not None else DEFAULT_BUDGET
         cases, digest = read_catalogue(Path(args.catalogue) if args.catalogue else None)
         only = tuple(args.only or ())
@@ -122,9 +122,9 @@ def add_skill_reach_parser(repo_sub, positive_int) -> None:
                          "hold guidance or a skills dir.")
     skill_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
     skill_p.add_argument("--max-turns", type=positive_int, default=4, dest="max_turns")
-    skill_p.add_argument("--budget", type=float, default=None,
-                         help="Per-scenario USD cap (default: 0.10). Refused for a harness with no spend-cap flag "
-                         "(codex, copilot): the timeout is their only bound")
+    cli_flags.add(skill_p, "spend", "--max-usd-per-cell", type=float, default=None, dest="budget",
+                  help="Per-scenario USD cap (default: 0.10). Refused for a harness with no spend-cap flag "
+                       "(codex, copilot): the timeout is their only bound")
     skill_p.add_argument("--timeout", type=positive_int, default=300, help="Per-scenario seconds")
     skill_p.add_argument("--keep", action="store_true", help="Keep the temporary fixture")
     skill_p.add_argument("--dry-run", action="store_true", dest="dry_run",

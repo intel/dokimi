@@ -618,11 +618,11 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     run_p.add_argument("--probes", default=None, metavar="FILE",
                        help="YAML or JSON: target -> probe patterns, over the manifest's `probes` (default: the "
                        "framework's list; contract §4.1)")
-    run_p.add_argument("--budget", type=_usd, default=2.0,
-                       help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
-    run_p.add_argument("--max-batch-usd", type=_usd, default=None, dest="max_batch_usd",
-                       help="Start no new cell once the batch has spent this much, earlier invocations included "
-                            "(and the budgets of the cells in flight)")
+    cli_flags.add(run_p, "spend", "--max-usd-per-cell", type=_usd, default=2.0, dest="budget",
+                  help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
+    cli_flags.add(run_p, "spend", "--max-usd", type=_usd, default=None, dest="max_batch_usd",
+                  help="Start no new cell once the batch has spent this much, earlier invocations included "
+                       "(and the budgets of the cells in flight)")
     run_p.add_argument("--force", action="store_true", help="Rerun cells that already have result.json")
     run_p.set_defaults(func=cmd_repo_run)
 

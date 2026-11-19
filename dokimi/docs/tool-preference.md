@@ -81,7 +81,7 @@ python cli.py tools preference --groups groups.json \
   --model claude-haiku-5-5 --provider anthropic --reps 3 --out pref.json
 ```
 
-`--max-cost-usd` caps the spend: once the priced calls have spent it, no new
+`--max-usd` caps the spend: once the priced calls have spent it, no new
 call starts. The calls not run are kept as `skipped`, left out of the summary
 (`n_skipped`), and the command exits 3. Calls already in flight finish, so the
 spend can pass the cap by up to `--concurrency` − 1 calls. A reply cut at

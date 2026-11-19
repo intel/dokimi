@@ -292,7 +292,9 @@ def _reach_entry(args: argparse.Namespace) -> None:
 
 
 def _probe_flags_given(args: argparse.Namespace) -> list[str]:
-    return [f"--{k.replace('_', '-')}" for k, default in _PROBE_ONLY.items() if getattr(args, k) != default]
+    spelled = {"budget": "--max-usd-per-cell"}  # the one probe flag whose dest is not its spelling
+    return [spelled.get(k, f"--{k.replace('_', '-')}") for k, default in _PROBE_ONLY.items()
+            if getattr(args, k) != default]
 
 
 def _saved_reach_inputs(args: argparse.Namespace):
@@ -753,7 +755,8 @@ def register(sub, positive_int, eval_sub) -> None:
     reach_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
     reach_p.add_argument("--max-turns", type=positive_int, default=None, dest="max_turns",
                          help="Turn cap per scenario (default: 4)")
-    reach_p.add_argument("--budget", type=float, default=None, help="Per-scenario USD cap (default: 0.10)")
+    cli_flags.add(reach_p, "spend", "--max-usd-per-cell", type=float, default=None, dest="budget",
+                  help="Per-scenario USD cap (default: 0.10)")
     reach_p.add_argument("--timeout", type=positive_int, default=None, help="Per-scenario seconds (default: 300)")
     reach_p.add_argument("--keep", action="store_true", help="Keep the temporary workspace")
     reach_p.add_argument("--format", choices=["matrix", "receipt"], default="matrix",
