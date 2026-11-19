@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import statistics
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -131,6 +132,9 @@ def read_rows(path: Path) -> list[dict]:
         missing = [k for k in needed if k not in row]
         if missing:
             raise InputError(f"--jsonl {path} line {lineno} has no {', '.join(missing)}; fix or remove it before --resume")
+        usd = row["usd"]
+        if type(usd) not in (int, float) or (isinstance(usd, float) and not math.isfinite(usd)):
+            raise InputError(f"--jsonl {path} line {lineno} has invalid usd; fix or remove it before --resume")
         rows.append(row)
     return rows
 

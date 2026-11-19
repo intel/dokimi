@@ -257,3 +257,12 @@ def test_read_rows_refuses_a_row_without_the_fields_the_summary_reads(tmp_path, 
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
     with pytest.raises(InputError, match=f"line 1 has no {missing}"):
         read_rows(path)
+
+
+@pytest.mark.parametrize("usd", ["0.1", None, True, float("inf"), float("nan")])
+def test_read_rows_refuses_invalid_spend(tmp_path, usd):
+    path = tmp_path / "s.jsonl"
+    row = {"key": "a", "status": "ok", "usd": usd, "new_lenient": 0.5, "tokens": 800}
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(InputError, match="line 1 has invalid usd"):
+        read_rows(path)
