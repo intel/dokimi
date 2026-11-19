@@ -147,7 +147,8 @@ def print_skill_row(row: dict) -> None:
     for f in row["findings"]:
         print(f"  {f['level']} {f['code']}: {_continued(f['message'])}")
     if row["disable_model_invocation"]:
-        print("  note disable-model-invocation: true (the model is never offered this skill)")
+        print("  note the model is never offered this skill"
+              " (disable-model-invocation, or opencode/autoinvoke: false under OpenCode)")
     if row["nested_in"] is not None:
         print(f"  note nested in {row['nested_in']}: a SKILL.md inside another skill's directory")
 

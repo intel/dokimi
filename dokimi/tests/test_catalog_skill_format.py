@@ -348,6 +348,15 @@ def test_opencode_autoinvoke_false_hides_the_skill_from_the_description_checks(t
     assert rows[".opencode/skills/old"]["disable_model_invocation"] is True
 
 
+def test_the_hidden_note_does_not_name_a_key_the_skill_lacks(tmp_path, capsys):
+    _write(tmp_path, ".opencode/skills/hid/SKILL.md",
+           "---\nname: hid\ndescription: Quantum widgets\nmetadata:\n  opencode/autoinvoke: false\n---\n")
+    main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
+    out = capsys.readouterr().out
+    assert "disable-model-invocation: true" not in out
+    assert "note the model is never offered this skill" in out
+
+
 def test_a_nameless_skill_warns_under_a_spec_host_and_not_under_opencode(tmp_path, capsys):
     body = "---\ndescription: Use when you need quantum widgets.\n---\n"
     _write(tmp_path, ".claude/skills/nameless/SKILL.md", body)
