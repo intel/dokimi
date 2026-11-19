@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi._version import __version__
+from dokimi.process_io import utf8_bytes
 from dokimi.utils import InputError, read_json_input
 
 logger = logging.getLogger(__name__)
@@ -282,7 +283,8 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       and nothing is written (the target's directories are *not* created). A link loop raises
       ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
     - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
-      people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
+      people read, such as the ``report_qa`` sidecar); either way it parses to the same payload,
+      except that a lone surrogate is written as ``?`` and a surrogate pair joined.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
@@ -296,17 +298,17 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
         head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
     except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
-                                       ensure_ascii=ensure_ascii), encoding="utf-8")
+        rejected.write_bytes(utf8_bytes(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
+                                                   ensure_ascii=ensure_ascii)))
         raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     payload = {**head, **{k: v for k, v in data.items() if k not in head}}
-    text = json.dumps(payload, indent=2, ensure_ascii=ensure_ascii)
+    encoded = utf8_bytes(json.dumps(payload, indent=2, ensure_ascii=ensure_ascii))
     try:
         validate_artifact(kind, payload)
     except ArtifactValidationError as exc:
         rejected = path.with_name(path.name + ".rejected")
         try:
-            rejected.write_text(text, encoding="utf-8")
+            rejected.write_bytes(encoded)
         except OSError as kept:  # still a refusal: the caller exits as for a refused payload, not as an unwritable path
             raise ArtifactValidationError(f"{exc}\n(not written to {path}; the payload could not be kept at "
                                           f"{rejected}: {kept})") from exc
@@ -314,7 +316,7 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
     target = _write_target(path)
     tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
-        tmp.write_text(text, encoding="utf-8")
+        tmp.write_bytes(encoded)
         os.replace(tmp, target)
     except BaseException:
         tmp.unlink(missing_ok=True)

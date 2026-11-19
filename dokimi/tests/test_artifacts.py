@@ -506,6 +506,51 @@ def test_a_symlink_loop_is_an_error_and_both_links_survive(tmp_path):
     assert a.is_symlink() and b.is_symlink()
 
 
+_SURROGATE_CASES = [("n\ud800", "n?"), (chr(0xD83D) + chr(0xDE00), "\U0001F600"), ("café", "café")]
+
+
+@pytest.mark.parametrize(("value", "written"), _SURROGATE_CASES)
+def test_save_artifact_without_ascii_escapes_writes_a_surrogate_as_utf8(tmp_path, value, written):
+    """``ensure_ascii=False`` keeps ``é``; a lone surrogate is ``?`` and a pair is joined (#991)."""
+    out = tmp_path / "q.json"
+
+    save_artifact("questions", {"questions": [{"id": "q1", "question": value}]}, out, ensure_ascii=False)
+
+    raw = out.read_bytes()
+    assert json.loads(raw.decode("utf-8"))["questions"][0]["question"] == written
+    assert written.encode("utf-8") in raw  # written as is, not as a \u escape
+    assert raw.startswith(b'{\n  "schema_version"')  # indent=2
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize(("value", "written"), _SURROGATE_CASES[:2])
+def test_a_rejected_payload_with_a_surrogate_is_kept_as_utf8(tmp_path, value, written):
+    out = tmp_path / "a.json"
+
+    with pytest.raises(ArtifactValidationError):
+        save_artifact("answers", {"answers": [{"question_text": value}]}, out, ensure_ascii=False)
+
+    kept = json.loads((tmp_path / "a.json.rejected").read_bytes().decode("utf-8"))
+    assert kept["answers"][0]["question_text"] == written
+    assert not out.exists()
+
+
+def test_a_payload_kept_for_a_malformed_run_id_holds_a_surrogate_as_utf8(monkeypatch, tmp_path):
+    from dokimi.artifacts import RUN_ID_ENV
+    from dokimi.utils import InputError
+
+    monkeypatch.setenv(RUN_ID_ENV, "-bad")
+
+    with pytest.raises(InputError, match="payload kept at"):
+        save_artifact("answers", {"answers": [{"question_id": "q1", "question_text": "n\ud800 é"}]},
+                      tmp_path / "q.json", ensure_ascii=False)
+
+    kept = (tmp_path / "q.json.rejected").read_bytes()
+    assert json.loads(kept.decode("utf-8"))["answers"][0]["question_text"] == "n? é"
+    assert "é".encode("utf-8") in kept
+    assert kept.startswith(b'{\n  "schema_version"')  # indent=2
+
+
 def test_an_unstamped_payload_resolves_to_the_newest_version_it_matches():
     # Curated question sets are mostly unstamped; one written for v1 must not be judged as v2.
     from dokimi.artifacts import schema_version_for
