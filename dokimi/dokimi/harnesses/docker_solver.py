@@ -285,7 +285,7 @@ class DockerSolverHarness:
     def _verdict(self, reward: Optional[float], verifier: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
         """Whether the cell passed, and the metrics that say why (the null check's status)."""
         if self.mode == "null":  # the check passes when the tests fail on the untouched start
-            status = null_status(reward, verifier.get("pytest"))
+            status = null_status(reward, verifier.get("pytest"), explicit_reward=verifier.get("reward_file", False))
             return status == NULL_FAIL, {"null_check": status}
         return reward is not None and reward >= 1.0, {}
 
@@ -657,6 +657,8 @@ class DockerSolverHarness:
             log, check=False,
         )
         if pulled.returncode == 0 and reward_file.is_file():
+            if verifier is not None:
+                verifier["reward_file"] = True
             return _reward_file_verdict(reward_file.read_text(encoding="utf-8", errors="replace"))
         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
             running = self._docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)

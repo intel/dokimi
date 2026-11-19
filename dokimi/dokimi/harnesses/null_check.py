@@ -10,7 +10,7 @@ Its status says what the verifier found:
 - ``null_pass``: the verifier passed on the untouched start, so the tests do not check the task.
 - ``fixture_error``: pytest reports errors (setup or collection), so no test judged the start.
   Not a pass: the fixture is broken, not the solution missing.
-- ``no_verdict``: no reward, no pytest summary, or a verifier that timed out.
+- ``no_verdict``: no usable grading evidence, or a verifier that timed out.
 
 A task passes when its ``docker-oracle`` cell passes and its ``docker-null`` cell is ``null_fail``.
 """
@@ -59,14 +59,15 @@ def pytest_counts(output: str) -> Optional[dict[str, int]]:
     return counts
 
 
-def null_status(reward: Optional[float], counts: Optional[Mapping[str, int]]) -> str:
+def null_status(reward: Optional[float], counts: Optional[Mapping[str, int]], *,
+                explicit_reward: bool = False) -> str:
     """The status of one null cell, from the verifier's reward and its pytest counts."""
     if reward is None:
         return NO_VERDICT
     if reward >= 1.0:
         return NULL_PASS
     if counts is None:
-        return NO_VERDICT
+        return NULL_FAIL if explicit_reward else NO_VERDICT
     if counts.get("error"):
         return FIXTURE_ERROR
     if counts.get("failed"):

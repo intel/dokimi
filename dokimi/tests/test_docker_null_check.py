@@ -171,6 +171,16 @@ def test_docker_null_run_fails_the_tests_without_solving(tmp_path):
     assert not any("solve.sh" in " ".join(c.argv) for c in cli.calls), "the null cell must not solve"
 
 
+@pytest.mark.parametrize(("reward", "status"), [("0.0", null_check.NULL_FAIL), (None, null_check.NO_VERDICT)])
+def test_docker_null_run_with_shell_verifier(tmp_path, reward, status):
+    task = load_task(_harbor(tmp_path))
+    cli = DockerCLI(reward=reward, answer=_verifier("shell check failed\n", returncode=1))
+    result = create_harness("docker-null", runner=cli).run(task, output_dir=tmp_path / "out")
+
+    assert result.metrics["null_check"] == status
+    assert result.passed is (status == null_check.NULL_FAIL)
+
+
 def test_docker_null_run_that_passes_on_the_start_is_not_ok(tmp_path):
     task = load_task(_harbor(tmp_path))
     cli = DockerCLI(reward="1.0", answer=_verifier(ALL_PASS, returncode=0))
