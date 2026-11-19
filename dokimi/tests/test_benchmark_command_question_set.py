@@ -16,6 +16,13 @@ from dokimi.registry import ProductEntry
 from tests.cli_refusal import refusal
 
 
+@pytest.fixture(autouse=True)
+def _provider_keys(monkeypatch):
+    """#967: `benchmark run|batch` refuse a missing key, so these tests hold one."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+
+
 class _Registry:
     def get(self, key: str) -> ProductEntry:
         assert key == "onetbb"

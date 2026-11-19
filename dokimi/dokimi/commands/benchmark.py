@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, cast
 
 from dokimi import cli_flags
-from dokimi.llm import CALLER_CHOICES, credential_env_var, resolve_api_key
+from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, credential_env_var, resolve_api_key
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -144,6 +144,34 @@ def _provider_checks(providers: list[str], notes: list[str] | None = None,
     if notes is not None:
         notes.extend(f"{n}: signed in ({s.source})" for n, s in statuses.items() if s.authenticated and s.source)
     return errors, warnings
+
+
+def _refuse_missing_credentials(args: argparse.Namespace) -> None:
+    """Exit 2 before any directory or model call when a provider has no key or login (#967).
+
+    ``benchmark preflight`` makes the same check; ``run`` and ``batch`` made none and failed in
+    the first model call, after the output directories existed.
+    """
+    pairs = [
+        (args.provider, getattr(args, "model", "")),
+        (getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER), getattr(args, "judge_model", "")),
+    ]
+    # Bedrock (AWS keys) and Vertex (ADC) have other credentials than the key (#967);
+    # a `gemini/` model is the Gemini API: GEMINI_API_KEY or GOOGLE_API_KEY.
+    providers = []
+    for provider, model in pairs:
+        canonical = PROVIDER_ALIASES.get(provider, provider)
+        if canonical == "amazon-bedrock":
+            continue
+        if canonical == "google-vertex" and not (
+            str(model).startswith("gemini/") and not os.environ.get("GOOGLE_API_KEY")
+        ):
+            continue
+        providers.append(provider)
+    errors, _ = _provider_checks(providers)
+    if errors:
+        # #967: a missing credential is an input refusal (exit 2), as in `benchmark preflight`.
+        raise InputError("\n".join(errors))
 
 
 def _login_warning(provider: str, status=None) -> str | None:
@@ -346,6 +374,8 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         if problem:
             raise InputError(f"{problem}")
 
+    _refuse_missing_credentials(args)
+
     if n_runs == 1:
         _run_single_library(
             entry,
@@ -423,6 +453,8 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
 
     if not entries:
         raise InputError("No libraries to run.")
+
+    _refuse_missing_credentials(args)
 
     print(f"Batch run: {len(entries)} libraries → {args.output_dir}")
     results = []

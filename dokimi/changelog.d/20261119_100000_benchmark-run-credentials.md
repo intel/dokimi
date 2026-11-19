@@ -1,0 +1,3 @@
+### Fixed
+
+- **`dokimi benchmark run` and `benchmark batch` refuse a missing provider key before any model call** — they now make the check `benchmark preflight` makes and exit 2 with the same `missing <VAR> for provider <name>` lines, instead of starting the pipeline, printing tracebacks, exiting 5 and leaving empty directories under `results/`. A CLI provider that is not installed or not signed in is refused the same way. `amazon-bedrock` and `google-vertex` are not checked, since they can run on AWS access keys or application-default credentials; a `gemini/` model needs `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
