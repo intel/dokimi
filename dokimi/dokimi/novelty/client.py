@@ -196,7 +196,7 @@ class LLMClient:
                        else f"max_tokens={self.max_tokens or DEFAULT_MAX_TOKENS}")
             raise OutputTruncated(
                 f"reply cut at the output ceiling ({self.model}, {ceiling}, "
-                f"{usage.completion_tokens} tokens)" + ("" if cli else "; raise --max-tokens"),
+                f"{usage.completion_tokens} tokens)" + ("" if cli else "; raise --max-output-tokens"),
                 reply=reply or "")
         return reply or ""
 

@@ -29,7 +29,6 @@
 --batch
 --both
 --budget
---budgets
 --build-network
 --build-timeout
 --cache-root
@@ -120,7 +119,6 @@
 --max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-lines  # eval tasks generate --from prs (#294) adds it: a size filter, not a spend cap; no registry concept yet
 --max-resource-words
---max-tokens
 --max-turns
 --metric
 --min-accuracy

@@ -80,3 +80,32 @@ def test_add_refuses_a_spelling_the_concept_does_not_own():
         cli_flags.add(parser, "output", "--output")
     with pytest.raises(KeyError):
         cli_flags.add(parser, "no-such-concept", "--out")
+
+
+@pytest.mark.parametrize(("old", "new"), [
+    # `--max-tokens` was retrieval on four leaves and the output ceiling on ten (the tokens concept, F1b)
+    (["answers", "generate", "--product", "p", "--max-tokens", "8"],
+     ["answers", "generate", "--product", "p", "--retrieval-tokens", "8"]),
+    (["benchmark", "preflight", "--library", "x", "--max-tokens", "8"],
+     ["benchmark", "preflight", "--library", "x", "--retrieval-tokens", "8"]),
+    (["skill", "novelty", "atoms", "--max-tokens", "8"], ["skill", "novelty", "atoms", "--max-output-tokens", "8"]),
+    (["tools", "preference", "--max-tokens", "8"], ["tools", "preference", "--max-output-tokens", "8"]),
+    (["skill", "shorten", "--max-tokens", "8"], ["skill", "shorten", "--max-output-tokens", "8"]),
+    # a retired command and a moved flag in one argv: the printed line is the final command
+    (["novelty", "routing", "--max-tokens", "9"], ["skill", "routing", "--max-output-tokens", "9"]),
+    (["skill", "shorten", "--budgets", "0.5"], ["skill", "shorten", "--token-budgets", "0.5"]),
+])
+def test_an_old_token_spelling_tombstones_with_the_new_argv(old, new, capsys):
+    text = _tombstone(old, capsys)
+    assert " ".join(new) in text
+
+
+@pytest.mark.parametrize(("argv", "dest", "value"), [
+    (["answers", "generate", "--product", "p", "--questions", "q", "--retrieval-tokens", "8"], "max_tokens", 8),
+    (["skill", "novelty", "atoms", "--artifact", "skill:s", "--max-output-tokens", "8"],
+     "max_tokens", 8),
+    (["skill", "shorten", "--artifact", "skill:s", "--atoms", "a.json", "--token-budgets", "0.5", "0.25"],
+     "budgets", [0.5, 0.25]),
+])
+def test_the_token_spellings_parse_to_the_same_value(argv, dest, value):
+    assert getattr(cli.build_parser().parse_args(argv), dest) == value

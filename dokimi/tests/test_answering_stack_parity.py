@@ -103,7 +103,7 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ),
     # D6 judge temperature (CLI: P = benchmark run, A = arms run)
     ("D6", "cli.judge_temperature_flag", True, True),
-    # D7 --max-tokens (CLI defaults; where the configured value lands)
+    # D7 --retrieval-tokens / --max-output-tokens (CLI defaults; where the configured value lands)
     ("D7", "cli.max_tokens_default", 4000, None),
     ("D7", "max_tokens.lands_in", "retrieval", "answer"),
     # D8 library id: EvaluationPipeline with no context7_id (the `orchestrate` path without
@@ -187,8 +187,12 @@ def _has_option(parser: argparse.ArgumentParser, flag: str) -> bool:
 
 
 def _default_or_absent(parser: argparse.ArgumentParser, dest: str) -> Any:
-    """The default of the ``--<dest>`` option, or "absent" when the parser has no such option."""
-    if not _has_option(parser, "--" + dest.replace("_", "-")):
+    """The default of the option that stores ``dest``, or "absent" when no option stores it.
+
+    Matched by dest, not by spelling: the token flags are renamed per leaf
+    (``--retrieval-tokens`` or ``--max-output-tokens``) and keep their dest.
+    """
+    if not any(a.dest == dest for a in parser._actions):
         return "absent"
     return parser.get_default(dest)
 

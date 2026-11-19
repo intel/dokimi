@@ -85,7 +85,7 @@ python cli.py tools preference --groups groups.json \
 call starts. The calls not run are kept as `skipped`, left out of the summary
 (`n_skipped`), and the command exits 3. Calls already in flight finish, so the
 spend can pass the cap by up to `--concurrency` − 1 calls. A reply cut at
-`--max-tokens` before any tool call is billed, so it counts. A call that comes
+`--max-output-tokens` before any tool call is billed, so it counts. A call that comes
 back with no price leaves the cap blind: no new call starts after it. If that
 left calls unstarted, the command exits 3; otherwise it prints a warning.
 Items run group by group, and each call is checked against the cap as it is
@@ -111,7 +111,7 @@ the defaults filled in) and a `summary`:
 | `same_choice_rate`, `modal_share` | across `--reps`: items whose outcome never changed, and the mean share of the most common outcome |
 
 A call that failed is kept with its `error` and left out of the summary
-(`n_errors`); so is a reply cut at `--max-tokens` before any tool call. A reply
+(`n_errors`); so is a reply cut at `--max-output-tokens` before any tool call. A reply
 cut after its tool call is scored, since only the tool's name counts, and
 flagged `truncated` (`n_truncated`).
 

@@ -191,7 +191,7 @@ class ExtractionReport:
         empty_span_ids: The subset whose call returned no content. A reasoning model that
             spends its output ceiling before answering does that (see
             :class:`~dokimi.novelty.client.LLMClient`), so these also need a higher
-            ``--max-tokens``. Not split: half a batch comes back empty too. Kept for the
+            ``--max-output-tokens``. Not split: half a batch comes back empty too. Kept for the
             warning; the artifact records only the totals.
         unusable_span_ids: The subset whose reply parsed and had rows, none of them an
             atom (wrong keys, strings, span ids that are not this document's). Not "this
@@ -200,7 +200,7 @@ class ExtractionReport:
         retried_batches: Batches whose reply did not parse, or had no usable atom, and
             were split and re-asked.
         unusable_retries: How many of those splits were for unusable rows. Only the
-            cut-off ones are cured by ``--max-tokens``. Kept for the warning.
+            cut-off ones are cured by ``--max-output-tokens``. Kept for the warning.
         calls: Extraction calls made, splits included, so the cost of re-asking is visible.
         batches: Calls the same run would make with no splitting: a batch counts once it
             is asked, and its halves count at its level. A capped run asks every batch.
@@ -251,12 +251,12 @@ class ExtractionReport:
                 causes.append(
                     f"{unparseable} replied but did not parse even one span per call; a "
                     f"reply cut off mid-JSON means the output ceiling is too low for one "
-                    f"span, so raise --max-tokens (last parse error: {self.parse_error})"
+                    f"span, so raise --max-output-tokens (last parse error: {self.parse_error})"
                 )
             if empty:
                 causes.append(
                     f"{empty} got an empty reply, which a reasoning model returns when it "
-                    f"spends the output ceiling before answering, so raise --max-tokens "
+                    f"spends the output ceiling before answering, so raise --max-output-tokens "
                     f"(empty replies are not split: half a batch comes back empty too)"
                 )
             if unusable:
@@ -426,7 +426,7 @@ def extract_atoms(
                 # Its own cause, not a failed call: the fix is a higher output ceiling.
                 lost = ValueError(
                     f"{_EMPTY_REPLY}; a reasoning model returns one when it spends the "
-                    "output ceiling before answering, so raise --max-tokens"
+                    "output ceiling before answering, so raise --max-output-tokens"
                 )
                 report.empty_span_ids.extend(span.id for span in batch)
                 _mark_unread(batch, report)

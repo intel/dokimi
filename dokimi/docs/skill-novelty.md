@@ -450,10 +450,10 @@ the highlight is load-bearing. Three measured constraints ship with it:
 ### 3. Shortening, with five separate scores
 
 ```bash
-python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
+python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --token-budgets 0.75 0.5
 ```
 
-`skill novelty analyze` scores the same candidates at its `--budgets` unless you pass `--no-shorten`
+`skill novelty analyze` scores the same candidates at its `--token-budgets` unless you pass `--no-shorten`
 (`--tier triage` skips them too).
 
 Never one "retention" number, because a single score hides the one failure that matters. A measured
@@ -1459,8 +1459,8 @@ statement's byte length as 8 bytes (big-endian) before the statement, which no s
 can collide on. The old files stay in `--cache-dir` and can be deleted, and the first run after
 upgrading pays the adjudication calls again.
 
-**Pass `--max-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
-16384 output tokens unless `--max-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
+**Pass `--max-output-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
+16384 output tokens unless `--max-output-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
 Claude when none is given, and on a dense skill a 25-span extraction batch can need more than
 that: in the run below, replies came back with `finish_reason=length` at exactly 4096 tokens,
 cut mid-array. A reply cut at the ceiling (`finish_reason` `length` or `max_tokens`) is an error,
@@ -1470,14 +1470,14 @@ unparseable (or one whose rows are all unusable) in half and re-asking, down to 
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
 capped run asks every batch too), and a warning (`atom extraction re-asked N
-unparseable batches as halves`) says what they cost; a higher `--max-tokens` avoids the truncated ones, not those with unusable rows. A call
+unparseable batches as halves`) says what they cost; a higher `--max-output-tokens` avoids the truncated ones, not those with unusable rows. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
 Spans that still cannot be read are *unread*, not text that carries nothing. The warning
 (`atom extraction could not read N of M spans`) gives their count and token cost, and separates
-four causes: spans whose reply never parsed, even alone (raise `--max-tokens`); spans whose call
+four causes: spans whose reply never parsed, even alone (raise `--max-output-tokens`); spans whose call
 came back empty, which is what a reasoning model returns when it spends the output ceiling before
-answering (raise `--max-tokens` too); spans whose reply parsed to rows none of which is a usable atom
+answering (raise `--max-output-tokens` too); spans whose reply parsed to rows none of which is a usable atom
 (wrong keys, strings, span ids outside the document; an empty array is a result, not this); and spans
 lost to a failed call (with its error). The
 `extraction` block, in the artifact and in `atoms.json`, records:
@@ -1511,7 +1511,7 @@ retention by up to that many decisions. A hedged verdict (`"retained?"`) counts 
 (`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split a
 batch whose reply does not parse, or has no row it can use, the same way as extraction, and say so
 (`content classification re-asked N unparseable batches as halves`, or `unusable` when no row was
-usable; only the first is cured by `--max-tokens`). A judge row whose `needed` is not a real boolean
+usable; only the first is cured by `--max-output-tokens`). A judge row whose `needed` is not a real boolean
 is counted as malformed, apart from a statement the judge skipped, unless no row of its reply is usable (then the batch is split and the atoms count as `unusable`); a conflict row that names no pair
 of its batch is dropped and counted. Every novelty call passes a test of a usable reply to the
 response cache, so a reply that fails it is never stored or replayed: extraction, the batched

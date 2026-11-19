@@ -65,7 +65,7 @@ How an author uses it:
 ```bash
 python cli.py skill novelty analyze --artifact skill:path/to/skill \
     --model <model under measurement> --judge-model <a different model> \
-    --budgets 0.75 0.5
+    --token-budgets 0.75 0.5
 ```
 
 `analyze` says what the file is worth and where, and then (unless you pass

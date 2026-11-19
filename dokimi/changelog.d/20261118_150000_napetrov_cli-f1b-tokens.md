@@ -1,0 +1,3 @@
+### Changed
+
+- **Token flags: `--max-tokens` is split by meaning.** On `answers generate`, `benchmark run`, `benchmark preflight` and `benchmark batch` the flag caps the tokens retrieved per question, so it is now `--retrieval-tokens`. On `arms run`, `arms matrix-run`, `subjects run`, `tools preference`, `skill novelty analyze|atoms|probe`, `skill shorten`, `skill routing` and `catalog routing` it caps the output of each model call, so it is now `--max-output-tokens`. `--budgets` is now `--token-budgets` on `skill novelty analyze|atoms|probe` and `skill shorten`. The old spellings print the new command and exit 2, so scripts and CI that pass them must change the flag. A retired `novelty routing --max-tokens` prints the `skill routing --max-output-tokens` command.

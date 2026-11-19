@@ -189,12 +189,14 @@ CONCEPTS: tuple[Concept, ...] = (
         name="tokens",
         help="token caps and token budget fractions",
         canonical=(
-            Flag("--max-output-tokens", "N", "int"),
-            Flag("--retrieval-tokens", "N", "int"),
-            Flag("--token-budgets", "F,F", "text"),
+            Flag("--max-output-tokens", "N", "int", meaning="the output ceiling of each model call"),
+            Flag("--retrieval-tokens", "N", "int", meaning="the tokens of docs retrieved per question"),
+            Flag("--token-budgets", "F [F ...]", "float",
+                 meaning="target token fractions for shortening candidates"),
         ),
         banned=("--max-tokens", "--budgets"),
-        note="--max-tokens meant retrieval in six leaves and output in seven.",
+        note="--max-tokens meant retrieval in four leaves and output in ten; FLAG_MOVES moves each leaf "
+             "by what its code does.",
     ),
     Concept(
         name="output",
@@ -403,6 +405,20 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--out", "--out-dir", leaves=(
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
+    )),
+    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on ten.
+    FlagMove("--max-tokens", "--retrieval-tokens", leaves=(
+        ("answers", "generate"), ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
+    )),
+    FlagMove("--max-tokens", "--max-output-tokens", leaves=(
+        ("arms", "run"), ("arms", "matrix-run"), ("subjects", "run"), ("tools", "preference"),
+        ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"),
+        ("skill", "routing"), ("catalog", "routing"),
+    )),
+    FlagMove("--budgets", "--token-budgets", leaves=(
+        ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"),
     )),
 )
 
