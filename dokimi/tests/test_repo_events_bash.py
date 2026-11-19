@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-import time
+from functools import partial
 
 import pytest
 
@@ -15,6 +15,7 @@ from dokimi.repos.events import convert
 from dokimi.repos.process_metrics import process_metrics
 from dokimi.repos.useful import first_useful
 from dokimi.repos.useful_spec import parse_useful
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 WS = "/ws"
 
@@ -822,10 +823,12 @@ def test_a_definition_whose_close_is_not_seen_keeps_the_rest_of_the_script_as_it
     assert shell_walk("f; cat AGENTS.md\nf() { cd sub; }>/dev/null") == ([], True, 1)
 
 
-@pytest.mark.parametrize("script", ["\n".join(f"f{i}() {{ echo {i}" for i in range(2000)) + "\ncd x",
-                                    "\n".join(f"g{i}() {{ g{i + 1}; }}" for i in range(1000)) + "\ng1000() { cd x; }"])
-def test_many_unclosed_definitions_or_a_long_call_chain_walk_in_linear_time(script):
+@pytest.mark.parametrize("script, n", [
+    (lambda k: "\n".join(f"f{i}() {{ echo {i}" for i in range(k)) + "\ncd x", 500),
+    (lambda k: "\n".join(f"g{i}() {{ g{i + 1}; }}" for i in range(k)) + f"\ng{k}() {{ cd x; }}", 250),
+], ids=["unclosed-definitions", "call-chain"])
+def test_many_unclosed_definitions_or_a_long_call_chain_walk_in_linear_time(script, n):
     # each body's own text is read once, and each function is found a mover once: quadratic, these took seconds
-    start = time.perf_counter()
-    assert shell_walk("f0; g0; cat AGENTS.md\n" + script) == ([], True, 1)
-    assert time.perf_counter() - start < 2
+    ratio, walked = growth(lambda k: partial(shell_walk, "f0; g0; cat AGENTS.md\n" + script(k)), n)
+    assert ratio < GROWTH_LIMIT
+    assert walked == ([], True, 1)

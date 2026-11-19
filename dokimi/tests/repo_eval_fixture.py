@@ -18,6 +18,7 @@ script printing Claude stream-json; ``FAKE_ACTION`` picks what it does.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
@@ -292,6 +293,11 @@ class FakeRunner:
             stdout.write_text("".join(f"{s}\n" for s in seen))
             stderr.write_text("")
             return ContainerResult(returncode=1 if seen else 0, timed_out=False, wall_s=0.0)
+        if os.environ.get("FAKE_ACTION") == "quiet" and "-p" in argv:
+            # the agent ends before its first line with exit 0 (the fake script is left as it is: its digest is pinned)
+            stdout.write_text("")
+            stderr.write_text("")
+            return ContainerResult(returncode=0, timed_out=False, wall_s=0.0)
         if argv[0] == "python3":
             argv[0] = sys.executable
         # FAKE_CONTAINER_CWD: the fake harness reports paths as a harness in the container would
@@ -304,3 +310,18 @@ class FakeRunner:
         if not cwd.is_dir():
             cwd = stdout.parent
         return run_process(argv, env=env, stdout=stdout, stderr=stderr, timeout_s=timeout_s, cwd=cwd)
+
+
+def config_runner(tmp_path, monkeypatch):
+    """A FakeRunner whose agent gets FAKE_CONFIG_DIR: the built-in claude-code profile does not set it, and the fake
+    agent exits 1 without it (a crash, exit 5, now that a nonzero exit with no trace is one)."""
+    runner = FakeRunner()
+    config = str(tmp_path / "config")
+
+    def run(spec, **kwargs):
+        env = {**spec.env, "FAKE_CONFIG_DIR": config}
+        return FakeRunner.run(runner, dataclasses.replace(spec, env=env), **kwargs)
+
+    runner.run = run
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    return runner

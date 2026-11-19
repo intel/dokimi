@@ -29,6 +29,7 @@ from typing import Any
 from dokimi.eval.binary_stats import PASS_RATE_CI_CONFIDENCE
 from dokimi.harnesses.runner import is_errored
 from dokimi.measure import is_number
+from dokimi.provenance import UNKNOWN, status_of
 from dokimi.report import fmt
 
 
@@ -176,6 +177,7 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
         t["name"]: t.get("metadata", {}).get("difficulty", "?")
         for t in data.get("tasks", [])
     }
+    status_of_task = {t["name"]: status_of(t.get("metadata") or {}) for t in data.get("tasks", [])}
     rows = data.get("results", [])
     baseline = data.get("baseline_harness")
     # Fall back to harnesses observed in the rows if the summary is empty.
@@ -310,10 +312,10 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
     # ── per-task pass + cost (one column pair per harness) ──
     lines.append("## Per-task pass + cost")
     lines.append("")
-    lines.append("| Task | Diff | " + " | ".join(
+    lines.append("| Task | Diff | Status | " + " | ".join(
         f"`{h}` pass | `{h}` $" for h in harnesses
     ) + " |")
-    lines.append("| --- | :---: |" + "|".join(" :---: | ---: " for _ in harnesses) + "|")
+    lines.append("| --- | :---: | :---: |" + "|".join(" :---: | ---: " for _ in harnesses) + "|")
     for t in tasks:
         cols = []
         for h in harnesses:
@@ -321,7 +323,7 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
             err_s = f" (+{c['errored']} err)" if c["errored"] else ""
             pass_s = f"{c['passed']}/{c['n']}" if c["n"] else "—"
             cols.append(f"{pass_s}{err_s} | {fmt.usd(c['cost'])}")
-        lines.append(f"| {t} | {diff_of.get(t, '?')} | " + " | ".join(cols) + " |")
+        lines.append(f"| {t} | {diff_of.get(t, '?')} | {status_of_task.get(t, UNKNOWN)} | " + " | ".join(cols) + " |")
     lines.append("")
 
     # ── per-cell answer detail ──
