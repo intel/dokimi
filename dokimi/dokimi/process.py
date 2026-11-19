@@ -410,7 +410,7 @@ def _feed(sink, data: bytes) -> None:
 
 def _check(argv: Sequence[str | os.PathLike[str]], timeout: float, capture_limit: int | None,
            term_grace: float = 0.0) -> list[str]:
-    args = [argv_text(s) if isinstance(s := os.fspath(a) if isinstance(a, os.PathLike) else a, str) else s for a in argv]  # a bytes entry, or a path-like giving bytes, runs as on main
+    args = [argv_text(s) if isinstance(s := os.fspath(a), str) else s for a in argv]  # a bytes entry, or a path-like giving bytes, runs as on main; anything else is a TypeError
     if not args:
         raise ValueError("empty argv")
     if not timeout > 0:

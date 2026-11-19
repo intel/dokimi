@@ -48,6 +48,17 @@ def test_a_path_like_entry_giving_bytes_runs_as_given():
     assert done.returncode == 0 and done.stdout.strip() == "x"
 
 
+@pytest.mark.parametrize("entry", [None, 1], ids=["none", "int"])
+def test_an_argv_entry_that_is_not_text_bytes_or_a_path_is_refused_before_anything_opens(entry, tmp_path):
+    out = tmp_path / "out.txt"
+    out.write_text("kept")
+    with pytest.raises(TypeError):
+        process.run([PY, "-c", "pass", entry], timeout=30, env=INHERIT, stdout_to=out)
+    with pytest.raises(TypeError):
+        FakeRunner()(["x", entry], timeout=1, env=INHERIT)
+    assert out.read_text() == "kept"
+
+
 @_POSIX_ONLY
 def test_completed_argv_holds_the_text_sent():
     done = process.run([PY, "-c", "pass", "n\ud800", "plain"], timeout=30, env=INHERIT)
