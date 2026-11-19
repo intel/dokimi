@@ -285,6 +285,14 @@ def test_a_recursion_error_in_the_decoder_is_json_this_reader_cannot_hold(monkey
         {"error": "JSON this reader cannot hold: maximum recursion depth exceeded while decoding a JSON array"}]
 
 
+@pytest.mark.parametrize("elapsed", ["1e400", "NaN", '"n/a"', "1" + "0" * 400, "0", "null"],
+                         ids=["exponent", "NaN", "not-a-number", "int-over-a-float", "zero", "null"])
+def test_an_unusable_elapsed_falls_through_to_duration_sec(elapsed):
+    ops = load_operations(None, 'DOKIMI_OP {"type":"tool","elapsed_sec":' + elapsed + ',"duration_sec":5}', "")
+
+    assert [op.elapsed_sec for op in ops] == [5.0]
+
+
 def test_a_marker_whose_json_names_the_marker_is_read_whole():
     ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"grep DOKIMI_OP in logs"}', "")
 

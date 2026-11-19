@@ -104,12 +104,7 @@ def _op_from_dict(data: dict[str, Any]) -> OperationRecord:
     op_type = str(data.get("type") or data.get("kind") or "operation")
     name = str(data.get("name") or data.get("tool") or data.get("subagent") or op_type)
     status = str(data.get("status") or "ok")
-    try:
-        elapsed = float(data.get("elapsed_sec") or data.get("duration_sec") or 0.0)
-    except (TypeError, ValueError, OverflowError):  # OverflowError: an int too large for a float
-        elapsed = 0.0
-    if not math.isfinite(elapsed):  # 1e400, Infinity and NaN parse to a float no duration is (#687)
-        elapsed = 0.0
+    elapsed = _seconds(data)
     metadata = {
         k: v
         for k, v in data.items()
@@ -119,3 +114,15 @@ def _op_from_dict(data: dict[str, Any]) -> OperationRecord:
     return OperationRecord(
         type=op_type, name=name, status=status, elapsed_sec=elapsed, metadata=metadata
     )
+
+
+def _seconds(data: dict[str, Any]) -> float:
+    """The first of ``elapsed_sec`` and ``duration_sec`` that is a finite number other than 0, else 0.0 (#687)."""
+    for key in ("elapsed_sec", "duration_sec"):
+        try:
+            value = float(data.get(key) or 0.0)
+        except (TypeError, ValueError, OverflowError):  # not a number, or an int too large for a float
+            continue
+        if value and math.isfinite(value):  # 1e400, Infinity and NaN parse to a float no duration is
+            return value
+    return 0.0
