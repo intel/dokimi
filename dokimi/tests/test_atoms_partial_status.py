@@ -11,6 +11,7 @@ import pytest
 
 from dokimi.novelty.atoms import load_atoms_record
 from dokimi.novelty.atoms_refusal import has_visible_text
+from dokimi.novelty.client import SpendCap, SpendCapReached
 from dokimi.utils import InputError
 
 _BLOCK = {"reason": "spend_cap", "message": "stopped"}
@@ -85,6 +86,57 @@ def test_a_partial_file_with_a_real_message_prints_it_as_is(tmp_path, reason, me
         load_atoms_record(path)
     assert str(exc.value) == (f"{path} is a partial atoms file: {message}, so it is not a finished atom set. "
                               f"{_ADVICE[reason]}")
+
+
+def _refusal(tmp_path, reason, message):
+    path = tmp_path / "atoms.json"
+    path.write_text(json.dumps({"status": "partial", "partial": {"reason": reason, "message": message}}),
+                    encoding="utf-8")
+    with pytest.raises(InputError) as exc:
+        load_atoms_record(path)
+    return path, str(exc.value)
+
+
+def _real_no_price_message():
+    cap = SpendCap(limit_usd=1.0)
+    with pytest.raises(SpendCapReached) as exc:
+        cap.record(None, "m")
+    return str(exc.value)
+
+
+def test_a_no_price_message_that_ends_with_the_advice_gets_it_once(tmp_path):
+    # docs/skill-novelty.md:1216-1217 (#921)
+    message = _real_no_price_message()
+    assert message.endswith(_ADVICE["no_price"])
+    path, text = _refusal(tmp_path, "no_price", message)
+    assert text == f"{path} is a partial atoms file: {message}; it is not a finished atom set."
+    assert text.count(_ADVICE["no_price"]) == 1
+
+
+@pytest.mark.parametrize("tail", [".", " ", ".\n", " . "], ids=["period", "space", "period-newline", "spaced-period"])
+def test_a_message_with_trailing_periods_or_whitespace_after_the_advice_gets_it_once(tmp_path, tail):
+    # docs/skill-novelty.md:1216-1217 (#921)
+    message = _real_no_price_message() + tail
+    path, text = _refusal(tmp_path, "no_price", message)
+    assert text == f"{path} is a partial atoms file: {message}; it is not a finished atom set."
+    assert text.count(_ADVICE["no_price"]) == 1
+
+
+def test_a_permanent_error_message_that_ends_with_the_advice_gets_it_once(tmp_path):
+    # docs/skill-novelty.md:1216-1217 (#921)
+    message = "bad key for m. Fix the error and rerun"
+    path, text = _refusal(tmp_path, "permanent_error", message)
+    assert text == f"{path} is a partial atoms file: {message}; it is not a finished atom set."
+    assert text.count(_ADVICE["permanent_error"]) == 1
+
+
+def test_a_message_with_the_advice_in_the_middle_still_gets_it_appended(tmp_path):
+    # docs/skill-novelty.md:1216-1217 (#921)
+    message = "Drop --max-usd to run unmetered, then retry"
+    path, text = _refusal(tmp_path, "no_price", message)
+    assert text == (f"{path} is a partial atoms file: {message}, so it is not a finished atom set. "
+                    f"{_ADVICE['no_price']}")
+    assert text.count(_ADVICE["no_price"]) == 2
 
 
 @pytest.mark.parametrize(("text", "visible"), [

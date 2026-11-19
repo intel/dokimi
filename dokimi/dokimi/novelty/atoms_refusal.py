@@ -27,6 +27,7 @@ def partial_atoms_refusal(path, partial: dict) -> str:
 
     A ``no_price`` or ``permanent_error`` block names its stop in ``message``; one whose message is not
     text with a visible character (:func:`has_visible_text`) gets the reason's own text.
+    A message that already ends with the reason's advice is not followed by it again.
     Any other reason is a ``--max-usd`` stop.
     """
     reason = partial.get("reason")
@@ -36,4 +37,6 @@ def partial_atoms_refusal(path, partial: dict) -> str:
     message = partial.get("message")
     if not isinstance(message, str) or not has_visible_text(message):
         message = stop[0]
+    if message.rstrip().rstrip(".").rstrip().endswith(stop[1]):  # the stop's own text already ends with the advice
+        return f"{path} is a partial atoms file: {message}; it is not a finished atom set."
     return f"{path} is a partial atoms file: {message}, so it is not a finished atom set. {stop[1]}"
