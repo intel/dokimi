@@ -1,6 +1,5 @@
 {
   "files": {
-    "dokimi/commands/repo.py": {"lines": 803, "rationale": "over the 800 cap on main before #965; split it in its own PR"},
     "dokimi/harnesses/benchflow.py": {"lines": 869},
     "dokimi/harnesses/docker_solver.py": {"lines": 889, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/llm.py": {"lines": 1031, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},
