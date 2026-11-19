@@ -54,7 +54,7 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
 
 @dataclass
 class _Node:
-    """A node of the trie of closing-line words: the start of the last line that is the word ending here (-1: none)."""
+    """A node of the trie of heredoc delimiters: the start of the last line that is the word ending here (-1: none)."""
 
     last: int = -1
     children: dict[str, _Node] = field(default_factory=dict)
@@ -84,8 +84,8 @@ class HeredocPattern:
 
         A delimiter may be cut short by the regex (``<<AB`` closed by a line ``A``) unless it is quoted,
         so every prefix of it counts; only a line of such a prefix, starting ``gap`` past the opener, closes it.
-        The prefixes are walked once along a trie of the closing-line words: a step per character of the delimiter.
-        A line word longer than the longest delimiter closes nothing and stays out of the trie.
+        The prefixes are walked once along a trie of the delimiters, which the closing-line words walk in turn: a step per character of a delimiter or of a line.
+        A line word that is no prefix of a delimiter closes nothing and adds no node.
         """
         openers, start, eol = [], 0, -1
         while (o := self.opener.search(text, start)) is not None:
@@ -97,7 +97,7 @@ class HeredocPattern:
             start = o.start() + 1
         if not openers:
             return
-        trie = self._closing_words(text, max(len(o.group(self.word)) for o, _ in openers))
+        trie = self._closing_words(text, [o.group(self.word) for o, _ in openers])
         pos = 0
         for o, line_end in openers:
             if o.start() < pos:
@@ -110,17 +110,25 @@ class HeredocPattern:
             else:
                 pos = o.start() + 1
 
-    def _closing_words(self, text: str, longest: int) -> _Node:
-        """The trie of the words of the lines in ``text`` that are no longer than ``longest``; each node holds the start of the last line of its word."""
+    def _closing_words(self, text: str, delimiters: list[str]) -> _Node:
+        """The trie of the ``delimiters``, each node holding the start of the last line of ``text`` that is the word ending there.
+
+        A line word walks the trie as far as it goes and sets nothing when it leaves it, so the trie
+        never grows past the delimiters, whatever the lines hold.
+        """
         trie = _Node()
-        for line in self.lines.finditer(text):
-            word = line.group(1)
-            if len(word) > longest:
-                continue
+        for delimiter in delimiters:
             node = trie
-            for ch in word:
+            for ch in delimiter:
                 node = node.children.setdefault(ch, _Node())
-            node.last = line.start()
+        for line in self.lines.finditer(text):
+            node = trie
+            for ch in line.group(1):
+                if (next_node := node.children.get(ch)) is None:
+                    break
+                node = next_node
+            else:
+                node.last = line.start()
         return trie
 
     def _closed(self, trie: _Node, o: re.Match[str], line_end: int) -> bool:

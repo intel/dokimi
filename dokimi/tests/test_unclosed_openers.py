@@ -328,11 +328,12 @@ def test_cli_trace_heredoc_closes_an_unquoted_opener_by_a_line_of_a_prefix_of_it
     assert _cli_heredocs("AB\n<<ABC\nx\n") == _old_cli_heredocs("AB\n<<ABC\nx\n")
 
 
-def test_cli_trace_heredoc_keeps_no_line_longer_than_the_longest_delimiter_in_memory() -> None:
-    """A closed heredoc of 52000 one-word lines of 80 characters (4.2 MB) took 1.1 GB when every line word went into the trie (#933 review)."""
+@pytest.mark.parametrize("delimiter", ["EOF", "Z" * 80])
+def test_cli_trace_heredoc_keeps_no_line_that_is_no_prefix_of_a_delimiter_in_memory(delimiter: str) -> None:
+    """A closed heredoc of 52000 one-word lines of 80 characters (4.2 MB) took 1.1 GB when every line word went into the trie, also under an 80-character delimiter (#933 review)."""
     rng = random.Random(0)
     body = "\n".join(rng.randbytes(40).hex() for _ in range(52_000))
-    text = "cat <<EOF > f\n" + body + "\nEOF\n"
+    text = f"cat <<{delimiter} > f\n{body}\n{delimiter}\n"
     tracemalloc.start()
     try:
         cut = _cli_heredocs(text)
