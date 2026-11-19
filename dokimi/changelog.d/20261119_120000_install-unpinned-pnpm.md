@@ -1,0 +1,3 @@
+### Fixed
+
+- **`catalog check` now counts unpinned `pnpm add`, `pnpm install` and `pnpm i` packages in `install-unpinned`, counts each package once, and skips echoed text** — only `pip`, `npm` and `npx` were read, so a skill that ran `pnpm add -D parcel html-inline` got no finding where the same line with `npm install -D` got one for two names. The finding now names `pnpm`, with `--filter`, `-F`, `--dir`, `-C`, `--store-dir` and `--save-catalog-name` values left out. The count is now of distinct `<manager> <name>` pairs, so `pip install anthropic` shown in three places is one install, and a command inside the quoted text of an `echo` or `printf` is not an install. (#946)

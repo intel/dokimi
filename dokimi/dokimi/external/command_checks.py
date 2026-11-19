@@ -10,9 +10,10 @@ each a ``warn`` in :mod:`dokimi.external.validate`:
   ``| sudo bash``, ``| python3``), which runs a download without a look at it.
 - ``permission-bypass-flag``: ``--dangerously-skip-permissions``, ``--yolo`` or
   ``bypassPermissions``, which switch off a coding agent's permission prompts.
-- ``install-unpinned``: a ``pip``, ``npm`` or ``npx`` install that names a package with no
-  version. One finding per skill, with the count. A requirements file, a local path, a URL and
-  a ``git+`` source are not named packages, so they are not counted.
+- ``install-unpinned``: a ``pip``, ``npm``, ``pnpm`` or ``npx`` install that names a package with no
+  version. One finding per skill, with the count of distinct ``<manager> <name>`` pairs: the same install
+  shown twice is one, and a command inside the quoted text of an ``echo`` or ``printf`` is not an install.
+  A requirements file, a local path, a URL and a ``git+`` source are not named packages, so they are not counted.
 
 Where each check reads: ``pipe-to-shell`` and ``permission-bypass-flag`` read every line of the
 text, since their tokens are distinctive. Installs are read from code only: the fenced blocks and
@@ -77,7 +78,24 @@ NPM_VALUE_OPTIONS = frozenset({
 # npx takes npm's config options, so its value options are npm's, plus its own --call; --package and -p are not
 # here, since their value is a selection
 NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
+# pnpm's value options: npm's, less ``-w``/``--workspace`` (flags in pnpm), plus a workspace filter, a directory, the
+# store and a catalog name
+PNPM_VALUE_OPTIONS = (NPM_VALUE_OPTIONS - {"-w", "--workspace"}) | frozenset(
+    {"--filter", "-F", "--dir", "-C", "--store-dir", "--save-catalog-name"})
+_PNPM_VALUE_ALT = "|".join(re.escape(o) for o in sorted(PNPM_VALUE_OPTIONS, key=len, reverse=True))
+# options before the subcommand: a value option takes the next word, quoted or not; any other flag stands alone (the
+# lookahead keeps the two parses of a value option apart, so a run of them cannot backtrack)
+PNPM = re.compile(
+    r"(?<![\w.-])pnpm(?:[ \t]+(?:(?:" + _PNPM_VALUE_ALT + r")[ \t]+(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|'\"][^\s;&|]*)"
+    r"|(?!(?:" + _PNPM_VALUE_ALT + r")(?:\s|$))-[^\s;&|]*))*[ \t]+(?:install|i|add)\b" + WORDS
+)
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
+# ``echo`` or ``printf`` at the start of a command: the quoted strings among its arguments are printed text
+# (after a control keyword too: ``then echo "..."``)
+ECHO_COMMAND = re.compile(
+    r"(?:^|[;&|(\n])[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{)[ \t]+)*(?:echo|printf)\b")
+# a command substitution that runs inside double quotes: ``$(`` or a backtick, unless a backslash escapes it
+SUBSTITUTION_OPEN = re.compile(r"(?<!\\)(?:\$\(|`)")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
 
@@ -170,9 +188,9 @@ def _npm_pinned(spec: str | None) -> bool:
     return spec is not None and NPM_RANGE.match(spec) is not None
 
 
-def _unpinned_npm(rest: str) -> list[str]:
+def _unpinned_npm(rest: str, value_options: frozenset[str] = NPM_VALUE_OPTIONS) -> list[str]:
     names = []
-    for word in _words(rest, NPM_VALUE_OPTIONS):
+    for word in _words(rest, value_options):
         word = word.rstrip("\"')")
         match = NPM_NAME.fullmatch(word) if word and not word.startswith("-") else None
         if not match or word.lower().endswith(NON_PACKAGE_SUFFIXES):
@@ -212,11 +230,58 @@ def _unpinned_npx(rest: str) -> list[str]:
     return names
 
 
+def _echoed_spans(code: str) -> list[tuple[int, int]]:
+    """``(open, close)`` of each quoted string among the arguments of an ``echo`` or ``printf``, over any number of
+    lines: the text in it is printed, not run. A quoted command that runs (``bash -c "pip install x"``) is not one."""
+    spans = []
+    for m in ECHO_COMMAND.finditer(code):
+        i = m.end()
+        while i < len(code) and code[i] not in ";&|\n)`":
+            if code[i] == "\\":
+                i += 2
+            elif code[i] in "'\"":
+                quote, j = code[i], i + 1
+                while j < len(code) and code[j] != quote:
+                    j += 2 if quote == '"' and code[j] == "\\" else 1
+                if j >= len(code):
+                    break  # never closed: not a string
+                spans.append((i, j))
+                i = j + 1
+            else:
+                i += 1
+    return spans
+
+
+def _runs_substitution(before: str) -> bool:
+    """Whether text inside double quotes has opened a ``$(`` that is not closed, or an odd number of backticks."""
+    found = [m.group() for m in SUBSTITUTION_OPEN.finditer(before)]
+    return found.count("$(") > before.count(")") or found.count("`") % 2 == 1
+
+
+def _is_echoed(code: str, spans: list[tuple[int, int]], start: int) -> bool:
+    """Whether ``start`` is printed text. Inside double quotes, an open ``$(`` or backtick before it runs it."""
+    for opened, closed in spans:
+        if opened < start < closed:
+            before = code[opened + 1:start]
+            if code[opened] == '"' and _runs_substitution(before):
+                continue
+            return True
+    return False
+
+
 def _unpinned_installs(code: str) -> list[str]:
-    found = [f"pip {n}" for m in PIP.finditer(code) for n in _unpinned_pip(m.group(1))]
-    found += [f"npm {n}" for m in NPM.finditer(code) for n in _unpinned_npm(m.group(1))]
-    found += [f"npx {n}" for m in NPX.finditer(code) for n in _unpinned_npx(m.group(1))]
-    return found
+    """One entry per distinct ``<manager> <name>``: the same install shown twice is one."""
+    found: list[str] = []
+    spans = _echoed_spans(code)
+    for manager, pattern, names in (
+        ("pip", PIP, _unpinned_pip),
+        ("npm", NPM, _unpinned_npm),
+        ("pnpm", PNPM, lambda rest: _unpinned_npm(rest, PNPM_VALUE_OPTIONS)),
+        ("npx", NPX, _unpinned_npx),
+    ):
+        found += [f"{manager} {n}" for m in pattern.finditer(code) if not _is_echoed(code, spans, m.start())
+                  for n in names(m.group(1))]
+    return list(dict.fromkeys(found))
 
 
 def _is_skill_dir(path: Path) -> bool:
@@ -291,6 +356,7 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
             ))
         unpinned += _unpinned_installs(_code_text(text, rel.lower().endswith(PROSE_SUFFIXES)))
 
+    unpinned = list(dict.fromkeys(unpinned))  # one per package across SKILL.md and the bundled files
     if unpinned:
         shown = ", ".join(unpinned[:EXAMPLES_SHOWN]) + (", ..." if len(unpinned) > EXAMPLES_SHOWN else "")
         s = "" if len(unpinned) == 1 else "s"
