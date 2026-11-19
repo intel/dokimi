@@ -554,6 +554,8 @@ def test_a_file_of_the_run_ids_name_that_is_not_an_artifact_does_not_shadow_the_
 
 def test_with_no_such_run_a_file_that_is_not_an_artifact_keeps_its_error(monkeypatch, capsys,
                                                                          runs):
+    """#972: docs/runs.md: when no artifact has the run_id, a file under the root that is not an
+    artifact (a text file) gets the error it got before."""
     (runs / "nightly-5").write_text("notes", encoding="utf-8")
 
     assert _fails(monkeypatch, capsys, "nightly-5") == (
