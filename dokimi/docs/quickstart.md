@@ -265,7 +265,7 @@ failed check.
 
 A command that validates its input and then runs exits 2 for the first and 1
 for the second. Not every command follows this yet: `repo run` and
-`eval check` exit 2 for a source that does not parse, a pinned local path inside a repository or a `--cache-dir` that is not a usable directory,
+`eval check` exit 2 for a source that does not parse, a pinned local path inside a repository, a `--cache-dir` (or `$DOKIMI_REPO_CACHE`) that is not a usable directory or a `--cache-root` or `--cache NAME=PATH` that is not one,
 but still exit 1 for other input refusals (a missing or malformed manifest, a bad arm; the `✗` lines;
 a `.mcp.json` the CLI rejects under `--tools all` is exit 2 before any cell;
 a `--manifest` path that leaves the source tree as typed is exit 2, pinned or not, as a source refusal; a link in the tree that leads out of it is exit 1), and
