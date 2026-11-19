@@ -67,9 +67,10 @@ def pull_reward(docker: Docker, container: str, output_dir: Path, log: Any) -> t
     ``(None, None)`` when it wrote none; ``(None, why)`` when a copy failed, which stops the search:
     a later file may not stand in for one that could not be read.
     """
+    for name in REWARD_FILES:  # a copy left by an earlier run of the cell is not this verdict
+        (output_dir / name).unlink(missing_ok=True)
     for name in REWARD_FILES:
         dest = output_dir / name
-        dest.unlink(missing_ok=True)  # a copy left by an earlier run of the cell is not this verdict
         pulled = docker(["cp", f"{container}:/logs/verifier/{name}", str(dest)], log, check=False)
         if pulled.returncode == 0 and dest.is_file():
             return reward_file_verdict(name, dest.read_text(encoding="utf-8", errors="replace")), None

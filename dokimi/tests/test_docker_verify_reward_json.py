@@ -107,11 +107,15 @@ def test_exit_zero_without_either_reward_file_still_errors_the_cell(tmp_path):
         _verify(tmp_path, DockerCLI(reward=None))
 
 
-def test_a_reward_json_left_by_an_earlier_run_is_not_this_runs_reward(tmp_path):
+@pytest.mark.parametrize(("stale", "cli"), [
+    ("reward.json", DockerCLI(reward="0.0")),
+    ("reward.txt", DockerCLI(reward=None, reward_json='{"reward": 0.0}')),
+])
+def test_a_reward_file_left_by_an_earlier_run_is_not_this_runs_reward(tmp_path, stale, cli):
     (tmp_path / "o").mkdir()
-    (tmp_path / "o" / "reward.json").write_text('{"reward": 1.0}', encoding="utf-8")
-    assert _verify(tmp_path, DockerCLI(reward="0.0")) == 0.0
-    assert not (tmp_path / "o" / "reward.json").exists()
+    (tmp_path / "o" / stale).write_text("1.0", encoding="utf-8")
+    assert _verify(tmp_path, cli) == 0.0
+    assert not (tmp_path / "o" / stale).exists()
 
 
 def test_an_answer_quality_cell_records_its_partial_reward_as_a_fail(tmp_path):
