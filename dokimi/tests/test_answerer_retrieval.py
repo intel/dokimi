@@ -58,7 +58,7 @@ class DropAllReranker:
 @pytest.fixture(autouse=True)
 def _lexical_reranker(monkeypatch):
     """The Answerer builds the lexical reranker, so both sides rank the same way without a model download."""
-    monkeypatch.setattr(answerer_mod, "SENTENCE_TRANSFORMERS_AVAILABLE", False)
+    monkeypatch.setattr("dokimi.eval.reranker.SENTENCE_TRANSFORMERS_AVAILABLE", False)
     monkeypatch.setattr(answerer_mod, "LANGCHAIN_AVAILABLE", True)
 
 
@@ -137,3 +137,19 @@ def test_a_retrieval_failure_is_no_docs_with_the_reason():
 
     assert kept == []
     assert (meta["error"], meta["fallback_triggered"]) == ("retrieval_failed", False)
+
+
+def test_the_answerer_ranks_with_the_reranker_the_arms_stack_picks(monkeypatch):
+    """One reranker choice for both stacks: a change to DocTreatment's default reaches the Answerer too."""
+    thresholds = []
+
+    def pick(threshold):
+        thresholds.append(threshold)
+        return DropAllReranker()
+
+    monkeypatch.setattr(DocTreatment, "_default_reranker", staticmethod(pick))
+    answerer = Answerer(mcp_client=RecordingClient(), model="m", provider="openai", rerank_threshold=0.42)
+    kept, meta = answerer._retrieve_docs(LIBRARY_ID, QUESTION, 4000, return_metadata=True)
+
+    assert thresholds == [0.42]
+    assert (kept, meta["raw_count"], meta["after_rerank"]) == ([], 6, 0)

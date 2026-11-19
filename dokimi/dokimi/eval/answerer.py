@@ -24,8 +24,6 @@ from dokimi.defaults import (
 from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE, check_caller_provider
 from dokimi.metrics.usage import UsageRecord, to_record
 
-from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
-
 
 ANSWER_PROMPT_WITH_DOCS = """You are a technical documentation expert answering a user question.
 
@@ -124,19 +122,11 @@ class Answerer:
         self.top_k = DEFAULT_RETRIEVAL_TOP_K if top_k is None else top_k
         self.debug_retrieval = debug_retrieval
         
-        # Initialize reranker (prefer semantic, fallback to lexical)
-        self.reranker: SentenceTransformerReranker | SimpleReranker
-        if SENTENCE_TRANSFORMERS_AVAILABLE:
-            try:
-                self.reranker = SentenceTransformerReranker(threshold=rerank_threshold)
-                logger.info(f"Semantic reranker initialized with threshold={rerank_threshold:.2f}")
-            except Exception as e:  # noqa: BLE001 - logged; the lexical reranker is the documented fallback
-                logger.warning(f"Semantic reranker failed ({e}); fallback to lexical reranker")
-                self.reranker = SimpleReranker(threshold=rerank_threshold)
-        else:
-            self.reranker = SimpleReranker(threshold=rerank_threshold)
-            logger.info(f"Lexical reranker initialized with threshold={rerank_threshold:.2f}")
-        
+        # The arms stack's choice (semantic, else lexical), so both stacks rank alike (#228 step 3).
+        from dokimi.treatments.arms import DocTreatment
+
+        self.reranker = DocTreatment._default_reranker(rerank_threshold)
+
         logger.info(f"Answerer initialized: {provider}/{model}, MCP={'yes' if mcp_client else 'no'}")
     
     def generate_answers(

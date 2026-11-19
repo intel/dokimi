@@ -235,12 +235,13 @@ def install_common(monkeypatch, client: RecordingDocClient, reranker: StubRerank
     """Replace the doc source, the reranker class and the answering modules' clock; nothing else."""
     from dokimi.eval import answerer as answerer_mod
     from dokimi.eval import arm_runner as arm_runner_mod
+    from dokimi.eval import reranker as reranker_mod
     from dokimi.orchestrator import pipeline as pipeline_mod
 
     clock = FrozenClock()
     monkeypatch.setattr(pipeline_mod, "create_doc_source_client", lambda kind: client)
-    monkeypatch.setattr(answerer_mod, "SENTENCE_TRANSFORMERS_AVAILABLE", False)
-    monkeypatch.setattr(answerer_mod, "SimpleReranker", lambda threshold: reranker)
+    monkeypatch.setattr(reranker_mod, "SENTENCE_TRANSFORMERS_AVAILABLE", False)
+    monkeypatch.setattr(reranker_mod, "SimpleReranker", lambda threshold: reranker)
     monkeypatch.setattr(answerer_mod, "time", clock)
     monkeypatch.setattr(arm_runner_mod, "time", clock)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
