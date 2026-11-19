@@ -303,6 +303,17 @@ def test_a_line_that_is_not_utf8_costs_only_that_line(tmp_path):
         ("tool", "read", {}), ("log_parse_error", "operations.jsonl", {"error": "not UTF-8"}), ("tool", "edit", {})]
 
 
+def test_a_record_with_a_raw_line_separator_in_a_string_is_one_line(tmp_path):
+    """JSON allows U+2028, U+2029 and U+0085 raw in a string; ``str.splitlines`` cut the record there."""
+    (tmp_path / "operations.jsonl").write_text(
+        json.dumps({"type": "tool", "name": "a\u2028b\u2029c\x85d"}, ensure_ascii=False) + "\r\n"
+        + json.dumps({"type": "tool", "name": "edit"}) + "\n", encoding="utf-8")
+
+    ops = load_operations(tmp_path, "", "")
+
+    assert [(op.type, op.name) for op in ops] == [("tool", "a\u2028b\u2029c\x85d"), ("tool", "edit")]
+
+
 def test_a_marker_whose_json_names_the_marker_is_read_whole():
     ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"grep DOKIMI_OP in logs"}', "")
 

@@ -24,7 +24,9 @@
     list, a number, `null`), or valid JSON that Python cannot hold (nested too deep, an integer
     over 4300 digits), is recorded as a `log_parse_error` operation instead of crashing the
     harness run, an `operations.jsonl` line that is not UTF-8 is one of its own (the file's
-    other lines are read, where the whole file was one), and every `log_parse_error`, unparsable
-    JSON included, says why in `metadata.error`; an `elapsed_sec` that is no finite number (an
-    integer too large for a float, `1e400`, `Infinity`, `NaN`, a string) falls through to
-    `duration_sec`, as a missing one does, and the duration is 0 when neither is usable.
+    other lines are read, where the whole file was one), and a record with a raw U+2028, U+2029
+    or U+0085 in a string is read whole, where it was cut into two errors, and every
+    `log_parse_error`, unparsable JSON included, says why in `metadata.error`; an `elapsed_sec`
+    that is no finite number (an integer too large for a float, `1e400`, `Infinity`, `NaN`, a
+    string) falls through to `duration_sec`, as a missing one does, and the duration is 0 when
+    neither is usable.

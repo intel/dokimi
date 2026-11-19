@@ -39,8 +39,10 @@ def _read_jsonl(path: Path) -> list[OperationRecord]:
     if not path.is_file():
         return []
     out: list[OperationRecord] = []
-    try:  # surrogateescape: a byte that is not UTF-8 costs its own line only (#687)
-        lines = path.read_text(encoding="utf-8", errors="surrogateescape").splitlines()
+    # surrogateescape: a byte that is not UTF-8 costs its own line only; "\n" only, as JSON
+    # keeps U+2028, U+2029 and U+0085 raw in a string, where splitlines cuts (#687)
+    try:
+        lines = path.read_text(encoding="utf-8", errors="surrogateescape").split("\n")
     except OSError as exc:
         return [
             OperationRecord(
