@@ -411,6 +411,27 @@ def test_a_restated_truth_with_a_filler_or_a_quantifier_over_no_limit_is_rejecte
     assert check_wording("reversal", source=STATEMENT, candidate=candidate) != []
 
 
+def test_a_skip_cancelled_by_a_negative_adjective_restates_the_source():
+    # "wrong to skip" recommends the warm-up the source recommends: a true premise.
+    assert check_wording(
+        "reversal", source="When measuring a speedup, warm up first.",
+        candidate="Is it wrong to skip warm-up when measuring a speedup?",
+    ) != []
+
+
+def test_a_quantifier_beside_a_limiter_the_candidate_keeps_is_rejected():
+    # The candidate keeps "only", so "always" widens nothing; dropping the limiter inverts.
+    source = "Only administrators can configure the tool."
+    assert check_wording(
+        "reversal", source=source,
+        candidate="Is it true that it is always only administrators who can configure the tool?",
+    ) != []
+    assert check_wording(
+        "reversal", source=source,
+        candidate="Is it true that it is always the case that every user can configure the tool?",
+    ) == []
+
+
 def test_a_trailing_tag_question_is_phrasing_not_a_negation():
     # The tag "doesn't it?" is not a negation, so dropping the source's "No" is the inversion.
     assert check_wording(

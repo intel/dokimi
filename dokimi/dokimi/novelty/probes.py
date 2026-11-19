@@ -107,6 +107,7 @@ _INVERSION_MARKERS = re.compile(
 _QUANTIFIER_MARKERS = re.compile(
     r"\b(?:entirety|always)\b", re.I,
 )
+_NEGATIVE_ADJECTIVES = frozenset({"unreliable", "useless", "unsuitable", "unhelpful", "wrong"})
 _SCOPE_LIMITERS = re.compile(
     r"\b(?:only|subset|some|sometimes|once|single|few|partial(?:ly)?|never|not|no|none|"
     r"cannot|without|except)\b|n't\b",
@@ -332,13 +333,22 @@ def check_wording(kind: str, *, source: str, candidate: str, answer: str = "") -
 
 
 def _new_markers(source: str, text: str) -> set[str]:
-    """Inversion markers ``text`` has and ``source`` lacks; quantifiers only past a scope limiter."""
+    """Inversion markers ``text`` has and ``source`` lacks.
+
+    A quantifier counts only when ``text`` drops a scope limiter of ``source``, and ``skip``
+    cancels against a negative adjective ("wrong to skip" keeps the source's meaning).
+    """
     patterns = [_INVERSION_MARKERS]
-    if _SCOPE_LIMITERS.search(source):
+    if _SCOPE_LIMITERS.findall(source) and {
+        m.lower() for m in _SCOPE_LIMITERS.findall(source)
+    } - {m.lower() for m in _SCOPE_LIMITERS.findall(text)}:
         patterns.append(_QUANTIFIER_MARKERS)
-    return {
+    found = {
         m.lower() for pattern in patterns for m in pattern.findall(text)
     } - {m.lower() for pattern in patterns for m in pattern.findall(source)}
+    if "skip" in found and found & _NEGATIVE_ADJECTIVES:
+        found -= {"skip"} | _NEGATIVE_ADJECTIVES
+    return found
 
 
 def _normalise_negations(text: str) -> str:
