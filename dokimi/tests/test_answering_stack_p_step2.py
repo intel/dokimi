@@ -88,7 +88,7 @@ def test_eval_output_is_stamped_with_the_method_version(monkeypatch):
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
     out = Judge(model="gpt-x", provider="openai")._build_evaluation_output([])
-    assert out["method_version"] == ANSWERING_METHOD_VERSION == 2
+    assert out["method_version"] == ANSWERING_METHOD_VERSION == 3
 
 
 def test_eval_output_says_whether_the_placeholder_was_judged(monkeypatch):

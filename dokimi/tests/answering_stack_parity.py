@@ -311,8 +311,13 @@ def run_stack_a(
     temperature: Optional[float] = 0.0,
     seed: Optional[int] = 1,
     top_k: int = TOP_K,
+    retrieval_tokens: Optional[int] = None,
+    questions: Optional[List[Dict[str, Any]]] = None,
 ) -> Observed:
-    """Stack A end to end on the fixture: answer under both arms, then judge."""
+    """Stack A end to end on the fixture: answer under both arms, then judge.
+
+    ``retrieval_tokens`` is the docs arm's retrieval budget; the arms commands leave it unset.
+    """
     from dokimi.eval.arm_runner import ArmRunner
     from dokimi.eval.judge import Judge
     from dokimi.treatments.arms import BaselineTreatment, DocTreatment
@@ -325,7 +330,7 @@ def run_stack_a(
 
     treatments = [
         BaselineTreatment("baseline"),
-        DocTreatment(client, name="docs", top_k=top_k, reranker=reranker),
+        DocTreatment(client, name="docs", top_k=top_k, reranker=reranker, retrieval_tokens=retrieval_tokens),
     ]
     runner = ArmRunner(
         treatments,
@@ -336,7 +341,8 @@ def run_stack_a(
         seed=seed,
     )
     mark = len(provider_calls.calls)
-    records = runner.run(PRODUCT, QUESTIONS, library_id=LIBRARY_ID, concurrency=1)
+    qs = QUESTIONS if questions is None else questions
+    records = runner.run(PRODUCT, qs, library_id=LIBRARY_ID, concurrency=1)
     judge = Judge(model=JUDGE_MODEL, provider=JUDGE_PROVIDER)
     scored = runner.judge(judge, PRODUCT, records)
     artifact = runner.build_output(PRODUCT, records, evaluations=scored, judge=judge)
