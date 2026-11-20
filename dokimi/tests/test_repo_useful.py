@@ -548,7 +548,7 @@ def test_an_edit_path_is_matched_after_normalization_and_one_outside_the_workspa
     assert not hits(parse_useful({"edit": "**/*.py"}), _edit("src/../../x.py"))
 
 
-@pytest.mark.parametrize("steps", [float("nan"), 10**400])
+@pytest.mark.parametrize("steps", [float("nan"), 10**400, True])
 def test_a_stored_non_finite_or_huge_number_is_no_measure(steps):
     recs = [{"first_useful": {"kind": "edit", "reason": None, "issued_s": 1.0, "steps": steps}}]
     assert useful_task_values(recs)["first_useful_steps"] == [None]
