@@ -292,6 +292,20 @@ def test_write_report_text_writes_each_newline_as_the_platform_linesep(tmp_path,
     assert (tmp_path / "r.md").read_bytes() == b"a\r\nb\r\r\n"
 
 
+def test_write_report_text_publishes_a_new_report_by_rename(tmp_path, monkeypatch):
+    import os
+
+    from dokimi.commands._output import write_report_text
+
+    replaced = []
+    real_replace = os.replace
+    monkeypatch.setattr(os, "replace", lambda src, dst: (replaced.append(dst), real_replace(src, dst))[1])
+    target = tmp_path / "new" / "r.md"
+    write_report_text(target, "x\n")
+    assert replaced == [target]
+    assert target.read_text(encoding="utf-8") == "x\n"
+
+
 def test_write_report_text_refuses_a_read_only_report_and_keeps_its_text(tmp_path):
     import os
 
