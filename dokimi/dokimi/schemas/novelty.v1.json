@@ -217,8 +217,10 @@
               "rejected_examples": {
                 "type": "array",
                 "description": "Up to 20 rejected wordings of this kind, with the source they rewrote and the reasons; `reasons` above counts every rejection. Absent from artifacts written before it existed.",
+                "maxItems": 20,
                 "items": {
                   "type": "object",
+                  "required": ["atom_id", "source", "candidate", "reasons"],
                   "properties": {
                     "atom_id": {"type": "string"},
                     "source": {"type": "string"},

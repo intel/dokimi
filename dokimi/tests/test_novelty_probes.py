@@ -446,24 +446,75 @@ def test_an_adjective_describing_what_is_skipped_does_not_cancel_the_skip():
 
 
 def test_a_quantifier_beside_a_limiter_the_candidate_keeps_is_rejected():
-    # The candidate keeps "only", so "always" widens nothing; dropping the limiter inverts.
-    source = "Only administrators can configure the tool."
+    # The candidate keeps "sometimes", so "always" is no widening; dropping the limiter inverts.
+    source = "Administrators can sometimes configure the tool."
     assert check_wording(
         "reversal", source=source,
-        candidate="Is it true that it is always only administrators who can configure the tool?",
+        candidate="Is it true that administrators sometimes always configure the tool?",
     ) != []
     assert check_wording(
         "reversal", source=source,
-        candidate="Is it true that it is always the case that every user can configure the tool?",
+        candidate="Is it true that administrators can always configure the tool?",
     ) == []
 
 
 def test_a_quantifier_beside_a_reworded_limiter_is_rejected():
-    # "subset" became "some" and "only" stayed: the restriction is reworded, not removed.
+    # "subset" became "some": the limiter is reworded, not removed.
     assert check_wording(
         "reversal", source="Only a subset of users can configure the tool.",
-        candidate="Is it true that it is always only some users who can configure the tool?",
+        candidate="Is it true that the entirety of some users can configure the tool?",
     ) != []
+
+
+@pytest.mark.parametrize(
+    ("source", "candidate"),
+    [
+        ("Only administrators can rotate keys.", "Can administrators always rotate keys?"),
+        ("Once installed, the tool requires a GPU.",
+         "Does the tool always require a GPU after install?"),
+        ("A single command builds the image.", "Does one command always build the image?"),
+    ],
+)
+def test_always_over_a_limiter_it_does_not_invert_restates_the_source(source, candidate):
+    # "only <who>", "once <when>" and "single <how many>" limit who, when and how many; "always"
+    # widens none of them, so each candidate is the true premise.
+    assert check_wording("reversal", source=source, candidate=candidate) != []
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        "Is skipping the warm-up wrong?",
+        "Is skipping the warm-up a mistake?",
+        "Is it unwise to skip the warm-up?",
+        "Is it a mistake to skip the warm-up?",
+        "Is it wrong to ever skip the warm-up?",
+    ],
+)
+def test_a_skip_the_candidate_calls_wrong_restates_the_source(candidate):
+    assert check_wording(
+        "reversal", source="Run the warm-up first.", candidate=candidate,
+    ) != []
+
+
+def test_a_gerund_skip_with_a_judgement_on_something_else_still_inverts():
+    assert check_wording(
+        "reversal", source="Run the warm-up first.",
+        candidate="Is skipping the warm-up fine because the first run is useless?",
+    ) == []
+
+
+def test_a_spelled_out_trailing_tag_is_phrasing_not_a_negation():
+    assert "restates_source" in check_wording(
+        "reversal", source="Warm-up is required.", candidate="Warm-up is required, isn't it?",
+    )
+    assert check_wording(
+        "reversal", source="Warm-up is required.", candidate="Warm-up is required, is it not?",
+    ) != []
+    assert check_wording(
+        "reversal", source="Warm-up is not required.",
+        candidate="Warm-up is required, is it not?",
+    ) == []
 
 
 def test_a_trailing_tag_question_is_phrasing_not_a_negation():

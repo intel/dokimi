@@ -102,22 +102,23 @@ _INVERSION_MARKERS = re.compile(
     r"unless|skip|unreliable|useless|unsuitable|unhelpful|wrong)\b",
     re.I,
 )
-# Quantifiers count only against a source that limits scope ("only a subset" to "the entirety"):
-# "requires X" restated as "always requires X" widens nothing.
-_QUANTIFIER_MARKERS = re.compile(
-    r"\b(?:entirety|always)\b", re.I,
-)
+# A quantifier counts only when the candidate drops a limiter of the source that it inverts;
+# "only", "once" and "single" limit who, when and how many, which "always" does not widen.
+_QUANTIFIER_LIMITERS = {
+    "always": re.compile(
+        r"\b(?:sometimes|occasionally|rarely|never)\b|\bonly\s+(?:the\s+)?(?:first|initial|once)\b",
+        re.I,
+    ),
+    "entirety": re.compile(r"\b(?:subset|partial(?:ly)?|some|few)\b", re.I),
+}
 _NEGATIVE_ADJECTIVES = frozenset({"unreliable", "useless", "unsuitable", "unhelpful", "wrong"})
-# "wrong to skip" negates the skip; "skip it because it is useless" describes what is skipped.
+# Words that, beside "skip", say the skip is the error: they cancel it, though they are no marker.
+_NEGATIVE_JUDGEMENTS = "|".join(sorted(_NEGATIVE_ADJECTIVES | {"unwise", "mistake", "bad", "risky"}))
+# "wrong to skip" and "skipping it is wrong" negate the skip; "skip it because it is useless" does not.
 _CANCELLING_SKIP = re.compile(
-    r"\b(" + "|".join(sorted(_NEGATIVE_ADJECTIVES)) + r")\s+(?:\w+\s+){0,2}?to\s+skip\b", re.I,
-)
-_RESTRICTIONS = frozenset(
-    {"only", "subset", "some", "sometimes", "once", "single", "few", "partial", "partially"}
-)
-_SCOPE_LIMITERS = re.compile(
-    r"\b(?:only|subset|some|sometimes|once|single|few|partial(?:ly)?|never|not|no|none|"
-    r"cannot|without|except)\b|n't\b",
+    r"\b(?:" + _NEGATIVE_JUDGEMENTS + r")\s+(?:\w+\s+){0,2}?to\s+(?:(?:ever|always|just|simply|really)\s+)*skip\b"
+    r"|\bskipping\b(?:\s+[\w'-]+){1,5}?\s+(?:(?:is|be)\s+)?(?:an?\s+)?(?:" + _NEGATIVE_JUDGEMENTS
+    + r")\b(?=\s*[?,.;]|\s*$)",
     re.I,
 )
 # A contracted negative auxiliary that opens a question ("Doesn't X support Y?", "Isn't it
@@ -131,8 +132,10 @@ _LEADING_NEGATIVE = re.compile(
 )
 # A trailing tag ("..., doesn't it?") is question phrasing too, not a negation of the claim.
 _TRAILING_TAG = re.compile(
-    r",\s*(?:isn't|aren't|doesn't|don't|didn't|can't|won't|wasn't|weren't|shouldn't)\s+"
-    r"(?:it|they|you|we|that|this|there)\s*\?\s*$",
+    r",\s*(?:(?:isn't|aren't|doesn't|don't|didn't|can't|won't|wasn't|weren't|shouldn't)\s+"
+    r"(?:it|they|you|we|that|this|there)"
+    r"|(?:is|are|does|do|did|can|will|was|were|should)\s+(?:it|they|you|we|that|this|there)"
+    r"\s+not)\s*\?\s*$",
     re.I,
 )
 # A negation written as its synonym is the same negation: "X rather than Y" restates "X,
@@ -339,32 +342,23 @@ def check_wording(kind: str, *, source: str, candidate: str, answer: str = "") -
     return reasons
 
 
-def _limiter_classes(text: str) -> set[str]:
-    """The kinds of scope limiter in ``text``: a restriction ("only", "some") or a negation.
-
-    Rewording one restriction as another ("only a subset" to "only some") keeps the kind, so
-    it is not a limiter dropped.
-    """
-    return {
-        "restriction" if m.lower() in _RESTRICTIONS else "negation"
-        for m in _SCOPE_LIMITERS.findall(text)
-    }
-
-
 def _new_markers(source: str, text: str) -> set[str]:
     """Inversion markers ``text`` has and ``source`` lacks.
 
-    A quantifier counts only when ``text`` drops a scope limiter of ``source``, and ``skip``
-    cancels against a negative adjective that governs it ("wrong to skip" keeps the source's
+    A quantifier counts only when ``source`` holds a limiter it inverts and ``text`` drops
+    that limiter (:data:`_QUANTIFIER_LIMITERS`), and ``skip`` cancels against a negative
+    judgement that governs it ("wrong to skip", "skipping it is wrong" keep the source's
     meaning; "skip it because it is useless" does not).
     """
-    patterns = [_INVERSION_MARKERS]
-    if _limiter_classes(source) - _limiter_classes(text):
-        patterns.append(_QUANTIFIER_MARKERS)
     ungoverned = _CANCELLING_SKIP.sub(" ", text)
-    return {
-        m.lower() for pattern in patterns for m in pattern.findall(ungoverned)
-    } - {m.lower() for pattern in patterns for m in pattern.findall(source)}
+    found = {m.lower() for m in _INVERSION_MARKERS.findall(ungoverned)}
+    found -= {m.lower() for m in _INVERSION_MARKERS.findall(source)}
+    for quantifier, limiter in _QUANTIFIER_LIMITERS.items():
+        if (re.search(rf"\b{quantifier}\b", ungoverned, re.I)
+                and not re.search(rf"\b{quantifier}\b", source, re.I)
+                and limiter.search(source) and not limiter.search(text)):
+            found.add(quantifier)
+    return found
 
 
 def _normalise_negations(text: str) -> str:
