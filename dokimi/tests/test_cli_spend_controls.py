@@ -85,17 +85,32 @@ def test_json_output_ends_with_the_summary_line(capsys):
     assert scs.main(["--json"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert json.loads(lines[-1]) == scs.summary(scs.paid_leaves())
-    assert all(json.loads(x)["path"] for x in lines[:-1])
+    assert [json.loads(x) for x in lines[:-1]] == scs.paid_leaves()
+
+
+def _walk(parser, path=()):
+    """Leaves of the parser tree, walked here on its own so a bug in `scs._leaves` shows."""
+    subs = [a for a in parser._actions if type(a).__name__ == "_SubParsersAction"]
+    if not subs:
+        yield path, {o for a in parser._actions for o in a.option_strings}
+    for action in subs:
+        for name in action.choices:
+            yield from _walk(action.choices[name], (*path, name))
 
 
 def test_the_inventory_counts_every_paid_leaf_of_the_parser_tree():
-    """Issue #940: 39 paid leaves, 11 capped, as `cli_routes.cost_of` and the parser tree give."""
-    assert scs.summary(scs.paid_leaves()) == {
-        "paid": 39,
-        "capped": 11,
-        "uncapped": 28,
-        "no_control": 23,
+    """Issue #940: the rows are the paid leaves of the parser tree, walked here independently."""
+    paid = {
+        " ".join(path): "--max-usd" in flags
+        for path, flags in _walk(scs.cli.build_parser())
+        if scs.cli_routes.cost_of(path) == scs.cli_routes.PAID
     }
+    rows = scs.paid_leaves()
+    assert {r["path"]: r["capped"] for r in rows} == paid
+    assert len(rows) == len(paid)
+    counts = scs.summary(rows)
+    assert counts["paid"] == len(paid) == counts["capped"] + counts["uncapped"]
+    assert counts["uncapped"] == len(UNCAPPED)
 
 
 def test_cap_and_preview_are_read_from_the_flags_of_a_real_command():
