@@ -19,7 +19,6 @@ docker: the gold is what the index says, so a task is as right as the index it c
 from __future__ import annotations
 
 import hashlib
-import json
 import posixpath
 import random
 import re
@@ -27,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from dokimi.atomic_write import write_text_atomic
+from dokimi.atomic_write import write_json_atomic
 from dokimi.provenance import generated_by
 from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.code_index.symbols import descriptor_names, descriptors
@@ -154,8 +153,8 @@ def write(p: Plan, opts: Options, code_index: dict[str, str]) -> None:
         task, gold = _task(o.candidate, p.granularity, opts, code_index)
         dest = opts.out / o.task
         dest.mkdir(parents=True, exist_ok=True)
-        write_text_atomic(dest / GOLD, json.dumps(gold, indent=2, ensure_ascii=False) + "\n")
-        write_text_atomic(dest / "task.json", json.dumps(task, indent=2, ensure_ascii=False) + "\n")
+        write_json_atomic(dest / GOLD, gold)
+        write_json_atomic(dest / "task.json", task)
 
 
 def task_id(c: Candidate) -> str:

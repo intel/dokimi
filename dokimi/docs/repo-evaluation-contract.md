@@ -629,7 +629,7 @@ parent's and subagents' together, so a grader need not:
 
 | Key | Meaning |
 |---|---|
-| `tool_calls` | every event of a known kind: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
+| `tool_calls` | every tool event (`command`, `read`, `edit`, `tool`, not the `turn` and `compaction` events of [events-format.md](events-format.md)): each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
@@ -650,8 +650,8 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
-A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the events of a known kind up to and
-including the hit, the parent's and subagents' (as `process.tool_calls` does).
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the tool events up to and
+including the hit, the parent's and subagents' (as `process.tool_calls` does); turn and compaction events are not steps.
 `issued_s` is the hit's `t`: the time the call was issued, since a call's result
 is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
 "issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
@@ -662,10 +662,12 @@ harness never started, it did not parse, or a line of the trace was dropped: an 
 (the trace format has no timestamps, so `steps` is set and `issued_s` is null).
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
 is counted in `repo report`: the row says how many observed a hit, and the medians
-cover only those. `repo compare` pairs `first_useful_rate` per task (the share of its
+cover only those. A cell whose `steps` is past the measure bound is counted in that
+row's total but not as observed, and shows no reason (steps 5 and steps 1e200 give
+`1 of 2 observed`). `repo compare` pairs `first_useful_rate` per task (the share of its
 declared cells with a verdict that observed a hit, so a task where most runs never hit it is not read
 through its medians alone; a cell `unobserved` or `timeout` has no verdict, so it is neither a hit nor
-a miss and is left out of the share) and its header counts observed of measured cells per arm, with
+a miss and is left out of the share, as is a cell whose `steps` is past the measure bound) and its header counts observed of measured cells per arm, with
 the unmeasured ones. An edit made by a shell command (`sed -i`) is not an `edit` event, so it is not seen. A
 compared task has one kind, but the mean delta pools the tasks of both kinds: a per-task
 row shows which.
@@ -2623,9 +2625,10 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   report` and `repo compare` refuse that `result.json`. Any other value past it
   (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_s`,
   `first_useful_steps`) is left out of the mean and of `n`, as a value that is
-  absent. `first_useful_rate` keeps a cell whose `steps` is past it: the cell
-  has a verdict, so it counts as a non-hit in the rate and in its `n` (steps 5
-  and steps 1e200 give a rate of 0.5 with `n` 2). In `repo compare`
+  absent. A cell whose `first_useful` `steps` is past it is left out of
+  `first_useful_rate` and its `n`, and out of the compare header's
+  observed-of-measured count (it shows as unmeasured), as neither a hit nor a
+  miss (steps 5 and steps 1e200 give a rate of 1.0 with `n` 1). In `repo compare`
   a task whose `metric:x` is absent in either arm is unpaired (`no metric:x in
   baseline or treatment`), so three tasks whose `metric:x` is 1.7e308 in both
   arms give no `metric:x` row at all, not an overflow, and the same three at
@@ -2635,7 +2638,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   task is the unit. Per treatment arm, model and measure (gate share, score,
   cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
   task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
-  declared cells with a verdict that observed one), each `--metric` from `grade.json` (or `judge:recall_judged` from
+  declared cells with a verdict that observed one; a cell whose `steps` is no measure is left out), each `--metric` from `grade.json` (or `judge:recall_judged` from
   `hits_judged.json`, below), and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided

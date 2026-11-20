@@ -52,6 +52,7 @@ from typing import Any
 from dokimi.context.trace import parse_trace
 
 from .cli_traces import _failed_read, codex_json, copilot_json, failed_search, shell_walked
+from .turn_events import claude_events
 from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
@@ -137,8 +138,10 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
     _walk_bash(out, stream)
     _settle_bash(out, stream.bash.values())
     _settle_grep(out, stream)
-    main = parse_trace(raw).main_calls()
+    trace = parse_trace(raw)
+    main = trace.main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
+    out.events.extend(claude_events(trace, start))
     return out
 
 

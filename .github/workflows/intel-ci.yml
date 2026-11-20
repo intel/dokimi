@@ -25,7 +25,7 @@ concurrency:
 jobs:
   matrix:
     name: Platforms and Python versions
-    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest') }}
+    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest') }}
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.declared.outputs.matrix }}
@@ -48,7 +48,7 @@ jobs:
   build:
     name: ${{ matrix.name }} Python ${{ matrix.python }}
     needs: matrix
-    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest') }}
+    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest') }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -94,7 +94,7 @@ jobs:
   test:
     name: Test ${{ matrix.name }} Python ${{ matrix.python }}
     needs: [matrix, build]
-    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest') }}
+    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest') }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -130,7 +130,7 @@ jobs:
   build-wheel:
     name: ${{ matrix.name }} Wheels Python ${{ matrix.python }}
     needs: matrix
-    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest') }}
+    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest') }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -163,7 +163,7 @@ jobs:
   test-wheel:
     name: Test ${{ matrix.name }} Wheels Python ${{ matrix.python }}
     needs: [matrix, build-wheel]
-    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest') }}
+    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest') }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -201,7 +201,7 @@ jobs:
     name: Report a failed scheduled run
     needs: [build, test, build-wheel, test-wheel]
     if: ${{ failure() && github.event_name == 'schedule' }}
-    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest') }}
+    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest') }}
     timeout-minutes: 10
     permissions:
       issues: write

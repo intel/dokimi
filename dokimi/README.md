@@ -216,7 +216,7 @@ A typical one-command benchmark flow is:
 
 ```bash
 python cli.py benchmark preflight --target onetbb
-python cli.py benchmark run --target onetbb --multi-run 3
+python cli.py benchmark run --target onetbb --reps 3
 ```
 
 The pipeline reads a golden set under `--questions-root` or a set from `--questions-from`, or else discovers (or loads) personas and generates (or reuses) questions from them; it then answers each question in context-arm and baseline conditions, scores both answers with an independent judge, and writes model metadata, token usage, `question_set_hash`, reports, and trust-gate signals. For compatibility, persisted answer/evaluation JSON still uses the legacy `with_docs` and `without_docs` keys for those two conditions.

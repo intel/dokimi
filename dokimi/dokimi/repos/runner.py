@@ -640,7 +640,7 @@ def _write_batch_spend(batch_dir: Path, spent: float) -> None:
 
 def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> None:
     """Refuse a plan naming one cell directory twice, or two names one case-insensitive volume maps to one
-    directory: with --jobs 2 both would run in it and mix their files (or one would delete the other's)."""
+    directory: with --concurrency 2 both would run in it and mix their files (or one would delete the other's)."""
     names = Counter(cell_name(t.id, a, o.model, r) for t, a, o, r in cells)
     problems = [f"cell {name} is planned {names[name]} times" for name in sorted(names) if names[name] > 1]
     by_fold: dict[str, list[str]] = {}
