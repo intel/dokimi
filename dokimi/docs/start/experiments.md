@@ -19,7 +19,7 @@ For evaluators, researchers, documentation and MCP authors. Choose the track tha
 1. [Install Dokimi](README.md) and validate your [external evaluation content](../external-content.md). Dokimi does not ship your workload's question set.
 2. State the hypothesis and change one experimental factor where possible. An *arm* is one tested configuration; the baseline is its control.
 3. Freeze tasks and input revisions. Select models, harness versions and graders explicitly; check their supported capabilities.
-4. Validate the grader with negative and reference controls. Size the run before you start: `arms run` and `tasks run` have no spending cap or cost estimate (questions times arms, or tasks times harnesses). The caps are `repo run --max-batch-usd` and the `--max-usd` of `skill novelty analyze|atoms|probe`, `skill shorten`. `skill routing` and `catalog routing` are free without `--model`; with `--model` they call a model, at a cost. `skill novelty analyze --estimate-only` prints an estimate.
+4. Validate the grader with negative and reference controls. Size the run before you start: `arms run` and `tasks run` have no spending cap or cost estimate (questions times arms, or tasks times harnesses). The caps are `repo run --max-usd` and the `--max-usd` of `skill novelty analyze|atoms|probe`, `skill shorten`. `skill routing` and `catalog routing` are free without `--model`; with `--model` they call a model, at a cost. `skill novelty analyze --dry-run` prints an estimate.
 
 ## Run and inspect
 

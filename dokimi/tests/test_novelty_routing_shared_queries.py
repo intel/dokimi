@@ -129,5 +129,5 @@ def test_all_vs_all_warns_of_shared_queries_on_stderr(tmp_path, capsys):
 
 
 def test_estimate_only_warns_of_shared_queries_before_returning(tmp_path, capsys):
-    _run_all_vs_all(tmp_path, "--estimate-only")
+    _run_all_vs_all(tmp_path, "--dry-run")
     assert "WARNING: 2 of 2 queries (100%)" in capsys.readouterr().err
