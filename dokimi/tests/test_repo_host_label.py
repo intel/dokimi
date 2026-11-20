@@ -206,3 +206,24 @@ def test_compare_warns_when_a_labelled_cell_ran_on_a_host_that_misses_its_task(t
     undecided = [cell("raw", None), {**cell("skill", True), "host_match": {"met": None, "fields": [], "fingerprint": "f"}}]
     assert any("race" in w and "--label-host" in w for w in _arm_warnings(undecided, "raw", "skill", None))
     assert not any("--label-host" in w for w in _arm_warnings([cell("raw", None), cell("skill", None)], "raw", "skill", None))
+
+
+def test_a_probe_container_that_fails_once_is_retried_and_its_retry_is_kept(tmp_path):
+    from dokimi.repos.container import ContainerResult
+    from dokimi.repos.grading import EvalContext
+    from dokimi.repos.manifest import parse_manifest
+    from repo_eval_fixture import MANIFEST
+
+    class FailsOnce(HostRunner):
+        def run(self, spec, *, stdout, stderr, timeout_s):
+            if not self.probes:
+                self.probes.append(spec)
+                stderr.write_text("timed out\n")
+                return ContainerResult(returncode=1, timed_out=True, wall_s=0.0)
+            return super().run(spec, stdout=stdout, stderr=stderr, timeout_s=timeout_s)
+
+    runner = FailsOnce({"affinity": 4, "cpuinfo": "vendor_id : GenuineIntel\nflags : avx2"})
+    ctx = EvalContext(manifest=parse_manifest(MANIFEST), git_dir=tmp_path, content_dir=tmp_path, image="img:1",
+                      runner=runner)
+    facts = real_probe_host(ctx, tmp_path / "w")
+    assert "error" not in facts and facts["cpus"] == 4 and len(runner.probes) == 2

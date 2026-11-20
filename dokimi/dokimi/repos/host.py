@@ -185,7 +185,10 @@ def probe_host(ctx: EvalContext, work_dir: Path, probe: Probe | None = None) -> 
     could not run. The spec carries what decides the CPU view: the evaluation's image and runner
     (whose flags every container shares); no mounts, no network.
     """
-    return {**_container_facts(ctx, work_dir), **collect(probe)}
+    facts = _container_facts(ctx, work_dir)
+    if "error" in facts:  # one retry, as for the collectors: a transient failure must not split the host's id
+        facts = _container_facts(ctx, work_dir)
+    return {**facts, **collect(probe)}
 
 
 def fingerprint_id(facts: dict[str, Any]) -> str:
