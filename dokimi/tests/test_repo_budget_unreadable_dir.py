@@ -21,6 +21,13 @@ pytestmark = pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0,
                                 reason="root ignores directory modes")
 
 
+def _lock(path):
+    """Make ``path`` unsearchable; its mode before, to restore."""
+    mode = path.stat().st_mode & 0o777
+    path.chmod(0o000)
+    return mode
+
+
 def _repo(path):
     git = lambda *a: subprocess.run(["git", "-C", str(path), *a], check=True, capture_output=True)  # noqa: E731
     (path / "d").mkdir()
@@ -33,13 +40,13 @@ def _repo(path):
 
 def test_a_tracked_file_under_an_unsearchable_directory_is_skipped_and_named(tmp_path, capsys):
     _repo(tmp_path)
-    (tmp_path / "d").chmod(0o000)
+    mode = _lock(tmp_path / "d")
     try:
         tree = WorkTree(tmp_path)
         assert tree.files() == ["AGENTS.md"]
         assert {e["path"] for e in budget(tree, NAMES)["entries"]} == {"AGENTS.md"}
     finally:
-        (tmp_path / "d").chmod(0o755)
+        (tmp_path / "d").chmod(mode)
     assert tree.skipped == ["d/f.txt: Permission denied; the file and anything it leads to are not counted"]
     assert capsys.readouterr().err == ""
 
@@ -65,12 +72,12 @@ def test_the_warning_does_not_depend_on_pathlib_raising(tmp_path, capsys, monkey
     _repo(tmp_path)
     monkeypatch.setattr(Path, "is_file", quiet(Path.is_file))
     monkeypatch.setattr(Path, "is_symlink", quiet(Path.is_symlink))
-    (tmp_path / "d").chmod(0o000)
+    mode = _lock(tmp_path / "d")
     try:
         tree = WorkTree(tmp_path)
         assert tree.files() == ["AGENTS.md"]
     finally:
-        (tmp_path / "d").chmod(0o755)
+        (tmp_path / "d").chmod(mode)
     assert tree.skipped == ["d/f.txt: Permission denied; the file and anything it leads to are not counted"]
 
 
@@ -87,14 +94,14 @@ def test_a_link_and_a_deleted_file_in_the_listing(tmp_path):
 def test_the_skipped_path_is_a_budget_warning_that_fails_the_gate(tmp_path, capsys):
     """#959; schemas/repo_budget.v1.json: `warnings` is what `--fail-on-warning` gates on, unreadable files included."""
     _repo(tmp_path)
-    (tmp_path / "d").chmod(0o000)
+    mode = _lock(tmp_path / "d")
     try:
         assert budget(WorkTree(tmp_path), NAMES)["warnings"] == ["d/f.txt: Permission denied; the file and anything it leads to are not counted"]
         args = build_parser().parse_args(["repo", "budget", str(tmp_path), "--fail-on-warning"])
         with pytest.raises(SystemExit) as exc:
             args.func(args)
     finally:
-        (tmp_path / "d").chmod(0o755)
+        (tmp_path / "d").chmod(mode)
     assert exc.value.code == 1
     assert "warning: d/f.txt: Permission denied; the file and anything it leads to are not counted" in capsys.readouterr().out
 
@@ -104,13 +111,13 @@ def test_a_skipped_guidance_file_makes_repo_scan_incomplete(tmp_path, capsys):
     _repo(tmp_path)
     (tmp_path / "d" / "AGENTS.md").write_text("Read `missing.py`.\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
-    (tmp_path / "d").chmod(0o000)
+    mode = _lock(tmp_path / "d")
     try:
         args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--fail-on-fail", "--json"])
         with pytest.raises(SystemExit) as exc:
             args.func(args)
     finally:
-        (tmp_path / "d").chmod(0o755)
+        (tmp_path / "d").chmod(mode)
     assert exc.value.code == 1
     assert "d/AGENTS.md: Permission denied" in capsys.readouterr().err
 
@@ -123,13 +130,13 @@ def test_a_skipped_guidance_file_makes_a_written_manifest_scan_incomplete(tmp_pa
     (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text(
         '{"schema": "repo_manifest.v1", "id": "toy", "guidance": {"globs": ["**/AGENTS.md"]}}\n', encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
-    (tmp_path / "d").chmod(0o000)
+    mode = _lock(tmp_path / "d")
     try:
         args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--fail-on-fail", "--json"])
         with pytest.raises(SystemExit) as exc:
             args.func(args)
     finally:
-        (tmp_path / "d").chmod(0o755)
+        (tmp_path / "d").chmod(mode)
     assert exc.value.code == 1
     assert "d/AGENTS.md: Permission denied" in capsys.readouterr().err
 
@@ -143,7 +150,7 @@ def test_a_skipped_data_file_does_not_make_repo_scan_incomplete(tmp_path, writte
         (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text(
             '{"schema": "repo_manifest.v1", "id": "toy", "guidance": {"globs": ["**/AGENTS.md"]}}\n', encoding="utf-8")
         subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
-    (tmp_path / "d").chmod(0o000)
+    mode = _lock(tmp_path / "d")
     try:
         args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--fail-on-fail", "--json"])
         try:
@@ -152,5 +159,92 @@ def test_a_skipped_data_file_does_not_make_repo_scan_incomplete(tmp_path, writte
         except SystemExit as exc:
             code = exc.code
     finally:
-        (tmp_path / "d").chmod(0o755)
+        (tmp_path / "d").chmod(mode)
     assert code in (0, None)
+
+
+def _scan_exit(tmp_path, *extra):
+    args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--fail-on-fail", "--json", *extra])
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        return exc.code
+    return 0
+
+
+def _track(tmp_path, files):
+    for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+
+
+def _manifest(tmp_path, body):
+    _track(tmp_path, {".agent-eval/repo-eval.yaml": '{"schema": "repo_manifest.v1", "id": "toy", ' + body + "}\n"})
+
+
+def test_a_skipped_claude_local_md_makes_the_default_scan_incomplete(tmp_path):
+    """#959 review of #1028: `CLAUDE.local.md` is guidance by the profile's names, though no default glob matches it."""
+    _repo(tmp_path)
+    _track(tmp_path, {"d/CLAUDE.local.md": "Read `missing.py`.\n"})
+    mode = _lock(tmp_path / "d")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "d").chmod(mode)
+
+
+def test_a_skipped_path_matching_an_also_scan_glob_makes_the_scan_incomplete(tmp_path):
+    """#959 review of #1028: `also_scan` entries are globs, as `guidance_files` reads them."""
+    _repo(tmp_path)
+    _track(tmp_path, {"docs/a.md": "x\n", "docs/private/b.md": "Read `missing.py`.\n"})
+    _manifest(tmp_path, '"guidance": {"globs": ["AGENTS.md"], "also_scan": ["docs/**/*.md"]}')
+    mode = _lock(tmp_path / "docs" / "private")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "docs" / "private").chmod(mode)
+
+
+@pytest.mark.parametrize("written", [False, True])
+def test_a_skipped_bazel_build_input_makes_the_scan_incomplete(tmp_path, written):
+    """#959 review of #1028: a `.bzl` file the scan cannot list is a build input it cannot read."""
+    _repo(tmp_path)
+    _track(tmp_path, {"BUILD": "x\n", "d/macros.bzl": "def f():\n    pass\n", "AGENTS.md": "Run `bazel build //...`.\n"})
+    if written:
+        _manifest(tmp_path, '"guidance": {"globs": ["AGENTS.md"]}')
+    mode = _lock(tmp_path / "d")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "d").chmod(mode)
+
+
+@pytest.mark.parametrize("written", [False, True])
+def test_a_skipped_path_with_a_colon_and_a_space_is_matched_by_its_whole_name(tmp_path, written):
+    """#959 review of #1028: `team: docs/AGENTS.md` is one path; the warning text is not split to find it."""
+    _repo(tmp_path)
+    _track(tmp_path, {"team: docs/AGENTS.md": "Read `missing.py`.\n"})
+    if written:
+        _manifest(tmp_path, '"guidance": {"globs": ["**/AGENTS.md"]}')
+    mode = _lock(tmp_path / "team: docs")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "team: docs").chmod(mode)
+
+
+def test_the_warning_names_the_reason_without_the_locale(tmp_path, monkeypatch):
+    """#959 review of #1028: `strerror` follows the locale; the warning says `Permission denied` whatever it says."""
+    real = os.lstat
+
+    def lstat(path, *a, **k):
+        if str(path).endswith("f.txt"):
+            raise PermissionError(13, "Zugriff verweigert")
+        return real(path, *a, **k)
+
+    _repo(tmp_path)
+    monkeypatch.setattr(os, "lstat", lstat)
+    tree = WorkTree(tmp_path)
+    tree.files()
+    assert tree.skipped == ["d/f.txt: Permission denied; the file and anything it leads to are not counted"]

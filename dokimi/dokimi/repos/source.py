@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import errno
 import os
 import posixpath
 import re
@@ -130,7 +131,8 @@ class WorkTree:
         self.root = Path(root).resolve()
         self.label = str(self.root)
         self._files: list[str] | None = sorted(files) if files is not None else None
-        self.skipped: list[str] = []  # listed paths left out of ``files()`` because they could not be looked at
+        self.skipped: list[str] = []  # warnings for listed paths left out of ``files()`` because they could not be looked at
+        self.skipped_paths: list[str] = []  # those paths, parallel to ``skipped`` (a path may hold ``": "``)
 
     def _resolve(self, path: str) -> Path:
         target = (self.root / path).resolve()
@@ -148,7 +150,10 @@ class WorkTree:
         except (FileNotFoundError, NotADirectoryError):
             return False
         except OSError as exc:
-            self.skipped.append(f"{path}: {exc.strerror or exc}; the file and anything it leads to are not counted")  # "are not counted": repo scan reads it as incomplete
+            # not ``exc.strerror``, which follows the locale; "are not counted" is what repo scan reads as incomplete
+            why = "Permission denied" if exc.errno in (errno.EACCES, errno.EPERM) else f"{type(exc).__name__}"
+            self.skipped.append(f"{path}: {why}; the file and anything it leads to are not counted")
+            self.skipped_paths.append(path)
             return False
 
     def files(self) -> list[str]:
