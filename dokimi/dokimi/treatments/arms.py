@@ -110,7 +110,8 @@ class DocTreatment(Treatment):
         if not reranked:
             return AgentConfig(metadata=metadata)
 
-        scores = [d.get("relevance_score", 0) for d in reranked]
+        # Raw docs kept after a rerank failure may carry no score: none is not 0 (PR #997 review).
+        scores = [d["relevance_score"] for d in reranked if d.get("relevance_score") is not None]
         metadata["top_score"] = round(max(scores), 3) if scores else None
         return AgentConfig(injected_context=reranked[: self.keep], metadata=metadata)
 

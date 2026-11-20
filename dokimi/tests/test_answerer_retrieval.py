@@ -106,6 +106,16 @@ def test_a_rerank_failure_keeps_the_raw_docs_on_both_stacks():
 
     assert p_kept == a_kept == ["a.md", "b.md", "c.md"]
     assert p_meta["error"] == a_meta["error"] == "rerank_failed"
+    # Nothing was scored, so there is no top score (not 0), as before step 3 (PR #997 review).
+    assert p_meta["top_score"] is None and a_meta["top_score"] is None
+
+
+def test_a_rerank_failure_reports_a_score_the_doc_source_gave():
+    scored = [dict(d, relevance_score=0.5 - 0.1 * i) for i, d in enumerate(DOCS[:2])] + DOCS[2:3]
+    _, _, p_meta = _stack_p(5, 4000, reranker=RaisingReranker(), docs=scored)
+    _, _, a_meta = _stack_a(5, 4000, reranker=RaisingReranker(), docs=scored)
+
+    assert p_meta["top_score"] == a_meta["top_score"] == 0.5
 
 
 @pytest.mark.parametrize("docs", [DOCS, DOCS[:1]], ids=["six", "one"])
