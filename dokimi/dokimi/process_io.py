@@ -18,8 +18,8 @@ _POSIX = sys.platform != "win32"
 
 
 def joined_pairs(text: str) -> str:
-    """*text* with each high surrogate followed by a low one (a JSON ``\\ud83d\\ude00`` escape, which PyYAML and ``json``
-    load as two code points) joined into its character; a lone surrogate stays, for ``errors="replace"`` to write as ``?``."""
+    """*text* with each high surrogate followed by a low one (a YAML double-quoted ``"\\ud83d\\ude00"`` escape, which PyYAML
+    loads as two code points; ``json`` joins the pair itself) joined into its character; a lone surrogate stays, for ``errors="replace"`` to write as ``?``."""
     return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
 
 

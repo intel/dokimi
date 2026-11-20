@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import secrets
 import stat
 from collections.abc import Callable
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
+
+from dokimi.process_io import utf8_bytes
 
 
 def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -> None:
@@ -57,6 +60,17 @@ def _is_plain_writable_file(path: Path) -> bool:
         and os.access(path, os.W_OK)
         and os.access(path.parent, os.W_OK | os.X_OK)
     )
+
+
+def write_json_atomic(path: Path | str, obj: Any) -> None:
+    """Write ``obj`` as indented JSON (non-ASCII kept, one trailing newline) through :func:`write_bytes_atomic`.
+
+    A value loaded from a ``\\ud83d\\ude00`` escape is joined into its character and a lone surrogate is written
+    as ``?`` (:func:`dokimi.process_io.utf8_bytes`), where a strict UTF-8 encode would raise. Each line ends
+    with the platform's ``os.linesep``, as :func:`write_text_atomic` writes it (``\\r\\n`` on Windows).
+    """
+    text = json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
+    write_bytes_atomic(path, utf8_bytes(text.replace("\n", os.linesep)))
 
 
 def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> None:

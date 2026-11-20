@@ -128,7 +128,9 @@ def save_dashboard_markdown(data: DashboardData, path: Path, top_n_bad_questions
 
 
 def save_dashboard_json(data: DashboardData, path: Path) -> None:
-    import json
+    """Save ``data`` as a ``dashboard`` artifact (``ArtifactValidationError``: kept at ``<path>.rejected``)."""
     from dataclasses import asdict
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(asdict(data), indent=2), encoding="utf-8")
+
+    from dokimi.artifacts import save_artifact
+
+    save_artifact("dashboard", asdict(data), path)
