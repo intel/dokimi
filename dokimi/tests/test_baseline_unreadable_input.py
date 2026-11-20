@@ -86,6 +86,14 @@ def test_save_exits_2_on_a_directory_given_as_the_eval_file(run, tmp_path, capsy
     assert str(tmp_path) in capsys.readouterr().err
 
 
+def test_save_exits_2_on_an_empty_eval_path_and_says_no_file_was_given(run, capsys):
+    """`Path("")` is the current directory: the empty path is refused as read_json_input refuses it."""
+    with refusal() as exc:
+        run("save", "--from-eval", "", "--name", "b")
+    assert exc.code == 2
+    assert 'cannot read "": no file given' in capsys.readouterr().err
+
+
 def test_compare_exits_2_on_a_missing_eval_file(run, tmp_path, capsys):
     missing = tmp_path / "missing.json"
     with refusal() as exc:
