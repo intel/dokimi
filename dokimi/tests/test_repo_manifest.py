@@ -204,9 +204,10 @@ def test_bad_task_is_reported(tmp_path, task_extra, needle):
 
 
 @pytest.mark.parametrize("rev", [False, True], ids=["tree", "at-head"])
-@pytest.mark.parametrize("target", ["task.json", "../../../../src"], ids=["loop", "directory"])
+@pytest.mark.parametrize("target", ["task.json", "../../../../src", "missing.json", "../../../../../../../etc/hostname"],
+                         ids=["loop", "directory", "dangling", "outside"])
 def test_task_json_that_is_an_unreadable_link_is_reported_not_raised(tmp_path, target, rev):
-    # #910: a task.json linked to itself or to a directory raised OSError (tree) or SourceError (@rev)
+    # #910: a task.json linked to itself, to a directory, to nothing or out of the repository raised OSError (tree) or SourceError (@rev)
     root = _repo(tmp_path)
     link = root / "dev/evals/tasks/bad/task.json"
     link.parent.mkdir()
