@@ -146,19 +146,21 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 ```
 
 A `run_id` from `runs list` shows the artifacts that carry it, as `runs list`
-rows, newest first, with the same `*` for a time taken from the file's mtime.
-A file `runs show` can open (one that opens with the `schema_version` of a registered
-kind) wins, and so does a file it cannot read or one that is not a regular file (a FIFO), which gets its error: one of that name under
-the root, or reached from the working directory and inside the root. The name
-is read as for any path, under the root first, so a directory there shadows a
-file of that name in the working directory. A
-directory of that name (a run's own, `results/nightly-7/`) does not, nor does
-a path outside the root or a file under the root that is not an artifact (a text file); when no artifact has the `run_id`, such a name gets
-the error it got before. When a file or directory under the root could not be
-read, the count and the first one are printed, since it may belong to the run;
-a root that cannot be listed at all exits 2 and says so. `--json` prints one
-`cli_output.v1` document (`kind` `runs show`) whose `data` holds `root`, `run_id`,
-`artifacts` (the `runs list --json` rows) and `unreadable`.
+rows, newest first, with the same `*` for a time taken from the file's mtime. A
+file `runs show` can open (one that opens with the `schema_version` of a
+registered kind) wins, and so does a file it cannot read or one that is not a
+regular file (a FIFO), which gets its error: one of that name under the root, or
+reached from the working directory and inside the root. The name is read as for
+any path, under the root first, so a directory there shadows a file of that name
+in the working directory. A directory of that name (a run's own,
+`results/nightly-7/`) does not, nor does a path outside the root or a file under
+the root that is not an artifact (a text file); when no artifact has the
+`run_id`, such a name gets the error it got before. When a file or directory
+under the root could not be read, the count and the first one are printed, since
+it may belong to the run; a root that cannot be listed at all exits 2 and says
+so. `--json` prints one `cli_output.v1` document (`kind` `runs show`) whose
+`data` holds `root`, `run_id`, `artifacts` (the `runs list --json` rows) and
+`unreadable`.
 
 ## Exit codes
 
