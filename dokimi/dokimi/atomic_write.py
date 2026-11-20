@@ -31,6 +31,34 @@ def write_bytes_atomic(path: Path | str, data: bytes) -> None:
     _publish(Path(path), lambda fd: os.fdopen(fd, "wb"), data)
 
 
+def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
+    """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
+
+    A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file and a file in a read-only directory
+    get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
+    writable file in a read-only directory is rewritten, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
+    """
+    path = Path(path)
+    if _is_plain_writable_file(path):
+        _publish(path, lambda fd: os.fdopen(fd, "wb"), data)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
+def _is_plain_writable_file(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return True
+    return (
+        stat.S_ISREG(info.st_mode)
+        and info.st_nlink == 1
+        and os.access(path, os.W_OK)
+        and os.access(path.parent, os.W_OK | os.X_OK)
+    )
+
+
 def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")

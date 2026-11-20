@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from dokimi.artifacts import ArtifactValidationError
-from dokimi.atomic_write import write_bytes_atomic
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.process_io import text_file_bytes
 
@@ -67,7 +67,9 @@ def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:
 def write_report_text(path: Path, text: str) -> None:
     """Publish a Markdown or HTML report at ``path`` (creating parents) in one step; raises ``OSError`` when it cannot.
 
+    A plain file is replaced whole; a symlink, a hard-linked, special or read-only file is written in place as ``write_text`` did.
+
     A lone surrogate in ``text`` (a name from JSON, YAML or argv) is written as ``?`` and a pair is joined,
     where ``Path.write_text`` raises ``UnicodeEncodeError``; other text is written byte for byte as it does.
     """
-    write_bytes_atomic(path, text_file_bytes(text))
+    write_bytes_in_place_or_atomic(path, text_file_bytes(text))

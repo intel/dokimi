@@ -179,9 +179,9 @@ def cmd_report_summary(args: argparse.Namespace) -> None:
 
     text = render(summarize(args.inputs), args.format)
     if args.out:
-        from dokimi.commands._output import write_report_text
+        from dokimi.commands._output import write_text_or_exit
 
-        write_report_text(Path(args.out), text)
+        write_text_or_exit(Path(args.out), text)
     else:
         sys.stdout.write(text)
 

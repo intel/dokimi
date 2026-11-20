@@ -14,7 +14,7 @@ from dokimi.utils import InputError
 def cmd_dashboard_generate(args: argparse.Namespace) -> None:
     """Aggregate evaluation results and render Markdown + JSON dashboard."""
     from dokimi.dashboard.aggregator import ResultsAggregator
-    from dokimi.dashboard.markdown_renderer import render_dashboard, save_dashboard_json
+    from dokimi.dashboard.markdown_renderer import save_dashboard_json, save_dashboard_markdown
 
     results_dir = Path(args.results_dir)
     output_dir = Path(args.output_dir)
@@ -31,8 +31,7 @@ def cmd_dashboard_generate(args: argparse.Namespace) -> None:
     md_path = output_dir / "DASHBOARD.md"
     json_path = output_dir / "dashboard.json"
     try:
-        md_path.parent.mkdir(parents=True, exist_ok=True)
-        md_path.write_text(render_dashboard(data, top_n_bad_questions=args.top_n), encoding="utf-8")
+        save_dashboard_markdown(data, md_path, top_n_bad_questions=args.top_n)
         print(f"✅ Markdown dashboard: {md_path}")
 
         if not args.no_json:

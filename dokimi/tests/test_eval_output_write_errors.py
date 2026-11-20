@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -281,6 +282,81 @@ def test_write_report_text_writes_the_bytes_write_text_writes_for_text_that_enco
     write_report_text(ours, text)
     theirs.write_text(text, encoding="utf-8")
     assert ours.read_bytes() == theirs.read_bytes()
+
+
+def test_write_report_text_writes_each_newline_as_the_platform_linesep(tmp_path, monkeypatch):
+    from dokimi.commands._output import write_report_text
+
+    monkeypatch.setattr("os.linesep", "\r\n")
+    write_report_text(tmp_path / "r.md", "a\nb\r\n")
+    assert (tmp_path / "r.md").read_bytes() == b"a\r\nb\r\r\n"
+
+
+def test_write_report_text_refuses_a_read_only_report_and_keeps_its_text(tmp_path):
+    import os
+
+    from dokimi.commands._output import write_report_text
+
+    target = tmp_path / "r.md"
+    target.write_text("old", encoding="utf-8")
+    target.chmod(0o444)
+    if os.access(target, os.W_OK):
+        pytest.skip("the user can write a read-only file")
+    with pytest.raises(PermissionError):
+        write_report_text(target, "new\n")
+    assert target.read_text(encoding="utf-8") == "old"
+
+
+def test_write_report_text_writes_through_a_symlink_and_keeps_the_link(tmp_path):
+    from dokimi.commands._output import write_report_text
+
+    real, link = tmp_path / "real.md", tmp_path / "link.md"
+    real.write_text("old", encoding="utf-8")
+    link.symlink_to(real)
+    write_report_text(link, "new\n")
+    assert link.is_symlink() and real.read_text(encoding="utf-8") == "new\n"
+
+
+def test_write_report_text_keeps_a_hard_link_shared(tmp_path):
+    import os
+
+    from dokimi.commands._output import write_report_text
+
+    first, second = tmp_path / "a.md", tmp_path / "b.md"
+    first.write_text("old", encoding="utf-8")
+    os.link(first, second)
+    write_report_text(first, "new\n")
+    assert second.read_text(encoding="utf-8") == "new\n"
+
+
+def test_write_report_text_rewrites_a_writable_file_in_a_read_only_directory(tmp_path):
+    import os
+
+    from dokimi.commands._output import write_report_text
+
+    folder = tmp_path / "ro"
+    folder.mkdir()
+    target = folder / "r.md"
+    target.write_text("old", encoding="utf-8")
+    folder.chmod(0o555)
+    try:
+        if os.access(folder, os.W_OK):
+            pytest.skip("the user can write a read-only directory")
+        write_report_text(target, "new\n")
+        assert target.read_text(encoding="utf-8") == "new\n"
+        assert [p.name for p in folder.iterdir()] == ["r.md"]
+    finally:
+        folder.chmod(0o755)
+
+
+@pytest.mark.skipif(not os.path.exists("/dev/null"), reason="needs /dev/null")
+def test_write_report_text_writes_to_a_special_file_instead_of_a_tmp_beside_it():
+    from pathlib import Path
+
+    from dokimi.commands._output import write_report_text
+
+    write_report_text(Path("/dev/null"), "text\n")
+    assert Path("/dev/null").is_char_device()
 
 
 def _checklist_report():

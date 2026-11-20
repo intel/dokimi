@@ -129,6 +129,18 @@ def test_summary_writes_a_lone_surrogate_in_a_subject_as_a_question_mark(tmp_pat
     assert "n?" in out.read_text(encoding="utf-8")
 
 
+def test_summary_out_naming_a_directory_exits_2_with_a_message(tmp_path, monkeypatch, capsys):
+    summary = {"overall": "pass", "checks": [], "spent_usd": None, "subjects": []}
+    monkeypatch.setattr("dokimi.report.summary.summarize", lambda paths: summary)
+    out = tmp_path / "taken"
+    out.mkdir()
+    args = build_parser().parse_args(["report", "summary", "x.json", "--out", str(out)])
+    with refusal() as exc:
+        args.func(args)
+    assert exc.code == 2
+    assert f"Error: cannot write {out}" in capsys.readouterr().err
+
+
 def test_the_failure_analysis_shows_n_a_rates_for_zero_evaluations():
     """The pipeline reports straight from its own run, which can judge no answers."""
     from dokimi.report.generator import ReportGenerator
