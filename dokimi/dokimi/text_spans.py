@@ -4,8 +4,9 @@
 """Spans from an opener to the first closer after it, in time linear in the text (#888).
 
 ``opener(.*?)closer`` tries every opener and scans to the end of the text for a closer that is
-not there, so a text of n openers costs n squared steps. These helpers find the closers once and
-stop at the first opener that has none: no later opener has one either.
+not there, so a text of n openers costs n squared steps. These helpers find the closers once, so an
+opener with no closer after it costs no scan: no later opener of the same tag has one either, and
+openers of other tags go on to their own closers.
 """
 
 from __future__ import annotations
