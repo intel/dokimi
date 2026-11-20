@@ -231,7 +231,8 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
             for problem in session.errors:
                 print(f"warning: {session.name}: {problem}", file=sys.stderr)
             if session.errors_dropped:
-                print(f"warning: {session.name}: {session.errors_dropped} more skipped records not listed",
+                noun = "record" if session.errors_dropped == 1 else "records"
+                print(f"warning: {session.name}: {session.errors_dropped} more skipped {noun} not listed",
                       file=sys.stderr)
         for session in sessions:
             if session.sidechain_only:
