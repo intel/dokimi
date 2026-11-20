@@ -21,15 +21,18 @@ T = TypeVar("T")
 
 def poll_until(predicate: Callable[[], object], timeout: float, interval: float = 0.02) -> bool:
     """Call ``predicate`` every ``interval`` seconds until it returns a truthy value (True), or until
-    ``timeout`` seconds have passed, after one last call (False). It never raises for a timeout."""
+    ``timeout`` seconds have passed, after one last call (False). It never raises for a timeout. A
+    predicate that holds only after waking past the deadline (a long sleep) does not count: False."""
     deadline = time.monotonic() + timeout
+    late = False
     while True:
         if predicate():
-            return True
+            return not late
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
         time.sleep(min(interval, remaining))
+        late = time.monotonic() > deadline
 
 
 def wait_until(predicate: Callable[[], T], timeout: float, *, what: str, interval: float = 0.02) -> T:

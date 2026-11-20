@@ -7,7 +7,8 @@ A test that waits for a thread, process or timer with ``time.sleep`` or ``thread
 on a fast machine and fails on a busy runner: wait on the condition with ``tests/waiting.py``
 instead. This counts, per file under ``tests/``, the calls the file's imports resolve to
 ``time.sleep`` or ``threading.Timer`` (``import time``, ``import time as t``, ``from time import
-sleep as nap``, and the same for ``threading``). A ``sleep`` in a string, such as a child's shell
+sleep as nap``, ``from time import *``, and the same for ``threading``). Only imports are followed: a
+name assigned from them (``nap = time.sleep``) is not. A ``sleep`` in a string, such as a child's shell
 command, is not a call. ``tests/waiting.py`` is the one file not counted.
 
 The counts are recorded in ``test_timing_baseline.json`` and are exact: a file may not go above its
@@ -29,6 +30,7 @@ import re
 import sys
 import tokenize
 from pathlib import Path
+from typing import NamedTuple
 
 PROJECT = Path(__file__).resolve().parents[1]
 TESTS = PROJECT / "tests"
@@ -42,57 +44,112 @@ HINT = "(python scripts/check_test_timing.py --update)"
 
 
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
-Scope = tuple[dict[str, str | None], bool]  # (name -> "time" or "time.sleep" or None, is a class body)
+COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+Pos = tuple[int, int]  # (line, column) where a binding takes effect
+Names = dict[str, list[tuple[Pos, str | None]]]  # name -> bindings in source order: "time", "time.sleep" or None
 
 
-def _own_names(scope: ast.AST) -> dict[str, str | None]:
-    """What the names bound in ``scope`` itself mean: a module (``t -> time``), a function
+class Scope(NamedTuple):
+    names: Names
+    is_class: bool  # a class body is not visible from the functions inside it
+    is_comp: bool  # a comprehension runs where it stands, so the scope around it is read by position too
+
+
+def _end(node: ast.AST) -> Pos:
+    return getattr(node, "end_lineno", 0) or 0, getattr(node, "end_col_offset", 0) or 0
+
+
+def _note(names: Names, name: str, pos: Pos, meaning: str | None) -> None:
+    names.setdefault(name, []).append((pos, meaning))
+
+
+def _own_names(scope: ast.AST) -> Names:
+    """What the names bound in ``scope`` itself mean, in source order: a module (``t -> time``), a function
     (``nap -> time.sleep``), or ``None`` for any other binding, which shadows an outer import."""
-    names: dict[str, str | None] = {}
+    names: Names = {}
     if isinstance(scope, FUNCTIONS):
         a = scope.args
         for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg):
             if arg is not None:
-                names[arg.arg] = None
+                _note(names, arg.arg, (0, 0), None)
     body = [scope.body] if isinstance(scope, ast.Lambda) else scope.body  # type: ignore[attr-defined]
     for stmt in body:
         _bind(stmt, names)
+    for entries in names.values():
+        entries.sort(key=lambda entry: entry[0])
     return names
 
 
-def _bind_import(node: ast.Import | ast.ImportFrom, names: dict[str, str | None]) -> None:
+def _comp_names(comp: ast.AST) -> Names:
+    """The targets of a comprehension are local to it for all of it."""
+    names: Names = {}
+    for gen in comp.generators:  # type: ignore[attr-defined]
+        for name in ast.walk(gen.target):
+            if isinstance(name, ast.Name):
+                _note(names, name.id, (0, 0), None)
+    return names
+
+
+def _bind_import(node: ast.Import | ast.ImportFrom, names: Names) -> None:
+    pos = _end(node)
     for alias in node.names:
         if isinstance(node, ast.Import):
             bound = alias.asname or alias.name.split(".")[0]
             full = alias.name if alias.asname else alias.name.split(".")[0]
-            names[bound] = full if full in TARGETS else None
+            _note(names, bound, pos, full if full in TARGETS else None)
+        elif node.module in TARGETS and node.level == 0 and alias.name == "*":
+            for target in TARGETS[node.module]:
+                _note(names, target, pos, f"{node.module}.{target}")
         elif node.module in TARGETS and node.level == 0 and alias.name in TARGETS[node.module]:
-            names[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+            _note(names, alias.asname or alias.name, pos, f"{node.module}.{alias.name}")
         else:
-            names[alias.asname or alias.name] = None
+            _note(names, alias.asname or alias.name, pos, None)
 
 
-def _bind(node: ast.AST, names: dict[str, str | None]) -> None:
-    """Record the names ``node`` binds in its scope, without entering a nested function, class or lambda."""
+def _bind(node: ast.AST, names: Names, at: Pos | None = None) -> None:
+    """Record the names ``node`` binds in its scope, each with where it takes effect, without entering a
+    nested function, class or lambda. An assignment binds once its right side has run; the targets of a
+    comprehension stay in it, except a ``:=``."""
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         _bind_import(node, names)
     elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        names[node.name] = None
+        _note(names, node.name, _end(node), None)
+    elif isinstance(node, COMPREHENSIONS):
+        for child in ast.walk(node):
+            if isinstance(child, ast.NamedExpr) and isinstance(child.target, ast.Name):
+                _note(names, child.target.id, _end(child), None)
     elif not isinstance(node, ast.Lambda):
-        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
-            names[node.id] = None
-        elif isinstance(node, ast.ExceptHandler) and node.name:
-            names[node.name] = None
+        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
+            at = _end(node)
+        _bind_target(node, names, at)
         for child in ast.iter_child_nodes(node):
-            _bind(child, names)
+            _bind(child, names, at)
+
+
+def _bind_target(node: ast.AST, names: Names, at: Pos | None) -> None:
+    if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+        _note(names, node.id, at or _end(node), None)
+    elif isinstance(node, ast.ExceptHandler) and node.name:
+        _note(names, node.name, (node.lineno, node.col_offset), None)
 
 
 def _resolve(call: ast.Call, scopes: list[Scope]) -> str | None:
-    """``"time.sleep"`` or ``"threading.Timer"`` when ``call`` is one, by the innermost binding of its name."""
+    """``"time.sleep"`` or ``"threading.Timer"`` when ``call`` is one, by the innermost binding of its name.
+    In the scope the call stands in, that is the last binding before the call; in a scope around a
+    function, the last binding of the scope."""
+    pos = (call.lineno, call.col_offset)
+
     def meaning(name: str) -> str | None:
-        for names, _ in scopes:
-            if name in names:
-                return names[name]
+        by_position = True
+        for scope in scopes:
+            entries = scope.names.get(name)
+            if entries:
+                seen = [m for p, m in entries if not by_position or p <= pos]
+                if seen:
+                    return seen[-1]
+                if not scope.is_class:
+                    return None
+            by_position = by_position and scope.is_comp
         return None
 
     func = call.func
@@ -106,38 +163,64 @@ def _resolve(call: ast.Call, scopes: list[Scope]) -> str | None:
     return None
 
 
-def _calls(tree: ast.Module) -> list[tuple[ast.Call, str]]:
-    """Every call that resolves to a sleep or timer, with its target. A name means what the innermost
-    scope that binds it says; a class body is not visible from the functions inside it."""
-    found: list[tuple[ast.Call, str]] = []
+def _outer_parts(node: ast.AST) -> list[ast.AST]:
+    """What a function, lambda or class evaluates in the scope around it: decorators, bases, defaults."""
+    if isinstance(node, ast.ClassDef):
+        return [*node.decorator_list, *node.bases, *node.keywords]
+    a = node.args  # type: ignore[attr-defined]
+    outer: list[ast.AST] = [*a.defaults, *(d for d in a.kw_defaults if d is not None)]
+    if not isinstance(node, ast.Lambda):
+        outer += node.decorator_list  # type: ignore[attr-defined]
+    return outer
 
-    def walk(node: ast.AST, scopes: list[Scope]) -> None:
+
+class _Walker:
+    """Finds the calls that resolve to a sleep or timer. A name means what the innermost scope that binds
+    it says; a class body is not visible from the functions inside it."""
+
+    def __init__(self) -> None:
+        self.found: list[tuple[ast.Call, str]] = []
+        self.done: set[int] = set()  # the first iterable of a comprehension, walked in the outer scope
+
+    def comprehension(self, node: ast.AST, scopes: list[Scope]) -> None:
+        first = node.generators[0].iter  # type: ignore[attr-defined]
+        self.walk(first, scopes)
+        self.done.add(id(first))
+        inner = [Scope(_comp_names(node), False, True), *(s for s in scopes if not s.is_class)]
+        for child in ast.iter_child_nodes(node):
+            self.walk(child, inner)
+
+    def definition(self, node: ast.AST, scopes: list[Scope]) -> None:
+        for child in _outer_parts(node):
+            self.walk(child, scopes)
+        inner = [Scope(_own_names(node), isinstance(node, ast.ClassDef), False)]
+        inner += [s for s in scopes if not s.is_class]
+        body = [node.body] if isinstance(node, ast.Lambda) else node.body  # type: ignore[attr-defined]
+        for child in body:
+            self.walk(child, inner)
+
+    def walk(self, node: ast.AST, scopes: list[Scope]) -> None:
+        if id(node) in self.done:
+            return
+        if isinstance(node, COMPREHENSIONS):
+            self.comprehension(node, scopes)
+            return
         if isinstance(node, ast.Call):
             target = _resolve(node, scopes)
             if target:
-                found.append((node, target))
+                self.found.append((node, target))
         if isinstance(node, (*FUNCTIONS, ast.ClassDef)):
-            outer: list[ast.AST] = []
-            if isinstance(node, ast.ClassDef):
-                outer = [*node.decorator_list, *node.bases, *node.keywords]
-            else:
-                a = node.args
-                outer = [*a.defaults, *(d for d in a.kw_defaults if d is not None)]
-                if not isinstance(node, ast.Lambda):
-                    outer += node.decorator_list
-            for child in outer:
-                walk(child, scopes)
-            inner = [(_own_names(node), isinstance(node, ast.ClassDef))]
-            inner += [s for s in scopes if not s[1]]
-            body = [node.body] if isinstance(node, ast.Lambda) else node.body
-            for child in body:
-                walk(child, inner)
+            self.definition(node, scopes)
             return
         for child in ast.iter_child_nodes(node):
-            walk(child, scopes)
+            self.walk(child, scopes)
 
-    walk(tree, [(_own_names(tree), False)])
-    return found
+
+def _calls(tree: ast.Module) -> list[tuple[ast.Call, str]]:
+    """Every call that resolves to a sleep or timer, with its target."""
+    walker = _Walker()
+    walker.walk(tree, [Scope(_own_names(tree), False, False)])
+    return walker.found
 
 
 def _waivers(text: str) -> tuple[set[int], list[int]]:
@@ -178,7 +261,11 @@ def measure(root: Path) -> tuple[dict[str, int], dict[str, int], list[str]]:
                 p == "__pycache__" or p.startswith(".") for p in parts):
             continue
         key = f"{root.name}/{path.relative_to(root).as_posix()}"
-        counts, bare = scan(path.read_text(encoding="utf-8"), key)
+        try:
+            counts, bare = scan(path.read_text(encoding="utf-8"), key)
+        except (OSError, SyntaxError, ValueError, tokenize.TokenError) as exc:
+            problems.append(f"{key}: cannot be scanned ({type(exc).__name__}): {exc}")
+            continue
         problems += [f"{key}:{line}: `# timing-ok` needs a reason: `# timing-ok: <why this sleep must stay>`"
                      for line in bare]
         if counts:
@@ -189,7 +276,15 @@ def measure(root: Path) -> tuple[dict[str, int], dict[str, int], list[str]]:
 
 
 def load_baseline(path: Path) -> dict[str, int]:
-    return {k: int(v) for k, v in json.loads(path.read_text(encoding="utf-8")).get("files", {}).items()}
+    """The ``files`` counts of the baseline; ``ValueError`` when the file is not one."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    files = data.get("files", {}) if isinstance(data, dict) else None
+    if not isinstance(files, dict):
+        raise ValueError('expected {"files": {"<file>": <count>}}')
+    try:
+        return {k: int(v) for k, v in files.items()}
+    except (TypeError, ValueError):
+        raise ValueError("a count is not an integer") from None
 
 
 def dump_baseline(files: dict[str, int]) -> str:
@@ -215,7 +310,8 @@ def violations(now: dict[str, int], baseline: dict[str, int]) -> tuple[list[str]
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--update", action="store_true",
-                    help="lower or drop baseline entries to match the code; never raises one")
+                    help="lower or drop baseline entries to match the code; never raises one "
+                         "(a missing baseline file is written with the current count of every file)")
     ap.add_argument("--tests-root", type=Path, default=TESTS, help="directory to scan (default: tests/)")
     ap.add_argument("--baseline", type=Path, default=BASELINE, help="baseline file to read and write")
     args = ap.parse_args(argv)
@@ -233,7 +329,11 @@ def main(argv: list[str] | None = None) -> int:
     if not args.baseline.exists():
         print(f"no {args.baseline.name}; create it with --update {HINT}")
         return 1
-    baseline = load_baseline(args.baseline)
+    try:
+        baseline = load_baseline(args.baseline)
+    except (OSError, ValueError) as exc:
+        print(f"{args.baseline.name} is not a readable baseline: {exc}")
+        return 1
     above, below = violations(per_file, baseline)
     if args.update:
         found = problems + above

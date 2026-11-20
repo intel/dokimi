@@ -49,6 +49,21 @@ def test_poll_until_never_sleeps_past_the_deadline_so_a_late_condition_is_not_ac
     assert naps == [0.01]
 
 
+def test_poll_until_does_not_accept_a_condition_reached_while_a_sleep_overshot_the_deadline(monkeypatch):
+    clock = [0.0]
+
+    def nap(seconds):
+        clock[0] += 0.5
+
+    monkeypatch.setattr(waiting, "time", SimpleNamespace(monotonic=lambda: clock[0], sleep=nap))
+    assert poll_until(lambda: clock[0] >= 0.5, 0.01, interval=1) is False
+    clock[0] = 0.0
+    assert poll_until(lambda: clock[0] >= 0.5, 0.6, interval=1) is True
+    with pytest.raises(pytest.fail.Exception, match="gave up after"):
+        clock[0] = 0.0
+        wait_until(lambda: clock[0] >= 0.5, 0.01, what="the clock", interval=1)
+
+
 def test_wait_for_event_returns_at_once_for_a_set_event():
     event = threading.Event()
     event.set()

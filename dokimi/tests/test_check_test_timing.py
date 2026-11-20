@@ -82,6 +82,27 @@ def test_a_tests_root_that_is_not_a_directory_exits_2_and_leaves_the_baseline_al
         assert entries(tmp_path) == baseline
 
 
+@pytest.mark.parametrize("content", ['{"files": null}', '[1]', '{"files": {"tests/a.py": null}}', "{not json"])
+def test_a_baseline_that_is_not_one_fails_naming_it(tmp_path, capsys, content):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "baseline.json").write_text(content, encoding="utf-8")
+    assert ctt.main(["--tests-root", str(tmp_path / "tests"), "--baseline", str(tmp_path / "baseline.json")]) == 1
+    assert "baseline.json is not a readable baseline" in capsys.readouterr().out
+
+
+def test_a_test_file_that_cannot_be_read_fails_naming_it_instead_of_raising(tmp_path, capsys):
+    root = tmp_path / "tests"
+    root.mkdir()
+    (root / "test_binary.py").write_bytes(b"\xff\xfe = 1\n")
+    (root / "test_dangling.py").symlink_to(tmp_path / "nowhere.py")
+    (root / "test_broken.py").write_text("def (:\n", encoding="utf-8")
+    (tmp_path / "baseline.json").write_text('{"files": {}}', encoding="utf-8")
+    assert ctt.main(["--tests-root", str(root), "--baseline", str(tmp_path / "baseline.json")]) == 1
+    out = capsys.readouterr().out
+    for name in ("test_binary.py", "test_dangling.py", "test_broken.py"):
+        assert f"tests/{name}: cannot be scanned" in out
+
+
 def test_a_missing_baseline_fails_without_update(tmp_path, capsys):
     assert run(tmp_path, {"test_old.py": SLEEP}, None) == 1
     assert "no baseline.json" in capsys.readouterr().out
@@ -96,6 +117,8 @@ def test_a_missing_baseline_fails_without_update(tmp_path, capsys):
     "import threading as th\nth.Timer(1, print)\n",
     "from threading import Timer\nTimer(1, print)\n",
     "from threading import Timer as T\nT(1, print)\n",
+    "from time import *\nsleep(1)\n",
+    "from threading import *\nTimer(1, print)\n",
 ])
 def test_each_way_to_import_a_sleep_or_timer_is_counted(source):
     counts, bare = ctt.scan(source, "x.py")
@@ -128,6 +151,15 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("import time\n\n\ndef test_a():\n    def inner():\n        time.sleep(1)\n    inner()\n", {"time.sleep": 1}),
     ("import time\n\n\nclass T:\n    time = None\n\n    def test_a(self):\n        time.sleep(1)\n",
      {"time.sleep": 1}),
+    ("import time\ntime.sleep(1)\ntime = None\n", {"time.sleep": 1}),
+    ("def test_a():\n    import time\n    time.sleep(1)\n    time = None\n", {"time.sleep": 1}),
+    ("import time\ntime = None\ntime.sleep(1)\n", {}),
+    ("import time\ntime = time.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n[time for time in ()]\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n[time.sleep(1) for _ in range(2)]\ntime = None\n", {"time.sleep": 1}),
+    ("import time\n[0 for time in time.sleep(1)]\n", {"time.sleep": 1}),
+    ("import time\n[0 for time in ()  if time.sleep(1)]\n", {}),
+    ("import time\n[(time := None) for _ in ()]\ntime.sleep(1)\n", {}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
