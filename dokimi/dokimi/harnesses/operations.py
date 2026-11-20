@@ -39,10 +39,9 @@ def _read_jsonl(path: Path) -> list[OperationRecord]:
     if not path.is_file():
         return []
     out: list[OperationRecord] = []
-    # surrogateescape: a byte that is not UTF-8 costs its own line only; "\n" only, as JSON
-    # keeps U+2028, U+2029 and U+0085 raw in a string, where splitlines cuts (#687)
+    # surrogateescape: a byte that is not UTF-8 costs its own line only (#687)
     try:
-        lines = path.read_text(encoding="utf-8", errors="surrogateescape").split("\n")
+        lines = _lines(path.read_text(encoding="utf-8", errors="surrogateescape"))
     except OSError as exc:
         return [
             OperationRecord(
@@ -71,9 +70,10 @@ def _is_utf8(line: str) -> bool:
 
 
 def _lines(text: str) -> list[str]:
-    r"""``text`` cut at ``\r\n``, ``\r`` or ``\n``: not ``splitlines``, which also cuts at the U+2028,
-    U+2029 and U+0085 a JSON string may hold raw (#687)."""
-    return re.split(r"\r\n|\r|\n", text)
+    r"""``text`` cut where ``splitlines`` cuts, at ``\r\n``, ``\r``, ``\n`` and the control
+    characters JSON never holds raw (``\v``, ``\f``, ``\x1c``-``\x1e``), but not at U+2028,
+    U+2029 or U+0085, which a JSON string may hold raw (#687)."""
+    return re.split(r"\r\n|[\r\n\v\f\x1c-\x1e]", text)
 
 
 def _parse_markers(text: str) -> list[OperationRecord]:
