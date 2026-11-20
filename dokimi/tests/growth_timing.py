@@ -15,7 +15,7 @@ from typing import Any
 
 GROWTH_LIMIT = 8  # CPU time at 4n over that at n: about 4 for linear work, 16 for quadratic
 ATTEMPTS = 3  # a ratio at or above GROWTH_LIMIT is measured again, this many times in all (#1007)
-STEPS = 20 # a sample spans at least this many clock steps, so one step is at most 5% of it
+STEPS = 20  # a sample spans at least this many clock steps, so one step is at most 5% of it
 
 
 def clock_step(clock: Callable[[], float] = time.process_time) -> float:
