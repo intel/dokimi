@@ -47,7 +47,7 @@ _INDENTED = re.compile(r"^(?: {4}|\t)")
 _COMMENT_OPEN = re.compile(r"^\s*<!--")
 _QUOTE = re.compile(r"^ {0,3}>")
 # A thematic break made of `*` or `_` (`---` is read as a Setext underline or a rule by `_SETEXT`).
-_BREAK = re.compile(r"^ {0,3}([*_])(?:[ \t]*\1){2,}[ \t]*$")
+_BREAK = re.compile(r"^ {0,3}([*_])(?:[ \t]*\1){2,}\s*$")
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
@@ -334,14 +334,14 @@ def segment(text: str) -> list[Span]:
             offset += len(lines[i])
             i += 1
         paragraph = "".join(block)
-        cursor = start
-        for sentence in _SENTENCE.split(paragraph):
-            if not sentence:
-                continue
-            found = text.find(sentence.strip(), cursor) if sentence.strip() else -1
-            begin = found if found >= 0 else cursor
-            emit("sentence", sentence, begin)
-            cursor = begin + len(sentence)
+        # Split on the paragraph with each closed comment blanked (same length), so no cut falls inside one.
+        masked = _COMMENT.sub(lambda m: "_" * len(m.group()), paragraph)
+        cut = 0
+        for boundary in [*_SENTENCE.finditer(masked), None]:
+            stop = boundary.start() if boundary else len(paragraph)
+            emit("sentence", paragraph[cut:stop], start + cut)
+            if boundary:
+                cut = boundary.end()
 
     return spans
 

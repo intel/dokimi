@@ -231,12 +231,13 @@ def test_prior_to_wrapped_across_lines_is_still_an_ordering():
 
 def test_a_thematic_break_is_not_a_setext_underline_or_part_of_a_paragraph():
     """#973: `***` / `___` / `_ _ _` end the paragraph above them; the instruction stays a sentence."""
-    for rule in ("***", "___", "_ _ _"):
-        spans = segment(f"Never delete production data.\n{rule}\nRelease checklist\n===\n")
-        assert [(s.kind, s.text) for s in spans] == [
-            ("sentence", "Never delete production data."), ("heading", "Release checklist\n==="),
-        ], rule
-        assert spans[0].protection == ("negation",)
+    for eol in ("\n", "\r\n"):
+        for rule in ("***", "___", "_ _ _"):
+            spans = segment(f"Never delete production data.{eol}{rule}{eol}Release checklist{eol}==={eol}")
+            assert [(s.kind, s.text) for s in spans] == [
+                ("sentence", "Never delete production data."), ("heading", f"Release checklist{eol}==="),
+            ], (rule, eol)
+            assert spans[0].protection == ("negation",)
 
 
 def test_text_after_a_closing_comment_marker_is_prose_not_a_block_opener():
@@ -258,3 +259,13 @@ def test_a_comment_inside_a_sentence_or_list_item_is_not_read_as_a_rule():
         assert [s.protection for s in spans] == [()], text
         assert all(text[s.start:s.end] == s.text for s in spans)
     assert segment("Never skip it. <!-- 2.0 -->\n")[0].protection == ("negation",)
+
+
+def test_a_comment_holding_a_sentence_boundary_is_not_split_or_read_as_a_rule():
+    """#973: `note. Apache-2.0` inside one `<!-- -->` stays in the sentence that holds the comment."""
+    text = "Keep the changelog current. <!-- note. Apache-2.0 -->\n\nNever skip it.\n"
+    spans = segment(text)
+    assert [s.text for s in spans] == [
+        "Keep the changelog current. <!-- note. Apache-2.0 -->", "Never skip it."]
+    assert [s.protection for s in spans] == [(), ("negation",)]
+    assert all(text[s.start:s.end] == s.text for s in spans)
