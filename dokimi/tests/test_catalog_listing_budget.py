@@ -46,6 +46,8 @@ def test_over_budget_names_lines_until_the_excess_is_covered(tmp_path, capsys):
     assert "over budget by 215; longest listing lines: delta (115 chars), alpha (100 chars)" in out
     out = _scan(tmp_path, capsys, "--listing-budget", str(total - 216))
     assert "over budget by 216; longest listing lines: delta (115 chars), alpha (100 chars), zebra (100 chars)" in out
+    out = _scan(tmp_path, capsys, "--listing-budget", str(total - 316))
+    assert "over budget by 316; longest listing lines: delta (115 chars), alpha (100 chars), zebra (100 chars), small (75 chars)" in out
 
 
 def test_json_carries_the_report_and_the_boundary_is_not_over(tmp_path, capsys):
