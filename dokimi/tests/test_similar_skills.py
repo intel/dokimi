@@ -36,6 +36,7 @@ EDGE_A = "Convert legacy Makefile targets into reproducible container builds"  #
 EDGE_B = "Convert legacy Makefile targets into Bazel build rules for CI"
 NOTE_A = "Summarise incident timelines from pager alerts and chat logs"  # 0.444: in the band
 NOTE_B = "Summarise incident timelines from alerts and postmortem notes"
+WHEN = " Use it when you do."  # a "when" clause, so a skill's own state is ok
 WARN_A = "Plan database migrations with rollback steps for PostgreSQL schemas"  # 0.556: a near-duplicate
 WARN_B = "Plan database migrations with rollback steps and data backfills"
 
@@ -126,6 +127,23 @@ def test_a_skill_that_disables_model_invocation_is_not_compared():
     assert _codes(loaded) == [[], []]
 
 
+def test_the_figure_is_cut_not_rounded_so_a_pair_under_the_line_reads_under_it():
+    words = [f"{a}{b}{c}" for a in "abcdef" for b in "ghijkl" for c in "mnopqr"]
+    shared, own = words[:50], words[50:101]
+    assert len(shared) == 50 and len(own) == 51
+    loaded = _items([("alpha-tool", " ".join(shared), False), ("beta-tool", " ".join(shared + own), False)])
+    assert 0.495 < _jaccard(_tokens(loaded[0][1].description), _tokens(loaded[1][1].description)) < 0.5
+    _similar_skills(loaded)
+    assert "(word overlap 49%)" in _notes(loaded)[0][0][2]
+
+
+def test_two_skills_with_non_ascii_names_are_different_names():
+    loaded = _items([("インシデント", NOTE_A, False), ("ポストモーテム", NOTE_B, False)])
+    _similar_skills(loaded)
+    assert _codes(loaded) == [["similar-skills-exist"], ["similar-skills-exist"]]
+    assert _name_key("インシデント") != _name_key("ポストモーテム")
+
+
 def _brute_similar(loaded) -> None:
     """The all-pairs pass with the same per-pair tests and no candidate filter."""
     shown = [item for item in loaded if not item[2].disable_model_invocation]
@@ -147,7 +165,7 @@ def _brute_similar(loaded) -> None:
 def _finding(other: str, similarity: float) -> Finding:
     return Finding(
         "note", "similar-skills-exist",
-        f"description overlaps {other} (word overlap {similarity:.0%}) under another name; "
+        f"description overlaps {other} (word overlap {int(similarity * 100)}%) under another name; "
         "the two may be one skill under two names",
     )
 
@@ -175,18 +193,20 @@ def test_the_candidate_search_finds_what_comparing_every_pair_finds(seed):
 
 def test_end_to_end_catalog_check_reports_the_note_and_keeps_the_state_of_the_skill(tmp_path, capsys):
     # Cross-skill checks run on the whole catalog; a --per-skill row reviews its skill alone.
-    _skill(tmp_path / "skills", "incident-timelines", name="incident-timelines", description=NOTE_A)
-    _skill(tmp_path / "skills", "postmortem-notes", name="postmortem-notes", description=NOTE_B)
+    _skill(tmp_path / "skills", "incident-timelines", name="incident-timelines", description=NOTE_A + WHEN)
+    _skill(tmp_path / "skills", "postmortem-notes", name="postmortem-notes", description=NOTE_B + WHEN)
 
     out, _ = _run(["--root", str(tmp_path), "--kind", "skills", "--format", "json"], capsys)
     rows = {row["name"]: row for row in json.loads(out)["skills"]}
 
     for name in ("incident-timelines", "postmortem-notes"):
-        # The fixture descriptions have no "when" clause, a warning of its own: the note does not add to the state.
-        assert rows[name]["state"] == "warn"
+        assert rows[name]["state"] == "ok"
         findings = [(f["code"], f["level"]) for f in rows[name]["findings"]]
         assert ("similar-skills-exist", "note") in findings
         assert ("description-near-duplicate", "warn") not in findings
+
+    text, _ = _run(["--root", str(tmp_path), "--kind", "skills"], capsys)
+    assert [line for line in text.splitlines() if "incident-timelines" in line and "ok" in line]
 
     out, code = _run(["--root", str(tmp_path), "--kind", "skills", "--format", "json",
                       "--ignore", "similar-skills-exist"], capsys)

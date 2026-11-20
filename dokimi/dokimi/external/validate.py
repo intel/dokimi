@@ -547,8 +547,12 @@ def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) ->
 
 
 def _name_key(name: str) -> str:
-    """The name as the corpus analyses compare names: lower case, every run of other characters one hyphen."""
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    """The name as the corpus analyses compare names: lower case, every run of other characters one hyphen.
+
+    A name with no ``a-z0-9`` at all (``インシデント``) would key to ``""`` and equal every other such name, so it
+    keys to its case-folded self.
+    """
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or name.casefold().strip()
 
 
 def _similar_skills(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
@@ -578,7 +582,7 @@ def _similar_skills(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) 
                 Finding(
                     "note",
                     "similar-skills-exist",
-                    f"description overlaps {other} (word overlap {similarity:.0%}) under another name; "
+                    f"description overlaps {other} (word overlap {int(similarity * 100)}%) under another name; "
                     "the two may be one skill under two names",
                 )
             )
