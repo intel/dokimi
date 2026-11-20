@@ -474,6 +474,8 @@ def test_a_failed_search_after_a_lost_directory_keeps_an_earlier_search_that_sho
     "echo hi; { grep zzz AGENTS.md docs/AGENTS.md; } 2>/dev/null",
     "echo hi; rg --passthru -q x other.txt; grep nomatch AGENTS.md",  # a quiet passthru shows no line
     "echo hi; rg --passthru --count x other.txt; grep nomatch AGENTS.md",
+    "{ rg --passthru zzz other.txt; } >/dev/null; echo hi; grep nomatch AGENTS.md",  # the dropped group's passthru
+    "{ rg --passthru zzz other.txt; } | cat; echo hi; grep nomatch AGENTS.md",
 ])
 def test_a_no_match_search_in_a_brace_group_or_after_a_quiet_passthru_shows_no_line(command):
     assert _searched_by_each_harness(command, 1, "hi\n") == [None] * 3

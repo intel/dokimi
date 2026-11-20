@@ -195,7 +195,7 @@ class _Walk:
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
         # the open brace groups: the spot before it, in a pipeline, (index in the reads, ``unknown``) where it began,
         # the enclosing && / || list's (list_start, listed), which the group's own separators do not end
-        self.groups: list[tuple[_Spot, bool, tuple[int, int], tuple[_Spot, bool]]] = []
+        self.groups: list[tuple[_Spot, bool, tuple[int, int, bool], tuple[_Spot, bool]]] = []
         self.list_start: _Spot = (here, False, False)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
@@ -265,7 +265,7 @@ class _Walk:
         """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. A group is
         one command of the list around it: ``cd sub && { a; b; } &`` backgrounds the whole list. The reads of a group
         whose output feeds a pipe after it, or a file, are dropped from ``out``, and so are those it counted in
-        ``unknown``: its output is not the agent's. Each brace of ``bare`` counts, in order (``{ { cd x``,
+        ``unknown`` and the ``passthru`` it set: its output is not the agent's. Each brace of ``bare`` counts, in order (``{ { cd x``,
         ``} | { cat a``)."""
         braces = [(m.end() - 1, m) for m in _GROUP_OPEN.finditer(bare)] + [(m.end(), m) for m in _GROUP_CLOSE.finditer(bare)]
         for _, m in sorted(braces, key=lambda b: b[0]):
@@ -276,15 +276,15 @@ class _Walk:
 
     def open_group(self, before_brace: str, mark: int) -> None:
         piped = bool(_PIPE.search(before_brace))
-        self.groups.append((self.spot(), piped, (mark, self.unknown), (self.list_start, self.listed)))
+        self.groups.append((self.spot(), piped, (mark, self.unknown, self.passthru), (self.list_start, self.listed)))
         if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
             self.here = None
 
     def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
-        before, piped, (mark, unknown), (self.list_start, self.listed) = self.groups.pop()
+        before, piped, (mark, unknown, passthru), (self.list_start, self.listed) = self.groups.pop()
         if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or STDOUT_AFTER_STDERR.search(redirects):
             del out[mark:]
-            self.unknown = unknown
+            self.unknown, self.passthru = unknown, passthru  # a passthru search dropped with the group shows the agent no line
         if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
             self.back(before)
 
