@@ -5,9 +5,10 @@
 
 The first event of the run that hits the task's definition (:mod:`.useful_spec`): a ``command`` event whose text
 matches and whose ``rc`` is 0, or an ``edit`` event whose path matches a glob. A refused event (``denied``) never
-hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts the events
-of a known kind up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the hit's ``t``: the time
-the call was issued, since its result is not timed, so a test run's pass is not timed.
+hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts the tool
+events up to and including the hit, as ``process.tool_calls`` does; turn and compaction events are not steps.
+``issued_s`` is the hit's ``t``: the time the call was issued, since its result
+is not timed, so a test run's pass is not timed.
 """
 
 from __future__ import annotations
@@ -18,9 +19,9 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from .event_format import TOOL_KINDS
 from .manifest import match_glob
 from .process_counts import as_measure
-from .event_format import KNOWN_KINDS
 from .process_metrics import _workspace_path
 from .useful_spec import Useful
 
@@ -68,8 +69,11 @@ def first_useful(
         return _record(None, "not_declared")
     if events is None:
         return _record(useful.kind, "unobserved")
-    known = (e for e in events if e.get("kind") in KNOWN_KINDS)  # steps count known kinds, as tool_calls does
-    for steps, event in enumerate(known, 1):
+    steps = 0
+    for event in events:
+        if event.get("kind") not in TOOL_KINDS:  # a turn or compaction is accounting, not a step
+            continue
+        steps += 1
         try:
             found = hits(useful, event)
         except TimeoutError:  # the pattern ran past its budget on this event: no verdict
@@ -103,6 +107,16 @@ def _observed(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 def _measured(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """The cells with a verdict: an ``unobserved`` or ``timeout`` cell has none, so it is no miss either."""
     return [u for u in have if u.get("reason") not in _NO_VERDICT]
+
+
+def _rated(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The cells the rate counts: those with a verdict, less a cell whose ``steps`` is set but is no measure (past the
+    measure bound, NaN, a bool), or None beside a reason that is not ``never``. Its hit is declared and its count is
+    broken, so it is neither a hit nor a miss; only a ``never`` cell with ``steps`` None stays in as a miss."""
+    return [
+        u for u in _measured(have)
+        if (u.get("steps") is None and u.get("reason") == "never") or as_measure(u.get("steps")) is not None
+    ]
 
 
 def _nums(values: Iterable[Any]) -> list[float]:
@@ -156,13 +170,13 @@ def useful_kind(recs: Sequence[Mapping[str, Any]]) -> str | None:
 
 def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[float | None]]:
     """``repo compare``'s per-task values: the medians over the cells that observed it, and the share of the cells
-    with a verdict that observed it (None if none has one). A cell with no verdict (``unobserved``, ``timeout``) is
-    neither a hit nor a miss. The medians alone see only the observed cells. Cells that name two kinds have no value:
+    with a verdict that observed it (None if none has one). A cell with no verdict (``unobserved``, ``timeout``) or
+    whose ``steps`` is no measure (past the measure bound) is neither a hit nor a miss. The medians alone see only the observed cells. Cells that name two kinds have no value:
     a command's timing and an edit's are not one measure."""
     have = _declared(recs)
     if useful_kind(recs) == "mixed":
         return {measure: [None] for measure in USEFUL_MEASURES}
-    measured = _measured(have)
+    measured = _rated(have)
     observed = _nums(u.get("steps") for u in have)
     return {
         "first_useful_s": [_median(_nums(u.get("issued_s") for u in _observed(have)))],
@@ -175,22 +189,23 @@ def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[floa
 
 def useful_task_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     """The cells behind each :func:`useful_task_values` measure: the timed hits for seconds, the observed hits for
-    steps, and the cells with a verdict for the rate (a median of one value is not one cell)."""
+    steps, and the cells with a verdict for the rate, less a cell whose ``steps`` is no measure (a median of one
+    value is not one cell)."""
     have = _declared(recs)
     return {
         "first_useful_s": len(_nums(u.get("issued_s") for u in _observed(have))),
         "first_useful_steps": len(_nums(u.get("steps") for u in have)),
-        "first_useful_rate": len(_measured(have)),
+        "first_useful_rate": len(_rated(have)),
     }
 
 
 def useful_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int] | None:
-    """One arm's cells that observed a first useful result, of those with a verdict, and the cells without one; None
-    if none declares a definition."""
+    """One arm's cells that observed a first useful result, of those with a verdict, and the cells without one (or
+    whose ``steps`` is no measure); None if none declares a definition."""
     have = _declared(recs)
     if not have:
         return None
-    measured = _measured(have)
+    measured = _rated(have)
     return {
         "observed": len(_nums(u.get("steps") for u in measured)),
         "measured": len(measured),

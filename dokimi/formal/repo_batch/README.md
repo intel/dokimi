@@ -78,7 +78,7 @@ Assumptions (stated in the model, not proven):
 - `os.replace` is atomic and a dead process writes nothing; a container that outlives the
   process writes into the deleted dir's inode (`_rmtree` removed it), not into the new one.
 - The batch dir is on a local file system where `flock` works.
-- Not modelled: the batch budget (`--max-batch-usd`), unsupported tasks, multiple arms/models,
+- Not modelled: the batch budget (`--max-usd`), unsupported tasks, multiple arms/models,
   report reads racing a writer (they read whole files written atomically).
 
 Vacuity: `witness_*.cfg` each assert that a scenario never happens (no retry, no crash after the
@@ -114,7 +114,7 @@ tla2tools v1.8.0 (TLC2 Version 2026.11.06.222357, rev d8fb231), 4 TLC workers, T
 ## Findings
 
 1. **One cell planned twice** (`code_main_dup_plan*`): `--task a --task a`, `--model m --model m`,
-   or `--model org/m --model org:m` (one `slug`) put two runs in one dir. With `--jobs 2` the second
+   or `--model org/m --model org:m` (one `slug`) put two runs in one dir. With `--concurrency 2` the second
    rmtree'd the first's dir while its agent ran, and `result.json` landed beside the other
    attempt's `meta.json`/answer. Fixed: `_refuse_shared_cells`.
 2. **A part-way `--force` with another execution pools two executions** (`code_main_force_crash`,
@@ -125,7 +125,7 @@ tla2tools v1.8.0 (TLC2 Version 2026.11.06.222357, rev d8fb231), 4 TLC workers, T
 
 Open questions (left as they are):
 
-1. `--force` with `--max-batch-usd`: the budget stop skips only cells that are not done, so a forced
+1. `--force` with `--max-usd`: the budget stop skips only cells that are not done, so a forced
    rerun still reruns done cells after the budget is spent.
 2. A grader with write access to the run dir could leave a `result.json` when the host fails to
    write its own (`CellCrash`); a resume would reuse it.
