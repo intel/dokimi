@@ -70,7 +70,8 @@ _RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type
                         "--max-columns", "-j", "--threads", "-E", "--encoding", "-r", "--replace", "-d", "--max-depth",
                         "--sort", "--sortr", "--ignore-file", "--pre", "--pre-glob", "--color", "--colors", "--engine",
                         "--max-filesize", "--path-separator", "--context-separator", "--field-context-separator",
-                        "--field-match-separator", "--dfa-size-limit", "--regex-size-limit", "--hyperlink-format"})
+                        "--field-match-separator", "--dfa-size-limit", "--regex-size-limit", "--hyperlink-format",
+                        "--hostname-bin"})
 _GIT_GREP_VALUES = frozenset({"-m", "-A", "-B", "-C", "--max-count", "--after-context", "--before-context", "--context",
                               "--max-depth", "--threads"})  # git grep's own: no -d or -D, and --max-depth takes a word
 _SEARCH_VALUES = {"grep": _GREP_VALUES, "egrep": _GREP_VALUES, "fgrep": _GREP_VALUES, "rg": _RG_VALUES,
@@ -85,6 +86,13 @@ _GNU_GREP_LONG = frozenset({
     "line-regexp", "max-count", "no-filename", "no-group-separator", "no-messages", "null", "null-data", "only-matching",
     "quiet", "recursive", "regexp", "invert-match", "silent", "text", "binary", "unix-byte-offsets", "version",
     "with-filename", "word-regexp"})  # GNU grep's long options
+_GIT_GREP_LONG = frozenset({
+    "cached", "no-index", "index", "untracked", "exclude-standard", "recurse-submodules", "invert-match", "ignore-case",
+    "word-regexp", "text", "textconv", "recursive", "max-depth", "extended-regexp", "basic-regexp", "fixed-strings",
+    "perl-regexp", "line-number", "column", "full-name", "files-with-matches", "name-only", "files-without-match", "null",
+    "only-matching", "count", "color", "break", "heading", "context", "before-context", "after-context", "threads",
+    "show-function", "function-context", "and", "or", "not", "quiet", "all-match", "open-files-in-pager", "ext-grep",
+    "max-count"})  # git grep's long options
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
@@ -562,13 +570,15 @@ def _match_limit(word: str, args: Sequence[str], i: int, values: frozenset[str])
 
 
 def _gnu_long(program: str, word: str) -> str:
-    """``word`` with the long option it names written in full, for GNU grep (``--max=1`` is ``--max-count=1``): it reads an
-    unambiguous prefix of an option as the option. rg and git grep are not held to this, and nor is a word that is no long
-    option or whose prefix is ambiguous (``--exclu`` is ``--exclude``, ``--exclude-from`` or ``--exclude-dir``)."""
+    """``word`` with the long option it names written in full, for GNU grep (``--max=1`` is ``--max-count=1``) and git grep
+    (``--max-d`` is ``--max-depth``), each against its own options: both read an unambiguous prefix of an option as the
+    option. rg is not held to this, and nor is a word that is no long option or whose prefix is ambiguous (``--exclu`` is
+    ``--exclude``, ``--exclude-from`` or ``--exclude-dir``)."""
     name, eq, value = word.partition("=")
-    if program == "rg" or not name.startswith("--") or len(name) == 2 or name[2:] in _GNU_GREP_LONG:
+    long = _GIT_GREP_LONG if program == "git grep" else _GNU_GREP_LONG
+    if program == "rg" or not name.startswith("--") or len(name) == 2 or name[2:] in long:
         return word
-    hits = [n for n in _GNU_GREP_LONG if n.startswith(name[2:])]
+    hits = [n for n in long if n.startswith(name[2:])]
     return f"--{hits[0]}{eq}{value}" if len(hits) == 1 else word
 
 

@@ -219,6 +219,18 @@ def test_git_grep_reads_the_options_of_git_not_of_gnu_grep():
     assert _process(_call("a", command), _result("a", "other.txt:1:see AGENTS.md"))["guidance_searched"] == []
 
 
+@pytest.mark.parametrize("command", ["git grep --max-d 0 AGENTS.md -- other.txt", "git grep --max-depth=0 AGENTS.md -- other.txt"])
+def test_git_grep_reads_an_abbreviated_max_depth_as_git_does(command):
+    assert shell_walked(command).searched == ["other.txt"]
+    assert _process(_call("a", command), _result("a", "other.txt:1:see AGENTS.md"))["guidance_searched"] == []
+
+
+def test_rg_hostname_bin_takes_the_next_word_as_its_value():
+    command = "rg --hostname-bin /bin/hostname AGENTS.md other.txt"
+    assert shell_walked(command).searched == ["other.txt"]
+    assert _process(_call("a", command), _result("a", "other.txt:1:see AGENTS.md"))["guidance_searched"] == []
+
+
 @pytest.mark.parametrize("command", ["grep a AGENTS.md; grep b sub/AGENTS.md", "grep a AGENTS.md && grep b sub/AGENTS.md"])
 def test_a_failed_command_with_an_earlier_search_keeps_the_searches_as_its_exit_is_the_last_ones(command):
     got = _process(_call("a", command), _result("a", "x", True))
