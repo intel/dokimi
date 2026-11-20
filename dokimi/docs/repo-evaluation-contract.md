@@ -661,7 +661,9 @@ harness never started, it did not parse, or a line of the trace was dropped: an 
 (the trace format has no timestamps, so `steps` is set and `issued_s` is null).
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
 is counted in `repo report`: the row says how many observed a hit, and the medians
-cover only those. `repo compare` pairs `first_useful_rate` per task (the share of its
+cover only those. A cell whose `steps` is past the measure bound is counted in that
+row's total but not as observed, and shows no reason (steps 5 and steps 1e200 give
+`1 of 2 observed`). `repo compare` pairs `first_useful_rate` per task (the share of its
 declared cells with a verdict that observed a hit, so a task where most runs never hit it is not read
 through its medians alone; a cell `unobserved` or `timeout` has no verdict, so it is neither a hit nor
 a miss and is left out of the share, as is a cell whose `steps` is past the measure bound) and its header counts observed of measured cells per arm, with
