@@ -6,9 +6,9 @@
 
 Every PR that touches the package (``dokimi/dokimi/**``: code and the data it
 ships), the data it reads from a checkout (``dokimi/data/**``) or what
-``pip install`` does (``[project]`` and ``[tool.setuptools]`` of
-``dokimi/pyproject.toml``: dependencies, Python versions, entry points,
-package-data) adds its own ``dokimi/changelog.d/<name>.md`` (``scriv create``) instead
+``pip install`` does (``[project]``, bar ``project.version``, and
+``[tool.setuptools]`` of ``dokimi/pyproject.toml``: dependencies, Python
+versions, entry points, package-data) adds its own ``dokimi/changelog.d/<name>.md`` (``scriv create``) instead
 of editing CHANGELOG.md, so concurrent PRs never conflict on the same lines.
 At release time ``scriv collect`` folds the fragments into CHANGELOG.md; see
 ``changelog.d/README.md``.
@@ -75,10 +75,17 @@ def changed_files(base: str, head: str) -> list[tuple[str, str]]:
 
 
 def _install_tables(rev: str) -> tuple[Any, Any]:
-    """``[project]`` (bar the dev extra) and ``[tool.setuptools]`` of pyproject.toml at ``rev``."""
+    """``[project]`` (bar ``version`` and the dev extra) and ``[tool.setuptools]`` of
+    pyproject.toml at ``rev``.
+
+    ``version`` is left out (#587): the release PR bumps it and ``scriv collect`` deletes
+    the fragments in the same PR, so there is none to add; the version is recorded in the
+    new CHANGELOG.md section.
+    """
     shown = _git("show", f"{rev}:{PYPROJECT}")
     pyproject = tomllib.loads(shown.stdout) if shown.returncode == 0 else {}
     project = dict(pyproject.get("project", {}))
+    project.pop("version", None)
     project["optional-dependencies"] = {
         k: v for k, v in project.get("optional-dependencies", {}).items() if k != "dev"}
     return project, pyproject.get("tool", {}).get("setuptools")
