@@ -154,7 +154,8 @@ def _container_links(target: str | None):
 
 
 def test_a_reward_json_that_links_to_a_file_in_the_container_is_read_as_that_file(tmp_path):
-    # Harbor reads a link's target too (its docker /logs/verifier is a bind mount: harbor 0.24.0 docker.py).
+    # Followed where the verifier wrote it. Harbor follows it on the host through its bind mount (harbor 0.24.0
+    # docker.py), the same file only for a link inside /logs/verifier; this absolute one it would miss.
     assert _verify(tmp_path, DockerCLI(reward="1", answer=_container_links('{"reward": 0.25}'))) == 0.25
     assert not (tmp_path / "o" / "reward.json").is_symlink()
 
