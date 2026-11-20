@@ -36,7 +36,7 @@ def offline_litellm(monkeypatch):
 
 
 def test_a_skill_agent_arm_answers_with_the_locked_dependencies(offline_litellm, demo_skill):
-    """On litellm 1.106.6 every agent arm answer was ``agent_failed: No module named 'mcp'``."""
+    """On litellm 1.106.0 through 1.108.3 every agent arm answer was ``agent_failed: No module named 'mcp'``."""
     runner = ArmRunner([SkillAgentTreatment(load_skill(demo_skill))], model="gpt-4o", provider="openai")
     arm = runner.run("demo", [{"id": "Q1", "question": "Which port does the demo widget use?"}],
                      concurrency=1)[0]["arms"]["skill_agent:demo-skill"]
