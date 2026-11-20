@@ -85,7 +85,9 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         _print_strict_reasons(report["skills"], args.strict)
         _print_online(online)
         print()
-    _granularity_section(skills, reviews, root, report, as_json)
+    _granularity_section(_offered_skills(skills, reviews), skills, root, report, as_json)
+    if skills:  # an empty root measured nothing: "0/N characters" would read as within budget
+        _listing_budget_section(_offered_skills(skills, reviews, by_name=True), getattr(args, "listing_budget", None), report, as_json)
     return failed, len(skills)
 
 
@@ -109,14 +111,14 @@ def _print_online(online: dict | None) -> None:
         print(format_summary(online))
 
 
-def _granularity_section(skills, reviews, root: Path, report: dict, as_json: bool) -> None:
-    """The free granularity hints (#424) over the skills a harness would offer: into ``report``, and printed unless JSON.
+def _offered_skills(skills, reviews, *, by_name: bool = False) -> list:
+    """The skills a harness would offer: ``listing.in_field`` (what the routing field lists), one copy per identical SKILL.md.
 
-    Offered is ``listing.in_field`` (what the routing field lists), one copy per identical SKILL.md:
-    one skill counted twice is not a merge candidate. The original is the copy nearest the root
-    whether or not it is in the field, so an in-field copy stands in when the original is not.
+    One skill counted twice is not a merge candidate and not a second listing line. The original is
+    the copy nearest the root whether or not it is in the field, so an in-field copy stands in when
+    the original is not. ``by_name`` keeps identical files that load under different names (no
+    ``name`` in the front matter, so the directory names them): they are two listing entries.
     """
-    from dokimi.external import granularity
     from dokimi.external.listing import in_field
 
     candidates = [
@@ -126,9 +128,51 @@ def _granularity_section(skills, reviews, root: Path, report: dict, as_json: boo
     candidates.sort(key=lambda pair: pair[1].duplicate_of is not None)  # an original before its copies
     offered, digests = [], set()
     for skill, review in candidates:
-        if review.content_sha256 not in digests:
-            digests.add(review.content_sha256)
+        key = (review.content_sha256, skill.name if by_name else None)
+        if key not in digests:
+            digests.add(key)
             offered.append(skill)
+    return offered
+
+
+def _listing_budget_section(offered, budget: int | None, report: dict, as_json: bool) -> None:
+    """``--listing-budget`` (#970): the listing size of the offered skills into ``report``, a warning above ``budget``.
+
+    A skill's line is its name plus its description and ``when_to_use`` (as ``skill_listing`` reads
+    them) capped at ``LISTING_MAX_DESC_CHARS``. Over the
+    cap the warning names the longest lines until their sum covers the excess, so removing them fits.
+    """
+    if budget is None:
+        return
+    from dokimi.harnesses.skill_treatment import LISTING_MAX_DESC_CHARS, skill_listing
+
+    lines = sorted(
+        ((skill.name, len(skill.name) + min(skill_listing(skill.path.parent)["description_chars"], LISTING_MAX_DESC_CHARS))
+         for skill in offered),
+        key=lambda pair: (-pair[1], pair[0]),
+    )
+    total = sum(chars for _, chars in lines)
+    excess = max(0, total - budget)
+    named, covered = [], 0
+    for name, chars in lines:
+        if covered >= excess:
+            break
+        named.append({"name": name, "chars": chars})
+        covered += chars
+    report["listing_budget"] = {"chars": total, "skills": len(lines), "cap": budget, "excess": excess, "largest": named}
+    if as_json:
+        return
+    print(f"# listing budget: {total}/{budget} characters across {len(lines)} distinct skills")
+    if excess:
+        names = ", ".join(f"{item['name']} ({item['chars']} chars)" for item in named)
+        print(f"  warn listing-over-budget: over budget by {excess}; longest listing lines: {names}")
+    print()
+
+
+def _granularity_section(offered, skills, root: Path, report: dict, as_json: bool) -> None:
+    """The free granularity hints (#424) over the ``offered`` skills: into ``report``, and printed unless JSON."""
+    from dokimi.external import granularity
+
     result = granularity.hints(offered, root=str(root))
     report["granularity"] = result.to_dict()
     if not as_json and skills:  # an empty root fails with its own message; no 0-skill section before it
@@ -217,6 +261,9 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
     if not root.is_dir():
         raise InputError(f"--root is not a directory: {root}")
     _check_scan_flags(args)
+    if getattr(args, "listing_budget", None) is not None and (args.per_skill or args.kind == "tasks"):
+        # #970: the total needs every skill's listing line at once, and tasks have none.
+        raise InputError("--listing-budget sums the listing of the whole catalog: drop --per-skill, and use --kind skills|all")
 
     as_json = args.format == "json" or getattr(args, "json", False)
     report: dict = {"root": str(root), "skills": [], "tasks": []}
@@ -553,6 +600,12 @@ def register(sub, positive_int, eval_sub) -> None:
         "--tasks-subdir", default="evaluation/harbor/tasks",
         help="Task directory relative to --root (default: evaluation/harbor/tasks, "
              "the uxlfoundation/skills convention)",
+    )
+    scan_p.add_argument(
+        "--listing-budget", type=positive_int, metavar="CHARS",
+        help="Advisory cap on the skill listing: report its size (name plus description and when_to_use "
+             "capped at 1536 characters, identical copies counted once) and warn above CHARS, naming the longest lines "
+             "that cover the excess. Whole-catalog skill scans only",
     )
     scan_p.add_argument(
         "--per-skill", action="store_true",
