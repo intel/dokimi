@@ -720,14 +720,15 @@ def build_report(guidance_name: str, guidance_text: str, sessions: list[Session]
 
 
 def render_table(report: dict[str, Any]) -> str:
-    head = f"{'rank':>4}  {'status':<20} {'trig.sess':>10} {'acted.sess':>10} {'episodes':>8} {'acted':>7} {'corr.':>6}  claim"
+    width = max(map(len, STATUSES))
+    head = f"{'rank':>4}  {'status':<{width}} {'trig.sess':>10} {'acted.sess':>10} {'episodes':>8} {'acted':>7} {'corr.':>6}  claim"
     lines = [head]
     for row in report["claims"]:
         acted = "n/a" if row["acted"] is None else f"{row['acted']}/{row['episodes']}"
         rank = "-" if row["rank"] is None else str(row["rank"])
         trig = f"{row['sessions_triggered']}/{report['sessions']}"
         sess_acted = "n/a" if row["sessions_acted"] is None else f"{row['sessions_acted']}/{report['sessions']}"
-        lines.append(f"{rank:>4}  {row['status']:<20} {trig:>10} {sess_acted:>10} {row['episodes']:>8} {acted:>7} "
+        lines.append(f"{rank:>4}  {row['status']:<{width}} {trig:>10} {sess_acted:>10} {row['episodes']:>8} {acted:>7} "
                      f"{row['corrected']:>6}  {' '.join(row['text'].split())[:70]}")
     counts = {s: sum(1 for r in report["claims"] if r["status"] == s) for s in STATUSES}
     lines.append("")
