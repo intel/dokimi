@@ -104,11 +104,12 @@ def test_run_envelope_guide_names_the_catalog_receipts_that_share_run_id():
 
 def test_run_envelope_guide_places_cost_in_cli_output_stdout():
     """#939: ``cost`` is in the ``cli_output.v1`` stdout, not in the saved catalog receipts."""
-    bullet = _envelope_bullet("Only `repo hits judge`")
+    bullet = _envelope_bullet("`repo hits judge` and `skill routing` fill")
     assert "`cli_output.v1`" in bullet
     assert "stdout" in bullet
     assert "no top-level `cost`" in bullet
     assert "the other commands report a cost of zero" in bullet
+    assert "`skill routing`" in bullet
 
 
 def test_run_envelope_section_lookup_names_the_missing_heading():

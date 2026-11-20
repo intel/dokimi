@@ -1013,6 +1013,6 @@ An artifact of a registered run kind carries the run's envelope right after its
   versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
 - The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect` is the
   `cli_output.v1` envelope with the document their `--out` writes under `data`.
-- Only `repo hits judge` fills the envelope's `cost`; the other commands report a cost of zero. `cost` is a
+- `repo hits judge` and `skill routing` fill the envelope's `cost`; the other commands report a cost of zero. `cost` is a
   field of the `cli_output.v1` document a leaf prints with `--json`: read it from stdout, since the
   saved artifacts (`catalog.json`, `plan.json`, `result.json`) have no top-level `cost`.
