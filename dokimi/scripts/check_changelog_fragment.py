@@ -6,9 +6,9 @@
 
 Every PR that touches the package (``dokimi/dokimi/**``: code and the data it
 ships), the data it reads from a checkout (``dokimi/data/**``) or what
-``pip install`` does (``[project]`` and ``[tool.setuptools]`` of
-``dokimi/pyproject.toml``: dependencies, Python versions, entry points,
-package-data) adds its own ``dokimi/changelog.d/<name>.md`` (``scriv create``) instead
+``pip install`` does (``[project]``, bar ``project.version``, and
+``[tool.setuptools]`` of ``dokimi/pyproject.toml``: dependencies, Python
+versions, entry points, package-data) adds its own ``dokimi/changelog.d/<name>.md`` (``scriv create``) instead
 of editing CHANGELOG.md, so concurrent PRs never conflict on the same lines.
 At release time ``scriv collect`` folds the fragments into CHANGELOG.md; see
 ``changelog.d/README.md``.
