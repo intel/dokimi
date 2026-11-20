@@ -320,7 +320,7 @@ def test_cli_trace_heredoc_scans_long_delimiters_among_closing_lines_of_many_len
         linear, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_one_closing_length(k)), 200_000)
         return ratio / linear
 
-    assert min(relative() for _ in range(5)) < 1.3  # copying prefixes: 1.6 in every attempt; a busy host spoils some attempts
+    assert any(relative() < 1.3 for _ in range(5))  # copying prefixes: 1.6 in every attempt; a busy host spoils some attempts, and an attempt that passes ends the test
 
 
 def test_cli_trace_heredoc_closes_an_unquoted_opener_by_a_line_of_a_prefix_of_its_delimiter_after_it() -> None:
