@@ -37,8 +37,8 @@ def write_bytes_atomic(path: Path | str, data: bytes) -> None:
 def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
 
-    A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file and a file in a read-only directory
-    get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
+    A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory
+    and a file another user owns in a sticky directory (``/tmp``) get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
     writable file in a read-only directory is rewritten, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
     """
     path = Path(path)
@@ -59,7 +59,17 @@ def _is_plain_writable_file(path: Path) -> bool:
         and info.st_nlink == 1
         and os.access(path, os.W_OK)
         and os.access(path.parent, os.W_OK | os.X_OK)
+        and not _sticky_directory_forbids_replacing(path, info)
     )
+
+
+def _sticky_directory_forbids_replacing(path: Path, info: os.stat_result) -> bool:
+    """A sticky directory lets only the owner of an entry or of the directory replace it; the file itself may stay writable."""
+    euid = getattr(os, "geteuid", lambda: 0)()
+    if euid == 0 or info.st_uid == euid:
+        return False
+    parent = path.parent.stat()
+    return bool(parent.st_mode & stat.S_ISVTX) and parent.st_uid != euid
 
 
 def write_json_atomic(path: Path | str, obj: Any) -> None:

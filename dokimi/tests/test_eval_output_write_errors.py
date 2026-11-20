@@ -349,6 +349,36 @@ def test_write_report_text_rewrites_a_writable_file_in_a_read_only_directory(tmp
         folder.chmod(0o755)
 
 
+def _inode_after_report_write_in_sticky_directory(tmp_path, monkeypatch, as_other_user):
+    import os
+
+    from dokimi.commands._output import write_report_text
+
+    folder = tmp_path / "sticky"
+    folder.mkdir()
+    folder.chmod(0o1777)
+    target = folder / "r.md"
+    target.write_text("old", encoding="utf-8")
+    before = target.stat().st_ino
+    if as_other_user:
+        monkeypatch.setattr("os.geteuid", lambda: os.stat(target).st_uid + 1)
+    write_report_text(target, "new\n")
+    assert target.read_text(encoding="utf-8") == "new\n"
+    return before, target.stat().st_ino
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid"), reason="needs POSIX owners")
+def test_write_report_text_rewrites_in_place_a_file_another_user_owns_in_a_sticky_directory(tmp_path, monkeypatch):
+    before, after = _inode_after_report_write_in_sticky_directory(tmp_path, monkeypatch, as_other_user=True)
+    assert after == before
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid"), reason="needs POSIX owners")
+def test_write_report_text_replaces_the_file_of_its_owner_in_a_sticky_directory(tmp_path, monkeypatch):
+    before, after = _inode_after_report_write_in_sticky_directory(tmp_path, monkeypatch, as_other_user=False)
+    assert after != before
+
+
 @pytest.mark.skipif(not os.path.exists("/dev/null"), reason="needs /dev/null")
 def test_write_report_text_writes_to_a_special_file_instead_of_a_tmp_beside_it():
     from pathlib import Path
