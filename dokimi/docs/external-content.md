@@ -116,7 +116,9 @@ Two checks, both `warn`:
   checked against and the date. Update it by editing that file, with no code change. An entry
   lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
   `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
-  `replacement` are the vendor's, verbatim, or empty when it gives none.
+  `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
+  the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
+  the same status and date.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
   tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
   a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
@@ -454,7 +456,7 @@ A large catalog is easier to scan one skill at a time:
   fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
-  the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
+  the counts. `--concurrency N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
   line from a killed run is dropped). Each row carries `skill_sha256`, the
   digest of every file in the skill's directory, and `ignored`, the sorted
@@ -464,12 +466,12 @@ A large catalog is easier to scan one skill at a time:
   a row written under other codes or by another dokimi version, or a row without
   `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
   Every `SKILL.md` is loaded before the first row, so memory still grows with
-  the catalog. A `--jobs` worker that dies ends the scan with exit 1.
+  the catalog. A `--concurrency` worker that dies ends the scan with exit 1.
 
 The finding codes are listed in [finding codes](finding-codes.md), and the fields of the
 JSON report and of each JSONL row in [catalog check output](catalog-jsonl.md).
 
-`--jsonl`, `--jobs` and `--resume` need `--per-skill`, and `--jsonl` does not
+`--jsonl`, `--concurrency` and `--resume` need `--per-skill`, and `--jsonl` does not
 combine with `--format json`; any other misuse exits 2. From Python,
 `dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
 skill in `path`.

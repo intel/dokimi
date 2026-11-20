@@ -404,6 +404,15 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
     )),
+    # Reps concept (F1b): each old spelling counted the same thing on its one leaf, so the move
+    # is limited to that leaf (elsewhere the hint would name a flag the command does not take).
+    FlagMove("--repeats", "--reps", leaves=(("tasks", "run"),)),
+    FlagMove("--work-repeats", "--reps", leaves=(("subjects", "run"),)),
+    FlagMove("--multi-run", "--reps", leaves=(("benchmark", "run"),)),
+    FlagMove("--trials", "--reps", leaves=(("catalog", "trigger-probe"),)),
+    # Concurrency concept (F1b): how much runs at once; `-j` stays as its short form. The old
+    # `--jobs` was on these three leaves only.
+    FlagMove("--jobs", "--concurrency", leaves=(("catalog", "check"), ("eval", "check"), ("repo", "run"))),
     # Spend concept (F1b): a whole-command cap is --max-usd, a cap per agent run is --max-usd-per-cell.
     FlagMove("--max-cost-usd", "--max-usd", leaves=(("tools", "preference"),)),
     FlagMove("--max-batch-usd", "--max-usd", leaves=(("repo", "run"),)),

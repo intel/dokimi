@@ -55,6 +55,6 @@ jobs:
         dokimi/dokimi/repos/ dokimi/dokimi/commands/repo dokimi/dokimi/schemas/repo_
         dokimi/requirements.lock.txt dokimi/pyproject.toml .github/workflows/repo-eval.yml actions/
       max-parallel: 4
-      # intel-ubuntu-latest: see ci.yml.
-      runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+      # Runners: see the header of ci.yml.
+      runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
       timeout-minutes: 60
