@@ -248,6 +248,17 @@ def test_blocked_stop_hook_is_a_failed_step():
     assert run.kinds() == ["Edit", "Hook:Stop"] and run.events[-1].failed
 
 
+def test_blocked_stop_hook_is_not_a_tool_call():
+    """#936: docs/run-consistency.md says `tool_calls_*` and `failed_calls_mean` count tool calls."""
+    hook = json.dumps({"type": "user", "parent_tool_use_id": None, "message": {
+        "content": [{"type": "text", "text": "Stop hook feedback:\n- run make check"}]}})
+    run = parse_run(_trace(EDIT, ("Bash", {"command": "pytest -q"})) + "\n" + hook)
+    assert run.kinds() == ["Edit", "Bash:pytest", "Hook:Stop"]
+    assert (run.calls(), run.failed_calls()) == (2, 0)
+    only = parse_run(hook)
+    assert (only.calls(), only.failed_calls()) == (0, 0) and only.kinds() == ["Hook:Stop"]
+
+
 def test_quoted_newlines_stay_one_command():
     cmd = 'cd /w && python3 -c "\nfrom a import b\n# note\nprint(b(1); 2)\n" && make check \\\n  -j2\n# done'
     assert _run("r", ("Bash", {"command": cmd})).kinds() == ["Bash:python3", "Bash:make"]

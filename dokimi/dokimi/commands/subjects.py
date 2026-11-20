@@ -301,7 +301,9 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--work-model", default=None, dest="work_model")
     run_p.add_argument("--work-output-dir", default=None, dest="work_output_dir")
     run_p.add_argument("--work-command-template", default=None, dest="work_command_template")
-    run_p.add_argument("--work-repeats", type=positive_int, default=1, dest="work_repeats")
+    cli_flags.add(run_p, "reps", "--reps", type=positive_int, default=1, dest="work_repeats", metavar="N",
+                  help="Repetitions of each (task, harness) cell of suite.tasks (default 1); "
+                       "the arms matrix runs once")
     run_p.add_argument(
         "--work-dry-run",
         action="store_true",

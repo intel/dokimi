@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/baseline_manifest.v1.json",
+  "title": "Baselines manifest v1",
+  "description": "`baselines/eval/manifest.json`: the index of the eval baselines `baseline save` copied, read by `baseline list` and `baseline compare`. It is rewritten by every save, so it carries no run envelope. A manifest saved before this schema has no `schema_version` and is still read; the next save stamps it. An entry is held to what `baseline list` and `baseline compare` require (a string `name` and `path`, an object `summary` if any) and no more, so an entry they read is one a later save keeps; other keys are kept as they are.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "baselines"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "baseline_manifest.v1"
+    },
+    "baselines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "The saved copy of the eval file."
+          },
+          "product": {
+            "description": "--product, else the eval's product, else \"unknown\"."
+          },
+          "saved_at": {
+            "description": "UTC, %Y%m%dT%H%M%S%f as `baseline save` writes it; printed as it is."
+          },
+          "summary": {
+            "type": "object",
+            "description": "The means over the eval's complete pairs (`n`, `avg_with`, `avg_without`, `avg_delta`), as `baseline save` writes them; {} when it has none. Printed as they are."
+          }
+        }
+      }
+    }
+  }
+}

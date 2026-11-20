@@ -512,11 +512,11 @@ def register(sub, positive_int) -> None:
                                   "checkout of the evaluation-content repository: "
                                   "--questions-root /path/to/content-repo/questions. "
                                   "Without it the run has no golden question set.")
-    bench_run_p.add_argument("--multi-run", type=positive_int, default=1, dest="multi_run",
-                             metavar="N",
-                             help="Run answer generation + evaluation N times (default: 1). "
-                                  "N>=3 enables variance check in the trust gate. "
-                                  "Results are averaged; variance is measured for stability.")
+    cli_flags.add(bench_run_p, "reps", "--reps", type=positive_int, default=1, dest="multi_run",
+                  metavar="N",
+                  help="Run answer generation + evaluation N times (default: 1). "
+                       "N>=3 enables variance check in the trust gate. "
+                       "Results are averaged; variance is measured for stability.")
     bench_run_p.set_defaults(func=cmd_benchmark_run)
 
     # benchmark preflight — validate plan, no LLM calls
