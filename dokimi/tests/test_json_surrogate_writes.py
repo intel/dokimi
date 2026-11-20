@@ -22,7 +22,7 @@ from dokimi.repos.replay import authoring, build
 from tests.test_eval_tasks_generate_graph import TREE, _callers_docs, _index, _opts
 
 LONE = "n\ud800"
-PAIR = chr(0xD83D) + chr(0xDE00)  # two code points, as a JSON escape of U+1F600 loads
+PAIR = chr(0xD83D) + chr(0xDE00)  # two code points, as a YAML double-quoted escape of U+1F600 loads
 JOINED = chr(0x1F600)
 CASES = [pytest.param(LONE, "n?", id="lone"), pytest.param(PAIR, JOINED, id="pair"),
          pytest.param("é", "é", id="non-ascii")]
