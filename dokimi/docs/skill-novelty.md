@@ -1239,7 +1239,9 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   and dokimi version are unchanged, rewrites the JSONL with them and with the rows of skills this
   run does not select (a narrower `--limit`), and runs the other skills. Set
   `DOKIMI_RESPONSE_CACHE` so the calls already paid replay at $0. Without `--resume`, an existing
-  `--jsonl` is refused rather than overwritten.
+  `--jsonl` is refused rather than overwritten. A `--resume` whose settings differ from those of an `ok` row of a
+  selected skill (or whose dokimi version does) is refused and names the fields, since rewriting the file would
+  delete that paid row before its rerun; pass `--rerun-changed` to measure those skills again on purpose.
 - **Settings.** The sweep takes the measurement flags it needs (`--model`, `--judge-model`,
   `--tier`, `--max-atoms`, `--budgets`, `--arms`, `--include-resources`, ...); the rest keep their
   `skill novelty analyze` defaults. `--judge2` and a judge panel (`--judge` more than once, `--judge-aggregate`) are not part of

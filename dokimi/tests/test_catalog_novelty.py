@@ -229,7 +229,7 @@ def test_summary_only_needs_no_root(tmp_path, capsys):
 def test_summary_only_refuses_to_pool_rows_measured_under_two_models(tmp_path):
     root, out = _root(tmp_path), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5")
-    _sweep(root, out, "--max-usd", "5", "--resume", "--limit", "1", "--model", "other-m")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--rerun-changed", "--limit", "1", "--model", "other-m")
     with pytest.raises(InputError, match="2 different settings"):
         _sweep(root, out, "--summary-only")
 
@@ -350,8 +350,17 @@ def test_resume_runs_again_the_rows_measured_under_other_input_limits(tmp_path, 
     root, out = _root(tmp_path), tmp_path / "out"
     _sweep(root, out, "--max-usd", "5")
     capsys.readouterr()
-    _sweep(root, out, "--max-usd", "5", "--resume", *flag)
+    _sweep(root, out, "--max-usd", "5", "--resume", "--rerun-changed", *flag)
     assert "0 measured and kept, 2 to run" in capsys.readouterr().err
+
+
+def test_a_resume_under_other_settings_is_refused_and_keeps_every_paid_row(tmp_path):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    before = (out / "sweep.jsonl").read_text(encoding="utf-8")
+    with pytest.raises(InputError, match=r"max_tokens.*--rerun-changed"):
+        _sweep(root, out, "--max-usd", "0.02", "--resume", "--max-tokens", "999")
+    assert (out / "sweep.jsonl").read_text(encoding="utf-8") == before
 
 
 @pytest.mark.skipif(os.name == "nt", reason="os.kill with SIGINT terminates the process on Windows")
@@ -614,7 +623,7 @@ def test_resume_runs_again_the_rows_measured_under_another_placebo_text(tmp_path
            "--placebo-text", str(placebo))
     capsys.readouterr()
     placebo.write_text("A different neutral paragraph about tea. " * 40, encoding="utf-8")
-    _sweep(root, out, "--max-usd", "5", "--resume", "--arms", "no_artifact,full,placebo",
+    _sweep(root, out, "--max-usd", "5", "--resume", "--rerun-changed", "--arms", "no_artifact,full,placebo",
            "--placebo-text", str(placebo))
     assert "0 measured and kept, 2 to run" in capsys.readouterr().err
 

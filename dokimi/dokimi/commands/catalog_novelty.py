@@ -516,12 +516,31 @@ def _refuse_unsafe_run(args: argparse.Namespace, jsonl: Path) -> None:
         raise InputError(str(exc)) from exc
 
 
+def _refuse_changed_settings(prior: list[dict], selected: dict[str, Optional[str]],
+                             fingerprint: dict[str, Any]) -> None:
+    """Refuse a --resume that would drop the ``ok`` row of a selected skill measured under other settings or
+    another dokimi version: the rewrite of the JSONL deletes it before the budget may reach its rerun."""
+    for row in prior:
+        if row["status"] != "ok" or row["key"] not in selected:
+            continue
+        old = row.get("settings") or {}
+        differ = sorted(name for name in fingerprint.keys() | old.keys() if old.get(name) != fingerprint.get(name))
+        if row.get("dokimi_version") != __version__:
+            differ.append("dokimi_version")
+        if differ:
+            raise InputError(f"--resume: the measured row of {row['key']!r} was made under other settings "
+                             f"({', '.join(differ)}); resuming would delete it before it is measured again. Use "
+                             "another --jsonl, or pass --rerun-changed to measure those skills again")
+
+
 def _plan(items: list[_Item], jsonl: Path, args: argparse.Namespace,
           fingerprint: dict[str, Any]) -> tuple[list[dict], list[_Item], list[dict]]:
     """The measured rows a resumed run keeps, the skills it still has to run, and the prior rows of
     skills this run does not select (a narrower --limit, a moved skill): those stay in the file as they are."""
     selected = {item.key: item.sha256 for item in items}
     prior = read_rows(jsonl) if args.resume else []
+    if args.resume and not args.rerun_changed:
+        _refuse_changed_settings(prior, selected, fingerprint)
     kept = resumable(prior, selected, fingerprint, __version__)
     done = {row["key"] for row in kept}
     others = [row for row in prior if row["key"] not in selected]
@@ -615,6 +634,9 @@ def register(catalog_sub, positive_int) -> None:
                    help="Skills analysed in parallel threads, sharing --max-usd (default 1)")
     p.add_argument("--resume", action="store_true",
                    help="Keep the measured rows in --jsonl and run only the other skills")
+    p.add_argument("--rerun-changed", action="store_true", dest="rerun_changed",
+                   help="With --resume, measure again the skills whose measured row was made under other settings "
+                        "or another dokimi version, replacing the row (without it such a --resume is refused)")
     p.add_argument("--max-usd-per-skill", type=positive_usd, default=None, dest="max_usd_per_skill",
                    help="Stop one skill once its calls cost this much (USD); the rest of the sweep goes on")
     p.add_argument("--limit", type=positive_int, default=None,
