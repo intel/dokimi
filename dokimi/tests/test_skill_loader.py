@@ -366,6 +366,7 @@ def test_valid_frontmatter_without_a_description_still_says_it_is_missing(tmp_pa
 def _write_frontmatter_skill(tmp_path, name, front):
     root = tmp_path / name
     root.mkdir()
+    front = front.rstrip("\n") + "\n"
     (root / "SKILL.md").write_text(f"---\n{front}---\n# {name}\n", encoding="utf-8")
     return root
 
@@ -442,3 +443,11 @@ def test_loader_refuses_a_repeated_key_inside_a_merge_source(tmp_path):
     )
     with pytest.raises(ValueError, match="duplicate key 'owner'"):
         load_skill(root)
+
+
+def test_loader_accepts_an_unquoted_equals_sign_key(tmp_path):
+    root = _write_frontmatter_skill(
+        tmp_path, "value-key",
+        "name: value-key\ndescription: Use when testing.\nmetadata: {=: example}\n",
+    )
+    assert load_skill(root).name == "value-key"

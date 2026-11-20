@@ -12,7 +12,8 @@ def load_unique_keys(raw: str) -> Any:
     PyYAML keeps the last value of a repeated key; js-yaml (gray-matter, Claude Code) refuses the file.
     The check reads the composed nodes before any construction, so a ``<<`` merge (which PyYAML
     rewrites while constructing) neither hides a repeat inside its source nor turns an explicit
-    override of a merged key into one.
+    override of a merged key into one. Only scalar keys are compared: a sequence or mapping key is
+    unhashable, so PyYAML refuses it on construction and it cannot repeat.
     """
     import yaml
 
@@ -22,7 +23,7 @@ def load_unique_keys(raw: str) -> Any:
         if root is None:
             return None
         stack = [root]
-        seen_nodes: set = set()
+        seen_nodes: set[int] = set()
         while stack:
             node = stack.pop()
             if id(node) in seen_nodes:
@@ -31,12 +32,14 @@ def load_unique_keys(raw: str) -> Any:
             if isinstance(node, yaml.SequenceNode):
                 stack.extend(node.value)
             elif isinstance(node, yaml.MappingNode):
-                keys: set = set()
+                keys: set[Any] = set()
                 for key_node, value_node in node.value:
                     stack.append(value_node)
                     if key_node.tag == "tag:yaml.org,2002:merge" or not isinstance(key_node, yaml.ScalarNode):
                         stack.append(key_node)
                         continue
+                    if key_node.tag == "tag:yaml.org,2002:value":
+                        key_node.tag = "tag:yaml.org,2002:str"  # as SafeLoader.flatten_mapping does for ``=``
                     key = loader.construct_object(key_node)
                     if key in keys:
                         raise yaml.constructor.ConstructorError(
