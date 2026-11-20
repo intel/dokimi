@@ -112,12 +112,15 @@ def test_a_windows_alias_leads_to_the_held_file_through_the_drive(monkeypatch):
     monkeypatch.setattr(held_module, "os", SimpleNamespace(path=ntpath, sep="\\", altsep="/"))  # the path rules of Windows
     held = object.__new__(HeldGuidance)
     held.root = root
-    held.links = {root + "\\alias": "docs", root + "\\abs": root + "\\docs", root + "\\rooted": "\\repo\\workspace\\docs",
-                  root + "\\dots": "..\\workspace\\docs", root + "\\loop": "loop", root + "\\ext": "D:\\external"}
-    held.dirs = frozenset({root, root + "\\docs"})
-    held.files = frozenset({"docs/AGENTS.md"})
+    held.links = {ntpath.normcase(root + "\\" + name): target for name, target in {
+        "alias": "docs", "abs": root + "\\docs", "rooted": "\\repo\\workspace\\docs", "dots": "..\\workspace\\docs",
+        "loop": "loop", "ext": "D:\\external"}.items()}
+    held.dirs = frozenset({ntpath.normcase(root), ntpath.normcase(root + "\\docs")})
+    held.files = frozenset({ntpath.normcase("docs/AGENTS.md")})
     for path in ("alias/AGENTS.md", "abs/AGENTS.md", "rooted/AGENTS.md", "dots/AGENTS.md", "alias\\AGENTS.md", "docs/AGENTS.md"):
         assert path in held
+    for path in ("DOCS/AGENTS.md", "docs/agents.md", "ALIAS/AGENTS.md", "Alias\\Agents.md", "Dots/AGENTS.md"):
+        assert path in held  # Windows folds the case of a name
     assert "other/AGENTS.md" not in held and "loop/AGENTS.md" not in held
     assert held.resolved("alias/AGENTS.md") == "docs/AGENTS.md"
     assert held.resolved("ext/AGENTS.md") is None and "ext/AGENTS.md" not in held  # D: has no path from C:\repo\workspace

@@ -32,22 +32,22 @@ class HeldGuidance:
     def __init__(self, ws: Path, files: Iterable[str]) -> None:
         self.root = os.path.realpath(ws)
         self.links, self.dirs = self._walk()
-        self.files = frozenset(at for p in files if (at := self.resolved(p)) is not None)
+        self.files = frozenset(os.path.normcase(at) for p in files if (at := self.resolved(p)) is not None)
 
     def _walk(self) -> tuple[dict[str, str], frozenset[str]]:
         """Each link of the workspace as it is now (its path, absolute from the real root, and where it points), and
-        its directories that are no link."""
+        its directories that are no link; the paths are keyed as ``os.path.normcase`` writes them (lower case on Windows)."""
         links: dict[str, str] = {}
-        dirs_here = {self.root}
+        dirs_here = {os.path.normcase(self.root)}
         for here, dirs, names in os.walk(self.root):
             if here == self.root and ".git" in dirs:
                 dirs.remove(".git")
             for name in (*dirs, *names):
                 path = os.path.join(here, name)
                 if os.path.islink(path):
-                    links[path] = str(_link_target(Path(path)))
+                    links[os.path.normcase(path)] = str(_link_target(Path(path)))
                 elif name in dirs:
-                    dirs_here.add(path)
+                    dirs_here.add(os.path.normcase(path))
         return links, frozenset(dirs_here)
 
     def resolved(self, path: str) -> str | None:
@@ -57,20 +57,22 @@ class HeldGuidance:
         target on another drive (Windows)."""
         here, names = _anchored(os.path.join(self.root, path))
         pending, hops = [(n, False) for n in names[::-1]], 0  # (name, whether a link's target gave it)
+        root = os.path.normcase(self.root)
         while pending:
             part, from_link = pending.pop()
             if part in ("", "."):
                 continue
             if part == "..":
-                if from_link and (here == self.root or here.startswith(self.root + os.sep)) and here not in self.dirs:
+                key = os.path.normcase(here)
+                if from_link and (key == root or key.startswith(root + os.sep)) and key not in self.dirs:
                     return None
                 here = os.path.dirname(here)
                 continue
             here = os.path.join(here, part)
-            if here in self.links:
+            if (key := os.path.normcase(here)) in self.links:
                 if hops == 40:
                     return None
-                hops, target = hops + 1, self.links[here]
+                hops, target = hops + 1, self.links[key]
                 if os.path.isabs(target) or target[:1] in (os.sep, os.altsep):  # ``\x`` is rooted on the drive of the link
                     here, names = _anchored(target, here)
                 else:
@@ -83,7 +85,7 @@ class HeldGuidance:
 
     def __contains__(self, path: object) -> bool:
         at = self.resolved(str(path))
-        return at is not None and at in self.files
+        return at is not None and os.path.normcase(at) in self.files
 
 
 def held_guidance(run_dir: Path, manifest: RepoManifest) -> HeldGuidance:
