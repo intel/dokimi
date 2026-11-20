@@ -979,3 +979,18 @@ def test_a_json_finding_not_about_a_script_has_no_script_key(tmp_path, capsys, n
     findings = _check_json(tmp_path, capsys)
 
     assert findings and all("script" not in f for f in findings)
+
+
+def test_catalog_eval_json_names_which_same_named_script_has_crlf(tmp_path, capsys, no_linters):
+    """#961: `catalog eval --json` and its receipt carry the same `script` as `catalog check --json`."""
+    from tests.test_catalog_skill_format import main
+
+    root = tmp_path / "cat"
+    _bundle(root, {f"scripts/{d}/run.sh": b"#!/bin/sh\r\necho hi\r\n" for d in ("alpha", "beta")})
+
+    main(["catalog", "eval", str(root), "--out-dir", str(tmp_path / "out"), "--json"])
+    found = [f for s in json.loads(capsys.readouterr().out)["subjects"] for f in s["findings"]
+             if f["code"] == "script-crlf"]
+
+    assert sorted(f["script"] for f in found) == ["scripts/alpha/run.sh", "scripts/beta/run.sh"]
+    assert {f["file"] for f in found} == {(root / "skills/bundled/SKILL.md").as_posix()}
