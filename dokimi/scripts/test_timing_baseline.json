@@ -9,7 +9,6 @@
     "tests/test_pid_state.py": 2,
     "tests/test_process.py": 5,
     "tests/test_repo_reach.py": 2,
-    "tests/test_run_wide_stop.py": 1,
     "tests/test_task_harnesses.py": 1,
     "tests/test_tool_preference.py": 1,
     "tests/test_typed_scorer.py": 1,
