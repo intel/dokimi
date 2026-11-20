@@ -72,6 +72,13 @@ def test_a_span_with_no_heading_and_no_predecessor_gets_none():
     assert context == "(none)"
 
 
+def test_an_atom_citing_no_known_span_gets_none():
+    spans = segment(DOC)
+    atom = Atom(statement="s", question="q", answer="a", span_ids=("missing",))
+    _, context = _check(atom, spans)
+    assert context == "(none)"
+
+
 def test_a_cited_context_span_is_not_repeated():
     spans = segment(DOC)
     atom = _atom(spans, "Large arrays", "Use `dpnp` for:", "Elementwise")
