@@ -234,7 +234,7 @@ def _prop(text: str) -> str:
 
 def render_annotations(summary: dict[str, Any]) -> str:
     """One ``::error`` per check that failed or could not be read, one ``::warning`` per bad verdict, and one
-    line per subject finding (``::error`` for level error, ``::warning`` else) with ``file=`` and ``line=`` when known.
+    line per subject finding (``::error`` for level error, ``::notice`` for info, ``::warning`` else) with ``file=`` and ``line=`` when known.
     """
     out = []
     for c in summary["checks"]:
@@ -254,7 +254,7 @@ def render_annotations(summary: dict[str, Any]) -> str:
                 props.insert(0, f"file={_prop(str(f['file']))}")
                 if isinstance(f.get("line"), int):
                     props.insert(1, f"line={f['line']}")
-            level = "error" if f.get("level") == "error" else "warning"
+            level = {"error": "error", "info": "notice"}.get(str(f.get("level")), "warning")
             out.append(f"::{level} {','.join(props)}::{_escape(s['subject'] + ': ' + str(f.get('message')))}")
     return "".join(line + "\n" for line in out)
 
@@ -273,6 +273,17 @@ def _sarif_uri(path: str | None) -> str:
     if re.match(r"[A-Za-z]:/", path):
         return "file:///" + quote(path, safe="/:")
     return quote(path, safe="/")
+
+
+def _column_sources(checks: list[dict[str, Any]], used: set[str]) -> tuple[dict[str | None, str], dict[str | None, str]]:
+    """Each column key of a document with subjects to its input file and to its kind."""
+    source_of: dict[str | None, str] = {}
+    kind_of: dict[str | None, str] = {}
+    for c in checks:
+        if c["subjects"]:
+            key = _column_key(c, used)
+            source_of[key], kind_of[key] = c["source"], c["kind"]
+    return source_of, kind_of
 
 
 def render_sarif(summary: dict[str, Any]) -> str:
@@ -295,7 +306,7 @@ def render_sarif(summary: dict[str, Any]) -> str:
                         "locations": [{"physicalLocation": loc}]})
 
     used: set[str] = set()
-    source_of = {_column_key(c, used): c["source"] for c in summary["checks"] if c["subjects"]}
+    source_of, kind_of = _column_sources(summary["checks"], used)  # a rule names the check, not the input file
     for c in summary["checks"]:
         error = c["state"] in ("failed", "invalid", "not_run", "infra_error")
         if error or c["state"] in _BAD or c["state"] in _STOPPED:
@@ -304,9 +315,9 @@ def render_sarif(summary: dict[str, Any]) -> str:
     for s in summary["subjects"]:
         for kind, verdict in s["verdicts"].items():
             if verdict in _BAD and not any(f["check"] == kind for f in s["findings"]):
-                result(f"dokimi/{kind}/{verdict}", "warning", f"{s['subject']}: {verdict}", source_of.get(kind), None)
+                result(f"dokimi/{kind_of.get(kind, kind)}/{verdict}", "warning", f"{s['subject']}: {verdict}", source_of.get(kind), None)
         for f in s["findings"]:
-            result(f"dokimi/{f['check']}/{f.get('code')}", _SARIF_LEVEL.get(str(f.get("level")), "note"),
+            result(f"dokimi/{kind_of.get(f['check'], f['check'])}/{f.get('code')}", _SARIF_LEVEL.get(str(f.get("level")), "note"),
                    f"{s['subject']}: {f.get('message')}", f.get("file") or source_of.get(f["check"]),
                    f.get("line") if f.get("file") else None)
     doc = {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",

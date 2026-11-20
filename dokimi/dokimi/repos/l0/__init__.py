@@ -114,6 +114,7 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     warnings += not_counted
     warnings += scan_config["errors"]
     reasons += not_counted
+    reasons += scan_config["errors"]  # a broken scan.toml drops the repository's settings: the scan is incomplete
     sha = getattr(tree, "sha", None)
     return {
         "repo": {"id": manifest.id, "tree": tree.label, "sha": sha, "manifest": manifest.path},

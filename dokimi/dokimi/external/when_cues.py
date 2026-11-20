@@ -14,7 +14,7 @@ from typing import Optional
 # A "when" clause or use phrase per language: the model chooses a skill from its description alone.
 # Latin cues take word boundaries, CJK cues are substrings; bare 使用 (use) or 用于 (for) are too broad.
 WHEN_CUES = {
-    "en": r"\b(?:when\s+\w|use for\b|use (?:it |this |this skill )?to\s+\w|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
+    "en": r"\b(?:when\s+\w|use for\b|use (?:this skill )?to\s+\w|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
           r"invoke this\b|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)\b|"
           r"whenever\b)",
     "es": r"(?<!vez en )\bcuando\b|\bcuándo\b|\bsiempre que\b|\bcada vez que\b|\ben caso de\b|\bal (?:usar|utilizar|invocar|ejecutar)\b",

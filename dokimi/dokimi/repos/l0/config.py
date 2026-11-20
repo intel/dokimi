@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import fnmatch
 import tomllib
+from collections import Counter
+from pathlib import PurePosixPath
 from dataclasses import dataclass, field
 from collections.abc import Iterable
 from typing import Any
 
 from ..source import SourceError
+from .core import is_doc
 
 CONFIG_PATH = ".dokimi/scan.toml"
 IDENTIFIER_POLICIES = ("unresolved", "fail")
@@ -55,6 +58,30 @@ class ScanConfig:
     errors: tuple[str, ...] = field(default=())
 
 
+def _parse_ignores(raw: Any, source: str, errors: list[str]) -> list[Ignore]:
+    """The ``[[ignore]]`` entries of ``raw``; each mistake goes to ``errors`` and drops its entry."""
+    ignores: list[Ignore] = []
+    if not isinstance(raw, list):
+        errors.append(f"{source}: ignore must be a list of [[ignore]] tables, not {type(raw).__name__}")
+        raw = []
+    for i, entry in enumerate(raw, 1):
+        if not isinstance(entry, dict) or not isinstance(entry.get("pattern"), str) or not entry["pattern"]:
+            errors.append(f"{source}: ignore entry {i} needs a non-empty pattern")
+            continue
+        if not isinstance(entry.get("reason"), str) or not entry["reason"].strip():
+            errors.append(f"{source}: ignore entry {i} ({entry['pattern']!r}) needs a reason")
+            continue
+        if unknown := sorted(set(entry) - {"pattern", "kind", "reason"}):  # a typo such as kindd must not widen a rule
+            errors.append(f"{source}: ignore entry {i} ({entry['pattern']!r}) has unknown key(s) {', '.join(unknown)}")
+            continue
+        kind = entry.get("kind")
+        if kind is not None and not isinstance(kind, str):  # None would match every kind: a typo must not widen it
+            errors.append(f"{source}: ignore entry {i} ({entry['pattern']!r}) kind must be a string, not {kind!r}")
+            continue
+        ignores.append(Ignore(entry["pattern"], entry["reason"].strip(), kind))
+    return ignores
+
+
 def parse_config(text: str, source: str = CONFIG_PATH) -> ScanConfig:
     """The settings in ``text``; a file with any error keeps the defaults and says why in ``errors``."""
     try:
@@ -66,23 +93,7 @@ def parse_config(text: str, source: str = CONFIG_PATH) -> ScanConfig:
     if identifiers not in IDENTIFIER_POLICIES:
         errors.append(f"{source}: identifiers must be one of {', '.join(IDENTIFIER_POLICIES)}, not {identifiers!r}")
         identifiers = "unresolved"
-    ignores: list[Ignore] = []
-    raw = data.get("ignore", [])
-    if not isinstance(raw, list):
-        errors.append(f"{source}: ignore must be a list of [[ignore]] tables, not {type(raw).__name__}")
-        raw = []
-    for i, entry in enumerate(raw, 1):
-        if not isinstance(entry, dict) or not isinstance(entry.get("pattern"), str) or not entry["pattern"]:
-            errors.append(f"{source}: ignore entry {i} needs a non-empty pattern")
-            continue
-        if not isinstance(entry.get("reason"), str) or not entry["reason"].strip():
-            errors.append(f"{source}: ignore entry {i} ({entry['pattern']!r}) needs a reason")
-            continue
-        kind = entry.get("kind")
-        if kind is not None and not isinstance(kind, str):  # None would match every kind: a typo must not widen it
-            errors.append(f"{source}: ignore entry {i} ({entry['pattern']!r}) kind must be a string, not {kind!r}")
-            continue
-        ignores.append(Ignore(entry["pattern"], entry["reason"].strip(), kind))
+    ignores = _parse_ignores(data.get("ignore", []), source, errors)
     unknown = sorted(set(data) - {"identifiers", "ignore"})
     if unknown:
         errors.append(f"{source}: unknown key(s) {', '.join(unknown)}")
@@ -140,11 +151,12 @@ def apply_config(claims: list[dict[str, Any]], config: ScanConfig, files: Iterab
 
 
 def file_stems(files: list[str]) -> dict[str, str]:
-    """Each tracked file's name without its extension, to the first such file: `bench_fftnd` for `bench_fftnd.py`."""
+    """Each tracked non-doc file's name without its last extension, to the first such file: `bench_fftnd` for
+    `bench_fftnd.py`. A doc file is left out, as the identifier check does not read it."""
     out: dict[str, str] = {}
     for f in files:
-        stem = f.rsplit("/", 1)[-1].split(".", 1)[0]
-        if stem:
+        stem = PurePosixPath(f).stem
+        if stem and not is_doc(f):
             out.setdefault(stem, f)
     return out
 
@@ -157,13 +169,15 @@ def _key(claim: dict[str, Any]) -> tuple[str, str, str]:
 
 def apply_baseline(payload: dict[str, Any], baseline: dict[str, Any], source: str) -> dict[str, Any]:
     """Mark each ``fail`` claim the baseline report also fails ``baselined``; the ``baseline`` block of the report."""
-    old = {_key(c) for c in baseline.get("claims") or [] if str(c.get("status", "")).startswith("fail")}
+    old = Counter(_key(c) for c in baseline.get("claims") or [] if str(c.get("status", "")).startswith("fail"))
     now_fail = [c for c in payload["claims"] if str(c.get("status", "")).startswith("fail")]
+    left = Counter(old)  # a key the baseline holds n times covers n claims; the rest are new
     for claim in now_fail:
-        claim["baselined"] = _key(claim) in old
-    still = {_key(c) for c in now_fail}
+        claim["baselined"] = left[_key(claim)] > 0
+        if claim["baselined"]:
+            left[_key(claim)] -= 1
     block = {"source": source, "known": sum(c["baselined"] for c in now_fail),
-             "new": sum(not c["baselined"] for c in now_fail), "fixed": len(old - still)}
+             "new": sum(not c["baselined"] for c in now_fail), "fixed": sum(left.values())}
     payload["baseline"] = block
     return block
 

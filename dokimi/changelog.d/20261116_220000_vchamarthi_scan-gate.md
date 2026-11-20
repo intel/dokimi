@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 ### Added
 
 - **`repo scan` has a gate any repository can adopt** (#851). `--baseline FILE` takes an earlier report, and `--fail-on-fail` then fails only on a claim that report does not also fail (matched by file, kind and text, not line). The report's `baseline` block gives `known`, `new` and `fixed`. `.dokimi/scan.toml` is the repository's own setting: `[[ignore]]` entries (`pattern`, optional `kind`, required `reason`) mark matching claims `unresolved_ignored`, and `identifiers = "fail"` opts back in to failing on a missing bare name. `scan_config` in the report lists each entry with its hit count.

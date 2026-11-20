@@ -178,7 +178,8 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
     bundle = path.parent if fmt == FORMAT_GEMINI_EXTENSION else path.parent.parent
     pkg.details["skills"] = len(list((bundle / "skills").glob("*/SKILL.md")))
     if fmt == FORMAT_CLAUDE_PLUGIN:  # declared directories add to the default one; a skill both name counts once
-        found = _skill_dirs(bundle, "./skills") | _skill_dirs(bundle, data.get("skills"))
+        found = (_skill_dirs(bundle, "./skills", pkg.problems)
+                                                  | _skill_dirs(bundle, data.get("skills"), pkg.problems))
         pkg.details["skills"] = len(found or _marketplace_skills(bundle, path.parent / "marketplace.json", pkg.problems))
     if fmt == FORMAT_GEMINI_EXTENSION:
         pkg.details["context_file"] = data.get("contextFileName") or (
@@ -191,18 +192,22 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
     return pkg
 
 
-def _skill_dirs(base: Path, entries) -> set[Path]:
+def _skill_dirs(base: Path, entries, problems: list[str]) -> set[Path]:
     """The skill directories ``entries`` (a path or a list, relative to ``base``) name: one holding SKILL.md, or
-    each child of a directory that does."""
+    each child of a directory that does. A path that cannot be resolved (a symlink loop raises RuntimeError before
+    Python 3.13) is a problem, and the others are still read."""
     found: set[Path] = set()
     for entry in [entries] if isinstance(entries, str) else entries if isinstance(entries, list) else []:
         if not isinstance(entry, str):
             continue
-        d = (base / entry).resolve()
-        if (d / "SKILL.md").is_file():
-            found.add(d)
-        elif d.is_dir():
-            found.update(p.parent.resolve() for p in d.glob("*/SKILL.md"))
+        try:
+            d = (base / entry).resolve()
+            if (d / "SKILL.md").is_file():
+                found.add(d)
+            elif d.is_dir():
+                found.update(p.parent.resolve() for p in d.glob("*/SKILL.md"))
+        except (OSError, RuntimeError) as exc:
+            problems.append(f"skills path {entry!r} cannot be resolved: {exc}")
     return found
 
 
@@ -226,7 +231,8 @@ def _marketplace_skills(bundle: Path, marketplace: Path, problems: list[str]) ->
         for plugin in plugins or []:
             if isinstance(plugin, dict) and isinstance(plugin.get("source"), str):
                 declared = plugin.get("skills") or ["./"]
-                found |= _skill_dirs(bundle / plugin["source"], ["./skills", *(declared if isinstance(declared, list) else [declared])])
+                found |= _skill_dirs(bundle / plugin["source"],
+                                     ["./skills", *(declared if isinstance(declared, list) else [declared])], problems)
     return found
 
 
