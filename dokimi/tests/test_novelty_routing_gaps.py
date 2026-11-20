@@ -297,7 +297,7 @@ def test_all_vs_all_refuses_a_queried_name_whose_other_copy_failed_to_load(tmp_p
         encoding="utf-8")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
-                  "--estimate-only")
+                  "--dry-run")
     with pytest.raises(InputError, match="`review` is a catalog skill that failed to load"):
         args.func(args)
 
@@ -313,7 +313,7 @@ def test_all_vs_all_still_refuses_a_name_no_rule_left_out(tmp_path):
         args.func(args)
 
 
-# Gap 3: --all-vs-all --estimate-only prices every call and makes none.
+# Gap 3: --all-vs-all --dry-run prices every call and makes none.
 
 def test_all_vs_all_estimate_prices_each_call_and_sends_nothing(tmp_path, capsys, monkeypatch):
     import dokimi.llm_pricing as pricing
@@ -329,7 +329,7 @@ def test_all_vs_all_estimate_prices_each_call_and_sends_nothing(tmp_path, capsys
                                   "queue": ["queue my jobs"], "db": ["index a table"]})
     out = tmp_path / "o.json"
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
-                  "--model", "m", "--reps", "2", "--estimate-only")
+                  "--model", "m", "--reps", "2", "--dry-run")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert set(estimate) == {"estimate_only", "artifact", "model", "provider", "n_candidates",
@@ -358,7 +358,7 @@ def test_all_vs_all_estimate_counts_one_call_per_query_of_each_skill_over_the_wh
     _skill(root, "skills", "queue", "queue background jobs")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
-                  "--model", "m", "--estimate-only")
+                  "--model", "m", "--dry-run")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert estimate["n_calls"] == 2 and len(seen) == 2
@@ -372,7 +372,7 @@ def test_all_vs_all_estimate_without_a_model_is_lexical_and_free(tmp_path, capsy
     _skill(root, "skills", "queue", "queue background jobs")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
-                  "--estimate-only")
+                  "--dry-run")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert (estimate["n_calls"], estimate["input_tokens"], estimate["expected_usd"]) == (0, 0, 0.0)
@@ -386,12 +386,12 @@ def test_all_vs_all_estimate_drops_left_out_queries_like_the_run(tmp_path, capsy
     _misnamed(root, "skills", "db_tools")
     queries = _queries(tmp_path, {"db_tools": ["tune my database"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
-                  "--estimate-only")
+                  "--dry-run")
     with pytest.raises(InputError, match="no skill in the field has queries"):
         args.func(args)
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "db_tools": ["x"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
-                  "--estimate-only")
+                  "--dry-run")
     args.func(args)
     assert json.loads(capsys.readouterr().out)["n_queries"] == 1
 
@@ -439,7 +439,7 @@ def test_all_vs_all_estimate_refuses_a_competitor_named_twice_as_the_run_does(tm
     base = ["catalog", "routing", str(tmp_path / "none"), "--competitors", cache, cache, "--queries-by-skill",
             str(queries)]
     # The estimate prices a run only when the run can start: both refuse the same field.
-    estimate = _parse(*base, "--estimate-only")
+    estimate = _parse(*base, "--dry-run")
     with pytest.raises(InputError, match="more than once"):
         estimate.func(estimate)
     assert capsys.readouterr().out == ""
@@ -538,7 +538,7 @@ def test_all_vs_all_refuses_a_queried_name_with_one_broken_and_one_loaded_copy(t
                                                     encoding="utf-8")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
-                  "--estimate-only")
+                  "--dry-run")
     with pytest.raises(InputError, match="copy that failed to load beside one that loaded.*`review`"):
         args.func(args)
 
@@ -555,7 +555,7 @@ def test_no_query_left_names_only_the_queried_skills_the_field_left_out(tmp_path
                                   "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
     queries = _queries(tmp_path, {"db_tools": ["tune my database"]})
     args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
-                  "--estimate-only")
+                  "--dry-run")
     with pytest.raises(InputError, match="no skill in the field has queries") as exc:
         args.func(args)
     assert "`db_tools`" in str(exc.value) and "`off`" not in str(exc.value)
@@ -565,7 +565,7 @@ def test_a_missing_catalog_is_named_before_the_keep_copies_under_value(tmp_path)
     # Thread: PRRT_kwDOVBg7g860Libj
     args = _parse("catalog", "routing", str(tmp_path / "typo"), "--keep-copies-under",
                   "skills", "--queries-by-skill", str(_queries(tmp_path, {"a": ["q"]})),
-                  "--estimate-only")
+                  "--dry-run")
     with pytest.raises(InputError, match="ROOT is not a directory"):
         args.func(args)
 
@@ -584,7 +584,7 @@ def test_all_vs_all_routes_an_explicit_competitor_beside_a_broken_catalog_copy(t
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
     args = _parse("catalog", "routing", str(root), "--competitors", f"skill:{tmp_path}/ext/review/SKILL.md",
                   "--queries-by-skill", str(queries),
-                  "--estimate-only")
+                  "--dry-run")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert estimate["n_candidates"] == 2 and estimate["n_queries"] == 2
@@ -593,7 +593,7 @@ def test_all_vs_all_routes_an_explicit_competitor_beside_a_broken_catalog_copy(t
 def _keep_run(root, tmp_path, *keep):
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
     return _parse("catalog", "routing", str(root), *keep, "--queries-by-skill", str(queries),
-                  "--estimate-only")
+                  "--dry-run")
 
 
 def test_keep_copies_under_leaves_out_a_broken_copy_outside_it(tmp_path, capsys):

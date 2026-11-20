@@ -12,7 +12,6 @@ import json
 import os
 import signal
 import threading
-import time
 
 import pytest
 import yaml
@@ -132,28 +131,48 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
 def test_an_interrupt_during_submission_starts_no_queued_cell(setup, monkeypatch):
     # Ctrl-C lands in the main thread while pool.map is still submitting: the queued cells must not start.
     started = []
+    waited = []
     calls = []
+    ended = threading.Semaphore(0)
+    entered = threading.Semaphore(0)
+    cancelled = threading.Event()
     real = repo_runner.run_cell
     real_submit = repo_runner.ThreadPoolExecutor.submit
+    real_shutdown = repo_runner.ThreadPoolExecutor.shutdown
 
     def submit(self, fn, *a, **k):
         calls.append(1)
         if len(calls) == 4:
-            time.sleep(0.2)
+            # both workers are inside run_cell before the interrupt, so none is cancelled while still queued
+            assert all(entered.acquire(timeout=30) for _ in range(2))
             raise KeyboardInterrupt
         return real_submit(self, fn, *a, **k)
 
+    def shutdown(self, wait=True, *, cancel_futures=False):
+        real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+        if cancel_futures:
+            cancelled.set()
+
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
         started.append(rep)
-        time.sleep(0.5)  # both workers busy, cell 3 queued
-        return real(ctx, task, arm, rep, *args, **kwargs)
+        entered.release()
+        try:
+            # both workers stay busy until the queue is cancelled, not for time (#918); a failed assert in a worker
+            # is only a cell error, so the main thread checks the waits too
+            waited.append(cancelled.wait(30))
+            assert waited[-1]
+            return real(ctx, task, arm, rep, *args, **kwargs)
+        finally:
+            ended.release()
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
     monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "submit", submit)
+    monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "shutdown", shutdown)
     with pytest.raises(KeyboardInterrupt):
         _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
-    time.sleep(1)
+    assert all(ended.acquire(timeout=30) for _ in range(2))  # running cells finish, maybe after run_batch raised
     assert sorted(started) == [1, 2]
+    assert waited == [True, True]  # both running cells were released by the cancel
 
 
 def test_a_force_run_stopped_part_way_does_not_pool_two_executions(setup, monkeypatch, capsys):
@@ -268,7 +287,7 @@ def test_compare_with_a_model_refuses_only_a_mixed_row_of_that_model(setup):
 
 _CTRL_C_DRIVER = """
 import os, signal, sys, threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
@@ -288,21 +307,20 @@ def shutdown(self, wait=True, *, cancel_futures=False):
     if cancel_futures:
         cancelled.set()
 ThreadPoolExecutor.shutdown = shutdown
-submitted, real_submit, count = threading.Event(), ThreadPoolExecutor.submit, []
-def pool_submit(self, *args, **kwargs):
-    future = real_submit(self, *args, **kwargs)
-    count.append(1)
-    if len(count) == 5:  # the fifth of --reps 5: every cell is submitted and its thread has started
-        submitted.set()
-    return future
-ThreadPoolExecutor.submit = pool_submit
+busy, real_result = threading.Event(), Future.result
+def result(self, timeout=None):
+    if threading.current_thread() is threading.main_thread():  # _run_cells is about to wait on its cells
+        if not busy.wait(30):
+            os._exit(3)
+        # raised in the main thread itself: a SIGINT sent from a worker thread just before the main thread blocks
+        # in the wait stays pending until a cell ends (the handler runs on its next bytecode, not in the lock wait)
+        signal.raise_signal(signal.SIGINT)
+    return real_result(self, timeout)
+Future.result = result
 def run_cell(ctx, task, arm, rep, *args, **kwargs):
     if rep <= 2:
         both.wait(30)
-        if rep == 1:
-            if not submitted.wait(30):  # an interrupt inside submit() is a slow thread start, not the Ctrl-C under test
-                os._exit(3)
-            signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
+        busy.set()
         # both workers stay busy until the queue is cancelled, so this checks the cancel, not an early start (#874)
         if not cancelled.wait(30):
             os._exit(4)

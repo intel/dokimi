@@ -4,14 +4,13 @@
 """The near-duplicate pass compares only the candidate pairs its prefix filter finds (``_near_duplicates``).
 
 The filter must never skip a pair that the all-pairs check would flag, so the findings are compared with a
-brute-force pass over every pair (``_brute_force``), on seeded random descriptions, and the scale of a
-5000-skill corpus is timed.
+brute-force pass over every pair (``_brute_force``), on seeded random descriptions, and the pairs the pass
+compares in a 5000-skill corpus are counted.
 """
 
 from __future__ import annotations
 
 import random
-import time
 from pathlib import Path
 
 import pytest
@@ -197,13 +196,16 @@ def test_equal_frequency_words_are_ordered_the_same_for_every_skill():
     assert flagged > 0  # the corpus has near-duplicates, so the comparison is not vacuous
 
 
-def test_scale_of_5000_skills_is_a_few_seconds():
-    # A catalog-like corpus: a long word tail and few near-copies. The dense corpus above is the
-    # worst case for the prefix filter, and is kept for the equivalence checks only.
-    rows = _corpus(7, count=5000, pool=wide_vocabulary(7), near_copy=0.02)
-    loaded = _loaded(rows)
-    started = time.perf_counter()
+def test_the_pass_compares_few_of_the_pairs_of_5000_skills(monkeypatch):
+    """A catalog-like corpus (a long word tail, few near-copies) takes about 2% of the pairs, not all of them.
+
+    The pass is counted, not timed: a count is the same on a slow runner. Its CPU time grows about
+    10x from 1250 to 5000 skills, so a ratio under ``GROWTH_LIMIT`` would not hold. The dense corpus
+    above is the worst case for the prefix filter, and is kept for the equivalence checks only.
+    """
+    loaded = _loaded(_corpus(7, count=5000, pool=wide_vocabulary(7), near_copy=0.02))
+    compared = []
+    monkeypatch.setattr(validate, "_jaccard", lambda a, b: compared.append(1) or _jaccard(a, b))
     _near_duplicates(loaded)
-    elapsed = time.perf_counter() - started
-    print(f"\n_near_duplicates on 5000 skills: {elapsed:.2f}s")
-    assert elapsed < 10.0
+    assert len(compared) < 0.05 * (5000 * 4999 // 2)
+    assert any(review.findings for _, _, review in loaded)  # the near-copies are found, so the pass did work

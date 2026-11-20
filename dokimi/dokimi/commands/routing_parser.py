@@ -105,7 +105,7 @@ def _add_routing_options(routing_p, positive_int, refused: bool = False) -> None
                            help="Ask the model N times per query, same card order, and report "
                                 "per-query agreement and the run-to-run noise floor. Needs "
                                 "--model; N times the calls")
-    routing_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
+    cli_flags.add(routing_p, "dry_run", "--dry-run", action="store_true", dest="estimate_only",
                            help="Print the calls, tokens and list-price expected_usd that "
                                 "--model would make, as JSON, and make no call. Without "
                                 "--model the bill is zero")

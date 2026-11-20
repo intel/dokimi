@@ -59,7 +59,7 @@ listing truncates descriptions selects on less text than the command shows.
 ## 2. What will the measurement cost? (free)
 
 ```bash
-python cli.py skill novelty analyze --artifact skill:skills/my-skill --tier study --estimate-only \
+python cli.py skill novelty analyze --artifact skill:skills/my-skill --tier study --dry-run \
     --include-resources
 ```
 

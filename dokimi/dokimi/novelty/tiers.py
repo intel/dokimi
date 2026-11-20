@@ -213,7 +213,7 @@ class RunSettings:
 
     def estimate(self, n_spans: int, *, n_tokens: int | None = None,
                  budgets: tuple[float, ...] = (), n_arms: int = 2) -> dict:
-        """The ``--estimate-only`` bill for an artifact of ``n_spans`` spans.
+        """The ``--dry-run`` bill for an artifact of ``n_spans`` spans.
 
         The atom count is the larger of one atom per two spans and one per
         :data:`TOKENS_PER_ATOM` tokens (spans alone undercount: short spans, such as table

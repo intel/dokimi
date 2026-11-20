@@ -32,6 +32,7 @@ import httpx
 
 from dokimi.external.skill_markdown import outside_fences
 from dokimi.external.validate import Finding, SkillReview
+from dokimi.process_io import joined_pairs
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
@@ -574,7 +575,9 @@ class _Outcome:
 
 
 def _package_finding(client: httpx.Client, eco: str, name: str) -> _Outcome:
-    url = PYPI_URL.format(name=quote(name)) if eco == "pypi" else NPM_URL.format(name=quote(name, safe="@"))
+    name_text = joined_pairs(name)
+    url = (PYPI_URL.format(name=quote(name_text, errors="replace")) if eco == "pypi"
+           else NPM_URL.format(name=quote(name_text, safe="@", errors="replace")))
     try:
         status = _status(client, url)
     except _InternalHop:
