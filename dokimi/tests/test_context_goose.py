@@ -236,7 +236,7 @@ def _prefilter_status(tmp_path, capsys, db):
 
 
 def test_a_dropped_session_with_a_bad_message_makes_the_report_partial(tmp_path, capsys):
-    """#938: ``docs/session-prefilter.md`` makes a report ``partial`` when a session had skipped records."""
+    """#938, ``docs/session-prefilter.md:93``: a report is ``partial`` when a session had skipped records."""
     db = _store(tmp_path, {"s1": [("user", _text("Keep the changelog fragment current."), None)], "s2": []})
     conn = sqlite3.connect(db)
     conn.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp) "
@@ -250,14 +250,14 @@ def test_a_dropped_session_with_a_bad_message_makes_the_report_partial(tmp_path,
 
 
 def test_a_store_with_no_bad_message_stays_complete(tmp_path, capsys):
-    """#938: the dropped-session flag does not make a clean store partial."""
+    """#938, ``docs/session-prefilter.md:93``: a store with no skipped records stays ``complete``."""
     db = _store(tmp_path, {"s1": [("user", _text("Keep the changelog fragment current."), None)], "s2": []})
     report, err = _prefilter_status(tmp_path, capsys, db)
     assert report["status"] == "complete" and "warning" not in err
 
 
 def test_read_sessions_hands_back_the_dropped_sessions(tmp_path):
-    """#938: ``_read_sessions`` appends the sessions it left out to ``dropped``."""
+    """#938, ``docs/session-prefilter.md:93``: ``_read_sessions`` appends the sessions it left out to ``dropped``."""
     from dokimi.commands.context import _read_sessions
     db = _store(tmp_path, {"s0": [("user", _text("push the branch now"), None)], "s1": []})
     conn = sqlite3.connect(db)
