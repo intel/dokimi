@@ -94,6 +94,12 @@ def test_a_malformed_reward_json_errors_the_cell_even_beside_a_reward_txt(tmp_pa
         _verify(tmp_path, DockerCLI(reward="1.0", reward_json=text))
 
 
+def test_a_deeply_nested_reward_json_errors_the_cell_like_any_malformed_one(tmp_path):
+    # json.loads raises RecursionError, not ValueError, past the interpreter's depth limit.
+    with pytest.raises(RuntimeError, match="/logs/verifier/reward.json .*is not JSON"):
+        _verify(tmp_path, DockerCLI(reward=None, reward_json="[" * 100000 + "]" * 100000))
+
+
 def test_a_failed_copy_of_reward_json_errors_the_cell_and_reward_txt_does_not_stand_in(tmp_path):
     def daemon_down(call):
         if call.argv[1] == "cp" and call.argv[2].endswith(":/logs/verifier/reward.json"):
