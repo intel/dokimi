@@ -13,14 +13,15 @@ from collections.abc import Container, Sequence
 from typing import Any
 
 from .probes import search_words
+from .shell_words import _ASSIGN, _program
 from .transcript import relative_path
 
 _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg"})
 # the options after which a search prints no line of a file: quiet, only the names of files, only counts
 _SHOWS_NO_LINE = frozenset({"--quiet", "--silent", "--files-with-matches", "--files-without-match", "--files", "--count",
                             "--count-matches", "--name-only"})
-_SHORT_NO_LINE = {"rg": "qlc"}  # rg's -L follows links; for the others it lists the files without a match
-_SHORT_NO_LINE_DEFAULT = "qlLc"
+_SHORT_NO_LINE = {"rg": "qlchV"}  # rg's -L follows links and -h is --help; for the others -L lists the files without a match
+_SHORT_NO_LINE_DEFAULT = "qlLcV"  # -V prints the version; grep's -h is --no-filename, a search
 
 
 class Searched(str):
@@ -111,9 +112,13 @@ def cuts_lines(stage: str, functions: Container[str] = ()) -> bool:
         words = shlex.split(stage)
     except ValueError:
         return False
-    if not words or words[0] not in _CUT_FLAGS or words[0] in functions:
+    while words and _ASSIGN.match(words[0]):  # ``LC_ALL=C head``: a variable set for the command
+        words = words[1:]
+    program = _program(words[0]) if words else ""  # ``/usr/bin/head`` is the system's, ``./head`` is not
+    if program not in _CUT_FLAGS or words[0] in functions:
         return False
-    count = _cut_count(words[0], words)
+    words = [program, *words[1:]]
+    count = _cut_count(program, words)
     match = re.fullmatch(_COUNT, count or "")
     if match is None:
         return False
@@ -128,9 +133,14 @@ def searched_field(searched: list[str], workdir: str | None) -> dict[str, Any]:
 
 def search_program(name: str, args: Sequence[str]) -> tuple[str, Sequence[str]] | None:
     """``(program, its arguments)`` for a command that searches files, else None. ``git grep`` is ``git`` and ``grep``
-    first: ``git -C dir grep`` is not followed, as ``-C`` moves the directory."""
-    if name == "git" and args[:1] == ["grep"]:
-        return "grep", args[1:]
+    first, after the global options that leave the directory alone (``--no-pager``, ``-P``, ``-c key=value``):
+    ``git -C dir grep`` is not followed, as ``-C`` moves the directory."""
+    if name == "git":
+        rest = list(args)
+        while rest[:1] in (["--no-pager"], ["-P"]) or (rest[:1] == ["-c"] and len(rest) > 1):
+            rest = rest[2:] if rest[0] == "-c" else rest[1:]
+        if rest[:1] == ["grep"]:
+            return "grep", rest[1:]
     return (name, args) if name in _SEARCHERS else None
 
 

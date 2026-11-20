@@ -210,7 +210,10 @@ these, in order, before writing what it showed (the fields:
   guidance files a `grep`, `rg` or `git grep` (or Claude Code's `Grep` in
   `content` mode) showed lines of: an agent that only searched a nested
   `AGENTS.md` has it there and not in `guidance_read` (a file printed and searched
-  is in both); `process:unknown_reads` counts
+  is in both), but a search of a directory or a glob names no file
+  (`grep -rn x .`, `rg x docs`, a `Grep` call with no `path` or with a `glob`),
+  so `guidance_searched: []` is not "never searched": look in `events.jsonl`;
+  `process:unknown_reads` counts
   those dropped relative reads, so `guidance_read: []` with `unknown_reads`
   above 0 is not "never read". For the rest, look in `events.jsonl` or
   `agent.stdout`, or add a `process_metrics` counter. Name what was delivered

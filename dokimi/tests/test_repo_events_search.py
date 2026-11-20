@@ -100,6 +100,13 @@ def _jsonl(*records: dict) -> str:
     ("grep --line-n warn AGENTS.md", ["AGENTS.md"]),  # an abbreviation of --line-number is no output mode
     ("grep --co warn AGENTS.md", ["AGENTS.md"]),  # ambiguous: color, colour, context, count
     ("rg --cou warn AGENTS.md", ["AGENTS.md"]),  # rg reads no abbreviation, so this is no --count
+    ("grep warn AGENTS.md |& head -n 2", ["AGENTS.md"]),  # |& sends stdout to head as | does
+    ("grep warn AGENTS.md | /usr/bin/head", ["AGENTS.md"]),
+    ("grep warn AGENTS.md | LC_ALL=C head -n 3", ["AGENTS.md"]),
+    ("git --no-pager grep -n warn -- AGENTS.md", ["AGENTS.md"]),
+    ("git -P grep -n warn -- AGENTS.md", ["AGENTS.md"]),
+    ("git -c grep.lineNumber=true --no-pager grep warn -- AGENTS.md", ["AGENTS.md"]),
+    ("grep -h warn AGENTS.md", ["AGENTS.md"]),  # grep's -h is --no-filename
 ])
 def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     walked = shell_walked(command)
@@ -145,6 +152,9 @@ def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     "grep --qui warn AGENTS.md", "grep --cou warn AGENTS.md", "grep --sil warn AGENTS.md",  # GNU grep reads a prefix
     "grep --files-witho warn AGENTS.md", "grep --files-with-m warn AGENTS.md", "grep --help warn AGENTS.md",
     "grep --vers warn AGENTS.md", "git grep --cou warn -- AGENTS.md",
+    "grep -V warn AGENTS.md", "rg -V warn AGENTS.md", "rg -h warn AGENTS.md",  # the version or the help, no search
+    "grep warn AGENTS.md | ./head", "grep warn AGENTS.md | /opt/bin/head", "git -C sub --no-pager grep warn -- AGENTS.md",
+    "git -c grep warn -- AGENTS.md",  # -c takes grep as its value: no command
 ])
 def test_a_search_that_shows_no_line_of_a_file_is_not_searched(command):
     got = _process(_call("a", command), _result("a"))
@@ -181,10 +191,28 @@ def test_a_search_of_one_file_that_failed_shows_no_line():
     assert _process(_call("a", "grep warn AGENTS.md"), _result("a", "AGENTS.md:1:warn"))["guidance_searched"] == ["AGENTS.md"]
 
 
-def test_a_search_of_several_files_keeps_them_all_as_a_multi_file_read_does():
+@pytest.mark.parametrize("command", [
+    "grep warn AGENTS.md sub/AGENTS.md", "echo hi; grep zzz AGENTS.md", "cd sub && grep zzz AGENTS.md | head",
+    "echo hi; grep zzz AGENTS.md sub/AGENTS.md",
+])
+def test_a_failed_search_whose_exit_is_the_only_searchs_shows_no_line_of_any_file(command):
+    assert _process(_call("a", command), _result("a"))["guidance_searched"] != []  # it ran fine
+    assert _process(_call("a", command), _result("a", "x", True))["guidance_searched"] == []
+
+
+@pytest.mark.parametrize("command", ["grep a AGENTS.md; grep b sub/AGENTS.md", "grep a AGENTS.md && grep b sub/AGENTS.md"])
+def test_a_failed_command_with_an_earlier_search_keeps_the_searches_as_its_exit_is_the_last_ones(command):
+    got = _process(_call("a", command), _result("a", "x", True))
+    assert got["guidance_searched"] == ["AGENTS.md", "sub/AGENTS.md"]
+
+
+def test_a_codex_search_of_several_files_that_exited_1_shows_no_line_but_exit_2_keeps_them():
     command = "grep warn AGENTS.md sub/AGENTS.md"
-    assert _process(_call("a", command), _result("a"))["guidance_searched"] == ["AGENTS.md", "sub/AGENTS.md"]
-    assert _process(_call("a", command), _result("a", "x", True))["guidance_searched"] == ["AGENTS.md", "sub/AGENTS.md"]
+    for rc, searched in ((1, []), (2, ["AGENTS.md", "sub/AGENTS.md"]), (0, ["AGENTS.md", "sub/AGENTS.md"])):
+        item = {"id": "i", "type": "command_execution", "command": command, "aggregated_output": "x", "exit_code": rc}
+        raw = _jsonl({"type": "item.started", "item": item}, {"type": "item.completed", "item": item})
+        (event,) = [e for e in convert("codex-json", raw, WS).events if e["kind"] == "command"]
+        assert event.get("searched", []) == searched, rc
 
 
 @pytest.mark.parametrize("command, files", [
@@ -224,6 +252,19 @@ def test_a_relative_grep_tool_path_starts_in_the_directory_the_harness_started_i
     assert event["searched"] == ["AGENTS.md"]  # an absolute path stays where it is
     got = _process(_grep_tool("g", path="AGENTS.md", **given), _result("g", "x"), cwd="sub")
     assert got["guidance_searched"] == ["sub/AGENTS.md"]
+
+
+def test_a_relative_grep_tool_path_after_a_bash_cd_is_dropped_and_an_absolute_one_stays():
+    given = {"output_mode": "content"}
+    abs_path = f"{WS}/AGENTS.md"
+    lines = (_call("a", "cd sub"), _result("a"), _grep_tool("g", path="AGENTS.md", **given), _result("g", "3:x"),
+             _grep_tool("h", path=abs_path, **given), _result("h", "3:x"))
+    assert _process(*lines)["guidance_searched"] == ["AGENTS.md"]  # only the absolute one
+    assert [e.get("searched") for e in _events(*lines) if e["kind"] == "tool"] == [None, ["AGENTS.md"]]
+    before = (_grep_tool("g", path="AGENTS.md", **given), _result("g", "3:x"), _call("a", "cd sub"), _result("a"))
+    assert _process(*before)["guidance_searched"] == ["AGENTS.md"]  # the cd came after the Grep call
+    denied = (_call("a", "cd sub"), _denials("a"), _grep_tool("g", path="AGENTS.md", **given), _result("g", "3:x"))
+    assert _process(*denied)["guidance_searched"] == ["AGENTS.md"]  # a refused cd moved nothing
 
 
 def test_a_grep_tool_call_in_content_mode_over_a_file_is_searched():
@@ -295,7 +336,8 @@ def test_codex_searches_follow_the_same_rules(started):
 
     assert searched("/usr/bin/bash -lc 'rg -n warn dpnp/AGENTS.md'", 0) == [["dpnp/AGENTS.md"]]
     assert searched("rg -n warn dpnp/AGENTS.md", 1) == [None]  # one file, failed
-    assert searched("grep warn AGENTS.md sub/AGENTS.md", 1) == [["AGENTS.md", "sub/AGENTS.md"]]
+    assert searched("grep warn AGENTS.md sub/AGENTS.md", 1) == [None]  # exit 1: no line matched in either
+    assert searched("grep warn AGENTS.md sub/AGENTS.md", 2) == [["AGENTS.md", "sub/AGENTS.md"]]  # an error, perhaps in one
     assert searched("grep -q warn AGENTS.md", 0) == [None]
     assert searched("grep -e --help AGENTS.md", 0) == [["AGENTS.md"]]
     assert searched("grep -m0 warn AGENTS.md | head", 0) == [None]
@@ -330,7 +372,8 @@ def test_copilot_bash_searches_follow_the_same_rules():
     assert searched("grep warn AGENTS.md sub/AGENTS.md | tail --follow=n", 1) == [None]
     assert searched("grep -n warn AGENTS.md", 0) == [["AGENTS.md"]]
     assert searched("grep -n warn AGENTS.md", 1) == [None]
-    assert searched("grep warn AGENTS.md sub/AGENTS.md", 1) == [["AGENTS.md", "sub/AGENTS.md"]]
+    assert searched("grep warn AGENTS.md sub/AGENTS.md", 1) == [None]  # exit 1: no line matched in either
+    assert searched("grep warn AGENTS.md sub/AGENTS.md", 2) == [["AGENTS.md", "sub/AGENTS.md"]]  # an error, perhaps in one
     assert searched("grep -e --help AGENTS.md", 0) == [["AGENTS.md"]]
     assert searched("grep -m0 warn AGENTS.md | head", 0) == [None]
     assert searched("grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", 1) == [None]

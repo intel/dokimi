@@ -50,7 +50,7 @@ from typing import Any
 
 from dokimi.context.trace import parse_trace
 
-from .cli_traces import _failed_read, codex_json, copilot_json, shell_walked
+from .cli_traces import _failed_read, codex_json, copilot_json, failed_search, shell_walked
 from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
@@ -103,6 +103,7 @@ class _Stream:
     by_id: dict[str, dict[str, Any]] = field(default_factory=dict)  # tool_use id -> its event
     bash: dict[int, _BashCall] = field(default_factory=dict)  # id() of a Bash call's command event -> the call
     stop_at: dict[str, int] = field(default_factory=dict)  # message id -> its index in ``stop_reasons``
+    relative_greps: set[int] = field(default_factory=set)  # id() of a Grep call's event that searched a relative path
 
 
 def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
@@ -134,6 +135,7 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     _walk_bash(out, stream)
     _settle_bash(out, stream.bash.values())
+    _settle_grep(out, stream)
     main = parse_trace(raw).main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
     return out
@@ -245,10 +247,22 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
         out.events[:] = [e for e in out.events if id(e) not in dropped]
 
 
+def _settle_grep(out: Transcript, stream: _Stream) -> None:
+    """A ``Grep`` call's relative path starts at the directory of Claude Code's shell, which a Bash call before it that was not
+    denied may have moved (as for a Bash search in :func:`_note_searched`): the file it searched is not known, so it has no ``searched``."""
+    moved = False
+    for event in out.events:
+        if id(event) in stream.relative_greps and moved:
+            event.pop("searched", None)
+        if (call := stream.bash.get(id(event))) is not None:
+            moved |= call.moves and call.result != "denied"
+
+
 def _note_searched(call: _BashCall, moved: bool) -> None:
     """Put the files the call's searches show lines of on its command event: not a relative one after the shell moved
     (its directory is not known; ``unknown_reads`` counts reads only), and none for a call refused or failed as one search of one file, or whose result has no text."""
-    kept = [] if call.silent else [rel for raw, rel in call.searched if not (moved and not raw.startswith("/"))]
+    no_match = call.result == "error" and failed_search(call.text, 1)  # Claude Code reports no exit code: any error is a no match
+    kept = [] if call.silent or no_match else [rel for raw, rel in call.searched if not (moved and not raw.startswith("/"))]
     if kept:
         call.event["searched"] = kept
 
@@ -267,6 +281,8 @@ def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: st
         event["agent"] = agent
     if block.get("name") == _SHELL_TOOL:
         stream.bash[id(event)] = _BashCall(str(event["text"]), event)
+    elif event.get("searched") and not str(block["input"].get("path")).startswith("/"):
+        stream.relative_greps.add(id(event))
     if block.get("name") in _AGENT_TOOLS:
         out.subagent_calls = (out.subagent_calls or 0) + 1
     out.events.append(event)
