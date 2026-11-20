@@ -275,3 +275,23 @@ def test_benchmark_run_explicit_vertex_route_needs_no_provider_key(tmp_path, mon
     )
     cli.main()
     assert len(built) == 1
+
+
+def test_benchmark_run_explicit_gemini_route_needs_no_provider_key(tmp_path, monkeypatch, capsys):
+    """#967: `--provider anthropic --model gemini/...` sends the Gemini key, so an unset `ANTHROPIC_API_KEY` is no refusal."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    argv = ["--provider", "anthropic", "--model", "gemini/gemini-2.5-pro",
+            "--judge-provider", "openai", "--judge-model", "gpt-4o"]
+    built, _ = _run_with_fake_pipeline(monkeypatch, tmp_path, argv)
+    cli.main()
+    assert len(built) == 1
+    monkeypatch.delenv("GEMINI_API_KEY")
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    err = capsys.readouterr().err
+    assert "missing GEMINI_API_KEY for provider google-vertex" in err
+    assert "ANTHROPIC_API_KEY" not in err
+    assert exc.value.code == 2

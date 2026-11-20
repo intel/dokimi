@@ -152,6 +152,8 @@ def _refuse_missing_credentials(args: argparse.Namespace) -> None:
     ``benchmark preflight`` makes the same check; ``run`` and ``batch`` made none and failed in
     the first model call, after the output directories existed.
     """
+    from dokimi import llm_cli
+
     pairs = [
         (args.provider, getattr(args, "model", "")),
         (getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER), getattr(args, "judge_model", "")),
@@ -164,6 +166,8 @@ def _refuse_missing_credentials(args: argparse.Namespace) -> None:
         route = resolve_model(str(model), provider).split("/", 1)[0]
         if canonical == "amazon-bedrock" or route in ("vertex_ai", "bedrock"):
             continue
+        if route == "gemini" and llm_cli.backend(canonical) is None:
+            canonical = "google-vertex"  # the Gemini API key, whichever provider names the model
         if canonical == "google-vertex" and os.environ.get("GOOGLE_API_KEY"):
             continue
         providers.append(canonical)
