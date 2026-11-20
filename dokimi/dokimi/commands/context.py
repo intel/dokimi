@@ -230,13 +230,7 @@ def _read_sessions(names: list[str], dropped: list | None = None) -> tuple[list,
             print(f"✗ {exc}", file=sys.stderr)
             failed = True
             sessions = []
-        for session in [*sessions, *unreadable]:
-            for problem in session.errors:
-                print(f"warning: {session.name}: {problem}", file=sys.stderr)
-            if session.errors_dropped:
-                noun = "record" if session.errors_dropped == 1 else "records"
-                print(f"warning: {session.name}: {session.errors_dropped} more skipped {noun} not listed",
-                      file=sys.stderr)
+        _warn_skipped_records([*sessions, *unreadable])
         for session in sessions:
             if session.sidechain_only:
                 print(f"warning: {path}: a subagent transcript without its session log; skipped", file=sys.stderr)
@@ -249,6 +243,16 @@ def _read_sessions(names: list[str], dropped: list | None = None) -> tuple[list,
     for note in notes:
         print(f"warning: {note}", file=sys.stderr)
     return loaded, failed
+
+
+def _warn_skipped_records(sessions: list) -> None:
+    """One stderr line per skipped record of ``sessions``, and a count of those past the listing limit."""
+    for session in sessions:
+        for problem in session.errors:
+            print(f"warning: {session.name}: {problem}", file=sys.stderr)
+        if session.errors_dropped:
+            noun = "record" if session.errors_dropped == 1 else "records"
+            print(f"warning: {session.name}: {session.errors_dropped} more skipped {noun} not listed", file=sys.stderr)
 
 
 def _session_paths(names: list[str]) -> list[str]:
