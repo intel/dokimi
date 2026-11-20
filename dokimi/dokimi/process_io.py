@@ -18,6 +18,7 @@ from typing import IO, Protocol
 
 _POSIX = sys.platform != "win32"
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+_ASTRAL = re.compile("[\U00010000-\U0010ffff]")
 
 
 def joined_pairs(text: str) -> str:
@@ -42,8 +43,8 @@ def json_utf8_bytes(text: str) -> bytes:
 
 
 def _distinct_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    keys = {key for key, _ in pairs}
-    if len(keys) < len(pairs):
+    keys = [key for key, _ in pairs if _ASTRAL.search(key)]
+    if len(set(keys)) < len(keys):
         raise ValueError("two object keys are the same once their surrogate pairs are joined; a reader would keep one")
     return dict(pairs)
 

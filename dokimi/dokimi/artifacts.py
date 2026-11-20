@@ -283,9 +283,10 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       and nothing is written (the target's directories are *not* created). A link loop raises
       ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
     - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
-      people read, such as the ``report_qa`` sidecar); either way it parses to the same payload,
-      except that a surrogate pair is joined into its character; a lone surrogate stays its
-      ``\\udXXX`` escape, so no two object keys collapse into one.
+      people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
+      With ``ensure_ascii`` false a surrogate pair is joined into its character and a lone
+      surrogate stays its ``\\udXXX`` escape, and a pair key beside its character key raises
+      ``ValueError``; ASCII-escaped, a pair stays two escapes and no key check runs.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")

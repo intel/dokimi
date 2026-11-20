@@ -107,10 +107,10 @@ def _lift_task_run_metrics(rec: object, row: dict) -> None:
 
 def to_jsonl(rows: list[dict], path: Path) -> None:
     path = Path(path)
+    lines = [json_utf8_bytes(json.dumps(row, ensure_ascii=False) + "\n") for row in rows]
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
-        for row in rows:
-            f.write(json_utf8_bytes(json.dumps(row, ensure_ascii=False) + "\n"))
+        f.writelines(lines)
 
 
 def to_parquet(rows: list[dict], path: Path) -> None:
