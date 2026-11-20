@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from .spans import Span
 
 _ROW_KINDS = ("list_item", "table_row")
-_DELIMITER_ROW = re.compile(r"^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$")
+_DELIMITER_ROW = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$")
 
 VERIFY_PROMPT = """\
 Does the source text below support the statement, exactly as stated?

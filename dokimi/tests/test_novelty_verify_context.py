@@ -137,3 +137,10 @@ def test_a_sentence_after_a_table_gets_no_table_header():
                     "These defaults apply to CPU only.\n")
     _, context = _check(_atom(spans, "These defaults"), spans)
     assert "Table header" not in context
+
+
+def test_rows_beside_a_dash_only_row_get_their_own_table_header():
+    spans = segment("## Flags\n\n| Option | Default |\n|---|---|\n| --a | 10 |\n| - | - |\n| --b | 20 |\n")
+    for row in ("--a", "--b"):
+        _, context = _check(_atom(spans, row), spans)
+        assert context.splitlines()[-1] == "Table header: | Option | Default |"
