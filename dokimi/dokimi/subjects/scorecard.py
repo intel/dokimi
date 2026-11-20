@@ -140,7 +140,7 @@ def _field(text: str) -> bytes:
 
 
 _ABSENT_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP, errno.ENAMETOOLONG)
-_ABSENT_WINERRORS = (21, 123, 206, 1921)  # not ready, invalid name, name too long (ENAMETOOLONG), cannot resolve
+_ABSENT_WINERRORS = (123, 206, 1921)  # invalid name, name too long (ENAMETOOLONG), cannot resolve
 
 
 def _stat_mode(path: Path) -> int | None:
@@ -207,7 +207,7 @@ def distribution_digest(ref: str | None, *, base: Path) -> str | None:
         return None
     skill = skill_dir / "SKILL.md"
     # Any other entry makes it an archive; one stray file is enough, so stop at the second.
-    if [p.name for _, p in zip(range(2), skill_dir.iterdir(), strict=False)] != ["SKILL.md"] or not skill.is_file():
+    if [p.name for _, p in zip(range(2), skill_dir.iterdir(), strict=False)] != ["SKILL.md"] or not _is_file(skill):
         return None
     return "sha256:" + hashlib.sha256(skill.read_bytes()).hexdigest()
 
@@ -231,7 +231,7 @@ def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]
         kind = b"d"
         h.update(b"d")
         # POSIX names, ordered by their parts as utils.tree_digest does, so the same tree digests the same on Windows
-        for child in sorted((p for p in path.rglob("*") if p.is_file()), key=lambda p: p.relative_to(path).parts):
+        for child in sorted((p for p in path.rglob("*") if _is_file(p)), key=lambda p: p.relative_to(path).parts):
             h.update(_field(child.relative_to(path).as_posix()))
             h.update(hashlib.sha256(child.read_bytes()).digest())
     else:

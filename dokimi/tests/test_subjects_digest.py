@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import sys
@@ -378,13 +379,60 @@ def test_an_io_error_from_the_stat_propagates(tmp_path: Path, monkeypatch):
         _digest_ref("a/SKILL.md", base=tmp_path)
 
 
-@pytest.mark.parametrize("winerror", [21, 123, 206, 1921])  # not ready, invalid name, name too long, cannot resolve
-def test_a_windows_error_for_a_name_that_cannot_exist_reads_as_naming_nothing(tmp_path: Path, monkeypatch, winerror):
-    exc = OSError("The name cannot be resolved")
-    exc.winerror = winerror  # type: ignore[attr-defined]  # set by the OS on Windows only
-    _refuse(monkeypatch, exc)
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads through a mode 444 directory")
+def test_a_directory_that_can_be_listed_but_not_searched_is_an_error_not_an_empty_tree(tmp_path: Path, monkeypatch):
+    # Python 3.14's is_file() is False for every OSError; make 3.11-3.13 do the same so the test pins the digest code, not the version.
+    real_is_file = Path.is_file
+
+    def is_file(self: Path, **kwargs) -> bool:
+        try:
+            return real_is_file(self, **kwargs)
+        except OSError:
+            return False
+
+    monkeypatch.setattr(Path, "is_file", is_file)
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("body")
+    skill_dir.chmod(0o444)
+    try:
+        with pytest.raises(PermissionError):
+            _digest_ref("skill", base=tmp_path)
+        with pytest.raises(PermissionError):
+            distribution_digest("skill", base=tmp_path)
+    finally:
+        skill_dir.chmod(0o700)
+
+
+@pytest.mark.parametrize("error", [errno.ELOOP, errno.ENOTDIR])  # a symlink loop, a parent that is a file
+def test_a_loop_or_a_file_parent_reads_as_naming_nothing(tmp_path: Path, monkeypatch, error):
+    _refuse(monkeypatch, OSError(error, os.strerror(error)))
+    assert _digest_ref("a/SKILL.md", base=tmp_path) == "sha256:" + hashlib.sha256(b"t" + _field_of("a/SKILL.md")).hexdigest()
     assert _digest_values(("a/SKILL.md",)) == "sha256:" + hashlib.sha256(_field_of("a/SKILL.md") + b"t").hexdigest()
     assert distribution_digest("a/SKILL.md", base=tmp_path) is None
+
+
+def _winerror(code: int) -> OSError:
+    exc = OSError("The name cannot be resolved")
+    exc.winerror = code  # type: ignore[attr-defined]  # set by the OS on Windows only
+    return exc
+
+
+@pytest.mark.parametrize("winerror", [123, 206, 1921])  # invalid name, name too long, cannot resolve
+def test_a_windows_error_for_a_name_that_cannot_exist_reads_as_naming_nothing(tmp_path: Path, monkeypatch, winerror):
+    _refuse(monkeypatch, _winerror(winerror))
+    assert _digest_values(("a/SKILL.md",)) == "sha256:" + hashlib.sha256(_field_of("a/SKILL.md") + b"t").hexdigest()
+    assert distribution_digest("a/SKILL.md", base=tmp_path) is None
+
+
+def test_a_device_that_is_not_ready_is_an_error_not_a_name_that_cannot_exist(tmp_path: Path, monkeypatch):
+    _refuse(monkeypatch, _winerror(21))  # ERROR_NOT_READY
+    with pytest.raises(OSError, match="cannot be resolved"):
+        _digest_values(("a/SKILL.md",))
+    with pytest.raises(OSError, match="cannot be resolved"):
+        _digest_ref("a/SKILL.md", base=tmp_path)
+    with pytest.raises(OSError, match="cannot be resolved"):
+        distribution_digest("a/SKILL.md", base=tmp_path)
 
 
 def test_a_value_with_a_nul_names_no_file(tmp_path: Path):
