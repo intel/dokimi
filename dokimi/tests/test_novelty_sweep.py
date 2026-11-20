@@ -272,3 +272,18 @@ def test_read_rows_refuses_invalid_spend(tmp_path, usd):
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
     with pytest.raises(InputError, match="line 1 has invalid usd"):
         read_rows(path)
+
+
+@pytest.mark.parametrize("patch", [
+    {"new_lenient": "0.5"}, {"tokens": "800"}, {"name": None},
+    {"new_lenient": float("nan")}, {"new_lenient": float("inf")}, {"tokens": float("inf")},
+])
+def test_read_rows_refuses_an_ok_row_the_summary_cannot_read(tmp_path, patch):
+    row = {"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 800}
+    row.update(patch)
+    if row["name"] is None:
+        del row["name"]
+    path = tmp_path / "s.jsonl"
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(InputError, match="line 1"):
+        read_rows(path)

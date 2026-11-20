@@ -107,6 +107,16 @@ def stratum_of(row: Mapping[str, Any], strata: Optional[Mapping[str, str]]) -> s
     return strata.get(row["key"]) or strata.get(row["name"]) or UNASSIGNED
 
 
+def _refuse_unreadable_row(row: dict, path: Path, lineno: int) -> None:
+    if row["status"] != "ok":
+        return
+    bad = any(row[k] is not None and (type(row[k]) not in (int, float)
+                                      or (isinstance(row[k], float) and not math.isfinite(row[k])))
+              for k in ("new_lenient", "tokens"))
+    if "name" not in row or bad:
+        raise InputError(f"--jsonl {path} line {lineno} has no name or a non-finite or non-numeric new_lenient or tokens; fix or remove it before --resume")
+
+
 def read_rows(path: Path) -> list[dict]:
     """The rows of a sweep JSONL file. A last line a killed run left half-written is dropped."""
     rows: list[dict] = []
@@ -135,6 +145,7 @@ def read_rows(path: Path) -> list[dict]:
         usd = row["usd"]
         if type(usd) not in (int, float) or (isinstance(usd, float) and not math.isfinite(usd)):
             raise InputError(f"--jsonl {path} line {lineno} has invalid usd; fix or remove it before --resume")
+        _refuse_unreadable_row(row, path, lineno)
         rows.append(row)
     return rows
 
