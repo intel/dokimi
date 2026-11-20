@@ -164,7 +164,7 @@ def test_a_json_leaf_that_crashes_exits_5_and_prints_its_infra_document(monkeypa
 
     monkeypatch.setattr(repo, "cmd_repo_validate", crash)
     with pytest.raises(SystemExit) as exc:
-        _run_main(monkeypatch, ["repo", "validate", "x", "--json"])
+        _run_main(monkeypatch, ["eval", "check", "--schema-only", "x", "--json"])
     assert exc.value.code == 5
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "infra"
 
@@ -205,12 +205,12 @@ def test_a_json_leaf_that_exits_without_its_document_prints_one_with_the_same_co
 
 @pytest.mark.parametrize("argv, kind, message", [
     (["repo", "budget", "--json"], "repo budget", "the following arguments are required: source"),
-    (["repo", "validate", ".", "--json", "--no-such-flag"], "repo validate", "unrecognized arguments: --no-such-flag"),
-    (["repo", "validate", ".", "--json", "--cache-dir"], "repo validate", "argument --cache-dir: expected one argument"),
-    (["repo", "validate", ".", "--jso", "--no-such-flag"], "repo validate", "unrecognized arguments: --no-such-flag"),
-    (["repo", "validate", ".", "--json=true"], "repo validate", "argument --json: ignored explicit argument 'true'"),
-    (["--no-such-flag", "repo", "validate", ".", "--json"], "repo validate", "unrecognized arguments: --no-such-flag"),
-    (["repo", "--no-such-flag", "validate", ".", "--json"], "repo validate", "unrecognized arguments: --no-such-flag"),
+    (["eval", "check", "--schema-only", ".", "--json", "--no-such-flag"], "eval check", "unrecognized arguments: --no-such-flag"),
+    (["eval", "check", "--schema-only", ".", "--json", "--cache-dir"], "eval check", "argument --cache-dir: expected one argument"),
+    (["eval", "check", "--schema-only", ".", "--jso", "--no-such-flag"], "eval check", "unrecognized arguments: --no-such-flag"),
+    (["eval", "check", "--schema-only", ".", "--json=true"], "eval check", "argument --json: ignored explicit argument 'true'"),
+    (["--no-such-flag", "eval", "check", "--schema-only", ".", "--json"], "eval check", "unrecognized arguments: --no-such-flag"),
+    (["eval", "--no-such-flag", "check", "--schema-only", ".", "--json"], "eval check", "unrecognized arguments: --no-such-flag"),
 ])
 def test_a_json_leaf_usage_error_prints_its_failed_document_with_exit_2(monkeypatch, capsys, argv, kind, message):
     with pytest.raises(SystemExit) as exc:
@@ -231,7 +231,7 @@ def test_an_abbreviated_json_flag_on_a_leaf_prints_its_document(monkeypatch, cap
     assert (doc["kind"], doc["status"]) == ("repo budget", "failed")
 
 
-@pytest.mark.parametrize("argv", [["repo", "validate", ".", "--bogus"], ["repo", "validate", ".", "--", "--json"]])
+@pytest.mark.parametrize("argv", [["eval", "check", "--schema-only", ".", "--bogus"], ["eval", "check", "--schema-only", ".", "--", "--json"]])
 def test_a_usage_error_without_a_json_request_prints_no_document(monkeypatch, capsys, argv):
     # no --json token before the bare "--": the leaf's error stays on stderr
     with pytest.raises(SystemExit) as exc:
@@ -426,7 +426,7 @@ def test_an_error_object_is_retryable_only_for_infra_and_an_error_document_takes
 
 
 @pytest.mark.parametrize("argv, kind", [
-    (["repo", "validate", ".", "--json", "--out-json", "f"], "repo validate"),  # a moved flag
+    (["eval", "check", "--schema-only", ".", "--json", "--out-json", "f"], "eval check"),  # a moved flag
     (["tasks", "inspect", "x", "--json"], "eval inspect"),  # a moved command (a tombstone)
 ])
 def test_a_moved_spelling_under_json_prints_its_moved_document_with_exit_2(monkeypatch, capsys, argv, kind):
@@ -438,7 +438,7 @@ def test_a_moved_spelling_under_json_prints_its_moved_document_with_exit_2(monke
     assert doc["reason"].startswith("moved: dokimi ") and schema_errors("cli_output.v1", doc) == []
 
 
-@pytest.mark.parametrize("argv", [["repo", "validate", ".", "--out-json", "f"], ["tasks", "inspect", "x"]])
+@pytest.mark.parametrize("argv", [["eval", "check", "--schema-only", ".", "--out-json", "f"], ["tasks", "inspect", "x"]])
 def test_a_moved_spelling_without_json_prints_no_document(monkeypatch, capsys, argv):
     with pytest.raises(SystemExit) as exc:
         _run_main(monkeypatch, argv)
@@ -543,8 +543,8 @@ def test_an_ambiguous_json_prefix_at_a_leaf_prints_no_document(capsys):
 
 
 @pytest.mark.parametrize("argv, message", [
-    (["repo", "validate"], "the following arguments are required: source"),
-    (["repo", "validate", ".", "--cache-dir"], "argument --cache-dir: expected one argument"),
+    (["eval", "check", "--schema-only"], "the following arguments are required: source"),
+    (["eval", "check", "--schema-only", ".", "--cache-dir"], "argument --cache-dir: expected one argument"),
 ])
 def test_a_leaf_usage_error_without_json_prints_its_message_on_stderr_only(monkeypatch, capsys, argv, message):
     # leaf.error runs for these (unlike an unrecognized --bogus, which the root reports): the flag gates its document

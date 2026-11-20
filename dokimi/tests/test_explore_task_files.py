@@ -21,6 +21,13 @@ def _exit_message(argv, capsys) -> str:
     return outcome.err
 
 
+def _explore_argv(tail):
+    """`explore list` is `eval tasks list --format localization` (#94 M1); `explore run` is unchanged."""
+    if tail[0] == "list":
+        return ["eval", "tasks", "list", "--format", "localization", *tail[1:]]
+    return ["explore", *tail]
+
+
 @pytest.mark.parametrize("argv_tail", [["list"], ["run", "--all"]])
 @pytest.mark.parametrize(
     ("content", "message"),
@@ -51,7 +58,7 @@ def test_a_malformed_task_file_names_the_file(tmp_path, argv_tail, content, mess
     (tmp_path / "ok.yaml").write_text(GOOD, encoding="utf-8")
     bad = tmp_path / "bad.yaml"
     bad.write_bytes(content)
-    out = _exit_message(["explore", *argv_tail, "--tasks-root", str(tmp_path)], capsys)
+    out = _exit_message([*_explore_argv(argv_tail), "--tasks-root", str(tmp_path)], capsys)
     assert str(bad) in out
     assert message in out
 
@@ -79,7 +86,7 @@ def test_a_task_file_that_cannot_be_read_names_the_file(tmp_path, monkeypatch, c
         return real(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", deny)
-    out = _exit_message(["explore", "list", "--tasks-root", str(tmp_path)], capsys)
+    out = _exit_message(["eval", "tasks", "list", "--format", "localization", "--tasks-root", str(tmp_path)], capsys)
     assert f"Explore task {unreadable} cannot be read" in out
 
 

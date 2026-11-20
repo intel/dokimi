@@ -184,6 +184,7 @@
 --salt
 --save-analysis
 --scenarios
+--schema-only  # eval check --schema-only (#276 M1, was repo validate): the manifest checks, no registry concept yet
 --scorer
 --sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
 --sequential

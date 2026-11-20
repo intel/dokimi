@@ -88,7 +88,7 @@ implicit default that points at a sibling checkout:
 |---|---|---|
 | `--root` | a whole content checkout to scan | `catalog check` |
 | `--questions-root` | directory holding `<product_key>_golden.json` | `benchmark preflight/run/batch`, `evaluate`, `coverage`, `config_check` |
-| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `explore list/run`, `coverage`, `config_check` |
+| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `eval tasks list --format localization`, `explore run`, `coverage`, `config_check` |
 | `--repo-root` | the source tree an exploration task is scored against | `explore run` |
 | `--registry` | a `products.yaml` describing products this repo has never heard of | `benchmark preflight/run` |
 | `--questions` | one question-set file | `arms run`, `answers generate` |
@@ -597,7 +597,7 @@ the YAML directory, `--repo-root` the tree a task is scored against when its
 own YAML omits `repo_root:`.
 
 ```console
-$ python cli.py explore list --tasks-root C:/Users/Public/content-repo/explore_tasks
+$ python cli.py eval tasks list --format localization --tasks-root C:/Users/Public/content-repo/explore_tasks
 demo-locate-widget      demo    1 ref(s)        Where is the widget width clamped?
 
 $ python cli.py explore run --all \
@@ -718,13 +718,13 @@ Worth knowing before you read a suspiciously clean result:
 | `catalog check --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
 | `tasks run --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `eval tasks list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
-| `explore list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --format localization --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
 `eval tasks list` is the trap for an existing directory: an empty listing and a correct listing
 both exit 0, so an empty checkout looks like a correct one. A missing root is refused with exit 2,
-not a silent success. `explore list` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
+not a silent success. `eval tasks list --format localization` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage

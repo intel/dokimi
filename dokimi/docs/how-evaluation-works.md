@@ -91,7 +91,7 @@ and graders stay in **its** tree, so they can evolve with it instead of rotting
 in a copy here.
 
 ```bash
-python cli.py repo validate <dir | dir@rev | url@rev>   # is the manifest honest?
+python cli.py eval check --schema-only <dir | dir@rev | url@rev>   # is the manifest honest?
 python cli.py repo reach   <source> --model <id>        # which guidance actually loads?
 ```
 
