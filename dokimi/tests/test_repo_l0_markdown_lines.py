@@ -79,3 +79,17 @@ def test_a_python_fence_error_is_claimed_on_its_physical_line(code_line, claimed
     errors = {0: [(code_line, '"str" has no attribute "nosuch"')]}
     _claims(Scan(), "mypy", [("AGENTS.md", fence, "")], errors, set())
     assert [(c[1], c[4]) for c in added] == [(claimed, "fail")]
+
+
+@pytest.mark.parametrize(("code_line", "claimed"), [(1, 1), (2, 2), (3, 4)])
+def test_code_after_a_separator_on_the_opening_line_is_claimed_on_that_line(code_line, claimed):
+    fence = split("```python\u2028import json\nx = 1\n```\n").fences[0]
+    assert (fence.line, fence.lines) == (1, [(1, "import json"), (2, "x = 1")])
+    added = []
+
+    class Scan:
+        def add(self, *claim):
+            added.append(claim)
+
+    _claims(Scan(), "mypy", [("AGENTS.md", fence, "")], {0: [(code_line, "boom")]}, set())
+    assert [c[1] for c in added] == [claimed]
