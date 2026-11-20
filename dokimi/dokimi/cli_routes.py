@@ -209,7 +209,7 @@ def _repo_validate_argv(rest: list[str]) -> list[str]:
     file, since the report is ``--json`` on stdout now (the user redirects stdout to the file).
 
     Each retired option is printed under its full name, so the new leaf reads it as the retired parser did: its
-    prefixes can mean something else there (``--j`` is ``--jobs`` on eval check). A ``--`` ends the options, and
+    prefixes can mean something else there (``--c`` also matches ``--cache`` and ``--cache-root``). A ``--`` ends the options, and
     the rest of the argv is printed as it was given."""
     kept: list[str] = []
     i = 0

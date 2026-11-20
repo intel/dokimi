@@ -638,7 +638,6 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
         "--schema-only: the manifest and task.json checks of `repo validate`",
         description=CHECK_EXIT)
     _common(check_p, source_help, cache_help, positive_int)
-    check_p.add_argument("--j", dest="jobs", type=positive_int, default=1, help=argparse.SUPPRESS)
     check_p.add_argument("--schema-only", action="store_true", dest="schema_only",
                          help="Check the manifest and every task.json against one snapshot, with no self-check run "
                          "(what `repo validate` did); --json and --fail-on-warning apply to it")

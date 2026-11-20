@@ -20,6 +20,12 @@ def test_repo_root_is_refused_for_terminal_bench_tasks(tmp_path, capsys):
     assert "--repo-root is for --format localization" in outcome.err
 
 
+def test_an_empty_repo_root_is_refused_too(tmp_path, capsys):
+    code, outcome = _refusal(["eval", "tasks", "list", "--tasks-root", str(tmp_path), "--repo-root", ""], capsys)
+    assert code == 2
+    assert "--repo-root is for --format localization" in outcome.err
+
+
 def _refusal(argv, capsys):
     args = build_parser().parse_args(argv)
     with refusal() as outcome:

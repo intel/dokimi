@@ -37,7 +37,7 @@ def _tombstone(argv: list[str], capsys) -> str:
     (["repo", "validate", "src", "--ou", "r.json"], ["eval", "check", "--schema-only", "src"]),  # argparse prefix
     (["repo", "validate", "src", "--cache", "c"], ["eval", "check", "--schema-only", "src", "--cache-dir", "c"]),
     # the retired parser's prefixes resolve to its own options, not to the new leaf's (--j was --json only;
-    # --jobs and --json collide on eval check; --c was --cache-dir only, --cache and --cache-root collide too)
+    # --jobs is --concurrency on eval check; --c was --cache-dir only, --cache and --cache-root collide too)
     (["repo", "validate", "src", "--j"], ["eval", "check", "--schema-only", "src", "--json"]),
     (["repo", "validate", "src", "--c", "c"], ["eval", "check", "--schema-only", "src", "--cache-dir", "c"]),
     (["repo", "validate", "src", "--o", "r.json"], ["eval", "check", "--schema-only", "src"]),
@@ -105,3 +105,8 @@ def test_add_refuses_a_spelling_the_concept_does_not_own():
         cli_flags.add(parser, "output", "--output")
     with pytest.raises(KeyError):
         cli_flags.add(parser, "no-such-concept", "--out")
+
+
+def test_eval_check_j_prefix_is_json_only():
+    # --jobs is --concurrency now, so --j has one match on eval check; no hidden alias keeps it for the old name
+    assert cli.parse_args(["eval", "check", "src", "--j", "--schema-only"]).json is True
