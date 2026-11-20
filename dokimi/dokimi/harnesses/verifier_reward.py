@@ -51,7 +51,7 @@ def primary_reward(rewards: Mapping[str, Any]) -> Any:
 def _json_reward(text: str) -> float:
     try:
         rewards = json.loads(text)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise ValueError(f"is not JSON ({exc})") from None
     if not isinstance(rewards, dict):
         raise ValueError("is not a JSON object of rewards")
