@@ -28,7 +28,6 @@
 --bases
 --batch
 --both
---budget
 --budgets
 --build-network
 --build-timeout
@@ -54,7 +53,6 @@
 --embeddings
 --escalate-provider
 --escalate-ties
---estimate-only
 --eval
 --eval-out
 --extract-provider
@@ -111,9 +109,7 @@
 --matrix-cells
 --max-atoms
 --max-bases
---max-batch-usd
 --max-context-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
---max-cost-usd
 --max-file-words
 --max-iterations
 --max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
@@ -233,10 +229,10 @@
 --wordings
 --work-baseline-harness
 --work-command-template
---work-dry-run
 --work-harnesses
 --work-model
 --work-output-dir
+--work-dry-run  # gates only executable-task agents; other phases still call models, so not the dry_run concept; #94 F1b
 -o
 --min-sessions  # trace prefilter threshold: no registry concept yet
 --rare-max  # trace prefilter threshold: no registry concept yet

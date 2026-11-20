@@ -215,7 +215,7 @@ def test_the_command_saves_the_acceptable_rate_and_refuses_a_name_outside_the_fi
         _run(tmp_path, {"a": [{"query": "tune b things", "acceptable": ["ghost"]}]})
     with pytest.raises(InputError, match="`ghost`"):
         _run(tmp_path, {"a": [{"query": "tune b things", "acceptable": ["ghost"]}]},
-             "--estimate-only")
+             "--dry-run")
 
 
 def test_the_command_ignores_the_alternatives_of_a_skill_the_field_leaves_out(tmp_path):

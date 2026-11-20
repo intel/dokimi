@@ -154,7 +154,7 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
         "threads file; --from prs writes one dokimi:hidden_tests task per merged pull request of a pull request "
         "file (its description as the prompt, its test files hidden until grading, the rest of its diff as the "
         "oracle). Exits 2 on a usage error, among them a malformed source, an unpinned remote, a local source "
-        "that is not a directory or a --cache-dir that is not a usable directory. With graph, also 2 on an index that does not read or matches no file "
+        "that is not a directory or a --cache-dir that is not a usable directory (so is a $DOKIMI_REPO_CACHE, without the flag). With graph, also 2 on an index that does not read or matches no file "
         "of the source, and 1 when no target of the index gave a task, the tasks cannot be written or the source "
         "cannot be resolved at the revision. With replay or prs, 1 when no pull request gave a task, a task cannot "
         "be written, the source cannot be opened, or the threads or pull request file, the manifest or the prompt "
