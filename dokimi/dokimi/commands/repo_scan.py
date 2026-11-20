@@ -43,7 +43,8 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
     The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
     imported file reaches the agent as surely as one in CLAUDE.md. They are named by path, not glob, so a repository
     without rules gets no warning for them. A written manifest scans what it says. Only a skipped path the scan would
-    have checked (a guidance or ``also_scan`` glob, a rule, a guidance name, a Bazel build input) makes it incomplete; any other is only a budget warning.
+    have checked (a guidance or ``also_scan`` glob, a rule, a guidance name, an import, a directory) makes it incomplete;
+    any other is only a budget warning. A skipped Bazel build input is left to ``scan_repo``.
     """
     if manifest.path != "<default>":
         tree.files()  # fills ``skipped``: listed paths the tree could not look at
@@ -56,7 +57,14 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
                        claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)
     entries = inventory["entries"]
     # a rule the tree cannot list (a link to a directory, a dangling link) is not checked, so the scan is incomplete
-    skipped, kept = set(getattr(tree, "skipped", ())), set(_skipped_guidance(tree, manifest, p.guidance_names, p.reads_claude_rules))
+    from dokimi.repos.budget import imported_by
+
+    md = [x for x in getattr(tree, "skipped_paths", ()) if x.endswith(".md")]
+    imported = frozenset(imported_by(tree, md, p.guidance_names, p.import_max_depth, p.reads_claude_rules,
+                                     claude_displaces_agents=p.claude_displaces_agents,
+                                     follow_imports=p.follows_imports)) if md else frozenset()
+    skipped = set(getattr(tree, "skipped", ()))
+    kept = set(_skipped_guidance(tree, manifest, p.guidance_names, p.reads_claude_rules, imported))
     not_counted = tuple(w for w in inventory["warnings"] if "are not counted" in w and (w not in skipped or w in kept))
     # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
     listed = set(tree.files())
@@ -84,20 +92,21 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
     return loaded, not_counted
 
 
-def _skipped_guidance(tree, manifest, names: tuple[str, ...] = (), rules: bool = False) -> tuple[str, ...]:
+def _skipped_guidance(tree, manifest, names: tuple[str, ...] = (), rules: bool = False,
+                      imported: frozenset[str] = frozenset()) -> tuple[str, ...]:
     """The ``skipped`` warnings of the tree that name a path the scan would check: a file a skipped data file stands
     beside is not guidance, so it does not make the scan incomplete (#959 review of #1028).
 
     The paths checked are those a guidance glob or an ``also_scan`` glob matches, a rule, a guidance name of the
-    profile (``CLAUDE.local.md``), and a Bazel build input, whose absence the scan cannot see."""
+    profile (``CLAUDE.local.md``), a Markdown file the default guidance imports (``imported``), and a directory
+    that could not be listed. A Bazel build input is counted by ``scan_repo``, only when the Bazel adapter is on."""
     from dokimi.repos.budget import RULE_GLOB
-    from dokimi.repos.l0 import _is_build_input
     from dokimi.repos.manifest import match_glob
 
     def checked(path: str) -> bool:
         return (any(match_glob(g, path) for g in (*manifest.guidance_globs, *manifest.also_scan))
                 or bool(rules and RULE_GLOB.match(path)) or posixpath.basename(path) in names
-                or _is_build_input(path))
+                or path in getattr(tree, "skipped_dirs", ()) or path in imported)  # a directory hides any of them
 
     paths = getattr(tree, "skipped_paths", ())
     return tuple(w for path, w in zip(paths, getattr(tree, "skipped", ()), strict=True) if checked(path))
