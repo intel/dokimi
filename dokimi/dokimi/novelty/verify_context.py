@@ -37,10 +37,11 @@ from the source is "distorted" or "unsupported" even when the context words it o
 
 
 def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Span]) -> str:
-    """The heading path and lead-in of the first cited span, or ``(none)``.
+    """The heading path, lead-in and table header of the first cited span, or ``(none)``.
 
     A list item or table row takes the nearest earlier span that is neither; any other
-    span takes the span right before it. The first cited span in document order has no
+    span takes the span right before it. A table row also gets the first row of its
+    table, which says what its cells mean. The first cited span in document order has no
     cited span before it, so a cited span is never repeated as context.
     """
     order = {span.id: i for i, span in enumerate(spans)}
@@ -57,4 +58,9 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
             before -= 1
     if before >= 0:
         parts.append("Lead-in: " + spans[before].text)
+    header = order[first]
+    while header > 0 and spans[header - 1].kind == "table_row":
+        header -= 1
+    if header < order[first]:
+        parts.append("Table header: " + spans[header].text)
     return "\n".join(parts) or "(none)"

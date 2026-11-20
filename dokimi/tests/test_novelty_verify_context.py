@@ -93,3 +93,16 @@ def test_the_source_holds_only_the_cited_text():
     source, context = _check(_atom(spans, "Large arrays"), spans)
     assert source == "- Large arrays (>10,000 elements)"
     assert "Elementwise" not in source + context
+
+
+def test_a_table_row_gets_the_header_row_of_its_table():
+    spans = segment("# T\n\n## Flags\n\n| Flag | Default |\n|---|---|\n| --x | 10 |\n")
+    source, context = _check(_atom(spans, "--x"), spans)
+    assert source == "| --x | 10 |"
+    assert context.splitlines()[-1] == "Table header: | Flag | Default |"
+
+
+def test_a_cited_header_row_is_not_repeated_as_table_header():
+    spans = segment("## Flags\n\n| Flag | Default |\n|---|---|\n| --x | 10 |\n")
+    _, context = _check(_atom(spans, "| Flag |", "--x"), spans)
+    assert "Table header" not in context
