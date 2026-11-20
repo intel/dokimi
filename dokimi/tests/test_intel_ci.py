@@ -147,21 +147,26 @@ def test_the_matrix_holds_only_linux_the_workflow_runs_on(tmp_path: Path,
 
 def test_a_pull_request_builds_the_newest_regular_python_only(tmp_path: Path,
                                                               monkeypatch: pytest.MonkeyPatch) -> None:
-    """Other events build every declared version; a PR the newest one that is not free-threaded."""
+    """Other events build every declared version; a PR the newest one that is not free-threaded,
+    or, when only free-threaded ones are declared, the newest of those rather than no build."""
     matrix = _script("matrix", monkeypatch)
     pythons = [matrix.Python(v, v) for v in ("3.11", "3.13", "3.14", "3.14t")]
     assert [p.version for p in matrix.for_event(pythons, "push")] == ["3.11", "3.13", "3.14", "3.14t"]
     assert [p.version for p in matrix.for_event(pythons, "pull_request")] == ["3.14"]
+    only_free_threaded = [matrix.Python("3.14t", "3.14t")]
+    assert [p.version for p in matrix.for_event(only_free_threaded, "pull_request")] == ["3.14t"]
+
+
+def _pull_request_cells(*system: str) -> list[dict]:
+    out = subprocess.run([sys.executable, str(_REPO / "ci" / "matrix.py"), "--event", "pull_request", *system],
+                         capture_output=True, text=True, check=True).stdout
+    return json.loads(out)["include"]
 
 
 def test_the_pull_request_matrix_still_runs_the_required_check() -> None:
-    """main's ruleset requires `Linux Python 3.14`, the build job's name for the cell a PR gets."""
-    for system, cell in (("", "Linux Python 3.14"), ("wheel", "Linux Python 3.14")):
-        out = subprocess.run([sys.executable, str(_REPO / "ci" / "matrix.py"), "--event", "pull_request",
-                              *(["--system", system] if system else [])],
-                             capture_output=True, text=True, check=True).stdout
-        cells = json.loads(out)["include"]
-        assert [f'{c["name"]} Python {c["python"]}' for c in cells] == [cell]
+    """main's ruleset requires `Linux Python 3.14`, intel-ci.yml's conda build job for the PR's one cell."""
+    assert [f'{c["name"]} Python {c["python"]}' for c in _pull_request_cells()] == ["Linux Python 3.14"]
+    assert [c["python"] for c in _pull_request_cells("--system", "wheel")] == ["3.14"]
 
 
 @pytest.mark.parametrize(("line", "platforms"), [

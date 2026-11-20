@@ -640,7 +640,8 @@ def declared_platforms(system: str, selector: Path) -> list[str]:
 
 
 def for_event(pythons: list[Python], event: str) -> list[Python]:
-    """All of them, or for a pull request the newest regular one."""
+    """All of them, or for a pull request the newest regular one (the newest free-threaded one
+    when no regular version is declared, so a PR still builds something)."""
     if event not in PULL_REQUEST_EVENTS:
         return pythons
     regular = [python for python in pythons if not python.version.endswith("t")]
