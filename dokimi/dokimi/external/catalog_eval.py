@@ -45,8 +45,8 @@ def _impact(root: Path, rows: list[dict], changed: list[str] | None, untracked: 
         task = task_dir(path)
         if task in base_owners and base_owners[task] in names and base_owners[task] not in owners:
             owners, reason = [*owners, base_owners[task]], f"task moved or removed: {path}"
-        if not owners and _irrelevant(path):
-            continue
+        if not owners and (_irrelevant(path) or any(_prefixes(path, row) for row in rows)):
+            continue  # a vendored path inside a bundle is no input, tracked or not (#971)
         if not owners:
             owners, reason = names, f"conservative selection for unclaimed path: {path}"
             selection["unclaimed"].append(path)
@@ -78,16 +78,17 @@ def _owners(path: str, rows: list[dict], hashed: bool = False, ignored: bool = F
     if path.startswith((".github/", "tools/", "scripts/", "dokimi/")) and not (
             hashed and (ignored or VENDORED_DIR_NAMES.intersection(PurePosixPath(path).parts))):
         return [row["name"] for row in rows], f"shared evaluator changed: {path}"
-    owners = []
-    for row in rows:
-        prefixes = [row["path"]] + [task["path"] for task in row["tasks"]]
-        prefixes += [f"{DEFAULT_TASKS_SUBDIR}/{task}" for task in row["planned_tasks"]]
-        # A task this skill's findings name (one suites.json still assigns to it) is its input too.
-        prefixes += [item["path"] for item in row["checks"]["findings"] if item["path"].startswith(DEFAULT_TASKS_SUBDIR + "/")]
-        if any(prefix and (prefix == "." or path == prefix or path.startswith(prefix + "/"))
-               and (not hashed or _bundled(path, prefix)) for prefix in prefixes):
-            owners.append(row["name"])
+    owners = [row["name"] for row in rows if any(_bundled(path, prefix) for prefix in _prefixes(path, row))]
     return owners, f"owned input changed: {path}"
+
+
+def _prefixes(path: str, row: dict) -> list[str]:
+    """The bundle roots of *row* that contain *path*, whether or not a bundle hashes it."""
+    prefixes = [row["path"]] + [task["path"] for task in row["tasks"]]
+    prefixes += [f"{DEFAULT_TASKS_SUBDIR}/{task}" for task in row["planned_tasks"]]
+    # A task this skill's findings name (one suites.json still assigns to it) is its input too.
+    prefixes += [item["path"] for item in row["checks"]["findings"] if item["path"].startswith(DEFAULT_TASKS_SUBDIR + "/")]
+    return [prefix for prefix in prefixes if prefix and (prefix == "." or path == prefix or path.startswith(prefix + "/"))]
 
 
 def _irrelevant(path: str) -> bool:
