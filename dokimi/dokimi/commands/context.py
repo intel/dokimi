@@ -207,8 +207,9 @@ def _read_sessions(names: list[str], dropped: list | None = None) -> tuple[list,
 
     A file is read once however often it is named (a repeat, a glob that overlaps, a symlink to it). A Claude Code
     session is read with its subagents' transcripts; such a transcript named on its own is skipped with a warning.
-    Logs that share a record (a resumed or forked session) are one session. Given ``dropped``, the Goose sessions
-    left out for holding only unreadable messages are appended there, so their errors can still set the status.
+    Logs that share a record (a resumed or forked session) are one session. Given ``dropped``, the sessions left out
+    (Goose sessions of unreadable messages only, subagent transcripts named alone) are appended there, so their
+    errors can still set the status.
     """
     from dokimi.context.goose_log import is_goose_store, read_goose_store
     from dokimi.context.session_log import SessionError, merge_repeats, read_session_tree, subagent_files
@@ -237,6 +238,8 @@ def _read_sessions(names: list[str], dropped: list | None = None) -> tuple[list,
         for session in sessions:
             if session.sidechain_only:
                 print(f"warning: {path}: a subagent transcript without its session log; skipped", file=sys.stderr)
+                if dropped is not None:
+                    dropped.append(session)
             else:
                 loaded.append(session)
     loaded, notes = merge_repeats(loaded)
