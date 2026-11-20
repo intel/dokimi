@@ -154,6 +154,13 @@ def test_every_retrieval_leaf_refuses_a_count_below_one(leaf, value):
         _leaves_with("--retrieval-tokens")[leaf].type(value)
 
 
+@pytest.mark.parametrize("leaf", sorted(_leaves_with("--max-output-tokens")))
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_every_output_token_leaf_refuses_a_count_below_one(leaf, value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        _leaves_with("--max-output-tokens")[leaf].type(value)
+
+
 def test_add_refuses_a_spelling_the_concept_does_not_own():
     parser = argparse.ArgumentParser()
     cli_flags.add(parser, "output", "--out", default=None)
