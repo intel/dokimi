@@ -268,15 +268,15 @@ def load_tasks(content_dir: Path, manifest: RepoManifest, ids: list[str] | None 
     missing = [t for t in wanted if t not in found]
     if missing:
         raise PrepError(f"no such task(s) under {manifest.tasks}: {', '.join(missing)}")
-    return [Task(t, _read_task_json(found[t]), found[t].parent) for t in wanted]
+    return [Task(t, _read_task_json(found[t], f"{manifest.tasks}/{t}/task.json"), found[t].parent) for t in wanted]
 
 
-def _read_task_json(path: Path) -> Any:
-    """The parsed ``task.json``; one that is not JSON, not UTF-8 or nested too deeply is a ``PrepError`` naming it (#975)."""
+def _read_task_json(path: Path, shown: str) -> Any:
+    """The parsed ``task.json``; one that is not JSON, not UTF-8 or nested too deeply is a ``PrepError`` naming it as ``shown``, its path in the repo (#975)."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, RecursionError) as exc:
-        raise PrepError(f"{path}: cannot read task.json: {type(exc).__name__}: {str(exc)[:200]}") from exc
+        raise PrepError(f"{shown}: cannot read task.json: {type(exc).__name__}: {str(exc)[:200]}") from exc
 
 
 def source_git_dir(source: RepoSource, tree: RepoTree, cache_dir: Path | None = None) -> Path:

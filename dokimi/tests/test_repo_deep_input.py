@@ -108,7 +108,7 @@ def test_load_tasks_names_a_task_json_it_cannot_parse(tmp_path):
         task = tmp_path / "tasks" / name
         task.mkdir(parents=True)
         (task / "task.json").write_bytes(content)
-        with pytest.raises(PrepError, match=f"{name}.task.json"):
+        with pytest.raises(PrepError, match=f"^ev/tasks/{name}/task.json: cannot read"):
             load_tasks(tmp_path, manifest, [name])
 
 
@@ -157,3 +157,35 @@ def test_a_missing_manifest_file_still_says_it_is_missing(repo, tmp_path, capsys
     assert exc.code == 2
     err = capsys.readouterr().err
     assert str(missing) in err and "No such file" in err and "not a regular file" not in err
+
+
+def test_a_manifest_file_read_through_a_pipe_with_a_writer_validates(repo, tmp_path, capsys):
+    """#975 review of #1044: process substitution (/dev/fd/N) reads as on main; a named FIFO is still refused."""
+    import subprocess
+
+    manifest = tmp_path / "m.yaml"
+    manifest.write_text("schema: repo_manifest.v1\nid: toy\nguidance:\n  globs: ['AGENTS.md']\n", encoding="utf-8")
+    proc = subprocess.Popen(["cat", str(manifest)], stdout=subprocess.PIPE)
+    try:
+        _run("validate", str(repo), "--manifest-file", f"/dev/fd/{proc.stdout.fileno()}")
+    finally:
+        proc.stdout.close()
+        proc.wait()
+    assert "✓ toy" in capsys.readouterr().out
+
+
+def test_repo_validate_names_a_deeply_nested_task_json(repo, capsys):
+    """#975 review of #1044: repo validate reports a deep task.json as not valid JSON, not a RecursionError."""
+    task = repo / ".agent-eval" / "tasks" / "t1"
+    task.mkdir(parents=True)
+    (task / "task.json").write_text(DEEP, encoding="utf-8")
+    (repo / ".agent-eval" / "repo-eval.yaml").write_text(
+        "schema: repo_manifest.v1\nid: toy\neval_dir: .agent-eval\ntasks: .agent-eval/tasks\n"
+        "entry_points: {grade: 'g {run_dir}', oracle: 'o {run_dir}'}\nguidance:\n  globs: ['AGENTS.md']\n",
+        encoding="utf-8")
+    try:
+        _run("validate", str(repo))
+    except SystemExit:
+        pass
+    captured = capsys.readouterr()
+    assert "task.json: not valid JSON" in captured.out + captured.err
