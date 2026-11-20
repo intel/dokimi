@@ -6,6 +6,7 @@
 import pytest
 
 from dokimi.repos.l0.markdown import split
+from dokimi.repos.l0.typecheck import _claims
 
 
 @pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85", "\v", "\f", "\x1c", "\x1d", "\x1e"])
@@ -63,3 +64,18 @@ def test_unicode_separator_preserves_span_and_info_string_matching():
 def test_unicode_separator_preserves_blank_fenced_segments(separator, newline):
     pieces = split(newline.join(["```bash", f"make all{separator}", "```", ""]))
     assert [(f.line, f.lang, f.lines) for f in pieces.fences] == [(1, "bash", [(2, "make all"), (2, "")])]
+
+
+@pytest.mark.parametrize(("code_line", "claimed"), [(3, 5), (0, 3)])
+def test_a_python_fence_error_is_claimed_on_its_physical_line(code_line, claimed):
+    text = "# Toy\n\n```python\nimport json\u2028x = 1\nprint(json.dumps(1).nosuch())\n```\n"
+    fence = split(text).fences[0]
+    added = []
+
+    class Scan:
+        def add(self, *claim):
+            added.append(claim)
+
+    errors = {0: [(code_line, '"str" has no attribute "nosuch"')]}
+    _claims(Scan(), "mypy", [("AGENTS.md", fence, "")], errors, set())
+    assert [(c[1], c[4]) for c in added] == [(claimed, "fail")]
