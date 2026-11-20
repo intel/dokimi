@@ -575,11 +575,11 @@ def test_cli_cost_cap_keeps_the_partial_artifact_and_exits_nonzero(monkeypatch, 
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
-                                      "--max-cost-usd", "0.02", "--out", str(out)])
+                                      "--max-usd", "0.02", "--out", str(out)])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 3
-    assert "--max-cost-usd 0.02 reached; 14 of 16 call(s) not run" in capsys.readouterr().err
+    assert "--max-usd 0.02 reached; 14 of 16 call(s) not run" in capsys.readouterr().err
     data = json.loads(out.read_text(encoding="utf-8"))
     validate_artifact("tool_preference", data)
     assert data["max_cost_usd"] == 0.02 and data["summary"]["n_skipped"] == 14
@@ -599,7 +599,7 @@ def test_cli_cut_reply_is_billed_and_stops_the_run(monkeypatch, tmp_path, capsys
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
-                                      "--max-cost-usd", "0.02", "--out", str(out)])
+                                      "--max-usd", "0.02", "--out", str(out)])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 3
@@ -619,12 +619,12 @@ def test_cli_unpriced_model_stops_and_says_why(monkeypatch, tmp_path, capsys):
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
-                                      "--max-cost-usd", "5", "--out", str(out)])
+                                      "--max-usd", "5", "--out", str(out)])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 3
     err = capsys.readouterr().err
-    assert "no price, so --max-cost-usd cannot be enforced; 15 of 16 call(s) not run" in err
+    assert "no price, so --max-usd cannot be enforced; 15 of 16 call(s) not run" in err
     assert "reached" not in err
 
 
@@ -633,7 +633,7 @@ def test_cli_cost_cap_must_be_positive(bad):
     from dokimi.cli import build_parser
 
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--max-cost-usd", bad])
+        build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--max-usd", bad])
 
 
 def test_cli_no_warning_when_skipped_by_cost_cap(monkeypatch, tmp_path, capsys):
@@ -647,7 +647,7 @@ def test_cli_no_warning_when_skipped_by_cost_cap(monkeypatch, tmp_path, capsys):
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
-                                      "--max-cost-usd", "0.02", "--out", str(out)])
+                                      "--max-usd", "0.02", "--out", str(out)])
     with pytest.raises(SystemExit):
         args.func(args)
     err = capsys.readouterr().err
@@ -665,7 +665,7 @@ def test_cli_no_warning_when_unpriced_skips_calls(monkeypatch, tmp_path, capsys)
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
-                                      "--max-cost-usd", "100", "--out", str(out)])
+                                      "--max-usd", "100", "--out", str(out)])
     with pytest.raises(SystemExit):
         args.func(args)
     err = capsys.readouterr().err
@@ -692,7 +692,7 @@ def test_cli_warning_when_last_call_unpriced_no_skipped(monkeypatch, tmp_path, c
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
-                                      "--max-cost-usd", "100", "--out", str(out)])
+                                      "--max-usd", "100", "--out", str(out)])
     args.func(args)
     err = capsys.readouterr().err
     assert "Warning: 1 call(s) had no price" in err
@@ -773,7 +773,7 @@ def test_cli_skipping_exactly_one_call(monkeypatch, tmp_path, capsys):
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
-                                      "--max-cost-usd", "0.15", "--out", str(out)])
+                                      "--max-usd", "0.15", "--out", str(out)])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 3
@@ -791,7 +791,7 @@ def test_stopping_message_in_cap_reached_case(monkeypatch, tmp_path, capsys):
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
-                                      "--max-cost-usd", "5", "--out", str(out)])
+                                      "--max-usd", "5", "--out", str(out)])
     args.func(args)
     captured = capsys.readouterr()
     assert "stopping at $5" in captured.out

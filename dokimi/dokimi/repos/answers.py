@@ -36,7 +36,10 @@ _CODEX_FINDING = re.compile(r"^[ \t]*- \[(P\d)\] (.+) — ([^\s—][^—\r\n]*?)
 _BULLET_MARK = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])[ \t]*(?:\*\*)?\[P\d\]", re.M | re.I)
 # an indented [Pn] bullet with a dash after its tag, or ending in a path:line, is a header that did not parse,
 # so it withholds the block; body text (a mid-sentence path, a numbered time) passes, and a dash in it fails safe.
-_HEADER_TAIL = re.compile(r"\[P\d\].*?(?:—| [-] )|[\w./-]*[./][\w./-]*:\d+(?:-\d+)?\W*[ \t\r]*$", re.I)
+_TAG = re.compile(r"\[P\d\]", re.I)
+_PATH_RUN = re.compile(r"[\w./-]+")
+_LINE_NO = re.compile(r":(\d+)(?:-(\d+))?")
+_NO_WORD_TAIL = re.compile(r"\W*")
 _FINDING_MARK = re.compile(_BULLET_MARK.pattern + r"|^[ \t]*(?:\*\*)?\[P\d\]", re.M | re.I)
 # a clean verdict is a whole sentence ("Done. No issues found."); a qualified one ("No issues found beyond the
 # leak above.") is not, so it cannot drop an earlier finding, and an answer with neither it nor a finding gets no block
@@ -48,6 +51,28 @@ _CLEAN_VERDICT = re.compile(
     + r"|(?:i )?(?:did not|didn't|could not|couldn't) (?:find|identify|spot) any " + _NOUN + _WHERE
     + r"|(?:the )?(?:patch|change|commit|diff) (?:is|looks) (?:correct|good)|lgtm|looks good(?: to me)?)"
     r"[ \t]*(?:[.!\n]|$)", re.I)
+
+
+def _has_header_tail(line: str) -> bool:
+    """Whether ``line`` has a ``[Pn]`` tag followed on its line by ``—`` or `` - ``, or ends in a ``path:12`` or ``path:12-14``.
+
+    The path is a run of ``[\\w./-]`` with a ``.`` or ``/`` in it, and only non-word characters follow the numbers.
+    """
+    pos = 0
+    while (tag := _TAG.search(line, pos)) is not None:
+        stop = line.find("\n", tag.end())
+        stop = len(line) if stop < 0 else stop
+        after = line[tag.end():stop]
+        if "—" in after or " - " in after:
+            return True
+        pos = stop  # a later tag on this line has a subset of this one's closers
+    tail_start = len(line) - _NO_WORD_TAIL.match(line[::-1]).end()  # type: ignore[union-attr]
+    for run in _PATH_RUN.finditer(line):
+        number = _LINE_NO.match(line, run.end()) if line.startswith(":", run.end()) else None
+        if number and ("." in run.group() or "/" in run.group()):
+            if tail_start <= number.end(1) or (number.group(2) and tail_start <= number.end()):
+                return True
+    return False
 
 
 def codex_review_findings(text: str, workdir: str | None = None) -> list[dict[str, Any]]:
@@ -81,7 +106,7 @@ def _finding_spans(text: str) -> list[tuple[re.Match[str], list[str], int]]:
                 if not line[0].isspace():  # the body is indented; a flush line is prose after the findings
                     break
                 # a drifted header, not a body line: a bare [Pn] at any indent, or a bullet with a header tail
-                if _FINDING_MARK.match(line) and (not _BULLET_MARK.match(line) or _HEADER_TAIL.search(line)):
+                if _FINDING_MARK.match(line) and (not _BULLET_MARK.match(line) or _has_header_tail(line)):
                     break
                 body_lines.append(line.strip())
             pos += len(line)

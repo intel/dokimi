@@ -405,7 +405,7 @@ def test_cli_run_passes_its_timeout_salt_and_budget_to_the_run(tmp_path, capsys,
     work.mkdir()
     with pytest.raises(SystemExit) as exc:
         _cli("--harness", str(_profile(tmp_path)), "--only", "project-client", "--out", str(tmp_path / "out"),
-             "--work-dir", str(work), "--timeout", "1", "--salt", "SALT42", "--budget", "0.5")
+             "--work-dir", str(work), "--timeout", "1", "--salt", "SALT42", "--max-usd-per-cell", "0.5")
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "at most $0.5 each" in captured.err and "timed out after 1 seconds" in captured.out
@@ -416,9 +416,9 @@ def test_cli_run_passes_its_timeout_salt_and_budget_to_the_run(tmp_path, capsys,
 @pytest.mark.parametrize("budget", ["0", "-1", "nan"])
 def test_cli_refuses_a_budget_that_is_not_a_positive_number(tmp_path, capsys, budget):
     with refusal() as out:
-        _cli("--harness", str(_profile(tmp_path)), "--budget", budget)
+        _cli("--harness", str(_profile(tmp_path)), "--max-usd-per-cell", budget)
     assert out.code == EXIT_USAGE
-    assert "--budget must be > 0" in capsys.readouterr().err
+    assert "--max-usd-per-cell must be > 0" in capsys.readouterr().err
 
 
 def test_cli_run_writes_the_artifact_and_the_table(tmp_path, capsys):
@@ -501,7 +501,7 @@ def test_cli_run_with_keep_leaves_the_fixture_and_names_it(tmp_path, capsys):
 
 def test_cli_refuses_a_budget_for_a_harness_with_no_spend_cap(capsys):
     with refusal() as out:
-        _cli("--harness", "codex", "--budget", "0.01", "--dry-run")
+        _cli("--harness", "codex", "--max-usd-per-cell", "0.01", "--dry-run")
     assert out.code == EXIT_USAGE
     assert "has no spend-cap flag" in capsys.readouterr().err
 
@@ -871,8 +871,8 @@ def test_a_skill_reach_trace_is_versioned_and_validates(tmp_path, monkeypatch):
              for line in p.read_text(encoding="utf-8").splitlines()]
     assert lines
     for event in lines:
-        assert event["v"] == 1
-        assert schema_errors("repo_event.v1", event) == [], event
+        assert event["v"] == 2
+        assert schema_errors("repo_event.v2", event) == [], event
 
 
 def test_a_new_run_clears_the_traces_of_an_earlier_one(tmp_path):

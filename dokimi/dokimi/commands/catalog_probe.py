@@ -13,6 +13,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from dokimi import cli_flags
 from dokimi.atomic_write import write_text_atomic
 from dokimi.utils import InputError
 from dokimi.write_probe import can_write
@@ -188,7 +189,8 @@ def register(catalog_sub, positive_int) -> None:
                    help="skill-reach QuerySet, skill-creator set (with --target) or questions with expected_skill")
     p.add_argument("--target", help="Target skill of a skill-creator set")
     p.add_argument("--model", help="--model passed to claude (default: the harness default)")
-    p.add_argument("--trials", type=positive_int, default=1, help="Fresh runs per query (default: 1)")
+    cli_flags.add(p, "reps", "--reps", type=positive_int, default=1, dest="trials", metavar="N",
+                  help="Fresh runs per query (default: 1)")
     p.add_argument("--max-turns", type=positive_int, default=3, dest="max_turns",
                    help="claude --max-turns (default: 3); runs that hit it are counted in max_turns_hit")
     p.add_argument("--timeout", type=float, default=300.0, help="Seconds per run (default: 300)")
