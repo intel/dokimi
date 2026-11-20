@@ -62,10 +62,11 @@ def blob_sha256(raw: bytes) -> str:
 
 
 def _exact_rank(version: "Version") -> tuple:
-    """The order of versions with the same bytes: the head, then the fewest commits behind, then the earlier upstream
-    on the command line, then the newest commit date within that upstream (a manifest gives no commit count)."""
+    """The order of versions with the same bytes: the head, then the earlier upstream on the command line, then the
+    newest commit date within that upstream, then the fewest commits behind (a manifest gives no commit count)."""
     newest = (0, -version.date.timestamp()) if version.date is not None else (1, 0.0)
-    return (not version.head, version.behind if version.behind is not None else 1 << 30, version.upstream.order, newest)
+    behind = version.behind if version.behind is not None else 1 << 30
+    return (not version.head, version.upstream.order, newest, behind)
 
 
 def _tokens(text: str) -> frozenset[str]:
@@ -266,15 +267,18 @@ def _history(root: Path) -> tuple[list[tuple[str, str, list[tuple[str, str]]]], 
     # first-parent merge diffs, --root and --no-show-signature: git config in the checkout must not hide a version
     # or run its gpg.program.
     log = _git(root, "-c", "core.quotepath=off", "log", "--raw", "--no-abbrev", "--no-renames", "--full-history",
-               "--diff-merges=first-parent", "--root", "--no-show-signature", "--format=C %H %cI", "HEAD", "--",
+               "--diff-merges=first-parent", "--root", "--no-show-signature", "--format=C %H %cI %P", "HEAD", "--",
                _SKILL_PATHSPEC)
     if log.returncode:
         raise ValueError(f"{root}: cannot read history: {_git_error(log)}")
     commits: list[tuple[str, str, list[tuple[str, str]]]] = []
+    merges: set[str] = set()
     for line in log.stdout.split("\n"):  # not splitlines(): U+2028 and the like may be in a path
         if line.startswith("C "):
-            _, sha, date = line.split(" ", 2)
+            _, sha, date, *parents = line.split(" ")
             commits.append((sha, date, []))
+            if len(parents) > 1:
+                merges.add(sha)
         elif line.startswith(":") and commits and "\t" in line:
             meta, _, path = line.partition("\t")
             new_sha = meta.split()[3]
@@ -282,8 +286,9 @@ def _history(root: Path) -> tuple[list[tuple[str, str, list[tuple[str, str]]]], 
             commits[-1][2].append((path, new_sha))
     # A merge's first-parent diff repeats the edit its branch made: keep the older commit, as ``git log -- path``.
     last: dict[str, str] = {}
-    for _, _, changes in reversed(commits):
-        changes[:] = [(path, new_sha) for path, new_sha in changes if last.get(path) != new_sha]
+    for commit, _, changes in reversed(commits):
+        if commit in merges:
+            changes[:] = [(path, new_sha) for path, new_sha in changes if last.get(path) != new_sha]
         last.update(changes)
     touches: dict[str, list[str]] = {}
     for commit, _, changes in commits:

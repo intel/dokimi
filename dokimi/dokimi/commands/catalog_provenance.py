@@ -86,9 +86,12 @@ def cmd_catalog_provenance(args: argparse.Namespace) -> None:
         path = entry.skill.path if entry.skill is not None else entry.path
         if path is not None and path.is_dir():
             path = path / "SKILL.md"
-        if path is None or not path.is_file():
+        if path is None or not path.is_file() or not path.resolve().is_relative_to(root.resolve()):
             continue  # no file to read: `catalog check` reports it
-        raw = path.read_bytes()
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise InputError(f"{path}: cannot read the skill file: {exc}") from exc
         match = index.match(raw, upstream.frontmatter_name(raw))
         rows.append({"skill": _rel(path.parent, root), "name": entry.name, **upstream.to_row(match)})
     report = {

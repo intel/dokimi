@@ -48,7 +48,7 @@ def _commit(repo: Path, files: dict[str, str | None], date: str, message: str) -
             _git(repo, "rm", "-q", "-r", rel)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+        target.write_bytes(text.encode("utf-8"))  # not write_text: Windows would turn LF into CRLF
         _git(repo, "add", rel)
     _git(repo, "commit", "-q", "-m", message, date=date)
 
@@ -571,12 +571,20 @@ def test_the_text_columns_are_pinned(upstream_repo, tmp_path) -> None:
     fields = pdf.split("\t")
     assert fields[:3] == ["skills/pdf", "exact", "acme-skills:skills/pdf/SKILL.md"]
     assert fields[3].endswith(" 2026-01-01") and fields[4:] == ["1 commits, 3.0 mo", "no"]
+    assert not fields[3].startswith("v")  # V1 declares no version
+
+
+def test_the_text_version_column_names_a_declared_version(upstream_repo, tmp_path) -> None:
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V2})
+    lines = _run(root, "--upstream", str(upstream_repo), fmt="text")["text"].splitlines()
+    assert lines[3].split("\t")[3].startswith("v2 ")
 
 
 def test_a_crlf_copy_reads_its_own_version_not_the_later_lf_one(tmp_path: Path) -> None:
     repo = tmp_path / "acme-skills"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "core.autocrlf", "false")
     crlf = V1.replace("\n", "\r\n").encode("utf-8")
     (repo / "skills/pdf").mkdir(parents=True)
     (repo / "skills/pdf/SKILL.md").write_bytes(crlf)
@@ -588,3 +596,58 @@ def test_a_crlf_copy_reads_its_own_version_not_the_later_lf_one(tmp_path: Path) 
     (root / "SKILL.md").write_bytes(crlf)
     row = _row(_run(tmp_path / "catalog", "--upstream", str(repo)), "skills/pdf")
     assert (row["match"], row["at_head"], row["behind_commits"]) == ("exact", False, 1)
+
+
+def test_identical_bytes_at_two_paths_go_to_the_newer_commit_not_the_fewer_touches(tmp_path: Path) -> None:
+    repo = tmp_path / "acme-skills"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, {"skills/a/SKILL.md": V1}, "2026-01-01T10:00:00+00:00", "a v1")
+    _commit(repo, {"skills/b/SKILL.md": V1}, "2026-03-01T10:00:00+00:00", "b v1")
+    _commit(repo, {"skills/a/SKILL.md": V2}, "2026-04-01T10:00:00+00:00", "a v2")
+    _commit(repo, {"skills/b/SKILL.md": V2}, "2026-05-01T10:00:00+00:00", "b v2")
+    _commit(repo, {"skills/b/SKILL.md": NO_LICENCE}, "2026-06-01T10:00:00+00:00", "b v3")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["path"], row["date"], row["behind_commits"]) == (
+        "exact", "skills/b/SKILL.md", "2026-03-01", 2)
+
+
+def test_the_same_edit_on_two_unmerged_branches_keeps_the_newer_commit(tmp_path: Path) -> None:
+    repo = tmp_path / "acme-skills"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, {"skills/pdf/SKILL.md": V1}, "2026-01-01T10:00:00+00:00", "pdf v1")
+    _git(repo, "checkout", "-q", "-b", "branch-a")
+    _commit(repo, {"skills/pdf/SKILL.md": V2}, "2026-02-01T10:00:00+00:00", "v2 on a")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, {"skills/pdf/SKILL.md": V2}, "2026-02-05T10:00:00+00:00", "v2 on main")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "branch-a", date="2026-02-10T10:00:00+00:00")
+    _commit(repo, {"skills/pdf/SKILL.md": NO_LICENCE}, "2026-03-01T10:00:00+00:00", "v3")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V2})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["date"]) == ("exact", "2026-02-05")
+
+
+def test_a_skill_symlinked_to_a_file_outside_the_root_is_not_read(upstream_repo, tmp_path: Path) -> None:
+    outside = tmp_path / "outside.md"
+    outside.write_text(V1, encoding="utf-8")
+    root = tmp_path / "catalog"
+    (root / "skills/pdf").mkdir(parents=True)
+    (root / "skills/pdf/SKILL.md").symlink_to(outside)
+    (root / "skills.yaml").write_text("skills:\n  - name: pdf\n    catalog_path: skills/pdf\n", encoding="utf-8")
+    report = _run(root, "--upstream", str(upstream_repo))
+    assert report["skills"] == []
+
+
+def test_an_unreadable_skill_is_an_input_error_naming_the_file(upstream_repo, tmp_path: Path) -> None:
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    skill = root / "skills/pdf/SKILL.md"
+    skill.chmod(0)
+    try:
+        if os.access(skill, os.R_OK):
+            pytest.skip("permissions are not enforced for this user")
+        with pytest.raises(InputError, match="skills/pdf/SKILL.md"):
+            _run(root, "--upstream", str(upstream_repo))
+    finally:
+        skill.chmod(0o644)
