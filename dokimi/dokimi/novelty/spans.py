@@ -46,6 +46,9 @@ _SETEXT = re.compile(r"^ {0,3}(=+|-{2,})\s*$")
 _INDENTED = re.compile(r"^(?: {4}|\t)")
 _COMMENT_OPEN = re.compile(r"^\s*<!--")
 _QUOTE = re.compile(r"^ {0,3}>")
+# A thematic break made of `*` or `_` (`---` is read as a Setext underline or a rule by `_SETEXT`).
+_BREAK = re.compile(r"^ {0,3}([*_])(?:[ \t]*\1){2,}[ \t]*$")
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 # Sentence split on terminal punctuation followed by whitespace + a capital/backtick.
@@ -176,12 +179,14 @@ def _setext(lines: list[str], i: int) -> tuple[str, int, int] | None:
     A paragraph line that is a rule, list item, table row or blockquote opens no heading, and the closing ``---`` of an
     opening frontmatter block underlines nothing.
     """
-    if _SETEXT.match(lines[i]) or _LIST_ITEM.match(lines[i]) or _TABLE_ROW.match(lines[i]) or _QUOTE.match(lines[i]):
+    if (_SETEXT.match(lines[i]) or _BREAK.match(lines[i]) or _LIST_ITEM.match(lines[i])
+            or _TABLE_ROW.match(lines[i]) or _QUOTE.match(lines[i])):
         return None
     j = i + 1
     while j < len(lines) and lines[j].strip() and not _SETEXT.match(lines[j]) and not (
             _HEADING.match(lines[j]) or _FENCE.match(lines[j]) or _LIST_ITEM.match(lines[j])
-            or _TABLE_ROW.match(lines[j]) or _COMMENT_OPEN.match(lines[j]) or _QUOTE.match(lines[j])):
+            or _TABLE_ROW.match(lines[j]) or _COMMENT_OPEN.match(lines[j]) or _QUOTE.match(lines[j])
+            or _BREAK.match(lines[j])):
         j += 1
     if j >= len(lines) or not _SETEXT.match(lines[j]) or j == _frontmatter_end(lines):
         return None
@@ -199,6 +204,16 @@ def _comment_end(lines: list[str], i: int) -> int:
                 lines[n:n + 1] = [lines[n][:cut], lines[n][cut:]]
             return n + 1
     return -1
+
+
+def _list_item_end(lines: list[str], i: int) -> int:
+    """Index after the list item that starts on line ``i``: it continues over indented follow-on lines."""
+    j = i + 1
+    while j < len(lines) and lines[j].strip() and not _LIST_ITEM.match(lines[j]) \
+            and not _HEADING.match(lines[j]) and not _FENCE.match(lines[j]) \
+            and lines[j].startswith((" ", "\t")):
+        j += 1
+    return j
 
 
 def _scaffold(lines: list[str], i: int, spans: list[Span]) -> tuple[str, int, int] | None:
@@ -233,6 +248,7 @@ def segment(text: str) -> list[Span]:
     lines = text.splitlines(keepends=True)
     offset = 0
     i = 0
+    after_comment = -1  # the line holding the text that followed a closing ``-->``: prose, whatever it starts with
 
     def emit(kind: str, chunk: str, start: int) -> None:
         stripped = chunk.strip()
@@ -248,14 +264,17 @@ def segment(text: str) -> list[Span]:
             start=begin,
             end=begin + len(stripped),
             heading_path=tuple(heading_path),
-            protection=() if kind == "comment" else protection_tags(stripped),  # a comment is not read as a rule
+            # a comment, or one inside a sentence or list item, is not read as a rule
+            protection=() if kind == "comment" else protection_tags(_COMMENT.sub(" ", stripped)),
         ))
 
     while i < len(lines):
         line = lines[i]
         start = offset
 
-        if _FENCE.match(line):
+        prose_only = i == after_comment and not _COMMENT_OPEN.match(line)
+
+        if not prose_only and _FENCE.match(line):
             fence = _FENCE.match(line).group(1)  # type: ignore[union-attr]
             block = [line]
             offset += len(line)
@@ -270,14 +289,17 @@ def segment(text: str) -> list[Span]:
             emit("code", "".join(block), start)
             continue
 
-        if not line.strip():
+        if not line.strip() or _BREAK.match(line):  # a thematic break holds no text
             offset += len(line)
             i += 1
             continue
 
-        scaffold = _scaffold(lines, i, spans)
+        n_lines = len(lines)
+        scaffold = None if prose_only else _scaffold(lines, i, spans)
         if scaffold:
             kind, end, level = scaffold
+            if len(lines) > n_lines:
+                after_comment = end
             chunk = "".join(lines[i:end])
             _enter_heading(heading_path, level, chunk)
             emit(kind, chunk, start)
@@ -285,24 +307,19 @@ def segment(text: str) -> list[Span]:
             i = end
             continue
 
-        if _TABLE_ROW.match(line):
+        if not prose_only and _TABLE_ROW.match(line):
             emit("table_row", line, start)
             offset += len(line)
             i += 1
             continue
 
-        if _LIST_ITEM.match(line):
+        if not prose_only and _LIST_ITEM.match(line):
             # A list item continues over indented follow-on lines.
-            block = [line]
-            offset += len(line)
-            i += 1
-            while i < len(lines) and lines[i].strip() and not _LIST_ITEM.match(lines[i]) \
-                    and not _HEADING.match(lines[i]) and not _FENCE.match(lines[i]) \
-                    and lines[i].startswith((" ", "\t")):
-                block.append(lines[i])
-                offset += len(lines[i])
-                i += 1
-            emit("list_item", "".join(block), start)
+            end = _list_item_end(lines, i)
+            chunk = "".join(lines[i:end])
+            emit("list_item", chunk, start)
+            offset += len(chunk)
+            i = end
             continue
 
         # Prose paragraph: consume to a blank line or a structural line, then sentence-split.
@@ -311,7 +328,8 @@ def segment(text: str) -> list[Span]:
         i += 1
         while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) \
                 and not _FENCE.match(lines[i]) and not _LIST_ITEM.match(lines[i]) \
-                and not _TABLE_ROW.match(lines[i]) and not _COMMENT_OPEN.match(lines[i]):
+                and not _TABLE_ROW.match(lines[i]) and not _COMMENT_OPEN.match(lines[i]) \
+                and not _BREAK.match(lines[i]):
             block.append(lines[i])
             offset += len(lines[i])
             i += 1

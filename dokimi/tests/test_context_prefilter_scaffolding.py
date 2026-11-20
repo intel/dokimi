@@ -15,3 +15,10 @@ def test_markdown_scaffolding_is_not_a_claim():
         claims = claims_from_guidance(text)
         assert [c.text for c in claims] == [f"- {rule}" if text.startswith(("Rel", "<!")) else rule]
         assert not any(c.protection for c in claims)
+
+
+def test_thematic_break_and_comment_suffix_keep_the_instruction():
+    """#973: a `***` rule, a fence or a `#` after `-->` must not swallow `Never delete production data.`"""
+    rule = "Never delete production data."
+    for text in (f"{rule}\n***\nRelease checklist\n===\n", f"<!-- note --> ```\n\n{rule}\n", f"<!-- note --> # {rule}\n"):
+        assert [c.protection for c in claims_from_guidance(text) if rule in c.text] == [("negation",)], text
