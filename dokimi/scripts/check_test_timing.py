@@ -115,15 +115,24 @@ def _bind(node: ast.AST, names: Names, at: Pos | None = None) -> None:
     elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         _note(names, node.name, _end(node), None)
     elif isinstance(node, COMPREHENSIONS):
-        for child in ast.walk(node):
-            if isinstance(child, ast.NamedExpr) and isinstance(child.target, ast.Name):
-                _note(names, child.target.id, _end(child), None)
+        _bind_walruses(node, names, _end(node.generators[0].iter))
     elif not isinstance(node, ast.Lambda):
         if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
             at = _end(node)
         _bind_target(node, names, at)
         for child in ast.iter_child_nodes(node):
             _bind(child, names, at)
+
+
+def _bind_walruses(node: ast.AST, names: Names, first_done: Pos) -> None:
+    """A ``:=`` in a comprehension binds in the scope around it, not in a lambda inside it. The first
+    iterable runs before the element, so the binding takes effect after it, wherever it stands in the text."""
+    if isinstance(node, ast.Lambda):
+        return
+    if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+        _note(names, node.target.id, max(_end(node), first_done), None)
+    for child in ast.iter_child_nodes(node):
+        _bind_walruses(child, names, first_done)
 
 
 def _bind_target(node: ast.AST, names: Names, at: Pos | None) -> None:

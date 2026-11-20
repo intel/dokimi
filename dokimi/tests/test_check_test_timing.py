@@ -160,6 +160,8 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("import time\n[0 for time in time.sleep(1)]\n", {"time.sleep": 1}),
     ("import time\n[0 for time in ()  if time.sleep(1)]\n", {}),
     ("import time\n[(time := None) for _ in ()]\ntime.sleep(1)\n", {}),
+    ("import time\n[(lambda: (time := None)) for _ in ()]\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n[(time := None) for _ in (time.sleep(1),)]\n", {"time.sleep": 1}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
