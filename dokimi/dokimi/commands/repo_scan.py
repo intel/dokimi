@@ -37,15 +37,16 @@ def _typecheck_or_exit(args: argparse.Namespace):
 def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The rules and the Markdown ``@`` imports Claude Code loads with the default guidance, and the warnings of the rules
     budget does not count (a linked ``.claude/rules``); for a written manifest the rules and imports are () and the
-    warnings are the listed paths the tree could not look at.
+    warnings are the guidance paths the tree could not look at.
 
     The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
     imported file reaches the agent as surely as one in CLAUDE.md. They are named by path, not glob, so a repository
-    without rules gets no warning for them. A written manifest scans what it says, so a gate on it does not change.
+    without rules gets no warning for them. A written manifest scans what it says. Only a skipped path the scan would
+    have checked (a guidance glob, ``also_scan``, a rule) makes it incomplete; any other is only a budget warning.
     """
     if manifest.path != "<default>":
         tree.files()  # a path the listing could not look at is a guidance file the scan cannot check
-        return (), tuple(getattr(tree, "skipped", ()))
+        return (), _skipped_guidance(tree, manifest)
     from dokimi.repos.budget import RULE_GLOB, budget
     from dokimi.repos.harness_profile import load_profile
 
@@ -54,7 +55,8 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
                        claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)
     entries = inventory["entries"]
     # a rule the tree cannot list (a link to a directory, a dangling link) is not checked, so the scan is incomplete
-    not_counted = tuple(w for w in inventory["warnings"] if "are not counted" in w)
+    skipped, kept = set(getattr(tree, "skipped", ())), set(_skipped_guidance(tree, manifest, rules=p.reads_claude_rules))
+    not_counted = tuple(w for w in inventory["warnings"] if "are not counted" in w and (w not in skipped or w in kept))
     # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
     listed = set(tree.files())
     # budget lists a rule or import that is also a guidance name (CLAUDE.local.md, or a rule linked to it) as guidance,
@@ -79,6 +81,19 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
         print(f"note: also checking {len(new)} files Claude Code loads beyond the default globs: rules, @ imports, "
               "and guidance names such as CLAUDE.local.md", file=sys.stderr)
     return loaded, not_counted
+
+
+def _skipped_guidance(tree, manifest, rules: bool = False) -> tuple[str, ...]:
+    """The ``skipped`` warnings of the tree that name a path the scan would check: a file a skipped data file stands
+    beside is not guidance, so it does not make the scan incomplete (#959 review of #1028)."""
+    from dokimi.repos.budget import RULE_GLOB
+    from dokimi.repos.manifest import match_glob
+
+    def checked(path: str) -> bool:
+        return (any(match_glob(g, path) for g in manifest.guidance_globs) or path in manifest.also_scan
+                or bool(rules and RULE_GLOB.match(path)))
+
+    return tuple(w for w in getattr(tree, "skipped", ()) if checked(w.split(": ", 1)[0]))
 
 
 def _target(tree, path: str) -> str:

@@ -112,7 +112,7 @@ def test_a_skipped_guidance_file_makes_repo_scan_incomplete(tmp_path, capsys):
     finally:
         (tmp_path / "d").chmod(0o755)
     assert exc.value.code == 1
-    assert "d/f.txt: Permission denied" in capsys.readouterr().err
+    assert "d/AGENTS.md: Permission denied" in capsys.readouterr().err
 
 
 def test_a_skipped_guidance_file_makes_a_written_manifest_scan_incomplete(tmp_path, capsys):
@@ -131,4 +131,26 @@ def test_a_skipped_guidance_file_makes_a_written_manifest_scan_incomplete(tmp_pa
     finally:
         (tmp_path / "d").chmod(0o755)
     assert exc.value.code == 1
-    assert "d/f.txt: Permission denied" in capsys.readouterr().err
+    assert "d/AGENTS.md: Permission denied" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("written", [False, True])
+def test_a_skipped_data_file_does_not_make_repo_scan_incomplete(tmp_path, written):
+    """#959 review of #1028: only a skipped path the scan would check is a reason; `d/f.txt` is not guidance."""
+    _repo(tmp_path)
+    if written:
+        (tmp_path / ".agent-eval").mkdir()
+        (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text(
+            '{"schema": "repo_manifest.v1", "id": "toy", "guidance": {"globs": ["**/AGENTS.md"]}}\n', encoding="utf-8")
+        subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    (tmp_path / "d").chmod(0o000)
+    try:
+        args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--fail-on-fail", "--json"])
+        try:
+            args.func(args)
+            code = 0
+        except SystemExit as exc:
+            code = exc.code
+    finally:
+        (tmp_path / "d").chmod(0o755)
+    assert code in (0, None)
