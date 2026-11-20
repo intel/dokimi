@@ -393,6 +393,40 @@ def test_write_report_text_replaces_the_file_of_its_owner_in_a_sticky_directory(
     assert after != before
 
 
+def _report_in_another_group(tmp_path):
+    other = [g for g in os.getgroups() if g != os.getegid()]
+    if not other or os.geteuid() == 0:
+        pytest.skip("needs a supplementary group and a non-root user")
+    target = tmp_path / "r.md"
+    target.write_text("old", encoding="utf-8")
+    os.chown(target, -1, other[0])
+    return target, other[0]
+
+
+@pytest.mark.skipif(not hasattr(os, "getgroups"), reason="needs POSIX groups")
+def test_write_report_text_keeps_the_group_of_a_report_replaced_whole(tmp_path):
+    from dokimi.commands._output import write_report_text
+
+    target, group = _report_in_another_group(tmp_path)
+    before = target.stat().st_ino
+    write_report_text(target, "new\n")
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert target.stat().st_gid == group
+    assert target.stat().st_ino != before
+
+
+@pytest.mark.skipif(not hasattr(os, "getgroups"), reason="needs POSIX groups")
+def test_write_report_text_rewrites_in_place_a_report_in_a_group_the_user_is_not_in(tmp_path, monkeypatch):
+    from dokimi.commands._output import write_report_text
+
+    target, group = _report_in_another_group(tmp_path)
+    before = target.stat().st_ino
+    monkeypatch.setattr(os, "getgroups", list)
+    write_report_text(target, "new\n")
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert (target.stat().st_ino, target.stat().st_gid) == (before, group)
+
+
 @pytest.mark.skipif(not os.path.exists("/dev/null"), reason="needs /dev/null")
 def test_write_report_text_writes_to_a_special_file_instead_of_a_tmp_beside_it():
     from pathlib import Path

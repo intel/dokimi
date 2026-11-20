@@ -22,7 +22,7 @@ def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -
 
     The tmp name keeps at most 32 characters of the file name, so it stays under 170 bytes
     however long the file name is. The tmp file is created new (``O_EXCL``), so a link planted
-    at its name is never followed. A file that existed keeps its mode. Concurrent writers to one
+    at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group. Concurrent writers to one
     path each publish a whole file; the last one wins. A failed write removes its tmp file and
     leaves the file at ``path`` as it was. Missing parent directories are created.
     """
@@ -37,9 +37,9 @@ def write_bytes_atomic(path: Path | str, data: bytes) -> None:
 def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
 
-    A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory
-    and a file another user owns in a sticky directory (``/tmp``) get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
-    writable file in a read-only directory is rewritten, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
+    A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory,
+    a file another user owns in a sticky directory (``/tmp``) and a file in a group the user is not in get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
+    writable file in a read-only directory is rewritten, a file keeps its group, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
     """
     path = Path(path)
     if _is_plain_writable_file(path):
@@ -60,7 +60,15 @@ def _is_plain_writable_file(path: Path) -> bool:
         and os.access(path, os.W_OK)
         and os.access(path.parent, os.W_OK | os.X_OK)
         and not _sticky_directory_forbids_replacing(path, info)
+        and _can_keep_group(info)
     )
+
+
+def _can_keep_group(info: os.stat_result) -> bool:
+    """A new inode can be given the file's group only by root or a member of that group."""
+    if not hasattr(os, "getgroups") or getattr(os, "geteuid", lambda: 0)() == 0:
+        return True
+    return info.st_gid in (os.getegid(), *os.getgroups())
 
 
 def _sticky_directory_forbids_replacing(path: Path, info: os.stat_result) -> bool:
@@ -87,6 +95,7 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
     mode = _existing_mode(path)
+    group = _existing_group(path) if hasattr(os, "fchown") else None
     try:
         # O_BINARY: without it Windows writes each \n as \r\n a second time, as tempfile avoids.
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
@@ -98,6 +107,9 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
             except BaseException:
                 os.close(fd)
                 raise
+        if group is not None and os.fstat(fd).st_gid != group:
+            with contextlib.suppress(PermissionError):
+                os.fchown(fd, -1, group)
         with open_tmp(fd) as handle:
             handle.write(data)
         os.replace(tmp, path)
@@ -105,6 +117,13 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
         with contextlib.suppress(OSError):
             tmp.unlink()
         raise
+
+
+def _existing_group(path: Path) -> int | None:
+    try:
+        return path.stat().st_gid
+    except FileNotFoundError:
+        return None
 
 
 def _existing_mode(path: Path) -> int | None:

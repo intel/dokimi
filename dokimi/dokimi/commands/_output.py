@@ -67,7 +67,7 @@ def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:
 def write_report_text(path: Path, text: str) -> None:
     """Publish a Markdown or HTML report at ``path`` (creating parents); raises ``OSError`` when it cannot.
 
-    A plain file is replaced whole; a symlink, a hard-linked, special or read-only file is written in place as ``write_text`` did, which is not atomic.
+    A plain file is replaced whole and keeps its group; a symlink, a hard-linked, special or read-only file, or one in a group the user is not in, is written in place as ``write_text`` did, which is not atomic.
 
     A lone surrogate in ``text`` (a name from JSON, YAML or argv) is written as ``?`` and a pair is joined,
     where ``Path.write_text`` raises ``UnicodeEncodeError``; other text is written byte for byte as it does.
