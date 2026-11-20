@@ -69,7 +69,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         unchecked += not_checked(row)
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict;
-        # a finding selected by --fail-on (#942) fails whatever its level.
+        # a finding selected by --fail-on-code (#942) fails whatever its level.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
         load_failed = row["error"] is not None  # None for a skill_format exemption, decided before --ignore (skill_row)
         if load_failed or unreadable or fails_on_finding(row, fail_on) or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
@@ -181,8 +181,8 @@ def _refuse_json_conflicts(args: argparse.Namespace) -> None:
 
 
 def _refuse_unknown_codes(args: argparse.Namespace, codes: tuple) -> None:
-    """Raise InputError when --ignore or --fail-on (#942) names a code that is not a finding code."""
-    for flag, given in (("--ignore", args.ignore), ("--fail-on", args.fail_on)):
+    """Raise InputError when --ignore or --fail-on-code (#942) names a code that is not a finding code."""
+    for flag, given in (("--ignore", args.ignore), ("--fail-on-code", args.fail_on)):
         unknown = sorted(set(given or ()) - set(codes))
         if unknown:
             raise InputError(f"{flag} {', '.join(unknown)}: not a finding code; the codes are {', '.join(codes)}")
@@ -215,8 +215,8 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         raise InputError("--online checks the whole catalog at once and does not combine with --per-skill")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
                                  or args.jobs is not None or args.online or args.ignore or args.fail_on):
-        # --fail-on (#942) reads skill findings, so like --ignore it has no meaning for tasks.
-        raise InputError("--per-skill, --skip-nested, --ignore, --fail-on, --jsonl, --jobs, --resume and --online apply to "
+        # --fail-on-code (#942) reads skill findings, so like --ignore it has no meaning for tasks.
+        raise InputError("--per-skill, --skip-nested, --ignore, --fail-on-code, --jsonl, --jobs, --resume and --online apply to "
                          "skills; drop them or use --kind skills|all")
 
 
@@ -261,7 +261,7 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
 
     A subject's verdict is ``fail`` when it alone fails the exit: a skill that does not load, or with
     --strict one in ``error`` or granting unrestricted Bash with a risky command, or any skill with a
-    finding selected by --fail-on; else ``pass``.
+    finding selected by --fail-on-code; else ``pass``.
     """
     from dokimi import cli_output
 
@@ -285,7 +285,8 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
     reason = None
     if failed:
         n = sum(s["verdict"] == "fail" for s in subjects)
-        reason = f"{n} subject(s) fail" + (" under --strict" if args.strict else "") if n else "nothing to scan"
+        gates = [flag for flag, on in (("--strict", args.strict), ("--fail-on-code", args.fail_on)) if on]
+        reason = f"{n} subject(s) fail" + (f" under {' and '.join(gates)}" if gates else "") if n else "nothing to scan"
     cli_output.emit_leaf("catalog check", report, verdict="fail" if failed else "pass", reason=reason,
                          summary={"skills": counts, "tasks": len(report["tasks"])}, subjects=subjects)
 
@@ -555,7 +556,7 @@ def register(sub, positive_int, eval_sub) -> None:
         "--kind all, also on a tasks-only root with no SKILL.md",
     )
     scan_p.add_argument(
-        "--format",
+        "--format", "--f",  # --f kept as an alias: --fail-on-code made the prefix ambiguous
         choices=["text", "json"],
         default="text",
         help="text: one line per entry; json: one object with a row per skill and task (default: text)",
@@ -581,7 +582,7 @@ def register(sub, positive_int, eval_sub) -> None:
              "do not set the state or --strict's exit. Repeatable; an unknown code is a usage error",
     )
     scan_p.add_argument(
-        "--fail-on", action="append", default=None, metavar="CODE",
+        "--fail-on-code", dest="fail_on", action="append", default=None, metavar="CODE",
         help="Exit 1 when a finding with this code is left after --ignore, whatever its level. "
              "Repeatable; an unknown code is a usage error",
     )

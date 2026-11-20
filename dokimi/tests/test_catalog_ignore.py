@@ -252,54 +252,70 @@ def _fail_on_catalog(root: Path) -> None:
 
 @pytest.mark.parametrize("mode", [[], ["--per-skill"]])
 def test_fail_on_exits_1_for_a_left_finding_and_keeps_the_report(tmp_path, capsys, mode):
-    """#942: ``--fail-on CODE`` fails the scan on a warn, with the same JSON rows as without it."""
+    """#942: ``--fail-on-code CODE`` fails the scan on a warn, with the same JSON rows as without it."""
     _fail_on_catalog(tmp_path)
     base = ["--root", str(tmp_path), "--kind", "skills", "--format", "json", *mode]
     plain_out, plain_code = _run(base, capsys)
     assert plain_code == 0
 
-    out, code = _run([*base, "--fail-on", "description-no-when"], capsys)
+    out, code = _run([*base, "--fail-on-code", "description-no-when"], capsys)
     assert code == 1
     assert json.loads(out) == json.loads(plain_out)
 
     # A code no row has, and an empty selection, leave the exit alone.
-    assert _run([*base, "--fail-on", "link-missing"], capsys)[1] == 0
+    assert _run([*base, "--fail-on-code", "link-missing"], capsys)[1] == 0
 
 
 def test_fail_on_is_repeatable_and_ignore_filters_first(tmp_path, capsys):
-    """#942: --fail-on is repeatable and --ignore filters first (docs/external-content.md, --fail-on bullet)."""
+    """#942: --fail-on-code is repeatable and --ignore filters first (docs/external-content.md, --fail-on-code bullet)."""
     _fail_on_catalog(tmp_path)
     base = ["--root", str(tmp_path), "--kind", "skills", "--format", "json"]
-    assert _run([*base, "--fail-on", "link-missing", "--fail-on", "description-no-when"], capsys)[1] == 1
-    ignored = [*base, "--fail-on", "description-no-when", "--ignore", "description-no-when"]
+    assert _run([*base, "--fail-on-code", "link-missing", "--fail-on-code", "description-no-when"], capsys)[1] == 1
+    ignored = [*base, "--fail-on-code", "description-no-when", "--ignore", "description-no-when"]
     assert _run(ignored, capsys)[1] == 0
 
 
 def test_fail_on_json_marks_the_failing_subject(tmp_path, capsys):
     """#942: with --json the skill with a selected finding has verdict fail (_emit_check docstring)."""
     _fail_on_catalog(tmp_path)
-    out, code = _run(["--root", str(tmp_path), "--kind", "skills", "--json", "--fail-on", "description-no-when"], capsys)
+    out, code = _run(["--root", str(tmp_path), "--kind", "skills", "--json", "--fail-on-code", "description-no-when"], capsys)
     doc = json.loads(out)
     assert code == 1 and doc["verdict"] == "fail"
     assert {s["subject"]: s["verdict"] for s in doc["subjects"]} == {"cue": "fail", "good": "pass"}
 
 
 def test_fail_on_applies_to_resumed_rows(tmp_path, capsys):
-    """#942: --resume applies the current --fail-on to the rows it keeps (docs/external-content.md)."""
+    """#942: --resume applies the current --fail-on-code to the rows it keeps (docs/external-content.md)."""
     _fail_on_catalog(tmp_path)
     jsonl = tmp_path / "s.jsonl"
     base = ["--root", str(tmp_path), "--kind", "skills", "--per-skill", "--jsonl", str(jsonl)]
     assert _run(base, capsys)[1] == 0
-    out, code = _run([*base, "--resume", "--fail-on", "description-no-when"], capsys)
+    out, code = _run([*base, "--resume", "--fail-on-code", "description-no-when"], capsys)
     assert code == 1 and "2 resumed" in out
 
 
 def test_fail_on_unknown_code_is_a_usage_error(tmp_path, capsys):
-    """#942: an unknown --fail-on code is a usage error, as for --ignore (docs/external-content.md)."""
+    """#942: an unknown --fail-on-code code is a usage error, as for --ignore (docs/external-content.md)."""
     _fail_on_catalog(tmp_path)
-    assert _run(["--root", str(tmp_path), "--fail-on", "no-such-code"], capsys)[1] == 2
+    assert _run(["--root", str(tmp_path), "--fail-on-code", "no-such-code"], capsys)[1] == 2
 
 
 def test_fail_on_refused_with_kind_tasks(tmp_path, capsys):
-    """#942: --fail-on applies to skills only, so --kind tasks refuses it (docs/external-content.md)."""
-    assert _run(["--root", str(tmp_path), "--kind", "tasks", "--fail-on", "link-missing"], capsys)[1] == 2
+    """#942: --fail-on-code applies to skills only, so --kind tasks refuses it (docs/external-content.md)."""
+    assert _run(["--root", str(tmp_path), "--kind", "tasks", "--fail-on-code", "link-missing"], capsys)[1] == 2
+
+
+def test_f_stays_an_alias_of_format(tmp_path, capsys):
+    """#942: ``--f json`` was a valid prefix of --format before --fail-on-code; it must not turn ambiguous."""
+    _fail_on_catalog(tmp_path)
+    out, code = _run(["--root", str(tmp_path), "--kind", "skills", "--f", "json"], capsys)
+    assert code == 0
+    assert json.loads(out)["skills"]
+
+
+def test_fail_on_json_reason_names_the_gate(tmp_path, capsys):
+    """#942: the reason of a --fail-on-code failure names it, and does not blame --strict."""
+    _fail_on_catalog(tmp_path)
+    base = ["--root", str(tmp_path), "--kind", "skills", "--json", "--fail-on-code", "description-no-when"]
+    assert json.loads(_run(base, capsys)[0])["reason"] == "1 subject(s) fail under --fail-on-code"
+    assert json.loads(_run([*base, "--strict"], capsys)[0])["reason"] == "1 subject(s) fail under --strict and --fail-on-code"

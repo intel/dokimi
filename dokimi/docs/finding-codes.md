@@ -27,7 +27,7 @@ changelog. The `message` text is for people and may be reworded, so do not match
 - `note`: information only; it never changes the state.
 
 `--ignore CODE` leaves the findings with that code out of the state and the exit code.
-`--fail-on CODE` does the opposite: the scan exits 1 when a finding with that code is left
+`--fail-on-code CODE` does the opposite: the scan exits 1 when a finding with that code is left
 after `--ignore`, at any level.
 Three codes cannot be ignored (`catalog check` refuses the flag): ignoring them would hide why
 a skill does not load, or make the whole-catalog and `--per-skill` exits disagree.
