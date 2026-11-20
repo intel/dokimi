@@ -1133,20 +1133,21 @@ python cli.py tasks run --tasks <task-name> \
   `run<N>/` subdirectory.
 - `results[].passed`: verifier pass/fail. If a reward file is present, its
   number is `results[].reward`: `1.0` passes, and anything lower, including
-  partial credit such as `0.75`, is kept as the reward and counts as a fail. If
-  no reward is found, the adapter's exit code is used as the fallback, except
-  for a Harbor-backed cell, which is then errored (see the Harbor grading
-  table above), and a `docker-*` cell with a reward-file verifier (`task.toml`
-  or `task.md`), where exit 0 without `/logs/verifier/reward.txt` or
-  `reward.json` is errored and a non-zero exit scores 0.0. A terminal-bench v1
-  verifier keeps its pytest summary as the verdict. As in Harbor 0.24.0, a
-  `reward.json` is read when there is one, else `reward.txt` (a link is followed in the
-  container; a dangling one is no file); it is a JSON
+  partial credit such as `0.75`, is kept as the reward and counts as a fail.
+  If no reward is found, the adapter's exit code is used as the fallback,
+  except for a Harbor-backed cell, which is then errored (see the Harbor
+  grading table above), and a `docker-*` cell with a reward-file verifier
+  (`task.toml` or `task.md`), where exit 0 without `/logs/verifier/reward.txt`
+  or `reward.json` is errored and a non-zero exit scores 0.0. A terminal-bench
+  v1 verifier keeps its pytest summary as the verdict. As in Harbor 0.24.0, a
+  `reward.json` is read when there is one, else `reward.txt`; it is a JSON
   object of numbers, and the reward is its `reward` key, or its only key (the
   other keys stay in the cell's copy of the file). A `docker-*` `reward.txt`
   with no number between 0 and 1 in it (`PASS`, empty, `75`), a `reward.json`
   that is not such an object or whose reward is not between 0 and 1, or a
-  `docker cp` of either that fails or times out, errors the cell.
+  `docker cp` of either that fails or times out, errors the cell. Either file
+  may be a link: it is followed in the container (`docker cp -L`), and a
+  dangling one counts as no file; a directory there errors the cell.
 - `results[].metrics`: for LLM harnesses (`docker-claude*`), the per-run
   `UsageRecord` fields — `cost_usd`, `prompt_tokens`, `completion_tokens`,
   `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `latency_sec`,
