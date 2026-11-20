@@ -40,7 +40,8 @@ _PROTECTION_RULES: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 # The whole run of fence characters: a fence closes only on a run at least as long.
-_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+# A backtick run followed by another backtick on its line is inline code, not a fence.
+_FENCE = re.compile(r"^\s*(`{3,}(?!.*`)|~{3,})")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")

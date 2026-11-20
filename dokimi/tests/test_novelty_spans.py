@@ -79,6 +79,13 @@ def test_a_fence_line_with_text_after_it_does_not_close():
     assert dangling_fence("```\nx\n```  \n") is None
 
 
+def test_a_backtick_in_the_info_string_does_not_open_a_fence():
+    """CommonMark: a backtick opener's info string has no backtick, so this is prose."""
+    assert dangling_fence("``` `x` ```\nHi there.") is None
+    assert [s.kind for s in segment("``` `x` ```\nHi there.\n")] == ["sentence"]
+    assert dangling_fence("~~~ `x`\nstill code\n") == "~~~"
+
+
 def test_dangling_fence_reads_the_whole_run():
     """#974: `dangling_fence` uses the same whole-run rule as `segment`."""
     assert dangling_fence("````\n```\ncode\n```\n") == "````"
