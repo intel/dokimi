@@ -98,7 +98,9 @@ for an input kind such as a question set, and for a `run_id` that is not a run i
 - `eval questions generate` and `eval questions refine` write to `questions/`,
   `eval questions review` and `eval questions analyze` to `reports/`,
   `eval personas discover` to `personas/`, `repo reach` to `reach-out/`,
-  `tools preference` to `tool_preference.json` in the working directory;
+  `docs check` to `baselines/current.json`, `baseline save` to `baselines/eval/`,
+  `tools preference` to `tool_preference.json` and `dashboard generate` to
+  `dashboard.json` in the working directory;
 - an output flag can point anywhere.
 
 ## `runs show`
