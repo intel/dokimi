@@ -455,8 +455,10 @@ def test_repo_validate_fail_on_warning(tmp_path, capsys):
     argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
     _run_cli(argv)  # a warning alone still passes by default
     assert "warning: guidance/also_scan matches no file" in capsys.readouterr().out
+    _run_cli([*argv, "--fail-on", "fail"])
+    assert "warning: guidance/also_scan matches no file" in capsys.readouterr().out
     with refusal() as exc:
-        _run_cli([*argv, "--fail-on-warning"])
+        _run_cli([*argv, "--fail-on", "warn"])
     assert exc.code == 1
     assert "warning:" in capsys.readouterr().out
 

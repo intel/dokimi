@@ -240,7 +240,7 @@ def test_scan_command_writes_a_valid_artifact(toy, tmp_path, capsys):
     data = load_artifact("repo_readiness", out)
     assert data["schema_version"] == "repo_readiness.v1" and data["repo"]["sha"] == sha
 
-    args = build_parser().parse_args(argv + ["--fail-on-fail"])
+    args = build_parser().parse_args(argv + ["--fail-on", "fail"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 1
@@ -261,7 +261,7 @@ def test_fail_on_fail_follows_the_result_not_the_flag(tmp_path, capsys, files, e
     manifest_file = tmp_path / "m.json"
     manifest_file.write_text(json.dumps(MANIFEST), encoding="utf-8")
     args = build_parser().parse_args(["repo", "scan", f"{root}@{sha}", "--manifest-file", str(manifest_file),
-                                      "--fail-on-fail"])
+                                      "--fail-on", "fail"])
     if err:
         with pytest.raises(SystemExit) as exc:
             args.func(args)
@@ -302,15 +302,15 @@ def test_a_missing_also_scan_file_is_named_as_the_cause(tmp_path, capsys):
     out = tmp_path / "readiness.json"
     assert _exit_code(argv + ["--out", str(out)]) is None
     captured = capsys.readouterr()
-    assert captured.err == ""  # without --fail-on-fail the reason is only in the summary
+    assert captured.err == ""  # without --fail-on fail the reason is only in the summary
     lines = captured.out.splitlines()
     assert lines[1:5] == ["  claims: 0 (ok 0, unresolved 0, fail 0)", f"  warning: {NO_CLAUDE}",
-                          f"  warning: {reason}", f"  incomplete: {reason} (repo scan --fail-on-fail exits 1)"]
+                          f"  warning: {reason}", f"  incomplete: {reason} (repo scan --fail-on fail exits 1)"]
     data = load_artifact("repo_readiness", out)
     assert data["warnings"] == [NO_CLAUDE, reason]
     assert data["incomplete"] is True and data["incomplete_reasons"] == [reason]
 
-    assert _exit_code(argv + ["--fail-on-fail"]) == 1
+    assert _exit_code(argv + ["--fail-on", "fail"]) == 1
     assert capsys.readouterr().err == f"✗ scan incomplete: {reason}\n"
 
 
@@ -319,7 +319,7 @@ def test_an_invalid_static_file_still_says_why_an_incomplete_scan_fails(tmp_path
     static = tmp_path / "bad.json"
     static.write_text(json.dumps({"schema": "nope"}), encoding="utf-8")
     reason = "guidance/also_scan matches no file: CONTRIBUTING.md"
-    assert _exit_code(argv + ["--static", str(static), "--fail-on-fail"]) == 1
+    assert _exit_code(argv + ["--static", str(static), "--fail-on", "fail"]) == 1
     err = capsys.readouterr().err.splitlines()
     assert any(line.startswith("✗ --static output not merged: ") for line in err)
     assert f"✗ scan incomplete: {reason}" in err
@@ -328,7 +328,7 @@ def test_an_invalid_static_file_still_says_why_an_incomplete_scan_fails(tmp_path
 def test_a_glob_that_matches_nothing_alone_keeps_the_scan_complete(tmp_path, capsys):
     argv = _scan_argv(tmp_path, {"AGENTS.md": CLEAN, "CONTRIBUTING.md": "Read first.\n"})
     out = tmp_path / "readiness.json"
-    assert _exit_code(argv + ["--out", str(out), "--fail-on-fail"]) is None
+    assert _exit_code(argv + ["--out", str(out), "--fail-on", "fail"]) is None
     captured = capsys.readouterr()
     lines = captured.out.splitlines()
     assert f"  warning: {NO_CLAUDE}" in lines

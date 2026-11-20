@@ -294,7 +294,7 @@ def test_identical_two_word_descriptions_are_duplicates(tmp_path):
 @pytest.mark.outcome("cjm-repo-budget")
 def test_gate_passes_a_clean_tree(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, ".claude/skills/a/SKILL.md": _skill("a", "Format Python code.")})
-    out = _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys).out  # no SystemExit
+    out = _run(["repo", "budget", str(tmp_path), "--fail-on", "warn"], capsys).out  # no SystemExit
     assert "start 40 chars, lazy 0, on demand 13, off 0" in out and "warning" not in out
     assert "| start | guidance | CLAUDE.md | 20 |" in out
 
@@ -309,7 +309,7 @@ def _run(argv, capsys):
 def test_cli_table_and_gate(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, "AGENTS.md": "a" * 10, ".mcp.json": '{"mcpServers": {"docs": {}}}'})
     with refusal() as exc:
-        _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys)
+        _run(["repo", "budget", str(tmp_path), "--fail-on", "warn"], capsys)
     assert exc.code == 1
     out = _run(["repo", "budget", str(tmp_path)], capsys).out
     assert "start 20 chars, lazy 0, on demand 0, off 10" in out
