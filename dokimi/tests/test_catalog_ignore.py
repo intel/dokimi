@@ -324,12 +324,14 @@ def test_fail_on_online_code_refused_without_online(tmp_path, capsys, code):
     assert _run(["--root", str(tmp_path), "--kind", "skills", "--fail-on-code", code], capsys)[1] == 2
 
 
-def test_f_stays_an_alias_of_format(tmp_path, capsys):
-    """#942: ``--f json`` was a valid prefix of --format before --fail-on-code; it must not turn ambiguous."""
+def test_fail_on_text_says_why_the_scan_failed(tmp_path, capsys):
+    """#942: the whole-catalog text output names the skill and code behind a --fail-on-code exit 1."""
     _fail_on_catalog(tmp_path)
-    out, code = _run(["--root", str(tmp_path), "--kind", "skills", "--f", "json"], capsys)
-    assert code == 0
-    assert json.loads(out)["skills"]
+    base = ["--root", str(tmp_path), "--kind", "skills"]
+    out, code = _run([*base, "--fail-on-code", "description-no-when"], capsys)
+    assert code == 1
+    assert "fail-on-code: cue has description-no-when" in out
+    assert "fail-on-code" not in _run(base, capsys)[0]
 
 
 def test_fail_on_json_reason_names_the_gate(tmp_path, capsys):

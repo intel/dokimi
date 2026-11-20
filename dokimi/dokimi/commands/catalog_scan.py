@@ -218,6 +218,14 @@ def unrestricted_and_risky(row: dict) -> bool:
     return "allowed-tools-unrestricted-bash" in codes and bool(codes & set(RISKY_COMMAND_CODES))
 
 
+def fail_on_reason(row: dict, fail_on: frozenset[str]) -> Optional[str]:
+    """The ``fail-on-code:`` line for a row with a finding selected by ``--fail-on-code`` (#942), else None."""
+    if not fails_on_finding(row, fail_on):
+        return None
+    codes = sorted({f["code"] for f in row["findings"]} & fail_on)
+    return f"fail-on-code: {row['name']} has {', '.join(codes)}"
+
+
 def strict_reason(row: dict) -> Optional[str]:
     """``strict: <skill> ...``, the line that says why ``--strict`` fails a row that is otherwise only a warning
     (unrestricted Bash with a risky command), or None when the row is not such a failure."""
@@ -259,9 +267,9 @@ class _Tally:
         reason = strict_reason(row) if self.strict else None
         if reason is not None:
             self.reasons.append(reason)
-        if fails_on_finding(row, self.fail_on):
-            codes = sorted({f["code"] for f in row["findings"]} & self.fail_on)
-            self.reasons.append(f"fail-on-code: {row['name']} has {', '.join(codes)}")
+        gate = fail_on_reason(row, self.fail_on)
+        if gate is not None:
+            self.reasons.append(gate)
 
 
 ROW_STATES = ("ok", "warn", "error", "skipped")

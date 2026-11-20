@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 from dokimi.commands.catalog_scan import (
     ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
-    fails_on_finding, unrestricted_and_risky,
+    fail_on_reason, fails_on_finding, unrestricted_and_risky,
 )
 from dokimi.utils import InputError
 
@@ -31,6 +31,14 @@ def _print_strict_reasons(rows: list, strict: bool) -> None:
 
     for row in rows if strict else []:
         reason = catalog_scan.strict_reason(row)
+        if reason is not None:
+            print(reason)
+
+
+def _print_fail_on_reasons(rows: list, fail_on: frozenset[str]) -> None:
+    """Print the ``fail-on-code:`` line of each row with a finding selected by --fail-on-code (#942)."""
+    for row in rows:
+        reason = fail_on_reason(row, fail_on)
         if reason is not None:
             print(reason)
 
@@ -84,6 +92,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         for row in report["skills"]:
             print_skill_row(row)
         _print_strict_reasons(report["skills"], args.strict)
+        _print_fail_on_reasons(report["skills"], frozenset(args.fail_on or ()))
         _print_online(online)
         print()
     _granularity_section(skills, reviews, root, report, as_json)
@@ -576,7 +585,7 @@ def register(sub, positive_int, eval_sub) -> None:
         "--kind all, also on a tasks-only root with no SKILL.md",
     )
     scan_p.add_argument(
-        "--format", "--f",  # --f kept as an alias: --fail-on-code made the prefix ambiguous
+        "--format",
         choices=["text", "json"],
         default="text",
         help="text: one line per entry; json: one object with a row per skill and task (default: text)",
