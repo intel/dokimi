@@ -13,6 +13,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from tests.test_catalog_ignore import _emitted_codes, _run, _skill
 
 from dokimi.external.validate import FINDING_CODES
@@ -77,9 +79,15 @@ def test_whole_catalog_json_keys_are_documented(tmp_path, capsys):
     assert {"root", "skills", "tasks", "granularity"} <= set(report)
 
 
+def _envelope_section(doc: str) -> str:
+    heading = "### The run envelope"
+    assert heading in doc, f"benchmarking-and-comparison.md has no {heading!r} section"
+    return doc.split(heading, 1)[1]
+
+
 def _envelope_bullet(start: str) -> str:
     doc = (DOCS / "benchmarking-and-comparison.md").read_text(encoding="utf-8")
-    section = doc.split("### The run envelope", 1)[1]
+    section = _envelope_section(doc)
     match = re.search(r"^- " + re.escape(start) + r".*?(?=^- |\n\n|\Z)", section, re.DOTALL | re.MULTILINE)
     assert match, start
     return match.group(0)
@@ -100,3 +108,10 @@ def test_run_envelope_guide_places_cost_in_cli_output_stdout():
     assert "`cli_output.v1`" in bullet
     assert "stdout" in bullet
     assert "no top-level `cost`" in bullet
+    assert "the other commands report a cost of zero" in bullet
+
+
+def test_run_envelope_section_lookup_names_the_missing_heading():
+    """#939: a renamed heading fails with the heading named, not an ``IndexError``."""
+    with pytest.raises(AssertionError, match="The run envelope"):
+        _envelope_section("## Something else\n")
