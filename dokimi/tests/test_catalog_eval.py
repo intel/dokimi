@@ -879,6 +879,17 @@ def test_a_tracked_file_under_a_vendored_directory_of_a_bundle_selects_nothing(t
     assert evaluate(tmp_path, [])["selection"]["selected"] == []
 
 
+def test_a_tracked_vendored_file_in_a_task_with_a_base_owner_selects_nothing(tmp_path):
+    """#971: restoring a task's historical owner must not select it for a path under `node_modules`."""
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    owners = {"evaluation/harbor/tasks/t1": "alpha"}
+    vendored = "evaluation/harbor/tasks/t1/node_modules/widget/data.txt"
+    assert untracked(tmp_path, [vendored], [], owners)["selection"]["selected"] == []
+    moved = untracked(tmp_path, ["evaluation/harbor/tasks/t1/task.toml"], [], owners)["selection"]
+    assert moved["selected"] == ["alpha"]
+
+
 def test_an_ignored_cache_under_a_shared_directory_selects_nothing_and_a_tracked_file_there_selects_all(tmp_path):
     from dokimi.external.catalog_eval import hashed_paths
 
