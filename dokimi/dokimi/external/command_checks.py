@@ -104,6 +104,9 @@ def _lines_of(text: str, matches: Iterator[re.Match]) -> list[int]:
     return sorted({bisect.bisect_left(newlines, m.start()) + 1 for m in matches})
 
 
+BLOCK_END = "\0"  # ends a fenced block or code span: a quote an ``echo`` opens in one never closes in the next
+
+
 def _code_text(text: str, markdown: bool) -> str:
     """The text an install is read from: all of it, or for Markdown its fenced blocks and code spans."""
     if not markdown:
@@ -123,12 +126,13 @@ def _code_text(text: str, markdown: bool) -> str:
         stripped = line.strip()
         if stripped and set(stripped) == {fence[0]} and len(stripped) >= len(fence):
             fence = None
+            code.append(BLOCK_END)
         else:
             code.append(line)
     # a code span does not run across a paragraph break
     paragraphs = re.split(r"\n[ \t]*\n", "\n".join(prose))
     spans = [m.group(2) for para in paragraphs for m in CODE_SPAN_RE.finditer(para)]
-    return "\n".join(code + spans)
+    return "\n".join(code + [part for span in spans for part in (span, BLOCK_END)])
 
 
 def _words(rest: str, value_options: frozenset[str]) -> list[str]:
@@ -241,10 +245,10 @@ def _echoed_spans(code: str) -> list[tuple[int, int]]:
                 i += 2
             elif code[i] in "'\"":
                 quote, j = code[i], i + 1
-                while j < len(code) and code[j] != quote:
+                while j < len(code) and code[j] not in (quote, BLOCK_END):
                     j += 2 if quote == '"' and code[j] == "\\" else 1
-                if j >= len(code):
-                    break  # never closed: not a string
+                if j >= len(code) or code[j] == BLOCK_END:
+                    break  # never closed in its own block or span: not a string
                 spans.append((i, j))
                 i = j + 1
             else:

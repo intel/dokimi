@@ -697,6 +697,15 @@ def test_an_escaped_substitution_in_echoed_text_is_text(tmp_path):
     assert _found(_review(tmp_path, _fenced('echo "\\$(pip install requests)"')), "install-unpinned") == []
 
 
+@pytest.mark.parametrize("body", [
+    _fenced("echo Don't panic") + _fenced("pip install requests") + _fenced("echo 'ok'"),
+    "Run `echo it's` first, then `pip install requests`, then `echo 'ok'`.\n",
+])
+def test_an_apostrophe_in_one_block_does_not_hide_an_install_in_the_next(tmp_path, body):
+    # #946 review of #1046: an echo's quote never closes in a later fenced block or code span
+    assert "pip requests" in _found(_review(tmp_path, body), "install-unpinned")[0].message
+
+
 def test_echo_after_a_shell_keyword_is_echo(tmp_path):
     # #946 review: `then echo "..."` prints text like a bare `echo`
     assert _found(_review(tmp_path, _fenced('if true; then echo "pip install requests"; fi')),
