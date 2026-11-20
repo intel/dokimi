@@ -291,7 +291,7 @@ def test_coverage_skips_a_task_that_does_not_parse(tmp_path):
 
 @pytest.mark.parametrize(
     "text, expected",
-    [("1", 1.0), ("0\n", 0.0), ("0.75", 0.75), ("1.0", 1.0), ("reward: 0.5", 0.5),
+    [("1", 1.0), ("0\n", 0.0), ("0.75", 0.75), ("1.0", 1.0), ("reward: 0.5", 0.5), ("0.00", 0.0), ("1.00", 1.0),
      ("1.5", None), ("-0.1", None), ("", None), ("nan", None), ("inf", None)],
 )
 def test_reward_file_accepts_partial_credit(text, expected):
