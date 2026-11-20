@@ -13,7 +13,8 @@ Each ``dokimi/tests/test_*.py`` that ``base...head`` adds, modifies or renames r
 times (default 20) with ``pytest -n auto --randomly-seed=1 ... N``. At most ``--max-files``
 (default 10) files are repeated, in name order; the rest are named in the log and run only once,
 in the full suite. Exits 0 when no test file changed, 1 on the first failing seed (its number is
-in the log: ``pytest --randomly-seed=<seed> <files>`` replays it), 2 when git cannot diff.
+in the log: ``pytest --randomly-seed=<seed> <files>`` replays it), 2 when git cannot diff or
+``--repeats`` or ``--max-files`` is not a positive integer.
 """
 
 from __future__ import annotations
@@ -69,12 +70,22 @@ def repeat(files: Sequence[str], repeats: int, max_files: int,
     return 0
 
 
+def _positive(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not an integer") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"{text} is not a positive integer")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", default="origin/main")
     parser.add_argument("--head", default="HEAD")
-    parser.add_argument("--repeats", type=int, default=20)
-    parser.add_argument("--max-files", type=int, default=10)
+    parser.add_argument("--repeats", type=_positive, default=20)
+    parser.add_argument("--max-files", type=_positive, default=10)
     args = parser.parse_args(argv)
     try:
         files = changed_test_files(args.base, args.head)

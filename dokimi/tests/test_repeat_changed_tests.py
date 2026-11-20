@@ -76,6 +76,17 @@ def test_a_bad_base_raises_so_main_can_exit_2(repo):
     assert rct.main(["--base", "no-such-ref"]) == 2
 
 
+@pytest.mark.parametrize("flag", ["--repeats", "--max-files"])
+@pytest.mark.parametrize("value", ["0", "-1", "x"])
+def test_a_limit_that_is_not_a_positive_integer_is_a_usage_error(flag, value, monkeypatch, capsys):
+    monkeypatch.setattr(rct, "changed_test_files", lambda *_a, **_k: ["tests/test_a.py"])
+    monkeypatch.setattr(rct, "repeat", lambda *_a: pytest.fail("no run may start"))
+    with pytest.raises(SystemExit) as stop:
+        rct.main([flag, value])
+    assert stop.value.code == 2
+    assert f"argument {flag}" in capsys.readouterr().err
+
+
 def test_no_changed_file_runs_nothing(capsys):
     calls: list[int] = []
 
