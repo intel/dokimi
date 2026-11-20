@@ -419,6 +419,23 @@ def test_a_skip_cancelled_by_a_negative_adjective_restates_the_source():
     ) != []
 
 
+def test_a_governed_skip_is_cancelled_when_the_source_already_has_the_adjective():
+    # "wrong" is in both texts, so it is no new marker; the "skip" it governs still cancels.
+    assert check_wording(
+        "reversal", source="It is wrong to omit warm-up when measuring a speedup.",
+        candidate="Is it wrong to skip warm-up when measuring a speedup?",
+    ) == ["polarity_not_flipped"]
+
+
+def test_only_the_governed_skip_is_cancelled_and_an_ungoverned_one_inverts():
+    source = "When measuring a speedup, warm up first and then time the steady state."
+    assert check_wording(
+        "reversal", source=source,
+        candidate="When measuring a speedup, is it wrong to skip steady-state timing but "
+        "should you skip warm-up first?",
+    ) == []
+
+
 def test_an_adjective_describing_what_is_skipped_does_not_cancel_the_skip():
     source = "When measuring a speedup, warm up first and then time the steady state."
     assert check_wording(

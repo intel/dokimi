@@ -361,13 +361,10 @@ def _new_markers(source: str, text: str) -> set[str]:
     patterns = [_INVERSION_MARKERS]
     if _limiter_classes(source) - _limiter_classes(text):
         patterns.append(_QUANTIFIER_MARKERS)
-    found = {
-        m.lower() for pattern in patterns for m in pattern.findall(text)
+    ungoverned = _CANCELLING_SKIP.sub(" ", text)
+    return {
+        m.lower() for pattern in patterns for m in pattern.findall(ungoverned)
     } - {m.lower() for pattern in patterns for m in pattern.findall(source)}
-    cancelling = {m.lower() for m in _CANCELLING_SKIP.findall(text)} & found
-    if "skip" in found and cancelling:
-        found -= {"skip"} | cancelling
-    return found
 
 
 def _normalise_negations(text: str) -> str:
