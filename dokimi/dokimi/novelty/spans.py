@@ -48,7 +48,16 @@ _COMMENT_OPEN = re.compile(r"^\s*<!--")
 _QUOTE = re.compile(r"^ {0,3}>")
 # A thematic break made of `*` or `_` (`---` is read as a Setext underline or a rule by `_SETEXT`).
 _BREAK = re.compile(r"^ {0,3}([*_])(?:[ \t]*\1){2,}\s*$")
-_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_CODE = r"(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)"  # a backtick run closed by a run of the same length
+_CODE_SPAN = re.compile(_CODE)
+# A closed comment, or an inline code span (matched first when it starts first, so a literal `<!--` in it opens nothing).
+_COMMENT = re.compile(rf"{_CODE}|<!--.*?-->", re.S)
+
+
+def _blank_comments(text: str, fill: str) -> str:
+    """``text`` with each closed comment replaced by ``fill`` (repeated to its length when ``fill`` is one character)."""
+    return _COMMENT.sub(
+        lambda m: m.group() if m.group().startswith("`") else (fill * len(m.group()) if len(fill) == 1 else fill), text)
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 # Sentence split on terminal punctuation followed by whitespace + a capital/backtick.
@@ -206,6 +215,19 @@ def _comment_end(lines: list[str], i: int) -> int:
     return -1
 
 
+def _close_comment(lines: list[str], i: int, j: int) -> int:
+    """``j``, or the index after the first later line holding ``-->`` when ``lines[i:j]`` leaves a ``<!--`` open.
+
+    A comment opened inside a paragraph or list item runs over blank and structural lines to its ``-->``.
+    """
+    if "<!--" not in _CODE_SPAN.sub("", _blank_comments("".join(lines[i:j]), "")):
+        return j
+    for n in range(j, len(lines)):
+        if "-->" in lines[n]:
+            return n + 1
+    return j
+
+
 def _list_item_end(lines: list[str], i: int) -> int:
     """Index after the list item that starts on line ``i``: it continues over indented follow-on lines."""
     j = i + 1
@@ -213,7 +235,7 @@ def _list_item_end(lines: list[str], i: int) -> int:
             and not _HEADING.match(lines[j]) and not _FENCE.match(lines[j]) \
             and lines[j].startswith((" ", "\t")):
         j += 1
-    return j
+    return _close_comment(lines, i, j)
 
 
 def _scaffold(lines: list[str], i: int, spans: list[Span]) -> tuple[str, int, int] | None:
@@ -265,7 +287,7 @@ def segment(text: str) -> list[Span]:
             end=begin + len(stripped),
             heading_path=tuple(heading_path),
             # a comment, or one inside a sentence or list item, is not read as a rule
-            protection=() if kind == "comment" else protection_tags(_COMMENT.sub(" ", stripped)),
+            protection=() if kind == "comment" else protection_tags(_blank_comments(stripped, " ")),
         ))
 
     while i < len(lines):
@@ -333,9 +355,13 @@ def segment(text: str) -> list[Span]:
             block.append(lines[i])
             offset += len(lines[i])
             i += 1
+        end = _close_comment(lines, i - len(block), i)
+        block.extend(lines[i:end])
+        offset += sum(len(x) for x in lines[i:end])
+        i = end
         paragraph = "".join(block)
         # Split on the paragraph with each closed comment blanked (same length), so no cut falls inside one.
-        masked = _COMMENT.sub(lambda m: "_" * len(m.group()), paragraph)
+        masked = _blank_comments(paragraph, "_")
         cut = 0
         for boundary in [*_SENTENCE.finditer(masked), None]:
             stop = boundary.start() if boundary else len(paragraph)

@@ -22,3 +22,9 @@ def test_thematic_break_and_comment_suffix_keep_the_instruction():
     rule = "Never delete production data."
     for text in (f"{rule}\n***\nRelease checklist\n===\n", f"<!-- note --> ```\n\n{rule}\n", f"<!-- note --> # {rule}\n"):
         assert [c.protection for c in claims_from_guidance(text) if rule in c.text] == [("negation",)], text
+
+
+def test_inline_comment_closing_after_a_blank_line_is_not_a_protected_claim():
+    """#973: `Apache-2.0` in a comment that spans a blank line is not a `version_gate` claim."""
+    for text in ("Keep it. <!-- note\nApache-2.0\n\n-->\n", "- Keep it. <!-- note\nApache-2.0\n\n-->\n"):
+        assert not any(c.protection for c in claims_from_guidance(text)), text

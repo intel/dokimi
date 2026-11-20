@@ -269,3 +269,30 @@ def test_a_comment_holding_a_sentence_boundary_is_not_split_or_read_as_a_rule():
         "Keep the changelog current. <!-- note. Apache-2.0 -->", "Never skip it."]
     assert [s.protection for s in spans] == [(), ("negation",)]
     assert all(text[s.start:s.end] == s.text for s in spans)
+
+
+def test_an_inline_comment_closing_after_a_blank_line_stays_one_span_without_protection():
+    """#973: `Apache-2.0` in a comment opened mid-paragraph or mid-list-item is not a `version_gate`, blank line or not."""
+    for text in ("Keep it. <!-- note\nApache-2.0\n\n-->\n", "- Keep it. <!-- note\nApache-2.0\n\n-->\n"):
+        spans = segment(text)
+        assert [s.protection for s in spans] == [()], text
+        assert spans[0].text == text.strip()
+        assert all(text[s.start:s.end] == s.text for s in spans)
+
+
+def test_a_literal_comment_marker_in_inline_code_opens_no_comment():
+    """#973: `` `<!--` `` and `` `-->` `` in inline code hide nothing: the rule between them keeps its tag."""
+    text = "Use `<!--` to open comments.\n\nNever delete production data.\n\nUse `-->` to close comments.\n"
+    spans = segment(text)
+    assert [s.text for s in spans if "Never" in s.text] == ["Never delete production data."]
+    assert [s.protection for s in spans if "Never" in s.text] == [("negation",)]
+    one = segment("Use `<!--` and `-->` here. Never delete production data.\n")
+    assert any(s.protection == ("negation",) for s in one)
+
+
+def test_a_literal_comment_marker_in_double_backtick_code_opens_no_comment():
+    """#973: ``` ``<!--`` ``` and ``` ``-->`` ``` are inline code spans, not empty spans around a comment marker."""
+    text = "Use ``<!--`` to open comments.\n\nNever delete production data.\n\nUse ``-->`` to close comments.\n"
+    spans = segment(text)
+    assert [s.protection for s in spans if "Never" in s.text] == [("negation",)]
+    assert any(s.protection == ("negation",) for s in segment("Use ``<!--`` and ``-->``. Never delete production data.\n"))
