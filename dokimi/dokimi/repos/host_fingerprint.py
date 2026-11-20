@@ -41,7 +41,7 @@ VM_MARKERS = (("vmware", "vmware"), ("virtualbox", "virtualbox"), ("innotek", "v
               ("kvm", "kvm"), ("xen", "xen"), ("parallels", "parallels"), ("virtual machine", "hyper-v"))
 # A quoted path runs to its closing quote (one followed by a word character is an apostrophe in the path); a bare path (POSIX, ``~``, Windows, UNC, ``file:``) runs to the end of the line.
 # A ``/`` path not preceded by a word character, ``.``, ``-`` or ``/`` is absolute (not an image name); ``//`` is UNC, not ``https://``.
-_PATH = re.compile(r"""(?P<q>['"])(?:/|~|[A-Za-z]:\\|\\\\|(?i:file):)(?:(?!(?P=q)(?!\w)).)*(?P=q)(?!\w)|(?<!\w)(?P<f>(?i:file):(?://)?)/[^\n]*|~\w*/[^\n]*|\\\\[^\n]*|(?<![\w:./-])//[^/\s]+/[^\n]*|(?<![\w./-])/(?!/)[^\n]*|[A-Za-z]:\\[^\n]*""")
+_PATH = re.compile(r"""(?P<q>['"])(?:/|~|[A-Za-z]:\\|\\\\|(?i:file):)(?:(?!(?P=q)(?!\w)(?!\s+\w+[/\\])).)*(?P=q)(?!\w)|(?<!\w)(?P<f>(?i:file):(?://)?)/[^\n]*|~\w*/[^\n]*|\\\\[^\n]*|(?<![\w:./-])//[^/\s]+/[^\n]*|(?<![\w./-])/(?!/)[^\n]*|[A-Za-z]:\\[^\n]*""")
 
 
 def _read_text(path: str) -> str | None:
