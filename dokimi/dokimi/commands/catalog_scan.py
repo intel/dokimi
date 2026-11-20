@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--jobs`` and ``--resume``.
+"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--concurrency`` and ``--resume``.
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
 ``description-near-duplicate``) need every skill reviewed together. This mode gives them up
@@ -200,7 +200,7 @@ def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iter
     try:
         yield from pool.map(review, pairs, chunksize=32)
     except BrokenProcessPool as exc:
-        raise SystemExit("a --jobs worker process died; the rows written so far are kept: rerun with --resume") from exc
+        raise SystemExit("a --concurrency worker process died; the rows written so far are kept: rerun with --resume") from exc
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 

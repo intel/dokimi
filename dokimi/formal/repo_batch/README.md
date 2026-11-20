@@ -114,7 +114,7 @@ tla2tools v1.8.0 (TLC2 Version 2026.11.06.222357, rev d8fb231), 4 TLC workers, T
 ## Findings
 
 1. **One cell planned twice** (`code_main_dup_plan*`): `--task a --task a`, `--model m --model m`,
-   or `--model org/m --model org:m` (one `slug`) put two runs in one dir. With `--jobs 2` the second
+   or `--model org/m --model org:m` (one `slug`) put two runs in one dir. With `--concurrency 2` the second
    rmtree'd the first's dir while its agent ran, and `result.json` landed beside the other
    attempt's `meta.json`/answer. Fixed: `_refuse_shared_cells`.
 2. **A part-way `--force` with another execution pools two executions** (`code_main_force_crash`,

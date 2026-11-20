@@ -1,0 +1,71 @@
+{
+  "schema_version": "docs_run.v1",
+  "summary": {
+    "docs": 2,
+    "score": 0.6125,
+    "coverage": 0.5,
+    "freshness_lite": 1.0,
+    "readability": 0.375,
+    "example_pass_rate": 1.0
+  },
+  "docs": [
+    {
+      "path": "docs/install.md",
+      "chunks": 3,
+      "coverage": 0.75,
+      "freshness_lite": 1.0,
+      "readability": 0.5,
+      "example_pass_rate": 1.0,
+      "score": 0.775,
+      "example_results": [
+        {
+          "index": 0,
+          "lang": "python",
+          "passed": true,
+          "status": "passed",
+          "error": null
+        }
+      ]
+    },
+    {
+      "path": "docs/faq.md",
+      "chunks": 1,
+      "coverage": 0.25,
+      "freshness_lite": 1.0,
+      "readability": 0.25,
+      "example_pass_rate": 1.0,
+      "score": 0.45,
+      "example_results": []
+    }
+  ],
+  "gate": {
+    "soft": {
+      "enabled": true,
+      "passed": true,
+      "min_score": 0.5
+    }
+  },
+  "run_manifest": {
+    "generated_at": "2026-11-01T00:00:00+00:00",
+    "dokimi_version": "0.1.0",
+    "git": {
+      "sha": "41c2ba97e6e0000000000000000000000000000a",
+      "dirty": false,
+      "branch": "main"
+    },
+    "python": "3.12.3",
+    "platform": "Linux-6.8.0-x86_64-with-glibc2.39",
+    "dependencies": {
+      "jsonschema": "4.23.0",
+      "ragas": null
+    },
+    "spec": {
+      "path": "benchmarks/spec.v1.yaml",
+      "sha256": "9f2c4b6e1d3a5c7e9f2c4b6e1d3a5c7e9f2c4b6e1d3a5c7e9f2c4b6e1d3a5c7e"
+    },
+    "docs": {
+      "count": 2,
+      "sha256": "1d3a5c7e9f2c4b6e1d3a5c7e9f2c4b6e1d3a5c7e9f2c4b6e1d3a5c7e9f2c4b6e"
+    }
+  }
+}
