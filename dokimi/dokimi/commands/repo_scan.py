@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """`repo scan` helpers kept out of commands/repo.py, which is at its size cap: the `--typecheck` check, the text
-report, and the reason and gate of a failed --json or --fail-on-fail run."""
+report, and the reason and gate of a failed --json or --fail-on fail run."""
 
 from __future__ import annotations
 
@@ -43,8 +43,7 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
     The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
     imported file reaches the agent as surely as one in CLAUDE.md. They are named by path, not glob, so a repository
     without rules gets no warning for them. A written manifest scans what it says. Only a skipped path the scan would
-    have checked (a guidance or ``also_scan`` glob, a rule, a guidance name, an import, a directory) makes it incomplete;
-    any other is only a budget warning. A skipped Bazel build input is left to ``scan_repo``.
+    have checked (a guidance or ``also_scan`` glob, a rule, a guidance name, a Bazel build input) makes it incomplete; any other is only a budget warning.
     """
     if manifest.path != "<default>":
         tree.files()  # fills ``skipped``: listed paths the tree could not look at
@@ -57,14 +56,7 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
                        claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)
     entries = inventory["entries"]
     # a rule the tree cannot list (a link to a directory, a dangling link) is not checked, so the scan is incomplete
-    from dokimi.repos.budget import imported_by
-
-    md = [x for x in getattr(tree, "skipped_paths", ()) if x.endswith(".md")]
-    imported = frozenset(imported_by(tree, md, p.guidance_names, p.import_max_depth, p.reads_claude_rules,
-                                     claude_displaces_agents=p.claude_displaces_agents,
-                                     follow_imports=p.follows_imports)) if md else frozenset()
-    skipped = set(getattr(tree, "skipped", ()))
-    kept = set(_skipped_guidance(tree, manifest, p.guidance_names, p.reads_claude_rules, imported))
+    skipped, kept = set(getattr(tree, "skipped", ())), set(_skipped_guidance(tree, manifest, p.guidance_names, p.reads_claude_rules))
     not_counted = tuple(w for w in inventory["warnings"] if "are not counted" in w and (w not in skipped or w in kept))
     # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
     listed = set(tree.files())
@@ -92,21 +84,20 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
     return loaded, not_counted
 
 
-def _skipped_guidance(tree, manifest, names: tuple[str, ...] = (), rules: bool = False,
-                      imported: frozenset[str] = frozenset()) -> tuple[str, ...]:
+def _skipped_guidance(tree, manifest, names: tuple[str, ...] = (), rules: bool = False) -> tuple[str, ...]:
     """The ``skipped`` warnings of the tree that name a path the scan would check: a file a skipped data file stands
     beside is not guidance, so it does not make the scan incomplete (#959 review of #1028).
 
     The paths checked are those a guidance glob or an ``also_scan`` glob matches, a rule, a guidance name of the
-    profile (``CLAUDE.local.md``), a Markdown file the default guidance imports (``imported``), and a directory
-    that could not be listed. A Bazel build input is counted by ``scan_repo``, only when the Bazel adapter is on."""
+    profile (``CLAUDE.local.md``), and a Bazel build input, whose absence the scan cannot see."""
     from dokimi.repos.budget import RULE_GLOB
+    from dokimi.repos.l0 import _is_build_input
     from dokimi.repos.manifest import match_glob
 
     def checked(path: str) -> bool:
         return (any(match_glob(g, path) for g in (*manifest.guidance_globs, *manifest.also_scan))
                 or bool(rules and RULE_GLOB.match(path)) or posixpath.basename(path) in names
-                or path in getattr(tree, "skipped_dirs", ()) or path in imported)  # a directory hides any of them
+                or _is_build_input(path))
 
     paths = getattr(tree, "skipped_paths", ())
     return tuple(w for path, w in zip(paths, getattr(tree, "skipped", ()), strict=True) if checked(path))
@@ -145,7 +136,7 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
     for warning in payload["warnings"]:
         print(f"  warning: {warning}")
     if payload["incomplete"]:
-        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on-fail exits 1)")
+        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on fail exits 1)")
     tc = payload["typecheck"]
     if tc is not None:
         where = tc["python"] or "no --python-env: unknown"
@@ -164,24 +155,24 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
         print(f"wrote {out}")
 
 
-def _scan_reason(payload: dict, static_errors: list, fail_on_fail: bool) -> str:
+def _scan_reason(payload: dict, static_errors: list, gate: bool) -> str:
     """Why a --json scan failed: every cause the gate tripped on, joined by ``; `` (a scan can fail on more than
     one). The --static problems always fail the run; the failed claims and the incomplete scan only under
-    --fail-on-fail."""
+    --fail-on fail."""
     parts = []
     if static_errors:
         parts.append(f"{len(static_errors)} --static problem(s) not merged")
-    if fail_on_fail and payload["counts"]["fail"]:
+    if gate and payload["counts"]["fail"]:
         parts.append(f"{payload['counts']['fail']} claim(s) failed")
-    if fail_on_fail and payload["incomplete"]:
+    if gate and payload["incomplete"]:
         reasons = "; ".join(payload.get("incomplete_reasons") or [])
         parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
     return "; ".join(parts)
 
 
-def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
-    """--fail-on-fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
-    if not fail_on_fail or not (payload["counts"]["fail"] or payload["incomplete"]):
+def _scan_gate(payload: dict, gate: bool) -> None:
+    """--fail-on fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
+    if not gate or not (payload["counts"]["fail"] or payload["incomplete"]):
         return
     if payload["incomplete"]:
         print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)

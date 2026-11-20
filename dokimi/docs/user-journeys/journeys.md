@@ -71,7 +71,7 @@ handed to another journey with its own scope.
 
 **Today.** The pieces exist per subject type: `python cli.py repo scan` for a
 repository, `python cli.py skill routing` and
-`python cli.py skill novelty analyze --estimate-only` for a skill. A single entry
+`python cli.py skill novelty analyze --dry-run` for a skill. A single entry
 that picks among them, and the costed plan, are **proposed**.
 
 **Connections.** Leads to J2, J3, J4, J5 or J7.
@@ -102,7 +102,7 @@ use; the budget.
 1. Check the skill can be selected at all: does the agent route to it for the
    queries it is for (`python cli.py skill routing`)?
 2. Estimate what the diagnosis costs before running it
-   (`python cli.py skill novelty analyze --estimate-only`).
+   (`python cli.py skill novelty analyze --dry-run`).
 3. Diagnose: which parts of the skill add knowledge the model lacks, which
    repeat what it knows, which conflict with it
    (`python cli.py skill novelty analyze`, then `python cli.py skill novelty view`).
@@ -710,7 +710,7 @@ cost.
 
 **Today.** Baselines exist (`python cli.py baseline save`,
 `python cli.py baseline compare --strict`), as do static gates
-(`python cli.py repo scan --fail-on-fail`). `baseline compare --strict` adds a
+(`python cli.py repo scan --fail-on fail`). `baseline compare --strict` adds a
 non-zero exit only when a model cannot be verified or differs from the
 baseline. Explicit `--max-context-drop` and `--max-lift-drop` thresholds block
 score regressions, requiring complete matched scores and known matching models
@@ -784,13 +784,13 @@ the settings that produced it, the spend, and the stated limits.
 
 | Operation | Command | Notes |
 |---|---|---|
-| Content novelty of a skill | `python cli.py skill novelty analyze` | Estimate with `--estimate-only`; cap with `--max-usd`; output `novelty.json` |
+| Content novelty of a skill | `python cli.py skill novelty analyze` | Estimate with `--dry-run`; cap with `--max-usd`; output `novelty.json` |
 | Re-render saved novelty | `python cli.py skill novelty view` | No model calls |
 | Skill routing | `python cli.py skill routing` | Free without `--model` |
-| Guidance reach | `python cli.py repo reach` | Plan with `--dry-run`; cap with `--budget` |
+| Guidance reach | `python cli.py repo reach` | Plan with `--dry-run`; cap with `--max-usd-per-cell` |
 | Context window of a run | `python cli.py trace inspect` | Reads an existing trace |
 | Judge calibration | `python cli.py eval judge validate` | Sequential stopping with `--sequential` |
-| Tool-choice probe | `python cli.py tools preference` | Cap with `--max-cost-usd` |
+| Tool-choice probe | `python cli.py tools preference` | Cap with `--max-usd` |
 
 **Connections.** Every other journey uses these as steps.
 

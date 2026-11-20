@@ -540,7 +540,7 @@ python cli.py eval triggers generate --catalog <skills-checkout>/skills \
   or `@field.path` read per question. A label that names no catalog skill fails the run;
   a question without the field is left unlabelled (`label_unresolved`), and a path that
   resolves for no question in its file fails the run as a typo. Unlabelled rows are
-  dropped from `reach` and `skill-creator` (stderr warns; `--strict` fails instead).
+  dropped from `reach` and `skill-creator` (stderr warns; `--fail-on warn` fails instead).
   A question with no usable text (`text`, `question`, `prompt` or `question_text`) fails
   the run rather than becoming an empty query.
 - `--rewrite` turns exam-style questions ("Scenario: … Describe how …") into the
@@ -549,7 +549,7 @@ python cli.py eval triggers generate --catalog <skills-checkout>/skills \
 - Lint per query, summarised on stdout: `names_skill` (the query tells the agent the
   answer), `echo_terms` (words only the expected skill's description uses),
   `exam_framing`, and `lexical_rank` (1 = word overlap alone picks the skill).
-  `--strict` fails on named skills, exam framing or unresolved labels.
+  `--fail-on warn` fails on named skills, exam framing or unresolved labels.
 - `--format reach` writes a [google/skill-reach](https://github.com/google/skill-reach)
   `QuerySet`. A label listing several skills keeps the first as `expected_skill` and the
   rest as `acceptable_skills`, which skill-reach treats as neutral helpers rather than
@@ -617,7 +617,7 @@ Records are kept in `<out>.partial` while the probe runs:
 
 ```bash
 python cli.py catalog trigger-probe --catalog <skills-checkout>/skills \
-  --trigger-set trigger_set.json --model <model> --trials 3 --out probe.json
+  --trigger-set trigger_set.json --model <model> --reps 3 --out probe.json
 ```
 
 Two things decide whether such a number means anything:

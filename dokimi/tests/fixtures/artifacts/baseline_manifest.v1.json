@@ -1,0 +1,24 @@
+{
+  "schema_version": "baseline_manifest.v1",
+  "baselines": [
+    {
+      "name": "demo-20261101T000000000000",
+      "product": "demo",
+      "saved_at": "20261101T000000000000",
+      "path": "baselines/eval/demo-20261101T000000000000.json",
+      "summary": {
+        "n": 1,
+        "avg_with": 80.0,
+        "avg_without": 60.0,
+        "avg_delta": 20.0
+      }
+    },
+    {
+      "name": "empty",
+      "product": "demo",
+      "saved_at": "20261102T000000000000",
+      "path": "baselines/eval/empty.json",
+      "summary": {}
+    }
+  ]
+}

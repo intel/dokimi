@@ -133,25 +133,12 @@ class WorkTree:
         self._files: list[str] | None = sorted(files) if files is not None else None
         self.skipped: list[str] = []  # warnings for listed paths left out of ``files()`` because they could not be looked at
         self.skipped_paths: list[str] = []  # those paths, parallel to ``skipped`` (a path may hold ``": "``)
-        self.skipped_dirs: set[str] = set()  # the skipped paths that are directories whose content could not be listed
 
     def _resolve(self, path: str) -> Path:
         target = (self.root / path).resolve()
         if not target.is_relative_to(self.root):
             raise SourceArgumentError(f"path escapes the repository: {path}")
         return target
-
-    def _walk_failed(self, exc: OSError) -> None:
-        """``os.walk`` could not list a directory: name it in ``skipped``, as for a listed path."""
-        rel = os.path.relpath(exc.filename, self.root) if exc.filename else "."
-        self._skip(rel.replace(os.sep, "/"), exc)
-        self.skipped_dirs.add(self.skipped_paths[-1])
-
-    def _skip(self, path: str, exc: OSError) -> None:
-        # not ``exc.strerror``, which follows the locale; "are not counted" is what repo scan reads as incomplete
-        why = "Permission denied" if exc.errno in (errno.EACCES, errno.EPERM) else f"{type(exc).__name__}"
-        self.skipped.append(f"{path}: {why}; the file and anything it leads to are not counted")
-        self.skipped_paths.append(path)
 
     def _is_entry(self, path: str) -> bool:
         """Whether a listed path is a file or a link; one that cannot be looked at (a directory above it that
@@ -163,7 +150,10 @@ class WorkTree:
         except (FileNotFoundError, NotADirectoryError):
             return False
         except OSError as exc:
-            self._skip(path, exc)
+            # not ``exc.strerror``, which follows the locale; "are not counted" is what repo scan reads as incomplete
+            why = "Permission denied" if exc.errno in (errno.EACCES, errno.EPERM) else f"{type(exc).__name__}"
+            self.skipped.append(f"{path}: {why}; the file and anything it leads to are not counted")
+            self.skipped_paths.append(path)
             return False
 
     def files(self) -> list[str]:
@@ -176,10 +166,10 @@ class WorkTree:
             listed = _git_entries(self.root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                                   check=False, warn=True)
             if listed:  # a link is an entry even when it dangles or names a directory, as in git
-                self._files = sorted({p for p in dict.fromkeys(listed) if self._is_entry(p)})
+                self._files = sorted({p for p in listed if self._is_entry(p)})
         if self._files is None:
             out: list[str] = []
-            for dirpath, dirnames, filenames in os.walk(self.root, onerror=self._walk_failed):
+            for dirpath, dirnames, filenames in os.walk(self.root):
                 dirnames[:] = [d for d in dirnames if d != ".git"]
                 rel = Path(dirpath).relative_to(self.root)
                 # A link to a directory is an entry, as in git, though walk lists it as a directory.

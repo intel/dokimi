@@ -18,8 +18,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
+from dokimi import cli_flags
 from dokimi.commands.catalog_scan import (
-    is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row,
+    ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
     unrestricted_and_risky,
 )
 from dokimi.utils import InputError
@@ -54,7 +56,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     only = getattr(args, "only", None)  # `skill check SKILL` reports this one skill (#94 M3)
     if only is not None and only not in {entry.name for entry in skills}:
         raise InputError(f"no skill named {only!r} under {root}")
-    counts = {"ok": 0, "warn": 0, "error": 0}
+    counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
     plain = 0
     unchecked = 0
     failed = False
@@ -69,13 +71,15 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
-        if not skill.loaded or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
+        load_failed = row["error"] is not None  # None for a skill_format exemption, decided before --ignore (skill_row)
+        if load_failed or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
             f"# skills ({shown} declared under {root}; "
-            f"{ok_text(counts['ok'], unchecked)}, {counts['warn']} warn, {counts['error']} error{plain_note(plain)})"
+            f"{ok_text(counts['ok'], unchecked)}, {counts['warn']} warn, {counts['error']} error{plain_note(plain)}"
+            f"{skipped_note(counts['skipped'])})"
         )
         for row in report["skills"]:
             print_skill_row(row)
@@ -199,13 +203,13 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
     if args.resume and not args.jsonl:
         raise InputError("--resume needs --jsonl: the rows it skips are read from that file")
     if (args.jsonl or args.jobs is not None) and not args.per_skill:
-        raise InputError("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
+        raise InputError("--jsonl and --concurrency need --per-skill: cross-catalog checks need every skill loaded at once")
     if args.online and args.per_skill:
         # Each worker would open its own connections and cache, and --resume would keep rows that no network check made.
         raise InputError("--online checks the whole catalog at once and does not combine with --per-skill")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
                                  or args.jobs is not None or args.online or args.ignore):
-        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --jobs, --resume and --online apply to "
+        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --concurrency, --resume and --online apply to "
                          "skills; drop them or use --kind skills|all")
 
 
@@ -267,7 +271,7 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
             if row["state"] == "error" else []
         subjects.append({"subject": f"task:{row['name']}", "verdict": "fail" if row["state"] == "error" else "pass",
                          "findings": findings})
-    counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ("ok", "warn", "error")}
+    counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ROW_STATES}
     reason = None
     if failed:
         n = sum(s["verdict"] == "fail" for s in subjects)
@@ -355,7 +359,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         print(f"warning: {summary['label_unresolved']} questions have an unresolved @field label; "
               "they are left unlabelled and dropped from --format reach/skill-creator", file=sys.stderr)
     if summary["unknown_expected"] or (
-        args.strict and (summary["names_skill"] or summary["exam_framing"] or summary["label_unresolved"])
+        args.fail_on == "warn" and (summary["names_skill"] or summary["exam_framing"] or summary["label_unresolved"])
     ):
         # Refuse before writing, so a pipeline that only checks for the file
         # cannot pick up a set with a mistyped label. A lint gate verdict: exit 1, as on main.
@@ -571,8 +575,8 @@ def register(sub, positive_int, eval_sub) -> None:
         help="--per-skill: write one JSON row per skill to PATH as each is reviewed, and print "
              "only the counts",
     )
-    scan_p.add_argument(
-        "--jobs", type=positive_int, default=None,
+    cli_flags.add(
+        scan_p, "concurrency", "--concurrency", type=positive_int, default=None, dest="jobs", metavar="N",
         help="--per-skill: review this many skills in parallel worker processes (default 1)",
     )
     scan_p.add_argument(
@@ -626,8 +630,8 @@ def register(sub, positive_int, eval_sub) -> None:
                       help="Rewrite each question into first-person user voice (model sees only the question)")
     ts_p.add_argument("--model", help="Model for --rewrite")
     ts_p.add_argument("--provider", default="openai", help="Provider for --rewrite (default: openai)")
-    ts_p.add_argument("--strict", action="store_true",
-                      help="Exit 1 if any query names a skill, keeps exam framing, or has an unresolved @field label")
+    cli_flags.add(ts_p, "fail_on", "--fail-on", choices=("warn",), default=None,
+                  help="warn: exit 1 if any query names a skill, keeps exam framing, or has an unresolved @field label")
     ts_p.add_argument("--out", required=True, help="Output JSON path")
     ts_p.set_defaults(func=cmd_catalog_trigger_set)
 

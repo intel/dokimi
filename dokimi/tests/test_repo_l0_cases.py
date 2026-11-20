@@ -842,7 +842,7 @@ def _cli(tmp_path, root: Path, *extra: str) -> int:
 def test_cli_exit_codes(tmp_path, capsys):
     root = tmp_path / "r"
     _git_repo(root, {"AGENTS.md": "`src/a.h`\n", "src/a.h": "", "ev/tasks/t/task.json": "{}"})
-    assert _cli(tmp_path, root, "--fail-on-fail") == 0
+    assert _cli(tmp_path, root, "--fail-on", "fail") == 0
     for doc in ('{"schema": "repo_static.v1", "claims": [{"file": "AGENTS.md"}]}', "[1, 2]", '"text"'):
         bad = tmp_path / "static.json"
         bad.write_text(doc, encoding="utf-8")
@@ -853,7 +853,7 @@ def test_cli_exit_codes(tmp_path, capsys):
     _git_repo(empty, {"README.md": "no guidance here\n", "ev/tasks/t/task.json": "{}"})
     assert _cli(tmp_path, empty) == 0
     assert "warning: no guidance file to scan" in capsys.readouterr().out
-    assert _cli(tmp_path, empty, "--fail-on-fail") == 1
+    assert _cli(tmp_path, empty, "--fail-on", "fail") == 1
 
 
 def test_scan_exits_2_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys):
@@ -944,7 +944,7 @@ def test_gate_fails_when_globbed_guidance_deleted(tmp_path, monkeypatch, capsys)
     monkeypatch.setattr(repos, "open_source", lambda source, cache=None: WithoutAgentsMd(source.location))
     manifest = framework / "benchmarks" / "self-scan.repo-eval.yaml"
     args = build_parser().parse_args(["repo", "scan", str(framework.parent), "--manifest-file", str(manifest),
-                                      "--fail-on-fail"])
+                                      "--fail-on", "fail"])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 1

@@ -16,7 +16,7 @@ from dokimi.repos.compare import CompareError, _compare_measure, _inconclusive_n
 from dokimi.repos.compare_values import task_values
 from dokimi.repos.compare_reach import min_detectable
 from dokimi.repos.grading import SCORE_BOUND
-from dokimi.repos.useful import useful_task_counts, useful_task_values
+from dokimi.repos.useful import useful_counts, useful_task_counts, useful_task_values
 
 
 def _side(value: float) -> dict:
@@ -211,12 +211,45 @@ def test_compare_gives_no_row_for_a_metric_past_the_measure_bound_and_lists_its_
     assert at is not None and at["baseline_mean"] == SCORE_BOUND
 
 
-def test_first_useful_rate_keeps_a_cell_with_steps_past_the_bound_as_a_non_hit():
-    cells = [{"first_useful": {"kind": "edit", "steps": steps, "reason": None, "issued_s": 1.0}}
-             for steps in (5, 1e200)]
-    assert useful_task_values(cells)["first_useful_rate"] == [0.5]
+def _useful_cell(steps: float | None, reason: str | None = None) -> dict:
+    return {"first_useful": {"kind": "edit", "steps": steps, "reason": reason, "issued_s": 1.0}}
+
+
+@pytest.mark.parametrize("past", [1e200, float("nan"), float("inf")])
+def test_first_useful_rate_leaves_out_a_cell_with_steps_past_the_bound(past):
+    # contract "The measure bound": a cell whose steps is past it is neither a hit nor a miss (#922)
+    cells = [_useful_cell(5), _useful_cell(past)]
+    assert useful_task_values(cells)["first_useful_rate"] == [1.0]
     counts = useful_task_counts(cells)
-    assert (counts["first_useful_steps"], counts["first_useful_rate"]) == (1, 2)
+    assert (counts["first_useful_steps"], counts["first_useful_rate"]) == (1, 1)
+
+
+@pytest.mark.parametrize("reason", [None, "untimed"])
+def test_first_useful_rate_leaves_out_a_cell_with_steps_none_whose_reason_says_it_hit(reason):
+    # contract "The measure bound": a hit with no count is a broken count, not a miss; only `never` is a miss
+    cells = [_useful_cell(5), _useful_cell(None, reason)]
+    assert useful_task_values(cells)["first_useful_rate"] == [1.0]
+    assert useful_task_counts(cells)["first_useful_rate"] == 1
+
+
+def test_first_useful_rate_still_counts_a_never_cell_as_a_miss_beside_a_past_bound_cell():
+    # contract "The measure bound": only a steps that is no measure is left out; a cell with steps None is a miss
+    cells = [_useful_cell(5), _useful_cell(1e200), _useful_cell(None, "never")]
+    assert useful_task_values(cells)["first_useful_rate"] == [0.5]
+    assert useful_task_counts(cells)["first_useful_rate"] == 2
+
+
+def test_first_useful_rate_keeps_a_cell_with_steps_at_the_bound_as_a_hit():
+    # contract "The measure bound": a magnitude of 1e150 (SCORE_BOUND) is still a measurement
+    cells = [_useful_cell(5), _useful_cell(SCORE_BOUND)]
+    assert useful_task_values(cells)["first_useful_rate"] == [1.0]
+    assert useful_task_counts(cells)["first_useful_rate"] == 2
+
+
+def test_useful_counts_shows_a_cell_with_steps_past_the_bound_as_unmeasured():
+    # contract "The measure bound": the compare header's observed-of-measured count leaves the cell out too (#922)
+    cells = [_useful_cell(5), _useful_cell(1e200)]
+    assert useful_counts(cells) == {"observed": 1, "measured": 1, "unmeasured": 1}
 
 
 def test_checked_delta_refuses_an_integer_beyond_the_float_range_with_the_requested_error():

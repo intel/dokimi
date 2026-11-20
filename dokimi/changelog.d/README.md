@@ -49,7 +49,8 @@ change with no user-visible effect (an internal refactor, a test-only or CI-only
 change inside the package) a maintainer adds the `skip-changelog` label
 instead; adding or removing the label re-runs the check. Changes outside them
 (tests, docs, scripts, CI, the `dev` extra and tool settings such as
-`[tool.ruff]` in `pyproject.toml`) need no fragment.
+`[tool.ruff]` in `pyproject.toml`) need no fragment, and neither does a change
+to `project.version` alone: the release PR bumps it and deletes the fragments.
 
 ## Releasing
 

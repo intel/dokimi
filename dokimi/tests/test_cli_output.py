@@ -448,15 +448,15 @@ def test_a_moved_spelling_without_json_prints_no_document(monkeypatch, capsys, a
 
 
 def test_a_failed_budget_gate_under_json_says_why(monkeypatch, capsys, tmp_path):
-    # a warning under --fail-on-warning: the status is failed, so the document carries the reason too
+    # a warning under --fail-on warn: the status is failed, so the document carries the reason too
     (tmp_path / "CLAUDE.md").write_text("c" * 20, encoding="utf-8")
     (tmp_path / "AGENTS.md").write_text("a" * 10, encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
-        _run_main(monkeypatch, ["repo", "budget", str(tmp_path), "--json", "--fail-on-warning"])
+        _run_main(monkeypatch, ["repo", "budget", str(tmp_path), "--json", "--fail-on", "warn"])
     assert exc.value.code == 1
     doc = json.loads(capsys.readouterr().out)
     assert doc["status"] == "failed"
-    assert doc["reason"] == f"{len(doc['data']['warnings'])} warning(s) under --fail-on-warning"
+    assert doc["reason"] == f"{len(doc['data']['warnings'])} warning(s) under --fail-on warn"
 
 
 def test_a_failed_inspect_gate_under_json_says_why(monkeypatch, capsys, tmp_path):
@@ -464,10 +464,26 @@ def test_a_failed_inspect_gate_under_json_says_why(monkeypatch, capsys, tmp_path
 
     _repo(tmp_path, {"src/a.py": "x = 1\n"})  # the checks.test.missing ERROR of test_repo_inspect_cli
     with pytest.raises(SystemExit) as exc:
-        _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on-error"])
+        _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "fail"])
     assert exc.value.code == 1
     doc = json.loads(capsys.readouterr().out)
-    assert doc["reason"] == f"{doc['data']['counts']['error']} error(s) under --fail-on-error"
+    assert doc["reason"] == f"{doc['data']['counts']['error']} error(s) under --fail-on fail"
+
+
+def test_inspect_fail_on_warn_gates_on_a_warning_finding(monkeypatch, capsys, tmp_path):
+    from tests.test_repo_environment import _repo
+
+    # runner-unknown is a WARNING and the tree has no ERROR: --fail-on fail passes, --fail-on warn fails
+    _repo(tmp_path, {"AGENTS.md": "x", "Gemfile": "gem 'rake'\n", "spec/a_spec.rb": "x"})
+    _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "fail"])
+    assert json.loads(capsys.readouterr().out)["status"] == "complete"
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "warn"])
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)
+    counts = doc["data"]["counts"]
+    assert counts["error"] == 0 and counts["warning"]
+    assert doc["reason"] == f"0 error(s), {counts['warning']} warning(s) under --fail-on warn"
 
 
 def test_emit_refuses_a_payload_value_that_is_not_json(capsys):
@@ -510,7 +526,7 @@ def test_a_failed_scan_with_no_incomplete_reason_still_says_what_failed():
         "2 claim(s) failed; scan incomplete: x"
     assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 0}}, ["bad"], True) == \
         "1 --static problem(s) not merged"
-    # without --fail-on-fail, failed claims and an incomplete scan are not what failed the run
+    # without --fail-on fail, failed claims and an incomplete scan are not what failed the run
     assert _scan_reason({"incomplete": True, "incomplete_reasons": ["x"], "counts": {"fail": 2}}, ["bad"], False) == \
         "1 --static problem(s) not merged"
 

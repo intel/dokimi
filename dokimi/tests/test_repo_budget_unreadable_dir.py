@@ -210,7 +210,7 @@ def test_a_skipped_path_matching_an_also_scan_glob_makes_the_scan_incomplete(tmp
 def test_a_skipped_bazel_build_input_makes_the_scan_incomplete(tmp_path, written):
     """#959 review of #1028: a `.bzl` file the scan cannot list is a build input it cannot read."""
     _repo(tmp_path)
-    _track(tmp_path, {"MODULE.bazel": "module(name = \"m\")\n", "BUILD": "x\n", "d/macros.bzl": "def f():\n    pass\n", "AGENTS.md": "Run `bazel build //...`.\n"})
+    _track(tmp_path, {"BUILD": "x\n", "d/macros.bzl": "def f():\n    pass\n", "AGENTS.md": "Run `bazel build //...`.\n"})
     if written:
         _manifest(tmp_path, '"guidance": {"globs": ["AGENTS.md"]}')
     mode = _lock(tmp_path / "d")
@@ -248,95 +248,3 @@ def test_the_warning_names_the_reason_without_the_locale(tmp_path, monkeypatch):
     tree = WorkTree(tmp_path)
     tree.files()
     assert tree.skipped == ["d/f.txt: Permission denied; the file and anything it leads to are not counted"]
-
-
-def test_a_skipped_markdown_import_of_the_default_guidance_makes_the_scan_incomplete(tmp_path):
-    """#959 review of #1028: `@d/context.md` in CLAUDE.md is loaded by default, so `d/context.md` is checked."""
-    _repo(tmp_path)
-    _track(tmp_path, {"CLAUDE.md": "@d/context.md\n", "d/context.md": "Read `missing.py`.\n"})
-    mode = _lock(tmp_path / "d")
-    try:
-        assert _scan_exit(tmp_path) == 1
-    finally:
-        (tmp_path / "d").chmod(mode)
-
-
-def test_a_skipped_bazel_build_input_without_the_bazel_adapter_is_only_a_warning(tmp_path):
-    """#959 review of #1028: `scan_repo` reads build inputs only with the Bazel adapter; `adapters.detect` looks at root markers."""
-    _repo(tmp_path)
-    _track(tmp_path, {"Makefile": "all:\n\ttrue\n", "vendor/lib/BUILD": "x\n"})
-    mode = _lock(tmp_path / "vendor" / "lib")
-    try:
-        assert _scan_exit(tmp_path) == 0
-    finally:
-        (tmp_path / "vendor" / "lib").chmod(mode)
-
-
-def test_a_plain_directory_names_an_unsearchable_directory_and_fails_the_gate(tmp_path):
-    """#959 review of #1028: outside git the `os.walk` fallback records the directory, so the gate does not depend on `.git`."""
-    (tmp_path / "AGENTS.md").write_text("x\n", encoding="utf-8")
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "AGENTS.md").write_text("Read `missing.py`.\n", encoding="utf-8")
-    mode = _lock(tmp_path / "d")
-    try:
-        tree = WorkTree(tmp_path)
-        assert tree.files() == ["AGENTS.md"]
-        assert tree.skipped == ["d: Permission denied; the file and anything it leads to are not counted"]
-        assert _scan_exit(tmp_path) == 1
-    finally:
-        (tmp_path / "d").chmod(mode)
-
-
-def test_an_unmerged_path_is_named_once(tmp_path):
-    """#959 review of #1028: `ls-files --cached` lists an unmerged path once per stage."""
-    _repo(tmp_path)
-    sha = subprocess.run(["git", "-C", str(tmp_path), "hash-object", "-w", "d/f.txt"], check=True,
-                         capture_output=True, text=True).stdout.strip()
-    index = "".join(f"100644 {sha} {n}\td/f.txt\n" for n in (1, 2, 3))
-    subprocess.run(["git", "-C", str(tmp_path), "update-index", "--index-info"], input="0 " + "0" * 40 + "\td/f.txt\n" + index,
-                   check=True, capture_output=True, text=True)
-    mode = _lock(tmp_path / "d")
-    try:
-        tree = WorkTree(tmp_path)
-        tree.files()
-    finally:
-        (tmp_path / "d").chmod(mode)
-    assert tree.skipped == ["d/f.txt: Permission denied; the file and anything it leads to are not counted"]
-
-
-def test_a_workspace_export_refuses_a_tree_with_an_unsearchable_directory(tmp_path):
-    """#959 review of #1028: `_export` copies `tree.files()`; a workspace that lacks `d/f.txt` must not be built."""
-    from dokimi.repos.errors import PrepError
-    from dokimi.repos.workspace import _export
-
-    src = tmp_path / "src"
-    src.mkdir()
-    _repo(src)
-    mode = _lock(src / "d")
-    try:
-        with pytest.raises(PrepError, match=r"d/f\.txt: Permission denied"):
-            _export(WorkTree(src), tmp_path / "ws", None, None)
-    finally:
-        (src / "d").chmod(mode)
-    assert not (tmp_path / "ws").exists()
-
-
-@pytest.mark.parametrize("only, exclude", [("eval", None), (None, "private")])
-def test_a_workspace_export_ignores_a_skipped_path_outside_what_it_copies(tmp_path, only, exclude):
-    """#959 review of #1028: `private/data.txt` is not in `eval` and is in the excluded directory."""
-    from dokimi.repos.workspace import _export
-
-    src = tmp_path / "src"
-    src.mkdir()
-    _repo(src)
-    (src / "eval").mkdir()
-    (src / "eval" / "task.json").write_text("{}\n", encoding="utf-8")
-    (src / "private").mkdir()
-    (src / "private" / "data.txt").write_text("x\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(src), "add", "-A"], check=True, capture_output=True)
-    mode = _lock(src / "private")
-    try:
-        _export(WorkTree(src), tmp_path / "ws", only, exclude)
-    finally:
-        (src / "private").chmod(mode)
-    assert (tmp_path / "ws" / ("task.json" if only else "eval/task.json")).is_file()

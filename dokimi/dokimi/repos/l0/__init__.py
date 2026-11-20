@@ -107,11 +107,8 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     unscanned += [f"build file not scanned: {f}: {why}" for f, why in unread.items()]
     warnings += unscanned
     reasons += unscanned  # every warning that makes the scan incomplete, in the order of `warnings`
-    # a skipped build input is read only by the Bazel adapter: it is a reason only when that adapter is on
-    bazel = [w for path, w in zip(getattr(tree, "skipped_paths", ()), getattr(tree, "skipped", ()), strict=True)
-             if "bazel" in scan.adapters and _is_build_input(path) and w not in not_counted]
-    warnings += not_counted + tuple(bazel)
-    reasons += not_counted + tuple(bazel)
+    warnings += not_counted
+    reasons += not_counted
     sha = getattr(tree, "sha", None)
     return {
         "repo": {"id": manifest.id, "tree": tree.label, "sha": sha, "manifest": manifest.path},

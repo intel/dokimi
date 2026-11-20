@@ -108,7 +108,7 @@ def check_flags(kinds: tuple[str, ...], budget: float, model: str | None) -> Non
     if unknown_kinds:
         raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: {', '.join(KINDS)})")
     if not math.isfinite(budget) or budget <= 0:
-        raise ReachError(f"--budget must be > 0, got {budget:g}")
+        raise ReachError(f"--max-usd-per-cell must be > 0, got {budget:g}")
     if model is None:
         raise ReachError("--model is required to probe (leave it out only with --from)")
 
