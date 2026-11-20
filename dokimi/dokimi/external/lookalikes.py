@@ -35,15 +35,16 @@ def _fold_char(ch: str, nfkc: str) -> str:
         return ch  # a character that expands would move every later offset
     if nfkc == "all":
         return normal
-    # "letters": a letter or digit (not a superscript, which is a footnote mark) or a dot, hyphen or underscore
-    word = (normal.isalnum() and unicodedata.category(ch) != "No") or normal in ".-_"
+    # "letters": a letter or digit (not a superscript, which is a footnote mark), a dot, hyphen or underscore, or what
+    # separates a command's words and commands (a space, ``|``, ``&``); the punctuation inside an operand stays
+    word = (normal.isalnum() and unicodedata.category(ch) != "No") or normal in ".-_ |&"
     return normal if word else ch
 
 
 def fold(text: str, *, nfkc: str = "all") -> str:
     """``text`` with each look-alike letter, and each compatibility form (fullwidth, say) that is one character, as Latin.
 
-    ``nfkc`` is ``"all"`` (every such form), ``"letters"`` (only a form that becomes a letter, a digit, ``.``, ``-`` or ``_``, so a
+    ``nfkc`` is ``"all"`` (every such form), ``"letters"`` (only a form that becomes a letter, a digit, ``.``, ``-``, ``_``, a space, ``|`` or ``&``, so a
     fullwidth ``;`` and a superscript ``2`` stay) or ``""`` (the look-alike table alone).
     """
     return "".join(_fold_char(ch, nfkc) for ch in text)

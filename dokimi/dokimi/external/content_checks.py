@@ -129,12 +129,17 @@ def _selector_stray(text: str, index: int) -> bool:
     return before.isascii() and before not in KEYCAP_BASES
 
 
+def _is_hangul(cp: int) -> bool:
+    """Jamo, compatibility jamo, Extended-A jamo, syllables with Extended-B jamo, and halfwidth Hangul."""
+    return 0x1100 <= cp <= 0x11FF or 0x3130 <= cp <= 0x318F or 0xA960 <= cp <= 0xA97F or 0xAC00 <= cp <= 0xD7FF or 0xFFA0 <= cp <= 0xFFDC
+
+
 def _filler_exempt(text: str, index: int) -> bool:
     """U+034F, U+115F, U+1160 and U+2800 are text in Greek or other non-ASCII script, Hangul and Braille."""
     cp = ord(text[index])
     near = [ord(text[j]) for j in (index - 1, index + 1) if 0 <= j < len(text) and ord(text[j]) not in BLANK_FILLERS]
     if cp in (0x115F, 0x1160):
-        return any(0x1100 <= n <= 0x11FF or 0x3130 <= n <= 0x318F or 0xAC00 <= n <= 0xD7AF for n in near)
+        return any(_is_hangul(n) for n in near)
     if cp == 0x2800:
         return any(0x2800 <= n <= 0x28FF for n in near)
     if cp == 0x034F:

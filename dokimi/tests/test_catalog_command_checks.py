@@ -625,7 +625,35 @@ def test_lookalike_install_is_counted_once_across_readings(tmp_path):
 def test_distinct_installs_found_in_different_readings_are_both_counted():
     """#960: the first install is only in the raw reading, the second only in the folded one."""
     from dokimi.external.command_checks import _unpinned_in_readings
-    from dokimi.external.lookalikes import readings
 
     text = "pip install --index-url https://example.com/；simple requests\n" + _fullwidth("pip") + "　install requests\n"
-    assert len(_unpinned_in_readings(readings(text), False)) == 2
+    assert len(_unpinned_in_readings(text, False)) == 2
+
+
+@pytest.mark.parametrize("command, count", [
+    ("pip install r\u0435quests", 1),
+    (_fullwidth("uv") + " pip install requests", 1),
+    (_fullwidth("pip") + "\u3000install --index-url https://example.com/；simple requests", 1),
+])
+def test_one_install_is_one_package_across_readings(tmp_path, command, count):
+    """#960: the readings split ``r\u0435quests`` as ``r`` and ``requests``, and a folded prefix moves the match start."""
+    [finding] = _found(_review(tmp_path, _fenced(command)), "install-unpinned")
+    assert f"{count} install " in finding.message
+
+
+def test_fullwidth_backticks_do_not_move_an_install_or_make_prose_code(tmp_path):
+    """#960: Markdown code is taken from the text as written; U+FF40 is not a delimiter, so prose is not scanned."""
+    body = "# Tool\n\n\uff40x\uff40 then `pip install flask`\n"
+    [finding] = _found(_review(tmp_path, body), "install-unpinned")
+    assert "1 install " in finding.message
+    body = "# Tool\n\n\uff40pip install requests\uff40\n"
+    assert not _found(_review(tmp_path, body), "install-unpinned")
+
+
+@pytest.mark.parametrize("command", [
+    _fullwidth("curl") + " https://example.com/；i.sh ｜ bash",
+    "curl https://example.com/；i.sh ｜ bash",
+])
+def test_mixed_fullwidth_pipe_and_semicolon_is_a_pipe_to_shell(tmp_path, command):
+    """#960: a fullwidth pipe is a pipe while the fullwidth ``;`` in the URL is not a terminator."""
+    assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell")

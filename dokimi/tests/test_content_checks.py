@@ -466,8 +466,9 @@ def test_filler_in_latin_text_is_reported(tmp_path, cp):
     assert len(_hidden(tmp_path, f"sort{chr(cp)} entries")) == 1
 
 
-@pytest.mark.parametrize("text", ["α͏́", "ᄒᅟᅡ", "ᅡᅠ", "⠁⠀⠃"],
-                         ids=["greek-cgj", "hangul-choseong-filler", "hangul-jungseong-filler", "braille"])
+@pytest.mark.parametrize("text", ["α͏́", "ᄒᅟᅡ", "ᅡᅠ", "⠁⠀⠃", "\u115f\ud7b0", "\u1160\ua960", "\u115f\uffa1"],
+                         ids=["greek-cgj", "hangul-choseong-filler", "hangul-jungseong-filler", "braille",
+                              "jamo-extended-b", "jamo-extended-a", "halfwidth-hangul"])
 def test_filler_inside_its_own_script_is_not_reported(tmp_path, text):
     """#960: U+034F, U+115F, U+1160 and U+2800 are text in Greek, Hangul and Braille."""
     assert _hidden(tmp_path, text) == []

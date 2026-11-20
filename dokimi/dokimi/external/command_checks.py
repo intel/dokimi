@@ -36,7 +36,7 @@ from typing import Iterator
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
-from .lookalikes import fold, readings
+from .lookalikes import readings
 from .skill_markdown import CODE_SPAN_RE
 
 BUNDLED_MAX_BYTES = 256 * 1024
@@ -217,21 +217,28 @@ def _unpinned_npx(rest: str) -> list[str]:
 
 
 def _unpinned_at(code: str) -> list[tuple[int, str]]:
-    """``(offset in code, "pip name")`` of each unpinned install."""
-    found = [(m.start(), f"pip {n}") for m in PIP.finditer(code) for n in _unpinned_pip(m.group(1))]
-    found += [(m.start(), f"npm {n}") for m in NPM.finditer(code) for n in _unpinned_npm(m.group(1))]
-    found += [(m.start(), f"npx {n}") for m in NPX.finditer(code) for n in _unpinned_npx(m.group(1))]
+    """``(offset in code, "pip name")`` of each unpinned install. The offset is where the command's arguments begin,
+    which folding a prefix (``ｕｖ pip``) does not move."""
+    found = [(m.start(1), f"pip {n}") for m in PIP.finditer(code) for n in _unpinned_pip(m.group(1))]
+    found += [(m.start(1), f"npm {n}") for m in NPM.finditer(code) for n in _unpinned_npm(m.group(1))]
+    found += [(m.start(1), f"npx {n}") for m in NPX.finditer(code) for n in _unpinned_npx(m.group(1))]
     return found
 
 
-def _unpinned_in_readings(texts: list[str], markdown: bool) -> list[str]:
-    """The unpinned installs of every reading of a text. One found in two readings at the same offset, with the
-    same folded name, is counted once; an install at another offset is another install."""
-    seen: dict[tuple[int, str], str] = {}
-    for reading in texts:
-        for offset, label in _unpinned_at(_code_text(reading, markdown)):
-            seen.setdefault((offset, fold(label)), label)
-    return [seen[key] for key in sorted(seen)]
+def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
+    """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
+    once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
+    same place is counted once, with the packages of the reading that names the most (the most folded on a tie);
+    a command at another place is another install."""
+    best: dict[tuple[int, str], list[str]] = {}
+    for reading in readings(_code_text(text, markdown)):
+        grouped: dict[tuple[int, str], list[str]] = {}
+        for offset, label in _unpinned_at(reading):
+            grouped.setdefault((offset, label.split()[0]), []).append(label)
+        for key, labels in grouped.items():
+            if len(labels) >= len(best.get(key, [])):
+                best[key] = labels
+    return [label for key in sorted(best) for label in best[key]]
 
 
 def _is_skill_dir(path: Path) -> bool:
@@ -305,7 +312,7 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
                 f"{rel} names a flag or mode that turns off the agent's permission prompts (line {where}); "
                 "say what it may run unprompted, or drop it",
             ))
-        unpinned += _unpinned_in_readings(readings(raw), rel.lower().endswith(PROSE_SUFFIXES))
+        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES))
 
     if unpinned:
         shown = ", ".join(unpinned[:EXAMPLES_SHOWN]) + (", ..." if len(unpinned) > EXAMPLES_SHOWN else "")

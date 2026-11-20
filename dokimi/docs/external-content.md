@@ -124,8 +124,8 @@ Two checks, both `warn`:
   filler (U+034F, U+180E, U+115F, U+1160, U+3164, U+FFA0, U+2800). A variation selector (U+FE00 to U+FE0F,
   U+E0100 to U+E01EF) is reported at the start of the text, after another selector, or after an ASCII
   character other than a keycap base (`#`, `*`, `0` to `9`); after an emoji, a symbol or an ideograph it is
-  not. U+034F is not reported beside a non-ASCII letter or mark, U+115F and U+1160 beside Hangul, and U+2800
-  beside Braille. Each is reported with its line and codepoint; five
+  not. U+034F is not reported beside a non-ASCII letter or mark, U+115F and U+1160 beside Hangul (jamo, compatibility and Extended-A/B jamo, syllables,
+  halfwidth), and U+2800 beside Braille. Each is reported with its line and codepoint; five
   per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
   or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
   Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
