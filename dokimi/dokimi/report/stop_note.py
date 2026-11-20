@@ -21,7 +21,8 @@ def stop_note(data: Mapping[str, Any]) -> List[str]:
     reason = " ".join(fmt.plain(block.get("reason")).split())  # a CLI's multi-line stderr stays in the note
     # The recorded count includes a question the stop cut short, so it can equal the requested one (4 of 4).
     # A bound, not a count: an eval may judge fewer than the recorded questions (--limit, ungraded ones).
-    return [f"> **Stopped early**: {reason}. {fmt.plain(block.get('questions_recorded'))} of "
+    cause = f": {reason}" if reason else ""  # str() of an error with no message is empty
+    return [f"> **Stopped early**{cause}. {fmt.plain(block.get('questions_recorded'))} of "
             f"{fmt.plain(block.get('questions_requested'))} questions have a record, counting any the stop "
             "interrupted. Every number below covers only questions answered before the stop.", ""]
 
