@@ -726,7 +726,7 @@ def generate_section_report(
 
     lines = _pooling_lines(replicate_note) + _models_compared_lines(runs, all_run_scores, common_questions)
     if not has_treatment:
-        lines += no_delta_limitation(runs, scored | declared, paired)
+        lines += no_delta_limitation(runs, scored | declared, paired, pool_replicates)
     lines += _resource_usage_lines(runs, bool(replicate_note))
     lines += _overall_summary_lines(run_ids, summary_stats, arm_label)
     lines += _significance_lines(run_ids, all_run_scores, has_treatment, correction)

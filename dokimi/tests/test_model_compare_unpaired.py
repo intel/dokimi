@@ -71,7 +71,8 @@ def test_paired_scores_on_disjoint_questions_are_not_called_unscored_in_both_arm
     text = "\n".join(generate_section_report(runs, ["a", "b"], "regular"))
     assert "no question has scores in both arms" not in text
     assert "contain only **baseline arm**" not in text
-    assert "once replicates are pooled" in text
+    assert "once only the questions every run scored are kept" in text
+    assert "pooled" not in text.split("Report Limitation")[1].split("\n")[0]
 
 
 def _two_scored(model, shared_treated, paired_id):
@@ -90,7 +91,7 @@ def test_pooling_does_not_hide_a_paired_score_from_the_limitation():
     text = "\n".join(generate_section_report([("a", a), ("b", b)], ["a", "b"], "regular", pool_replicates=True))
     assert "no question has scores in both arms" not in text
     assert "contain only **baseline arm**" not in text
-    assert "once replicates are pooled" in text
+    assert "once replicates are pooled and only the questions every run scored are kept" in text
 
 
 def test_shared_but_unpaired_question_is_not_told_to_share_a_question():
@@ -100,7 +101,8 @@ def test_shared_but_unpaired_question_is_not_told_to_share_a_question():
     assert "Common questions evaluated: **1**" in text
     assert "until the runs share a question" not in text
     assert "contain only **baseline arm**" not in text
-    assert "once replicates are pooled" in text
+    assert "once only the questions every run scored are kept" in text
+    assert "pooled" not in text.split("Report Limitation")[1].split("\n")[0]
 
 
 def test_pooled_legacy_runs_keep_the_treatment_of_the_dropped_replicate():

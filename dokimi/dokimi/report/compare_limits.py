@@ -34,20 +34,22 @@ BASELINE_ONLY_LIMITATION = [
 ]
 
 
-def no_delta_limitation(runs: list[tuple[str, dict]], arms: set[str], paired_in_a_run: bool) -> list[str]:
+def no_delta_limitation(runs: list[tuple[str, dict]], arms: set[str], paired_in_a_run: bool, pooled: bool = False) -> list[str]:
     """The limitation for runs with no common question scored in both arms (#965).
 
     Names the arms the runs contain (*arms*, the non-baseline ones); with no treatment arm at all it is the baseline-only text.
     ``paired_in_a_run`` is true when some run has a question scored in both arms before pooling or
-    the common-question cut, so the missing pair is shared ones, not pairs as such.
+    the common-question cut, so the missing pair is shared ones, not pairs as such. ``pooled`` is true
+    when replicates were pooled; the text mentions pooling only then.
     """
     if not arms:
         return BASELINE_ONLY_LIMITATION
     baselines = sorted({b for _, data in runs if isinstance(b := data.get("baseline_arm"), str) and b})
     named = ", ".join(f"`{a}`" for a in [*baselines, *sorted(arms)])
     if paired_in_a_run:
+        cut = "once replicates are pooled and only the questions every run scored are kept" if pooled else "once only the questions every run scored are kept"
         return [
-            f"> **⚠️ Report Limitation:** These runs contain the arms {named}, but no question scored in both arms is left once replicates are pooled and only the questions every run scored are kept.",
+            f"> **⚠️ Report Limitation:** These runs contain the arms {named}, but no question scored in both arms is left {cut}.",
             "> ",
             "> Delta, significance, head-to-head and benefit analysis are unavailable until a question that every run scored has a score in both arms.",
             "",
