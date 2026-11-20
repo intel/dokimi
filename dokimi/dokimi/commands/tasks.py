@@ -42,7 +42,7 @@ def _tasks_root(args: argparse.Namespace) -> Path | None:
 def cmd_tasks_list(args: argparse.Namespace) -> None:
     if args.format == "localization":  # `explore list` before #94 M1: the exploration task YAMLs
         return list_localization_tasks(args)
-    if args.repo_root:  # only the localization tasks read a repo; a terminal-bench task has none
+    if args.repo_root is not None:  # only the localization tasks read a repo; a terminal-bench task has none
         raise InputError("--repo-root is for --format localization")
     from dokimi.harnesses import discover_tasks
 
