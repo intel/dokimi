@@ -92,8 +92,7 @@ def test_alias_of_a_retired_dated_id_is_a_warning(tmp_path, alias, state, replac
 
 def test_alias_does_not_match_inside_a_dated_id_or_a_longer_name(tmp_path):
     # #945, and docs/external-content.md: IDs match whole tokens, so adding an alias adds no second match.
-    # The alias claude-opus-4-1 is a prefix of the dated ID, which is still one finding, not two;
-    # "claude-opus-4-0-beta" is a different name.
+    # The alias claude-opus-4-1 is a prefix of the dated ID: one finding; "claude-opus-4-0-beta" is another name.
     _skill(tmp_path / "skills", "dated", body="Use claude-opus-4-1-20250805 and claude-opus-4-0-beta.\n")
 
     [message] = _messages(tmp_path, "legacy-model-id")
