@@ -182,6 +182,7 @@ anyio==4.15.1 \
     --hash=sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94
     # via
     #   httpx
+    #   litellm
     #   openai
 ast-serialize==0.13.1 \
     --hash=sha256:02686b281ec9b8e9614f6f0db27e12e4cac515f336c5d05b678bc9eb73ff2af5 \
@@ -809,7 +810,7 @@ execnet==2.1.2 \
     --hash=sha256:63d83bfdd9a23e35b9c6a3261412324f964c2ec8dcd8d3c6916ee9373e0befcd \
     --hash=sha256:67fba928dd5a544b783f6056f449e5e3931a5c378b128bc18501f7ea79e296ec
     # via pytest-xdist
-fastuuid==0.14.0 \
+fastuuid==0.14.0 ; python_full_version < '3.15' \
     --hash=sha256:05a8dde1f395e0c9b4be515b7a521403d1e8349443e7641761af07c7ad1624b1 \
     --hash=sha256:0737606764b29785566f968bd8005eace73d3666bd0862f33a760796e26d1ede \
     --hash=sha256:089c18018fdbdda88a6dafd7d139f8703a1e7c799618e33ea25eb52503d28a11 \
@@ -1476,15 +1477,15 @@ librt==0.16.0 ; platform_python_implementation != 'PyPy' \
     --hash=sha256:fe52bf4641069e7978a14253b036cb9002def1926317e710f2e249f8a8c47742 \
     --hash=sha256:ff7baa55f8e7c69851419e50a666015d02a74198716fd45c0125a2112e0a389f
     # via mypy
-litellm==1.108.3 \
-    --hash=sha256:46a78bfe948a25cd678acc8a1ed442775688e2b60bda6ac2166ae5b48b747d08 \
-    --hash=sha256:4ac55c4a80be5b131659b1f42487de96fed69c6717745953c74fede1d6a5113c \
-    --hash=sha256:8267641fce3803bb7a56bd6ff046d4919bbd079c96c9d9c1c4c43fdf96d5244c \
-    --hash=sha256:9955cc7a29b3060bb791a90cefb6d10df2f0cf63ea720c9d3a26bc8d253eae43 \
-    --hash=sha256:b6ce7a78efbaff7214e731ba0769b156e05b150d05184def61913ee9ff0befb3 \
-    --hash=sha256:e74f7a0df27ac03eb2280e23c5a72a52a0d64260a96b0da3f95be60ae872469b \
-    --hash=sha256:efdd0d6c57c9814673ee9c491c428945fd58ffb84842557759d2209403dc033e \
-    --hash=sha256:ffd746c20138a078c451a851a68c85da43d67e114001e4a4cd4082953de5494d
+litellm==1.109.1 \
+    --hash=sha256:1b2866219249186babe194d7e3f4af29095c0905a4c5712b62be662aa6a38fb7 \
+    --hash=sha256:1c8b4dd671fa0cd0850aa751678704ff77e595fb1e6085b2dc3be39ee19bdaaf \
+    --hash=sha256:1dcf31166d385e6eaaef7f5840ba88c4eac319d1aa2d3ec2787de981e07fcf11 \
+    --hash=sha256:1fdf789757fc71c9a9ac183cd326b978782dfa9ebd44087c6603b5b963956841 \
+    --hash=sha256:5b98ecccd93374b8ea1746ee98de16b505c0b5e6c0dfb7e8afec3d817d08d7c2 \
+    --hash=sha256:738fd2465e24460f03a8c5ff33dc57c3fdfad88ff489811d718ee6ba3c5ad900 \
+    --hash=sha256:b94080b0436c471e686735d10fd1069c151cf8b9816d823a1450419573f30e46 \
+    --hash=sha256:c84737897b6b459acd660fd7adb33e2d552c5d0b93c4a47b8cd4f5e299c93bac
     # via
     #   -r requirements-test.txt
     #   -r requirements.txt

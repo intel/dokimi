@@ -1,0 +1,46 @@
+{
+  "schema_version": "dashboard.v1",
+  "generated_at": "2026-11-01T00:00:00+00:00",
+  "products": [
+    {
+      "product": "demo",
+      "library_key": "demo",
+      "evaluated_at": "2026-10-31T00:00:00Z",
+      "judge_model": "demo-judge",
+      "total_questions": 1,
+      "avg_with_docs": 80.0,
+      "avg_without_docs": 60.0,
+      "avg_delta": 20.0,
+      "questions": [
+        {
+          "question_id": "q1",
+          "question": "How do I install the library?",
+          "with_docs_score": 80.0,
+          "without_docs_score": 60.0,
+          "delta": 20.0,
+          "question_source": "persona",
+          "grounded": false,
+          "with_docs_dimensions": {
+            "correctness": 80,
+            "grounded": true
+          },
+          "without_docs_dimensions": {
+            "correctness": 60
+          },
+          "unjudged_miss": false
+        }
+      ],
+      "source_file": "results/demo/eval/demo.json",
+      "by_source": {
+        "persona": {
+          "count": 1,
+          "grounded": 0,
+          "avg_with_docs": 80.0,
+          "avg_without_docs": 60.0,
+          "avg_delta": 20.0
+        }
+      },
+      "doc_health": 80.0
+    }
+  ]
+}
