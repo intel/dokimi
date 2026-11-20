@@ -24,6 +24,7 @@ from dokimi.commands.catalog_scan import (
     ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
     unrestricted_and_risky,
 )
+from dokimi import cli_flags
 from dokimi.utils import InputError
 
 
@@ -203,13 +204,13 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
     if args.resume and not args.jsonl:
         raise InputError("--resume needs --jsonl: the rows it skips are read from that file")
     if (args.jsonl or args.jobs is not None) and not args.per_skill:
-        raise InputError("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
+        raise InputError("--jsonl and --concurrency need --per-skill: cross-catalog checks need every skill loaded at once")
     if args.online and args.per_skill:
         # Each worker would open its own connections and cache, and --resume would keep rows that no network check made.
         raise InputError("--online checks the whole catalog at once and does not combine with --per-skill")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
                                  or args.jobs is not None or args.online or args.ignore):
-        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --jobs, --resume and --online apply to "
+        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --concurrency, --resume and --online apply to "
                          "skills; drop them or use --kind skills|all")
 
 
@@ -575,8 +576,8 @@ def register(sub, positive_int, eval_sub) -> None:
         help="--per-skill: write one JSON row per skill to PATH as each is reviewed, and print "
              "only the counts",
     )
-    scan_p.add_argument(
-        "--jobs", type=positive_int, default=None,
+    cli_flags.add(
+        scan_p, "concurrency", "--concurrency", type=positive_int, default=None, dest="jobs", metavar="N",
         help="--per-skill: review this many skills in parallel worker processes (default 1)",
     )
     scan_p.add_argument(

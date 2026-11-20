@@ -21,7 +21,7 @@ criteria:
     delivery: available
     enforce: true
     capability: question-set-pinning
-    surfaces: ["benchmark run --questions-root", "benchmark run --multi-run"]
+    surfaces: ["benchmark run --questions-root", "benchmark run --reps"]
     outcome: OUTCOME-PINNED-QUESTIONS
     refs: [docs/user-flow.md#4-reuse-same-question-set-for-fair-comparison, dokimi/orchestrator/pipeline.py]
     evidence:

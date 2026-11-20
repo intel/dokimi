@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``catalog check --per-skill --jsonl``: one row per skill as it is reviewed, with ``--jobs`` and ``--resume``."""
+"""``catalog check --per-skill --jsonl``: one row per skill as it is reviewed, with ``--concurrency`` and ``--resume``."""
 
 from __future__ import annotations
 
@@ -73,8 +73,8 @@ def test_more_jobs_write_the_same_rows_in_the_same_order(tmp_path, capsys):
     one = tmp_path / "jobs1.jsonl"
     many = tmp_path / "jobs3.jsonl"
 
-    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(one), "--jobs", "1"], capsys)
-    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(many), "--jobs", "3"], capsys)
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(one), "--concurrency", "1"], capsys)
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(many), "--concurrency", "3"], capsys)
 
     relpaths = [row["relpath"] for row in _rows(many)]
     assert relpaths == sorted(relpaths) and len(relpaths) == 100
@@ -243,8 +243,8 @@ def test_without_resume_an_existing_jsonl_file_is_replaced(tmp_path, capsys):
     ("flags", "message"),
     [
         (["--jsonl", "x.jsonl"], "need --per-skill"),
-        (["--jobs", "2"], "need --per-skill"),
-        (["--jobs", "1"], "need --per-skill"),
+        (["--concurrency", "2"], "need --per-skill"),
+        (["--concurrency", "1"], "need --per-skill"),
         (["--per-skill", "--resume"], "needs --jsonl"),
         (["--per-skill", "--jsonl", "x.jsonl", "--format", "json"], "drop --format json"),
     ],
@@ -308,7 +308,7 @@ def test_strict_on_the_per_skill_path_fails_on_a_spec_error_only(tmp_path, capsy
     "flags",
     [
         ["--per-skill"],
-        ["--jobs", "2", "--per-skill"],
+        ["--concurrency", "2", "--per-skill"],
         ["--per-skill", "--jsonl", "x.jsonl"],
         ["--per-skill", "--jsonl", "x.jsonl", "--resume"],
         ["--skip-nested"],
