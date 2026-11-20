@@ -50,8 +50,6 @@ eval score reference
 eval triggers generate
 evaluate
 explore run
-repo reach
-repo skill-reach
 subjects run
 tasks run
 """.split("\n")
@@ -89,11 +87,11 @@ def test_json_output_ends_with_the_summary_line(capsys):
 
 
 def test_the_inventory_counts_every_paid_leaf_of_the_parser_tree():
-    """Issue #940: 39 paid leaves, 11 capped, as `cli_routes.cost_of` and the parser tree give."""
+    """Issue #940: 39 paid leaves, 13 capped, as `cli_routes.cost_of` and the parser tree give."""
     assert scs.summary(scs.paid_leaves()) == {
         "paid": 39,
-        "capped": 11,
-        "uncapped": 28,
+        "capped": 13,
+        "uncapped": 26,
         "no_control": 23,
     }
 
