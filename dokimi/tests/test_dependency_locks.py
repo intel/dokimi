@@ -372,6 +372,22 @@ _UNQUOTED = {letter: operator for table in (_QUOTED, _IN_DOUBLE) for operator, l
 _SUBSTITUTION = re.compile("\\$\\(((?:[^()]|\\([^()]*\\))*)\\)|\\$\ue009((?:[^\ue009\ue00a]|\ue009[^\ue009\ue00a]*\ue00a)*)\ue00a"
                            "|`([^`]*)`|\ue00b([^\ue00b]*)\ue00b")
 _SHELLS = {"sh", "bash", "dash", "zsh", "ash"}
+# The options of pip and of uv pip that take the next word as their value, from pip 26.2's and uv 0.13's own parsers
+_VALUE_OPTIONS = frozenset("""
+--abi --all-releases --allow-insecure-host --build-constraint --build-constraints --cache-dir --cert
+--client-cert --color --config-file --config-setting --config-settings --config-settings-package
+--constraint --constraints --default-index --default-timeout --directory --editable --exclude-newer
+--exclude-newer-package --excludes --exists-action --extra --extra-index-url --find-links
+--fork-strategy --group --implementation --index --index-strategy --index-url --keyring-provider
+--link-mode --local-log --log --log-file --no-binary --no-build-isolation-package --no-editable-package
+--no-sources-package --only-binary --only-final --output-format --overrides --platform --prefix
+--prerelease --prerelease-package --progress-bar --project --proxy --pypi-url --python --python-platform
+--python-version --refresh-package --reinstall-package --report --requirement --requirements
+--requirements-from-script --resolution --resume-retries --retries --root --root-user-action --source
+--source-dir --source-directory --src --target --timeout --torch-backend --trusted-host --upgrade-group
+--upgrade-package --upgrade-strategy --uploaded-prior-to --use-deprecated --use-feature -b -C -c -e -f
+-i -P -p -r -t
+""".split())
 
 
 def _requirement_files(tokens: list[str]) -> list[str]:
@@ -459,16 +475,33 @@ def _commands(script: str) -> list[list[str]]:
     return _nested([*commands, command], inner)
 
 
+def _without_option_values(words: list[str]) -> list[str]:
+    """``words`` minus the word after each option that takes a value: in ``--log install`` and ``--log --no-deps`` that
+    word names a file, so it is neither pip's subcommand nor a flag. An option is matched by its full name."""
+    kept, value = [], False
+    for word in words:
+        if not value:
+            kept.append(word)
+        value = not value and word in _VALUE_OPTIONS
+    return kept
+
+
+def _is_pip_install(command: list[str]) -> bool:
+    """Whether ``command`` runs ``pip install``: after a word that names pip, the first word that is neither an option
+    nor an option's value is ``install``."""
+    return any(
+        re.fullmatch(r"pip[\d.]*(\.exe)?", re.split(r"[/\\]", word.lstrip("@+-"))[-1])
+        and next((w for w in _without_option_values(command[i + 1:]) if not w.startswith("-")), None) == "install"
+        for i, word in enumerate(command))
+
+
 def _installs_of_the_main_lock(script: str) -> list[list[str]]:
     """The words of each pip command in a shell ``script`` that installs the main lock: ``pip``, ``pip3.11``,
     ``python -m pip``, ``uv pip``, with global options before ``install`` and a Makefile ``@``/``-``/``+`` prefix."""
     if _MAIN_LOCK not in script:
         return []
     return [
-        command for command in _commands(script)
-        if any(re.fullmatch(r"pip[\d.]*(\.exe)?", re.split(r"[/\\]", word.lstrip("@+-"))[-1]) and "install" in command[i + 1:]
-               for i, word in enumerate(command))
-        and _MAIN_LOCK in _requirement_files(command)
+        command for command in _commands(script) if _is_pip_install(command) and _MAIN_LOCK in _requirement_files(command)
     ]
 
 
@@ -532,16 +565,23 @@ def _install_scripts() -> dict[str, str]:
     ('pip install --no-deps -r requirements.lock.txt --log "install\nlog.txt"', False),
     ('pip install --no-deps -r requirements.lock.txt --log "build\\"log.txt"', False),
     ("pip install --log '>' --no-deps -r requirements.lock.txt", False),
+    ("pip install -r requirements.lock.txt --log --no-deps", True),
+    ("pip install --cache-dir --no-deps -r requirements.lock.txt", True),
+    ("pip install --proxy --no-deps -r requirements.lock.txt", True),
+    ("uv pip install --index-strategy --no-deps -r requirements.lock.txt", True),
+    ("pip install --log pip.log --no-deps -r requirements.lock.txt", False),
+    ("pip install --pre --no-deps -r requirements.lock.txt", False),
 ], ids=["short", "joined", "clustered", "clustered-joined", "comment-backtick", "guarded-single-quoted-backslash", "abbreviated", "abbreviated-equals", "exe", "exec-form", "powershell-backtick",
         "escaped-apostrophe", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "spacing", "chained",
         "subshell", "continued", "global-option", "python-m-pip", "versioned", "recipe-prefix", "redirected",
         "backslash-path", "comment-line", "quoted-separator", "comment-backslash", "quoted-parentheses", "guarded", "guarded-quoted",
         "guarded-continued", "guarded-subshell", "guarded-multiline", "guarded-escaped-quote",
-        "guarded-quoted-redirection"])
+        "guarded-quoted-redirection", "flag-as-log-value", "flag-as-cache-dir-value", "flag-as-proxy-value",
+        "flag-as-uv-option-value", "guarded-after-log-value", "guarded-after-pre-flag"])
 def test_an_install_of_the_main_lock_without_no_deps_is_found(script: str, unguarded: bool) -> None:
     installs = _installs_of_the_main_lock(script)
     assert len(installs) == 1, installs
-    assert ("--no-deps" not in installs[0]) is unguarded
+    assert ("--no-deps" not in _without_option_values(installs[0])) is unguarded
 
 
 @pytest.mark.parametrize(("script", "unguarded"), [
@@ -560,12 +600,13 @@ def test_an_install_of_the_main_lock_without_no_deps_is_found(script: str, ungua
 def test_an_install_the_shell_runs_from_a_word_or_a_windows_path_is_found(script: str, unguarded: bool) -> None:
     installs = _installs_of_the_main_lock(script)
     assert len(installs) == 1, installs
-    assert ("--no-deps" not in installs[0]) is unguarded
+    assert ("--no-deps" not in _without_option_values(installs[0])) is unguarded
 
 
 @pytest.mark.parametrize("script", ["pip install --require-hashes -r requirements-ci.lock.txt",
                                     "echo '$(pip install -r requirements.lock.txt)'",
                                     "COPY dokimi/requirements.lock.txt /opt/dokimi-req/",
+                                    "pip --log install freeze -r requirements.lock.txt",
                                     "pip install --no-deps-x -r requirements-docs.lock.txt"])
 def test_other_locks_and_mentions_of_the_main_lock_are_not_installs_of_it(script: str) -> None:
     assert _installs_of_the_main_lock(script) == []
@@ -598,13 +639,14 @@ def test_yaml_and_yml_workflows_and_actions_are_scanned(tmp_path: Path, monkeypa
 def _unguarded(found: dict[str, list[list[str]]]) -> list[tuple[str, str]]:
     """The installs of the main lock, by script name, that lack ``--no-deps``."""
     return [(name, shlex.join(install)) for name, installs in found.items() for install in installs
-            if "--no-deps" not in install]
+            if "--no-deps" not in _without_option_values(install)]
 
 
 def test_an_install_without_no_deps_is_reported_and_one_with_it_is_not() -> None:
     install = ["pip", "install", "-r", "requirements.lock.txt"]
     assert _unguarded({"x": [install]}) == [("x", "pip install -r requirements.lock.txt")]
     assert _unguarded({"x": [[*install, "--no-deps"]], "y": []}) == []
+    assert _unguarded({"x": [[*install, "--log", "--no-deps"]]}) == [("x", "pip install -r requirements.lock.txt --log --no-deps")]
 
 
 def test_every_install_of_the_main_lock_passes_no_deps() -> None:
