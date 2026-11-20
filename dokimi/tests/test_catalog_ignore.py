@@ -292,6 +292,7 @@ def test_fail_on_applies_to_resumed_rows(tmp_path, capsys):
     assert _run(base, capsys)[1] == 0
     out, code = _run([*base, "--resume", "--fail-on-code", "description-no-when"], capsys)
     assert code == 1 and "2 resumed" in out
+    assert "fail-on-code: cue has description-no-when" in out
 
 
 def test_fail_on_unknown_code_is_a_usage_error(tmp_path, capsys):

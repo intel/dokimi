@@ -259,6 +259,9 @@ class _Tally:
         reason = strict_reason(row) if self.strict else None
         if reason is not None:
             self.reasons.append(reason)
+        if fails_on_finding(row, self.fail_on):
+            codes = sorted({f["code"] for f in row["findings"]} & self.fail_on)
+            self.reasons.append(f"fail-on-code: {row['name']} has {', '.join(codes)}")
 
 
 ROW_STATES = ("ok", "warn", "error", "skipped")
