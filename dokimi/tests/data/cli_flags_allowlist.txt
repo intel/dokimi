@@ -256,3 +256,4 @@
 --canaries-file  # repo security: the same canaries one per line (#360)
 --tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
 --tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet
+--fail-on-code  # catalog check (#942): selects finding codes, not the {warn,fail} severity of the fail_on concept

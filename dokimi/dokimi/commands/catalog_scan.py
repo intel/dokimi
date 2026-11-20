@@ -205,12 +205,25 @@ def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iter
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+def fails_on_finding(row: dict, fail_on: frozenset[str]) -> bool:
+    """Whether a finding left in the row (after ``--ignore``) has a code selected by ``--fail-on-code`` (#942)."""
+    return bool(fail_on) and any(f["code"] in fail_on for f in row["findings"])
+
+
 def unrestricted_and_risky(row: dict) -> bool:
     """Whether the row has ``allowed-tools-unrestricted-bash`` and a risky-command finding: a warn that fails ``--strict``."""
     from dokimi.external.allowed_tools import RISKY_COMMAND_CODES
 
     codes = {f["code"] for f in row["findings"]}
     return "allowed-tools-unrestricted-bash" in codes and bool(codes & set(RISKY_COMMAND_CODES))
+
+
+def fail_on_reason(row: dict, fail_on: frozenset[str]) -> Optional[str]:
+    """The ``fail-on-code:`` line for a row with a finding selected by ``--fail-on-code`` (#942), else None."""
+    if not fails_on_finding(row, fail_on):
+        return None
+    codes = sorted({f["code"] for f in row["findings"]} & fail_on)
+    return f"fail-on-code: {row['name']} has {', '.join(codes)}"
 
 
 def strict_reason(row: dict) -> Optional[str]:
@@ -228,12 +241,14 @@ class _Tally:
     """Counts of the rows by state, and whether the scan must exit 1.
 
     It must on a load error; under ``--strict`` also on a spec error, and on a skill that grants
-    unrestricted Bash and also has a risky command (:func:`unrestricted_and_risky`). ``reasons`` holds
-    the :func:`strict_reason` line of each row that fails that last way.
+    unrestricted Bash and also has a risky command (:func:`unrestricted_and_risky`), whose
+    :func:`strict_reason` line goes into ``reasons``; and on any row with a finding selected by
+    ``--fail-on-code`` (:func:`fails_on_finding`), with a ``fail-on-code:`` line in ``reasons``.
     """
 
-    def __init__(self, strict: bool) -> None:
+    def __init__(self, strict: bool, fail_on: frozenset[str] = frozenset()) -> None:
         self.strict = strict
+        self.fail_on = fail_on
         self.counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
         self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.not_checked = 0
@@ -247,11 +262,14 @@ class _Tally:
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
-        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):  # row error: None for a skill_format exemption
+        if row["error"] is not None or unreadable or fails_on_finding(row, self.fail_on) or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):  # row error: None for a skill_format exemption
             self.failed = True
         reason = strict_reason(row) if self.strict else None
         if reason is not None:
             self.reasons.append(reason)
+        gate = fail_on_reason(row, self.fail_on)
+        if gate is not None:
+            self.reasons.append(gate)
 
 
 ROW_STATES = ("ok", "warn", "error", "skipped")
@@ -391,7 +409,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
                 for key, (entry, _) in zip(keys, pairs, strict=True)}
     ignore = frozenset(args.ignore or ())
     sink = _Jsonl(jsonl, args.resume, selected, ignore) if jsonl is not None else None
-    tally = _Tally(args.strict)
+    tally = _Tally(args.strict, frozenset(args.fail_on or ()))
     prior = sink.prior if sink is not None else []
     for row in prior:
         tally.add(row)
