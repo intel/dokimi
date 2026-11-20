@@ -22,7 +22,7 @@ def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -
 
     The tmp name keeps at most 32 characters of the file name, so it stays under 170 bytes
     however long the file name is. The tmp file is created new (``O_EXCL``), so a link planted
-    at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group. Concurrent writers to one
+    at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group (root also keeps the owner). Concurrent writers to one
     path each publish a whole file; the last one wins. A failed write removes its tmp file and
     leaves the file at ``path`` as it was. Missing parent directories are created.
     """
@@ -38,8 +38,8 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
 
     A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory,
-    a file another user owns in a sticky directory (``/tmp``) and a file in a group the user is not in get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
-    writable file in a read-only directory is rewritten, a file keeps its group, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
+    a file another user owns (root excepted: it restores the owner), a file in a group the user is not in and a file with a POSIX access ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
+    writable file in a read-only directory is rewritten, a file keeps its owner, group and ACL, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
     """
     path = Path(path)
     if _is_plain_writable_file(path):
@@ -59,9 +59,16 @@ def _is_plain_writable_file(path: Path) -> bool:
         and info.st_nlink == 1
         and os.access(path, os.W_OK)
         and os.access(path.parent, os.W_OK | os.X_OK)
-        and not _sticky_directory_forbids_replacing(path, info)
+        and _can_keep_owner(info)
         and _can_keep_group(info)
+        and not _has_access_acl(path)
     )
+
+
+def _can_keep_owner(info: os.stat_result) -> bool:
+    """A new inode is the user's own; only root can give it another owner (a sticky directory forbids replacing another user's file as well)."""
+    euid = getattr(os, "geteuid", lambda: 0)()
+    return euid == 0 or info.st_uid == euid
 
 
 def _can_keep_group(info: os.stat_result) -> bool:
@@ -71,13 +78,12 @@ def _can_keep_group(info: os.stat_result) -> bool:
     return info.st_gid in (os.getegid(), *os.getgroups())
 
 
-def _sticky_directory_forbids_replacing(path: Path, info: os.stat_result) -> bool:
-    """A sticky directory lets only the owner of an entry or of the directory replace it; the file itself may stay writable."""
-    euid = getattr(os, "geteuid", lambda: 0)()
-    if euid == 0 or info.st_uid == euid:
+def _has_access_acl(path: Path) -> bool:
+    """A POSIX access ACL (Linux) is not copied by a new inode, and its mask shows as the group bits of the mode."""
+    try:
+        return "system.posix_acl_access" in os.listxattr(path)
+    except (AttributeError, OSError):
         return False
-    parent = path.parent.stat()
-    return bool(parent.st_mode & stat.S_ISVTX) and parent.st_uid != euid
 
 
 def write_json_atomic(path: Path | str, obj: Any) -> None:
@@ -94,22 +100,20 @@ def write_json_atomic(path: Path | str, obj: Any) -> None:
 def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
-    mode = _existing_mode(path)
-    group = _existing_group(path) if hasattr(os, "fchown") else None
+    old = _existing_stat(path)
+    mode = 0o666 if old is None else stat.S_IMODE(old.st_mode)
     try:
         # O_BINARY: without it Windows writes each \n as \r\n a second time, as tempfile avoids.
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
-        fd = os.open(tmp, flags, 0o666 if mode is None else mode)
-        if mode is not None:
+        fd = os.open(tmp, flags, mode)
+        if old is not None:
             # os.open's mode is cut by the umask; the data is written only after the mode is restored.
             try:
                 os.chmod(tmp, mode)
+                _keep_owner_and_group(fd, old)
             except BaseException:
                 os.close(fd)
                 raise
-        if group is not None and os.fstat(fd).st_gid != group:
-            with contextlib.suppress(PermissionError):
-                os.fchown(fd, -1, group)
         with open_tmp(fd) as handle:
             handle.write(data)
         os.replace(tmp, path)
@@ -119,15 +123,21 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
         raise
 
 
-def _existing_group(path: Path) -> int | None:
-    try:
-        return path.stat().st_gid
-    except FileNotFoundError:
-        return None
+def _keep_owner_and_group(fd: int, old: os.stat_result) -> None:
+    """Give the new inode the old file's group and, for root, its owner; a refusal leaves what the inode got."""
+    if not hasattr(os, "fchown"):
+        return
+    now = os.fstat(fd)
+    root = getattr(os, "geteuid", lambda: 0)() == 0
+    uid = old.st_uid if root and old.st_uid != now.st_uid else -1
+    gid = old.st_gid if old.st_gid != now.st_gid else -1
+    if (uid, gid) != (-1, -1):
+        with contextlib.suppress(PermissionError):
+            os.fchown(fd, uid, gid)
 
 
-def _existing_mode(path: Path) -> int | None:
+def _existing_stat(path: Path) -> os.stat_result | None:
     try:
-        return stat.S_IMODE(path.stat().st_mode)
+        return path.stat()
     except FileNotFoundError:
         return None
