@@ -61,7 +61,8 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
             and spans[before].heading_path == by_id[first].heading_path:
         parts.append("Lead-in: " + spans[before].text)
     header = order[first]
-    while header > 0 and spans[header - 1].kind == "table_row":
+    while by_id[first].kind == "table_row" and header > 0 \
+            and spans[header - 1].kind == "table_row":
         header -= 1
     if header < order[first]:
         parts.append("Table header: " + spans[header].text)

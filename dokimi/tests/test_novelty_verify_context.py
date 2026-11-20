@@ -114,3 +114,10 @@ def test_the_lead_in_never_comes_from_the_previous_section():
     assert context == "Heading: T > H3"
     _, context = _check(_atom(spans, "Text."), spans)
     assert context == "Heading: T > H3"
+
+
+def test_a_sentence_after_a_table_gets_no_table_header():
+    spans = segment("## Flags\n\n| Flag | Default |\n|---|---|\n| --x | 10 |\n\n"
+                    "These defaults apply to CPU only.\n")
+    _, context = _check(_atom(spans, "These defaults"), spans)
+    assert "Table header" not in context
