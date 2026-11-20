@@ -134,13 +134,14 @@ def searched_field(searched: list[str], workdir: str | None) -> dict[str, Any]:
 def search_program(name: str, args: Sequence[str]) -> tuple[str, Sequence[str]] | None:
     """``(program, its arguments)`` for a command that searches files, else None. ``git grep`` is ``git`` and ``grep``
     first, after the global options that leave the directory alone (``--no-pager``, ``-P``, ``-c key=value``):
-    ``git -C dir grep`` is not followed, as ``-C`` moves the directory."""
+    ``git -C dir grep`` is not followed, as ``-C`` moves the directory. Its program is ``git grep``, with git's own
+    options that take a word (``--max-depth 0``), not GNU grep's."""
     if name == "git":
         rest = list(args)
         while rest[:1] in (["--no-pager"], ["-P"]) or (rest[:1] == ["-c"] and len(rest) > 1):
             rest = rest[2:] if rest[0] == "-c" else rest[1:]
         if rest[:1] == ["grep"]:
-            return "grep", rest[1:]
+            return "git grep", rest[1:]
     return (name, args) if name in _SEARCHERS else None
 
 

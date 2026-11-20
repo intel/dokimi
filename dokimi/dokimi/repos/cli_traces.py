@@ -154,7 +154,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
         if _ungrouped(part).strip():  # the ``}`` that closes a group has no exit of its own: the group's last command's
-            walk.last_start = len(out)
+            walk.last_start, walk.cut = len(out), False
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
             walk.here, walk.gated = None, False
@@ -172,6 +172,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         if words:
             out.extend(walk.command(words, after, chained, _time_keyword(part)))
         elif (stage := _search_stage(part, walk.functions)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
+            walk.cut = True
             out.extend(walk.piped(walk.words(stage, after, staged=True), _time_keyword(part)))
     walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
     return out, walk
@@ -203,6 +204,7 @@ class _Walk:
         self.passthru = False  # a search printed every line (``rg --passthru``): its exit 1 is no sign it showed none
         self.last_start = 0  # where in the found paths the script's last non-empty part began
         self.unknown = 0  # the relative files printing commands named at a directory not known
+        self.cut = False  # the last part is a search piped into head or tail: its exit may be the pipeline's, under pipefail
 
     def spot(self) -> _Spot:
         return self.here, self.shell_moved, self.moved
@@ -613,13 +615,18 @@ def drop_failed_searches(events: list[dict[str, Any]]) -> None:
             del event["searched"]
 
 
-def failed_search(script: str, rc: Any) -> bool:
+def failed_search(script: str, rc: Any, exit_known: bool = True) -> bool:
     """Whether ``script`` exited 1 and every search in it is in its last part (``grep x A.md sub/A.md``, ``echo hi; grep x
     A.md``, ``cd sub && grep x A.md | head``): the exit status is that part's, and 1 is a search that matched no line in
-    any file. A search before the last part (``grep x A.md; grep y B.md``) may be the one that showed lines."""
+    any file. A search before the last part (``grep x A.md; grep y B.md``) may be the one that showed lines. Without a
+    known exit (``exit_known`` false: Claude Code says only that the call failed), a last part that pipes the search into
+    ``head`` or ``tail`` is no failed search: under ``pipefail`` the failure may be ``grep`` killed by the closed pipe, after
+    it showed lines."""
     if rc != 1:
         return False
     found, walk = _walk_script(script, "")
+    if walk.cut and not exit_known:
+        return False
     # the same walk as the whole script's, so a ``cd`` that loses the directory hides no earlier search; ``rg --passthru``
     # prints every line, so its exit 1 says nothing
     earlier = any(isinstance(p, Searched) for p in found[:walk.last_start])

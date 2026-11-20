@@ -71,8 +71,10 @@ _RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type
                         "--sort", "--sortr", "--ignore-file", "--pre", "--pre-glob", "--color", "--colors", "--engine",
                         "--max-filesize", "--path-separator", "--context-separator", "--field-context-separator",
                         "--field-match-separator", "--dfa-size-limit", "--regex-size-limit", "--hyperlink-format"})
+_GIT_GREP_VALUES = frozenset({"-m", "-A", "-B", "-C", "--max-count", "--after-context", "--before-context", "--context",
+                              "--max-depth", "--threads"})  # git grep's own: no -d or -D, and --max-depth takes a word
 _SEARCH_VALUES = {"grep": _GREP_VALUES, "egrep": _GREP_VALUES, "fgrep": _GREP_VALUES, "rg": _RG_VALUES,
-                  "awk": frozenset({"-F", "-v"})}  # a searcher's options whose next word is a value, not an operand
+                  "git grep": _GIT_GREP_VALUES, "awk": frozenset({"-F", "-v"})}  # a searcher's options whose next word is a value, not an operand
 _PATTERN_FILE = frozenset({"-f", "--file"})  # a searcher's option whose value is a file it reads, and no expression
 _EXPRESSION = frozenset({"-e", "--regexp", "--expression"})  # a searcher's option whose value is the search expression
 _GNU_GREP_LONG = frozenset({

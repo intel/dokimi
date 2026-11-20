@@ -38,6 +38,9 @@ def _jsonl(*records: dict) -> str:
     ("rg -n warn dpnp/tests/AGENTS.md", ["dpnp/tests/AGENTS.md"]),
     ("git grep -n warn -- dpnp/AGENTS.md", ["dpnp/AGENTS.md"]),
     ("git grep -e warn -- dpnp/AGENTS.md", ["dpnp/AGENTS.md"]),
+    ("git grep -h warn -- AGENTS.md", ["AGENTS.md"]),  # git's -h is --no-filename, a search
+    ("git grep --max-depth 0 warn -- AGENTS.md", ["AGENTS.md"]),  # 0 is the value of --max-depth, not a file
+    ("git grep --threads 2 -m 1 warn AGENTS.md", ["AGENTS.md"]),
     ("egrep warn AGENTS.md", ["AGENTS.md"]),
     ("fgrep warn AGENTS.md", ["AGENTS.md"]),
     ("/bin/grep warn AGENTS.md", ["AGENTS.md"]),
@@ -192,12 +195,28 @@ def test_a_search_of_one_file_that_failed_shows_no_line():
 
 
 @pytest.mark.parametrize("command", [
-    "grep warn AGENTS.md sub/AGENTS.md", "echo hi; grep zzz AGENTS.md", "cd sub && grep zzz AGENTS.md | head",
+    "grep warn AGENTS.md sub/AGENTS.md", "echo hi; grep zzz AGENTS.md", "cd sub && grep zzz AGENTS.md",
     "echo hi; grep zzz AGENTS.md sub/AGENTS.md",
 ])
 def test_a_failed_search_whose_exit_is_the_only_searchs_shows_no_line_of_any_file(command):
     assert _process(_call("a", command), _result("a"))["guidance_searched"] != []  # it ran fine
     assert _process(_call("a", command), _result("a", "x", True))["guidance_searched"] == []
+
+
+@pytest.mark.parametrize("command", ["set -o pipefail; grep x AGENTS.md | head -n 1", "cd sub && grep x AGENTS.md | tail -3"])
+def test_a_failed_claude_pipeline_that_printed_lines_keeps_its_search_as_its_exit_is_unknown(command):
+    # under pipefail the failure may be grep killed by the closed pipe (exit 141), after head showed a line
+    files = _process(_call("a", command), _result("a"))["guidance_searched"]
+    assert _process(_call("a", command), _result("a", "AGENTS.md:1:x", True))["guidance_searched"] == files != []
+    assert _process(_call("a", command), _result("a", "", True))["guidance_searched"] == []  # no text: nothing shown
+    assert failed_search(command, 1) is True  # a known exit 1 of the pipeline's search is a search that matched nothing
+
+
+def test_git_grep_reads_the_options_of_git_not_of_gnu_grep():
+    # git takes --max-depth's next word as its value: the pattern is AGENTS.md and the only file is other.txt
+    command = "git grep --max-depth 0 AGENTS.md -- other.txt"
+    assert shell_walked(command).searched == ["other.txt"]
+    assert _process(_call("a", command), _result("a", "other.txt:1:see AGENTS.md"))["guidance_searched"] == []
 
 
 @pytest.mark.parametrize("command", ["grep a AGENTS.md; grep b sub/AGENTS.md", "grep a AGENTS.md && grep b sub/AGENTS.md"])

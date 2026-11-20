@@ -231,9 +231,9 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
     dropped: set[int] = set()
     for call in calls:
         failed = call.result == "error" and _failed_read(call.text, 1)
-        if call.result != "denied" and not failed:
-            out.unknown_reads += call.unknown
-            _note_searched(call, moved)
+        if call.result != "denied":
+            out.unknown_reads += 0 if failed else call.unknown
+            _note_searched(call, moved)  # it drops a failed one-file search itself, but keeps a failed pipeline's
         for read, path in zip(call.reads, call.named, strict=True):
             unknown = moved and not path.startswith("/")  # the shell's directory is not known, nor the file
             if call.result == "denied":  # kept after a move too, with no path when it was relative
@@ -262,7 +262,7 @@ def _settle_grep(out: Transcript, stream: _Stream) -> None:
 def _note_searched(call: _BashCall, moved: bool) -> None:
     """Put the files the call's searches show lines of on its command event: not a relative one after the shell moved
     (its directory is not known; ``unknown_reads`` counts reads only), and none for a call refused or failed as one search of one file, or whose result has no text."""
-    no_match = call.result == "error" and failed_search(call.text, 1)  # Claude Code reports no exit code: any error is a no match
+    no_match = call.result == "error" and failed_search(call.text, 1, exit_known=False)  # Claude Code reports no exit code: any error is a no match
     kept = [] if call.silent or no_match else [rel for raw, rel in call.searched if not (moved and not raw.startswith("/"))]
     if kept:
         call.event["searched"] = kept
