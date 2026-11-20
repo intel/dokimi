@@ -360,6 +360,7 @@ def test_the_counts_line_does_not_read_a_not_checked_skill_as_a_plain_ok(tmp_pat
         pytest.param("Run post-merge checks. Use after code-freeze.", id="after-one-hyphen-event"),
         pytest.param("Runs annual reconciliation. Use before end-of-year.", id="before-end-of-year"),
         pytest.param("Runs annual reconciliation. Use after start-of-quarter.", id="after-start-of-quarter"),
+        pytest.param("Runs hooks. Use after pre-commit-hooks.sh succeeds.", id="after-filename-dot"),
         pytest.param("Formats SQL. Use when needed to tidy a migration file.", id="needed-then-purpose"),
         pytest.param("Formats SQL. Use when needed, e.g. before a review.", id="needed-comma"),
         pytest.param("Formats SQL. Use when the user asks for formatting, or when needed.", id="needed-after-real-clause"),
@@ -395,3 +396,8 @@ def test_969_a_use_phrase_that_names_no_situation_is_flagged(description):
 def test_969_an_empty_description_is_flagged():
     """#969: the filler strip keeps the empty description a plain False."""
     assert when_clause_found("") is False
+
+
+def test_969_a_filler_does_not_change_the_script_coverage_count():
+    """#969: letters of ``Use when needed.`` still count as Latin, so a mostly Latin description is flagged, not skipped."""
+    assert when_clause_found("Αναφορές. Use when needed.") is False

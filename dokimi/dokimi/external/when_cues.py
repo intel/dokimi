@@ -16,9 +16,9 @@ from typing import Optional
 WHEN_CUES = {
     "en": r"\b(?:when\s+\w|use for\b|use to\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|"
           r"activate\b|invoke this\b|use (?:it |this |these )?(?:when|if|whenever|proactively|anytime)\b|"
-          # "Use after sglang-xpu-run." names the skill that runs first, not a situation. A name has two hyphens or
-          # more and no "of"/"the"/"and" part, so "go-live" and "end-of-year" stay cues; "Use before." names nothing.
-          r"use (?:it |this |these )?(?:before|after)\b(?!\s*(?:[.;!?)]|$)|\s+`?\w+(?:-(?!(?:of|the|and|or|to|in|on|for)\b)\w+){2,}`?\s*(?:[.;!?)]|$))|"
+          # "Use after sglang-xpu-run." names a skill, not a situation: 2+ hyphens, no of/the/and/or/to/in/on/for part.
+          # A dot ends the name only before a space or the end, so "pre-commit-hooks.sh" stays a cue (#969).
+          r"use (?:it |this |these )?(?:before|after)\b(?!\s*(?:[.;!?)]|$)|\s+`?\w+(?:-(?!(?:of|the|and|or|to|in|on|for)\b)\w+){2,}`?\s*(?:[;!?)]|\.(?!\w)|$))|"
           r"whenever\b)",
     "es": r"(?<!vez en )\bcuando\b|\bcuándo\b|\bsiempre que\b|\bcada vez que\b|\ben caso de\b|\bal (?:usar|utilizar|invocar|ejecutar)\b",
     "fr": r"\bquand\b(?!\s+même)|\blorsqu\w*|\bdès que\b|\bchaque fois que\b|\ben cas de\b|\blors (?:de|d')",
@@ -37,7 +37,7 @@ WHEN_RE = re.compile("|".join(WHEN_CUES.values()), re.I)
 # "Use when needed.": a when whose only word is a filler names no situation. English only, a closed list.
 _EMPTY_WHEN_RE = re.compile(
     r"\b(?:when|whenever|if|anytime)\s+(?:it(?: is|['\u2019]s)\s+)?"
-    r"(?:needed|necessary|appropriate|applicable|relevant|required|helpful|useful|possible|desired)\s*(?:[.;!?)]|$)",
+    r"(?:needed|necessary|appropriate|applicable|relevant|required|helpful|useful|possible|desired)\s*(?:[;!?)]|\.(?!\w)|$)",
     re.I,
 )
 # Letters in a script some cue list covers (Latin with accents, Cyrillic, kana, Han, Hangul), and all letters.
@@ -47,8 +47,8 @@ _LETTER_RE = re.compile(r"[^\W\d_]")
 
 def when_clause_found(description: str) -> Optional[bool]:
     """Whether the description has a "when" cue; None when most of its letters are in a script no cue list covers."""
-    text = _EMPTY_WHEN_RE.sub(" ", " ".join(description.split()))
-    if WHEN_RE.search(text):
+    text = " ".join(description.split())
+    if WHEN_RE.search(_EMPTY_WHEN_RE.sub(" ", text)):
         return True
     letters = len(_LETTER_RE.findall(text))
     covered = len(_COVERED_LETTER_RE.findall(text))
