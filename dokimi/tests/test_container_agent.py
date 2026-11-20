@@ -1021,7 +1021,7 @@ def test_a_verifier_on_a_dead_container_is_errored_not_zero(tmp_path, monkeypatc
         args = call.argv[1:]
         if args[0] == "exec" and "test.sh" in args[-1]:  # it died during the verifier
             return reply(stderr="container dokimi-run-x is not running", returncode=1)
-        if args[0] == "cp" and ":/logs/" in args[1]:
+        if args[0] == "cp" and ":/logs/" in args[-2]:
             return reply(returncode=1)
         if args[0] == "inspect":
             return reply("false\n")

@@ -10,7 +10,7 @@ started. It answers like a daemon with one healthy task container:
 - every docker step exits 0 with no output;
 - ``docker logs`` of the egress sidecar says the proxy is ready, then
   ``sidecar_log``;
-- ``docker cp <c>:/logs/verifier/reward.txt <dst>`` writes ``reward`` to
+- ``docker cp -L <c>:/logs/verifier/reward.txt <dst>`` writes ``reward`` to
   ``<dst>`` (``None``: no reward file, exit 1), and ``.../reward.json`` writes
   ``reward_json`` (by default ``None``: the verifier wrote none);
 - ``docker inspect -f {{.State.Running}}`` says ``true``;
@@ -97,10 +97,10 @@ class DockerCLI(FakeRunner):
 
     def _reward_copy(self, args: tuple[str, ...]) -> Optional[Completed]:
         for name, text in (("reward.txt", self.reward), ("reward.json", self.reward_json)):
-            if args[1].endswith(f":/logs/verifier/{name}"):
+            if args[-2].endswith(f":/logs/verifier/{name}"):
                 if text is None:
                     return reply(stderr="Error: No such container:path", returncode=1)
-                Path(args[2]).write_text(text, encoding="utf-8")
+                Path(args[-1]).write_text(text, encoding="utf-8")
         return None
 
     def solver_calls(self) -> list[Call]:

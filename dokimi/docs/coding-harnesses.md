@@ -1140,7 +1140,8 @@ python cli.py tasks run --tasks <task-name> \
   or `task.md`), where exit 0 without `/logs/verifier/reward.txt` or
   `reward.json` is errored and a non-zero exit scores 0.0. A terminal-bench v1
   verifier keeps its pytest summary as the verdict. As in Harbor 0.24.0, a
-  `reward.json` is read when there is one, else `reward.txt`; it is a JSON
+  `reward.json` is read when there is one, else `reward.txt` (a link is followed in the
+  container; a dangling one is no file); it is a JSON
   object of numbers, and the reward is its `reward` key, or its only key (the
   other keys stay in the cell's copy of the file). A `docker-*` `reward.txt`
   with no number between 0 and 1 in it (`PASS`, empty, `75`), a `reward.json`

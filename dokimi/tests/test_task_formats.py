@@ -472,7 +472,7 @@ def test_docker_oracle_runs_a_task_md_task_from_its_own_dirs(tmp_path, monkeypat
     out = TaskSuiteRunner([task], ["docker-oracle"], output_root=tmp_path / "runs", runner=cli).run()
     (row,) = out["results"]
     assert "error" not in row["metrics"]
-    sources = {c[1] for c in calls if c[0] == "cp" and c[2].startswith("dokimi-run-")}
+    sources = {c[-2] for c in calls if c[0] == "cp" and c[-1].startswith("dokimi-run-")}
     assert sources == {f"{task.path / 'oracle'}/.", f"{task.path / 'verifier'}/."}
 
 

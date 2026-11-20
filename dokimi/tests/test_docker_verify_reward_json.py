@@ -62,7 +62,7 @@ def test_a_reward_json_counts_whatever_the_verifier_exit_code(tmp_path):
 def test_reward_json_comes_before_reward_txt_as_in_harbor(tmp_path):
     cli = DockerCLI(reward="1.0", reward_json='{"reward": 0.4}')
     assert _verify(tmp_path, cli) == 0.4
-    assert [a[1] for a in cli.args if a[0] == "cp" and "/logs/verifier/" in a[1]] == [
+    assert [a[-2] for a in cli.args if a[0] == "cp" and "/logs/verifier/" in a[-2]] == [
         "c1:/logs/verifier/reward.json"]
 
 
@@ -102,7 +102,7 @@ def test_a_deeply_nested_reward_json_errors_the_cell_like_any_malformed_one(tmp_
 
 def test_a_failed_copy_of_reward_json_errors_the_cell_and_reward_txt_does_not_stand_in(tmp_path):
     def daemon_down(call):
-        if call.argv[1] == "cp" and call.argv[2].endswith(":/logs/verifier/reward.json"):
+        if call.argv[1] == "cp" and call.argv[-2].endswith(":/logs/verifier/reward.json"):
             return reply(stderr="Error response from daemon: connection refused", returncode=1)
         return None
 
@@ -111,8 +111,8 @@ def test_a_failed_copy_of_reward_json_errors_the_cell_and_reward_txt_does_not_st
 
 
 def _copies_a_directory(call):
-    if call.argv[1] == "cp" and call.argv[2].endswith(":/logs/verifier/reward.json"):
-        (Path(call.argv[3]) / "x").mkdir(parents=True)
+    if call.argv[1] == "cp" and call.argv[-2].endswith(":/logs/verifier/reward.json"):
+        (Path(call.argv[-1]) / "x").mkdir(parents=True)
         return reply()
     return None
 
@@ -137,22 +137,31 @@ def test_clearing_the_reward_files_removes_a_directory_with_a_read_only_subdirec
     assert [p.name for p in tmp_path.iterdir()] == ["keep.log"]
 
 
-@pytest.mark.parametrize("target", ["absent", "host"])
-def test_a_reward_json_that_is_a_symbolic_link_errors_the_cell(tmp_path, target):
-    # docker cp keeps a link; its target would be looked up on the host, absent or someone else's file.
-    host_file = tmp_path / "host-verdict.json"
-    if target == "host":
-        host_file.write_text('{"reward": 1.0}', encoding="utf-8")
+def _container_links(target: str | None):
+    """``docker cp`` of /logs/verifier/reward.json, a link to *target* in the container (None: dangling)."""
+    def copy(call):
+        if call.argv[1] != "cp" or not call.argv[-2].endswith(":/logs/verifier/reward.json"):
+            return None
+        if "-L" not in call.argv:  # docker cp keeps the link, whose target the host may not have
+            Path(call.argv[-1]).symlink_to("/tmp/container-only/verdict.json")
+        elif target is None:
+            return reply(stderr="Error response from daemon: Could not find the file "
+                                "/tmp/container-only/verdict.json in container c1", returncode=1)
+        else:
+            Path(call.argv[-1]).write_text(target, encoding="utf-8")
+        return reply()
+    return copy
 
-    def copies_a_link(call):
-        if call.argv[1] == "cp" and call.argv[2].endswith(":/logs/verifier/reward.json"):
-            Path(call.argv[3]).symlink_to(host_file)
-            return reply()
-        return None
 
-    with pytest.raises(RuntimeError, match="/logs/verifier/reward.json is not a file but a symbolic link"):
-        _verify(tmp_path, DockerCLI(reward="1", answer=copies_a_link))
+def test_a_reward_json_that_links_to_a_file_in_the_container_is_read_as_that_file(tmp_path):
+    # Harbor reads a link's target too (its docker /logs/verifier is a bind mount: harbor 0.24.0 docker.py).
+    assert _verify(tmp_path, DockerCLI(reward="1", answer=_container_links('{"reward": 0.25}'))) == 0.25
     assert not (tmp_path / "o" / "reward.json").is_symlink()
+
+
+def test_a_dangling_reward_json_link_is_no_reward_json(tmp_path):
+    # Harbor's reward_json_path.exists() is false for it, so reward.txt is read (harbor 0.24.0 verifier.py).
+    assert _verify(tmp_path, DockerCLI(reward="0.75", answer=_container_links(None))) == 0.75
 
 
 def test_a_reward_json_directory_that_cannot_be_removed_errors_the_cell(tmp_path, monkeypatch):
