@@ -153,7 +153,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     walk = _Walk(posixpath.normpath(cwd) if cwd else "", define(known, script), known)
     for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
-        if part.strip():
+        if _ungrouped(part).strip():  # the ``}`` that closes a group has no exit of its own: the group's last command's
             walk.last_start = len(out)
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
@@ -360,8 +360,9 @@ class _Walk:
     def searching(self, program: str, args: Sequence[str], chdir: bool) -> list[str]:
         """The files a search shows lines of (:func:`~dokimi.repos.shell_search.searched_files`), as :class:`Searched`
         paths among the reads. One at a directory not known is dropped, and not counted in ``unknown``, which counts reads."""
-        self.passthru |= passes_through(program, args)
-        return [Searched(p) for p in self.named(searched_files(program, args), chdir)]
+        files = searched_files(program, args)
+        self.passthru |= bool(files) and passes_through(program, args)  # ``rg --passthru -q`` shows no line
+        return [Searched(p) for p in self.named(files, chdir)]
 
     def named(self, files: list[str], chdir: bool) -> list[str]:
         """The files a printing or searching command names that are known, resolved; ``operands`` counts all of them."""

@@ -420,6 +420,26 @@ def test_a_failed_search_after_a_lost_directory_keeps_an_earlier_search_that_sho
     assert failed_search(command, 1) is False
 
 
+@pytest.mark.parametrize("command", [
+    "echo hi; { grep zzz AGENTS.md docs/AGENTS.md; }",  # the closing brace has no exit of its own
+    "echo hi; { grep zzz AGENTS.md docs/AGENTS.md; } 2>/dev/null",
+    "echo hi; rg --passthru -q x other.txt; grep nomatch AGENTS.md",  # a quiet passthru shows no line
+    "echo hi; rg --passthru --count x other.txt; grep nomatch AGENTS.md",
+])
+def test_a_no_match_search_in_a_brace_group_or_after_a_quiet_passthru_shows_no_line(command):
+    assert _searched_by_each_harness(command, 1, "hi\n") == [None] * 3
+    assert failed_search(command, 1) is True
+
+
+@pytest.mark.parametrize("limit", ["9" * 5000, "0" * 5000, "0" * 5000 + "1"])
+def test_a_numeric_option_past_the_integer_string_limit_is_read_not_raised(limit):
+    shown = limit.strip("0") != ""
+    head = f"grep x AGENTS.md | head -n {limit}"
+    assert _searched_by_each_harness(head, 0, "AGENTS.md:1:x") == [["AGENTS.md"] if shown else None] * 3
+    match = f"grep -m {limit} x AGENTS.md"
+    assert _searched_by_each_harness(match, 0, "AGENTS.md:1:x") == [["AGENTS.md"] if shown else None] * 3
+
+
 @pytest.mark.parametrize("command", ['cd "$D"; grep y sub/AGENTS.md', 'echo hi; cd "$D"; grep y /ws/AGENTS.md'])
 def test_a_failed_search_whose_only_known_search_is_the_last_part_shows_no_line(command):
     assert failed_search(command, 1) is (command.endswith("/ws/AGENTS.md"))

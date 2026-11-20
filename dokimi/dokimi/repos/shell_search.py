@@ -123,7 +123,7 @@ def cuts_lines(stage: str, functions: Container[str] = ()) -> bool:
     if match is None:
         return False
     sign, digits = match.groups()
-    return int(digits) > 0 or (sign == "-" if words[0] == "head" else sign == "+")
+    return any(int(c) for c in digits) or (sign == "-" if words[0] == "head" else sign == "+")
 
 
 def searched_field(searched: list[str], workdir: str | None) -> dict[str, Any]:
@@ -160,6 +160,6 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
     short = _SHORT_NO_LINE.get(program, _SHORT_NO_LINE_DEFAULT)
     if any(f in _SHOWS_NO_LINE or (len(f) == 2 and f[1] in short) for f in flags):
         return []
-    if "--help" in flags or "--version" in flags or (limit is not None and limit.isdigit() and int(limit) == 0):
+    if "--help" in flags or "--version" in flags or (limit is not None and limit.isdecimal() and not any(int(c) for c in limit)):
         return []
     return [o for o in operands if o != "-"]
