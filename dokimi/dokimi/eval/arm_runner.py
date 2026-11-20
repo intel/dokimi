@@ -240,8 +240,8 @@ class ArmRunner:
                 # Keep the question's completed arms (and their spend); the run is marked terminated.
                 with lock:  # the cause is set before the event: a worker that sees it reads it
                     self.stop_error = exc.cause
+                    stop.set()  # a usage limit or login: no further arm is asked, also while the record is saved
                     _keep(idx, exc.record)
-                stop.set()  # a CLI usage limit or login: the questions not yet started are not asked
                 print(f"Stopped: {exc.cause}", flush=True)
                 return
             with lock:

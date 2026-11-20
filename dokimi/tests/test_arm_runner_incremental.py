@@ -434,3 +434,56 @@ def test_a_partial_file_that_cannot_be_removed_only_warns(tmp_path, monkeypatch,
     assert (tmp_path / "arms.md").exists()
     assert f"Warning: could not remove {tmp_path / 'arms.partial.json'}" in capsys.readouterr().err
     assert (tmp_path / "arms.partial.json").exists()
+
+
+def test_a_run_wide_stop_halts_the_other_questions_before_its_partial_save(monkeypatch):
+    # q1's usage limit is saved while q2 is between its arms: q2 must see the stop at its next arm,
+    # not after the save returns. The save waits until q2 has made that check.
+    import threading
+
+    from dokimi import llm_cli
+    from dokimi.eval import arm_stop
+
+    stopping, q2_checked, q2_asked = threading.Event(), threading.Event(), threading.Event()
+    q2 = {"thread": None, "checks": 0, "calls": 0}
+    real_halt = arm_stop.halt_if_stopped
+
+    def fake(prompt, model, provider="openai", **kw):
+        if "first" in prompt:  # once q2 is in its first arm, so it is between its arms when the stop lands
+            assert q2_asked.wait(10)
+            raise llm_cli.CliCallError("usage limit exceeded", retryable=False, run_wide=True)
+        q2["calls"] += 1
+        q2_asked.set()
+        assert stopping.wait(10)
+        return "answer", {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+    def halt(stop):
+        if threading.current_thread() is q2["thread"]:
+            q2["checks"] += 1
+        try:
+            real_halt(stop)
+        finally:
+            if q2["checks"] == 2:
+                q2_checked.set()
+
+    def record(done):
+        if runner.stop_error is not None:
+            stopping.set()
+            assert q2_checked.wait(10)
+
+    real_answer = arm_runner_mod.ArmRunner._answer_question
+
+    def answer(self, library_name, library_id, q, stop=None):
+        if q["id"] == "q2":
+            q2["thread"] = threading.current_thread()
+        return real_answer(self, library_name, library_id, q, stop)
+
+    monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", fake)
+    monkeypatch.setattr(arm_runner_mod, "halt_if_stopped", halt)
+    monkeypatch.setattr(arm_runner_mod.ArmRunner, "_answer_question", answer)
+    runner = arm_runner_mod.ArmRunner([BaselineTreatment(), BaselineTreatment(name="other")])
+    questions = [{"id": "q1", "question": "the first"}, {"id": "q2", "question": "the second"}]
+    records = runner.run("lib", questions, concurrency=2, on_record=record)
+
+    assert q2["calls"] == 1  # q2's second arm is never asked
+    assert records[1]["arms"]["other"]["error"].startswith("not_asked")
