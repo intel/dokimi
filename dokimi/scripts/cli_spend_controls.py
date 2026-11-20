@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dokimi import cli, cli_routes  # noqa: E402
 
-CAP_FLAGS = frozenset({"--max-usd", "--max-batch-usd", "--max-cost-usd", "--budget"})
+CAP_FLAGS = frozenset({"--max-usd"})
 PREVIEW_FLAGS = frozenset({"--estimate-only", "--dry-run", "--work-dry-run"})
 
 

@@ -50,6 +50,8 @@ eval score reference
 eval triggers generate
 evaluate
 explore run
+repo reach
+repo skill-reach
 subjects run
 tasks run
 """.split("\n")
@@ -87,11 +89,11 @@ def test_json_output_ends_with_the_summary_line(capsys):
 
 
 def test_the_inventory_counts_every_paid_leaf_of_the_parser_tree():
-    """Issue #940: 39 paid leaves, 13 capped, as `cli_routes.cost_of` and the parser tree give."""
+    """Issue #940: 39 paid leaves, 11 capped, as `cli_routes.cost_of` and the parser tree give."""
     assert scs.summary(scs.paid_leaves()) == {
         "paid": 39,
-        "capped": 13,
-        "uncapped": 26,
+        "capped": 11,
+        "uncapped": 28,
         "no_control": 23,
     }
 
@@ -103,3 +105,9 @@ def test_cap_and_preview_are_read_from_the_flags_of_a_real_command():
     assert rows["tasks run"]["preview"] is True and rows["tasks run"]["capped"] is False
     assert rows["tools preference"] == {"path": "tools preference", "capped": True, "preview": True}
     assert rows["repo run"] == {"path": "repo run", "capped": True, "preview": False}
+
+
+def test_every_cap_flag_is_taken_by_some_leaf_of_the_parser_tree():
+    """Issue #940: a cap flag no leaf takes any more (a renamed `--budget`) is dropped from `CAP_FLAGS`."""
+    taken = set().union(*(flags for _, flags in scs._leaves(scs.cli.build_parser())))
+    assert sorted(scs.CAP_FLAGS - taken) == []
