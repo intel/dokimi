@@ -235,6 +235,19 @@ def test_view_refuses_verdicts_of_another_run_of_the_same_artifact(
     assert not (tmp_path / "v.html").exists()
 
 
+def test_view_accepts_verdicts_with_a_run_id_for_a_novelty_saved_without_one(tmp_path, skill, mixed_models):
+    out_dir = _analyze(tmp_path, skill)
+    atoms_out = _atoms_file(tmp_path, skill)
+    sidecar = out_dir / "novelty.atom_verdicts.json"
+    novelty = out_dir / "novelty.json"
+    data = _load(novelty)
+    assert data.pop("run_id")
+    novelty.write_text(json.dumps(data), encoding="utf-8")
+    assert _load(sidecar)["run_id"]
+    _run(*_view_args(out_dir, atoms_out, sidecar, tmp_path))
+    assert (tmp_path / "v.html").exists()
+
+
 def test_view_refuses_verdicts_that_name_atoms_the_atoms_file_lacks(tmp_path, skill, mixed_models):
     out_dir = _analyze(tmp_path, skill)
     atoms_out = _atoms_file(tmp_path, skill)
