@@ -415,6 +415,7 @@ def test_cli_fill_of_a_full_window_is_100_percent(tmp_path, capsys):
     assert f"| {t} | 1 | 200,000 | 200,000 | 100% | 0 |" in out
 
 
+@pytest.mark.outcome("cjm-context-trace")
 def test_result_chars_skips_an_image_block():
     """#962: docs/context-window.md: **result chars** is the text in tool results, in characters;
     a non-text block, such as an image a `Read` returns, adds nothing."""
