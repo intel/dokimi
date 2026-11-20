@@ -377,6 +377,24 @@ def test_a_codex_search_with_an_empty_output_showed_no_line(started):
     assert searched(None) == [["AGENTS.md"]]  # no output field: not known to be empty
 
 
+@pytest.mark.parametrize("started", [True, False], ids=["started", "completed only"])
+def test_a_codex_search_piped_into_head_that_exited_141_keeps_the_lines_it_showed(started):
+    command = "grep warn AGENTS.md | head -n 1"
+    t = convert("codex-json", _codex(command, 141, started, "AGENTS.md:1:warn"), WS)
+    assert [e.get("searched") for e in t.events if e["kind"] == "command"] == [["AGENTS.md"]]
+    t = convert("codex-json", _codex(command, 1, started, "x"), WS)
+    assert [e.get("searched") for e in t.events if e["kind"] == "command"] == [None]  # exit 1 stays a search of no line
+
+
+def test_a_copilot_search_piped_into_head_that_exited_141_keeps_the_lines_it_showed():
+    raw = _jsonl({"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "bash",
+                                                            "arguments": {"command": "grep warn AGENTS.md | head -n 1"}}},
+                 {"type": "tool.execution_complete", "data": {"toolCallId": "a", "success": False,
+                                                              "shellExecution": {"exitCode": 141},
+                                                              "result": {"content": "AGENTS.md:1:warn"}}})
+    assert [e.get("searched") for e in convert("copilot-json", raw, WS).events if e["kind"] == "command"] == [["AGENTS.md"]]
+
+
 def test_copilot_bash_searches_follow_the_same_rules():
     def searched(command, rc, content=None):
         result = {} if content is None else {"result": {"content": content}}

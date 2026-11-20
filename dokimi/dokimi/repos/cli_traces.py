@@ -608,11 +608,13 @@ def _counted_reads(out: Transcript, script: str, cwd: str) -> tuple[list[str], i
 
 def drop_failed_searches(events: list[dict[str, Any]]) -> None:
     """A command that failed and was one search of one file (:func:`_failed_read`), or whose last part is its only search
-    and exited 1 (:func:`failed_search`), showed no line: it has no ``searched``."""
+    and exited 1 (:func:`failed_search`), showed no line: it has no ``searched``. A search piped into ``head`` or ``tail``
+    is judged by :func:`failed_search` alone: its exit 141 is ``grep`` killed by the closed pipe after it showed lines."""
     for event in events:
-        if event.get("searched") and event.get("kind") == "command" and (
-                _failed_read(str(event["text"]), event.get("rc")) or failed_search(str(event["text"]), event.get("rc"))):
-            del event["searched"]
+        if event.get("searched") and event.get("kind") == "command":
+            text, rc = str(event["text"]), event.get("rc")
+            if failed_search(text, rc) or (not _walk_script(text, "")[1].cut and _failed_read(text, rc)):
+                del event["searched"]
 
 
 def failed_search(script: str, rc: Any, exit_known: bool = True) -> bool:
