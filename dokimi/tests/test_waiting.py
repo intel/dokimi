@@ -64,6 +64,28 @@ def test_poll_until_does_not_accept_a_condition_reached_while_a_sleep_overshot_t
         wait_until(lambda: clock[0] >= 0.5, 0.01, what="the clock", interval=1)
 
 
+def test_poll_until_does_not_accept_a_value_a_slow_later_call_returns_after_the_deadline(monkeypatch):
+    clock = [0.0]
+    calls = [0]
+
+    def predicate():
+        calls[0] += 1
+        if calls[0] == 2:
+            clock[0] += 0.1
+        return calls[0] >= 2
+
+    def nap(seconds):
+        clock[0] += seconds
+
+    monkeypatch.setattr(waiting, "time", SimpleNamespace(monotonic=lambda: clock[0], sleep=nap))
+    assert poll_until(predicate, 0.01, interval=0.005) is False
+    calls[0], clock[0] = 0, 0.0
+    with pytest.raises(pytest.fail.Exception, match="gave up after"):
+        wait_until(predicate, 0.01, what="the slow value", interval=0.005)
+    clock[0] = 0.0
+    assert poll_until(lambda: clock.__setitem__(0, 5.0) or True, 0.01) is True
+
+
 def test_wait_for_event_returns_at_once_for_a_set_event():
     event = threading.Event()
     event.set()

@@ -46,7 +46,9 @@ HINT = "(python scripts/check_test_timing.py --update)"
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 Pos = tuple[int, int]  # (line, column) where a binding takes effect
-Names = dict[str, list[tuple[Pos, str | None]]]  # name -> bindings in source order: "time", "time.sleep" or None
+Span = tuple[Pos, Pos]  # the text where a binding is not yet in effect, though it stands before it
+#: name -> bindings in source order: (position, "time" / "time.sleep" / None, spans that do not see it)
+Names = dict[str, list[tuple[Pos, str | None, tuple[Span, ...]]]]
 
 
 class Scope(NamedTuple):
@@ -59,8 +61,23 @@ def _end(node: ast.AST) -> Pos:
     return getattr(node, "end_lineno", 0) or 0, getattr(node, "end_col_offset", 0) or 0
 
 
-def _note(names: Names, name: str, pos: Pos, meaning: str | None) -> None:
-    names.setdefault(name, []).append((pos, meaning))
+def _span(node: ast.AST) -> Span:
+    return (node.lineno, node.col_offset), _end(node)  # type: ignore[attr-defined]
+
+
+def _note(names: Names, name: str, pos: Pos, meaning: str | None, unseen: tuple[Span, ...] = ()) -> None:
+    names.setdefault(name, []).append((pos, meaning, unseen))
+
+
+def _declared(nodes: list[ast.AST]) -> set[str]:
+    """The names a ``global`` or ``nonlocal`` statement in these statements hands to another scope."""
+    out: set[str] = set()
+    for node in nodes:
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            out.update(node.names)
+        elif not isinstance(node, (*FUNCTIONS, ast.ClassDef)):
+            out |= _declared(list(ast.iter_child_nodes(node)))
+    return out
 
 
 def _own_names(scope: ast.AST) -> Names:
@@ -73,8 +90,15 @@ def _own_names(scope: ast.AST) -> Names:
             if arg is not None:
                 _note(names, arg.arg, (0, 0), None)
     body = [scope.body] if isinstance(scope, ast.Lambda) else scope.body  # type: ignore[attr-defined]
+    local = isinstance(scope, FUNCTIONS)
     for stmt in body:
-        _bind(stmt, names)
+        _bind(stmt, names, local=local)
+    for name in set() if isinstance(scope, ast.Module) else _declared(body):
+        kept = [entry for entry in names.get(name, []) if entry[1] is not None]  # an import still counts
+        if kept:
+            names[name] = kept
+        else:
+            names.pop(name, None)
     for entries in names.values():
         entries.sort(key=lambda entry: entry[0])
     return names
@@ -106,33 +130,41 @@ def _bind_import(node: ast.Import | ast.ImportFrom, names: Names) -> None:
             _note(names, alias.asname or alias.name, pos, None)
 
 
-def _bind(node: ast.AST, names: Names, at: Pos | None = None) -> None:
+def _bind(node: ast.AST, names: Names, at: Pos | None = None, *, local: bool = False) -> None:
     """Record the names ``node`` binds in its scope, each with where it takes effect, without entering a
-    nested function, class or lambda. An assignment binds once its right side has run; the targets of a
-    comprehension stay in it, except a ``:=``."""
+    nested function, class or lambda. An assignment binds once its right side has run, a ``for`` target
+    once its iterable has; the targets of a comprehension stay in it, except a ``:=``. ``x: T`` with no value
+    binds ``x`` in a function (``local``) and nowhere else."""
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         _bind_import(node, names)
     elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         _note(names, node.name, _end(node), None)
     elif isinstance(node, COMPREHENSIONS):
-        _bind_walruses(node, names, _end(node.generators[0].iter))
+        _bind_walruses(node, names, ())
+    elif isinstance(node, ast.AnnAssign) and node.value is None and not local:
+        _bind(node.annotation, names, local=local)
     elif not isinstance(node, ast.Lambda):
         if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
             at = _end(node)
         _bind_target(node, names, at)
         for child in ast.iter_child_nodes(node):
-            _bind(child, names, at)
+            after = _end(node.iter) if isinstance(node, (ast.For, ast.AsyncFor)) and child is node.target else at
+            _bind(child, names, after, local=local)
 
 
-def _bind_walruses(node: ast.AST, names: Names, first_done: Pos) -> None:
-    """A ``:=`` in a comprehension binds in the scope around it, not in a lambda inside it. The first
-    iterable runs before the element, so the binding takes effect after it, wherever it stands in the text."""
+def _bind_walruses(node: ast.AST, names: Names, unseen: tuple[Span, ...]) -> None:
+    """A ``:=`` in a comprehension binds in the scope around it, though not in a lambda's body. The first
+    iterable of each comprehension around it runs before it, whatever the text order: ``unseen`` holds
+    those iterables, where the binding is not in effect."""
     if isinstance(node, ast.Lambda):
+        for part in _outer_parts(node):
+            _bind_walruses(part, names, unseen)
         return
     if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
-        _note(names, node.target.id, max(_end(node), first_done), None)
+        _note(names, node.target.id, _end(node), None, unseen)
+    first = node.generators[0].iter if isinstance(node, COMPREHENSIONS) else None
     for child in ast.iter_child_nodes(node):
-        _bind_walruses(child, names, first_done)
+        _bind_walruses(child, names, unseen if first is None or child is first else (*unseen, _span(first)))
 
 
 def _bind_target(node: ast.AST, names: Names, at: Pos | None) -> None:
@@ -153,12 +185,13 @@ def _resolve(call: ast.Call, scopes: list[Scope]) -> str | None:
         for scope in scopes:
             entries = scope.names.get(name)
             if entries:
-                seen = [m for p, m in entries if not by_position or p <= pos]
+                seen = [m for p, m, unseen in entries
+                        if not by_position or (p <= pos and not any(a <= pos < b for a, b in unseen))]
                 if seen:
                     return seen[-1]
                 if not scope.is_class:
                     return None
-            by_position = by_position and scope.is_comp
+            by_position = by_position and (scope.is_comp or scope.is_class)
         return None
 
     func = call.func

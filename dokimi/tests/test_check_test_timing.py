@@ -162,6 +162,27 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("import time\n[(time := None) for _ in ()]\ntime.sleep(1)\n", {}),
     ("import time\n[(lambda: (time := None)) for _ in ()]\ntime.sleep(1)\n", {"time.sleep": 1}),
     ("import time\n[(time := None) for _ in (time.sleep(1),)]\n", {"time.sleep": 1}),
+    ("import time\n\n\ndef test_a():\n    global time\n    time.sleep(1)\n    time = None\n", {"time.sleep": 1}),
+    ("import time\n\n\ndef test_a():\n    time = 1\n    def inner():\n        nonlocal time\n"
+     "        time.sleep(1)\n        time = None\n", {}),
+    ("import time\n\n\ndef test_a():\n    def inner():\n        global time\n        time.sleep(1)\n"
+     "        time = None\n    inner()\n", {"time.sleep": 1}),
+    ("def test_a():\n    global time\n    import time\n    time.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\ntime: object\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n\n\nclass T:\n    time: object\n    time.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n\n\ndef test_a():\n    time: object\n    time.sleep(1)\n", {}),
+    ("def test_a():\n    import time\n    for time in (time.sleep(1),):\n        pass\n", {"time.sleep": 1}),
+    ("import time\nfor time in ():\n    pass\ntime.sleep(1)\n", {}),
+    ("import time\nclass T:\n    time.sleep(1)\ntime = None\n", {"time.sleep": 1}),
+    ("import time\nclass T:\n    time = None\n    time.sleep(1)\n", {}),
+    ("import time\n[(lambda x=(time := None): x) for _ in (0,)]\ntime.sleep(1)\n", {}),
+    ("import time\n[(lambda x=time.sleep(1): (time := None)) for _ in (0,)]\ntime.sleep(1)\n",
+     {"time.sleep": 2}),
+    ("import time\nfrom types import SimpleNamespace\n"
+     "[(time := SimpleNamespace(sleep=lambda _: None), time.sleep(1)) for _ in (0,)]\n", {}),
+    ("import time\n[0 for _ in (0,) if [(time := None) for x in (time.sleep(1),)]]\n", {"time.sleep": 1}),
+    ("import time\n[0 for _ in (0,) if [(time := None) for x in (0,)]]\ntime.sleep(1)\n", {}),
+    ("import time\n[[(time := None) for x in (0,)] for _ in (time.sleep(1),)]\n", {"time.sleep": 1}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
