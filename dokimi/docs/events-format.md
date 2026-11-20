@@ -22,6 +22,7 @@ depend on the kind:
 {"kind": "edit", "t": 5.0, "path": "src/foo.cpp", "v": 2}
 {"kind": "tool", "denied": true, "name": "WebFetch", "t": 20.2, "v": 2}
 {"kind": "tool", "name": "Skill", "skill": "lint-fix", "t": 2.0, "v": 2}
+{"kind": "probe", "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0, "t": 12.4, "v": 2}
 {"kind": "turn", "turn": 3, "input": 1200, "output": 85, "cache_read": 9000, "cache_write": 0, "prompt_tokens": 10200, "t": 14.0, "v": 2}
 {"kind": "compaction", "turn": 7, "t": 40.5, "v": 2}
 ```

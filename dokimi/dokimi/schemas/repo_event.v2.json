@@ -9,7 +9,9 @@
     "kind": {"type": "string", "description": "What the event is. Readers ignore a kind they do not know."},
     "t": {"type": ["number", "null"], "description": "Seconds since the first timestamped trace line; null when the harness has no timestamps."},
     "agent": {"type": "string", "description": "The id of the parent's Agent/Task call that started this event; absent on the parent's events."},
-    "denied": {"type": "boolean", "description": "The call was refused and never ran."}
+    "denied": {"type": "boolean", "description": "The call was refused and never ran."},
+    "target": {"type": "string", "description": "A probe event's target: what the command asked the host for (cpu, gpu, os, memory, packages, env, network)."},
+    "pattern": {"type": "string", "description": "A probe event's configured pattern that the command matched."}
   },
   "required": ["kind", "t"],
   "allOf": [
