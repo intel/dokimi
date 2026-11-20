@@ -83,6 +83,7 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     require_runnable(manifest)
     if manifest.image is None:
         raise ValueError(f"{manifest.path} declares no `image`; entry points and agents run in it")
+    _check_cache_paths(args, manifest)  # before the export and the image build (#826)
     git_dir = source_git_dir(source, tree, _cache_dir(args))
     content = out / "_eval" / "content"
     # a pinned batch keeps its content until the pin is checked
@@ -117,9 +118,6 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     if ctx_dir is not None:
         shutil.rmtree(ctx_dir)
     overrides = dict(_pair(c) for c in args.cache or ())
-    unknown = sorted(set(overrides) - {c.name for c in manifest.image.caches})
-    if unknown:
-        raise ValueError(f"--cache names no cache of the manifest: {', '.join(unknown)}")
     cache_root = Path(args.cache_root) if args.cache_root else default_cache_dir().parent / "caches" / manifest.id
     caches = {}
     for c in manifest.image.caches:
@@ -210,6 +208,49 @@ def _pair(text: str) -> tuple[str, str]:
     return name, path
 
 
+def _check_cache_flags(args: argparse.Namespace) -> None:
+    """Refuse a ``--cache-root`` or a ``--cache NAME=PATH`` path no cache directory can be made in (exit 2) (#826).
+
+    They need no manifest, so they are checked before the source is opened (a remote one is cloned or fetched).
+    A ``--cache`` that is not ``NAME=PATH`` is left to ``_context``.
+    """
+    from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
+
+    if args.cache_root:
+        resolved_cache_dir(args.cache_root, CACHE_USE, label="--cache-root")
+    for name, sep, path in (c.partition("=") for c in args.cache or ()):
+        if name and sep and path:
+            resolved_cache_dir(path, CACHE_USE, label=f"--cache {name}")
+
+
+def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None:
+    """Refuse a cache under the root no cache directory can be made in (usage error, exit 2) (#826).
+
+    Each cache with no ``--cache`` is checked under ``--cache-root``, or else under the default root ``_context``
+    uses. Checked before the image build: ``_context`` makes each cache directory after it. A ``--cache`` naming
+    no cache of the manifest is a usage error too.
+    """
+    from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
+    from dokimi.repos.source import default_cache_dir
+
+    def check(path: str, label: str) -> None:  # the resolved path, as `_context` makes it
+        resolved_cache_dir(path, CACHE_USE, label=label)
+
+    overrides = dict(_pair(c) for c in args.cache or ())
+    names = [c.name for c in manifest.image.caches] if manifest.image is not None else []
+    unknown = sorted(set(overrides) - set(names))
+    if unknown:
+        raise InputError(f"--cache names no cache of the manifest: {', '.join(unknown)}")
+    for name in names:  # the root and the overrides are checked by `_check_cache_flags`
+        if name in overrides:
+            continue
+        if args.cache_root:
+            check(str(Path(args.cache_root) / name), "--cache-root")
+        else:  # the default root `_context` uses, below $DOKIMI_REPO_CACHE when it is set
+            env = " (from $DOKIMI_REPO_CACHE)" if os.environ.get("DOKIMI_REPO_CACHE") else ""
+            check(str(default_cache_dir().parent / "caches" / manifest.id / name), f"the build cache root{env}")
+
+
 def _progress(line: str) -> None:
     """One progress line, flushed: under a pipe (CI) stdout is block-buffered and the per-task
     lines would otherwise all appear when the command exits."""
@@ -237,6 +278,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     out = Path(args.out).resolve()
     source = _parse_source(args)
     _refuse_typed(source, args)  # before the manifest, the image build and the tasks
+    _check_cache_flags(args)  # before the source is opened
     try:
         ctx, _ = _context(args, out, source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
@@ -248,6 +290,8 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
         results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs, log=_progress)
+    except InputError:  # a ValueError: a bad cache path is a usage error (2), not a failed run (1) (#826)
+        raise
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -360,11 +404,10 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.arms import check_arms
     from dokimi.repos.batch_ledger import pin_arms, pin_skills, write_skill_pin
     from dokimi.repos.bases import ConfigRefused, check_mcp_configs
-    from dokimi.repos.container import DockerError, docker_network
+    from dokimi.repos.container import DockerError
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.probes import load_probe_file
-    from dokimi.repos.runner import (
-        AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps, validate_tasks)
+    from dokimi.repos.runner import AgentOptions, batch_lock, harness_version, run_batch, validate_tasks
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
     from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
 
@@ -372,6 +415,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
 
     source = _parse_source(args)  # as typed, before the build and the pin: a usage error
     _refuse_typed(source, args)  # before the arms and the harness
+    _check_cache_flags(args)  # before `pin_arms` opens the source
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
@@ -391,13 +435,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
                                 max_turns=args.max_turns, budget_usd=args.budget, probes=probes) for m in args.model]
-        gaps = ctx.base_gaps()
-        for task in tasks:  # refuse before anything runs, not cell by cell; a suite gap is unsupported, not run
-            if task.id in gaps:
-                continue
-            task_caps(task, options[0])
-            agent_network(options[0], ctx, task)
-            docker_network(ctx.manifest.image.network, task.egress)  # grade has no egress route either
+        _refuse_before_any_cell(ctx, tasks, options[0])
         version = harness_version(ctx, options[0], batch_dir / "_eval")
         for opt in options:
             opt.harness_version = version
@@ -411,6 +449,8 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
             write_skill_pin(batch_dir, skill_pin)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
                             max_batch_usd=args.max_batch_usd, log=_progress, label_host=args.label_host)
+    except InputError:  # see cmd_repo_tasks_check (#826)
+        raise
     except DockerError as exc:  # the docker CLI or daemon failed: infrastructure, not a verdict (§2.6)
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_INFRA)
@@ -426,6 +466,20 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
               file=sys.stderr)
     _exit_of_batch(summary)
+
+
+def _refuse_before_any_cell(ctx, tasks, option) -> None:
+    """Refuse before anything runs, not cell by cell; a suite gap is unsupported, not run."""
+    from dokimi.repos.container import docker_network
+    from dokimi.repos.runner import agent_network, task_caps
+
+    gaps = ctx.base_gaps()
+    for task in tasks:
+        if task.id in gaps:
+            continue
+        task_caps(task, option)
+        agent_network(option, ctx, task)
+        docker_network(ctx.manifest.image.network, task.egress)  # grade has no egress route either
 
 
 def _exit_of_batch(summary: dict) -> None:
@@ -546,14 +600,15 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
                    help="Full-history clone mounted as {source_dir} (default: the source's own git dir)")
     p.add_argument("--grade-timeout", type=positive_int, default=3600, dest="grade_timeout",
                    help="Seconds per grade/oracle run (default 3600)")
-    p.add_argument("-j", "--jobs", type=positive_int, default=1, help="Parallel tasks or cells (default 1)")
+    cli_flags.add(p, "concurrency", "--concurrency", "-j", type=positive_int, default=1, dest="jobs", metavar="N",
+                  help="Parallel tasks or cells (default 1)")
     p.add_argument("--docker", default="docker", help="docker CLI (default: docker)")
     p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
 
 
 _SOURCE_EXIT = (
     "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote), a "
-    "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory; exit 1 for a source that cannot be opened "
+    "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory (so is a $DOKIMI_REPO_CACHE, without the flag), or a --cache-root or --cache that is not one; exit 1 for a source that cannot be opened "
     "(clone, fetch, revision) and "
 )
 CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check, or when no task was checked (every one a suite gap)."
@@ -618,11 +673,11 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     run_p.add_argument("--probes", default=None, metavar="FILE",
                        help="YAML or JSON: target -> probe patterns, over the manifest's `probes` (default: the "
                        "framework's list; contract §4.1)")
-    run_p.add_argument("--budget", type=_usd, default=2.0,
-                       help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
-    run_p.add_argument("--max-batch-usd", type=_usd, default=None, dest="max_batch_usd",
-                       help="Start no new cell once the batch has spent this much, earlier invocations included "
-                            "(and the budgets of the cells in flight)")
+    cli_flags.add(run_p, "spend", "--max-usd-per-cell", type=_usd, default=2.0, dest="budget", metavar="X",
+                  help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
+    cli_flags.add(run_p, "spend", "--max-usd", type=_usd, default=None, dest="max_batch_usd", metavar="X",
+                  help="Start no new cell once the batch has spent this much, earlier invocations included "
+                       "(and the budgets of the cells in flight)")
     run_p.add_argument("--force", action="store_true", help="Rerun cells that already have result.json")
     run_p.add_argument("--label-host", action="store_true", dest="label_host",
                        help="Run a task whose task.json `host` requirements this host misses anyway, and record "

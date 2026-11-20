@@ -178,7 +178,7 @@ def test_pass_null_is_score_only_only_for_a_task_with_score(tmp_path):
 
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
 def test_run_refuses_a_budget_that_caps_nothing(value, capsys):
-    for flag in ("--budget", "--max-batch-usd"):
+    for flag in ("--max-usd-per-cell", "--max-usd"):
         with pytest.raises(SystemExit):
             build_parser().parse_args(["repo", "run", "x", "--arm", "guidance:raw", "--model", "m", "--batch", "b",
                                        flag, value])

@@ -799,7 +799,7 @@ def test_the_receipt_budget_reads_rules_as_repo_budget_does(tmp_path, monkeypatc
     # antonwolfy's tree: AGENTS.md is off, and loads only through the rule link; the receipt must not disagree
     from types import SimpleNamespace
 
-    from dokimi.commands import repo as repo_cmd
+    from dokimi.commands import repo_reach as repo_cmd
     from dokimi.repos import receipt as receipt_module
 
     _tree(tmp_path, {"CLAUDE.md": "root\n", "AGENTS.md": "agents guidance\n"})

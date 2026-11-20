@@ -39,8 +39,8 @@ Usage:
 
 Prints the build matrix as JSON for strategy.matrix: {"include": [{"platform":
 "linux", "name": "Linux", "python": "3.14"}, ...]}, every platform with every
-Python version. For a pull_request event only the oldest and the newest regular
-versions are listed. --github-output also writes NAME=<matrix> to
+Python version. For a pull_request event only the newest regular version is
+listed. --github-output also writes NAME=<matrix> to
 $GITHUB_OUTPUT, for later jobs. Standard library only; reading pyproject.toml
 needs Python 3.11 or newer for tomllib.
 """
@@ -640,12 +640,13 @@ def declared_platforms(system: str, selector: Path) -> list[str]:
 
 
 def for_event(pythons: list[Python], event: str) -> list[Python]:
-    """All of them, or for a pull request the oldest and newest regular ones."""
+    """All of them, or for a pull request the newest regular one (the newest free-threaded one
+    when no regular version is declared, so a PR still builds something)."""
     if event not in PULL_REQUEST_EVENTS:
         return pythons
     regular = [python for python in pythons if not python.version.endswith("t")]
     regular = regular or pythons
-    return list(dict.fromkeys(regular[:1] + regular[-1:]))
+    return regular[-1:]
 
 
 def build_matrix(system: str, selector: Path, event: str) -> dict:

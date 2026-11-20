@@ -105,6 +105,16 @@ def _measured(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     return [u for u in have if u.get("reason") not in _NO_VERDICT]
 
 
+def _rated(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The cells the rate counts: those with a verdict, less a cell whose ``steps`` is set but is no measure (past the
+    measure bound, NaN, a bool), or None beside a reason that is not ``never``. Its hit is declared and its count is
+    broken, so it is neither a hit nor a miss; only a ``never`` cell with ``steps`` None stays in as a miss."""
+    return [
+        u for u in _measured(have)
+        if (u.get("steps") is None and u.get("reason") == "never") or as_measure(u.get("steps")) is not None
+    ]
+
+
 def _nums(values: Iterable[Any]) -> list[float]:
     """The stored numbers that are measures: finite and within the report bound (a NaN or a 10**400 is no measure)."""
     return [num for v in values if (num := as_measure(v)) is not None]
@@ -156,13 +166,13 @@ def useful_kind(recs: Sequence[Mapping[str, Any]]) -> str | None:
 
 def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[float | None]]:
     """``repo compare``'s per-task values: the medians over the cells that observed it, and the share of the cells
-    with a verdict that observed it (None if none has one). A cell with no verdict (``unobserved``, ``timeout``) is
-    neither a hit nor a miss. The medians alone see only the observed cells. Cells that name two kinds have no value:
+    with a verdict that observed it (None if none has one). A cell with no verdict (``unobserved``, ``timeout``) or
+    whose ``steps`` is no measure (past the measure bound) is neither a hit nor a miss. The medians alone see only the observed cells. Cells that name two kinds have no value:
     a command's timing and an edit's are not one measure."""
     have = _declared(recs)
     if useful_kind(recs) == "mixed":
         return {measure: [None] for measure in USEFUL_MEASURES}
-    measured = _measured(have)
+    measured = _rated(have)
     observed = _nums(u.get("steps") for u in have)
     return {
         "first_useful_s": [_median(_nums(u.get("issued_s") for u in _observed(have)))],
@@ -175,22 +185,23 @@ def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[floa
 
 def useful_task_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     """The cells behind each :func:`useful_task_values` measure: the timed hits for seconds, the observed hits for
-    steps, and the cells with a verdict for the rate (a median of one value is not one cell)."""
+    steps, and the cells with a verdict for the rate, less a cell whose ``steps`` is no measure (a median of one
+    value is not one cell)."""
     have = _declared(recs)
     return {
         "first_useful_s": len(_nums(u.get("issued_s") for u in _observed(have))),
         "first_useful_steps": len(_nums(u.get("steps") for u in have)),
-        "first_useful_rate": len(_measured(have)),
+        "first_useful_rate": len(_rated(have)),
     }
 
 
 def useful_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int] | None:
-    """One arm's cells that observed a first useful result, of those with a verdict, and the cells without one; None
-    if none declares a definition."""
+    """One arm's cells that observed a first useful result, of those with a verdict, and the cells without one (or
+    whose ``steps`` is no measure); None if none declares a definition."""
     have = _declared(recs)
     if not have:
         return None
-    measured = _measured(have)
+    measured = _rated(have)
     return {
         "observed": len(_nums(u.get("steps") for u in measured)),
         "measured": len(measured),
