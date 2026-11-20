@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dokimi.novelty.atoms import Atom
 from dokimi.novelty.spans import (
+    dangling_fence,
     index_atoms,
     protection_tags,
     segment,
@@ -43,6 +44,37 @@ def test_segment_keeps_a_fenced_block_whole():
     code = [s for s in segment(DOC) if s.kind == "code"]
     assert len(code) == 1
     assert "make build" in code[0].text
+
+
+_NESTED = "# Valve setup\n\nThe valve opens clockwise.\n\n{o}markdown\n```\nOpen the valve. Close the valve.\n```\n{o}\n\nCheck the gauge.\n"
+
+
+def test_longer_fence_keeps_an_inner_shorter_fence_in_one_code_span():
+    """#974: a four-backtick fence is not closed by a three-backtick line inside it."""
+    kinds = ["heading", "sentence", "code", "sentence"]
+    assert [s.kind for s in segment(_NESTED.format(o="~~~~"))] == kinds
+    spans = segment(_NESTED.format(o="````"))
+    assert [s.kind for s in spans] == kinds
+    assert spans[2].text.count("```") == 2 + 2
+
+
+def test_a_longer_closing_fence_still_closes():
+    """#974: a closing fence at least as long as the opener closes the block."""
+    spans = segment("```\ncode\n`````\n\nAfter the block.\n")
+    assert [s.kind for s in spans] == ["code", "sentence"]
+
+
+def test_a_shorter_closing_fence_does_not_close():
+    """#974: a closing line shorter than the opening run is content."""
+    spans = segment("````\ncode\n```\nstill code\n")
+    assert [s.kind for s in spans] == ["code"]
+
+
+def test_dangling_fence_reads_the_whole_run():
+    """#974: `dangling_fence` uses the same whole-run rule as `segment`."""
+    assert dangling_fence("````\n```\ncode\n```\n") == "````"
+    assert dangling_fence("````\n```\ncode\n````\n") is None
+    assert dangling_fence("") is None
 
 
 def test_heading_path_tracks_nesting():

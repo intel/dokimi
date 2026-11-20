@@ -39,7 +39,8 @@ _PROTECTION_RULES: list[tuple[str, re.Pattern[str]]] = [
         r"tokens?|bytes?|Hz|MHz|GHz)\b)", re.I)),
 ]
 
-_FENCE = re.compile(r"^\s*(```|~~~)")
+# The whole run of fence characters: a fence closes only on a run at least as long.
+_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
@@ -121,7 +122,8 @@ def dangling_fence(text: str) -> str | None:
     """The marker of a code fence ``text`` opens and never closes, or ``None``.
 
     Same rule as :func:`segment`: a fence closes only on a line starting with the marker
-    that opened it, so ```` ``` ```` inside a ``~~~`` block is content. Anything that
+    that opened it (its whole run of characters), so ```` ``` ```` inside a ``~~~`` block or
+    a ```` ```` ```` block is content. Anything that
     concatenates texts (the bundle renderer) must use this, not fence-line parity, or the
     two disagree and the next text is swallowed into one code span.
     """
