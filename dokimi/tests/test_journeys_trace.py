@@ -273,7 +273,7 @@ def test_an_id_inside_a_code_fence_is_not_dangling(tmp_path):
 
 
 def test_an_attached_short_option_value_counts_as_its_option():
-    assert journeys.invoked(ROOT, "repo run --jobs", [["repo", "run", "src", "-j2"]])
+    assert journeys.invoked(ROOT, "repo run --concurrency", [["repo", "run", "src", "-j2"]])
 
 
 @pytest.mark.parametrize("entry, problem", [
@@ -548,8 +548,8 @@ def test_the_journeys_report_must_be_json_and_its_directory_is_created(pytester,
 
 
 def test_a_short_alias_counts_as_its_long_option():
-    assert journeys.invoked(ROOT, "repo run --jobs", [["repo", "run", "src", "-j", "2"]])
-    assert journeys.invoked(ROOT, "repo run -j", [["repo", "run", "src", "--jobs=2"]])
+    assert journeys.invoked(ROOT, "repo run --concurrency", [["repo", "run", "src", "-j", "2"]])
+    assert journeys.invoked(ROOT, "repo run -j", [["repo", "run", "src", "--concurrency=2"]])
 
 
 def test_an_abbreviation_argparse_accepts_counts_as_its_option():

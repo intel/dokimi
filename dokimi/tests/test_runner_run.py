@@ -103,10 +103,13 @@ def test_run_benchmark_with_examples(tmp_path):
 
 
 def test_save_snapshot(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text("# A\n\ntext\n", encoding="utf-8")
     out = tmp_path / "out" / "snap.json"
-    save_snapshot({"summary": {"docs": 0}}, out)
-    assert out.exists()
-    assert json.loads(out.read_text())["summary"]["docs"] == 0
+    save_snapshot(run_benchmark(tmp_path, _spec(tmp_path)), out)
+    saved = json.loads(out.read_text())
+    assert saved["schema_version"] == "docs_run.v1"
+    assert saved["summary"]["docs"] == 1
 
 
 def _spec(tmp_path):
