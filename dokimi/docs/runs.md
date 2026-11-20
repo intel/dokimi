@@ -11,7 +11,7 @@ SPDX-License-Identifier: Apache-2.0
 # The runs root: `runs list` and `runs show`
 
 Catalog static receipts (`catalog_eval.v1`) are supported too: the subject is the
-catalog root, and `runs show` counts skill rows and findings. Point `DOKIMI_RUNS_DIR`
+catalog root, and `runs show` counts skill rows and problems. Point `DOKIMI_RUNS_DIR`
 at the dedicated `catalog eval` output directory to inspect those receipts. Their
 static pass does not establish a skill's runtime outcome.
 
@@ -53,7 +53,8 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   subject shows `-` (an eval, a task run, a reach matrix, a questions set from
   `questions generate`, which records the model but not the product); nothing is guessed
   from the path. When an artifact records no time, its file's mtime is used
-  for the order and shown with `*`.
+  for the order and shown with `*`. A time that is not ISO 8601 (`yesterday`) is
+  printed as written, with no `*`, and the row is placed by the file's mtime.
 - **The artifacts of one run are listed together.** `RUN` is the artifact's
   `run_id` (below), `-` when it has none. The runs are newest first, each in
   the place of its newest artifact, and the artifacts of a run are newest
@@ -98,7 +99,9 @@ for an input kind such as a question set, and for a `run_id` that is not a run i
 - `eval questions generate` and `eval questions refine` write to `questions/`,
   `eval questions review` and `eval questions analyze` to `reports/`,
   `eval personas discover` to `personas/`, `repo reach` to `reach-out/`,
-  `tools preference` to `tool_preference.json` in the working directory;
+  `docs check` to `baselines/current.json`, `baseline save` to `baselines/eval/`,
+  `tools preference` to `tool_preference.json` and `dashboard generate` to
+  `dashboard.json` in the working directory;
 - an output flag can point anywhere.
 
 ## `runs show`
@@ -145,18 +148,21 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 ```
 
 A `run_id` from `runs list` shows the artifacts that carry it, as `runs list`
-rows, newest first, with the same `*` for a time taken from the file's mtime.
-A file `runs show` can open wins: one of that name under
-the root, or reached from the working directory and inside the root. The name
-is read as for any path, under the root first, so a directory there shadows a
-file of that name in the working directory. A
-directory of that name (a run's own, `results/nightly-7/`) does not, nor does
-a path outside the root; when no artifact has the `run_id`, such a name gets
-the error it got before. When a file or directory under the root could not be
-read, the count and the first one are printed, since it may belong to the run;
-a root that cannot be listed at all exits 2 and says so. `--json` prints one
-`cli_output.v1` document (`kind` `runs show`) whose `data` holds `root`, `run_id`,
-`artifacts` (the `runs list --json` rows) and `unreadable`.
+rows, newest first, with the same `*` for a time taken from the file's mtime. A
+file `runs show` can open (one that opens with the `schema_version` of a
+registered kind) wins, and so does a file it cannot read or one that is not a
+regular file (a FIFO), which gets its error: one of that name under the root, or
+reached from the working directory and inside the root. The name is read as for
+any path, under the root first, so a directory there shadows a file of that name
+in the working directory. A directory of that name (a run's own,
+`results/nightly-7/`) does not, nor does a path outside the root or a file under
+the root that is not an artifact (a text file); when no artifact has the
+`run_id`, such a name gets the error it got before. When a file or directory
+under the root could not be read, the count and the first one are printed, since
+it may belong to the run; a root that cannot be listed at all exits 2 and says
+so. `--json` prints one `cli_output.v1` document (`kind` `runs show`) whose
+`data` holds `root`, `run_id`, `artifacts` (the `runs list --json` rows) and
+`unreadable`.
 
 ## Exit codes
 
