@@ -148,7 +148,7 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 A `run_id` from `runs list` shows the artifacts that carry it, as `runs list`
 rows, newest first, with the same `*` for a time taken from the file's mtime.
 A file `runs show` can open (one that opens with the `schema_version` of a registered
-kind) wins: one of that name under
+kind) wins, and so does a file it cannot read or one that is not a regular file (a FIFO), which gets its error: one of that name under
 the root, or reached from the working directory and inside the root. The name
 is read as for any path, under the root first, so a directory there shadows a
 file of that name in the working directory. A
