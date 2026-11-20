@@ -758,3 +758,81 @@ def test_echo_inside_a_quoted_argument_does_not_open_a_command(tmp_path, line):
 ])
 def test_echo_piped_to_a_shell_is_run(tmp_path, line, name):
     assert name in _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message
+
+
+@pytest.mark.parametrize("line", [
+    'echo "pip install requests" |\nsh',
+    'printf "%s\\n" "pip install requests" | \\\n  sh',
+    'echo "pip install requests" | sudo -E bash',
+    'echo "pip install requests" | /bin/bash',
+    'echo "pip install requests" | env bash',
+    'echo "pip install requests" |&\nzsh',
+])
+def test_echo_piped_to_a_shell_after_a_newline_sudo_env_or_path_is_run(tmp_path, line):
+    assert "pip requests" in _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message
+
+
+def test_a_deeply_nested_substitution_does_not_raise(tmp_path):
+    body = _fenced("echo " + "$(" * 600 + "true" + ")" * 600, "pip install requests")
+    assert "pip requests" in _found(_review(tmp_path, body), "install-unpinned")[0].message
+
+
+def test_an_unclosed_string_with_nested_substitutions_is_scanned_in_linear_time(tmp_path):
+    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced('"$(' * k + "pip install requests")), 10)
+    assert ratio < GROWTH_LIMIT
+    assert "pip requests" in _found(review, "install-unpinned")[0].message
+
+
+@pytest.mark.parametrize("command", ["echo", "printf"])
+def test_a_quote_in_a_comment_does_not_hide_the_next_install(tmp_path, command):
+    body = _fenced(f"{command} ready # don't install anything", "pip install requests", "# end of 'example'")
+    assert "pip requests" in _found(_review(tmp_path, body), "install-unpinned")[0].message
+
+
+def test_a_hash_inside_a_word_is_not_a_comment(tmp_path):
+    body = _fenced('echo "a" b#c "pip install requests"')
+    assert _found(_review(tmp_path, body), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("line, names", [
+    ("pnpm add --reporter silent react", "pnpm react"),
+    ("pnpm install --modules-dir node_modules react", "pnpm react"),
+    ("pnpm add --virtual-store-dir vs --lockfile-dir ld --global-dir gd react", "pnpm react"),
+])
+def test_pnpm_more_value_options_are_not_packages(tmp_path, line, names):
+    assert _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message.startswith("1 install name no version (" + names)
+
+
+@pytest.mark.parametrize("line", ["pnpm dlx create-vite", "pnpx create-vite", "pnpm --dir app dlx create-vite"])
+def test_pnpm_dlx_and_pnpx_run_a_package_as_npx_does(tmp_path, line):
+    assert "pnpm create-vite" in _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message
+
+
+def test_pnpm_dlx_with_a_pinned_package_is_not_flagged(tmp_path):
+    assert _found(_review(tmp_path, _fenced("pnpm dlx create-vite@5.0.0")), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("command", [
+    "pnpm --package=typescript@5.0.4 dlx tsc --version",
+    "pnpm --package typescript@5.0.4 dlx tsc --version",
+    "pnpm -p typescript@5.0.4 dlx tsc --version",
+])
+def test_a_pinned_package_selection_before_pnpm_dlx_is_pinned(tmp_path, command):
+    assert _found(_review(tmp_path, _fenced(command)), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("command", ["pnpm --package=typescript dlx tsc", "pnpm --package typescript dlx tsc"])
+def test_an_unpinned_package_selection_before_pnpm_dlx_is_the_package(tmp_path, command):
+    message = _found(_review(tmp_path, _fenced(command)), "install-unpinned")[0].message
+    assert message.startswith("1 install name no version (pnpm typescript)")
+
+
+@pytest.mark.parametrize("command", ["echo", "printf"])
+def test_a_command_in_a_comment_after_an_echo_is_not_an_install(tmp_path, command):
+    assert _found(_review(tmp_path, _fenced(f"{command} ready # 'pip install requests'")), "install-unpinned") == []
+
+
+def test_a_package_selection_inside_another_options_value_is_not_a_selection(tmp_path):
+    body = _fenced("pnpm --dir 'app --package=typescript@5.0.4' dlx create-vite")
+    assert _found(_review(tmp_path, body), "install-unpinned")[0].message.startswith(
+        "1 install name no version (pnpm create-vite)")

@@ -44,11 +44,13 @@ PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
 
 # Bounded (500 pieces) so a long line of curl words stays linear; ``||`` is not a pipe, ``|&`` is.
 # A quoted string is taken whole, so a ``&`` or ``;`` in a quoted URL does not end the command.
-PIPE_TO_SHELL = re.compile(
-    r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
+_PIPE_TO = (
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
     r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
-    r"(?:(?:ba|z|da|k)?sh|fish|python(?:3(?:\.\d+)?)?|node|perl|ruby)\b"
+)
+PIPE_TO_SHELL = re.compile(
+    r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
+    + _PIPE_TO + r"(?:(?:ba|z|da|k)?sh|fish|python(?:3(?:\.\d+)?)?|node|perl|ruby)\b"
 )
 PERMISSION_BYPASS = re.compile(
     r"(?<![\w-])--dangerously-skip-permissions(?![\w-])|(?<![\w-])--yolo(?![\w-])|\bbypassPermissions\b"
@@ -81,15 +83,22 @@ NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
 # pnpm's value options: npm's, less ``-w``/``--workspace`` (flags in pnpm), plus a workspace filter, a directory, the
 # store and a catalog name
 PNPM_VALUE_OPTIONS = (NPM_VALUE_OPTIONS - {"-w", "--workspace"}) | frozenset(
-    {"--filter", "-F", "--dir", "-C", "--store-dir", "--save-catalog-name"})
-_PNPM_VALUE_ALT = "|".join(re.escape(o) for o in sorted(PNPM_VALUE_OPTIONS, key=len, reverse=True))
+    {"--filter", "-F", "--dir", "-C", "--store-dir", "--save-catalog-name", "--reporter", "--modules-dir",
+     "--virtual-store-dir", "--lockfile-dir", "--global-dir"})
 # options before the subcommand: a value option takes the next word (quoted or not); any other flag stands alone,
 # with an attached quoted value; the lookahead keeps the two parses apart, so a run of them cannot backtrack
-PNPM = re.compile(
-    r"(?<![\w.-])pnpm(?:[ \t]+(?:(?:" + _PNPM_VALUE_ALT + r")[ \t]+(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|'\"][^\s;&|]*)"
-    r"|(?!(?:" + _PNPM_VALUE_ALT + r")(?:\s|$))-(?:[^\s;&|'\"]|'[^'\n]*'|\"[^\"\n]*\")*))*"
-    r"[ \t]+(?:install|i|add)\b" + WORDS
-)
+def _pnpm_options(value_options: frozenset[str]) -> str:
+    alt = "|".join(re.escape(o) for o in sorted(value_options, key=len, reverse=True))
+    return (
+        r"(?:[ \t]+(?:(?:" + alt + r")[ \t]+(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|'\"][^\s;&|]*)"
+        r"|(?!(?:" + alt + r")(?:\s|$))-(?:[^\s;&|'\"]|'[^'\n]*'|\"[^\"\n]*\")*))*"
+    )
+
+
+PNPM = re.compile(r"(?<![\w.-])pnpm" + _pnpm_options(PNPM_VALUE_OPTIONS) + r"[ \t]+(?:install|i|add)\b" + WORDS)
+# ``pnpm dlx`` and ``pnpx`` run a package as ``npx`` does; ``--package`` before ``dlx`` is a selection (group 1)
+PNPM_DLX = re.compile(
+    r"(?<![\w.-])(?:pnpm(" + _pnpm_options(PNPM_VALUE_OPTIONS | {"--package", "-p"}) + r")[ \t]+dlx|pnpx)\b" + WORDS)
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
 # ``echo`` or ``printf`` at the start of a command, after control keywords, ``command``/``builtin``/``exec`` and
 # ``NAME=value`` assignments (``then echo "..."``, ``LC_ALL=C printf ...``)
@@ -97,7 +106,7 @@ ECHO_COMMAND = re.compile(
     r"[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{|command|builtin|exec)[ \t]+"
     r"|[A-Za-z_]\w*=(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|()'\"`]*)[ \t]+)*(?:echo|printf)(?![\w.-])")
 # ``|`` at the end of a command that feeds a shell: what the command printed is run
-PIPED_SHELL = re.compile(r"\|(?!\|)&?[ \t]*(?:sudo[ \t]+)?(?:ba|z|da|k)?sh(?![\w.-])")
+PIPED_SHELL = re.compile(_PIPE_TO + r"(?:ba|z|da|k)?sh(?![\w.-])")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
 
@@ -106,6 +115,7 @@ def _lines_of(text: str, matches: Iterator[re.Match]) -> list[int]:
     return sorted({bisect.bisect_left(newlines, m.start()) + 1 for m in matches})
 
 
+MAX_NESTING = 50  # substitutions entered inside one another; deeper ones are stepped over, so the stack stays bounded
 BLOCK_END = "\0"  # ends a fenced block or code span: a quote an ``echo`` opens in one never closes in the next
 
 
@@ -236,6 +246,28 @@ def _unpinned_npx(rest: str) -> list[str]:
     return names
 
 
+def _unpinned_dlx(head: str | None, rest: str) -> list[str]:
+    """``pnpm dlx``: a ``--package``/``-p`` selection before ``dlx`` names the package, as one after it does."""
+    try:
+        words = shlex.split(head or "")
+    except ValueError:  # an unbalanced quote: the words as written
+        words = (head or "").split()
+    selected: list[str] = []
+    i = 0
+    while i < len(words):  # a value option's value is not read: ``--dir 'a --package=x'`` selects nothing
+        word, i = words[i], i + 1
+        if word.startswith("--package="):
+            selected.append(word[len("--package="):])
+        elif word in ("--package", "-p") and i < len(words):
+            selected.append(words[i])
+            i += 1
+        elif word in PNPM_VALUE_OPTIONS:
+            i += 1
+        elif word.startswith("-p") and not word.startswith("--") and len(word) > 2:
+            selected.append(word[2:])
+    return _unpinned_npx(" ".join(f"--package {spec}" for spec in selected) + " " + rest)
+
+
 def _blank(mask: list[str], pieces: list[tuple[int, int]]) -> None:
     for start, end in pieces:
         for k in range(start, end):
@@ -243,14 +275,14 @@ def _blank(mask: list[str], pieces: list[tuple[int, int]]) -> None:
                 mask[k] = " "
 
 
-def _quoted(code: str, mask: list[str], i: int) -> tuple[int, list[tuple[int, int]]]:
+def _quoted(code: str, mask: list[str], i: int, memo: dict[int, int], level: int) -> tuple[int, list[tuple[int, int]]]:
     """The index of the quote that closes the string opened at ``i`` and the ``(start, end)`` of its text, less any
     command substitution in it (that runs); ``-1`` when it never closes in its own block or span: not a string."""
     quote, j, seg, pieces = code[i], i + 1, i + 1, []
     while j < len(code) and code[j] not in (quote, BLOCK_END):
         if quote == '"' and (code[j] == "`" or code.startswith("$(", j)):
             pieces.append((seg, j))
-            j = seg = _substitution(code, mask, j)
+            j = seg = _substitution(code, mask, j, memo, level)
         else:
             j += 2 if quote == '"' and code[j] == "\\" else 1
     if j >= len(code) or code[j] == BLOCK_END:
@@ -258,14 +290,42 @@ def _quoted(code: str, mask: list[str], i: int) -> tuple[int, list[tuple[int, in
     return j, pieces + [(seg, j)]
 
 
-def _substitution(code: str, mask: list[str], i: int) -> int:
-    """The index after the ``$(...)`` or backtick substitution opened at ``i``; its commands are scanned too."""
+def _substitution(code: str, mask: list[str], i: int, memo: dict[int, int], level: int) -> int:
+    """The index after the ``$(...)`` or backtick substitution opened at ``i``; its commands are scanned too.
+
+    ``memo`` holds where each substitution ended, so one that a string failing to close makes the scan meet again is
+    not scanned again. Past :data:`MAX_NESTING` levels an opener is stepped over, not entered."""
     stop, skip = (")", 2) if code[i] == "$" else ("`", 1)
-    end = _commands(code, mask, i + skip, stop)
-    return end + 1 if end < len(code) and code[end] == stop else end
+    if i in memo:
+        return memo[i]
+    if level >= MAX_NESTING:
+        return i + skip
+    end = _commands(code, mask, i + skip, stop, memo, level + 1)
+    memo[i] = end + 1 if end < len(code) and code[end] == stop else end
+    return memo[i]
 
 
-def _commands(code: str, mask: list[str], i: int, stop: str) -> int:
+def _other(code, i, start, echo):
+    """Step over the character at ``i`` (and what it escapes), or over a comment: its quotes and substitutions are
+    not shell syntax, so it runs to the end of the line, and after an ``echo`` it is text that is not run.
+    Returns ``(start, index, echo)``."""
+    if code[i] == "#" and (i == 0 or code[i - 1] in " \t\n;&|()"):
+        end = i
+        while end < len(code) and code[end] not in ("\n", BLOCK_END):
+            end += 1
+        return False, end, echo if echo is None else echo + [(i, end)]
+    return start and code[i] in " \t", i + (2 if code[i] == "\\" else 1), echo
+
+
+def _in_redirection(code: str, i: int) -> bool:
+    return code[i - 1:i] in (">", "<") or code[i + 1:i + 2] == ">"
+
+
+def _paren_depth(depth: int, c: str) -> int:
+    return depth + 1 if c == "(" else max(depth - 1, 0) if c == ")" else depth
+
+
+def _commands(code: str, mask: list[str], i: int, stop: str, memo: dict[int, int], level: int) -> int:
     """Blank in ``mask`` the quoted text of each ``echo`` or ``printf`` from ``i`` to the ``stop`` that ends the list
     (or a block end): the text is printed, not run, unless the command feeds a shell. A substitution in it runs.
     Returns the index where it stopped."""
@@ -276,20 +336,20 @@ def _commands(code: str, mask: list[str], i: int, stop: str) -> int:
         match = ECHO_COMMAND.match(code, i) if start and echo is None else None
         if match:
             echo, start, i = [], False, match.end()
-        elif c in "'\"" and (quoted := _quoted(code, mask, i))[0] >= 0:
+        elif c in "'\"" and (quoted := _quoted(code, mask, i, memo, level))[0] >= 0:
             echo = echo + quoted[1] if echo is not None else echo
             start, i = False, quoted[0] + 1
         elif c == "`" or code.startswith("$(", i):
-            start, i = False, _substitution(code, mask, i)
-        elif c == "&" and (code[i - 1:i] in (">", "<") or code[i + 1:i + 2] == ">"):
+            start, i = False, _substitution(code, mask, i, memo, level)
+        elif c == "&" and _in_redirection(code, i):
             i += 1  # a redirection (``>&2``, ``&>f``), not a separator
         elif c in ";&|\n()":
             if echo and not (c == "|" and PIPED_SHELL.match(code, i)):
                 _blank(mask, echo)
             echo, start, i = None, True, i + 1
-            depth = depth + 1 if c == "(" else max(depth - 1, 0) if c == ")" else depth
+            depth = _paren_depth(depth, c)
         else:
-            start, i = start and c in " \t", i + (2 if c == "\\" else 1)
+            start, i, echo = _other(code, i, start, echo)
     if echo:
         _blank(mask, echo)
     return i
@@ -298,8 +358,9 @@ def _commands(code: str, mask: list[str], i: int, stop: str) -> int:
 def _without_printed(code: str) -> str:
     """``code`` with the text ``echo`` and ``printf`` print blanked, so an install in it is not read."""
     mask, i = list(code), 0
+    memo: dict[int, int] = {}
     while i < len(code):
-        i = _commands(code, mask, i, "") + 1
+        i = _commands(code, mask, i, "", memo, 0) + 1
     return "".join(mask)
 
 
@@ -311,9 +372,10 @@ def _unpinned_installs(code: str) -> list[str]:
         ("pip", PIP, _unpinned_pip),
         ("npm", NPM, _unpinned_npm),
         ("pnpm", PNPM, lambda rest: _unpinned_npm(rest, PNPM_VALUE_OPTIONS)),
+        ("pnpm", PNPM_DLX, _unpinned_dlx),
         ("npx", NPX, _unpinned_npx),
     ):
-        found += [f"{manager} {n}" for m in pattern.finditer(code) for n in names(m.group(1))]
+        found += [f"{manager} {n}" for m in pattern.finditer(code) for n in names(*m.groups())]
     return list(dict.fromkeys(found))
 
 
