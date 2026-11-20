@@ -18,8 +18,8 @@ from dokimi.report.single_condition_report import write_eval_report
 from tests.test_knowledge_cli_answerers import _eval_doc
 
 STOP = {"reason": "usage limit exceeded", "questions_requested": 4, "questions_recorded": 2}
-NOTE = ("> **Stopped early** after 2 of 4 questions: usage limit exceeded. "
-        "Every number below covers only questions answered before the stop.")
+NOTE = ("> **Stopped early**: usage limit exceeded. 2 of 4 questions have a record, counting any the stop "
+        "interrupted. Every number below covers only questions answered before the stop.")
 
 
 def _arms(**extra) -> dict:
@@ -69,8 +69,16 @@ def test_the_arms_report_of_a_stopped_run_opens_with_the_stop_and_changes_nothin
 def test_a_multi_line_reason_stays_inside_the_one_note_line():
     stop = {**STOP, "reason": "usage limit\nexceeded:  try again\n"}
     lines = render_arms_report(_arms(terminated=stop)).splitlines()
-    assert lines[2].startswith("> **Stopped early** after 2 of 4 questions: usage limit exceeded: try again. ")
+    assert lines[2].startswith("> **Stopped early**: usage limit exceeded: try again. 2 of 4 questions ")
     assert lines[3] == ""
+
+
+def test_a_stop_on_the_last_question_does_not_read_as_a_stop_after_all_of_them():
+    # Both runners keep a record for the question the stop interrupted (tests/test_run_wide_stop.py: 2 of 2).
+    stop = {**STOP, "questions_recorded": 4}
+    note = render_arms_report(_arms(terminated=stop)).splitlines()[2]
+    assert note.startswith("> **Stopped early**: usage limit exceeded. 4 of 4 questions have a record, "
+                           "counting any the stop interrupted.")
 
 
 def _page(tmp_path: Path, doc: dict) -> list[str]:
