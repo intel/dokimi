@@ -6,16 +6,18 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from dokimi.artifacts import _write_target, save_artifact
+from dokimi.atomic_write import write_bytes_atomic
 from dokimi.utils import model_identity, same_model
 from dokimi.commands import baseline_regression
+from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_INVALID
-from dokimi.utils import InputError, read_json_input
+from dokimi.utils import InputError, read_json_input, read_json_input_bytes
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -28,12 +30,23 @@ def _json_type(value: Any) -> str:
     return _JSON_TYPE_NAMES.get(type(value), type(value).__name__)
 
 
-def _read_json_object(path: Path) -> Dict[str, Any]:
-    """Read a JSON file that must hold an object, or raise :class:`InputError` naming the file and the problem."""
-    data = read_json_input(path)
+def _json_object(path: str | Path, data: Any) -> Dict[str, Any]:
+    """``data`` read from ``path``, or :class:`InputError` naming the file when it is not a JSON object."""
     if not isinstance(data, dict):
         raise InputError(f"{path}: expected a JSON object, got {_json_type(data)}")
     return data
+
+
+def _read_json_object(path: Path) -> Dict[str, Any]:
+    """Read a JSON file that must hold an object, or raise :class:`InputError` naming the file and the problem."""
+    return _json_object(path, read_json_input(path))
+
+
+def _read_eval(path: str) -> Tuple[bytes, Dict[str, Any]]:
+    """The eval file's bytes, read once, and the JSON object they hold, so the summary describes the copy;
+    refused as :func:`_read_json_object` refuses it (``path`` as given, so ``""`` is refused as no file)."""
+    raw, data = read_json_input_bytes(path)
+    return raw, _json_object(path, data)
 
 
 def _baseline_manifest() -> Dict[str, Any]:
@@ -54,8 +67,9 @@ def _baseline_manifest() -> Dict[str, Any]:
 
 
 def _save_manifest(manifest: Dict[str, Any]) -> None:
-    BASELINES_DIR.mkdir(parents=True, exist_ok=True)
-    (BASELINES_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    """Save the index as a ``baseline_manifest``; exit 1 when its schema refuses it (kept at ``manifest.json.rejected``)."""
+    with exit_on_rejected("baseline_manifest"):
+        save_artifact("baseline_manifest", manifest, BASELINES_DIR / "manifest.json")
 
 
 def _compute_summary(eval_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -195,7 +209,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
 
     eval_path = Path(args.from_eval)
     manifest = _baseline_manifest()  # first: a corrupt manifest fails fast and leaves no orphan file
-    eval_data = _read_json_object(eval_path)
+    raw, eval_data = _read_eval(args.from_eval)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
@@ -211,7 +225,8 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
         raise InputError(f"Baseline already exists: {dest} (choose a different --name)")
-    dest.write_text(json.dumps(eval_data, indent=2), encoding="utf-8")
+    copy = _write_target(dest)  # a dangling link at dest is written through, as save_artifact and main do
+    write_bytes_atomic(copy, raw)  # as it is: the eval's own run envelope, not this run's
 
     manifest["baselines"].append({
         "name": name,
@@ -220,11 +235,25 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
         "path": str(dest),
         "summary": summary,
     })
-    _save_manifest(manifest)
+    try:
+        _save_manifest(manifest)
+    except BaseException:
+        _remove_copy(copy)
+        raise
 
     print(f"✅ Saved baseline '{name}' → {dest}")
     if summary:
         print(f"   n={summary['n']}  with={summary['avg_with']}  without={summary['avg_without']}  delta={summary['avg_delta']:+}")
+
+
+def _remove_copy(copy: Path) -> None:
+    """Remove a copy no manifest lists (it would block a retry under the same name); one that cannot be
+    removed is named on stderr, so the manifest's failure still decides the exit."""
+    try:
+        copy.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"Error: cannot remove {copy}, which no manifest lists: {exc.strerror or exc}; "
+              "remove it before saving under this name again", file=sys.stderr)
 
 
 def cmd_baseline_list(args: argparse.Namespace) -> None:

@@ -5,10 +5,10 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from dokimi.artifacts import save_artifact
 from dokimi.ingest.chunker import chunk_text
 from dokimi.ingest.loader import discover_markdown, load_docs
 from dokimi.metrics import coverage, freshness_lite, readability
@@ -182,6 +182,5 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
 
 
 def save_snapshot(data: dict, out_path: Path) -> None:
-    """Persist run snapshot to JSON file."""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    """Save the run snapshot as a ``docs_run`` artifact (``ArtifactValidationError``: kept at ``<out_path>.rejected``)."""
+    save_artifact("docs_run", data, out_path)
