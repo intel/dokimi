@@ -5,11 +5,13 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from .spans import Span
 
 _ROW_KINDS = ("list_item", "table_row")
+_DELIMITER_ROW = re.compile(r"^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$")
 
 VERIFY_PROMPT = """\
 Does the source text below support the statement, exactly as stated?
@@ -41,8 +43,8 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
 
     A list item or table row takes the nearest earlier span that is neither; any other
     span takes the span right before it. The lead-in is dropped when it is a heading
-    (the heading path already says it) or sits in another section. A table row also gets the first row of its
-    table, which says what its cells mean. The first cited span in document order has no
+    (the heading path already says it) or sits in another section. A table row also gets the header
+    row of its own table (the row before its delimiter row), which says what its cells mean. The first cited span in document order has no
     cited span before it, so a cited span is never repeated as context.
     """
     order = {span.id: i for i, span in enumerate(spans)}
@@ -60,10 +62,30 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
     if before >= 0 and spans[before].kind != "heading" \
             and spans[before].heading_path == by_id[first].heading_path:
         parts.append("Lead-in: " + spans[before].text)
-    header = order[first]
-    while by_id[first].kind == "table_row" and header > 0 \
-            and spans[header - 1].kind == "table_row":
-        header -= 1
-    if header < order[first]:
+    header = _table_header(order[first], spans)
+    if header is not None:
         parts.append("Table header: " + spans[header].text)
     return "\n".join(parts) or "(none)"
+
+
+def _is_delimiter(span: Span) -> bool:
+    return span.kind == "table_row" and _DELIMITER_ROW.match(span.text) is not None
+
+
+def _table_header(at: int, spans: list[Span]) -> int | None:
+    """The index of the header row of the table the row at ``at`` is in, or ``None``.
+
+    The header is the row before the nearest delimiter row (``|---|---|``) at or before
+    ``at`` in the unbroken run of table rows: ``segment`` drops the blank line between two
+    tables, so only a delimiter row says where a table begins. A header row itself, and a
+    row of a run with no delimiter row, have none.
+    """
+    if spans[at].kind != "table_row":
+        return None
+    if at + 1 < len(spans) and _is_delimiter(spans[at + 1]):
+        return None
+    while at > 0 and spans[at - 1].kind == "table_row":
+        if _is_delimiter(spans[at]):
+            return at - 1
+        at -= 1
+    return None

@@ -108,6 +108,22 @@ def test_a_cited_header_row_is_not_repeated_as_table_header():
     assert "Table header" not in context
 
 
+def test_a_row_of_the_second_of_two_tables_gets_its_own_header_row():
+    spans = segment("## Flags\n\n| Flag | Default |\n|---|---|\n| --x | 10 |\n\n"
+                    "| Flag | Maximum |\n| :--- | ---: |\n| --y | 20 |\n")
+    _, context = _check(_atom(spans, "--y"), spans)
+    assert context.splitlines()[-1] == "Table header: | Flag | Maximum |"
+    _, context = _check(_atom(spans, "--x"), spans)
+    assert context.splitlines()[-1] == "Table header: | Flag | Default |"
+
+
+def test_the_header_row_of_the_second_table_gets_no_table_header():
+    spans = segment("## Flags\n\n| Flag | Default |\n|---|---|\n| --x | 10 |\n\n"
+                    "| Flag | Maximum |\n|---|---|\n| --y | 20 |\n")
+    _, context = _check(_atom(spans, "| Flag | Maximum |"), spans)
+    assert "Table header" not in context
+
+
 def test_the_lead_in_never_comes_from_the_previous_section():
     spans = segment("# T\n\n## H2\n\nLast sentence of H2.\n\n## H3\n\nText.\n")
     _, context = _check(_atom(spans, "## H3"), spans)
