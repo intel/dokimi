@@ -416,3 +416,21 @@ def test_a_novelty_stop_record_is_not_refused_as_an_arms_partial_file():
     stop = {"schema_version": "novelty.v1",
             "partial": {"reason": "spend_cap", "stage": "measurement", "message": "m"}}
     assert len(records.read(stop, section="evaluations", required=False)) == 0
+
+
+def test_a_partial_file_that_cannot_be_removed_only_warns(tmp_path, monkeypatch, capsys):
+    # The run is saved whole, so a partial file that cannot be removed is a warning, not a failure.
+    _fake_llm(monkeypatch)
+    real_unlink = Path.unlink
+
+    def unlink(self, missing_ok=False):
+        if self.name == "arms.partial.json":
+            raise PermissionError(13, "denied", str(self))
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    _run(_arms_argv(tmp_path))
+    assert "partial" not in json.loads((tmp_path / "arms.json").read_text(encoding="utf-8"))
+    assert (tmp_path / "arms.md").exists()
+    assert f"Warning: could not remove {tmp_path / 'arms.partial.json'}" in capsys.readouterr().err
+    assert (tmp_path / "arms.partial.json").exists()
