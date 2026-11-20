@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, cast
 
 from dokimi import cli_flags
-from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, credential_env_var, resolve_api_key
+from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, credential_env_var, resolve_api_key, resolve_model
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -156,18 +156,17 @@ def _refuse_missing_credentials(args: argparse.Namespace) -> None:
         (args.provider, getattr(args, "model", "")),
         (getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER), getattr(args, "judge_model", "")),
     ]
-    # Bedrock (AWS keys) and Vertex (ADC) have other credentials than the key (#967);
-    # a `gemini/` model is the Gemini API: GEMINI_API_KEY or GOOGLE_API_KEY.
+    # The route the call takes decides the credential: `vertex_ai/` (ADC) and `bedrock/` (AWS keys)
+    # need no key of the configured provider; a `gemini/` route needs GEMINI_API_KEY or GOOGLE_API_KEY.
     providers = []
     for provider, model in pairs:
         canonical = PROVIDER_ALIASES.get(provider, provider)
-        if canonical == "amazon-bedrock":
+        route = resolve_model(str(model), provider).split("/", 1)[0]
+        if canonical == "amazon-bedrock" or route in ("vertex_ai", "bedrock"):
             continue
-        if canonical == "google-vertex" and not (
-            str(model).startswith("gemini/") and not os.environ.get("GOOGLE_API_KEY")
-        ):
+        if canonical == "google-vertex" and os.environ.get("GOOGLE_API_KEY"):
             continue
-        providers.append(provider)
+        providers.append(canonical)
     errors, _ = _provider_checks(providers)
     if errors:
         # #967: a missing credential is an input refusal (exit 2), as in `benchmark preflight`.

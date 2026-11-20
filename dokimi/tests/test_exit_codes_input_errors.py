@@ -249,3 +249,29 @@ def test_benchmark_run_gemini_route_takes_google_api_key(tmp_path, monkeypatch):
     )
     cli.main()
     assert len(built) == 1
+
+
+def test_benchmark_run_gemini_route_takes_gemini_api_key(tmp_path, monkeypatch):
+    """#967: `GEMINI_API_KEY` alone lets a `gemini/` model on `google-vertex` through."""
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    built, _ = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "openai", "--model", "gpt-4o",
+         "--judge-provider", "google", "--judge-model", "gemini/gemini-2.5-pro"],
+    )
+    cli.main()
+    assert len(built) == 1
+
+
+def test_benchmark_run_explicit_vertex_route_needs_no_provider_key(tmp_path, monkeypatch):
+    """#967: `--provider anthropic --model vertex_ai/...` runs on ADC, so an unset `ANTHROPIC_API_KEY` is no refusal."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    built, _ = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "anthropic", "--model", "vertex_ai/gemini-2.5-pro",
+         "--judge-provider", "google-vertex", "--judge-model", "gemini-2.5-pro"],
+    )
+    cli.main()
+    assert len(built) == 1
