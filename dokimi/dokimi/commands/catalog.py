@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 from dokimi.commands.catalog_scan import (
     ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
-    unrestricted_and_risky,
+    fails_on_finding, unrestricted_and_risky,
 )
 from dokimi.utils import InputError
 
@@ -59,6 +59,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     unchecked = 0
     failed = False
     ignore = frozenset(args.ignore or ())
+    fail_on = frozenset(args.fail_on or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
         if only is not None and skill.name != only:
             continue
@@ -67,10 +68,11 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         plain += is_plain_markdown(row)
         unchecked += not_checked(row)
         report["skills"].append(row)
-        # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
+        # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict;
+        # a finding selected by --fail-on (#942) fails whatever its level.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
         load_failed = row["error"] is not None  # None for a skill_format exemption, decided before --ignore (skill_row)
-        if load_failed or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
+        if load_failed or unreadable or fails_on_finding(row, fail_on) or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
@@ -178,13 +180,19 @@ def _refuse_json_conflicts(args: argparse.Namespace) -> None:
         raise InputError("--jsonl writes one row per skill to a file, so --json would carry none; drop one of them")
 
 
+def _refuse_unknown_codes(args: argparse.Namespace, codes: tuple) -> None:
+    """Raise InputError when --ignore or --fail-on (#942) names a code that is not a finding code."""
+    for flag, given in (("--ignore", args.ignore), ("--fail-on", args.fail_on)):
+        unknown = sorted(set(given or ()) - set(codes))
+        if unknown:
+            raise InputError(f"{flag} {', '.join(unknown)}: not a finding code; the codes are {', '.join(codes)}")
+
+
 def _check_scan_flags(args: argparse.Namespace) -> None:
     """Raise InputError on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
     from dokimi.external.validate import FINDING_CODES
 
-    unknown = sorted(set(args.ignore or ()) - set(FINDING_CODES))
-    if unknown:
-        raise InputError(f"--ignore {', '.join(unknown)}: not a finding code; the codes are {', '.join(FINDING_CODES)}")
+    _refuse_unknown_codes(args, FINDING_CODES)
     if "frontmatter-parse" in (args.ignore or ()):
         # The skill did not load, so its state is error whatever is ignored: refuse rather than hide the cause.
         raise InputError("--ignore frontmatter-parse: a skill whose frontmatter is not valid YAML does not load, "
@@ -206,8 +214,9 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         # Each worker would open its own connections and cache, and --resume would keep rows that no network check made.
         raise InputError("--online checks the whole catalog at once and does not combine with --per-skill")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
-                                 or args.jobs is not None or args.online or args.ignore):
-        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --jobs, --resume and --online apply to "
+                                 or args.jobs is not None or args.online or args.ignore or args.fail_on):
+        # --fail-on (#942) reads skill findings, so like --ignore it has no meaning for tasks.
+        raise InputError("--per-skill, --skip-nested, --ignore, --fail-on, --jsonl, --jobs, --resume and --online apply to "
                          "skills; drop them or use --kind skills|all")
 
 
@@ -251,14 +260,17 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
     """The cli_output.v1 document of `catalog check --json`: one subject per skill and per task, with its findings.
 
     A subject's verdict is ``fail`` when it alone fails the exit: a skill that does not load, or with
-    --strict one in ``error`` or granting unrestricted Bash with a risky command; else ``pass``.
+    --strict one in ``error`` or granting unrestricted Bash with a risky command, or any skill with a
+    finding selected by --fail-on; else ``pass``.
     """
     from dokimi import cli_output
 
     subjects = []
+    fail_on = frozenset(args.fail_on or ())
     for row in report["skills"]:
         file = f"{row['relpath']}/SKILL.md" if row.get("relpath") else row.get("path")
         bad = bool(row["error"]) or any(f["code"] == "unreadable" for f in row["findings"]) or (
+            fails_on_finding(row, fail_on)) or (
             args.strict and (row["state"] == "error" or unrestricted_and_risky(row)))
         findings = [cli_output.finding(f["level"], f["code"], f["message"], file) for f in row["findings"]]
         if row["error"]:
@@ -567,6 +579,11 @@ def register(sub, positive_int, eval_sub) -> None:
         "--ignore", action="append", default=None, metavar="CODE",
         help="Leave the findings with this code out of the scan: they are not printed, and they "
              "do not set the state or --strict's exit. Repeatable; an unknown code is a usage error",
+    )
+    scan_p.add_argument(
+        "--fail-on", action="append", default=None, metavar="CODE",
+        help="Exit 1 when a finding with this code is left after --ignore, whatever its level. "
+             "Repeatable; an unknown code is a usage error",
     )
     scan_p.add_argument(
         "--jsonl", metavar="PATH",

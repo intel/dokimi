@@ -453,6 +453,12 @@ A large catalog is easier to scan one skill at a time:
   and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
   fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
+- `--fail-on CODE` (repeatable) exits 1 when a finding with that code is left after
+  `--ignore`, whatever its level: a `note` can fail the scan while its skill's state
+  stays `ok`. `--ignore` filters first, so a code in both is not checked. An unknown
+  code is a usage error, and so is `--kind tasks`. `--strict` keeps its meaning. With
+  `--json` the skill's subject has verdict `fail`. `--resume` applies the current
+  `--fail-on` to the rows it keeps, so changing it needs no rescan.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
