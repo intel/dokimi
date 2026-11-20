@@ -483,6 +483,12 @@ def test_a_non_string_date_or_non_boolean_head_in_a_manifest_is_refused(tmp_path
         _run(root, "--upstream-manifest", str(_manifest(tmp_path, [_entry()], head="true")))
 
 
+def test_head_null_in_a_manifest_entry_is_read_as_not_head(tmp_path) -> None:
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    row = _row(_run(root, "--upstream-manifest", str(_manifest(tmp_path, [_entry(head=None)]))), "skills/pdf")
+    assert (row["match"], row["at_head"]) == ("exact", False)
+
+
 def test_a_missing_upstream_directory_is_an_input_error(tmp_path) -> None:
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     with pytest.raises(InputError, match="is not a directory"):

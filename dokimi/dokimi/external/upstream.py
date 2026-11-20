@@ -7,7 +7,7 @@ The upstreams are the caller's, offline, and nothing is fetched: a git checkout 
 every version of each ``SKILL.md``, or a manifest (``--upstream-manifest``), a JSON file that carries the bytes of each
 version it lists. No upstream list is built in.
 
-A loaded skill is matched in two steps, by its bytes first:
+A copy is matched in two steps, by its bytes first, even when it does not load:
 
 - ``exact``: its ``SKILL.md`` is byte-identical to an upstream ``SKILL.md`` at the upstream head or in its history
   (the git blob sha). The copy is not edited. When several versions have those bytes, the newest one is the match.
@@ -374,7 +374,7 @@ def load_manifest(path: Path, order: int) -> tuple[Upstream, list[Version]]:
         text = entry["content"]
         meta = _meta(text)
         where = f"skills entry {entry['path']!r}"
-        if not isinstance(entry.get("head", False), bool):
+        if entry.get("head") is not None and not isinstance(entry["head"], bool):
             raise InputError(f"{path}: \"head\" in {where} must be true or false")
         versions.append(Version(
             upstream=upstream, path=entry["path"], blob_sha=blob_sha(text.encode("utf-8")),

@@ -442,7 +442,7 @@ skill in `path`.
 
 A skill copied from another repository drifts from it: the upstream is updated and the
 copy is not, or the copy is edited and drops the licence. `catalog provenance` matches each
-loaded skill under `--root` to a version of an upstream you name, offline. Dokimi ships no
+skill under `--root` to a version of an upstream you name, offline. Dokimi ships no
 upstream list: give it the upstreams yourself.
 
 - `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. Clone it yourself; a full clone
