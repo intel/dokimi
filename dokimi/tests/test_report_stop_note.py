@@ -81,9 +81,11 @@ def test_a_stop_on_the_last_question_does_not_read_as_a_stop_after_all_of_them()
                            "counting any the stop interrupted.")
 
 
-def test_an_empty_reason_ends_the_first_sentence_without_a_bare_colon():
+@pytest.mark.parametrize("reason", [{"reason": " "}, {"reason": None}, {}])
+def test_an_empty_reason_ends_the_first_sentence_without_a_bare_colon(reason):
     # The writers store str(stop_error) (eval/answerer.py, eval/arms_run.py), empty for an error with no message.
-    note = render_arms_report(_arms(terminated={**STOP, "reason": " "})).splitlines()[2]
+    stop = {k: v for k, v in STOP.items() if k != "reason"} | reason
+    note = render_arms_report(_arms(terminated=stop)).splitlines()[2]
     assert note.startswith("> **Stopped early**. 2 of 4 questions have a record")
 
 
