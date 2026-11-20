@@ -116,7 +116,9 @@ Two checks, both `warn`:
   checked against and the date. Update it by editing that file, with no code change. An entry
   lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
   `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
-  `replacement` are the vendor's, verbatim, or empty when it gives none.
+  `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
+  the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
+  the same status and date.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
   tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
   a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
