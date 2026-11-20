@@ -152,7 +152,7 @@ is in the repository.
 
 Secrets: `ANTHROPIC_API_KEY` (or `AWS_BEARER_TOKEN_BEDROCK`), `CODEX_API_KEY`, `COPILOT_GITHUB_TOKEN`. Variables:
 `REACH_MODEL_CLAUDE_CODE`, `REACH_MODEL_CODEX`, `REACH_MODEL_COPILOT`, and `AWS_REGION` for the Bedrock path.
-Runners: `intel-ubuntu-latest` on the Intel organisation, `ubuntu-latest` elsewhere; each job sets up Node.js for
+Runners: GitHub-hosted `ubuntu-latest`, which keeps the model keys off the self-hosted runners; each job sets up Node.js for
 its CLI install.
 
 ## Adding a case or a harness

@@ -196,3 +196,58 @@ def test_main_exit_code_against_a_real_repository(repo):
 def test_main_exits_2_for_a_base_git_cannot_diff(repo, capsys):
     assert ccf.main(["--base", "no-such-ref", "--head", "pr"]) == 2
     assert capsys.readouterr().err.startswith("cannot diff no-such-ref...pr: ")
+
+
+_PYPROJECT_0_1 = ('[project]\nname = "dokimi"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n'
+                  'dependencies = ["pyyaml>=6"]\n')
+
+
+def _release_base(repo: Path) -> None:
+    _write(repo, "dokimi/pyproject.toml", _PYPROJECT_0_1)
+    _write(repo, "dokimi/CHANGELOG.md", "# Changelog\n")
+    _write(repo, "dokimi/changelog.d/a.md", "### Fixed\n\n- **x** - y.\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "pyproject")
+    _git(repo, "branch", "-qf", "main")
+
+
+def test_a_release_pr_that_bumps_the_version_and_collects_the_fragments_needs_none(repo):
+    """#587: ``scriv collect`` deletes every fragment, so the version bump adds none."""
+    _release_base(repo)
+    _write(repo, "dokimi/pyproject.toml", _PYPROJECT_0_1.replace("0.1.0", "0.2.0"))
+    _write(repo, "dokimi/CHANGELOG.md", "# Changelog\n\n## [0.2.0]\n\n- **x** - y.\n")
+    (repo / "dokimi/changelog.d/a.md").unlink()
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "release")
+    changed = ccf.changed_files("main", "pr")
+    assert ("M", "dokimi/pyproject.toml") in changed
+    assert not ccf.needs_fragment(changed, "main", "pr")
+    assert ccf.main(["--base", "main", "--head", "pr"]) == 0
+
+
+def test_a_version_bump_with_a_dependency_change_still_needs_a_fragment(repo):
+    """#587: only ``version`` is ignored; the rest of ``[project]`` still counts."""
+    _release_base(repo)
+    _write(repo, "dokimi/pyproject.toml",
+           _PYPROJECT_0_1.replace("0.1.0", "0.2.0").replace('"pyyaml>=6"', '"pyyaml>=6", "httpx"'))
+    _git(repo, "commit", "-qam", "bump and dependency")
+    assert ccf.main(["--base", "main", "--head", "pr"]) == 1
+
+
+def test_a_version_bump_with_a_package_change_still_needs_a_fragment(repo):
+    """#587: the version bump does not excuse a change under ``dokimi/dokimi/``."""
+    _release_base(repo)
+    _write(repo, "dokimi/pyproject.toml", _PYPROJECT_0_1.replace("0.1.0", "0.2.0"))
+    _write(repo, "dokimi/dokimi/a.py", "x = 2\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "bump and code")
+    assert ccf.main(["--base", "main", "--head", "pr"]) == 1
+
+
+def test_a_pyproject_without_a_version_is_read(repo):
+    """#587: dropping ``version`` from the tables must not need the key to exist."""
+    _write(repo, "dokimi/pyproject.toml", '[project]\nname = "dokimi"\ndynamic = ["version"]\n')
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "dynamic")
+    project, _ = ccf._install_tables("HEAD")
+    assert "version" not in project

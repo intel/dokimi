@@ -141,7 +141,7 @@ def test_the_estimate_points_at_the_cap(tmp_path, capsys):
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nText.\n", encoding="utf-8")
-    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--estimate-only")
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--dry-run")
     args.func(args)
     assert "--max-usd" in capsys.readouterr().err
 

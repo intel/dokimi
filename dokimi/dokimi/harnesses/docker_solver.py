@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from dokimi import docker_cmd, process
+from dokimi import docker_cmd, process, process_io
 from dokimi.container_policy import task_container_policy
 from dokimi.metrics.usage import UsageRecord
 
@@ -556,8 +556,8 @@ class DockerSolverHarness:
                      plugin_dir: Optional[str], model: Optional[str],
                      output_dir: Path) -> list[str]:
         """``claude`` argv after the executable; the prompt is also saved as ``prompt.txt``."""
-        # The task instruction as the user wrote it, behind the treatment notice only.
-        prompt = f"{treatment_notice(treatment) if self.skill_notice else ''}{task.instruction}"
+        # The task instruction behind the treatment notice, with a lone surrogate written as "?".
+        prompt = process_io.utf8_bytes(f"{treatment_notice(treatment) if self.skill_notice else ''}{task.instruction}").decode()
         (output_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
         args = ["-p", prompt, "--output-format", "stream-json", "--verbose", *solver_cli_flags()]
         args += ["--plugin-dir", plugin_dir] if plugin_dir else []

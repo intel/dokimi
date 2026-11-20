@@ -42,11 +42,10 @@ a doc snippet) goes through :func:`run`, which holds these invariants:
   :meth:`Env.only` (an allow-list plus overrides).
 * **stdin is closed** (``/dev/null``) unless ``input`` is given (a child gets EOF, not the caller's terminal).
   A ``str`` input is sent as UTF-8, a lone surrogate as ``?``: pass bytes for a name from ``os.fsdecode``.
+  An ``argv`` entry likewise (:func:`argv_text`: a lone surrogate ``os.fsencode`` cannot encode is ``?``; on POSIX U+DC80..U+DCFF stay, the bytes of a non-UTF-8 file name), and ``Completed.argv`` holds the text sent.
 
-Errors: a command that cannot be started (missing binary, missing ``cwd``, no
-permission) raises :class:`OSError`; a non-zero exit never raises. After
-:func:`kill_children`, a call raises :class:`ShuttingDown` instead of starting anything. ``argv`` must
-be non-empty and ``timeout`` positive, else :class:`ValueError`.
+Errors: a command that cannot be started (missing binary, missing ``cwd``, no permission) raises :class:`OSError`; a non-zero exit never raises.
+After :func:`kill_children`, a call raises :class:`ShuttingDown` instead of starting anything. ``argv`` must be non-empty and ``timeout`` positive, else :class:`ValueError`.
 
 Two adapters satisfy :class:`Runner`: :func:`run` (real processes) and
 :class:`FakeRunner` (records calls and answers from a handler, for tests).
@@ -59,6 +58,7 @@ from .process_io import (
     PipeReader,
     PipeReaderOwner,
     TRUNCATION_MARKER as TRUNCATION_MARKER,
+    argv_text,
     join_capture,
     read_spool,
     path_text,
@@ -410,7 +410,7 @@ def _feed(sink, data: bytes) -> None:
 
 def _check(argv: Sequence[str | os.PathLike[str]], timeout: float, capture_limit: int | None,
            term_grace: float = 0.0) -> list[str]:
-    args = [os.fspath(a) for a in argv]
+    args = [argv_text(s) if isinstance(s := os.fspath(a), str) else s for a in argv]  # a bytes entry, or a path-like giving bytes, runs as on main; anything else is a TypeError
     if not args:
         raise ValueError("empty argv")
     if not timeout > 0:

@@ -391,6 +391,14 @@ def test_a_named_document_that_is_not_utf8_gives_no_claim(tmp_path):
     (skill_dir / "scripts" / "run.py").write_text("x\n", encoding="utf-8")
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert _unreferenced(review) == []
+    [note] = [f for f in review.findings if f.code == "bundle-file-unchecked"]
+    assert note.level == "note" and "not UTF-8" in note.message
+
+
+def test_a_folder_named_only_after_a_longer_word_that_ends_in_it_is_still_named(tmp_path):
+    # The first ``tools/`` is the end of ``retools/``, which names nothing; the second one names the folder.
+    review = _review(tmp_path, "Clean `retools/` and then `tools/`.\n", ["tools/run.py"])
+    assert _unreferenced(review) == []
 
 
 def test_a_named_symlinked_document_gives_no_claim(tmp_path):

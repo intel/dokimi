@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/docs_run.v1.json",
+  "title": "Static docs check snapshot v1",
+  "description": "The `--out` of `docs check` (dokimi.runner.run.run_benchmark): the metrics of each selected document, their means, the soft gate and the run manifest. `docs compare` reads two of them; it needs only `summary`, so a snapshot saved before this schema is still a base it compares against.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "summary",
+    "docs",
+    "gate",
+    "run_manifest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "docs_run.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "summary": {
+      "type": "object",
+      "description": "The means over `docs`; `example_pass_rate` only when the spec enables examples.",
+      "required": [
+        "docs",
+        "score",
+        "coverage",
+        "freshness_lite",
+        "readability"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "docs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "score": {
+          "type": "number"
+        },
+        "coverage": {
+          "type": "number",
+          "description": "0..1."
+        },
+        "freshness_lite": {
+          "type": "number",
+          "description": "0..1."
+        },
+        "readability": {
+          "type": "number",
+          "description": "0..1."
+        },
+        "example_pass_rate": {
+          "type": "number",
+          "description": "0..1."
+        }
+      }
+    },
+    "docs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/doc"
+      }
+    },
+    "gate": {
+      "type": "object",
+      "required": [
+        "soft"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "soft": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "passed",
+            "min_score"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "passed": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "null when the gate is disabled: it was not evaluated."
+            },
+            "min_score": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "run_manifest": {
+      "$ref": "#/$defs/run_manifest"
+    }
+  },
+  "$defs": {
+    "doc": {
+      "type": "object",
+      "required": [
+        "path",
+        "chunks",
+        "coverage",
+        "freshness_lite",
+        "readability",
+        "example_pass_rate",
+        "score"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Relative to `--root`."
+        },
+        "chunks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "coverage": {
+          "type": "number",
+          "description": "0..1."
+        },
+        "freshness_lite": {
+          "type": "number",
+          "description": "0..1."
+        },
+        "readability": {
+          "type": "number",
+          "description": "0..1."
+        },
+        "example_pass_rate": {
+          "type": "number",
+          "description": "0.0 when the spec does not enable examples."
+        },
+        "score": {
+          "type": "number"
+        },
+        "example_results": {
+          "type": "array",
+          "description": "Only when the spec enables examples.",
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "lang",
+              "passed",
+              "status",
+              "error"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "type": "integer"
+              },
+              "lang": {
+                "type": "string"
+              },
+              "passed": {
+                "type": [
+                  "boolean",
+                  "null"
+                ],
+                "description": "null when the example was not run."
+              },
+              "status": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "skipped",
+                  "error"
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "run_manifest": {
+      "type": "object",
+      "description": "dokimi.runner.manifest.build_run_manifest: what produced the run.",
+      "required": [
+        "generated_at",
+        "dokimi_version",
+        "git",
+        "python",
+        "platform",
+        "dependencies"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "type": "string",
+          "description": "UTC, ISO 8601."
+        },
+        "dokimi_version": {
+          "type": "string"
+        },
+        "git": {
+          "type": "object",
+          "required": [
+            "sha",
+            "dirty",
+            "branch"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "sha": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dirty": {
+              "type": "boolean"
+            },
+            "branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "description": "Of the working directory; null where git could not tell."
+        },
+        "python": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": "Package -> installed version; null when not installed."
+        },
+        "spec": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "docs": {
+          "type": "object",
+          "required": [
+            "count",
+            "sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "description": "An order-independent digest of the documents that could be read; sha256 null when none."
+        },
+        "models": {
+          "type": "object"
+        },
+        "extra": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

@@ -66,6 +66,7 @@ class Session:
     name: str
     events: list[Event] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    errors_dropped: int = 0  # problems past the limit on ``errors``: counted, not listed
     sidechain_only: bool = False  # every prompt and tool record is a subagent's: a transcript without its session
 
 
@@ -170,6 +171,8 @@ def prompt_text(raw: str) -> str:
 def add_error(session: Session, message: str) -> None:
     if len(session.errors) < _ERROR_LIMIT:
         session.errors.append(message)
+    else:
+        session.errors_dropped += 1
 
 
 def _shape_problem(rec: dict[str, Any]) -> str | None:
