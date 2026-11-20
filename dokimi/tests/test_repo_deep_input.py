@@ -147,3 +147,13 @@ def test_a_manifest_file_name_too_long_to_stat_exits_2_naming_it(repo, capsys):
         _run("validate", str(repo), "--manifest-file", name)
     assert exc.code == 2
     assert name in capsys.readouterr().err
+
+
+def test_a_missing_manifest_file_still_says_it_is_missing(repo, tmp_path, capsys):
+    """#975 review of #1044: only a path that exists and is not a regular file is "not a regular file"."""
+    missing = tmp_path / "absent.yaml"
+    with refusal() as exc:
+        _run("validate", str(repo), "--manifest-file", str(missing))
+    assert exc.code == 2
+    err = capsys.readouterr().err
+    assert str(missing) in err and "No such file" in err and "not a regular file" not in err
