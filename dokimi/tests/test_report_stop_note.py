@@ -87,6 +87,13 @@ def test_an_empty_reason_ends_the_first_sentence_without_a_bare_colon():
     assert note.startswith("> **Stopped early**. 2 of 4 questions have a record")
 
 
+def test_a_reason_that_ends_in_a_period_gives_one_period():
+    # Codex's usage-limit text ends in one (tests/test_knowledge_cli_answerers.py).
+    stop = {**STOP, "reason": "codex-cli: You've hit your usage limit."}
+    note = render_arms_report(_arms(terminated=stop)).splitlines()[2]
+    assert note.startswith("> **Stopped early**: codex-cli: You've hit your usage limit. 2 of 4 questions ")
+
+
 def _page(tmp_path: Path, doc: dict) -> list[str]:
     """``report eval`` on *doc*, its lines without the ``_Generated:`` stamp (the clock is not under test)."""
     eval_path = tmp_path / "eval" / "demo.json"
