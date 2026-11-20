@@ -21,14 +21,13 @@ that pull request with the reason and leaves the others alone.
 from __future__ import annotations
 
 import base64
-import json
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from dokimi.atomic_write import write_bytes_atomic, write_text_atomic
+from dokimi.atomic_write import write_bytes_atomic, write_json_atomic
 from dokimi.process_io import utf8_bytes
 from ...provenance import generated_by
 from ..manifest import RepoManifest
@@ -249,5 +248,5 @@ def _mbox(pr: PullRequest, rev: str, diff: bytes) -> bytes:
 def _write(dest: Path, task: dict[str, Any], gold: list[dict[str, Any]], patch: bytes) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     write_bytes_atomic(dest / PATCH, patch)
-    write_text_atomic(dest / GOLD, json.dumps(gold, indent=2, ensure_ascii=False) + "\n")
-    write_text_atomic(dest / "task.json", json.dumps(task, indent=2, ensure_ascii=False) + "\n")
+    write_json_atomic(dest / GOLD, gold)
+    write_json_atomic(dest / "task.json", task)

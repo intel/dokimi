@@ -625,7 +625,7 @@ Records are kept in `<out>.partial` while the probe runs:
 
 ```bash
 python cli.py catalog trigger-probe --catalog <skills-checkout>/skills \
-  --trigger-set trigger_set.json --model <model> --trials 3 --out probe.json
+  --trigger-set trigger_set.json --model <model> --reps 3 --out probe.json
 ```
 
 Two things decide whether such a number means anything:

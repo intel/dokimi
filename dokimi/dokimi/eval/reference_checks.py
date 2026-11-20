@@ -250,7 +250,28 @@ CONTAINS_JSON_MAX_STARTS = 1000
 #: where it failed): a text of many brackets and a long tail would otherwise cost starts x length.
 CONTAINS_JSON_MAX_SCAN = 1_000_000
 
-_FENCE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n\s*```\s*$", re.S)
+_FENCE_OPEN = re.compile(r"\s*```(?:json)?")
+_SPACE = re.compile(r"\s*")
+
+
+def _fenced_body(text: str) -> str | None:
+    """The body of one fenced block that is the whole ``text``, or ``None``.
+
+    The opener is ```` ``` ```` or ```` ```json ```` then a line end, and the closer is the last ```` ``` ````, on a line of its own
+    with only whitespace after it. The body starts after the last line end the opener's whitespace reaches
+    and stops at the first line end of the whitespace before the closer.
+    """
+    opener = _FENCE_OPEN.match(text)
+    closer = text.rfind("```")
+    if opener is None or closer < opener.end() or text[closer + 3:].strip():
+        return None
+    gap = len(text[:closer].rstrip())  # where the whitespace before the closer starts
+    last = text.rfind("\n", gap, closer)
+    reach = _SPACE.match(text, opener.end()).end()  # type: ignore[union-attr]
+    start = text.rfind("\n", opener.end(), min(reach, last)) + 1 if last >= 0 else 0
+    if start == 0:
+        return None
+    return text[start:text.find("\n", max(gap, start), closer)]
 
 
 def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
@@ -263,9 +284,9 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
     not counted, only the tries that start at a bracket.
     """
     text = answer.strip()
-    fenced = _FENCE.match(text)
-    if fenced:
-        text = fenced.group(1)
+    fenced = _fenced_body(text)
+    if fenced is not None:
+        text = fenced
     try:
         return True, json.loads(text)
     except (ValueError, RecursionError):

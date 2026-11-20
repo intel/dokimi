@@ -28,10 +28,10 @@ For a single skill, run `dokimi skill check --root /path/to/catalog <name>`; for
 A key-free estimate for a local skill bundle:
 
 ```bash
-dokimi skill novelty analyze --artifact skill:/path/to/skill --tier triage --include-resources --estimate-only
+dokimi skill novelty analyze --artifact skill:/path/to/skill --tier triage --include-resources --dry-run
 ```
 
-**Result:** an estimate, not a measured quality score. Follow the walkthrough to configure models, judge and budget before removing `--estimate-only`.
+**Result:** an estimate, not a measured quality score. Follow the walkthrough to configure models, judge and budget before removing `--dry-run`.
 
 ## 3. Make one change and retest
 

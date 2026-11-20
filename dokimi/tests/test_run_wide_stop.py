@@ -149,9 +149,10 @@ def test_a_baseline_stop_keeps_the_context_answer_already_paid_for(monkeypatch):
 
 def test_a_worker_in_flight_does_not_launch_the_next_arm_after_another_worker_stopped(monkeypatch):
     # q2's first arm is in flight when q1 hits a usage limit. Its second arm must not be paid for.
-    release = threading.Event()
     in_flight = threading.Event()
+    stops = []  # the run's stop event, seen by the check before each arm
     calls = []
+    real_halt = arm_runner_module.halt_if_stopped
     runner = ArmRunner([BaselineTreatment(), BaselineTreatment(name="other")], model="gpt-4o-mini",
                        provider="openai")
 
@@ -161,11 +162,15 @@ def test_a_worker_in_flight_does_not_launch_the_next_arm_after_another_worker_st
             in_flight.wait(timeout=10)
             raise llm_cli.CliCallError("usage limit exceeded", retryable=False, run_wide=True)
         in_flight.set()
-        release.wait(timeout=10)
+        assert stops[0].wait(timeout=10)  # q2's first arm returns only once the run is stopped
         return "answer", {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
 
+    def halt_if_stopped(stop):
+        stops.append(stop)
+        return real_halt(stop)
+
     monkeypatch.setattr(arm_runner_module, "llm_call_with_usage", call)
-    threading.Timer(0.2, release.set).start()
+    monkeypatch.setattr(arm_runner_module, "halt_if_stopped", halt_if_stopped)
     records = runner.run("lib", QUESTIONS, concurrency=2)
     assert len(calls) == 2  # q1's failing call and q2's first arm; no second arm of q2
     by_id = {r["question_id"]: r["arms"] for r in records}
