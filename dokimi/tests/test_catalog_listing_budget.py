@@ -205,3 +205,61 @@ def test_json_reports_the_budget_finding_without_strict(tmp_path, capsys):
     listing = [s for s in doc["subjects"] if s["subject"] == "listing"]
     assert [f["code"] for s in listing for f in s["findings"]] == ["listing-over-budget"]
     assert [s["verdict"] for s in listing] == ["pass"]
+
+
+def _manifest(root: Path, entries: list[tuple[str, str]]) -> None:
+    lines = "".join(f'  - name: "{n}"\n    status: "incubating"\n    catalog_path: "{p}"\n' for n, p in entries)
+    (root / "skills.yaml").write_text(f'schema_version: "1"\nskills:\n{lines}', encoding="utf-8")
+
+
+@pytest.mark.parametrize("scan", [[], ["--per-skill"]])
+def test_a_mirror_under_another_manifest_name_is_counted_once(tmp_path, capsys, scan):
+    """#966: copies group by the loaded skill name, not the manifest alias: `primary` and `mirror` of `alpha` are 27, not 54."""
+    _alpha(tmp_path)
+    mirror = tmp_path / "plugins" / "x" / "skills" / "alpha"
+    mirror.mkdir(parents=True)
+    (mirror / "SKILL.md").write_bytes((tmp_path / "skills" / "alpha" / "SKILL.md").read_bytes())
+    _manifest(tmp_path, [("primary", "skills/alpha"), ("mirror", "plugins/x/skills/alpha")])
+
+    assert _listing(tmp_path, capsys, *scan)["chars"] == 27
+
+
+@pytest.mark.parametrize("scan", [[], ["--per-skill"]])
+def test_one_manifest_name_on_two_loaded_skills_is_not_a_conflict(tmp_path, capsys, scan):
+    """#966: two different skills listed under one manifest name are both in the field, so both count."""
+    _alpha(tmp_path)
+    _skill(tmp_path, "bravo", "Use when bravo runs.")
+    _manifest(tmp_path, [("same", "skills/alpha"), ("same", "skills/bravo")])
+
+    assert _listing(tmp_path, capsys, *scan)["chars"] == 27 + len("bravo: Use when bravo runs.")
+
+
+def test_resume_reviews_again_a_row_that_has_no_listing_name(tmp_path, capsys):
+    """#966: a receipt row without `listing_name` cannot be grouped, so `--resume` redoes it."""
+    _alpha(tmp_path)
+    receipt = tmp_path / "receipt.jsonl"
+    base = ["--root", str(tmp_path), "--per-skill", "--jsonl", str(receipt)]
+    assert _run(base, capsys)[1] == 0
+    row = json.loads(receipt.read_text(encoding="utf-8"))
+    del row["listing_name"]
+    receipt.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    out, _ = _run([*base, "--resume"], capsys)
+
+    assert "resumed" not in out
+    assert json.loads(receipt.read_text(encoding="utf-8"))["listing_name"] == "alpha"
+
+
+@pytest.mark.parametrize("bad", ['"27"', "-27", "true", "2.5"])
+def test_resume_refuses_a_listing_count_that_is_not_a_nonnegative_integer(tmp_path, capsys, bad):
+    """#966: `listing_chars` of "27" would raise in the sum and -27 would lower the total; the row is refused."""
+    _alpha(tmp_path)
+    receipt = tmp_path / "receipt.jsonl"
+    base = ["--root", str(tmp_path), "--per-skill", "--jsonl", str(receipt)]
+    assert _run(base, capsys)[1] == 0
+    row = json.loads(receipt.read_text(encoding="utf-8"))
+    receipt.write_text(json.dumps(row).replace('"listing_chars": 27', f'"listing_chars": {bad}') + "\n", encoding="utf-8")
+
+    out, code = _run([*base, "--resume", "--listing-budget", "26"], capsys)
+
+    assert code == 2

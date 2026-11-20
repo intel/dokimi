@@ -36,7 +36,8 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
     findings with those codes before the state is taken; ``ignored`` records the codes in effect.
-    ``listing_chars`` is the skill's entry in the routing field's listing, None when it is not listed."""
+    ``listing_chars`` is the skill's entry in the routing field's listing, None when it is not listed;
+    ``listing_name`` is the name the routing field knows the skill by (the loaded name, not the manifest ``name``)."""
     from dokimi.external.catalog_review import entry_relpath
     from dokimi.external.skill_format import not_a_failed_load
     from dokimi.external.findings import state_of
@@ -62,6 +63,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "dokimi_version": __version__,
         "duplicate_of": review.duplicate_of if review else None,
         "listing_chars": listed_chars(review),
+        "listing_name": skill.skill.name if skill.skill is not None else None,
         "ignored": sorted(ignore),
         "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
     }
@@ -271,7 +273,14 @@ def _is_row(row: object) -> bool:
         and row.get("state") in ROW_STATES
         and "error" in row
         and isinstance(row.get("findings"), list)
+        and _count_ok(row.get("listing_chars"))
+        and isinstance(row.get("listing_name"), (str, type(None)))
     )
+
+
+def _count_ok(value: object) -> bool:
+    """A ``listing_chars`` that is null or a nonnegative integer (a bool is not one); absent reads as null."""
+    return value is None or (isinstance(value, int) and not isinstance(value, bool) and value >= 0)
 
 
 def _parse_row(raw: bytes, path: Path, lineno: int) -> Optional[dict]:
@@ -300,7 +309,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
     newline (the next row would be glued onto it), or when a row is for a skill this run does not
     select, whose directory changed, was written under other ``--ignore`` codes (the file must
     match the counts printed), was written by another dokimi version (or before the version was
-    recorded): a finding a newer version adds is not in the old row, or has no ``listing_chars``.
+    recorded): a finding a newer version adds is not in the old row, or has no ``listing_chars`` or ``listing_name``.
     """
     rows: list[dict] = []
     dirty = False
@@ -313,7 +322,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                 if row is None:
                     continue
                 key = _row_key(row)
-                if (key in selected and "skill_sha256" in row and "listing_chars" in row and row["skill_sha256"] == selected[key]
+                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing_name" in row and row["skill_sha256"] == selected[key]
                         and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:
@@ -380,7 +389,7 @@ def listing_total(rows: Iterable[dict]) -> int:
     """The characters the routing field lists for ``rows``: a byte-identical ``SKILL.md`` under another path
     (a mirror) is one entry, as ``routing.catalog_competitors`` keeps one card for it (#966).
 
-    A skill is a copy of another when the name and ``content_sha256`` match; the row nearest the root stands for the
+    A skill is a copy of another when the loaded name (``listing_name``, not the manifest name) and ``content_sha256`` match; the row nearest the root stands for the
     group. A name whose copies differ is left out whole, as ``routing.catalog_competitors`` drops a conflicting name.
     """
     kept: dict[tuple, int] = {}
@@ -391,11 +400,12 @@ def listing_total(rows: Iterable[dict]) -> int:
         if chars is None:
             continue
         sha = row.get("content_sha256")
-        if sha is None:
+        name = row.get("listing_name")
+        if sha is None or name is None:
             total += chars
             continue
-        digests.setdefault(row["name"], set()).add(sha)
-        kept.setdefault((row["name"], sha), chars)
+        digests.setdefault(name, set()).add(sha)
+        kept.setdefault((name, sha), chars)
     return total + sum(chars for (name, _), chars in kept.items() if len(digests[name]) == 1)
 
 
