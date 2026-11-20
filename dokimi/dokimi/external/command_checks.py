@@ -228,16 +228,15 @@ def _unpinned_at(code: str) -> list[tuple[int, str]]:
 def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
     """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
     once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
-    same place is counted once, with the packages of the reading that names the most (the most folded on a tie);
-    a command at another place is another install."""
+    same place is counted once, with the packages of the most folded reading that finds it (a fullwidth separator
+    ends a command there, and the raw reading would read what follows as its arguments); a command at another
+    place is another install."""
     best: dict[tuple[int, str], list[str]] = {}
     for reading in readings(_code_text(text, markdown)):
         grouped: dict[tuple[int, str], list[str]] = {}
         for offset, label in _unpinned_at(reading):
             grouped.setdefault((offset, label.split()[0]), []).append(label)
-        for key, labels in grouped.items():
-            if len(labels) >= len(best.get(key, [])):
-                best[key] = labels
+        best.update(grouped)
     return [label for key in sorted(best) for label in best[key]]
 
 

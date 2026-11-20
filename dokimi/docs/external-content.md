@@ -118,13 +118,13 @@ Two checks, both `warn`:
   `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
   `replacement` are the vendor's, verbatim, or empty when it gives none.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a bidi mark (U+200E, U+200F,
-  U+061C) with no Hebrew or Arabic letter beside it, a Unicode tag character (U+E0000 to U+E007F), a stray
+  U+061C) with no Hebrew or Arabic letter as the nearest letter on either side in its line, a Unicode tag character (U+E0000 to U+E007F), a stray
   zero-width character (U+200B, U+2060, or a U+FEFF after the start of the file), a soft hyphen (U+00AD), an
   invisible operator or deprecated format character (U+2061 to U+2064, U+206A to U+206F), or a blank
   filler (U+034F, U+180E, U+115F, U+1160, U+3164, U+FFA0, U+2800). A variation selector (U+FE00 to U+FE0F,
   U+E0100 to U+E01EF) is reported at the start of the text, after another selector, or after an ASCII
-  character other than a keycap base (`#`, `*`, `0` to `9`); after an emoji, a symbol or an ideograph it is
-  not. U+034F is not reported beside a non-ASCII letter or mark, U+115F and U+1160 beside Hangul (jamo, compatibility and Extended-A/B jamo, syllables,
+  character other than a keycap base (`#`, `*`, `0` to `9`), or after a non-ASCII character that is not a symbol
+  or an ideograph (a letter, a no-break space); after an emoji, a symbol or an ideograph it is not. U+034F is not reported beside a non-ASCII letter or mark, U+115F and U+1160 beside Hangul (jamo, compatibility and Extended-A/B jamo, syllables,
   halfwidth), and U+2800 beside Braille. Each is reported with its line and codepoint; five
   per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
   or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.

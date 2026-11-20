@@ -56,6 +56,8 @@ def readings(text: str) -> list[str]:
     Folding a character that is not a letter (a fullwidth ``;``, a superscript ``2``) can end or extend a match the
     raw text has, so each reading is scanned and the findings are joined.
     """
+    if text.isascii():
+        return [text]
     found = [text]
     for reading in (fold(text, nfkc="letters"), fold(text)):
         if reading not in found:

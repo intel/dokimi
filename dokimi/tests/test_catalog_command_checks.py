@@ -641,6 +641,17 @@ def test_one_install_is_one_package_across_readings(tmp_path, command, count):
     assert f"{count} install " in finding.message
 
 
+@pytest.mark.parametrize("command, packages", [
+    ("pip install requests\uff1bpip install flask", ["pip requests", "pip flask"]),
+    ("pip install foo \uff5c grep x", ["pip foo"]),
+])
+def test_fullwidth_separator_ends_a_command_in_every_reading(command, packages):
+    """#960: the raw reading reads what follows a fullwidth separator as arguments; the folded one ends the command."""
+    from dokimi.external.command_checks import _unpinned_in_readings
+
+    assert _unpinned_in_readings(command, False) == packages
+
+
 def test_fullwidth_backticks_do_not_move_an_install_or_make_prose_code(tmp_path):
     """#960: Markdown code is taken from the text as written; U+FF40 is not a delimiter, so prose is not scanned."""
     body = "# Tool\n\n\uff40x\uff40 then `pip install flask`\n"

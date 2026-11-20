@@ -91,7 +91,12 @@ def _legacy_hits(where: str, text: str) -> list[Hit]:
     seen: set[str] = set()
     # Every reading has the length of the text, so the line is the line of the original.
     found = [m for reading in readings(text) for m in pattern.finditer(reading)]
-    for match in sorted(found, key=lambda m: m.start()):  # first occurrence first, whichever reading found it
+    end = 0
+    # First occurrence first, whichever reading found it; of matches at one place the longest, and none inside it.
+    for match in sorted(found, key=lambda m: (m.start(), -m.end())):
+        if match.start() < end:
+            continue
+        end = match.end()
         model_id = match.group()
         if model_id in seen:
             continue
@@ -114,19 +119,31 @@ def _joiner_exempt(text: str, index: int) -> bool:
 
 def _bidi_mark_exempt(text: str, index: int) -> bool:
     """An LRM, RLM or ALM is expected next to a right-to-left letter (Hebrew, Arabic), where it orders the text."""
-    return any(
-        0 <= j < len(text) and unicodedata.category(text[j]).startswith("L")
-        and unicodedata.bidirectional(text[j]) in ("R", "AL")
-        for j in (index - 1, index + 1)  # a letter: a mark or a punctuation mark of class R or AL is not one
-    )
+    return any(_strong_side(text, index, step) in ("R", "AL") for step in (-1, 1))
+
+
+def _strong_side(text: str, index: int, step: int) -> str:
+    """The bidi class of the nearest letter on one side, past neutrals, digits and marks, within the line.
+
+    A character of class R or AL that is not a letter (a Hebrew punctuation mark) is not one, so it gives ``""``."""
+    j = index + step
+    while 0 <= j < len(text) and text[j] != "\n":
+        cls = unicodedata.bidirectional(text[j])
+        if cls in ("L", "R", "AL"):
+            return cls if unicodedata.category(text[j]).startswith("L") else ""
+        j += step
+    return ""
 
 
 def _selector_stray(text: str, index: int) -> bool:
-    """A variation selector at the start, after another selector, or after ASCII that takes none (not a keycap base)."""
+    """A variation selector at the start, after another selector, or after a base that takes none: ASCII that is not
+    a keycap base, or a non-ASCII character that is not a symbol (``S*``) or an ideograph."""
     if index == 0 or ord(text[index - 1]) in VARIATION_SELECTORS:
         return True
     before = text[index - 1]
-    return before.isascii() and before not in KEYCAP_BASES
+    if before.isascii():
+        return before not in KEYCAP_BASES
+    return not (unicodedata.category(before).startswith("S") or unicodedata.name(before, "").startswith("CJK"))
 
 
 def _is_hangul(cp: int) -> bool:

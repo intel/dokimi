@@ -403,6 +403,28 @@ def test_bidi_mark_beside_hebrew_punctuation_is_reported(tmp_path):
     assert len(_messages(tmp_path, "hidden-unicode")) == 1
 
 
+@pytest.mark.parametrize("text", [HEBREW + "!" + RLM, "100" + RLM + " \u05e9", "\u0627\u0661" + ALM + "\u0662"],
+                         ids=["after-punctuation", "after-digits", "between-digits"])
+def test_bidi_mark_past_neutrals_and_digits_is_not_reported(tmp_path, text):
+    """#960: the nearest letter decides, past punctuation, spaces and digits."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\n{text}\n")
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+@pytest.mark.parametrize("base", ["\u00a0", "\u0430", "\u00e9"], ids=["nbsp", "cyrillic-a", "e-acute"])
+def test_variation_selector_after_a_non_ascii_letter_or_space_is_reported(tmp_path, base):
+    """#960: only a symbol, an ideograph or a keycap base takes a selector."""
+    assert len(_hidden(tmp_path, f"a{base}{chr(0xFE0F)}")) == 1
+
+
+def test_overlapping_legacy_matches_in_two_readings_are_one_finding(tmp_path):
+    """#960: the raw reading matches claude-sonnet-4-5, the folded one the longer ID; one finding, the longer."""
+    from dokimi.external.content_checks import _legacy_hits
+
+    [(_, message)] = _legacy_hits("SKILL.md", "claude-sonnet-4-5\uff0d20250929")
+    assert "claude-sonnet-4-5-20250929" in message
+
+
 def test_legacy_id_before_a_superscript_is_still_flagged(tmp_path):
     """#960: NFKC turns the superscript 2 into ASCII, which would make the token gpt-42; the raw reading still matches."""
     _skill(tmp_path / "skills", "triage", body="# Triage\n\nUse gpt-4².\n\n² Retired model.\n")
