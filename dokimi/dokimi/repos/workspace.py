@@ -314,7 +314,14 @@ def _export(tree: RepoTree, dest: Path, only: str | None, exclude: str | None) -
         _checkout_tree(tree.git_dir, f"{tree.sha}:{only}" if only else tree.sha, tmp, prefix=only)
     else:
         root = Path(tree.label)
-        for rel in tree.files():
+        files = tree.files()
+        # a skipped path the export would copy: inside ``only`` (or a directory above it), not inside ``exclude``
+        skipped = [w for p, w in zip(getattr(tree, "skipped_paths", ()), getattr(tree, "skipped", ()), strict=True)
+                   if (not only or _is_within(p, only) or _is_within(only, p)) and not (exclude and _is_within(p, exclude))]
+        if skipped:  # a workspace that silently lacks files would run an agent on a partial repo
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise PrepError(f"{tree.label} has paths that cannot be looked at: " + "; ".join(skipped))
+        for rel in files:
             if only and not _is_within(rel, only):
                 continue
             target = tmp / rel
