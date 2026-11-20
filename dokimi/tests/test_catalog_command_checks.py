@@ -710,3 +710,51 @@ def test_echo_after_a_shell_keyword_is_echo(tmp_path):
     # #946 review: `then echo "..."` prints text like a bare `echo`
     assert _found(_review(tmp_path, _fenced('if true; then echo "pip install requests"; fi')),
                   "install-unpinned") == []
+
+
+def test_pnpm_option_with_an_attached_quoted_value_does_not_hide_the_install(tmp_path):
+    # #1046 review: `--dir="my app"` holds a space; the install after it is still read
+    [finding] = _found(_review(tmp_path, _fenced('pnpm --dir="my app" add lodash')), "install-unpinned")
+    assert "pnpm lodash" in finding.message
+
+
+@pytest.mark.parametrize("line, names", [
+    ('echo "$(printf "%s" "done"; pip install requests)"', "pip requests"),
+    ('echo $(bash -c "pip install requests")', "pip requests"),
+    ('echo "Installing (pip): $(pip install requests)"', "pip requests"),
+    ('echo "\\\\$(pip install requests)"', "pip requests"),  # two backslashes: the `$(` is not escaped
+    ('printf "%s" "pnpm add lodash $(npm install left-pad)"', "npm left-pad"),
+    ('echo "pip install requests $(pip install numpy)"', "pip numpy"),
+    ('echo "pip install requests `pip install numpy`"', "pip numpy"),
+])
+def test_a_substitution_in_echoed_text_runs_whatever_surrounds_it(tmp_path, line, names):
+    [finding] = _found(_review(tmp_path, _fenced(line)), "install-unpinned")
+    assert "1 install" in finding.message and names in finding.message
+
+
+@pytest.mark.parametrize("line", [
+    'command echo "pnpm add lodash"',
+    "LC_ALL=C printf '%s\\n' 'pip install requests'",
+    'echo >&2 "pip install requests"',
+    'printf >&2 "%s\\n" "pnpm add lodash"',
+    'echo "pip install requests" 2>&1',
+])
+def test_echo_with_a_prefix_or_a_redirection_is_still_text(tmp_path, line):
+    assert _found(_review(tmp_path, _fenced(line)), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("line", [
+    'echo "Example: ; echo \'"; pip install requests; echo "\'"',
+    'printf "Example: ; printf \'"; pip install requests; printf "\'"',
+])
+def test_echo_inside_a_quoted_argument_does_not_open_a_command(tmp_path, line):
+    assert "pip requests" in _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message
+
+
+@pytest.mark.parametrize("line, name", [
+    ('echo "pip install requests" | sh', "pip requests"),
+    ("printf '%s\\n' 'pnpm add lodash' | bash", "pnpm lodash"),
+    ('echo "npm install left-pad" | sudo bash', "npm left-pad"),
+])
+def test_echo_piped_to_a_shell_is_run(tmp_path, line, name):
+    assert name in _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message

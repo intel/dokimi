@@ -83,19 +83,21 @@ NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
 PNPM_VALUE_OPTIONS = (NPM_VALUE_OPTIONS - {"-w", "--workspace"}) | frozenset(
     {"--filter", "-F", "--dir", "-C", "--store-dir", "--save-catalog-name"})
 _PNPM_VALUE_ALT = "|".join(re.escape(o) for o in sorted(PNPM_VALUE_OPTIONS, key=len, reverse=True))
-# options before the subcommand: a value option takes the next word, quoted or not; any other flag stands alone (the
-# lookahead keeps the two parses of a value option apart, so a run of them cannot backtrack)
+# options before the subcommand: a value option takes the next word (quoted or not); any other flag stands alone,
+# with an attached quoted value; the lookahead keeps the two parses apart, so a run of them cannot backtrack
 PNPM = re.compile(
     r"(?<![\w.-])pnpm(?:[ \t]+(?:(?:" + _PNPM_VALUE_ALT + r")[ \t]+(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|'\"][^\s;&|]*)"
-    r"|(?!(?:" + _PNPM_VALUE_ALT + r")(?:\s|$))-[^\s;&|]*))*[ \t]+(?:install|i|add)\b" + WORDS
+    r"|(?!(?:" + _PNPM_VALUE_ALT + r")(?:\s|$))-(?:[^\s;&|'\"]|'[^'\n]*'|\"[^\"\n]*\")*))*"
+    r"[ \t]+(?:install|i|add)\b" + WORDS
 )
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
-# ``echo`` or ``printf`` at the start of a command: the quoted strings among its arguments are printed text
-# (after a control keyword too: ``then echo "..."``)
+# ``echo`` or ``printf`` at the start of a command, after control keywords, ``command``/``builtin``/``exec`` and
+# ``NAME=value`` assignments (``then echo "..."``, ``LC_ALL=C printf ...``)
 ECHO_COMMAND = re.compile(
-    r"(?:^|[;&|(\n])[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{)[ \t]+)*(?:echo|printf)\b")
-# a command substitution that runs inside double quotes: ``$(`` or a backtick, unless a backslash escapes it
-SUBSTITUTION_OPEN = re.compile(r"(?<!\\)(?:\$\(|`)")
+    r"[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{|command|builtin|exec)[ \t]+"
+    r"|[A-Za-z_]\w*=(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|()'\"`]*)[ \t]+)*(?:echo|printf)(?![\w.-])")
+# ``|`` at the end of a command that feeds a shell: what the command printed is run
+PIPED_SHELL = re.compile(r"\|(?!\|)&?[ \t]*(?:sudo[ \t]+)?(?:ba|z|da|k)?sh(?![\w.-])")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
 
@@ -234,57 +236,84 @@ def _unpinned_npx(rest: str) -> list[str]:
     return names
 
 
-def _echoed_spans(code: str) -> list[tuple[int, int]]:
-    """``(open, close)`` of each quoted string among the arguments of an ``echo`` or ``printf``, over any number of
-    lines: the text in it is printed, not run. A quoted command that runs (``bash -c "pip install x"``) is not one."""
-    spans = []
-    for m in ECHO_COMMAND.finditer(code):
-        i = m.end()
-        while i < len(code) and code[i] not in ";&|\n)`":
-            if code[i] == "\\":
-                i += 2
-            elif code[i] in "'\"":
-                quote, j = code[i], i + 1
-                while j < len(code) and code[j] not in (quote, BLOCK_END):
-                    j += 2 if quote == '"' and code[j] == "\\" else 1
-                if j >= len(code) or code[j] == BLOCK_END:
-                    break  # never closed in its own block or span: not a string
-                spans.append((i, j))
-                i = j + 1
-            else:
-                i += 1
-    return spans
+def _blank(mask: list[str], pieces: list[tuple[int, int]]) -> None:
+    for start, end in pieces:
+        for k in range(start, end):
+            if mask[k] not in ("\n", BLOCK_END):
+                mask[k] = " "
 
 
-def _runs_substitution(before: str) -> bool:
-    """Whether text inside double quotes has opened a ``$(`` that is not closed, or an odd number of backticks."""
-    found = [m.group() for m in SUBSTITUTION_OPEN.finditer(before)]
-    return found.count("$(") > before.count(")") or found.count("`") % 2 == 1
+def _quoted(code: str, mask: list[str], i: int) -> tuple[int, list[tuple[int, int]]]:
+    """The index of the quote that closes the string opened at ``i`` and the ``(start, end)`` of its text, less any
+    command substitution in it (that runs); ``-1`` when it never closes in its own block or span: not a string."""
+    quote, j, seg, pieces = code[i], i + 1, i + 1, []
+    while j < len(code) and code[j] not in (quote, BLOCK_END):
+        if quote == '"' and (code[j] == "`" or code.startswith("$(", j)):
+            pieces.append((seg, j))
+            j = seg = _substitution(code, mask, j)
+        else:
+            j += 2 if quote == '"' and code[j] == "\\" else 1
+    if j >= len(code) or code[j] == BLOCK_END:
+        return -1, []
+    return j, pieces + [(seg, j)]
 
 
-def _is_echoed(code: str, spans: list[tuple[int, int]], start: int) -> bool:
-    """Whether ``start`` is printed text. Inside double quotes, an open ``$(`` or backtick before it runs it."""
-    for opened, closed in spans:
-        if opened < start < closed:
-            before = code[opened + 1:start]
-            if code[opened] == '"' and _runs_substitution(before):
-                continue
-            return True
-    return False
+def _substitution(code: str, mask: list[str], i: int) -> int:
+    """The index after the ``$(...)`` or backtick substitution opened at ``i``; its commands are scanned too."""
+    stop, skip = (")", 2) if code[i] == "$" else ("`", 1)
+    end = _commands(code, mask, i + skip, stop)
+    return end + 1 if end < len(code) and code[end] == stop else end
+
+
+def _commands(code: str, mask: list[str], i: int, stop: str) -> int:
+    """Blank in ``mask`` the quoted text of each ``echo`` or ``printf`` from ``i`` to the ``stop`` that ends the list
+    (or a block end): the text is printed, not run, unless the command feeds a shell. A substitution in it runs.
+    Returns the index where it stopped."""
+    depth, start = 0, True
+    echo: list[tuple[int, int]] | None = None  # the text pieces of the echo or printf being read
+    while i < len(code) and code[i] != BLOCK_END and not (code[i] == stop and depth == 0):
+        c = code[i]
+        match = ECHO_COMMAND.match(code, i) if start and echo is None else None
+        if match:
+            echo, start, i = [], False, match.end()
+        elif c in "'\"" and (quoted := _quoted(code, mask, i))[0] >= 0:
+            echo = echo + quoted[1] if echo is not None else echo
+            start, i = False, quoted[0] + 1
+        elif c == "`" or code.startswith("$(", i):
+            start, i = False, _substitution(code, mask, i)
+        elif c == "&" and (code[i - 1:i] in (">", "<") or code[i + 1:i + 2] == ">"):
+            i += 1  # a redirection (``>&2``, ``&>f``), not a separator
+        elif c in ";&|\n()":
+            if echo and not (c == "|" and PIPED_SHELL.match(code, i)):
+                _blank(mask, echo)
+            echo, start, i = None, True, i + 1
+            depth = depth + 1 if c == "(" else max(depth - 1, 0) if c == ")" else depth
+        else:
+            start, i = start and c in " \t", i + (2 if c == "\\" else 1)
+    if echo:
+        _blank(mask, echo)
+    return i
+
+
+def _without_printed(code: str) -> str:
+    """``code`` with the text ``echo`` and ``printf`` print blanked, so an install in it is not read."""
+    mask, i = list(code), 0
+    while i < len(code):
+        i = _commands(code, mask, i, "") + 1
+    return "".join(mask)
 
 
 def _unpinned_installs(code: str) -> list[str]:
     """One entry per distinct ``<manager> <name>``: the same install shown twice is one."""
     found: list[str] = []
-    spans = _echoed_spans(code)
+    code = _without_printed(code)
     for manager, pattern, names in (
         ("pip", PIP, _unpinned_pip),
         ("npm", NPM, _unpinned_npm),
         ("pnpm", PNPM, lambda rest: _unpinned_npm(rest, PNPM_VALUE_OPTIONS)),
         ("npx", NPX, _unpinned_npx),
     ):
-        found += [f"{manager} {n}" for m in pattern.finditer(code) if not _is_echoed(code, spans, m.start())
-                  for n in names(m.group(1))]
+        found += [f"{manager} {n}" for m in pattern.finditer(code) for n in names(m.group(1))]
     return list(dict.fromkeys(found))
 
 
