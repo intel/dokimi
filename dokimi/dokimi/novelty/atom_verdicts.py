@@ -30,13 +30,15 @@ def build_atom_verdicts(result) -> dict:
     for atom in result.atoms:
         verdict = result.verdicts.get(atom.id)
         answered = verdict is not None and verdict.judged
-        compared = verdict is not None and atom.id not in unchecked
+        compared = result.artifact.get("conflict_coverage") is not None and atom.id not in unchecked
+        conflict = verdict is not None and verdict.conflict
+        conflict_why = verdict.conflict_why if verdict is not None else ""
         rows.append({
             **{key: value for key, value in atom.as_dict().items() if key != "meta"},
             "needed": verdict.needed if answered else None,
             "scaffolding": verdict.scaffolding if answered else None,
-            "conflict": verdict.conflict if compared else None,
-            "conflict_why": verdict.conflict_why if compared else None,
+            "conflict": conflict if compared else None,
+            "conflict_why": conflict_why if compared else None,
             "outcome": {
                 "lenient": result.outcomes.get(atom.id),
                 "strict": result.strict_outcomes.get(atom.id),

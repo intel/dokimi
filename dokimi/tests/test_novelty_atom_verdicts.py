@@ -180,6 +180,18 @@ def test_analyze_saves_the_atoms_it_probed_so_view_needs_no_second_extraction(
     assert outcomes and categories
 
 
+def test_a_capped_run_pins_the_sampled_atoms_in_the_atoms_file(tmp_path, skill, mixed_models):
+    out_dir = _analyze(tmp_path, skill, "capped", "--max-atoms", "1")
+    sampled = _load(out_dir / "novelty.atoms.json")["sampled_atom_ids"]
+    assert sampled == [r["id"] for r in _rows(out_dir).values()] and len(sampled) == 1
+
+
+def test_an_atom_the_judge_skipped_and_the_conflict_check_cleared_reads_false(tmp_path, skill, monkeypatch):
+    _install(monkeypatch, conflict=False, omit_second=True)
+    rows = _rows(_analyze(tmp_path, skill))
+    assert rows[GATED]["conflict"] is False
+
+
 def test_a_conflict_check_that_failed_leaves_conflict_null_not_false(tmp_path, skill, monkeypatch):
     _install(monkeypatch, conflict=False, fail_conflict=True)
     out_dir = _analyze(tmp_path, skill)
