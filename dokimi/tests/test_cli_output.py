@@ -262,11 +262,13 @@ def test_a_missing_argument_document_carries_the_same_help_step(monkeypatch, cap
     assert [s["argv"] for s in doc["next"]] == [["dokimi", "repo", "budget", "--help"]]
 
 
-def test_an_empty_help_argv_is_kept_not_dropped(capsys):
+def test_an_empty_help_argv_adds_no_next_step(capsys):
     cli_output.reset()
-    # `is not None`, not truthiness: a caller that passes [] gets a `next` step with that argv
+    # an empty argv is no runnable step, and cli_output.v1 requires a non-empty `argv` in `next`
     cli._usage_document("backends", "bad", help_argv=[])
-    assert json.loads(capsys.readouterr().out)["next"][0]["argv"] == []
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["next"] == []
+    assert schema_errors("cli_output.v1", doc) == []
 
 
 def test_root_extras_with_a_cli_kind_do_not_read_cmd(monkeypatch, capsys):
