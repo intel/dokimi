@@ -28,7 +28,7 @@ A file on disk is not necessarily listed to the agent, and a listed skill or ins
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Command reference](https://intel.github.io/dokimi/reference/cli/repo/) · [Implementation](../../dokimi/commands/repo_skill_reach.py) · [Reach matrix guide](../reach-matrix.md) · [Reach implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
+[Command reference](https://intel.github.io/dokimi/reference/cli/repo/) · [Implementation](../../dokimi/commands/repo_skill_reach.py) · [Reach matrix guide](../reach-matrix.md) · [Reach implementation](../../dokimi/commands/repo_reach.py) · [Back to feature tree](README.md)
 
 <a id="14-will-it-choose-the-right-skill"></a>
 

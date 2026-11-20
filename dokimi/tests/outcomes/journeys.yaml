@@ -21,7 +21,7 @@ criteria:
     delivery: available
     enforce: true
     capability: question-set-pinning
-    surfaces: ["benchmark run --questions-root", "benchmark run --multi-run"]
+    surfaces: ["benchmark run --questions-root", "benchmark run --reps"]
     outcome: OUTCOME-PINNED-QUESTIONS
     refs: [docs/user-flow.md#4-reuse-same-question-set-for-fair-comparison, dokimi/orchestrator/pipeline.py]
     evidence:
@@ -117,12 +117,12 @@ criteria:
     delivery: available
     enforce: true
     capability: guidance-reach
-    surfaces: ["repo reach --dry-run", "repo reach --budget"]
+    surfaces: ["repo reach --dry-run", "repo reach --max-usd-per-cell"]
     refs: [docs/repo-evaluation-contract.md#7-reach-probe-guidance_reachv1]
     evidence:
       - id: cjm-repo-reach
         kind: cli_scenario
-        invokes: ["repo reach --dry-run", "repo reach --scenarios --out-dir", "repo reach --budget"]
+        invokes: ["repo reach --dry-run", "repo reach --scenarios --out-dir", "repo reach --max-usd-per-cell"]
         stubs: [harness (fake executable behind a harness profile), model]
     scope: the fake harness reads files by rule; this shows the measurement and artifact, not any real harness's loading behaviour
   AC-J04-004:
@@ -371,7 +371,7 @@ criteria:
     delivery: available
     enforce: true
     capability: novelty
-    surfaces: ["skill novelty analyze --estimate-only"]
+    surfaces: ["skill novelty analyze --dry-run"]
     evidence:
       - {id: cjm-novelty-estimate, kind: integration, stubs: []}
     gaps: ["the estimate is a call count and price; its error against actual spend is not measured"]
@@ -385,7 +385,7 @@ criteria:
         kind: cli_scenario
         invokes:
           - "skill routing --competitors --queries"
-          - "skill novelty analyze --estimate-only"
+          - "skill novelty analyze --dry-run"
           - "skill novelty atoms --extract-model --out"
           - "skill novelty probe --atoms --model --judge-model"
           - "skill shorten --atoms"

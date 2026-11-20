@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
-"""The offline estimate of a routing run's calls and tokens (``novelty routing --estimate-only``)."""
+"""The offline estimate of a routing run's calls and tokens (``skill routing --dry-run``)."""
 from __future__ import annotations
 
 from .routing import _SELECT_PROMPT, Candidate, tokenize

@@ -17,7 +17,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.context.goose_log import is_goose_store, read_goose_store
-from dokimi.context.session_log import SessionError
+from dokimi.context.session_log import _ERROR_LIMIT, SessionError
 
 SCHEMA = """
 CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
@@ -268,3 +268,32 @@ def test_read_sessions_hands_back_the_dropped_sessions(tmp_path):
     dropped: list = []
     loaded, _ = _read_sessions([str(db)], dropped)
     assert len(loaded) == 1 and [s.errors for s in dropped] == [["message 2: content is not JSON"]]
+
+
+def _store_with_bad_messages(tmp_path, bad):
+    db = _store(tmp_path, {"s1": [("user", _text("keep the changelog fragment current"), None)]})
+    conn = sqlite3.connect(db)
+    conn.executemany(
+        "INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)",
+        [("s1", "user", "not json", 100 + n) for n in range(bad)])
+    conn.commit()
+    conn.close()
+    return db
+
+
+@pytest.mark.parametrize("extra", [-_ERROR_LIMIT, 0, 1, 5])
+def test_skipped_messages_past_the_warning_limit_are_counted_on_stderr(tmp_path, capsys, extra):
+    """Issue #963: the 21st skipped message left no line on stderr."""
+    from dokimi.commands.context import _read_sessions
+    bad = _ERROR_LIMIT + extra
+    listed, more = min(bad, _ERROR_LIMIT), max(extra, 0)
+    db = _store_with_bad_messages(tmp_path, bad)
+    (session,) = read_goose_store(db)
+    assert (len(session.errors), session.errors_dropped) == (listed, more)
+    capsys.readouterr()
+    _read_sessions([str(db)])
+    lines = capsys.readouterr().err.splitlines()
+    assert sum(line.endswith("content is not JSON") for line in lines) == listed
+    tail = [line for line in lines if " not listed" in line]
+    noun = "record" if more == 1 else "records"
+    assert tail == ([f"warning: {db}#s1: {more} more skipped {noun} not listed"] if more else [])

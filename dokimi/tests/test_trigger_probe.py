@@ -367,7 +367,7 @@ def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), exp
 
 
 def test_cli_passes_every_flag_to_the_probe(tmp_path, monkeypatch):
-    seen = _cli(tmp_path, monkeypatch, "--model", "haiku", "--limit", "2", "--trials", "3",
+    seen = _cli(tmp_path, monkeypatch, "--model", "haiku", "--limit", "2", "--reps", "3",
                 "--max-turns", "6", "--timeout", "9", "--listing-budget-fraction", "0.04",
                 "--concurrency", "5", "--sealed", "--out", "probe.json")
     cfg = seen["cfg"]
