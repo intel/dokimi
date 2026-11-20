@@ -85,7 +85,8 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         _print_online(online)
         print()
     _granularity_section(_offered_skills(skills, reviews), skills, root, report, as_json)
-    _listing_budget_section(_offered_skills(skills, reviews, by_name=True), getattr(args, "listing_budget", None), report, as_json)
+    if skills:  # an empty root measured nothing: "0/N characters" would read as within budget
+        _listing_budget_section(_offered_skills(skills, reviews, by_name=True), getattr(args, "listing_budget", None), report, as_json)
     return failed, len(skills)
 
 

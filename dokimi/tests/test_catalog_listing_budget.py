@@ -107,3 +107,12 @@ def test_identical_files_that_load_under_different_names_are_two_entries(tmp_pat
         (tmp_path / folder / "SKILL.md").write_text("---\ndescription: Use when testing.\n---\nBody.\n", encoding="utf-8")
     report = json.loads(_scan(tmp_path, capsys, "--listing-budget", "30", "--format", "json"))["listing_budget"]
     assert (report["chars"], report["skills"], report["excess"]) == (43, 2, 13)
+
+
+def test_an_empty_root_prints_no_budget_line(tmp_path, capsys):
+    """#970: a root with no SKILL.md measured nothing, so no `0/N` line (it exits 1 with `no SKILL.md found`)."""
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--listing-budget", "100"])
+    with pytest.raises(SystemExit) as exit_info:
+        args.func(args)
+    assert exit_info.value.code == 1
+    assert "listing budget" not in capsys.readouterr().out
