@@ -220,7 +220,7 @@ def _read_sessions(names: list[str], dropped: list | None = None) -> tuple[list,
     for path in paths:
         if os.path.realpath(path) in folded:  # read with its session
             continue
-        unreadable: list = []  # Goose sessions of unreadable messages only: not counted, still reported
+        unreadable: list = []  # sessions left out (see above): not counted, still reported
         try:
             source = Path(path)
             refuse_device(source)  # before is_goose_store's header read, which blocks on an idle terminal
@@ -233,15 +233,14 @@ def _read_sessions(names: list[str], dropped: list | None = None) -> tuple[list,
         for session in [*sessions, *unreadable]:
             for problem in session.errors:
                 print(f"warning: {session.name}: {problem}", file=sys.stderr)
-        if dropped is not None:
-            dropped.extend(unreadable)
         for session in sessions:
             if session.sidechain_only:
                 print(f"warning: {path}: a subagent transcript without its session log; skipped", file=sys.stderr)
-                if dropped is not None:
-                    dropped.append(session)
+                unreadable.append(session)
             else:
                 loaded.append(session)
+        if dropped is not None:
+            dropped.extend(unreadable)
     loaded, notes = merge_repeats(loaded)
     for note in notes:
         print(f"warning: {note}", file=sys.stderr)
