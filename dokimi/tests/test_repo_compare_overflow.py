@@ -224,6 +224,14 @@ def test_first_useful_rate_leaves_out_a_cell_with_steps_past_the_bound(past):
     assert (counts["first_useful_steps"], counts["first_useful_rate"]) == (1, 1)
 
 
+@pytest.mark.parametrize("reason", [None, "untimed"])
+def test_first_useful_rate_leaves_out_a_cell_with_steps_none_whose_reason_says_it_hit(reason):
+    # contract "The measure bound": a hit with no count is a broken count, not a miss; only `never` is a miss
+    cells = [_useful_cell(5), _useful_cell(None, reason)]
+    assert useful_task_values(cells)["first_useful_rate"] == [1.0]
+    assert useful_task_counts(cells)["first_useful_rate"] == 1
+
+
 def test_first_useful_rate_still_counts_a_never_cell_as_a_miss_beside_a_past_bound_cell():
     # contract "The measure bound": only a steps that is no measure is left out; a cell with steps None is a miss
     cells = [_useful_cell(5), _useful_cell(1e200), _useful_cell(None, "never")]

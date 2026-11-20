@@ -107,9 +107,12 @@ def _measured(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 
 def _rated(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """The cells the rate counts: those with a verdict, less a cell whose ``steps`` is set but is no measure (past the
-    measure bound, NaN, a bool). Its hit is declared and its count is broken, so it is neither a hit nor a miss; a
-    cell whose ``steps`` is None (``never``) stays in as a miss."""
-    return [u for u in _measured(have) if u.get("steps") is None or as_measure(u.get("steps")) is not None]
+    measure bound, NaN, a bool), or None beside a reason that is not ``never``. Its hit is declared and its count is
+    broken, so it is neither a hit nor a miss; only a ``never`` cell with ``steps`` None stays in as a miss."""
+    return [
+        u for u in _measured(have)
+        if (u.get("steps") is None and u.get("reason") == "never") or as_measure(u.get("steps")) is not None
+    ]
 
 
 def _nums(values: Iterable[Any]) -> list[float]:
