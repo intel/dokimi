@@ -15,7 +15,9 @@ from collections import Counter
 
 import pytest
 
+from dokimi.commands.novelty_view_inputs import load_atom_verdicts
 from dokimi.novelty import client as client_mod
+from dokimi.novelty.atoms import load_atoms_record
 from dokimi.utils import InputError
 from tests.test_novelty_analyze import _scripted
 from tests.test_novelty_journey import _run
@@ -28,7 +30,7 @@ KNOWN = "Which flag enables the accelerator?"
 GATED = "May the accelerator be enabled on driver 1.0?"
 
 
-def _install(monkeypatch, *, conflict: bool, omit_second: bool = False):
+def _install(monkeypatch, *, conflict: bool, omit_second: bool = False, fail_conflict: bool = False):
     """Every client answers from the scripted transport, bent as the module docstring says."""
     base = _scripted("informed")
 
@@ -38,6 +40,8 @@ def _install(monkeypatch, *, conflict: bool, omit_second: bool = False):
                     {"n": 2, "needed": False, "scaffolding": False}]
             return json.dumps(rows[:1] if omit_second else rows), None
         if "Find pairs of statements" in prompt:
+            if fail_conflict:
+                return "sorry, I cannot", None
             pairs = [{"a": 1, "b": 2, "why": "the flag and the gate disagree"}] if conflict else []
             return json.dumps({"conflicts": pairs}), None
         if "Grade the RESPONSE" in prompt and "QUESTION: " in prompt:
@@ -161,11 +165,30 @@ def test_a_stale_sidecar_in_the_output_is_replaced(tmp_path, skill, mixed_models
     assert _load(stale)["schema_version"] == "novelty_atoms.v1"
 
 
-def _atoms_file(tmp_path, skill):
-    atoms_out = tmp_path / "atoms.json"
-    _run("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
-         "--out", str(atoms_out))
-    return atoms_out
+def test_analyze_saves_the_atoms_it_probed_so_view_needs_no_second_extraction(
+        tmp_path, skill, mixed_models, capsys):
+    out_dir = _analyze(tmp_path, skill)
+    atoms_file = out_dir / "novelty.atoms.json"
+    assert f"OK Saved atoms:            {atoms_file}" in capsys.readouterr().out
+    atoms, spans, record = load_atoms_record(atoms_file)
+    assert {a.id for a in atoms} == {r["id"] for r in _rows(out_dir).values()}
+    assert {a.statement for a in atoms} == {r["statement"] for r in _rows(out_dir).values()}
+    assert record["extractor"] and record["bundle"]["artifact_name"]  # what probe and shorten read
+    assert spans and all(a.span_ids for a in atoms)
+    outcomes, categories = load_atom_verdicts(
+        str(out_dir / "novelty.atom_verdicts.json"), _load(out_dir / "novelty.json"), atoms)
+    assert outcomes and categories
+
+
+def test_a_conflict_check_that_failed_leaves_conflict_null_not_false(tmp_path, skill, monkeypatch):
+    _install(monkeypatch, conflict=False, fail_conflict=True)
+    out_dir = _analyze(tmp_path, skill)
+    artifact = _load(out_dir / "novelty.json")
+    assert artifact["conflict_coverage"]["pairs_compared"] == 0 < artifact["conflict_coverage"]["pairs_total"]
+    assert any("not checked for conflicts" in w for w in artifact["warnings"])
+    for row in _rows(out_dir).values():
+        assert (row["conflict"], row["conflict_why"]) == (None, None)
+        assert row["category"] in {"known_useful", "novel_inert"}  # the judged axes still stand
 
 
 def _span_labels(path):
@@ -175,7 +198,7 @@ def _span_labels(path):
 def test_view_with_the_flag_colours_spans_as_analyze_did_and_without_it_does_not(
         tmp_path, skill, mixed_models, capsys):
     out_dir = _analyze(tmp_path, skill)
-    atoms_out = _atoms_file(tmp_path, skill)
+    atoms_out = out_dir / "novelty.atoms.json"
     capsys.readouterr()
 
     def view(name, *extra):
@@ -202,7 +225,7 @@ def _view_args(out_dir, atoms_out, sidecar, tmp_path):
 
 def test_view_refuses_verdicts_written_for_another_artifact(tmp_path, skill, mixed_models):
     out_dir = _analyze(tmp_path, skill)
-    atoms_out = _atoms_file(tmp_path, skill)
+    atoms_out = out_dir / "novelty.atoms.json"
     sidecar = out_dir / "novelty.atom_verdicts.json"
     data = _load(sidecar)
     data["artifact_ref"] = "skill:/elsewhere/SKILL.md"
@@ -222,7 +245,7 @@ def test_view_refuses_verdicts_written_for_another_artifact(tmp_path, skill, mix
 def test_view_refuses_verdicts_of_another_run_of_the_same_artifact(
         tmp_path, skill, mixed_models, field, value):
     out_dir = _analyze(tmp_path, skill)
-    atoms_out = _atoms_file(tmp_path, skill)
+    atoms_out = out_dir / "novelty.atoms.json"
     sidecar = out_dir / "novelty.atom_verdicts.json"
     data = _load(sidecar)
     assert data[field] != value
@@ -235,22 +258,24 @@ def test_view_refuses_verdicts_of_another_run_of_the_same_artifact(
     assert not (tmp_path / "v.html").exists()
 
 
-def test_view_accepts_verdicts_with_a_run_id_for_a_novelty_saved_without_one(tmp_path, skill, mixed_models):
+def test_view_refuses_verdicts_with_a_run_id_for_a_novelty_saved_without_one(tmp_path, skill, mixed_models):
     out_dir = _analyze(tmp_path, skill)
-    atoms_out = _atoms_file(tmp_path, skill)
+    atoms_out = out_dir / "novelty.atoms.json"
     sidecar = out_dir / "novelty.atom_verdicts.json"
     novelty = out_dir / "novelty.json"
     data = _load(novelty)
     assert data.pop("run_id")
     novelty.write_text(json.dumps(data), encoding="utf-8")
     assert _load(sidecar)["run_id"]
-    _run(*_view_args(out_dir, atoms_out, sidecar, tmp_path))
-    assert (tmp_path / "v.html").exists()
+    with pytest.raises(InputError, match="another analysis") as exc:
+        _run(*_view_args(out_dir, atoms_out, sidecar, tmp_path))
+    assert "its run_id is" in str(exc.value) and "--novelty has None" in str(exc.value)
+    assert not (tmp_path / "v.html").exists()
 
 
 def test_view_refuses_verdicts_that_name_atoms_the_atoms_file_lacks(tmp_path, skill, mixed_models):
     out_dir = _analyze(tmp_path, skill)
-    atoms_out = _atoms_file(tmp_path, skill)
+    atoms_out = out_dir / "novelty.atoms.json"
     sidecar = out_dir / "novelty.atom_verdicts.json"
     data = _load(sidecar)
     data["atoms"][0]["id"] = "feedfacefeed"
@@ -262,7 +287,7 @@ def test_view_refuses_verdicts_that_name_atoms_the_atoms_file_lacks(tmp_path, sk
 
 def test_view_refuses_a_file_that_is_not_atom_verdicts(tmp_path, skill, mixed_models):
     out_dir = _analyze(tmp_path, skill)
-    atoms_out = _atoms_file(tmp_path, skill)
+    atoms_out = out_dir / "novelty.atoms.json"
     bad = tmp_path / "bad.json"
     bad.write_text("{}", encoding="utf-8")
     with pytest.raises(InputError, match="not a valid novelty_atoms artifact"):

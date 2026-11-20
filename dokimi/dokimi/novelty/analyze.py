@@ -122,6 +122,9 @@ class AnalyzeResult:
     verdicts: dict = field(default_factory=dict)
     categories: dict = field(default_factory=dict)
     conflicts: list = field(default_factory=list)
+    #: Ids of the atoms the conflict check never compared with anything, and the extraction report.
+    unchecked: list = field(default_factory=list)
+    extraction: object | None = None
 
 
 def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
@@ -374,6 +377,7 @@ def _analyze(
     verdicts: dict[str, classify.AtomVerdict] = {}
     conflicts: list[dict] = []
     conflict_coverage = None
+    unchecked: list[str] = []
     if config.classify_content and atom_list:
         judged = classify.ClassifyReport()
         verdicts = classify.judge_value(
@@ -389,6 +393,7 @@ def _analyze(
         classify.apply_conflicts(verdicts, conflicts)
         categories = classify.categorize(atom_list, verdicts, outcomes)
         warnings.extend(judged.warnings(len(atom_list)))
+        unchecked = list(judged.unchecked)
         conflict_coverage = {
             "pairs_compared": judged.pairs_compared,
             "pairs_total": judged.pairs_total,
@@ -522,6 +527,8 @@ def _analyze(
         verdicts=verdicts,
         categories=categories,
         conflicts=conflicts,
+        unchecked=unchecked,
+        extraction=extraction,
     )
 
 

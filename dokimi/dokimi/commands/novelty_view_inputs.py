@@ -56,13 +56,14 @@ def load_atom_verdicts(path: str | None, artifact: dict, atoms: list) -> tuple[d
             f"{path} is the atom verdicts of {record['artifact_ref']!r}, but --novelty is the "
             f"analysis of {ref!r}: pass the .atom_verdicts.json written beside that novelty.json"
         )
-    # Atom ids hash the statement only, so the ids cannot tell two runs of one artifact apart.
+    # Atom ids hash the statement only, so they cannot tell two runs of one artifact apart;
+    # `analyze` saves both files with one run_id, so a novelty.json without one is not this run's.
     for name, mine, theirs in (
         ("model", record["model"], artifact["model"]),
         ("artifact revision (ref_digest)", record["ref_digest"], artifact["artifact"].get("ref_digest")),
         ("run_id", record.get("run_id"), artifact.get("run_id")),
     ):
-        if mine != theirs and not (name == "run_id" and (mine is None or theirs is None)):
+        if mine != theirs:
             raise InputError(
                 f"{path} is from another analysis of {ref!r}: its {name} is {mine!r}, but "
                 f"--novelty has {theirs!r}: pass the .atom_verdicts.json written beside that novelty.json"
@@ -72,8 +73,8 @@ def load_atom_verdicts(path: str | None, artifact: dict, atoms: list) -> tuple[d
     if foreign:
         raise InputError(
             f"{path} names atoms the --atoms file does not hold ({', '.join(foreign[:5])}"
-            f"{', ...' if len(foreign) > 5 else ''}): pass the atoms.json of the run that "
-            f"wrote it"
+            f"{', ...' if len(foreign) > 5 else ''}): pass the .atoms.json written beside "
+            f"the novelty.json of the run that wrote it"
         )
     outcomes = {row["id"]: row["outcome"]["lenient"] for row in record["atoms"]
                 if row["outcome"]["lenient"]}

@@ -400,16 +400,16 @@ Read it in this order:
 
 ### Per-atom verdicts: `<out stem>.atom_verdicts.json`
 
-`novelty.json` holds totals. Beside it `analyze` writes `novelty.atom_verdicts.json` (the output's stem plus `.atom_verdicts.json`), a `novelty_atoms` artifact with one row per atom the run probed (a capped run's sample):
+`novelty.json` holds totals. Beside it `analyze` writes `novelty.atom_verdicts.json` (the output's stem plus `.atom_verdicts.json`), a `novelty_atoms` artifact with one row per atom the run probed (a capped run's sample), and `novelty.atoms.json` (the stem plus `.atoms.json`), the atoms and spans that run extracted, in the format of the `atoms.json` that `skill novelty atoms` writes. The verdict rows:
 
 - `id`, `statement`, `question`, `answer`, `kind`, `tags`, `span_ids` and `faithfulness` (`supported`, `distorted`, `unsupported` or `unchecked`), as in `atoms.json`.
-- `needed`, `scaffolding`, `conflict` and `conflict_why`: the value judge's verdict and the conflict check. `needed` and `scaffolding` are `null` for an atom the value judge gave no answer, even when a detected conflict names it (`conflict` and the category `harmful_conflicting` stay). All four are `null` for an atom with no verdict, and for every atom of a run with `--no-classify` or a tier without classification.
+- `needed`, `scaffolding`, `conflict` and `conflict_why`: the value judge's verdict and the conflict check. `needed` and `scaffolding` are `null` for an atom the value judge gave no answer, even when a detected conflict names it (`conflict` and the category `harmful_conflicting` stay). All four are `null` for an atom with no verdict, and for every atom of a run with `--no-classify` or a tier without classification. `conflict` and `conflict_why` are also `null` for an atom the conflict check never compared with anything (the "not checked for conflicts" warning in `novelty.json`, with `conflict_coverage.pairs_compared` below `pairs_total`): `null` is "not checked", `false` is "checked, no conflict".
 - `outcome.lenient` and `outcome.strict`: the atom's worst paired outcome (`degraded`, then `added`, `still_missing`, `redundant`) under each scoring; `null` for an atom with no usable pair.
-- `category`: the content category; `null` without a verdict.
+- `category`: the content category from the judged axes and the lenient outcome (never the strict one); with no usable pair it is `novel_*`, from the judged axes alone, so a `null` `outcome` still gives `novel_useful` or `novel_inert`; `null` without a verdict.
 
 Top level: `artifact_ref`, `ref_digest` (the artifact revision), `model`, `with_arm` and `conflicts` (the pairs, as `a`, `b`, `why` with atom ids). To check the grader, filter the rows on `outcome.lenient` and `category`, for example `redundant` outcomes with category `known_inert`, and read each row's `statement` and `span_ids` against the spans. The file is always written, so a file left by an earlier run into the same output is replaced.
 
-`skill novelty view --novelty novelty.json --atoms atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. It exits 2 when the file's `artifact_ref`, `ref_digest` or `model` differs from the `--novelty` artifact's, when both files carry a `run_id` and the two differ, or when it names an atom `--atoms` does not hold.
+`skill novelty view --novelty novelty.json --atoms novelty.atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. Pass the `novelty.atoms.json` of the same run: atom ids hash the statement, so an `atoms.json` from a separate `skill novelty atoms` call holds the same ids only when the extractor worded every atom the same. It exits 2 when the file's `artifact_ref`, `ref_digest`, `model` or `run_id` differs from the `--novelty` artifact's (a `novelty.json` with no `run_id` differs from a file that has one), or when it names an atom `--atoms` does not hold.
 
 ### 2. Span attribution — where in the file
 

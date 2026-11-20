@@ -67,7 +67,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     # Import the symbols, not the module: the package re-exports `analyze` as the
     # function, which shadows the submodule of the same name.
     from dokimi.novelty.analyze import AnalyzeConfig, analyze
-    from dokimi.novelty.atom_verdicts import save_atom_verdicts
+    from dokimi.novelty.atom_verdicts import save_atom_verdicts, save_run_atoms
     from dokimi.novelty.atoms import ExtractionError
     from dokimi.novelty.measure import SelfJudgeError
     from dokimi.novelty.report import (
@@ -152,6 +152,9 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     save_artifact("novelty", result.artifact, out_json)
     verdicts_path = save_panel_verdicts(result, out_json)
     atom_verdicts_path = save_atom_verdicts(result, out_json)
+    atoms_path = save_run_atoms(result, out_json, extractor=extractor.model,
+                                extractor_provider=extractor.provider, cap=config.max_atoms,
+                                bundle=artifact_bundle.summary())
     out_md = out_json.with_suffix(".md")
     out_md.write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
     title = f"{artifact_bundle.name or args.artifact} × {answerer.model}"
@@ -166,6 +169,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     if verdicts_path:
         print(f"OK Saved judge verdicts:   {verdicts_path}")
     print(f"OK Saved atom verdicts:    {atom_verdicts_path}")
+    print(f"OK Saved atoms:            {atoms_path}")
     _print_headline(result.artifact)
 
 

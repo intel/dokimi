@@ -20,19 +20,23 @@ def build_atom_verdicts(result) -> dict:
     The judged fields are ``None`` for an atom with no verdict (``--no-classify``, a tier without
     classification, or an atom the value judge did not answer for). A conflict can still name
     that last kind of atom: ``conflict`` and the category stay, ``needed`` and ``scaffolding``
-    are ``None``. ``outcome`` is ``None`` under
-    a scoring with no usable pair for the atom, and ``category`` is ``None`` without a verdict.
+    are ``None``. ``conflict`` and ``conflict_why`` are ``None`` for an atom the conflict check never
+    compared with anything (``result.unchecked``): "not checked" is not "no conflict". ``outcome``
+    is ``None`` under a scoring with no usable pair for the atom, and ``category`` is ``None``
+    without a verdict.
     """
     rows = []
+    unchecked = set(result.unchecked)
     for atom in result.atoms:
         verdict = result.verdicts.get(atom.id)
         answered = verdict is not None and verdict.judged
+        compared = verdict is not None and atom.id not in unchecked
         rows.append({
             **{key: value for key, value in atom.as_dict().items() if key != "meta"},
             "needed": verdict.needed if answered else None,
             "scaffolding": verdict.scaffolding if answered else None,
-            "conflict": verdict.conflict if verdict else None,
-            "conflict_why": verdict.conflict_why if verdict else None,
+            "conflict": verdict.conflict if compared else None,
+            "conflict_why": verdict.conflict_why if compared else None,
             "outcome": {
                 "lenient": result.outcomes.get(atom.id),
                 "strict": result.strict_outcomes.get(atom.id),
@@ -55,4 +59,18 @@ def save_atom_verdicts(result, out: Path) -> Path:
 
     dest = out.with_name(f"{out.stem}.atom_verdicts.json")
     save_artifact("novelty_atoms", build_atom_verdicts(result), dest)
+    return dest
+
+
+def save_run_atoms(result, out: Path, **record) -> Path:
+    """Write the atoms and spans the run extracted beside ``out`` as ``<stem>.atoms.json``.
+
+    The file ``skill novelty atoms`` writes, from the run's own extraction, so the ids in the
+    verdicts file are in it: ``view --atom-verdicts`` needs no second extraction.
+    """
+    from dokimi.novelty.atoms import save_atoms
+
+    dest = out.with_name(f"{out.stem}.atoms.json")
+    save_atoms(result.extracted_atoms, result.spans, dest, extraction=result.extraction,
+               sample=result.atoms, **record)
     return dest
