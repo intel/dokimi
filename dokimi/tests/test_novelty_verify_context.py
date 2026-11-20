@@ -85,7 +85,7 @@ def test_a_cited_context_span_is_not_repeated():
     source, context = _check(atom, spans)
     assert source.splitlines() == ["Use `dpnp` for:", "- Large arrays (>10,000 elements)",
                                    "- Elementwise math"]
-    assert context == "Heading: dpnp > When to use\nLead-in: ## When to use"
+    assert context == "Heading: dpnp > When to use"
 
 
 def test_the_source_holds_only_the_cited_text():
@@ -106,3 +106,11 @@ def test_a_cited_header_row_is_not_repeated_as_table_header():
     spans = segment("## Flags\n\n| Flag | Default |\n|---|---|\n| --x | 10 |\n")
     _, context = _check(_atom(spans, "| Flag |", "--x"), spans)
     assert "Table header" not in context
+
+
+def test_the_lead_in_never_comes_from_the_previous_section():
+    spans = segment("# T\n\n## H2\n\nLast sentence of H2.\n\n## H3\n\nText.\n")
+    _, context = _check(_atom(spans, "## H3"), spans)
+    assert context == "Heading: T > H3"
+    _, context = _check(_atom(spans, "Text."), spans)
+    assert context == "Heading: T > H3"

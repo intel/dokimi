@@ -40,7 +40,8 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
     """The heading path, lead-in and table header of the first cited span, or ``(none)``.
 
     A list item or table row takes the nearest earlier span that is neither; any other
-    span takes the span right before it. A table row also gets the first row of its
+    span takes the span right before it. The lead-in is dropped when it is a heading
+    (the heading path already says it) or sits in another section. A table row also gets the first row of its
     table, which says what its cells mean. The first cited span in document order has no
     cited span before it, so a cited span is never repeated as context.
     """
@@ -56,7 +57,8 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
     if by_id[first].kind in _ROW_KINDS:
         while before >= 0 and spans[before].kind in _ROW_KINDS:
             before -= 1
-    if before >= 0:
+    if before >= 0 and spans[before].kind != "heading" \
+            and spans[before].heading_path == by_id[first].heading_path:
         parts.append("Lead-in: " + spans[before].text)
     header = order[first]
     while header > 0 and spans[header - 1].kind == "table_row":
