@@ -272,7 +272,8 @@ def register(sub, positive_int) -> None:
     )
     sm_p.add_argument("inputs", nargs="+", metavar="PATH",
                       help="cli_output.v1 files, or directories whose *.json files are read")
-    sm_p.add_argument("--format", default="markdown", choices=["markdown", "json", "annotations"],
-                      help="markdown (job summary, PR comment, terminal), json, or annotations (::error/::warning lines)")
+    sm_p.add_argument("--format", default="markdown", choices=["markdown", "json", "annotations", "sarif"],
+                      help="markdown (job summary, PR comment, terminal), json, annotations (::error/::warning "
+                           "lines), or sarif (SARIF 2.1.0 for code scanning in GitHub, Azure DevOps, GitLab, Jenkins)")
     sm_p.add_argument("--out", default=None, help="Write to this file instead of stdout")
     sm_p.set_defaults(func=cmd_report_summary)

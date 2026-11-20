@@ -146,7 +146,8 @@ def _read_static(path: str) -> Any:
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
-    from dokimi.commands.repo_scan import scan_subjects
+    from dokimi.commands.repo_scan import baseline_from, scan_subjects
+    from dokimi.repos.l0.config import new_failures
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.l0 import scan_repo
     from dokimi.repos.l0.typecheck import TypecheckError
@@ -161,6 +162,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     except TypecheckError as exc:
         print(f"✗ repo scan --typecheck: {exc}", file=sys.stderr)  # the error says whether the tool or the interpreter
         sys.exit(EXIT_USAGE)
+    baseline_from(args, payload)  # before --out is written: the report holds the annotations, --out may be the baseline
     if args.out:
         try:
             save_artifact("repo_readiness", payload, Path(args.out))
@@ -172,7 +174,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     for problem in static_errors:  # on stderr in --json mode too
         print(f"✗ --static output not merged: {problem}", file=sys.stderr)
     if args.json:
-        failed = bool(args.fail_on_fail and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
+        failed = bool(args.fail_on_fail and (new_failures(payload) or payload["incomplete"]) or static_errors)
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
                              status="failed" if failed else "complete",
                              reason=_scan_reason(payload, static_errors, args.fail_on_fail) if failed else None,
@@ -447,6 +449,9 @@ def register(sub, positive_int, eval_sub) -> None:
                         "are checked against its site-packages. Needs --typecheck")
     scan_p.add_argument("--out", default=None, help="Write the repo_readiness.v1 report to this file")
     scan_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
+    scan_p.add_argument("--baseline", default=None, metavar="FILE",
+                        help="An earlier repo_readiness.v1 report (--out): --fail-on-fail then fails only on a "
+                        "claim that report does not also fail")
     scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",
                         help="Exit 1 when any claim fails, an also_scan file is missing, a guidance file "
                         "or Bazel build input cannot be read, or no guidance file matched (for a CI gate)")
