@@ -74,6 +74,10 @@ def test_legacy_id_in_bundled_script_names_the_file_and_line(tmp_path):
         ("claude-opus-4-0", "retired by anthropic on 2026-06-15"),
         ("claude-sonnet-4-0", "retired by anthropic on 2026-06-15"),
         ("claude-opus-4-1", "retired by anthropic on 2026-08-05"),
+        ("claude-3-7-sonnet-latest", "retired by anthropic on 2026-02-19"),
+        ("claude-3-5-haiku-latest", "retired by anthropic on 2026-02-19"),
+        ("claude-3-5-sonnet-latest", "retired by anthropic on 2025-10-28"),
+        ("claude-3-opus-latest", "retired by anthropic on 2026-01-05"),
     ],
 )
 def test_alias_of_a_retired_dated_id_is_a_warning(tmp_path, alias, state):

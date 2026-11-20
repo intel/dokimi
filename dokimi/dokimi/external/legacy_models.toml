@@ -50,14 +50,14 @@ replacement = "claude-sonnet-5-5"
 
 [[model]]
 vendor = "anthropic"
-ids = ["claude-3-7-sonnet-20250219"]
+ids = ["claude-3-7-sonnet-latest", "claude-3-7-sonnet-20250219"]
 status = "retired"
 date = "2026-02-19"
 replacement = "claude-sonnet-5-5"
 
 [[model]]
 vendor = "anthropic"
-ids = ["claude-3-5-haiku-20241022"]
+ids = ["claude-3-5-haiku-latest", "claude-3-5-haiku-20241022"]
 status = "retired"
 date = "2026-02-19"
 replacement = "claude-haiku-4-5-20251001"
@@ -71,14 +71,14 @@ replacement = "claude-haiku-4-5-20251001"
 
 [[model]]
 vendor = "anthropic"
-ids = ["claude-3-5-sonnet-20240620", "claude-3-5-sonnet-20241022"]
+ids = ["claude-3-5-sonnet-latest", "claude-3-5-sonnet-20240620", "claude-3-5-sonnet-20241022"]
 status = "retired"
 date = "2025-10-28"
 replacement = "claude-sonnet-5-5"
 
 [[model]]
 vendor = "anthropic"
-ids = ["claude-3-opus-20240229"]
+ids = ["claude-3-opus-latest", "claude-3-opus-20240229"]
 status = "retired"
 date = "2026-01-05"
 replacement = "claude-opus-4-8"
