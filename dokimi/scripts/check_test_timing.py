@@ -157,18 +157,30 @@ def _bind(node: ast.AST, names: Names, at: Pos | None = None, *, local: bool = F
 
 
 def _bind_walruses(node: ast.AST, names: Names, unseen: tuple[Span, ...]) -> None:
-    """A ``:=`` in a comprehension binds in the scope around it, though not in a lambda's body. The first
-    iterable of each comprehension around it runs before it, whatever the text order: ``unseen`` holds
-    those iterables, where the binding is not in effect."""
+    """A ``:=`` in a comprehension binds in the scope around it, though not in a lambda's body. The element
+    of a comprehension runs after its iterables and filters, whatever the text order: ``unseen`` holds
+    those, where the element's binding is not in effect. A generator expression runs only its first
+    iterable where it stands, so the ``:=`` in the rest of it binds nothing here."""
     if isinstance(node, ast.Lambda):
         for part in _outer_parts(node):
             _bind_walruses(part, names, unseen)
         return
+    if isinstance(node, COMPREHENSIONS):
+        gens = node.generators
+        _bind_walruses(gens[0].iter, names, unseen)
+        if isinstance(node, ast.GeneratorExp):
+            return
+        for gen in gens:
+            for part in ([] if gen is gens[0] else [gen.iter]) + gen.ifs:
+                _bind_walruses(part, names, unseen)
+        ran_first = tuple(_span(part) for gen in gens for part in (gen.iter, *gen.ifs))
+        for part in [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]:
+            _bind_walruses(part, names, (*unseen, *ran_first))
+        return
     if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
         _note(names, node.target.id, _end(node), None, unseen)
-    first = node.generators[0].iter if isinstance(node, COMPREHENSIONS) else None
     for child in ast.iter_child_nodes(node):
-        _bind_walruses(child, names, unseen if first is None or child is first else (*unseen, _span(first)))
+        _bind_walruses(child, names, unseen)
 
 
 def _bind_target(node: ast.AST, names: Names, at: Pos | None) -> None:
@@ -220,11 +232,23 @@ def _outer_parts(node: ast.AST) -> list[ast.AST]:
     return outer
 
 
+def _annotations(node: ast.AST) -> list[ast.AST]:
+    """The parameter and return annotations of a ``def``, which run where it is defined (before Python 3.14,
+    and unless ``from __future__ import annotations`` postpones them)."""
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return []
+    a = node.args
+    found = [arg.annotation for arg in (*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg)
+             if arg is not None]
+    return [part for part in (*found, node.returns) if part is not None]
+
+
 class _Walker:
     """Finds the calls that resolve to a sleep or timer. A name means what the innermost scope that binds
     it says; a class body is not visible from the functions inside it."""
 
-    def __init__(self) -> None:
+    def __init__(self, postponed: bool = False) -> None:
+        self.postponed = postponed  # ``from __future__ import annotations``: annotations never run
         self.found: list[tuple[ast.Call, str]] = []
         self.done: set[int] = set()  # the first iterable of a comprehension, walked in the outer scope
 
@@ -238,6 +262,8 @@ class _Walker:
 
     def definition(self, node: ast.AST, scopes: list[Scope]) -> None:
         for child in _outer_parts(node):
+            self.walk(child, scopes)
+        for child in _annotations(node) if not self.postponed else []:
             self.walk(child, scopes)
         inner = [Scope(_own_names(node), isinstance(node, ast.ClassDef), False)]
         inner += [s for s in scopes if not s.is_class]
@@ -264,7 +290,9 @@ class _Walker:
 
 def _calls(tree: ast.Module) -> list[tuple[ast.Call, str]]:
     """Every call that resolves to a sleep or timer, with its target."""
-    walker = _Walker()
+    postponed = any(isinstance(n, ast.ImportFrom) and n.module == "__future__" and n.level == 0
+                    and any(alias.name == "annotations" for alias in n.names) for n in tree.body)
+    walker = _Walker(postponed)
     walker.walk(tree, [Scope(_own_names(tree), False, False)])
     return walker.found
 

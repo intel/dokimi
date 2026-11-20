@@ -190,6 +190,18 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("import time\n\n\nclass C((time := object)):\n    pass\n\n\ntime.sleep(1)\n", {}),
     ("import time\n\n\nclass C((t := object)):\n    pass\n\n\ntime.sleep(1)\n", {"time.sleep": 1}),
     ("import time\nf = lambda: (time := None)\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\ng = ((time := None) for _ in (0,))\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\ng = (0 for _ in ((time := None),))\ntime.sleep(1)\n", {}),
+    ("import time\n[(time := None) for _ in (0,) if time.sleep(1) is None]\n", {"time.sleep": 1}),
+    ("import time\n[(time := None) for _ in (0,) for y in (time.sleep(1),)]\n", {"time.sleep": 1}),
+    ("import time\n{(time := None): 0 for _ in (0,) if time.sleep(1) is None}\n", {"time.sleep": 1}),
+    ("import time\n[0 for _ in (0,) if (time := None)]\ntime.sleep(1)\n", {}),
+    ("import time\n[0 for _ in ((time := None), time.sleep(1))]\n", {}),
+    ("import time\n\n\ndef test_a(x: time.sleep(1)):\n    pass\n", {"time.sleep": 1}),
+    ("import time\n\n\ndef test_a() -> time.sleep(1):\n    pass\n", {"time.sleep": 1}),
+    ("import time\n\n\nasync def test_a(*a: time.sleep(1), **k: time.sleep(1)):\n    pass\n", {"time.sleep": 2}),
+    ("from __future__ import annotations\nimport time\n\n\ndef test_a(x: time.sleep(1)) -> time.sleep(1):\n"
+     "    pass\n", {}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
