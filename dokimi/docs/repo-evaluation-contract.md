@@ -629,7 +629,7 @@ parent's and subagents' together, so a grader need not:
 
 | Key | Meaning |
 |---|---|
-| `tool_calls` | every event of a known kind: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
+| `tool_calls` | every tool event (`command`, `read`, `edit`, `tool`, not the `turn` and `compaction` events of [events-format.md](events-format.md)): each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
@@ -649,8 +649,8 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
-A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the events of a known kind up to and
-including the hit, the parent's and subagents' (as `process.tool_calls` does).
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the tool events up to and
+including the hit, the parent's and subagents' (as `process.tool_calls` does); turn and compaction events are not steps.
 `issued_s` is the hit's `t`: the time the call was issued, since a call's result
 is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
 "issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
