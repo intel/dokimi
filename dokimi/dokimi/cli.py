@@ -86,7 +86,7 @@ class _RoutedParser(argparse.ArgumentParser):
             del ns._help_argv
         # An option before the leaf name ends up here: the parsed leaf's namespace has its kind and --json.
         if extras and _emits_cli_output(ns):
-            _usage_document(getattr(ns, "cli_kind", ns.cmd), f"unrecognized arguments: {' '.join(extras)}",
+            _usage_document(getattr(ns, "cli_kind", None) or ns.cmd, f"unrecognized arguments: {' '.join(extras)}",
                             help_argv=help_argv)
         return ns, extras
 
@@ -126,7 +126,7 @@ def _usage_document(kind: str, message: str, *, help_argv: list[str] | None = No
     if cli_output.printed():
         return
     doc = cli_output.error_document(kind, "input", message, run_id=cli_output.current_run_id(), reason=message)
-    if help_argv:
+    if help_argv is not None:
         doc["next"] = [{"argv": help_argv, "why": "Show the accepted syntax of this command.",
                         "spends": False, "est_usd": 0, "kind": "sequence"}]
     cli_output.emit(doc)

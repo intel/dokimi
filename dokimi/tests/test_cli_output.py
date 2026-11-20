@@ -249,6 +249,7 @@ def test_an_unknown_flag_before_the_leaf_carries_the_help_step(monkeypatch, caps
         _run_main(monkeypatch, argv)
     assert exc.value.code == 2
     doc = json.loads(capsys.readouterr().out)
+    assert schema_errors("cli_output.v1", doc) == []
     assert [s["argv"] for s in doc["next"]] == [help_argv]
 
 
@@ -257,7 +258,24 @@ def test_a_missing_argument_document_carries_the_same_help_step(monkeypatch, cap
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["repo", "budget", "--json"])
     doc = json.loads(capsys.readouterr().out)
+    assert schema_errors("cli_output.v1", doc) == []
     assert [s["argv"] for s in doc["next"]] == [["dokimi", "repo", "budget", "--help"]]
+
+
+def test_an_empty_help_argv_is_kept_not_dropped(capsys):
+    cli_output.reset()
+    # `is not None`, not truthiness: a caller that passes [] gets a `next` step with that argv
+    cli._usage_document("backends", "bad", help_argv=[])
+    assert json.loads(capsys.readouterr().out)["next"][0]["argv"] == []
+
+
+def test_root_extras_with_a_cli_kind_do_not_read_cmd(monkeypatch, capsys):
+    cli_output.reset()
+    # the kind falls back to `cmd` only when `cli_kind` is absent: a namespace without `cmd` must not raise
+    ns = argparse.Namespace(cli_kind="backends", emits_cli_output=True, json=True)
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_known_args", lambda self, args=None, namespace=None: (ns, ["--x"]))
+    cli._RoutedParser(prog="dokimi").parse_known_args([])
+    assert json.loads(capsys.readouterr().out)["kind"] == "backends"
 
 
 @pytest.mark.parametrize("argv", [["repo", "budget", "--jso"], ["repo", "budget", "--j"]])
