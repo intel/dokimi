@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, cast
 
 from dokimi import cli_flags
-from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, credential_env_var, resolve_api_key, resolve_model
+from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, PROVIDERS, credential_env_var, resolve_api_key, resolve_model
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -146,11 +146,12 @@ def _provider_checks(providers: list[str], notes: list[str] | None = None,
     return errors, warnings
 
 
-def _refuse_missing_credentials(args: argparse.Namespace) -> None:
-    """Exit 2 before any directory or model call when a provider has no key or login (#967).
+def _credential_providers(args: argparse.Namespace) -> list[str]:
+    """The providers whose key or login a run of *args* needs, by the route each call takes (#967).
 
-    ``benchmark preflight`` makes the same check; ``run`` and ``batch`` made none and failed in
-    the first model call, after the output directories existed.
+    A CLI backend takes its login whatever the model name says. `vertex_ai/` (ADC) and `bedrock/`
+    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider; a `gemini/`
+    route needs GEMINI_API_KEY or GOOGLE_API_KEY; another provider's route needs that provider's key.
     """
     from dokimi import llm_cli
 
@@ -158,20 +159,44 @@ def _refuse_missing_credentials(args: argparse.Namespace) -> None:
         (args.provider, getattr(args, "model", "")),
         (getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER), getattr(args, "judge_model", "")),
     ]
-    # The route the call takes decides the credential: `vertex_ai/` (ADC) and `bedrock/` (AWS keys)
-    # need no key of the configured provider; a `gemini/` route needs GEMINI_API_KEY or GOOGLE_API_KEY.
     providers = []
     for provider, model in pairs:
         canonical = PROVIDER_ALIASES.get(provider, provider)
+        if llm_cli.backend(canonical) is not None:
+            providers.append(canonical)
+            continue
         route = resolve_model(str(model), provider).split("/", 1)[0]
         if canonical == "amazon-bedrock" or route in ("vertex_ai", "bedrock"):
             continue
-        if route == "gemini" and llm_cli.backend(canonical) is None:
-            canonical = "google-vertex"  # the Gemini API key, whichever provider names the model
-        if canonical == "google-vertex" and os.environ.get("GOOGLE_API_KEY"):
-            continue
+        if route in ("gemini", *PROVIDERS) and route != canonical and canonical != "openai-codex":
+            # The call sends the configured provider's key when it has one (an unreadable file is
+            # refused); with none, litellm reads the route provider's own variable.
+            try:
+                has_key = bool(resolve_api_key(canonical))
+            except ValueError:
+                has_key = True
+            if not has_key:
+                canonical = "google-vertex" if route == "gemini" else route
+                try:
+                    unset = not resolve_api_key(canonical)
+                except ValueError:
+                    unset = False  # an unreadable file is refused, not rescued by GOOGLE_API_KEY
+                if route == "gemini" and unset and os.environ.get("GOOGLE_API_KEY"):
+                    continue
         providers.append(canonical)
-    errors, _ = _provider_checks(providers)
+    return providers
+
+
+def _refuse_missing_credentials(args: argparse.Namespace) -> None:
+    """Exit 2 before any directory or model call when a provider has no key or login (#967).
+
+    ``benchmark preflight`` makes the same check; ``run`` and ``batch`` made none and failed in
+    the first model call, after the output directories existed. A login that could not be
+    checked is a warning on stderr, as in preflight.
+    """
+    errors, warnings = _provider_checks(_credential_providers(args))
+    for item in warnings:
+        print(f"  ⚠ {item}", file=sys.stderr)
     if errors:
         # #967: a missing credential is an input refusal (exit 2), as in `benchmark preflight`.
         raise InputError("\n".join(errors))
@@ -307,7 +332,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     # them). The other errors are failed checks (exit 1): a CLI provider not installed or signed in.
     refusals: list[str] = []
     notes: list[str] = []
-    errors, warnings = _provider_checks([args.provider, args.judge_provider], notes, refusals)
+    errors, warnings = _provider_checks(_credential_providers(args), notes, refusals)
     _print_notes(notes)
 
     def refuse(message: str) -> None:

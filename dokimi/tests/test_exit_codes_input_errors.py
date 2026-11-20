@@ -295,3 +295,148 @@ def test_benchmark_run_explicit_gemini_route_needs_no_provider_key(tmp_path, mon
     assert "missing GEMINI_API_KEY for provider google-vertex" in err
     assert "ANTHROPIC_API_KEY" not in err
     assert exc.value.code == 2
+
+
+def _no_codex(monkeypatch, authenticated=False, installed=False):
+    from dokimi import llm_cli
+
+    monkeypatch.setattr(
+        "dokimi.llm_cli.detect",
+        lambda provider, runner=None: llm_cli.AuthStatus(
+            provider, "codex", installed=installed, authenticated=authenticated, hint="codex login"),
+    )
+
+
+def test_benchmark_run_cli_provider_with_a_cloud_route_model_still_needs_its_login(tmp_path, monkeypatch, capsys):
+    """#967: a CLI backend takes its login whatever route the model name has, so a missing `codex` is refused."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    _no_codex(monkeypatch)
+    built, out = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "codex-cli", "--model", "vertex_ai/gemini-2.5-pro",
+         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert "codex-cli: 'codex' is not installed" in capsys.readouterr().err
+    assert exc.value.code == 2
+    assert not built and not out.exists()
+
+
+def test_benchmark_run_unreadable_gemini_key_file_is_not_rescued_by_google_api_key(tmp_path, monkeypatch, capsys):
+    """#967: `resolve_api_key` raises on a `GEMINI_API_KEY` file it cannot read, whatever `GOOGLE_API_KEY` holds."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("GOOGLE_API_KEY", "k")
+    monkeypatch.setenv("GEMINI_API_KEY", f"file:{tmp_path / 'nope'}")
+    built, out = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--judge-provider", "google-vertex", "--judge-model", "gemini/gemini-2.5-pro"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert "Cannot read API key from file" in capsys.readouterr().err
+    assert exc.value.code == 2
+    assert not built and not out.exists()
+
+
+@pytest.mark.parametrize(
+    "provider, model, route_key",
+    [("openai", "anthropic/claude-sonnet-4-5", "ANTHROPIC_API_KEY"),
+     ("anthropic", "openai/gpt-4o", "OPENAI_API_KEY")],
+)
+def test_benchmark_run_cross_provider_route_checks_the_route_key(provider, model, route_key, tmp_path, monkeypatch, capsys):
+    """#967: `--provider openai --model anthropic/...` sends the Anthropic key, so only that key is needed."""
+    for var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv(route_key, "k")
+    judge = "anthropic" if route_key == "ANTHROPIC_API_KEY" else "openai"
+    argv = ["--provider", provider, "--model", model, "--judge-provider", judge,
+            "--judge-model", "claude-haiku-4-5" if judge == "anthropic" else "gpt-4o"]
+    built, _ = _run_with_fake_pipeline(monkeypatch, tmp_path, argv)
+    cli.main()
+    assert len(built) == 1
+    monkeypatch.delenv(route_key)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert f"missing {route_key}" in capsys.readouterr().err
+    assert exc.value.code == 2
+
+
+def test_benchmark_run_warns_when_the_login_cannot_be_checked(tmp_path, monkeypatch, capsys):
+    """#967: a CLI whose `auth status` gives no answer starts the run, with the warning preflight prints."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    _no_codex(monkeypatch, authenticated=None, installed=True)
+    built, _ = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "codex-cli", "--model", "gpt-5", "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+    )
+    cli.main()
+    assert len(built) == 1
+    assert "could not check the login" in capsys.readouterr().err
+
+
+def test_benchmark_run_unreadable_key_file_of_the_configured_provider_is_refused_on_a_cross_route(
+    tmp_path, monkeypatch, capsys
+):
+    """#967: the call resolves `OPENAI_API_KEY` for `--provider openai`, so an unreadable file there is refused."""
+    monkeypatch.setenv("OPENAI_API_KEY", f"file:{tmp_path / 'nope'}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    built, out = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "openai", "--model", "anthropic/claude-sonnet-4-5",
+         "--judge-provider", "anthropic", "--judge-model", "claude-haiku-4-5"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert "Cannot read API key from file" in capsys.readouterr().err
+    assert exc.value.code == 2
+    assert not built and not out.exists()
+
+
+def test_benchmark_run_unreadable_key_file_of_the_configured_provider_is_refused_on_a_gemini_route(
+    tmp_path, monkeypatch, capsys
+):
+    """#967: the call resolves `ANTHROPIC_API_KEY` for `--provider anthropic`, even with a `gemini/` model."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{tmp_path / 'nope'}")
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    built, out = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "anthropic", "--model", "gemini/gemini-2.5-pro",
+         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert "Cannot read API key from file" in capsys.readouterr().err
+    assert exc.value.code == 2
+    assert not built and not out.exists()
+
+
+@pytest.mark.parametrize(
+    "argv_tail",
+    [["--provider", "anthropic", "--model", "vertex_ai/gemini-2.5-pro"],
+     ["--provider", "google-vertex", "--model", "gemini-2.5-pro"]],
+)
+def test_benchmark_preflight_skips_the_credentials_run_skips(argv_tail, tmp_path, monkeypatch, capsys):
+    """#967: `preflight` and `run` share the route rule, so ADC and `vertex_ai/` routes need no key in either."""
+    for var in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    seen = []
+
+    def _checks(providers, notes=None, refusals=None):
+        seen.append(sorted(providers))
+        return [], []
+
+    monkeypatch.setattr("dokimi.commands.benchmark._provider_checks", _checks)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", *argv_tail,
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
+    )
+    try:
+        cli.main()
+    except SystemExit:
+        pass  # a failed doc-source check is not the credential rule
+    assert "usage:" not in capsys.readouterr().err
+    assert seen == [["openai"]]
