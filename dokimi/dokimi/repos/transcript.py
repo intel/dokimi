@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
+from dokimi.process_io import utf8_bytes
 from dokimi.repos.event_format import EVENT_VERSION
 
 OUTPUT_LIMIT = 8192
@@ -64,8 +65,9 @@ class Transcript:
         """The paths the agent was shown (:func:`shown_read`); a refused or failed read stays in the events only."""
         return {e["path"] for e in self.events if shown_read(e) and e.get("path")}
 
-    def events_jsonl(self) -> str:
-        return "".join(json.dumps({**e, "v": EVENT_VERSION}, sort_keys=True) + "\n" for e in self.events)
+    def events_jsonl(self, events: list[dict[str, Any]] | None = None) -> str:
+        return "".join(json.dumps({**e, "v": EVENT_VERSION}, sort_keys=True) + "\n"
+                       for e in (self.events if events is None else events))
 
 
 def shown_read(event: dict[str, Any]) -> bool:
@@ -74,10 +76,12 @@ def shown_read(event: dict[str, Any]) -> bool:
 
 
 def clip_output(text: str) -> tuple[str, bool]:
-    """``text`` kept whole up to :data:`OUTPUT_LIMIT` UTF-8 bytes, else its head and tail."""
-    data = text.encode("utf-8")
+    """``text`` kept whole up to :data:`OUTPUT_LIMIT` UTF-8 bytes, else its head and tail.
+
+    A surrogate pair is joined and a lone surrogate becomes ``?`` (:func:`dokimi.process_io.utf8_bytes`)."""
+    data = utf8_bytes(text)
     if len(data) <= OUTPUT_LIMIT:
-        return text, False
+        return data.decode("utf-8"), False
     head = data[:OUTPUT_KEEP].decode("utf-8", "ignore")
     tail = data[-OUTPUT_KEEP:].decode("utf-8", "ignore")
     # A character cut at either end is dropped whole, so count what was really left out.

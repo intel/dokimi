@@ -52,6 +52,7 @@ _PLACEHOLDER = re.compile(r"^(?:<[^>]+>|\{[^}]+\}|\$\w+|\$\{[^}]+\}|\.\.\.)$")
 # an Action a workflow step uses is `ok`. A ref ending in a file extension (`assets/icon@2x.png`) is a file name.
 _ACTION_REF = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@(?![\w.-]*\.[A-Za-z][A-Za-z0-9]{0,4}$)"
                          r"[\w.-]+?(?:\.\.\.|…)?$")
+_TRAILING_COMMENT = re.compile(r"(?<!\s)\s+#.*$")  # from the start of the whitespace run before the first `#`; no start inside a run
 _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, maybe with a comment
 # `2>&1`, `> log`, `>>log`, `&>/dev/null`, `< in`: a redirection and its target, not arguments.
 _REDIRECT = re.compile(r"(?:(?<=\s)|^)[0-9]?(?:&>>?|>>?|<)(?:&[0-9]+|\s*[^\s|;&<>]+)")
@@ -646,8 +647,7 @@ class Scan:
                          "command wrapped in backticks inside a code fence: pasted, it runs as command substitution",
                          raw)
                 s = wrapped.group(1)
-            s = _PROMPT.sub("", s)
-            s = re.sub(r"\s+#.*$", "", s)
+            s = _TRAILING_COMMENT.sub("", _PROMPT.sub("", s))
             if s and not s.startswith("#"):
                 self.check_command(file, n, s, raw)
         self._cd, self._cd_stack = None, []
@@ -709,7 +709,7 @@ def logical_lines(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
         if heredoc:
             heredoc = "" if raw.strip() == heredoc else heredoc
             continue
-        code = "" if raw.lstrip().startswith("#") else re.sub(r"\s+#.*$", "", raw)
+        code = "" if raw.lstrip().startswith("#") else _TRAILING_COMMENT.sub("", raw)
         if code.rstrip().endswith("\\") and raw.rstrip().endswith("\\"):  # not a backslash then a comment
             first = first if joined else n
             joined += code.rstrip()[:-1] + " "

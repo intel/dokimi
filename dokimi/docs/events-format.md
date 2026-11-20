@@ -32,6 +32,7 @@ depend on the kind:
 | `read` | `path` (absent on a refused relative read whose file is not known); `rc` 0 or 1 when the harness reported one |
 | `edit` | `path`; `rc`; `deleted` when the file was deleted |
 | `tool` | `name`; `skill` on a `Skill` call |
+| `probe` | `target`, `pattern`, `text`, `rc`: written by the runner after the `command` event it matched, never by a converter ([§4.1](repo-evaluation-contract.md#41-eventsjsonl)) |
 | `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output` (`null` on a Claude turn: its assistant records carry the output count from the start of the stream, not the call's billed count), `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it is low when a part is `null`) |
 | `compaction` | `turn`: the index of the turn it came after, `null` before the first call |
 

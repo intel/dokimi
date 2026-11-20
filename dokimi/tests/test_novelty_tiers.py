@@ -130,7 +130,7 @@ def test_estimate_only_spends_nothing_and_prints_the_bill(tmp_path, capsys):
         "---\nname: s\ndescription: d\n---\n\n# S\n\nUse `--accel` on driver 2.1.\n"
         "Do not use it on 1.0.\n", encoding="utf-8")
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}",
-                  "--tier", "study", "--estimate-only")
+                  "--tier", "study", "--dry-run")
     args.func(args)                       # no client is constructed, no network touched
     out = capsys.readouterr()
     payload = json.loads(out.out)
@@ -521,7 +521,7 @@ def test_estimate_only_prints_the_expected_calls_and_a_dollar_figure(tmp_path, c
     (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                    encoding="utf-8")
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
-                  "--estimate-only")
+                  "--dry-run")
     args.func(args)
     payload = json.loads(capsys.readouterr().out)
     assert payload["estimate"]["expected_calls"] == sum(payload["estimate"]["by_role"].values())
@@ -539,7 +539,7 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
     (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
                                    encoding="utf-8")
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
-                  "--estimate-only")
+                  "--dry-run")
     args.func(args)
     payload = json.loads(capsys.readouterr().out)
     by_role, tokens = payload["estimate"]["by_role"], payload["tokens"]
@@ -556,7 +556,7 @@ def test_the_extractor_defaults_to_the_judge_provider_not_the_answerer(tmp_path)
     from dokimi.novelty.cost import role_models
 
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--provider", "anthropic",
-                  "--judge-model", "judge-m", "--judge-provider", "openai", "--estimate-only")
+                  "--judge-model", "judge-m", "--judge-provider", "openai", "--dry-run")
     models = role_models(args)
     assert models["judge"] == ("judge-m", "openai")
     assert models["extractor"] == models["judge"]
@@ -583,7 +583,7 @@ def test_estimate_only_stdout_stays_json_for_a_model_litellm_cannot_route(tmp_pa
     (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                    encoding="utf-8")
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
-                  "--estimate-only", "--model", "foo-bar-9", "--provider", "openai")
+                  "--dry-run", "--model", "foo-bar-9", "--provider", "openai")
     args.func(args)
     payload = json.loads(capsys.readouterr().out)
     assert payload["expected_usd"] is None
@@ -595,7 +595,7 @@ def test_estimate_only_names_only_the_unpriced_role_on_stderr(tmp_path, capsys):
     (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                    encoding="utf-8")
     base = ["skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
-            "--estimate-only"]
+            "--dry-run"]
     priced = _parse(*base).model
     args = _parse(*base, "--judge-model", "zzz", "--judge-provider", "openai",
                   "--extract-model", priced)
@@ -626,7 +626,7 @@ def _one_line_skill(root):
 def test_estimate_only_gives_a_null_dollar_figure_when_no_judge_resolves(tmp_path, capsys):
     # A real run exits here (openrouter has no default judge); the preview still prints.
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
-                  "--tier", "triage", "--estimate-only", "--judge-provider", "openrouter")
+                  "--tier", "triage", "--dry-run", "--judge-provider", "openrouter")
     args.func(args)
     out = capsys.readouterr()
     payload = json.loads(out.out)
@@ -640,7 +640,7 @@ def test_every_extra_arm_adds_an_answer_and_a_grade_per_probe_to_the_bill(tmp_pa
     for arms in ("no_artifact,full", "no_artifact,full,shuffled"):
         skill = _one_line_skill(tmp_path / str(len(by_role)))
         args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "standard",
-                      "--estimate-only", "--arms", arms)
+                      "--dry-run", "--arms", arms)
         args.func(args)
         by_role[arms] = json.loads(capsys.readouterr().out)["estimate"]["by_role"]
     two, three = by_role["no_artifact,full"], by_role["no_artifact,full,shuffled"]
@@ -678,7 +678,7 @@ def test_the_cli_prices_three_context_arms_above_two(tmp_path, capsys):
     figures = []
     for arms in ("no_artifact,full", "no_artifact,full,shuffled"):
         args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
-                      "--arms", arms, "--estimate-only")
+                      "--arms", arms, "--dry-run")
         args.func(args)
         figures.append(json.loads(capsys.readouterr().out))
     two, three = figures
@@ -698,7 +698,7 @@ def test_an_estimate_for_an_artifact_beyond_the_fitted_range_says_it_extrapolate
     (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
                                    encoding="utf-8")
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
-                  "--estimate-only")
+                  "--dry-run")
     args.func(args)
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
@@ -719,7 +719,7 @@ def test_the_cli_passes_each_arm_share_to_the_dollar_figure(tmp_path, capsys):
     for arms, share in (("no_artifact,full,shuffled", 2 / 3),
                         ("no_artifact,full,placebo,shuffled", 3 / 4)):
         args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
-                      "--arms", arms, "--estimate-only")
+                      "--arms", arms, "--dry-run")
         args.func(args)
         payload = json.loads(capsys.readouterr().out)
         by_role, tokens = payload["estimate"]["by_role"], payload["tokens"]
@@ -742,7 +742,7 @@ def test_the_extrapolation_flag_starts_just_above_the_fitted_range(
     monkeypatch.setattr(spans, "segment", lambda text: [SimpleNamespace(tokens=tokens)])
     assert FITTED_TOKENS_MAX == 6723  # the largest measured artifact, as the docs state
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
-                  "--tier", "triage", "--estimate-only")
+                  "--tier", "triage", "--dry-run")
     args.func(args)
     captured = capsys.readouterr()
     payload = json.loads(captured.out)

@@ -11,6 +11,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.context import TraceError, read_trace
+from dokimi.utils import InputError
 from dokimi.context.trace import parse_trace
 
 
@@ -162,21 +163,25 @@ def test_cli_json_single_trace(tmp_path, capsys):
 
 
 @pytest.mark.outcome("cjm-context-trace")
-def test_cli_missing_trace_exits_1(tmp_path, capsys):
-    with pytest.raises(SystemExit) as exc:
+def test_cli_missing_trace_is_an_input_error(tmp_path, capsys):
+    # Test-narrowed: renamed from test_cli_missing_trace_exits_1; the exit it pins is 2 (input), not 1 (A2b)
+    """Nothing read is a bad input (exit 2), not a partial result (exit 1)."""
+    with pytest.raises(InputError, match="no trace could be read"):
         _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl")], capsys)
-    assert exc.value.code == 1
 
 
 @pytest.mark.outcome("cjm-context-trace")
-def test_cli_json_with_no_trace_read_is_failed_with_no_data(tmp_path, capsys):
-    """Nothing read is `failed`, not `partial`: a consumer that reads only `status` must see total failure."""
+def test_cli_json_with_no_trace_read_is_an_input_error_document(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._is_failed_with_no_data; --json prints the input error document (A2b)
+    """Nothing read exits 2 with an `input` error document; a consumer that reads `error.code` sees a refusal."""
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "trace", "inspect", str(tmp_path / "missing.jsonl"), "--json"])
     with pytest.raises(SystemExit) as exc:
-        _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl"), "--json"], capsys)
-    got = capsys.readouterr()
-    doc = json.loads(got.out)
-    assert exc.value.code == 1
-    assert doc["kind"] == "trace inspect" and doc["status"] == "failed" and doc["data"] == []
+        cli.main()
+    doc = json.loads(capsys.readouterr().out)
+    assert exc.value.code == 2
+    assert doc["kind"] == "trace inspect" and doc["data"] is None and doc["error"]["code"] == "input"
 
 
 def test_a_bad_invocation_exits_2_with_an_input_error_document(monkeypatch, capsys):

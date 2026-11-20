@@ -10,15 +10,18 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.container import ContainerResult, ContainerSpec
+from dokimi import process
+from dokimi.repos.container import ContainerResult, ContainerSpec, DockerRunner
 from dokimi.repos.grading import EvalContext
 from dokimi.repos.host import (
     PROBE,
@@ -408,7 +411,7 @@ def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_p
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     with pytest.raises(SystemExit):  # the budget stops it after one cell
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
-             "--max-batch-usd", "0.005")
+             "--max-usd", "0.005")
     assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
     summary = summarize(out / "b1")
     assert summary["unsupported"] == [] and summary["missing"] == ["fix_race__guidance-raw__m-1__r2"]
@@ -421,11 +424,11 @@ def test_a_resumed_run_keeps_the_batch_spend_it_already_made_under_the_cap(tmp_p
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     with pytest.raises(SystemExit):  # the cap stops it after one cell, which spends past the cap
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
-             "--max-batch-usd", "0.005")
+             "--max-usd", "0.005")
     capsys.readouterr()
     try:  # the same cap on resume: the spend already made still counts
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
-             "--max-batch-usd", "0.005")
+             "--max-usd", "0.005")
     except SystemExit:
         pass
     assert "0 ran, 1 already done, 0 crashed, 1 not started" in capsys.readouterr().out
@@ -439,7 +442,7 @@ def test_parallel_cells_reserve_their_budget_so_the_cap_is_not_passed_at_once(tm
     capsys.readouterr()
     try:  # two cells in flight, each holding its budget until it is charged: the second may not start
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--jobs", "2",
-             "--max-batch-usd", "0.005")
+             "--max-usd", "0.005")
     except SystemExit:
         pass
     assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
@@ -451,9 +454,9 @@ def test_a_cell_reserves_the_budget_its_task_allows_not_the_run_budget(tmp_path,
     with pytest.raises(SystemExit):  # every cell unsupported: no result
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     capsys.readouterr()
-    try:  # --budget 0.001 is below the task's 0.02: the first cell's reservation is 0.02, so the second may not start
+    try:  # --max-usd-per-cell 0.001 is below the task's 0.02: the first cell's reservation is 0.02, so the second may not start
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--jobs", "2",
-             "--budget", "0.001", "--max-batch-usd", "0.005")
+             "--max-usd-per-cell", "0.001", "--max-usd", "0.005")
     except SystemExit:
         pass
     assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
@@ -769,6 +772,44 @@ def test_run_batch_refuses_a_bad_host_value_before_probing_or_running(tmp_path):
     assert runner.specs == [] and runner.probes == []
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.kill(SIGINT) on Windows terminates the process, not Ctrl-C")
+def test_ctrl_c_in_a_threaded_batch_kills_each_container_a_worker_started(tmp_path, monkeypatch):
+    """Ctrl-C reaches the main thread only: a cell running in a worker thread must not leave its container."""
+    started: list[str] = []
+    killed: list[str] = []
+    gone: dict[str, threading.Event] = {}
+    sent: list[str] = []
+    sent_lock = threading.Lock()
+    main = threading.main_thread().ident
+
+    def answer(call):
+        argv = list(call.argv)
+        if argv[1] == "kill":
+            killed.append(argv[2])
+            gone.setdefault(argv[2], threading.Event()).set()
+            return process.reply()
+        if argv[1] == "run" and PROBE in argv:
+            call.stdout_to.write_text(json.dumps(_probe_out()) + "\n", encoding="utf-8")
+            return process.reply()
+        if argv[1] == "run" and "-agent-" in argv[argv.index("--name") + 1]:
+            name = argv[argv.index("--name") + 1]
+            started.append(name)
+            with sent_lock:
+                first = not sent
+                sent.append(name)
+            if first:  # the user's Ctrl-C, from inside a worker thread, aimed at the main thread
+                signal.pthread_kill(main, signal.SIGINT)
+            gone.setdefault(name, threading.Event()).wait(60)  # a container runs until it is killed
+            return process.reply(returncode=137)
+        return process.reply()
+
+    root = _repo(tmp_path)
+    with pytest.raises(KeyboardInterrupt):
+        _run(root, tmp_path / "runs", DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--jobs", "2")
+    assert started and set(started) <= set(killed), (started, killed)
+    assert not list((tmp_path / "runs").rglob("result.json")), "an interrupted cell must not be recorded"
+
+
 def test_marking_a_cell_unsupported_clears_what_an_unfinished_run_left(tmp_path):
     cell_dir = tmp_path / "t__arm__m__r1"
     (cell_dir / "agent").mkdir(parents=True)
@@ -831,10 +872,10 @@ def test_a_prepare_error_on_the_null_step_is_a_problem_and_the_oracle_still_runs
     root = _repo(tmp_path)
     real = prepare_workspace
 
-    def prepare(git_dir, manifest, task, arm, rd):
+    def prepare(git_dir, manifest, task, arm, rd, **kwargs):
         if rd.name.endswith("__null"):
             raise PrepError("no such revision")
-        return real(git_dir, manifest, task, arm, rd)
+        return real(git_dir, manifest, task, arm, rd, **kwargs)
 
     monkeypatch.setattr("dokimi.repos.selfcheck.prepare_workspace", prepare)
     with pytest.raises(SystemExit) as exc:

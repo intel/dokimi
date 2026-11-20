@@ -92,3 +92,26 @@ def require_question_texts(records: Iterable[Mapping[str, Any]]) -> None:
     for i, record in enumerate(records):
         if has_answer_to_judge(record):
             require_question_text(record, i)
+
+
+# Golden sets' ``expected_topics`` are prose statements; auto-generated keyword
+# labels (~14-19 chars) would penalise correct answers, so only long topics count.
+MIN_GROUND_TRUTH_TOPIC_CHARS = 40
+
+
+def ground_truth_from_topics(q: dict[str, Any]) -> Optional[str]:
+    """Build judge ground truth from ``expected_topics``, when they are substantive.
+
+    Returns ``None`` for keyword-style topics so that such questions keep using
+    the ungrounded rubric rather than being scored against a word list.
+    """
+    topics = q.get("expected_topics") or []
+    if not isinstance(topics, list):
+        return None
+    statements = [str(t).strip() for t in topics if str(t).strip()]
+    if not statements:
+        return None
+    mean_len = sum(len(s) for s in statements) / len(statements)
+    if mean_len < MIN_GROUND_TRUTH_TOPIC_CHARS:
+        return None
+    return "\n".join(f"- {s}" for s in statements)

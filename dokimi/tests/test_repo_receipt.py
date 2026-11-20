@@ -326,6 +326,22 @@ def test_from_prints_the_matrix_of_the_saved_probe_and_runs_nothing(tmp_path, mo
     assert capsys.readouterr().out == format_matrix(load_reach(tmp_path / "out" / "reach.json")) + "\n"
 
 
+@pytest.mark.parametrize("fmt", ["matrix", "receipt"])
+def test_from_a_saved_probe_with_a_failed_scenario_exits_1_after_printing(tmp_path, monkeypatch, capsys, fmt):
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch))
+    args = build_parser().parse_args(live)
+    args.func(args)
+    capsys.readouterr()
+    saved = tmp_path / "out" / "reach.json"
+    document = json.loads(saved.read_text(encoding="utf-8"))
+    document["scenarios"][0]["error"] = "exit 1"
+    saved.write_text(json.dumps(document), encoding="utf-8")
+    args = build_parser().parse_args(_from_argv(live, "--from", str(saved), "--format", fmt))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1 and capsys.readouterr().out.strip()
+
+
 def test_from_a_missing_file_is_a_usage_error(tmp_path, monkeypatch, capsys):
     live = _end_to_end_args(tmp_path, monkeypatch)
     args = build_parser().parse_args(_from_argv(live, "--from", str(tmp_path / "nope.json")))
@@ -361,12 +377,13 @@ def test_from_refuses_a_saved_probe_of_another_repository_or_harness(tmp_path, m
 
 def test_from_refuses_the_probe_only_flags(tmp_path, monkeypatch, capsys):
     live = _end_to_end_args(tmp_path, monkeypatch)
-    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--budget", "0.5", "--model", "m"))
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--max-usd-per-cell", "0.5", "--model", "m",
+                                                   "--out-dir", str(tmp_path / "d")))
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2
     err = capsys.readouterr().err
-    assert "--model, --budget" in err  # both named, in one message
+    assert "--model, --max-usd-per-cell, --out-dir cannot" in err  # all named as typed, in one message
 
 
 def test_a_probe_needs_a_model(tmp_path, monkeypatch, capsys):
@@ -689,7 +706,7 @@ def test_the_unknowns_name_a_truncated_record_and_an_error_record_apart(tmp_path
     assert ("AGENTS.md: the probe recorded an error for this file" in text) == (cls == "error")
 
 
-@pytest.mark.parametrize("flags", [["--budget", "0.10"], ["--max-turns", "4"], ["--scenarios", "root,cwd,read"],
+@pytest.mark.parametrize("flags", [["--max-usd-per-cell", "0.10"], ["--max-turns", "4"], ["--scenarios", "root,cwd,read"],
                                    ["--timeout", "300"]])
 def test_from_refuses_a_probe_flag_given_at_its_default_value(tmp_path, monkeypatch, capsys, flags):
     live = _end_to_end_args(tmp_path, monkeypatch)
