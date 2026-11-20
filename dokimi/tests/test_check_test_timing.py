@@ -202,6 +202,15 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("import time\n\n\nasync def test_a(*a: time.sleep(1), **k: time.sleep(1)):\n    pass\n", {"time.sleep": 2}),
     ("from __future__ import annotations\nimport time\n\n\ndef test_a(x: time.sleep(1)) -> time.sleep(1):\n"
      "    pass\n", {}),
+    ("from time import sleep\n\n\ndef test_a(x: (sleep := lambda _: None)):\n    pass\n\n\nsleep(1)\n", {}),
+    ("from time import sleep\n\n\ndef test_a() -> (sleep := lambda _: None):\n    pass\n\n\nsleep(1)\n", {}),
+    ("from __future__ import annotations\nfrom time import sleep\n\n\n"
+     "def test_a(x: (sleep := lambda _: None)):\n    pass\n\n\nsleep(1)\n", {"time.sleep": 1}),
+    ("from __future__ import annotations\nimport time\nx: time.sleep(1)\n", {}),
+    ("import time\n\n\ndef test_a():\n    x: time.sleep(1)\n", {}),
+    ("import time\n\n\ndef test_a():\n    x: int = time.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\nx: time.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n\n\nclass T:\n    x: time.sleep(1)\n", {"time.sleep": 1}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])

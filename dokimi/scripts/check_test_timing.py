@@ -80,7 +80,7 @@ def _declared(nodes: list[ast.AST]) -> set[str]:
     return out
 
 
-def _own_names(scope: ast.AST) -> Names:
+def _own_names(scope: ast.AST, postponed: bool = False) -> Names:
     """What the names bound in ``scope`` itself mean, in source order: a module (``t -> time``), a function
     (``nap -> time.sleep``), or ``None`` for any other binding, which shadows an outer import."""
     names: Names = {}
@@ -92,7 +92,7 @@ def _own_names(scope: ast.AST) -> Names:
     body = [scope.body] if isinstance(scope, ast.Lambda) else scope.body  # type: ignore[attr-defined]
     local = isinstance(scope, FUNCTIONS)
     for stmt in body:
-        _bind(stmt, names, local=local)
+        _bind(stmt, names, local=local, postponed=postponed)
     for name in set() if isinstance(scope, ast.Module) else _declared(body):
         kept = [entry for entry in names.get(name, []) if entry[1] is not None]  # an import still counts
         if kept:
@@ -130,7 +130,8 @@ def _bind_import(node: ast.Import | ast.ImportFrom, names: Names) -> None:
             _note(names, alias.asname or alias.name, pos, None)
 
 
-def _bind(node: ast.AST, names: Names, at: Pos | None = None, *, local: bool = False) -> None:
+def _bind(node: ast.AST, names: Names, at: Pos | None = None, *, local: bool = False,
+          postponed: bool = False) -> None:
     """Record the names ``node`` binds in its scope, each with where it takes effect, without entering a
     nested function, class or lambda. An assignment binds once its right side has run, a ``for`` target
     once its iterable has; the targets of a comprehension stay in it, except a ``:=``. ``x: T`` with no value
@@ -139,21 +140,22 @@ def _bind(node: ast.AST, names: Names, at: Pos | None = None, *, local: bool = F
         _bind_import(node, names)
     elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         _note(names, node.name, _end(node), None)
-        for part in _outer_parts(node):
+        for part in (*_outer_parts(node), *([] if postponed else _annotations(node))):
             _bind_walruses(part, names, ())
     elif isinstance(node, ast.Lambda):
         _bind_walruses(node, names, ())
     elif isinstance(node, COMPREHENSIONS):
         _bind_walruses(node, names, ())
     elif isinstance(node, ast.AnnAssign) and node.value is None and not local:
-        _bind(node.annotation, names, local=local)
+        if not postponed:
+            _bind(node.annotation, names, local=local)
     else:
         if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
             at = _end(node)
         _bind_target(node, names, at)
         for child in ast.iter_child_nodes(node):
             after = _end(node.iter) if isinstance(node, (ast.For, ast.AsyncFor)) and child is node.target else at
-            _bind(child, names, after, local=local)
+            _bind(child, names, after, local=local, postponed=postponed)
 
 
 def _bind_walruses(node: ast.AST, names: Names, unseen: tuple[Span, ...]) -> None:
@@ -251,6 +253,7 @@ class _Walker:
         self.postponed = postponed  # ``from __future__ import annotations``: annotations never run
         self.found: list[tuple[ast.Call, str]] = []
         self.done: set[int] = set()  # the first iterable of a comprehension, walked in the outer scope
+        self.in_function = False  # ``x: T`` in a function body never evaluates ``T``
 
     def comprehension(self, node: ast.AST, scopes: list[Scope]) -> None:
         first = node.generators[0].iter  # type: ignore[attr-defined]
@@ -265,11 +268,13 @@ class _Walker:
             self.walk(child, scopes)
         for child in _annotations(node) if not self.postponed else []:
             self.walk(child, scopes)
-        inner = [Scope(_own_names(node), isinstance(node, ast.ClassDef), False)]
+        inner = [Scope(_own_names(node, self.postponed), isinstance(node, ast.ClassDef), False)]
         inner += [s for s in scopes if not s.is_class]
         body = [node.body] if isinstance(node, ast.Lambda) else node.body  # type: ignore[attr-defined]
+        outer, self.in_function = self.in_function, not isinstance(node, ast.ClassDef)
         for child in body:
             self.walk(child, inner)
+        self.in_function = outer
 
     def walk(self, node: ast.AST, scopes: list[Scope]) -> None:
         if id(node) in self.done:
@@ -285,6 +290,8 @@ class _Walker:
             self.definition(node, scopes)
             return
         for child in ast.iter_child_nodes(node):
+            if isinstance(node, ast.AnnAssign) and child is node.annotation and (self.postponed or self.in_function):
+                continue
             self.walk(child, scopes)
 
 
@@ -293,7 +300,7 @@ def _calls(tree: ast.Module) -> list[tuple[ast.Call, str]]:
     postponed = any(isinstance(n, ast.ImportFrom) and n.module == "__future__" and n.level == 0
                     and any(alias.name == "annotations" for alias in n.names) for n in tree.body)
     walker = _Walker(postponed)
-    walker.walk(tree, [Scope(_own_names(tree), False, False)])
+    walker.walk(tree, [Scope(_own_names(tree, postponed), False, False)])
     return walker.found
 
 
