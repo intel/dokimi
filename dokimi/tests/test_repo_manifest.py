@@ -217,7 +217,27 @@ def test_task_json_that_is_an_unreadable_link_is_reported_not_raised(tmp_path, t
     report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
     assert not report.ok
     assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+    assert not any(str(tmp_path) in e or "Errno" in e for e in report.errors), report.errors  # repo-relative in both trees
     assert "bad" not in [t.id for t in report.tasks]
+
+
+def test_task_json_failed_git_show_is_raised_not_reported(tmp_path, monkeypatch):
+    # a failed or timed-out git show is not a task.json problem: it is raised, as load_manifest does
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    _git_commit(root)
+    tree = GitTree(root, "HEAD")
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = GitTree.read_text
+
+    def read_text(self, path):
+        if path.endswith("bad/task.json"):
+            raise SourceError("git show failed")
+        return real(self, path)
+
+    monkeypatch.setattr(GitTree, "read_text", read_text)
+    with pytest.raises(SourceError, match="git show failed"):
+        check_repo(tree, manifest)
 
 
 def test_task_json_link_loop_that_raises_runtime_error_is_reported(tmp_path, monkeypatch):
