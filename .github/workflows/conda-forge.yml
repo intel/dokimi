@@ -38,8 +38,8 @@ defaults:
     working-directory: dokimi
 
 jobs:
-  # Linux only: the package is noarch, built and tested on Linux. The Pythons
-  # are the ones the recipe tests: python_min (requires-python) and the newest.
+  # Linux only: the package is noarch. The Pythons are the ones the recipe tests, python_min
+  # (requires-python) and the newest; a PR solves the newest only, as in ci.yml's test matrix.
   conda-forge-deps:
     name: conda-forge dependency solve (py${{ matrix.python-version }})
     runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
@@ -48,6 +48,8 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.14']
+        exclude:
+          - python-version: ${{ github.event_name == 'pull_request' && '3.11' || 'none' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
