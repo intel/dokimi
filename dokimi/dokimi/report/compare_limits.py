@@ -47,9 +47,9 @@ def no_delta_limitation(runs: list[tuple[str, dict]], arms: set[str], paired_in_
     named = ", ".join(f"`{a}`" for a in [*baselines, *sorted(arms)])
     if paired_in_a_run:
         return [
-            f"> **⚠️ Report Limitation:** These runs contain the arms {named}, but no common question is scored in both arms in every run.",
+            f"> **⚠️ Report Limitation:** These runs contain the arms {named}, but no question scored in both arms is left once replicates are pooled and only the questions every run scored are kept.",
             "> ",
-            "> Delta, significance, head-to-head and benefit analysis are unavailable until a question is scored in both arms in every run.",
+            "> Delta, significance, head-to-head and benefit analysis are unavailable until a question that every run scored has a score in both arms.",
             "",
         ]
     return [

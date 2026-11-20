@@ -705,9 +705,9 @@ def generate_section_report(
     """
     raw_scores = {run_id: extract_scores(data, force_treatment_arm=treatment_arm, where=f"run '{run_id}', ") for run_id, data in runs}
     paired = any(s.get("delta") is not None for sc in raw_scores.values() for s in sc)  # before pooling drops pairs
-    replicate_note: list[str] = []
-    if pool_replicates:
-        runs, run_ids, raw_scores, replicate_note = _pool_section(runs, run_ids, raw_scores)
+    declared = {treatment_arm} if treatment_arm else {a for _, d in runs for a in scored_arms(d) | non_baseline_arms(d)}  # pre-pooling
+    pooled = _pool_section(runs, run_ids, raw_scores) if pool_replicates else (runs, run_ids, raw_scores, [])
+    runs, run_ids, raw_scores, replicate_note = pooled
     common_questions, all_run_scores = _common_scores(raw_scores, run_ids)
 
     # The arm that was actually scored, taken from the extracted records rather than the
@@ -726,7 +726,7 @@ def generate_section_report(
 
     lines = _pooling_lines(replicate_note) + _models_compared_lines(runs, all_run_scores, common_questions)
     if not has_treatment:
-        lines += no_delta_limitation(runs, scored | {a for _, d in runs for a in non_baseline_arms(d)}, paired)
+        lines += no_delta_limitation(runs, scored | declared, paired)
     lines += _resource_usage_lines(runs, bool(replicate_note))
     lines += _overall_summary_lines(run_ids, summary_stats, arm_label)
     lines += _significance_lines(run_ids, all_run_scores, has_treatment, correction)

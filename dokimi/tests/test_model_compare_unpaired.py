@@ -71,7 +71,7 @@ def test_paired_scores_on_disjoint_questions_are_not_called_unscored_in_both_arm
     text = "\n".join(generate_section_report(runs, ["a", "b"], "regular"))
     assert "no question has scores in both arms" not in text
     assert "contain only **baseline arm**" not in text
-    assert "scored in both arms in every run" in text
+    assert "once replicates are pooled" in text
 
 
 def _two_scored(model, shared_treated, paired_id):
@@ -90,7 +90,7 @@ def test_pooling_does_not_hide_a_paired_score_from_the_limitation():
     text = "\n".join(generate_section_report([("a", a), ("b", b)], ["a", "b"], "regular", pool_replicates=True))
     assert "no question has scores in both arms" not in text
     assert "contain only **baseline arm**" not in text
-    assert "scored in both arms in every run" in text
+    assert "once replicates are pooled" in text
 
 
 def test_shared_but_unpaired_question_is_not_told_to_share_a_question():
@@ -100,4 +100,29 @@ def test_shared_but_unpaired_question_is_not_told_to_share_a_question():
     assert "Common questions evaluated: **1**" in text
     assert "until the runs share a question" not in text
     assert "contain only **baseline arm**" not in text
-    assert "scored in both arms in every run" in text
+    assert "once replicates are pooled" in text
+
+
+def test_pooled_legacy_runs_keep_the_treatment_of_the_dropped_replicate():
+    """#965: pooling keeps the first replicate's artifact; the docs arm of the second must still be named."""
+    a = _paired_run("m", "q")
+    del a["arms"], a["evaluations"]
+    a["answers"][0]["arms"].pop("docs")
+    b = _paired_run("m", "q")
+    del b["arms"], b["evaluations"]
+    for arm, score in (("baseline", 50), ("docs", 90)):
+        b["answers"][0]["arms"][arm]["evaluation"] = {"aggregate_score": score}
+    text = "\n".join(generate_section_report([("a", a), ("b", b)], ["a", "b"], "regular", pool_replicates=True))
+    assert "contain only **baseline arm**" not in text
+    assert "`docs`" in text
+
+
+def test_selected_treatment_limitation_names_only_that_comparison():
+    """#965: baseline/docs is unpaired while baseline/skill is paired; only docs is named."""
+    run = _paired_run("m", "q")
+    run["arms"] = ["baseline", "docs", "skill:demo"]
+    run["evaluations"][0]["scores"] = {"baseline": {"aggregate": 50}, "docs": None, "skill:demo": {"aggregate": 90}}
+    run["answers"][0]["arms"]["skill:demo"] = {"answer": "s"}
+    text = "\n".join(generate_section_report([("a", run)], ["a"], "regular", treatment_arm="docs"))
+    assert "`baseline`, `docs`, but no question has scores in both arms" in text
+    assert "skill:demo" not in text.split("Report Limitation")[1].split("\n\n")[0]
