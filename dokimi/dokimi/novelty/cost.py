@@ -16,11 +16,50 @@ import sys
 from dokimi.utils import InputError
 
 
+def judge_refs(args: argparse.Namespace) -> list[tuple[str, str]]:
+    """The ``--judge PROVIDER/MODEL`` list as (model, provider) pairs; empty without the flag."""
+    from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
+    from dokimi.utils import same_model
+
+    refs = getattr(args, "judges", None) or []
+    if refs and (getattr(args, "judge_model", None) or getattr(args, "judge_provider", None)):
+        raise ValueError("--judge replaces --judge-model and --judge-provider; pass one form")
+    out: list[tuple[str, str]] = []
+    for ref in refs:
+        provider, sep, model = ref.partition("/")
+        if not sep or not model or provider not in PROVIDERS:
+            raise ValueError(f"--judge {ref!r} is not PROVIDER/MODEL with PROVIDER one of "
+                             f"{', '.join(PROVIDERS)}")
+        if any(same_model(m, model) for m, _ in out):
+            # one model would vote twice, and the panel keys each judge's verdicts by model name
+            raise ValueError(f"--judge {ref!r}: model {model!r} is given twice")
+        out.append((model, provider))
+    return out
+
+
+def add_panel_usd(args: argparse.Namespace, usd, by_role, n_tokens, tier, context_share, models):
+    """The USD estimate with each panel judge after the first grading every answer again."""
+    from dokimi.novelty.tiers import estimate_usd
+
+    for model, provider in judge_refs(args)[1:]:
+        if usd is None:
+            break
+        extra = estimate_usd({"judge": by_role.get("judge", 0)}, n_tokens,
+                             {"judge": (model, provider)}, tier, context_share)
+        if extra is None:
+            models[f"judge {model}"] = (model, provider)
+        usd = None if extra is None else round(usd + extra, 6)
+    return usd
+
+
 def role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
     """The (model, provider) of each role, defaulting so roles never silently collapse."""
     from dokimi.novelty.client import default_judge
 
-    if args.judge_model:
+    panel = judge_refs(args)
+    if panel:
+        judge_model, judge_provider = panel[0]
+    elif args.judge_model:
         judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
     else:
         # a CLI answerer with no judge provider judges on the same CLI, another family
@@ -38,20 +77,29 @@ def estimate_usd(
     args: argparse.Namespace, n_tokens: int, by_role: dict[str, int], tier: str | None,
     context_share: float = 0.5,
 ) -> float | None:
-    """The estimate's dollar figure; ``None`` when a role's model cannot be resolved or priced.
+    """The estimate's dollar figure; ``None`` when a role's model cannot be priced.
 
     The reason goes to stderr: a role whose model does not resolve, or a role with no list
-    price, makes the figure unavailable, and the note names it.
+    price, makes the figure unavailable, and the note names it. Each panel judge after the
+    first is priced as grading every answer again.
+
+    Raises:
+        InputError: A ``--judge`` that is not a usable PROVIDER/MODEL, as the run itself refuses it.
     """
     from dokimi.llm_pricing import list_cost_usd
     from dokimi.novelty.tiers import estimate_usd as tier_estimate_usd
 
     try:
+        judge_refs(args)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
+    try:
         models = role_models(args)
     except ValueError as exc:
         print(f"The USD estimate is unavailable: {exc}", file=sys.stderr)
         return None
-    usd = tier_estimate_usd(by_role, n_tokens, models, tier, context_share)
+    usd = add_panel_usd(args, tier_estimate_usd(by_role, n_tokens, models, tier, context_share),
+                        by_role, n_tokens, tier, context_share, models)
     if usd is None:
         unpriced = sorted(
             f"{role} ({model})"
@@ -64,6 +112,22 @@ def estimate_usd(
             file=sys.stderr,
         )
     return usd
+
+
+def add_panel_calls(args: argparse.Namespace, estimate: dict) -> None:
+    """Count the panel's grading calls in a run estimate: each judge after the first grades every answer again."""
+
+    try:
+        extra_judges = max(0, len(judge_refs(args)) - 1)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
+    extra = extra_judges * estimate["by_role"]["judge"]
+    if not extra:
+        return
+    estimate["by_role"]["judge"] += extra
+    for key in ("probe_calls", "total_calls", "total_calls_if_every_pair_escalates",
+                "expected_calls"):
+        estimate[key] += extra
 
 
 def clients(args: argparse.Namespace):

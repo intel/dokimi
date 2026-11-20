@@ -17,6 +17,7 @@ for mod_name in ['langchain_openai', 'langchain_anthropic']:
         mock_mod.ChatAnthropic = Mock
         sys.modules[mod_name] = mock_mod
 
+from dokimi._version import __version__
 from dokimi.questions.llm_gen import QuestionGenerator, QUESTION_GENERATION_PROMPT
 
 
@@ -94,6 +95,15 @@ class TestGenerateQuestions:
             for p in sample_personas
         }
         assert topics_by_persona == {p["id"]: sorted(sample_topics * 2) for p in sample_personas}
+
+    def test_every_generated_question_carries_the_generator_provenance(self, sample_personas, sample_topics,
+                                                                        mock_llm):
+        mock_cls = Mock(return_value=mock_llm)
+        with patch('dokimi.questions.llm_gen.Invoker', mock_cls), \
+             patch('dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE', True):
+            gen = QuestionGenerator()
+            questions = gen.generate_questions("oneTBB", sample_personas, sample_topics, questions_per_topic=2)
+        assert {q["provenance"]["source"] for q in questions} == {f"generated:dokimi-questions-persona@{__version__}"}
     
     def test_assigns_unique_ids(self, sample_personas, sample_topics, mock_llm):
         mock_cls = Mock(return_value=mock_llm)

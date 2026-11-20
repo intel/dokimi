@@ -110,7 +110,9 @@ def test_a_bundled_folder_without_search_permission_does_not_make_the_manifest_u
         folder.chmod(0o755)
 
     assert reviews["sib"].state == "ok"
-    assert reviews["sib"].findings == []
+    # the search could not list the folder: the check says so in a note, and gives no warning
+    [note] = reviews["sib"].findings
+    assert (note.code, note.level, "cannot be listed" in note.message) == ("bundle-file-unchecked", "note", True)
 
 
 @pytest.mark.parametrize("error", [OSError(errno.ELOOP, "Too many levels of symbolic links"), RuntimeError("loop")],

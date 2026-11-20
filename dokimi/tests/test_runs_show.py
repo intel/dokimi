@@ -44,6 +44,7 @@ CONTENTS = {
     "subject_scorecard.v2": {"cells": 0},
     "skill_evidence.v1": {"results": 2, "warnings": 0},
     "cli_routes.v1": {"roots": 2, "leaves": 2, "tombstones": 1},
+    "report_summary.v1": {"checks": 1, "subjects": 1},
     "repo_ledger.v1": {"rules": 2},
     "headroom.v1": {"items": 2, "inputs": 1},
     "redteam.v1": {"violations": 2, "questions": 2},
@@ -68,6 +69,10 @@ CONTENTS = {
     "question_panel.v1": {"questions": 2},
     "question_quality.v1": {"questions": 2, "trivial_questions": 1, "recommendations": 1},
     "report_qa.v1": {"records": 1},
+    "docling_sources.v1": {"files": 2},
+    "docs_run.v1": {"docs": 2},
+    "dashboard.v1": {"products": 1},
+    "baseline_manifest.v1": {"baselines": 2},
 }
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"

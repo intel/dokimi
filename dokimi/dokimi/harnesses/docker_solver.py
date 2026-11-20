@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from dokimi import docker_cmd, process
+from dokimi import docker_cmd, process, process_io
 from dokimi.container_policy import task_container_policy
 from dokimi.metrics.usage import UsageRecord
 
@@ -79,6 +79,7 @@ from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, ent
                              resolve_recorded, skill_needs, start_network, redact as _redact)
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
+from .task_image import ignore_top_level_skills, ready_image, upload_environment, workdir_args
 from .task_env import _exec_env, unresolved_env  # re-exported
 from .tbench_v1 import reward as _pytest_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
@@ -208,7 +209,6 @@ class DockerSolverHarness:
         log_path = output_dir / "run.log"
         log = log_path.open("w", encoding="utf-8")
         usage: Optional[UsageRecord] = None
-        image = f"dokimi/{task.name}:latest"
         container = f"dokimi-run-{task.name}-{os.getpid()}-{os.urandom(3).hex()}"  # two cells in one process
         solve_timeout = timeout_sec or task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT
         start = time.time()
@@ -217,21 +217,14 @@ class DockerSolverHarness:
         network = self._network_metrics(plan)
         reward: Optional[float] = None
         sandbox: Optional[ContainerSandbox] = None
+        image_record: dict[str, Any] = {}
         try:
-            try:
-                self._build_image(task, image, log, plan.build)
-            except subprocess.TimeoutExpired as exc:
-                # The image never got built, so no agent ran and there is no
-                # verdict: raise so the cell is errored like a build that fails
-                # fast. Only a solve or verify timeout below is a reward-0 failure.
-                log.write(f"\nBUILD TIMEOUT: {_describe_timeout(exc)}\n")
-                raise RuntimeError(
-                    f"docker build timed out after {exc.timeout}s; see run.log"
-                ) from exc
+            image, image_record = self._ready_image(task, log, plan.build)
             sandbox = self._open_sandbox(plan, container, log)
             try:
                 bridged = self._start_container(task, image, container, log, sandbox, plan)
                 try:
+                    upload_environment(task, container, log, self._docker)
                     if self.mode == "oracle":
                         self._solve_oracle(task, container, log, plan.solve, timeout=solve_timeout)
                     elif self.mode == "claude":
@@ -270,7 +263,7 @@ class DockerSolverHarness:
             (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")
 
         elapsed = time.time() - start
-        metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network}
+        metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network, "image": image_record}
         passed = reward is not None and reward >= 1.0
         if usage is not None:
             metrics.update(usage.as_metrics_dict())
@@ -297,6 +290,16 @@ class DockerSolverHarness:
 
     # ── pipeline steps ──────────────────────────────────────────────────────
 
+    def _ready_image(self, task: TaskSpec, log, net: PhasePolicy) -> tuple[str, dict[str, Any]]:
+        """The task image, built or pulled (:mod:`.task_image`). Running out of time errors the cell:
+        no agent ran, so there is no verdict (a solve or verify timeout is a reward-0 failure)."""
+        step = "pull" if task.docker_image else "build"
+        try:
+            return ready_image(task, log, self._docker, lambda tag: self._build_image(task, tag, log, net))
+        except subprocess.TimeoutExpired as exc:
+            log.write(f"\n{step.upper()} TIMEOUT: {_describe_timeout(exc)}\n")
+            raise RuntimeError(f"docker {step} timed out after {exc.timeout}s; see run.log") from exc
+
     def _build_image(self, task: TaskSpec, image: str, log, net: Optional[PhasePolicy] = None) -> None:
         """Build the task image under *net*: ``public`` passes the host proxy through.
 
@@ -319,7 +322,7 @@ class DockerSolverHarness:
                 # following them would pull host files into the image, and a
                 # dangling one would fail the copy.
                 shutil.copytree(env_dir, context, symlinks=True,
-                                ignore=_ignore_top_level_skills(env_dir))
+                                ignore=ignore_top_level_skills(env_dir))
                 # Left empty rather than absent: some Dockerfiles `COPY skills
                 # ...` (radar-vital-signs copies it into seven agent paths), and
                 # a missing source fails the build in every arm.
@@ -356,7 +359,7 @@ class DockerSolverHarness:
         sandbox_flags = sandbox.run_args() if sandbox else []
         self._docker(docker_cmd.run_spec(
             task_container_policy(network=network, cpus=cpus, memory=memory),
-            [["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
+            [["-d"], ["--name", container], workdir_args(task), "init", "cap_drop", "security", "pids", "cap_add",
              "network", sandbox_flags, docker_cmd.env_args(task.container_env), "resource"],
             image, ["sleep", str(lifetime)]), log)
         return enter_phase(plan.solve if inside else DEFAULTS["solve"], container, self._docker, log,
@@ -553,8 +556,8 @@ class DockerSolverHarness:
                      plugin_dir: Optional[str], model: Optional[str],
                      output_dir: Path) -> list[str]:
         """``claude`` argv after the executable; the prompt is also saved as ``prompt.txt``."""
-        # The task instruction as the user wrote it, behind the treatment notice only.
-        prompt = f"{treatment_notice(treatment) if self.skill_notice else ''}{task.instruction}"
+        # The task instruction behind the treatment notice, with a lone surrogate written as "?".
+        prompt = process_io.utf8_bytes(f"{treatment_notice(treatment) if self.skill_notice else ''}{task.instruction}").decode()
         (output_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
         args = ["-p", prompt, "--output-format", "stream-json", "--verbose", *solver_cli_flags()]
         args += ["--plugin-dir", plugin_dir] if plugin_dir else []
@@ -833,13 +836,6 @@ def _copy_into(step: ContainerStep, container: str, log, docker: "Docker") -> No
 
 def _user(step: ContainerStep) -> list[str]:
     return ["-u", step.user] if step.user else []
-
-
-def _ignore_top_level_skills(env_dir: Path):
-    """``shutil.copytree`` ignore hook that drops only ``<env_dir>/skills``."""
-    def ignore(directory: str, names: list[str]) -> list[str]:
-        return ["skills"] if Path(directory) == env_dir and "skills" in names else []
-    return ignore
 
 
 def _describe_timeout(exc: subprocess.TimeoutExpired) -> str:

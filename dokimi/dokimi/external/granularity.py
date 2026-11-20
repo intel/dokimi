@@ -585,5 +585,5 @@ def _paid_hint(root: str, units: list[str]) -> PaidHint | None:
     est = round(PAID_USD_PER_SKILL * len(units), 2)
     budget = max(1, math.ceil(2 * est))
     argv = ("dokimi", "catalog", "granularity", "--root", root, "--from-check",
-            "--model", "haiku", "--reps", "3", "--budget", str(budget))
+            "--model", "haiku", "--reps", "3", "--max-usd", str(budget))
     return PaidHint(argv=argv, est_usd=est)

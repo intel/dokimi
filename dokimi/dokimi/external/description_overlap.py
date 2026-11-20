@@ -51,24 +51,55 @@ def _min_overlap(size: int, jaccard: float = NEAR_DUPLICATE_JACCARD) -> int:
     return max(NEAR_DUPLICATE_MIN_SHARED, math.ceil(jaccard * size - 1e-9))
 
 
+def _required_overlap(size: int, other: int, jaccard: float) -> int:
+    """The fewest words skills of ``size`` and ``other`` words share to pass: ``s >= J * (size + other) / (1 + J)``."""
+    return max(NEAR_DUPLICATE_MIN_SHARED, math.ceil(jaccard * (size + other) / (1 + jaccard) - 1e-9))  # the epsilon only lowers it
+
+
+def _candidates(
+    i: int, sizes: list[int], prefix: list[str], postings: dict[str, list[tuple[int, int]]], jaccard: float
+) -> list[int]:
+    """The later skills that share a prefix word with skill ``i`` and can still reach ``_required_overlap``, in order."""
+    first_shared: dict[int, tuple[int, int]] = {}  # candidate -> positions of the rarest shared word
+    for position, word in enumerate(prefix):
+        for k, other_position in postings[word]:
+            if k > i and k not in first_shared:
+                first_shared[k] = (position, other_position)
+    return [
+        k
+        for k, (position, other_position) in sorted(first_shared.items())
+        if 1 + min(sizes[i] - position - 1, sizes[k] - other_position - 1)
+        >= _required_overlap(sizes[i], sizes[k], jaccard)
+    ]
+
+
 def _candidate_pairs(tokens: list[frozenset[str]], jaccard: float) -> Iterator[tuple[int, int]]:
     """The index pairs ``(i, j)``, ``i < j``, that can pass a Jaccard similarity of ``jaccard``, in index order.
 
     Found by a prefix filter: each skill's words are ordered rarest first across all the skills, and only its
     first ``size - _min_overlap(size, jaccard) + 1`` words are indexed. A passing pair with ``s`` shared words
     has at least ``_min_overlap`` of them, so its rarest shared word sits inside both skills' prefixes and the
-    pair is a candidate. Non-candidates could not pass, so comparing only these pairs finds what comparing
-    every pair finds, in the same order.
+    pair is a candidate. A positional bound then drops a candidate whose shared words, the rarest one and those
+    after it in both orderings, cannot reach ``_required_overlap`` (which also rules out sizes far apart).
+    Non-candidates could not pass, so comparing only these pairs finds what comparing every pair finds, in
+    the same order.
+
+    The pass is still quadratic with a small constant, not near-linear: the common words of a catalog
+    keep it so. On the 1250- and 5000-skill catalog-like corpora of ``tests/test_near_duplicate_blocking.py``
+    the prefix filter alone leaves 2.3% of all pairs at both sizes (18166 and 283510 pairs, 15.6x for 4x
+    the skills); with the positional bound the pairs compared are 2357 and 39928, 0.3% of all pairs (about
+    7x fewer), and still grow about 17x (at the 0.5 line).
     """
     frequency = Counter(word for words in tokens for word in words)
     prefixes: list[list[str]] = []
-    by_prefix_word: dict[str, list[int]] = {}
+    by_prefix_word: dict[str, list[tuple[int, int]]] = {}  # word -> (skill, the word's position in its ordering)
     for index, words in enumerate(tokens):
         ordered = sorted(words, key=lambda word: (frequency[word], word))
         prefix = ordered[: max(0, len(ordered) - _min_overlap(len(ordered), jaccard) + 1)]
         prefixes.append(prefix)
-        for word in prefix:
-            by_prefix_word.setdefault(word, []).append(index)
+        for position, word in enumerate(prefix):
+            by_prefix_word.setdefault(word, []).append((index, position))
+    sizes = [len(words) for words in tokens]
     for i in range(len(tokens)):
-        for j in sorted({k for word in prefixes[i] for k in by_prefix_word[word] if k > i}):
+        for j in _candidates(i, sizes, prefixes[i], by_prefix_word, jaccard):
             yield i, j

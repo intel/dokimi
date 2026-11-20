@@ -404,6 +404,45 @@ class TestScoreCv:
         assert (check.value, check.passed) == (1.0, False)
 
 
+class TestASpreadBeyondTheFloatRange:
+    """Finite scores whose variance leaves the float range: the check is not measured, the gate still answers."""
+
+    BIG = [1.7e308, -1.7e308, 1.7e308]
+
+    def test_score_cv_is_not_measured_and_the_report_generates(self):
+        import json
+
+        from dokimi.report.generator import ReportGenerator
+
+        evals = [_row(s, 1.0) for s in self.BIG]
+        v = evaluate_trust(evals, thresholds={"min_questions": 1})
+        check = _check(v, "score_cv")
+        assert (check.measured, check.passed, check.value) == (False, True, None)
+        assert check.message == "Not measured: the spread of the context-arm scores is beyond the float range"
+        assert "score_cv" in v.not_measured
+
+        report = json.loads(ReportGenerator().generate_report(
+            {"evaluations": evals}, {"questions": []}, output_format="json",
+        ))
+        (cv,) = [c for c in report["trust"]["checks"] if c["name"] == "score_cv"]
+        assert (cv["measured"], cv["value"]) == (False, None)
+        assert "score_cv" in report["trust"]["not_measured"]
+
+    def test_the_block_renders_the_unmeasured_cv_like_any_other(self):
+        md = format_trust_block(evaluate_trust([_row(s, 1.0) for s in self.BIG],
+                                               thresholds={"min_questions": 1}))
+        assert "| score_cv | ➖ | None | 0.6 | Not measured: the spread of the context-arm scores" in md
+        assert "not measured)" in md.splitlines()[2]
+
+    def test_multirun_variance_is_not_measured(self):
+        v = evaluate_trust(_evals(10), multirun_with_averages=self.BIG)
+        check = _check(v, "multirun_variance")
+        assert (check.measured, check.passed, check.value) == (False, True, None)
+        assert check.message == (
+            "Not measured: the spread of the per-run context-arm averages is beyond the float range")
+        assert "multirun_variance" in v.not_measured
+
+
 def test_a_not_measured_retrieval_check_never_warns():
     """Under the coverage floor the rate is not judged: it passes, is not a
     warning, and serializes ``measured`` as false (the report JSON reads it)."""

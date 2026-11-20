@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi._version import __version__
 from dokimi.cli import build_parser
 from dokimi.repos import graph_tasks
 from dokimi.repos.code_index import CodeIndex
@@ -182,6 +183,7 @@ def test_write_keeps_an_existing_task_unless_forced(tmp_path):
     task = json.loads((opts.out / tid / "task.json").read_text())
     gold = json.loads((opts.out / tid / "gold.json").read_text())
     assert task["grader"] == "dokimi:graph_enum" and task["base"] == "a" * 40 and task["id"] == tid
+    assert task["provenance"] == {"source": f"generated:dokimi-tasks-generate@{__version__}"}
     assert task["score"] == {"metric": "f1", "max": 1.0} and task["answer_key"] == "files"
     assert task["symbols"] == [RUN] and task["family"] == "navigate" and tid.startswith("graph_references_run_")
     assert "2 symbols named `run`" in task["prompt"] and '{"files": [' in task["prompt"]

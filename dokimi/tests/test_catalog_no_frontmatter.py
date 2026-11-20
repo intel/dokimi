@@ -11,6 +11,7 @@ to make one, and the scan summary counts them apart.
 from __future__ import annotations
 
 import json
+from functools import partial
 
 import pytest
 import yaml
@@ -19,6 +20,7 @@ from dokimi.cli import build_parser
 from dokimi.external import read_skill_manifest, review_skills
 from dokimi.external.no_frontmatter import no_frontmatter_message
 from dokimi.utils import InputError
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 
 def main(argv):
@@ -378,11 +380,8 @@ def test_the_comment_and_code_span_branches_are_pinned():
 
 def test_a_long_run_of_backticks_is_searched_in_linear_time():
     # A run of backticks that is not a fence, in one paragraph: the search must not backtrack over it.
-    import time
-
-    start = time.monotonic()
-    no_frontmatter_message(["# T", "", "x " + "`" * 10000 + " end"], "t", at_root=True)
-    assert time.monotonic() - start < 1.0
+    ratio, _ = growth(lambda k: partial(no_frontmatter_message, ["# T", "", "x " + "`" * k + " end"], "t", at_root=True), 2500)
+    assert ratio < GROWTH_LIMIT
 
 
 @pytest.mark.parametrize("first", ["[Docs](https://example.com)", "[Docs][docs]", "[docs]: https://example.com"])
