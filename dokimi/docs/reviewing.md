@@ -204,9 +204,12 @@ these, in order, before writing what it showed (the fields:
   traces too. A nested `AGENTS.md` loads later if at all (reach's
   `cwd=<dir>`, `read=<dir>` show what loads it). `process:guidance_read`
   counts a read tool's reads and a Claude Code Bash call, Codex command or
-  Copilot `bash` command that only prints files whole (§7's list: a bare `cat`,
+  Copilot `bash` command that only prints files (§7's list: a bare `cat`,
   `head`, `tail`, `nl` or `sed -n`), not a pipe, `grep`, `rg` or `! cat`, nor a
-  relative read after the shell moved; `process:guidance_searched` counts the
+  relative read after the shell moved. A listed file may have been printed in
+  part (`head -n 1 AGENTS.md`, `sed -n 1p AGENTS.md`), so `guidance_read` does
+  not show that the whole file reached the agent: read `agent.stdout` for
+  that; `process:guidance_searched` counts the
   guidance files a `grep`, `rg` or `git grep` (or Claude Code's `Grep` in
   `content` mode) showed lines of: an agent that only searched a nested
   `AGENTS.md` has it there and not in `guidance_read` (a file printed and searched

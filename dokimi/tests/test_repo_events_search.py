@@ -146,6 +146,7 @@ def test_a_search_names_the_files_it_shows_lines_of(command, searched):
     "grep -fAGENTS.md warn", "grep -nf AGENTS.md warn",  # AGENTS.md is the pattern file
     "grep -m0 warn AGENTS.md | head", "grep -m 0 warn AGENTS.md | head", "grep --max-count=0 warn AGENTS.md | head",
     "grep --max-count 0 warn AGENTS.md", "grep -nm0 warn AGENTS.md", "rg -m0 warn AGENTS.md", "grep -m 5 -m 0 warn AGENTS.md",
+    "grep -m +0 warn AGENTS.md", "grep -m+0 warn AGENTS.md", "grep --max-count=+00 warn AGENTS.md", "rg -m +0 warn AGENTS.md",  # a leading + is accepted
     "grep --help -e warn AGENTS.md", "rg -e warn --version AGENTS.md",  # --help and --version as options
     "grep -e warn --exclude AGENTS.md", "rg warn --ignore-file AGENTS.md",  # AGENTS.md is an option's value, stdin is searched
     "grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", "grep warn AGENTS.md sub/AGENTS.md | head --verbose=1",
@@ -372,6 +373,8 @@ def test_codex_searches_follow_the_same_rules(started):
     assert searched("grep -q warn AGENTS.md", 0) == [None]
     assert searched("grep -e --help AGENTS.md", 0) == [["AGENTS.md"]]
     assert searched("grep -m0 warn AGENTS.md | head", 0) == [None]
+    assert searched("grep -m +0 warn AGENTS.md; echo done", 0) == [None]
+    assert searched("grep -m +1 warn AGENTS.md; echo done", 0) == [["AGENTS.md"]]
     assert searched("grep warn AGENTS.md sub/AGENTS.md | head --quiet=bad", 1) == [None]
     assert searched("grep warn AGENTS.md sub/AGENTS.md | tail --follow=bad", 1) == [None]
     assert searched("grep --qui warn AGENTS.md", 0) == [None]
