@@ -29,7 +29,7 @@ from typing import Any, NamedTuple
 
 from .shell_functions import Functions, define
 from .shell_redirects import STDOUT_AFTER_STDERR, bare, masked, without_stderr
-from .shell_search import Searched, cuts_lines, search_program, searched_field, searched_files
+from .shell_search import Searched, cuts_lines, passes_through, search_program, searched_field, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
@@ -153,6 +153,8 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     walk = _Walk(posixpath.normpath(cwd) if cwd else "", define(known, script), known)
     for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
+        if part.strip():
+            walk.last_start = len(out)
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
             walk.here, walk.gated = None, False
@@ -198,6 +200,8 @@ class _Walk:
         self.head = False  # the last part was a function's name alone (``f()``): its body's ``{`` comes next
         self.case = 0  # the depth inside ``case ... esac``
         self.operands: int | None = None  # how many files the last printing command named
+        self.passthru = False  # a search printed every line (``rg --passthru``): its exit 1 is no sign it showed none
+        self.last_start = 0  # where in the found paths the script's last non-empty part began
         self.unknown = 0  # the relative files printing commands named at a directory not known
 
     def spot(self) -> _Spot:
@@ -356,6 +360,7 @@ class _Walk:
     def searching(self, program: str, args: Sequence[str], chdir: bool) -> list[str]:
         """The files a search shows lines of (:func:`~dokimi.repos.shell_search.searched_files`), as :class:`Searched`
         paths among the reads. One at a directory not known is dropped, and not counted in ``unknown``, which counts reads."""
+        self.passthru |= passes_through(program, args)
         return [Searched(p) for p in self.named(searched_files(program, args), chdir)]
 
     def named(self, files: list[str], chdir: bool) -> list[str]:
@@ -611,11 +616,13 @@ def failed_search(script: str, rc: Any) -> bool:
     """Whether ``script`` exited 1 and every search in it is in its last part (``grep x A.md sub/A.md``, ``echo hi; grep x
     A.md``, ``cd sub && grep x A.md | head``): the exit status is that part's, and 1 is a search that matched no line in
     any file. A search before the last part (``grep x A.md; grep y B.md``) may be the one that showed lines."""
-    parts = [p.text for p in split_script(script) if p.text.strip()]
-    if rc != 1 or not parts:
+    if rc != 1:
         return False
-    total = len(shell_walked(script).searched)
-    return total > 0 and total == len(shell_walked(parts[-1]).searched)
+    found, walk = _walk_script(script, "")
+    # the same walk as the whole script's, so a ``cd`` that loses the directory hides no earlier search; ``rg --passthru``
+    # prints every line, so its exit 1 says nothing
+    earlier = any(isinstance(p, Searched) for p in found[:walk.last_start])
+    return not earlier and not walk.passthru and any(isinstance(p, Searched) for p in found[walk.last_start:])
 
 
 def _failed_read(script: str, rc: Any) -> bool:
@@ -633,7 +640,8 @@ def _failed_read(script: str, rc: Any) -> bool:
     parts = [p for p in (_ungrouped(part.text) for part in split_script(script)) if p]
     if rc in (None, 0) or not all(_is_cd(p) or _is_activate(p) for p in parts[:-1]):
         return False
-    return _walk_script(script, "")[1].operands == 1  # the printer's own operands, not the reads kept of them
+    walk = _walk_script(script, "")[1]
+    return walk.operands == 1 and not walk.passthru  # the printer's own operands, not the reads kept of them
 
 
 def _ungrouped(text: str) -> str:

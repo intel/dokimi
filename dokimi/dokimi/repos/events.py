@@ -46,6 +46,7 @@ import re
 from dataclasses import dataclass, field
 from collections.abc import Iterable
 from datetime import datetime
+from pathlib import PureWindowsPath
 from typing import Any
 
 from dokimi.context.trace import parse_trace
@@ -274,6 +275,12 @@ def _deny_read(read: dict[str, Any], unknown: bool) -> None:
         del read["path"]
 
 
+def _absolute(path: str) -> bool:
+    """Whether a tool's ``path`` is absolute as :func:`~dokimi.repos.transcript._from_cwd` reads it: POSIX or Windows
+    (``C:/ws/f``, ``C:\\ws\\f``, ``\\\\host\\share\\f``), a shell's ``cd`` does not change what it names."""
+    return path.startswith("/") or PureWindowsPath(path).is_absolute()
+
+
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
     """The event of one tool_use block; a Bash call's derived reads come before it when the trace ends (:func:`_walk_bash`)."""
     event = _tool_event(block, t, stream.workdir, stream.cwd)
@@ -281,7 +288,7 @@ def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: st
         event["agent"] = agent
     if block.get("name") == _SHELL_TOOL:
         stream.bash[id(event)] = _BashCall(str(event["text"]), event)
-    elif event.get("searched") and not str(block["input"].get("path")).startswith("/"):
+    elif event.get("searched") and not _absolute(str(block["input"].get("path"))):
         stream.relative_greps.add(id(event))
     if block.get("name") in _AGENT_TOOLS:
         out.subagent_calls = (out.subagent_calls or 0) + 1

@@ -144,6 +144,12 @@ def search_program(name: str, args: Sequence[str]) -> tuple[str, Sequence[str]] 
     return (name, args) if name in _SEARCHERS else None
 
 
+def passes_through(program: str, args: Sequence[str]) -> bool:
+    """Whether the search is ``rg --passthru`` (``--passthrough``): it prints every line of a file, matching or not, and
+    still exits 1 when none matched, so that exit says nothing about what it showed."""
+    return program == "rg" and bool({"--passthru", "--passthrough"} & search_words(program, args)[2])
+
+
 def searched_files(program: str, args: Sequence[str]) -> list[str]:
     """The operands of a search that prints lines of them (the pattern is none, nor a pattern file, nor stdin ``-``).
 

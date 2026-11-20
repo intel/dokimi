@@ -11,7 +11,7 @@ import json
 import pytest
 
 from dokimi.artifacts import schema_errors
-from dokimi.repos.cli_traces import shell_walk, shell_walked
+from dokimi.repos.cli_traces import failed_search, shell_walk, shell_walked
 from dokimi.repos.events import convert
 from dokimi.repos.probes import _operands
 from dokimi.repos.process_metrics import process_metrics
@@ -382,6 +382,61 @@ def test_copilot_bash_searches_follow_the_same_rules():
     powershell = _jsonl({"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "powershell",
                                                                    "arguments": {"command": "grep warn AGENTS.md"}}})
     assert "searched" not in convert("copilot-json", powershell, WS).events[0]  # PowerShell is not parsed
+
+
+def _searched_by_each_harness(command: str, rc: int, output: str) -> list[list[str] | None]:
+    """The ``searched`` of the one command a Claude Code, a Codex and a Copilot trace ran with this exit and output."""
+    claude = [e.get("searched") for e in _events(_call("a", command), _result("a", output, rc != 0))
+              if e["kind"] == "command"]
+    codex = [e.get("searched") for e in convert("codex-json", _codex(command, rc, True, output), WS).events
+             if e["kind"] == "command"]
+    raw = _jsonl({"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "bash",
+                                                            "arguments": {"command": command}}},
+                 {"type": "tool.execution_complete", "data": {"toolCallId": "a", "success": rc == 0,
+                                                              "shellExecution": {"exitCode": rc},
+                                                              "result": {"content": output}}})
+    copilot = [e.get("searched") for e in convert("copilot-json", raw, WS).events if e["kind"] == "command"]
+    return [*claude, *codex, *copilot]
+
+
+@pytest.mark.parametrize("command, files", [
+    ("rg --passthru zzz AGENTS.md sub/AGENTS.md", ["AGENTS.md", "sub/AGENTS.md"]),
+    ("rg --passthru zzz AGENTS.md", ["AGENTS.md"]),  # one file: its exit is the read-failure rule's too
+    ("rg --passthrough zzz AGENTS.md", ["AGENTS.md"]),
+    ("cd sub && rg --passthru zzz AGENTS.md | head", ["sub/AGENTS.md"]),
+])
+def test_an_rg_passthru_that_matched_nothing_still_showed_every_line(command, files):
+    assert _searched_by_each_harness(command, 1, "# a\nline\n") == [files] * 3  # exit 1 with the file's lines printed
+    plain = command.replace("--passthru ", "").replace("--passthrough ", "")
+    assert _searched_by_each_harness(plain, 1, "") == [None] * 3  # without it exit 1 is no line
+
+
+@pytest.mark.parametrize("command", [
+    'grep x AGENTS.md; cd "$D"; grep y sub/AGENTS.md',  # the second search's directory is lost; the first's is not
+    "grep x AGENTS.md; cd $(dirname $F) && grep y sub/AGENTS.md",
+])
+def test_a_failed_search_after_a_lost_directory_keeps_an_earlier_search_that_showed_lines(command):
+    assert _searched_by_each_harness(command, 1, "AGENTS.md:1:x") == [["AGENTS.md"]] * 3
+    assert failed_search(command, 1) is False
+
+
+@pytest.mark.parametrize("command", ['cd "$D"; grep y sub/AGENTS.md', 'echo hi; cd "$D"; grep y /ws/AGENTS.md'])
+def test_a_failed_search_whose_only_known_search_is_the_last_part_shows_no_line(command):
+    assert failed_search(command, 1) is (command.endswith("/ws/AGENTS.md"))
+
+
+@pytest.mark.parametrize("path", ["C:/ws/AGENTS.md", "C:\\ws\\AGENTS.md", "\\\\host\\share\\AGENTS.md"])
+def test_an_absolute_windows_grep_tool_path_after_a_bash_cd_stays_searched(path):
+    given = {"output_mode": "content", "path": path}
+    lines = (_call("a", "cd sub"), _result("a"), _grep_tool("g", **given), _result("g", "3:x"))
+    first = {"type": "system", "subtype": "init", "timestamp": "2026-01-01T00:00:00Z"}
+    events = convert("claude-stream-json", "\n".join(json.dumps(x) for x in (first, *lines)), "C:/ws", "").events
+    (grep,) = [e for e in events if e["kind"] == "tool"]
+    assert grep["searched"] == ([path] if path.startswith("\\\\") else ["AGENTS.md"])
+    relative = _grep_tool("g", output_mode="content", path="AGENTS.md")
+    events = convert("claude-stream-json", "\n".join(json.dumps(x) for x in (
+        first, *lines[:2], relative, _result("g", "3:x"))), "C:/ws", "").events
+    assert "searched" not in [e for e in events if e["kind"] == "tool"][0]  # a relative one still is not known
 
 
 @pytest.mark.parametrize("script", [
