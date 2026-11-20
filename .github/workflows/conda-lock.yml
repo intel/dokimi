@@ -22,7 +22,7 @@ jobs:
     name: Refresh the Intel CI conda locks
     # A fork has no use for the PR.
     if: github.repository == 'intel/dokimi'
-    runs-on: ${{ vars.GH_CI_RUNNER || 'intel-ubuntu-latest' }}
+    runs-on: ${{ vars.GH_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     permissions:
       contents: write

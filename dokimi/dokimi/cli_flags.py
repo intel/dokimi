@@ -412,5 +412,16 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
     FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
     FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
+    # Spend concept (F1b): a whole-command cap is --max-usd, a cap per agent run is --max-usd-per-cell.
+    FlagMove("--max-cost-usd", "--max-usd", leaves=(("tools", "preference"),)),
+    FlagMove("--max-batch-usd", "--max-usd", leaves=(("repo", "run"),)),
+    FlagMove("--budget", "--max-usd-per-cell", leaves=(
+        ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
+    )),
+    # Dry-run concept (F1b): estimate, make no paid call. `subjects run --work-dry-run` is not moved:
+    # it gates only executable-task agents, so it has no matching canonical meaning (see the allowlist).
+    FlagMove("--estimate-only", "--dry-run", leaves=(
+        ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
+    )),
 )
 

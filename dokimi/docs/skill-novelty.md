@@ -348,7 +348,7 @@ python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.j
   judges from three families cut the spread across panels from SD 0.039 to 0.025.
 
 Each extra judge grades every answer again, so it adds the judge's share of the cost.
-`--estimate-only` counts it, and `--max-usd` caps the whole panel.
+`--dry-run` counts it, and `--max-usd` caps the whole panel.
 
 ## Using it as an authoring tool
 
@@ -793,7 +793,7 @@ A catalog that holds the same `SKILL.md` under two paths (a plugin copy of its `
 tree) counts it once: the copy nearest the catalog root stands for the card, and the
 others are named on stderr.
 
-`--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
+`--dry-run` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
 is zero. Input is the selection prompt sized at `chars_per_input_token` (2.6) characters per token, counted
 locally with no tokenizer, so it is a projection, not a count. Output is `output_tokens_per_call` (150) times
@@ -883,7 +883,7 @@ field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_un
 `{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a single-artifact run
 records it too. An all-vs-all result also records `shared_queries` (`{shared, total}`: how many of the queries with a content word are listed for more than one skill), so a file saved from a run on shared queries says so. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
 `{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
-that failed to load refuses the run and names the load error. It refuses `--artifact`, `--queries` and `--queries-from-headings`: it takes `--queries-by-skill` only. `--estimate-only` prints the calls and the
+that failed to load refuses the run and names the load error. It refuses `--artifact`, `--queries` and `--queries-from-headings`: it takes `--queries-by-skill` only. `--dry-run` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
 no query sent; it needs no `--out`. `--reps` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
@@ -901,7 +901,7 @@ answers as well as the gold. A file of strings reads and saves as before: no new
 `acceptable` must be a list of strings and the object has no key besides `query` and `acceptable`, or the file
 is refused naming the file, the skill and the query; the gold named as its own alternative is dropped
 (also from a direct `all_vs_all` call, so a pick of the gold is never counted as both), and a blank `query` is dropped with its object. An acceptable name that is not in the field is refused,
-naming the skill, the query and the name, before an `--estimate-only` too; the alternatives of a skill
+naming the skill, the query and the name, before a `--dry-run` too; the alternatives of a skill
 the field leaves out (its queries are dropped with a WARNING) are moot and not checked. When the file names
 at least one alternative, each arm adds `acceptable_rate` per gold skill beside `own_rate`: the share of its scored queries
 (the same denominator) whose pick is the gold or one of that query's alternatives, and the summary prints
@@ -1243,10 +1243,10 @@ content, not on the tier.
 
 ```bash
 python cli.py skill novelty analyze --artifact skill:s --tier triage          # ~10x cheaper
-python cli.py skill novelty analyze --artifact skill:s --tier study --estimate-only
+python cli.py skill novelty analyze --artifact skill:s --tier study --dry-run
 ```
 
-`--estimate-only` prints the projected bill and exits without constructing a client, so
+`--dry-run` prints the projected bill and exits without constructing a client, so
 the decision costs nothing. Pricing imports litellm, which tries to fetch its price map
 from the network before it falls back to the copy bundled with the package; on a host
 with no network that is a pause of a few seconds and a warning. Setting
@@ -1321,11 +1321,11 @@ faithfulness forfeit, and `--all-atoms` or a skill with no more atoms than the c
 keeps every atom: `extraction.sampled` is `null`) drops the cap's one (that `added` is a rate
 over the sample of extracted atoms the cap kept, not over every atom). A capped run indexes its
 spans from every extracted atom, so `frac_carrying_nothing` is not forfeit. The forfeits do not
-depend on which atoms the cap kept (`--estimate-only` lists them before it is known). With
+depend on which atoms the cap kept (`--dry-run` lists them before it is known). With
 shortening on, a cap that left atoms out adds that ``shortening candidates are scored against a
 spread sample of 60 of the extracted atoms: `knowledge` and `value` are retention of that sample,
 not of every atom, though the sole carriers a safe candidate keeps come from every atom`` (60 at
-`standard`, 120 at `study`). `--estimate-only` cannot know the atom count yet, so it lists them:
+`standard`, 120 at `study`). `--dry-run` cannot know the atom count yet, so it lists them:
 
 > tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected
 > against the model matching the artifact's own wording
@@ -1435,7 +1435,9 @@ recorded sample) or, with `all_atoms: true`, every one, so a rate over a sample 
 the file's; records written before it have no `sampling`. Every novelty
 `ref_digest` is the bundle's `measured_digest` (the measured files' paths and text digests);
 the subject scorecard's `subject.ref_digest` is a different hash, of every file under the
-subject path, and the two are not meant to match. `shorten`
+subject path (each file's path and content as separate fixed-width digests; a scorecard
+written by an earlier release hashed them differently, so its `ref_digest` differs for
+the same tree), and the two are not meant to match. `shorten`
 rewrites one file, so with a bundle-derived atom set it scores only the entry point's spans
 and says so.
 
