@@ -181,7 +181,8 @@ def test_another_judge_model_is_not_read_as_noise():
 def test_another_judge_panel_or_rule_with_the_same_first_judge_is_not_read_as_noise():
     first = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.5, seed=0), judges=["j1", "j2"], rule="median")}
     second = {"skill:/s/a": _judged(_artifact("skill:/s/a", 0.6, seed=2), judges=["j1", "j3"], rule="majority")}
-    assert pair_runs(first, second, "lenient")["warnings"] == []
+    text = " ".join(pair_runs(first, second, "lenient")["warnings"])
+    assert "graded differently (judges, rule)" in text
 
 
 def test_the_same_panel_with_measured_values_that_vary_gives_no_warning():
@@ -355,6 +356,29 @@ def test_a_run_with_no_probed_atom_is_unscored_not_a_zero():
     paired = pair_runs({"skill:/s/a": first}, {"skill:/s/a": second}, "lenient")
     assert paired["pairs"] == []
     assert paired["unscored"] == ["skill:/s/a"]
+
+
+def test_a_run_whose_baseline_grades_all_errored_is_unscored_not_a_zero():
+    first = _artifact("skill:/s/a", 0.0, seed=0)
+    first["atoms"] = {"n": 3, "n_probed": 3}
+    first["arms"] = {"lenient": {"full": 0.5}, "strict": {"full": 0.4}}
+    second = _artifact("skill:/s/a", 0.4, seed=2)
+    second["arms"] = {"lenient": {"no_artifact": 0.4, "full": 0.5}}
+    paired = pair_runs({"skill:/s/a": first}, {"skill:/s/a": second}, "lenient")
+    assert paired["pairs"] == []
+    assert paired["unscored"] == ["skill:/s/a"]
+
+
+def test_scores_near_the_float_maximum_give_no_nan_floor():
+    pairs = [{"ref": "skill:/s/a", "first": 1.7e308, "second": -1.7e308},
+             {"ref": "skill:/s/b", "first": 0.1, "second": 0.2}]
+    assert retest_summary(pairs)["floor"] is None
+
+
+def test_a_novelty_file_that_is_not_utf8_is_refused_as_bad_input(tmp_path):
+    (tmp_path / "novelty.json").write_bytes(b'{"artifact": {"ref": "skill:/s/\xff"}}')
+    with pytest.raises(InputError, match="novelty.json"):
+        load_runs(tmp_path)
 
 
 def test_tier_forfeits_that_follow_the_atom_count_are_not_a_settings_change():

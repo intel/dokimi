@@ -19,6 +19,7 @@ import statistics
 from pathlib import Path
 
 from dokimi.eval.correlation import pearson
+from dokimi.novelty.measure import BASELINE_ARM
 from dokimi.utils import InputError
 
 NOISE_Z = 1.96  # two-sided 95%
@@ -43,9 +44,13 @@ def _score(artifact: dict, scoring: str) -> float | None:
     return float(value)
 
 
-def _unprobed(artifact: dict) -> bool:
-    """A run whose extraction left no atom to probe: its ``k0`` of 0.0 is no measurement."""
-    return _dict(artifact.get("atoms")).get("n_probed") == 0
+def _unprobed(artifact: dict, scoring: str) -> bool:
+    """A run with no baseline measurement: no atom to probe, or every baseline grade errored.
+    Its ``k0`` of 0.0 is then no measurement."""
+    if _dict(artifact.get("atoms")).get("n_probed") == 0:
+        return True
+    arms = _dict(artifact.get("arms")).get(scoring)
+    return isinstance(arms, dict) and BASELINE_ARM not in arms
 
 
 def _config_value(config: dict, key: str):
@@ -72,7 +77,7 @@ def load_runs(path: Path) -> dict[str, dict]:
     for file in files:
         try:
             artifact = json.loads(file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise InputError(f"cannot read {file}: {exc}") from exc
         if not isinstance(artifact, dict) or not isinstance(artifact.get("artifact"), dict):
             raise InputError(f"{file} is not a novelty artifact (no artifact block)")
@@ -86,7 +91,12 @@ def load_runs(path: Path) -> dict[str, dict]:
 
 
 def _judging(run: dict) -> dict:
-    return {"judge_model": run.get("judge_model")}
+    panel = _dict(run.get("judge_panel"))
+    return {
+        "judge_model": run.get("judge_model"),
+        "judges": panel.get("judges"),
+        "rule": panel.get("rule"),
+    }
 
 
 def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
@@ -143,7 +153,7 @@ def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> 
         a, b = first[ref], second[ref]
         score_a, score_b = _score(a, scoring), _score(b, scoring)
         if (score_a is None or score_b is None or a.get("partial") or b.get("partial")
-                or _unprobed(a) or _unprobed(b)):
+                or _unprobed(a, scoring) or _unprobed(b, scoring)):
             unscored.append(ref)
             continue
         warnings.extend(_pair_warnings(ref, a, b))
@@ -183,7 +193,7 @@ def retest_summary(pairs: list[dict], scoring: str = "lenient") -> dict:
     second = [p["second"] for p in pairs]
     diffs = [b - a for a, b in zip(first, second, strict=True)]
     n = len(pairs)
-    sd = round(statistics.stdev(diffs), 4) if n >= 2 else None
+    sd = round(statistics.stdev(diffs), 4) if n >= 2 and all(map(math.isfinite, diffs)) else None
     floor = round(NOISE_Z * sd, 4) if sd is not None else None
     below = []
     if floor is not None:

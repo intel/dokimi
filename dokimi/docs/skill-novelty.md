@@ -1060,7 +1060,7 @@ totals have no variance, or when nothing is left to correlate against. Only atom
 cell scored are correlated (the rest are reported in `atoms_dropped`): counting a missing
 probe as a failure would manufacture a correlation, and leaving a one-cell atom in the rest
 score moved the shared atoms' totals and could flip their sign. The correlation itself
-lives in `eval/stats.py`, next to the other statistics, so the next caller finds it instead
+lives in `eval/correlation.py`, next to the other statistics, so the next caller finds it instead
 of writing its own.
 
 Read the output as a statement about the *measurement*, not the atom: a non-discriminating
