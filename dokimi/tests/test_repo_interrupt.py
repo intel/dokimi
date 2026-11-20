@@ -266,7 +266,7 @@ def test_a_cell_that_starts_after_the_halt_drops_before_reserving_preparing_or_s
     root, runs = _repo(tmp_path), tmp_path / "runs"
     try:
         with pytest.raises(BatchInterrupted, match="not started after Ctrl-C"):
-            _run(root, runs, DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--max-batch-usd", "5")
+            _run(root, runs, DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--max-usd", "5")
     finally:
         container_mod.clear_halt()
     batch = runs / "b1"

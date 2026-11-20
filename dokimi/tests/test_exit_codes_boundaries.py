@@ -402,7 +402,7 @@ def test_repo_reach_from_saved_git_read_that_fails_keeps_exit_1(tmp_path, monkey
     repo.mkdir()
     saved = tmp_path / "reach.json"
     saved.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr("dokimi.commands.repo._saved_reach_inputs",
+    monkeypatch.setattr("dokimi.commands.repo_reach._saved_reach_inputs",
                         lambda args: (SimpleNamespace(name="claude-code"), SimpleNamespace(), {"scenarios": []}))
     monkeypatch.setattr("dokimi.repos.open_source", lambda source, cache: SimpleNamespace(sha="a" * 40))
     monkeypatch.setattr("dokimi.commands.repo._load_manifest", lambda tree, args, **kwargs: SimpleNamespace(id="m"))
