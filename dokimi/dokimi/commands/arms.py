@@ -566,7 +566,7 @@ def _with_named_cell(config: ArmsRunConfig, matrix_cells: str | None,
 
 
 def _write_report(path: Path, text: str) -> None:
-    """Write a Markdown report, or exit 1 naming ``path`` when it cannot be written."""
+    """Write a Markdown report, or exit 2 naming ``path`` when it cannot be written."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
@@ -576,7 +576,7 @@ def _write_report(path: Path, text: str) -> None:
 
 
 def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
-    """``save_artifact``, or exit 1 naming ``path`` when it cannot be written."""
+    """``save_artifact``, or exit 2 naming ``path`` when it cannot be written."""
     from dokimi.artifacts import save_artifact
 
     try:
