@@ -24,7 +24,6 @@ from dokimi.commands.catalog_scan import (
     ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
     unrestricted_and_risky,
 )
-from dokimi import cli_flags
 from dokimi.utils import InputError
 
 
