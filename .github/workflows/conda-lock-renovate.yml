@@ -27,7 +27,7 @@ jobs:
       github.repository == 'intel/dokimi'
       && !(github.event.head_commit.author.email == '41898282+github-actions[bot]@users.noreply.github.com'
       && startsWith(github.event.head_commit.message, 'ci(conda-lock): re-solve the Intel CI conda locks'))
-    runs-on: ${{ vars.GH_CI_RUNNER || 'intel-ubuntu-latest' }}
+    runs-on: ${{ vars.GH_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -74,7 +74,7 @@ jobs:
     name: Push the re-solved locks to the branch
     needs: resolve
     if: needs.resolve.outputs.changed == 'true'
-    runs-on: ${{ vars.GH_CI_RUNNER || 'intel-ubuntu-latest' }}
+    runs-on: ${{ vars.GH_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     # The push goes through CONDA_LOCK_TOKEN (gh auth setup-git); GITHUB_TOKEN only reads here.
     permissions:

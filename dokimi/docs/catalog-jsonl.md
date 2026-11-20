@@ -35,7 +35,7 @@ The text on stdout is only the counts. A run killed midway keeps the whole lines
 | `path` | string or null | the skill's directory as scanned; when a manifest `catalog_path` names a SKILL.md file, that file |
 | `relpath` | string or null | the skill's directory relative to the scanned root, with `/` separators |
 | `nested_in` | string or null | the relpath of the skill whose directory holds this one; null when it is not nested |
-| `state` | `ok`, `warn` or `error` | `error` for a load error or an error finding, `warn` for a warning only, else `ok`; `ignored` codes are left out |
+| `state` | `ok`, `warn`, `error` or `skipped` | `error` for a load error or an error finding, `warn` for a warning only, `skipped` for an unloaded skill no format rule read (an unsupported host's plain Markdown), else `ok`; `ignored` codes are left out |
 | `error` | string or null | the load error, when the skill did not load |
 | `disable_model_invocation` | boolean | the skill sets `disable-model-invocation: true`, so the description-quality checks skip it; the frontmatter length limit still applies |
 | `content_sha256` | string or null | digest of the SKILL.md text; null when there is no review |
