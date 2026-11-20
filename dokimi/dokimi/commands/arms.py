@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi import cli_flags
-from dokimi.commands.novelty_routing_report import _partial_destinations
+from dokimi.commands.novelty_budget import partial_destination
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import InputError, question_id
@@ -604,10 +603,8 @@ class _Partial:
     def name(self) -> Path:
         """The file's path, named on the first call; ``InputError`` when it cannot be named."""
         if self._path is None:
-            # Not the file a symlinked out resolves to (a dangling one included): its save would replace the partial file.
-            target = os.path.realpath(self.out_json)
             try:
-                self._path = next(p for p in _partial_destinations(self.out_json) if os.path.realpath(p) != target)
+                self._path = partial_destination(self.out_json)
             except OSError as exc:
                 raise InputError(f"cannot write {self.out_json}: {exc}") from exc
         return self._path
