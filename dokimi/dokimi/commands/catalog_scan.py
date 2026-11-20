@@ -206,7 +206,7 @@ def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iter
 
 
 def fails_on_finding(row: dict, fail_on: frozenset[str]) -> bool:
-    """Whether a finding left in the row (after ``--ignore``) has a code selected by ``--fail-on`` (#942)."""
+    """Whether a finding left in the row (after ``--ignore``) has a code selected by ``--fail-on-code`` (#942)."""
     return bool(fail_on) and any(f["code"] in fail_on for f in row["findings"])
 
 
@@ -233,9 +233,9 @@ class _Tally:
     """Counts of the rows by state, and whether the scan must exit 1.
 
     It must on a load error; under ``--strict`` also on a spec error, and on a skill that grants
-    unrestricted Bash and also has a risky command (:func:`unrestricted_and_risky`); and on any row with a
-    finding selected by ``--fail-on`` (:func:`fails_on_finding`). ``reasons`` holds
-    the :func:`strict_reason` line of each row that fails that last way.
+    unrestricted Bash and also has a risky command (:func:`unrestricted_and_risky`), whose
+    :func:`strict_reason` line goes into ``reasons``; and on any row with a finding selected by
+    ``--fail-on-code`` (:func:`fails_on_finding`), with a ``fail-on-code:`` line in ``reasons``.
     """
 
     def __init__(self, strict: bool, fail_on: frozenset[str] = frozenset()) -> None:
