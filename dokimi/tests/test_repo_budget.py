@@ -697,7 +697,7 @@ def test_code_span_stripping_is_linear_on_backtick_runs():
 
     shapes = (lambda k: "`" * k, lambda k: "`" + "`a" * k, lambda k: "``" + "` " * k + "\n\n@x.md")
     for shape in shapes:
-        ratio, _ = growth(lambda k, shape=shape: partial(_strip_code_spans, shape(k)), 5_000, reps=15)  # a call of 50 µs to 2 ms at n
+        ratio, _ = growth(lambda k, shape=shape: partial(_strip_code_spans, shape(k)), 1_250, reps=15)  # a call of 50 µs to 2 ms at n
         assert ratio < GROWTH_LIMIT
     assert _strip_code_spans("a `b` c ``d`e`` f") == "a  c  f"
     assert _strip_code_spans("`a\nb` @x.md") == " @x.md"

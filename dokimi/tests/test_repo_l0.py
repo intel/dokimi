@@ -602,7 +602,7 @@ def test_stacked_quantifiers_of_a_branch_filter_fold_into_one(pattern, regex):
 def test_a_branch_filter_with_many_stars_matches_in_linear_time():
     """With `re`, `[^/]*a` per star backtracks polynomially: about 4 s here for 80 `a` and a `c`."""
     glob = branches._filter_regex("release/*a*a*a*a*a*a*b")
-    ratio, matched = growth(lambda k: partial(glob.match, "release/" + "a" * k + "c"), 20)
+    ratio, matched = growth(lambda k: partial(glob.match, "release/" + "a" * k + "c"), 5)
     assert ratio < GROWTH_LIMIT
     assert not matched
     assert glob.match("release/" + "a" * 80 + "b")

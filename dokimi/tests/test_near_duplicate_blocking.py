@@ -235,7 +235,7 @@ def test_the_pass_compares_few_of_the_pairs_of_5000_skills(monkeypatch):
     """A catalog-like corpus (a long word tail, few near-copies) takes about 0.3% of the pairs, not all of them.
 
     The pass is counted, not timed: a count is the same on a slow runner. Its CPU time grows about
-    10x from 1250 to 5000 skills, so a ratio under ``GROWTH_LIMIT`` would not hold. The dense corpus
+    10x from 1250 to 5000 skills, so a ratio under ``GROWTH_LIMIT`` (n to 16n) would not hold. The dense corpus
     above is the worst case for the filters, and is kept for the equivalence checks only. The pairs
     compared still grow about 17x for 4x the skills, so only the share is bounded: the prefix filter
     alone leaves 2.3% of the pairs, with the positional bound 0.32%.
