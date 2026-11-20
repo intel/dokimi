@@ -70,6 +70,15 @@ def test_a_shorter_closing_fence_does_not_close():
     assert [s.kind for s in spans] == ["code"]
 
 
+def test_a_fence_line_with_text_after_it_does_not_close():
+    """A closing fence has nothing after its run: ```` ```python ```` is content."""
+    spans = segment("```\nx\n```python\nNot code. Really.\n")
+    assert [s.kind for s in spans] == ["code"]
+    assert dangling_fence("```\nx\n```python\n") == "```"
+    assert dangling_fence("~~~\nx\n~~~ note\n") == "~~~"
+    assert dangling_fence("```\nx\n```  \n") is None
+
+
 def test_dangling_fence_reads_the_whole_run():
     """#974: `dangling_fence` uses the same whole-run rule as `segment`."""
     assert dangling_fence("````\n```\ncode\n```\n") == "````"

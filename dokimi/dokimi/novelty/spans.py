@@ -118,21 +118,28 @@ def protection_tags(text: str) -> tuple[str, ...]:
     return tuple(tag for tag, rule in _PROTECTION_RULES if rule.search(text))
 
 
+def _closes(line: str, fence: str) -> bool:
+    """Whether ``line`` closes a block opened by ``fence``: the same character, a run at
+    least as long, and nothing after it."""
+    run = line.strip()
+    return run.startswith(fence) and not run.lstrip(fence[0])
+
+
 def dangling_fence(text: str) -> str | None:
     """The marker of a code fence ``text`` opens and never closes, or ``None``.
 
-    Same rule as :func:`segment`: a fence closes only on a line starting with the marker
-    that opened it (its whole run of characters), so ```` ``` ```` inside a ``~~~`` block or
-    a ```` ```` ```` block is content. Anything that
-    concatenates texts (the bundle renderer) must use this, not fence-line parity, or the
-    two disagree and the next text is swallowed into one code span.
+    Same rule as :func:`segment`: a fence closes only on a line holding nothing but a run
+    of the marker's character at least as long as the marker, so ```` ``` ```` inside a
+    ``~~~`` block or a ```` ```` ```` block, or ```` ```python ```` in any block, is
+    content. Anything that concatenates texts (the bundle renderer) must use this, not
+    fence-line parity, or the two disagree and the next text is swallowed into one code span.
     """
     marker: str | None = None
     for line in text.splitlines():
         if marker is None:
             opened = _FENCE.match(line)
             marker = opened.group(1) if opened else None
-        elif line.strip().startswith(marker):
+        elif _closes(line, marker):
             marker = None
     return marker
 
@@ -179,7 +186,7 @@ def segment(text: str) -> list[Span]:
             while i < len(lines):
                 block.append(lines[i])
                 offset += len(lines[i])
-                closed = lines[i].strip().startswith(fence)
+                closed = _closes(lines[i], fence)
                 i += 1
                 if closed:
                     break
