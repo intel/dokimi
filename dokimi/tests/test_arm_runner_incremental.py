@@ -487,3 +487,16 @@ def test_a_run_wide_stop_halts_the_other_questions_before_its_partial_save(monke
 
     assert q2["calls"] == 1  # q2's second arm is never asked
     assert records[1]["arms"]["other"]["error"].startswith("not_asked")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_an_out_symlinked_to_the_partial_name_keeps_the_finished_file(tmp_path, monkeypatch):
+    # --out is a dangling link to arms.partial.json: the whole run's save lands there, so the
+    # partial file takes the next name and its removal leaves the finished file alone.
+    _fake_llm(monkeypatch)
+    (tmp_path / "arms.json").symlink_to("arms.partial.json")
+    _run(_arms_argv(tmp_path))
+
+    finished = json.loads((tmp_path / "arms.json").read_text(encoding="utf-8"))
+    assert "partial" not in finished and len(finished["answers"]) == len(QUESTIONS)
+    assert not (tmp_path / "arms.partial2.json").exists()
