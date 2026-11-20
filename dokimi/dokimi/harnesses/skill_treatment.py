@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from dokimi.skills import load_skill
+from dokimi.skills.listing import listing_text_chars
 from dokimi.utils import parse_frontmatter
 
 TREATMENT_NOTICE = (
@@ -230,16 +231,14 @@ def skill_listing(skill_dir: Path) -> dict[str, Any]:
 
     The returned dict includes ``description_chars`` (the length of the listing
     entry text before truncation: description plus optional when_to_use with
-    ' - ' separator).
+    ' - ' separator, none for an empty when_to_use).
     """
     path = skill_dir / "SKILL.md"
     meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
-    text = str(meta.get("description") or "")
-    if meta.get("when_to_use") is not None:
-        text = f"{text} - {meta['when_to_use']}"
-    return {"description_chars": len(text), "max_desc_chars": LISTING_MAX_DESC_CHARS,
+    chars = listing_text_chars(str(meta.get("description") or ""), meta.get("when_to_use"))
+    return {"description_chars": chars, "max_desc_chars": LISTING_MAX_DESC_CHARS,
             "budget_chars": LISTING_BUDGET_CHARS,
-            "truncated": len(text) > LISTING_MAX_DESC_CHARS}
+            "truncated": chars > LISTING_MAX_DESC_CHARS}
 
 
 def stream_stats(stream: str, treatment: Optional[Treatment] = None) -> dict[str, Any]:
