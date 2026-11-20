@@ -397,8 +397,8 @@ def test_json_that_python_cannot_load_is_a_line_warning(line):
 
 @pytest.mark.outcome("cjm-context-trace")
 def test_cli_fill_is_rounded_once_from_the_token_counts(tmp_path, capsys):
-    """#962: docs/context-window.md: **fill** is peak over `--window`, rounded once to the
-    table's whole percent."""
+    """#962: docs/context-window.md: **fill** is peak over `--window` as a whole percent,
+    rounded once from the token counts."""
     # 198,999 / 200,000 = 99.4995%: rounding to 4 places first gave 99.5% and showed 100%
     t = tmp_path / "fill.jsonl"
     t.write_text(_jsonl(_assistant("m1", _usage(198999, 0, 0))), encoding="utf-8")
