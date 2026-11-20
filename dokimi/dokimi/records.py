@@ -276,10 +276,11 @@ def read(data: Any, *, source: str = "<input>", section: Optional[str] = None, r
 
 
 def partial_refusal(data: Mapping[str, Any], source: str) -> Optional[str]:
-    """Why *data* is not read, when it is what an arms run keeps while it answers (its ``partial``
-    block, #228 step 4): a prefix of a run that never finished, not a measurement."""
+    """Why *data* is not read, when it is what an arms run keeps while it answers (an ``arms.v1``
+    file with a ``partial`` block, #228 step 4): a prefix of a run that never finished, not a measurement.
+    Another kind's ``partial`` block (a novelty stop record) is not this one's to refuse."""
     block = data.get("partial")
-    if not isinstance(block, Mapping):
+    if data.get("schema_version") != "arms.v1" or not isinstance(block, Mapping):
         return None
     return (f"{source} is the partial file of a run that did not finish: {block.get('questions_recorded')} of "
             f"{block.get('questions_requested')} questions answered and none judged. Rerun the command "

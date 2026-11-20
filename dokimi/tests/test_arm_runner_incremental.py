@@ -409,3 +409,10 @@ def test_a_failed_final_save_names_the_partial_file_with_every_answer(tmp_path, 
     assert f"Error: cannot write {out}" in err
     assert f"(4 answered questions are kept in {partial})" in err
     assert json.loads(partial.read_text(encoding="utf-8"))["partial"]["questions_recorded"] == 4
+
+
+def test_a_novelty_stop_record_is_not_refused_as_an_arms_partial_file():
+    # novelty/analyze_partial.py writes its own `partial` block; records.read reads it as before.
+    stop = {"schema_version": "novelty.v1",
+            "partial": {"reason": "spend_cap", "stage": "measurement", "message": "m"}}
+    assert len(records.read(stop, section="evaluations", required=False)) == 0
