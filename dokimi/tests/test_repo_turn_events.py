@@ -164,7 +164,9 @@ def test_every_turn_and_compaction_line_validates_against_the_schema():
 
 def test_a_turn_without_its_counts_does_not_validate():
     turn = {"kind": "turn", "t": None, "turn": 0, "input": 1, "output": 1}  # no cache or prompt counts
-    assert schema_errors("repo_event.v1", {**turn, "v": 1}) != []
+    assert schema_errors("repo_event.v2", {**turn, "v": 2}) != []
+    assert schema_errors("repo_event.v2", {**turn, "v": 2, "cache_read": None, "cache_write": None,
+                                           "prompt_tokens": None}) == []
 
 
 def test_a_claude_usage_missing_counts_are_null_not_zero():
