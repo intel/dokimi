@@ -1,11 +1,11 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The near-duplicate pass compares only the candidate pairs its prefix filter finds (``_near_duplicates``).
+"""The near-duplicate pass compares only the candidate pairs its prefix and positional filters find (``_near_duplicates``).
 
-The filter must never skip a pair that the all-pairs check would flag, so the findings are compared with a
-brute-force pass over every pair (``_brute_force``), on seeded random descriptions, and the pairs the pass
-compares in a 5000-skill corpus are counted.
+The filters must never skip a pair that the all-pairs check would flag, so the findings are compared with a
+brute-force pass over every pair (``_brute_force``), on seeded random descriptions and at the edges of the
+bounds, and the pairs the pass compares in a 5000-skill corpus are counted.
 """
 
 from __future__ import annotations
@@ -196,16 +196,53 @@ def test_equal_frequency_words_are_ordered_the_same_for_every_skill():
     assert flagged > 0  # the corpus has near-duplicates, so the comparison is not vacuous
 
 
+def _pair_rows(size: int, other: int, shared: int):
+    """Two skills of ``size`` and ``other`` words that share exactly ``shared`` of them."""
+    common = [f"s{chr(97 + n)}x" for n in range(shared)]
+    first = common + [f"a{chr(97 + n)}x" for n in range(size - shared)]
+    second = common + [f"b{chr(97 + n)}x" for n in range(other - shared)]
+    return [("r", "one", " ".join(first), "d1", False), ("r", "two", " ".join(second), "d2", False)]
+
+
+@pytest.mark.parametrize(
+    ("size", "other", "shared", "flagged"),
+    [
+        (4, 5, 3, True),  # 3 shared in a union of 6
+        (3, 6, 3, True),  # sizes differ by exactly 2x, Jaccard exactly 0.5
+        (4, 8, 4, True),
+        (5, 10, 5, True),
+        (6, 6, 4, True),  # 4 shared in a union of 8: (6 + 6) / 3 is an integer
+        (7, 8, 5, True),  # 5 shared in a union of 10: (7 + 8) / 3 is an integer
+        (3, 7, 3, False),  # sizes differ by more than 2x
+        (4, 9, 4, False),
+        (6, 6, 3, False),  # Jaccard 1/3
+    ],
+)
+def test_pairs_at_the_edge_of_the_size_and_overlap_bounds(monkeypatch, size, other, shared, flagged):
+    rows = _pair_rows(size, other, shared)
+    fast, slow = _loaded(rows), _loaded(rows)
+    compared = []
+    monkeypatch.setattr(validate, "_jaccard", lambda a, b: compared.append(1) or _jaccard(a, b))
+    _near_duplicates(fast)
+    monkeypatch.undo()
+    _brute_force(slow)
+    assert _findings(fast) == _findings(slow)
+    assert [code for code, _ in _findings(fast)[0]] == (["description-near-duplicate"] if flagged else [])
+    assert bool(compared) == flagged  # a pair outside the bounds is not even a candidate
+
+
 def test_the_pass_compares_few_of_the_pairs_of_5000_skills(monkeypatch):
-    """A catalog-like corpus (a long word tail, few near-copies) takes about 2% of the pairs, not all of them.
+    """A catalog-like corpus (a long word tail, few near-copies) takes about 0.3% of the pairs, not all of them.
 
     The pass is counted, not timed: a count is the same on a slow runner. Its CPU time grows about
     10x from 1250 to 5000 skills, so a ratio under ``GROWTH_LIMIT`` would not hold. The dense corpus
-    above is the worst case for the prefix filter, and is kept for the equivalence checks only.
+    above is the worst case for the filters, and is kept for the equivalence checks only. The pairs
+    compared still grow about 17x for 4x the skills, so only the share is bounded: the prefix filter
+    alone leaves 2.3% of the pairs, with the positional bound 0.32%.
     """
     loaded = _loaded(_corpus(7, count=5000, pool=wide_vocabulary(7), near_copy=0.02))
     compared = []
     monkeypatch.setattr(validate, "_jaccard", lambda a, b: compared.append(1) or _jaccard(a, b))
     _near_duplicates(loaded)
-    assert len(compared) < 0.05 * (5000 * 4999 // 2)
+    assert len(compared) < 0.005 * (5000 * 4999 // 2)
     assert any(review.findings for _, _, review in loaded)  # the near-copies are found, so the pass did work
