@@ -23,12 +23,12 @@
   - A `DOKIMI_OP` marker or `operations.jsonl` line that is valid JSON but not an object (a
     list, a number, `null`), or valid JSON that Python cannot hold (nested too deep, an integer
     over 4300 digits), is recorded as a `log_parse_error` operation instead of crashing the
-    harness run, an `operations.jsonl` line that is not UTF-8 is one of its own (the file's
-    other lines are read, where the whole file was one), and a record with a raw U+2028, U+2029
-    or U+0085 in a string, in `operations.jsonl` or a `DOKIMI_OP` marker, is read whole, where
-    it was cut into errors: those three no longer end a record, so two records joined by one of
-    them are one `log_parse_error` (a record ends at a newline, or at `\v`, `\f` or
-    `\x1c`-`\x1e`, as before), and every `log_parse_error`, unparsable JSON included, says why
-    in `metadata.error`; an `elapsed_sec` that is no finite number (an integer too large for a
-    float, `1e400`, `Infinity`, `NaN`, a string that is not a number) falls through to
-    `duration_sec`, as a missing one does, and the duration is 0 when neither is usable.
+    harness run. Every `log_parse_error`, unparsable JSON included, says why in
+    `metadata.error`. An `operations.jsonl` line that is not UTF-8 is a `log_parse_error` of its
+    own; the file's other lines are read, where the whole file was one. A record ends at a
+    newline, `\v`, `\f` or `\x1c`-`\x1e`, as before, but no longer at U+2028, U+2029 or U+0085,
+    which a JSON string may hold raw: a record with one of them in a string is read whole, where
+    it was cut into errors, and two records joined by one of them are one `log_parse_error`. An
+    `elapsed_sec` that is no finite number (an integer too large for a float, `1e400`,
+    `Infinity`, `NaN`, a string that is not a number) falls through to `duration_sec`, as a
+    missing one does, and the duration is 0 when neither is usable.
