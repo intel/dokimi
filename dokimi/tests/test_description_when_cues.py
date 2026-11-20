@@ -364,7 +364,9 @@ def test_the_counts_line_does_not_read_a_not_checked_skill_as_a_plain_ok(tmp_pat
         pytest.param("Formats SQL. Use when needed to tidy a migration file.", id="needed-then-purpose"),
         pytest.param("Formats SQL. Use when needed, e.g. before a review.", id="needed-comma"),
         pytest.param("Formats SQL. Use when the user asks for formatting, or when needed.", id="needed-after-real-clause"),
-        pytest.param("Formats SQL. Use this skill when needed.", id="use-this-skill-alone"),
+        pytest.param("Use it to find the dominant op.", id="use-it-to"),
+        pytest.param("Use this to tidy a migration file.", id="use-this-to"),
+        pytest.param("Formats SQL. Use this skill when needed to tidy a migration file.", id="use-this-skill-needed-purpose"),
     ],
 )
 def test_969_a_use_phrase_that_names_a_situation_is_accepted(description):
@@ -386,6 +388,8 @@ def test_969_a_use_phrase_that_names_a_situation_is_accepted(description):
         pytest.param("Formats SQL. Use whenever it\u2019s appropriate", id="whenever-curly-its-appropriate-end"),
         pytest.param("Formats SQL. (Use when relevant)", id="when-relevant-paren"),
         pytest.param("Formats SQL queries. Use when needed.   Use if useful?", id="two-fillers"),
+        pytest.param("Formats SQL. Use this skill when needed.", id="use-this-skill-when-needed"),
+        pytest.param("Formats SQL. Use it whenever appropriate", id="use-it-whenever-appropriate"),
     ],
 )
 def test_969_a_use_phrase_that_names_no_situation_is_flagged(description):

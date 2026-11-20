@@ -14,7 +14,7 @@ from typing import Optional
 # A "when" clause or use phrase per language: the model chooses a skill from its description alone.
 # Latin cues take word boundaries, CJK cues are substrings; bare 使用 (use) or 用于 (for) are too broad.
 WHEN_CUES = {
-    "en": r"\b(?:when\s+\w|use for\b|use to\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|"
+    "en": r"\b(?:when\s+\w|use for\b|use (?:it |this |these )?to\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|"
           r"activate\b|invoke this\b|use (?:it |this |these )?(?:when|if|whenever|proactively|anytime)\b|"
           # "Use after sglang-xpu-run." names a skill, not a situation: 2+ hyphens, no of/the/and/or/to/in/on/for part.
           # A dot ends the name only before a space or the end, so "pre-commit-hooks.sh" stays a cue (#969).
@@ -35,8 +35,9 @@ WHEN_CUES = {
 }
 WHEN_RE = re.compile("|".join(WHEN_CUES.values()), re.I)
 # "Use when needed.": a when whose only word is a filler names no situation. English only, a closed list.
+# "Use this skill when needed." is the same: the "use this skill" in front of the filler goes with it.
 _EMPTY_WHEN_RE = re.compile(
-    r"\b(?:when|whenever|if|anytime)\s+(?:it(?: is|['\u2019]s)\s+)?"
+    r"(?:\buse (?:this skill|it|this|these)\s+)?\b(?:when|whenever|if|anytime)\s+(?:it(?: is|['\u2019]s)\s+)?"
     r"(?:needed|necessary|appropriate|applicable|relevant|required|helpful|useful|possible|desired)\s*(?:[;!?)]|\.(?!\w)|$)",
     re.I,
 )
