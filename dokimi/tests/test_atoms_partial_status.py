@@ -113,8 +113,9 @@ def test_a_no_price_message_that_ends_with_the_advice_gets_it_once(tmp_path):
     assert text.count(_ADVICE["no_price"]) == 1
 
 
-@pytest.mark.parametrize("tail", [".", " ", ".\n", " . ", " . .", ". .  .\t"],
-                         ids=["period", "space", "period-newline", "spaced-period", "mixed", "mixed-long"])
+@pytest.mark.parametrize("tail", [".", " ", ".\n", " . ", " . .", ". .  .\t", "\u00a0", ".\u2028", "\u3000."],
+                         ids=["period", "space", "period-newline", "spaced-period", "mixed", "mixed-long",
+                              "no-break-space", "line-separator", "ideographic-space"])
 def test_a_message_with_trailing_periods_or_whitespace_after_the_advice_gets_it_once(tmp_path, tail):
     # docs/skill-novelty.md:1216-1217 (#921)
     message = _real_no_price_message() + tail
