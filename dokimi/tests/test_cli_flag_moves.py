@@ -76,15 +76,6 @@ def test_old_and_new_spellings_parse_to_the_same_value():
     assert arms_new.out_json == "a.json"
 
 
-def test_add_refuses_a_spelling_the_concept_does_not_own():
-    parser = argparse.ArgumentParser()
-    cli_flags.add(parser, "output", "--out", default=None)
-    with pytest.raises(ValueError, match="not a canonical spelling of `output`"):
-        cli_flags.add(parser, "output", "--output")
-    with pytest.raises(KeyError):
-        cli_flags.add(parser, "no-such-concept", "--out")
-
-
 @pytest.mark.parametrize(("old", "new"), [
     # `--max-tokens` was retrieval on four leaves and the output ceiling on ten (the tokens concept, F1b)
     (["answers", "generate", "--product", "p", "--max-tokens", "8"],
@@ -161,3 +152,12 @@ def test_every_token_move_tombstones_on_each_of_its_leaves(old, new, leaf, capsy
 def test_every_retrieval_leaf_refuses_a_count_below_one(leaf, value):
     with pytest.raises(argparse.ArgumentTypeError):
         _leaves_with("--retrieval-tokens")[leaf].type(value)
+
+
+def test_add_refuses_a_spelling_the_concept_does_not_own():
+    parser = argparse.ArgumentParser()
+    cli_flags.add(parser, "output", "--out", default=None)
+    with pytest.raises(ValueError, match="not a canonical spelling of `output`"):
+        cli_flags.add(parser, "output", "--output")
+    with pytest.raises(KeyError):
+        cli_flags.add(parser, "no-such-concept", "--out")
