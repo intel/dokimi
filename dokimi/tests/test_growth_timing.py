@@ -43,8 +43,8 @@ def test_growth_times_calls_shorter_than_a_clock_step(cost, low, high):
     assert low < ratio < high and result == cost(4_000)
 
 
-def _run(cost, slowed=()):
-    """``growth`` over ``cost``, the 4n samples of attempt ``i`` ``slowed[i]`` times dearer (1 past the tuple).
+def _run(cost, slowed=(), slowed_n=()):
+    """``growth`` over ``cost``, the 4n samples of attempt ``i`` ``slowed[i]`` times dearer, the n samples ``slowed_n[i]`` (1 past a tuple).
 
     Returns the ratio, the result and the attempts made: the 4n calls over those of one attempt, ``reps``
     samples of ``loops`` calls, ``loops`` the power of two that makes the n call span :data:`STEPS` steps.
@@ -55,12 +55,11 @@ def _run(cost, slowed=()):
     per_attempt = reps * loops
 
     def timed(size):
-        if size == 1_000:
-            return clock.work(cost(size))
+        factors = slowed_n if size == 1_000 else slowed
         def call():
-            calls[0] += 1
-            attempt = (calls[0] - 1) // per_attempt
-            return clock.work(cost(size) * (slowed[attempt] if attempt < len(slowed) else 1.0))()
+            attempt = calls[0] // per_attempt
+            calls[0] += size != 1_000
+            return clock.work(cost(size) * (factors[attempt] if attempt < len(factors) else 1.0))()
         return call
 
     ratio, result = growth(timed, 1_000, reps=reps, clock=clock)
@@ -73,10 +72,16 @@ def test_growth_measures_again_when_the_first_attempt_was_slowed():
     assert 3.6 < ratio < 4.4 and result == 4_000 * 1e-7 and attempts == 2
 
 
-def test_growth_returns_the_smallest_ratio_with_its_attempts_result():
-    """#1007: when every attempt is slowed (9, 12, 10), the smallest, 9, is returned, not the last."""
+def test_growth_keeps_the_best_sample_of_each_size_over_the_attempts():
+    """#1007: when every attempt is slowed (9, 12, 10), the best 4n sample, the first attempt's, gives 9, not the last ratio."""
     ratio, result, attempts = _run(lambda size: size * 1e-7, slowed=(2.25, 3.0, 2.5))
-    assert 8.6 < ratio < 9.4 and result == 4_000 * 1e-7 * 2.25 and attempts == 3
+    assert 8.6 < ratio < 9.4 and result == 4_000 * 1e-7 * 2.5 and attempts == 3
+
+
+def test_growth_of_quadratic_work_is_not_hidden_by_a_burst_on_the_n_samples():
+    """#1007: quadratic work with the 4n samples 1.5x slow (ratio 24), then the n samples 2.25x slow (7.11), still shows 16."""
+    ratio, _, attempts = _run(lambda size: size ** 2 * 1e-10, slowed=(1.5,), slowed_n=(1.0, 2.25))
+    assert 14.4 < ratio < 17.6 and attempts == 3
 
 
 def test_growth_of_quadratic_work_stays_near_16_after_all_attempts():
