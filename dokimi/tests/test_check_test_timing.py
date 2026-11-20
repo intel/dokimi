@@ -82,7 +82,8 @@ def test_a_tests_root_that_is_not_a_directory_exits_2_and_leaves_the_baseline_al
         assert entries(tmp_path) == baseline
 
 
-@pytest.mark.parametrize("content", ['{"files": null}', '[1]', '{"files": {"tests/a.py": null}}', "{not json"])
+@pytest.mark.parametrize("content", ['{"files": null}', '[1]', '{"files": {"tests/a.py": null}}', "{not json",
+                                     '{"files": {"tests/a.py": 1.9}}', '{"files": {"tests/a.py": "2"}}'])
 def test_a_baseline_that_is_not_one_fails_naming_it(tmp_path, capsys, content):
     (tmp_path / "tests").mkdir()
     (tmp_path / "baseline.json").write_text(content, encoding="utf-8")
@@ -183,6 +184,12 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("import time\n[0 for _ in (0,) if [(time := None) for x in (time.sleep(1),)]]\n", {"time.sleep": 1}),
     ("import time\n[0 for _ in (0,) if [(time := None) for x in (0,)]]\ntime.sleep(1)\n", {}),
     ("import time\n[[(time := None) for x in (0,)] for _ in (time.sleep(1),)]\n", {"time.sleep": 1}),
+    ("import time\nf = lambda x=(time := None): x\ntime.sleep(1)\n", {}),
+    ("import time\n\n\ndef f(x=(time := None)):\n    pass\n\n\ntime.sleep(1)\n", {}),
+    ("import time\n\n\n@(lambda g: g)(time := None)\ndef f():\n    pass\n\n\ntime.sleep(1)\n", {}),
+    ("import time\n\n\nclass C((time := object)):\n    pass\n\n\ntime.sleep(1)\n", {}),
+    ("import time\n\n\nclass C((t := object)):\n    pass\n\n\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\nf = lambda: (time := None)\ntime.sleep(1)\n", {"time.sleep": 1}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])

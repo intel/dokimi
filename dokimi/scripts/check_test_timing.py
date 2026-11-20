@@ -139,11 +139,15 @@ def _bind(node: ast.AST, names: Names, at: Pos | None = None, *, local: bool = F
         _bind_import(node, names)
     elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         _note(names, node.name, _end(node), None)
+        for part in _outer_parts(node):
+            _bind_walruses(part, names, ())
+    elif isinstance(node, ast.Lambda):
+        _bind_walruses(node, names, ())
     elif isinstance(node, COMPREHENSIONS):
         _bind_walruses(node, names, ())
     elif isinstance(node, ast.AnnAssign) and node.value is None and not local:
         _bind(node.annotation, names, local=local)
-    elif not isinstance(node, ast.Lambda):
+    else:
         if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
             at = _end(node)
         _bind_target(node, names, at)
@@ -323,10 +327,9 @@ def load_baseline(path: Path) -> dict[str, int]:
     files = data.get("files", {}) if isinstance(data, dict) else None
     if not isinstance(files, dict):
         raise ValueError('expected {"files": {"<file>": <count>}}')
-    try:
-        return {k: int(v) for k, v in files.items()}
-    except (TypeError, ValueError):
-        raise ValueError("a count is not an integer") from None
+    if not all(type(v) is int for v in files.values()):
+        raise ValueError("a count is not an integer")
+    return dict(files)
 
 
 def dump_baseline(files: dict[str, int]) -> str:
