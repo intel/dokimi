@@ -52,7 +52,7 @@ python cli.py benchmark run \
   --model gpt-6.1-sol \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --multi-run 3
+  --reps 3
 ```
 
 Use `evaluate` for an ad hoc product:
@@ -213,13 +213,13 @@ Every serious run should answer "Can we trust this run?" before interpreting del
 - score coefficient of variation (both-arm-scored questions only),
 - inter-rater agreement when panel data exists,
 - retrieval hit rate — the share of questions where at least one document reached the `with_docs` prompt, from the per-evaluation `retrieval_hit` the judge and panel record; eval files judged before that field existed show it as not measured, and so do files where fewer than 80% of evaluations record it (`min_retrieval_coverage`), since the rate would then describe a subset,
-- multi-run variance when `--multi-run N` is used.
+- multi-run variance when `--reps N` is used.
 
 A check whose input the run did not produce passes without blocking or warning, but is shown as not measured, never as a pass: the verdict line reads e.g. `PASS (1 of 7 not measured)`, and the JSON report lists those checks under `trust.not_measured`. The same holds for the average delta, the score coefficient of variation and the multi-run variance when the arm means differ, or the scores or per-run averages spread, by more than the float range (scores of about 1e308 in both signs).
 
 For reproducibility:
 
-- Prefer `--multi-run 3` or higher for stability-sensitive claims.
+- Prefer `--reps 3` or higher for stability-sensitive claims.
 - Use `--questions-from` when comparing models so all models answer the same question set.
 - Keep one fixed retrieval configuration per run.
 - Preserve `question_set_hash`, model/provider metadata, and committed golden question sets.

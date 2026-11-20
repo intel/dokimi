@@ -55,7 +55,7 @@ def test_a_plan_naming_one_cell_twice_is_refused_before_any_agent(setup, capsys,
     # cfg/code_main_dup_plan.cfg: two threads took one cell; the second rmtree'd the first one's directory while
     # its agent ran, and the first then wrote result.json next to the second one's meta.json and answer.txt.
     with pytest.raises(SystemExit) as exc:
-        _run(setup, *extra, "--jobs", "2", models=models)
+        _run(setup, *extra, "--concurrency", "2", models=models)
     assert exc.value.code == 1
     assert "is planned 2 times" in capsys.readouterr().err
     assert not _agents(setup)
@@ -65,7 +65,7 @@ def test_a_plan_naming_one_cell_twice_is_refused_before_any_agent(setup, capsys,
 def test_every_repeated_cell_is_named_in_the_refusal(setup, capsys):
     # two repeated --task values plan two cells twice: the refusal names both, not only the first
     with pytest.raises(SystemExit) as exc:
-        _run(setup, "--task", "fix_add", "--task", "fix_add", "--reps", "2", "--jobs", "2")
+        _run(setup, "--task", "fix_add", "--task", "fix_add", "--reps", "2", "--concurrency", "2")
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert "cell fix_add__guidance-raw__m-1__r1 is planned 2 times" in err
@@ -77,7 +77,7 @@ def test_names_that_differ_only_in_case_are_refused_before_any_agent(setup, caps
     # on a case-insensitive volume (default macOS APFS) ...__m-1__r1 and ...__M-1__r1 are one directory: the
     # run of one would rmtree the other's while it works in it
     with pytest.raises(SystemExit) as exc:
-        _run(setup, "--task", "fix_add", "--jobs", "2", models=("m-1", "M-1"))
+        _run(setup, "--task", "fix_add", "--concurrency", "2", models=("m-1", "M-1"))
     assert exc.value.code == 1
     assert "case-insensitive volume" in capsys.readouterr().err
     assert not _agents(setup)
@@ -117,7 +117,7 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     old = signal.signal(signal.SIGINT, signal.default_int_handler)  # a shell may have left SIGINT ignored
     try:
         with pytest.raises(KeyboardInterrupt):
-            _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
+            _run(setup, "--task", "fix_add", "--reps", "5", "--concurrency", "2")
     finally:
         signal.signal(signal.SIGINT, old)
     batch = setup["out"] / "b1"
@@ -169,7 +169,7 @@ def test_an_interrupt_during_submission_starts_no_queued_cell(setup, monkeypatch
     monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "submit", submit)
     monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "shutdown", shutdown)
     with pytest.raises(KeyboardInterrupt):
-        _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
+        _run(setup, "--task", "fix_add", "--reps", "5", "--concurrency", "2")
     assert all(ended.acquire(timeout=30) for _ in range(2))  # running cells finish, maybe after run_batch raised
     assert sorted(started) == [1, 2]
     assert waited == [True, True]  # both running cells were released by the cancel
@@ -331,7 +331,7 @@ out = tmp / "runs"
 sys.argv = ["dokimi", "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
             str(profile), "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out-dir", str(out),
             "--cache-root", str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw",
-            "--task", "fix_add", "--reps", "5", "--jobs", "2"]
+            "--task", "fix_add", "--reps", "5", "--concurrency", "2"]
 cli.main()
 """
 
