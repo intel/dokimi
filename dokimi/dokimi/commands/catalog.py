@@ -188,6 +188,24 @@ def _refuse_unknown_codes(args: argparse.Namespace, codes: tuple) -> None:
             raise InputError(f"{flag} {', '.join(unknown)}: not a finding code; the codes are {', '.join(codes)}")
 
 
+# Codes only the whole-catalog scan reports, and the codes only --online reports: a gate on one the scan
+# does not check would read "not checked" as a pass.
+CROSS_CATALOG_CODES = ("description-near-duplicate", "duplicate", "mirror-drift", "name-conflict")
+ONLINE_CODES = ("link-dead", "package-not-found")
+
+
+def _refuse_unchecked_fail_on(args: argparse.Namespace) -> None:
+    """Raise InputError when --fail-on-code names a code this scan mode never reports."""
+    given = set(args.fail_on or ())
+    cross = sorted(given & set(CROSS_CATALOG_CODES))
+    if cross and args.per_skill:
+        raise InputError(f"--fail-on-code {', '.join(cross)}: --per-skill does not run the cross-catalog checks, "
+                         "so the code is never reported; drop --per-skill")
+    online = sorted(given & set(ONLINE_CODES))
+    if online and not args.online:
+        raise InputError(f"--fail-on-code {', '.join(online)}: only --online reports it; add --online")
+
+
 def _check_scan_flags(args: argparse.Namespace) -> None:
     """Raise InputError on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
     from dokimi.external.validate import FINDING_CODES
@@ -218,6 +236,8 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         # --fail-on-code (#942) reads skill findings, so like --ignore it has no meaning for tasks.
         raise InputError("--per-skill, --skip-nested, --ignore, --fail-on-code, --jsonl, --jobs, --resume and --online apply to "
                          "skills; drop them or use --kind skills|all")
+    _refuse_unchecked_fail_on(args)
+
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:

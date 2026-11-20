@@ -305,6 +305,24 @@ def test_fail_on_refused_with_kind_tasks(tmp_path, capsys):
     assert _run(["--root", str(tmp_path), "--kind", "tasks", "--fail-on-code", "link-missing"], capsys)[1] == 2
 
 
+@pytest.mark.parametrize("code", ["duplicate", "name-conflict", "mirror-drift", "description-near-duplicate"])
+def test_fail_on_cross_catalog_code_refused_with_per_skill(tmp_path, capsys, code):
+    """--per-skill does not run the cross-catalog checks, so a gate on their codes is refused (docs/external-content.md)."""
+    _skill(tmp_path / "skills", "a", name="same")
+    _skill(tmp_path / "skills", "b", name="same")
+    base = ["--root", str(tmp_path), "--kind", "skills", "--fail-on-code", code]
+    if code == "duplicate":
+        assert _run(base, capsys)[1] == 1
+    assert _run([*base, "--per-skill"], capsys)[1] == 2
+
+
+@pytest.mark.parametrize("code", ["link-dead", "package-not-found"])
+def test_fail_on_online_code_refused_without_online(tmp_path, capsys, code):
+    """Only --online reports the network codes, so a gate on them needs it (docs/external-content.md)."""
+    _fail_on_catalog(tmp_path)
+    assert _run(["--root", str(tmp_path), "--kind", "skills", "--fail-on-code", code], capsys)[1] == 2
+
+
 def test_f_stays_an_alias_of_format(tmp_path, capsys):
     """#942: ``--f json`` was a valid prefix of --format before --fail-on-code; it must not turn ambiguous."""
     _fail_on_catalog(tmp_path)

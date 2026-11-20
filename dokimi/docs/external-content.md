@@ -456,7 +456,9 @@ A large catalog is easier to scan one skill at a time:
 - `--fail-on-code CODE` (repeatable) exits 1 when a finding with that code is left after
   `--ignore`, whatever its level: a `note` can fail the scan while its skill's state
   stays `ok`. `--ignore` filters first, so a code in both is not checked. An unknown
-  code is a usage error, and so is `--kind tasks`. `--strict` keeps its meaning. With
+  code is a usage error, and so is `--kind tasks`, and so is a code this scan never reports:
+  `duplicate`, `name-conflict`, `mirror-drift` and `description-near-duplicate` with `--per-skill`,
+  `link-dead` and `package-not-found` without `--online`. `--strict` keeps its meaning. With
   `--json` the skill's subject has verdict `fail`. `--resume` applies the current
   `--fail-on-code` to the rows it keeps, so changing it needs no rescan.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
