@@ -2,6 +2,7 @@
 depends_on:
   - dokimi/dokimi/repos/**
   - dokimi/dokimi/commands/repo.py
+  - dokimi/dokimi/commands/repo_reach.py
   - dokimi/dokimi/commands/repo_run.py
   - dokimi/dokimi/schemas/repo_*.json
   - dokimi/dokimi/schemas/guidance_reach.v1.json
