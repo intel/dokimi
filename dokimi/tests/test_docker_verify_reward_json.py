@@ -143,10 +143,10 @@ def _container_links(target: str | None):
         if call.argv[1] != "cp" or not call.argv[-2].endswith(":/logs/verifier/reward.json"):
             return None
         if "-L" not in call.argv:  # docker cp keeps the link, whose target the host may not have
-            Path(call.argv[-1]).symlink_to("/tmp/container-only/verdict.json")
+            Path(call.argv[-1]).symlink_to("/opt/verdict/reward.json")
         elif target is None:
             return reply(stderr="Error response from daemon: Could not find the file "
-                                "/tmp/container-only/verdict.json in container c1", returncode=1)
+                                "/opt/verdict/reward.json in container c1", returncode=1)
         else:
             Path(call.argv[-1]).write_text(target, encoding="utf-8")
         return reply()
