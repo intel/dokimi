@@ -25,7 +25,9 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
         raise InputError(f"{path}: {e}") from e
     try:
         data = json.loads(text)
-    except ValueError:
+    except ValueError as e:
+        if path.endswith(".json") or text.lstrip()[:1] in ("{", "["):
+            raise InputError(f"{path}: not valid JSON ({e})") from e
         return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text), target=path)
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
         return "repo_static", opportunities.from_repo_static(data, target=path)

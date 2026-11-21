@@ -59,3 +59,10 @@ def test_markdown_honours_top(inputs):
                           check=True, capture_output=True, text=True)
     rows = [line for line in proc.stdout.splitlines() if line.startswith("| ") and line[2].isdigit()]
     assert [r.split("|")[1].strip() for r in rows] == ["1", "2"]
+
+
+def test_malformed_json_is_an_input_error(tmp_path):
+    bad = tmp_path / "n.json"
+    bad.write_text('{"paired": ', encoding="utf-8")
+    with pytest.raises(InputError, match="not valid JSON"):
+        cmd.build([str(bad)])

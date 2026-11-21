@@ -68,3 +68,17 @@ def test_markdown_table_honours_top():
     table = opp.render_markdown(ranked, top=1)
     assert len(table.strip().splitlines()) == 3
     assert ranked[0]["title"] in table
+
+
+def test_source_key_survives_a_change_in_count():
+    one = {"schema": "repo_static.v1", "claims": [{"file": "A.md", "line": 1, "status": "fail_x"}]}
+    two = {"schema": "repo_static.v1", "claims": [{"file": "A.md", "line": 1, "status": "fail_x"},
+                                                  {"file": "A.md", "line": 5, "status": "fail_x"}]}
+    keys = [opp.from_repo_static(d)[0].source_key for d in (one, two)]
+    assert keys[0] == keys[1]
+
+
+def test_markdown_escapes_pipes():
+    item = opp.Opportunity("k", "a|b", "w", "n", "t", 0.5, "low")
+    ranked = opp.rank([item])
+    assert r"a\|b" in opp.render_markdown(ranked)

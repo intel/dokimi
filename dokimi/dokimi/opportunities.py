@@ -15,6 +15,7 @@ import hashlib
 from dataclasses import asdict, dataclass, field
 
 from dokimi.llms_txt import Finding
+from dokimi.utils import InputError
 
 EFFORTS = ("low", "medium", "high")
 QUADRANTS = ("act_now", "plan", "if_capacity", "deprioritize")
@@ -32,10 +33,12 @@ class Opportunity:
     impact: float  # 0..1, share of the measured signal the fix addresses
     effort: str
     evidence: dict = field(default_factory=dict)
+    identity: str = ""  # what stays fixed across runs; the title (with counts) when empty
 
     @property
     def source_key(self) -> str:
-        return hashlib.sha256(f"{self.kind}|{self.target}|{self.title}".encode()).hexdigest()[:16]
+        ident = self.identity or self.title
+        return hashlib.sha256(f"{self.kind}|{self.target}|{ident}".encode()).hexdigest()[:16]
 
     @property
     def quadrant(self) -> str:
@@ -53,7 +56,9 @@ class Opportunity:
         )
 
     def as_dict(self) -> dict:
-        return {**asdict(self), "source_key": self.source_key, "quadrant": self.quadrant,
+        data = asdict(self)
+        del data["identity"]
+        return {**data, "source_key": self.source_key, "quadrant": self.quadrant,
                 "execution_prompt": self.execution_prompt()}
 
 
@@ -84,6 +89,7 @@ def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunit
                 why=why + ".", next_action=action, target=target,
                 impact=min(1.0, round(weight * _share(n, total), 3)), effort=effort,
                 evidence={"outcome": outcome, "n": n, "n_paired": total, "scoring": scoring},
+                identity=f"{model}|{outcome}|{scoring}",
             ))
     return found
 
@@ -94,6 +100,8 @@ def from_repo_static(doc: dict, *, target: str = "repository") -> list[Opportuni
     bad: dict[str, list[dict]] = {}
     for claim in claims:
         if claim.get("status", "").split("_")[0] in ("fail", "unresolved"):
+            if "file" not in claim or "line" not in claim:
+                raise InputError(f"{target}: a failing claim has no file or line")
             bad.setdefault(claim["file"], []).append(claim)
     return [Opportunity(
         kind="repo-claim", title=f"{len(rows)} failing claims in {path}",
@@ -102,6 +110,7 @@ def from_repo_static(doc: dict, *, target: str = "repository") -> list[Opportuni
                     + ", ".join(str(r["line"]) for r in rows) + ".",
         target=f"{target}:{path}", impact=_share(len(rows), len(claims)), effort="low",
         evidence={"lines": [r["line"] for r in rows], "statuses": sorted({r["status"] for r in rows})},
+        identity=path,
     ) for path, rows in sorted(bad.items())]
 
 
@@ -111,6 +120,7 @@ def from_llms_txt(findings: list[Finding], *, target: str = "llms.txt") -> list[
         kind="discovery", title=f.message, why="agents read llms.txt before choosing a tool.",
         next_action=f.fix, target=target, impact=0.4 if f.severity == "fail" else 0.2,
         effort="low", evidence={"check": f.check, "line": f.line},
+        identity=f.check if f.check == "size" else "",
     ) for f in findings]
 
 
@@ -121,9 +131,13 @@ def rank(items: list[Opportunity]) -> list[dict]:
     return [{"rank": i, **o.as_dict()} for i, o in enumerate(ordered, 1)]
 
 
+def _cell(text: str) -> str:
+    return text.replace("|", r"\|").replace("\n", " ")
+
+
 def render_markdown(ranked: list[dict], *, top: int = 10) -> str:
     """A short table for a PR comment or a terminal."""
     rows = ["| # | quadrant | impact | effort | kind | title | target |", "|---|---|---|---|---|---|---|"]
     rows += [f"| {r['rank']} | {r['quadrant']} | {r['impact']} | {r['effort']} | {r['kind']} "
-             f"| {r['title']} | {r['target']} |" for r in ranked[:top]]
+             f"| {_cell(r['title'])} | {_cell(r['target'])} |" for r in ranked[:top]]
     return "\n".join(rows) + "\n"
