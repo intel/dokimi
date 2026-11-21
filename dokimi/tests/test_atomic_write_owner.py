@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.atomic_write import _keep_owner_and_group, write_bytes_in_place_or_atomic
+from dokimi.atomic_write import _keep_owner_and_group, write_bytes_atomic, write_bytes_in_place_or_atomic
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "geteuid") or not hasattr(os, "fchown"), reason="needs POSIX owners")
 
@@ -124,6 +124,36 @@ def test_a_failed_group_restore_closes_the_descriptor_and_keeps_the_old_report(t
     with pytest.raises(OSError, match="injected fchown failure"):
         write_bytes_in_place_or_atomic(target, b"new")
     assert opened and set(opened) <= set(closed)
+    assert target.read_bytes() == b"old"
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def _root_denied_chown(monkeypatch):
+    """Root without CAP_CHOWN: ``fchown`` is refused with EPERM."""
+
+    def denied(fd, uid, gid):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "fchown", denied)
+    _fstat_of_another_owner(monkeypatch)
+
+
+def test_root_without_the_right_to_chown_writes_the_report_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat()
+    _root_denied_chown(monkeypatch)
+    write_bytes_in_place_or_atomic(target, b"new")
+    after = target.stat()
+    assert (target.read_bytes(), after.st_ino, after.st_uid) == (b"new", before.st_ino, before.st_uid)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_root_without_the_right_to_chown_does_not_replace_a_file_atomically(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    _root_denied_chown(monkeypatch)
+    with pytest.raises(PermissionError):
+        write_bytes_atomic(target, b"new")
     assert target.read_bytes() == b"old"
     assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
