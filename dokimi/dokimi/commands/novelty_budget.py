@@ -24,8 +24,11 @@ from dokimi.commands.novelty_routing_report import _partial_destinations
 def partial_destination(out: Path) -> Path:
     """The first of ``<stem>.partial.json``, ``<stem>.partial2.json``, ... that is free or already
     holds a partial result, so a stopped run never replaces a finished one. The sidecar rules are
-    the routing report's (a symlink is not followed, a FIFO is not read)."""
-    return next(_partial_destinations(Path(out)))
+    the routing report's (a symlink is not followed, a FIFO is not read). A name that is the file
+    ``out`` resolves to (a symlinked ``out``, dangling or not) is passed over: the save of ``out``
+    would land in it."""
+    target = os.path.realpath(out)
+    return next(p for p in _partial_destinations(Path(out)) if os.path.realpath(p) != target)
 
 
 def partial_write(out: Path, write: Callable[[Path], object]) -> Path:
