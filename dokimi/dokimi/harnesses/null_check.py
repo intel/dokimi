@@ -46,9 +46,12 @@ def pytest_counts(output: str) -> Optional[dict[str, int]]:
     A line that is not a summary (a count line the verifier prints after pytest) must not replace it: only
     a line reporting an outcome or an empty test run is taken. Errors from prior summaries are kept.
     """
-    found = [line for line in _SUMMARY.findall(_COLOR.sub("", output)) if line == "no tests ran" or _OUTCOME.search(line)]
-    if not found:
+    summaries = _SUMMARY.findall(_COLOR.sub("", output))
+    if not summaries:
         return None
+    found = [line for line in summaries if line == "no tests ran" or _OUTCOME.search(line)]
+    if not found:
+        return {}  # Warnings alone establish a pytest run without a failing test.
     counts: dict[str, int] = {}
     for number, word in _COUNT.findall(found[-1]):
         key = "error" if word.startswith("error") else word
