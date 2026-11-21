@@ -77,7 +77,7 @@ _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
 _PS_ASSIGN = re.compile(r"\$\w+=")
 _DOTTED = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 _INFO_OPTIONS = frozenset({"--help", "--version", "-V"})  # a wrapper given one prints text and runs nothing
-_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_]\w*)\1")
+_HEREDOC = re.compile(r"<<-?[ \t]*(?P<quote>['\"\\]?)([\w.-]+)(?(quote)(?:['\"]|))")
 _SHELL_LINE = re.compile(r"\s*(?:(?:sudo|exec|command|time)\s+)*(?:bash|sh|zsh|dash)\b")  # a heredoc fed to a shell runs
 _GROUPED = re.compile(r"[{}()]|\b(?:if|then|else|elif|fi|do|done|while|until|case|esac)\b")  # a group or a block
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
@@ -286,11 +286,32 @@ def _reads_script_from_stdin(words: list[str]) -> bool:
 
 
 def _openers(line: str) -> Iterator[re.Match[str]]:
-    """The first heredoc operator of a line that is not inside quotes (``echo "<<EOF"`` opens none)."""
-    for m in _HEREDOC.finditer(line):
-        before = line[:m.start()]
-        if before.count('"') % 2 == 0 and before.count("'") % 2 == 0:
-            yield m
+    """Read unquoted heredoc operators, outside comments, arithmetic and here-strings."""
+    i, quote = 0, ""
+    while i < len(line):
+        char = line[i]
+        if char == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (not i or line[i - 1].isspace()):
+            break
+        elif line.startswith("((", i):
+            end = line.find("))", i + 2)
+            i = len(line) if end < 0 else end + 2
+            continue
+        elif line.startswith("<<<", i):
+            i += 3
+            continue
+        elif match := _HEREDOC.match(line, i):
+            yield match
+            i = match.end()
+            continue
+        i += 1
 
 
 def _expansions(body: str) -> list[str]:

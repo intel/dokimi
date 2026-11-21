@@ -621,3 +621,12 @@ def test_multiple_heredocs_are_consumed_in_order():
 @pytest.mark.parametrize("invocation", ["bash -c 'cat'", "bash --help", "sh script.sh"])
 def test_a_shell_with_its_own_script_treats_stdin_as_data(invocation):
     assert _probes(f"{invocation} <<'EOF'\nnproc\nEOF") == []
+
+
+@pytest.mark.parametrize(("script", "expected"), [
+    ("cat <<<EOF\nnproc", ["nproc"]), ("# later: cat <<EOF\nnproc", ["nproc"]),
+    ("echo $((1 << n))\nnproc", ["nproc"]), ("cat <<\\EOF\nnproc\nEOF", []),
+    ("cat <<'my-eof'\nnproc\nmy-eof", []),
+])
+def test_only_a_real_heredoc_masks_its_body(script, expected):
+    assert _probes(script) == expected
