@@ -292,7 +292,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         except Exception as exc:  # noqa: BLE001  # the events go on without probes: the grade must not depend on them
             probed = transcript.events
             probe_errors.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
-        shown = with_choices(probed, opts.candidates or {}, transcript.added_text)
+        try:
+            shown = with_choices(probed, opts.candidates or {}, transcript.added_text)
+        except Exception as exc:  # noqa: BLE001  # optional choice evidence must not cost a cell its grade
+            shown = probed
+            probe_errors.append(f"choice matching failed ({type(exc).__name__}): {str(exc)[:200]}")
         (rd / "events.jsonl").write_text(transcript.events_jsonl(shown), encoding="utf-8")
         failed = transcript.is_error or not result.ok  # a crashed review is missing, not clean
         answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE, failed=failed,
