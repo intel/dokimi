@@ -14,7 +14,8 @@ Two properties are enforced here rather than hoped for:
   is dropped — it cannot be attributed, coloured, or protected, so it would only
   inflate counts.
 * **Faithfulness, separately from recall.** :func:`verify_atoms` re-reads each atom
-  against its own spans and labels it ``supported`` / ``distorted`` / ``unsupported``.
+  against its own spans (plus their heading and lead-in, to resolve references only)
+  and labels it ``supported`` / ``distorted`` / ``unsupported``.
   That check says nothing about what the extractor *missed*; extractor recall is
   measured across extractors in skill-novelty-evidence.md §10.7, not by this module.
 """
@@ -34,6 +35,7 @@ from .atoms_refusal import partial_atoms_refusal
 from .batching import or_stop, retry_wording
 from .client import LLMClient, OutputTruncated, SpendCapReached, accepting
 from .spans import Span
+from .verify_context import VERIFY_PROMPT, context_for
 
 ATOM_KINDS = ("proposition", "edge", "motif", "contract", "example")
 ATOM_TAGS = (
@@ -71,23 +73,6 @@ Return ONLY a JSON array:
 
 SPANS:
 {spans}
-"""
-
-_VERIFY_PROMPT = """\
-Does the source text below support the statement, exactly as stated?
-
-STATEMENT: {statement}
-
-SOURCE:
-{source}
-
-Answer with JSON only:
-{{"verdict": "supported" | "distorted" | "unsupported", "why": "<one clause>"}}
-
-- "supported": the source asserts it, with the same qualifiers, numbers and polarity.
-- "distorted": the source says something close but the statement changes a qualifier,
-  a number, a version, or the polarity.
-- "unsupported": the source does not assert it at all.
 """
 
 
@@ -572,9 +557,12 @@ def verify_atoms(
             tally["unchecked"] += 1
             continue
         source = "\n".join(by_id[s].text for s in atom.span_ids if s in by_id)
+        prompt = VERIFY_PROMPT.format(
+            statement=atom.statement, source=source, context=context_for(atom.span_ids, spans, by_id),
+        )
         try:
             verdict = str(or_stop(
-                client.json_object, _VERIFY_PROMPT.format(statement=atom.statement, source=source),
+                client.json_object, prompt,
                 usable=_names_a_faithfulness_verdict,
             ).get("verdict", "")).strip()
         except Exception:  # noqa: BLE001 - an unverified atom is counted as unchecked
