@@ -336,7 +336,7 @@
     },
     "extraction": {
       "type": "object",
-      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch, or one with no usable atom, is split in half and re-asked down to one span per call; a failed call or an empty reply is not (an empty reply is what a reasoning model returns when it spends the output ceiling, so the warning names it with the --max-tokens fix). Absent from artifacts written before it existed.",
+      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch, or one with no usable atom, is split in half and re-asked down to one span per call; a failed call or an empty reply is not (an empty reply is what a reasoning model returns when it spends the output ceiling, so the warning names it with the --max-output-tokens fix). Absent from artifacts written before it existed.",
       "properties": {
         "unread_span_ids": {
           "type": "array",
@@ -347,7 +347,7 @@
         "unparseable_span_ids": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "The unread spans whose reply arrived but did not parse even alone: an output ceiling too low for one span (raise --max-tokens). The rest were lost to a failed call or an empty reply."
+          "description": "The unread spans whose reply arrived but did not parse even alone: an output ceiling too low for one span (raise --max-output-tokens). The rest were lost to a failed call or an empty reply."
         },
         "unusable_span_ids": {
           "type": "array",

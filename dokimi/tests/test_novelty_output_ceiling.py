@@ -53,7 +53,7 @@ def test_a_client_call_cut_at_the_ceiling_raises_and_still_records_its_cost(monk
                                                                             finish_reason):
     _provider(monkeypatch, finish_reason, [])
     client = LLMClient(model="m", provider="openai", role="judge")
-    with pytest.raises(OutputTruncated, match="raise --max-tokens"):
+    with pytest.raises(OutputTruncated, match="raise --max-output-tokens"):
         client.text("p")
     assert client.calls == 1 and len(client.usage) == 1
 
@@ -121,7 +121,7 @@ def test_a_span_cut_even_alone_is_named_as_truncated_not_as_a_parse_failure():
     spans = segment(DOC)
     report = ExtractionReport()
     client = LLMClient(model="x", role="extractor", transport=_cut_above(0))
-    with pytest.raises(ExtractionError, match="raise --max-tokens"):
+    with pytest.raises(ExtractionError, match="raise --max-output-tokens"):
         extract_atoms(spans, client=client, batch_spans=1, report=report)
     assert report.parse_error.startswith("OutputTruncated")
     assert report.unparseable_span_ids == [s.id for s in spans]
