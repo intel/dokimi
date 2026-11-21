@@ -450,6 +450,20 @@ def test_bidi_mark_past_neutrals_and_digits_is_not_reported(tmp_path, text):
     assert _messages(tmp_path, "hidden-unicode") == []
 
 
+def test_bidi_marks_on_one_line_are_read_in_linear_time(monkeypatch):
+    """#960: each mark does not search its line again; 2000 marks and no letter cost a few lookups per character."""
+    import unicodedata
+
+    from dokimi.external.content_checks import _hidden_hits
+
+    calls = []
+    real = unicodedata.bidirectional
+    monkeypatch.setattr(unicodedata, "bidirectional", lambda ch: calls.append(ch) or real(ch))
+    text = (LRM + " ") * 2000
+    assert len(_hidden_hits("SKILL.md", text)) > 0
+    assert len(calls) <= 4 * len(text)
+
+
 @pytest.mark.parametrize("base", ["\u00a0", "\u0430", "\u00e9"], ids=["nbsp", "cyrillic-a", "e-acute"])
 def test_variation_selector_after_a_non_ascii_letter_or_space_is_reported(tmp_path, base):
     """#960: only a symbol, an ideograph or a keycap base takes a selector."""

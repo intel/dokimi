@@ -117,22 +117,29 @@ def _joiner_exempt(text: str, index: int) -> bool:
     return False
 
 
-def _bidi_mark_exempt(text: str, index: int) -> bool:
-    """An LRM, RLM or ALM is expected next to a right-to-left letter (Hebrew, Arabic), where it orders the text."""
-    return any(_strong_side(text, index, step) in ("R", "AL") for step in (-1, 1))
-
-
-def _strong_side(text: str, index: int, step: int) -> str:
-    """The bidi class of the nearest letter on one side, past neutrals, digits and other bidi marks, within the line.
-
-    A character of class R or AL that is not a letter (a Hebrew punctuation mark) is not one, so it gives ``""``."""
-    j = index + step
-    while 0 <= j < len(text) and text[j] != "\n":
-        cls = unicodedata.bidirectional(text[j])
-        if cls in ("L", "R", "AL") and ord(text[j]) not in BIDI_MARKS:
-            return cls if unicodedata.category(text[j]).startswith("L") else ""
-        j += step
-    return ""
+def _bidi_mark_exempt(text: str) -> set[int]:
+    """Indexes of the LRM, RLM and ALM expected next to a right-to-left letter (Hebrew, Arabic), where it orders
+    the text. Two linear passes record the class of the nearest letter on each side within the line, past
+    neutrals, digits and other bidi marks. A character of class R or AL that is not a letter (a Hebrew
+    punctuation mark) is not one, so it counts as none."""
+    marks = [i for i, ch in enumerate(text) if ord(ch) in BIDI_MARKS]
+    if not marks:
+        return set()
+    exempt: set[int] = set()
+    for order in (range(len(text)), range(len(text) - 1, -1, -1)):
+        nearest = ""
+        for i in order:
+            ch = text[i]
+            if ch == "\n":
+                nearest = ""
+            elif ord(ch) in BIDI_MARKS:
+                if nearest in ("R", "AL"):
+                    exempt.add(i)
+            else:
+                cls = unicodedata.bidirectional(ch)
+                if cls in ("L", "R", "AL"):
+                    nearest = cls if unicodedata.category(ch).startswith("L") else ""
+    return exempt
 
 
 def _selector_stray(text: str, index: int) -> bool:
@@ -164,7 +171,7 @@ def _filler_exempt(text: str, index: int) -> bool:
     return False
 
 
-def _is_hidden(text: str, index: int) -> bool:
+def _is_hidden(text: str, index: int, bidi_exempt: set[int]) -> bool:
     cp = ord(text[index])
     if cp == SOFT_HYPHEN or cp in INVISIBLE_FORMAT:
         return True
@@ -173,7 +180,7 @@ def _is_hidden(text: str, index: int) -> bool:
     if cp in BLANK_FILLERS:
         return not _filler_exempt(text, index)
     if cp in BIDI_MARKS:
-        return not _bidi_mark_exempt(text, index)
+        return index not in bidi_exempt
     if cp in BIDI_CONTROLS or cp in TAG_CHARACTERS:
         return True
     if cp == 0xFEFF:
@@ -186,7 +193,8 @@ def _is_hidden(text: str, index: int) -> bool:
 
 
 def _hidden_hits(where: str, text: str) -> list[Hit]:
-    found = [i for i in range(len(text)) if _is_hidden(text, i)]
+    bidi_exempt = _bidi_mark_exempt(text)
+    found = [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt)]
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = text[index]
