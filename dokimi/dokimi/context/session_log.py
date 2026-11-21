@@ -124,7 +124,8 @@ def merge_repeats(sessions: list[Session]) -> tuple[list[Session], list[str]]:
             events += [e for e in session.events if not e.uuid or e.uuid not in seen]
             seen |= {e.uuid for e in session.events}
             notes.append(f"{session.name}: repeats records of {first.name} (a resumed or forked session); read as one")
-        merged.append(Session(first.name, in_time_order(events)) if rest else first)
+        errors = [e for s in (first, *rest) for e in s.errors]  # #938: a merged log's skipped records still count
+        merged.append(Session(first.name, in_time_order(events), errors) if rest else first)
     return merged, notes
 
 

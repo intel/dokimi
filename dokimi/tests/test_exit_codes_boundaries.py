@@ -735,14 +735,14 @@ def test_trigger_set_unresolved_field_rule_is_refused_before_any_rewrite_call(tm
 
 
 def test_trigger_set_strict_refusal_exits_1(tmp_path, monkeypatch, capsys):
-    # One question is labelled and one is not, so the set has an unresolved label; --strict refuses it.
-    # --strict is a lint gate over a valid set: its verdict is exit 1, as on main.
+    # One question is labelled and one is not, so the set has an unresolved label; --fail-on warn refuses it.
+    # --fail-on warn is a lint gate over a valid set: its verdict is exit 1, as on main.
     spec = _trigger_questions(tmp_path, [
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
         {"id": "2", "text": "what is the weather"},
     ])
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
-          "--questions", spec, "--strict", "--out", str(tmp_path / "o.json"))
+          "--questions", spec, "--fail-on", "warn", "--out", str(tmp_path / "o.json"))
     with refusal() as exc:
         cli.main()
     assert exc.code == 1
