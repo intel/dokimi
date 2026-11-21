@@ -153,8 +153,8 @@ def _tree_violations() -> list[str]:
 
 # Types a parser may use for each registry kind. A kind not listed takes any type.
 _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
-    "int": frozenset({"int", "positive_int"}),
-    "float": frozenset({"float"}),
+    "int": frozenset({"int", "non_negative_int", "positive_int"}),
+    "float": frozenset({"float", "positive_fraction", "unit_interval"}),
     "usd": frozenset({"positive_usd", "_usd"}),
 }
 
@@ -327,7 +327,7 @@ def test_meaning_clashes_name_each_disagreement_with_its_registry_row():
     text = [what for _leaf, _option, _aspect, what in meaning_clashes(found, concepts)]
     assert text == [
         "has metavar `SEED`, the registry says `N`",
-        "has type `str`, kind `int` takes int or positive_int",
+        "has type `str`, kind `int` takes int or non_negative_int or positive_int",
         "is a value here, but the registry kind is `flag`",
         "has no choices, but the registry kind is `choice`",
         "has choices, but the registry kind is `text`",
@@ -380,11 +380,20 @@ def test_a_usd_flag_requires_a_current_cli_usd_type():
     ]
 
 
+@pytest.mark.parametrize(("kind", "converter"), [
+    ("int", "non_negative_int"), ("float", "unit_interval"), ("float", "positive_fraction"),
+])
+def test_constrained_numeric_converters_match_their_registry_kind(kind, converter):
+    concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--n", "N", kind),)),)
+    found = [Use("dokimi a", "--n", "_StoreAction", converter, "n", None, "N")]
+    assert meaning_clashes(found, concepts) == []
+
+
 def test_a_float_flag_takes_float_and_not_an_int():
     concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--rate", "RATE", "float"),)),)
     found = [Use("dokimi a", "--rate", "_StoreAction", t, "rate", None, "RATE") for t in ("float", "int")]
     assert [what for *_, what in meaning_clashes(found, concepts)] == [
-        "has type `int`, kind `float` takes float"]
+        "has type `int`, kind `float` takes float or positive_fraction or unit_interval"]
 
 
 def test_a_new_use_that_clashes_fails_and_an_exception_is_leaf_scoped(monkeypatch):
