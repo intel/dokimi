@@ -38,7 +38,7 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
 
     A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory,
-    a file another user owns (root excepted: it restores the owner), a file in a group the user is not in and a file with a POSIX access ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
+    a file another user owns (root excepted: it restores the owner), a file in a group the user is not in, a file with a POSIX access ACL and a file in a directory with a default ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
     writable file in a read-only directory is rewritten, a file keeps its owner, group and ACL, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
     """
     path = Path(path)
@@ -62,6 +62,7 @@ def _is_plain_writable_file(path: Path) -> bool:
         and _can_keep_owner(info)
         and _can_keep_group(info)
         and not _has_access_acl(path)
+        and not _has_default_acl(path.parent)
     )
 
 
@@ -82,6 +83,14 @@ def _has_access_acl(path: Path) -> bool:
     """A POSIX access ACL (Linux) is not copied by a new inode, and its mask shows as the group bits of the mode."""
     try:
         return "system.posix_acl_access" in os.listxattr(path)
+    except (AttributeError, OSError):
+        return False
+
+
+def _has_default_acl(directory: Path) -> bool:
+    """A default ACL (Linux) on the directory is given to a new inode, so a replaced file would gain entries it never had."""
+    try:
+        return "system.posix_acl_default" in os.listxattr(directory)
     except (AttributeError, OSError):
         return False
 
@@ -107,15 +116,16 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
         fd = os.open(tmp, flags, mode)
         if old is not None:
-            # os.open's mode is cut by the umask; the data is written only after the mode is restored.
             try:
-                os.chmod(tmp, mode)
                 _keep_owner_and_group(fd, old)
             except BaseException:
                 os.close(fd)
                 raise
         with open_tmp(fd) as handle:
             handle.write(data)
+        if old is not None:
+            # os.open's mode is cut by the umask, and a change of owner or a write by a user without CAP_FSETID clears set-user-ID and set-group-ID: the mode is restored last.
+            os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):

@@ -9,12 +9,13 @@
 import errno
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.atomic_write import _keep_owner_and_group, write_bytes_in_place_or_atomic
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "geteuid") or not hasattr(os, "fchown"), reason="needs POSIX owners")
 
@@ -61,11 +62,33 @@ def test_root_gives_the_new_inode_the_owner_of_the_file_it_replaces(tmp_path, mo
 
 def test_a_user_who_is_not_root_does_not_try_to_change_the_owner(tmp_path, monkeypatch):
     target = _report(tmp_path)
+    old = target.stat()
     chowned = []
+    monkeypatch.setattr(os, "geteuid", lambda: old.st_uid + 1)
     monkeypatch.setattr(os, "fchown", lambda fd, uid, gid: chowned.append((uid, gid)))
     _fstat_of_another_owner(monkeypatch)
+    fd = os.open(tmp_path / "new", os.O_WRONLY | os.O_CREAT)
+    try:
+        _keep_owner_and_group(fd, old)
+    finally:
+        os.close(fd)
+    assert chowned == [(-1, old.st_gid)]
+
+
+def test_a_replaced_report_keeps_its_set_user_id_bit_through_the_ownership_change(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    target.chmod(0o4640)
+    before = target.stat().st_ino
+    real_fchmod = os.fchmod
+
+    def chown_clearing_special_bits(fd, uid, gid):
+        real_fchmod(fd, stat.S_IMODE(os.fstat(fd).st_mode) & 0o777)
+
+    monkeypatch.setattr(os, "fchown", chown_clearing_special_bits)
+    _fstat_of_another_owner(monkeypatch)
     write_bytes_in_place_or_atomic(target, b"new")
-    assert chowned == [(-1, target.stat().st_gid)]
+    assert target.stat().st_ino != before
+    assert (target.read_bytes(), stat.S_IMODE(target.stat().st_mode)) == (b"new", 0o4640)
 
 
 def test_a_system_without_fchown_still_replaces_the_report(tmp_path, monkeypatch):
@@ -111,6 +134,27 @@ def test_a_file_with_an_access_acl_is_written_in_place(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "listxattr", lambda path: ["system.posix_acl_access"], raising=False)
     write_bytes_in_place_or_atomic(target, b"new")
     assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
+
+
+def test_a_file_in_a_directory_with_a_default_acl_is_written_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    monkeypatch.setattr(os, "listxattr", lambda path: ["system.posix_acl_default"] if Path(path) == tmp_path else [], raising=False)
+    write_bytes_in_place_or_atomic(target, b"new")
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
+
+
+@pytest.mark.skipif(shutil.which("setfacl") is None or shutil.which("getfacl") is None, reason="needs setfacl")
+def test_a_real_default_acl_of_the_directory_is_not_given_to_a_rewritten_report(tmp_path):
+    target = _report(tmp_path)
+    target.chmod(0o640)
+    acl = subprocess.run(["setfacl", "-m", "d:u:12345:r-x", str(tmp_path)], capture_output=True, text=True)
+    if acl.returncode != 0:
+        pytest.skip("the file system takes no ACL")
+    write_bytes_in_place_or_atomic(target, b"new")
+    shown = subprocess.run(["getfacl", "-c", str(target)], capture_output=True, text=True).stdout
+    assert target.read_bytes() == b"new"
+    assert "12345" not in shown
 
 
 def test_a_file_without_an_acl_or_on_a_system_without_xattrs_is_still_replaced(tmp_path, monkeypatch):
