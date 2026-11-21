@@ -123,13 +123,13 @@ def _bidi_mark_exempt(text: str, index: int) -> bool:
 
 
 def _strong_side(text: str, index: int, step: int) -> str:
-    """The bidi class of the nearest letter on one side, past neutrals, digits and marks, within the line.
+    """The bidi class of the nearest letter on one side, past neutrals, digits and other bidi marks, within the line.
 
     A character of class R or AL that is not a letter (a Hebrew punctuation mark) is not one, so it gives ``""``."""
     j = index + step
     while 0 <= j < len(text) and text[j] != "\n":
         cls = unicodedata.bidirectional(text[j])
-        if cls in ("L", "R", "AL"):
+        if cls in ("L", "R", "AL") and ord(text[j]) not in BIDI_MARKS:
             return cls if unicodedata.category(text[j]).startswith("L") else ""
         j += step
     return ""

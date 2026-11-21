@@ -216,28 +216,30 @@ def _unpinned_npx(rest: str) -> list[str]:
     return names
 
 
-def _unpinned_at(code: str) -> list[tuple[int, str]]:
-    """``(offset in code, "pip name")`` of each unpinned install. The offset is where the command's arguments begin,
-    which folding a prefix (``ｕｖ pip``) does not move."""
-    found = [(m.start(1), f"pip {n}") for m in PIP.finditer(code) for n in _unpinned_pip(m.group(1))]
-    found += [(m.start(1), f"npm {n}") for m in NPM.finditer(code) for n in _unpinned_npm(m.group(1))]
-    found += [(m.start(1), f"npx {n}") for m in NPX.finditer(code) for n in _unpinned_npx(m.group(1))]
+def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
+    """``(offset in code, command, end of its arguments, ["pip name", ...])`` of each install command, with an empty
+    list when all its packages are pinned. The offset is where the arguments begin, which folding a prefix
+    (``ｕｖ pip``) does not move."""
+    found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
+    found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
+    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1))]) for m in NPX.finditer(code)]
     return found
 
 
 def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
     """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
     once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
-    same place is counted once, with the packages of the most folded reading that finds it (a fullwidth separator
-    ends a command there, and the raw reading would read what follows as its arguments); a command at another
-    place is another install."""
-    best: dict[tuple[int, str], list[str]] = {}
+    same place is counted once, with the packages of the most folded reading that finds it. A reading that finds no
+    unpinned package replaces an earlier result only when it reads the same arguments (a fullwidth ``＝＝`` pins a
+    package the raw reading calls unpinned); one that reads fewer has ended the command at a fullwidth separator,
+    which is not evidence about the arguments the earlier reading saw. A command at another place is another install."""
+    best: dict[tuple[int, str], tuple[int, list[str]]] = {}
     for reading in readings(_code_text(text, markdown)):
-        grouped: dict[tuple[int, str], list[str]] = {}
-        for offset, label in _unpinned_at(reading):
-            grouped.setdefault((offset, label.split()[0]), []).append(label)
-        best.update(grouped)
-    return [label for key in sorted(best) for label in best[key]]
+        for offset, command, end, labels in _unpinned_at(reading):
+            key = (offset, command)
+            if labels or key not in best or best[key][0] == end:
+                best[key] = (end, labels)
+    return [label for key in sorted(best) for label in best[key][1]]
 
 
 def _is_skill_dir(path: Path) -> bool:

@@ -652,6 +652,13 @@ def test_fullwidth_separator_ends_a_command_in_every_reading(command, packages):
     assert _unpinned_in_readings(command, False) == packages
 
 
+def test_install_pinned_only_in_the_folded_reading_is_not_unpinned():
+    """#960: Cyrillic `і` and fullwidth `＝＝`: the letters reading finds `requests` unpinned, the full fold pins it."""
+    from dokimi.external.command_checks import _unpinned_in_readings
+
+    assert _unpinned_in_readings("p\u0456p install requests\uff1d\uff1d2.31.0", False) == []
+
+
 def test_fullwidth_backticks_do_not_move_an_install_or_make_prose_code(tmp_path):
     """#960: Markdown code is taken from the text as written; U+FF40 is not a delimiter, so prose is not scanned."""
     body = "# Tool\n\n\uff40x\uff40 then `pip install flask`\n"

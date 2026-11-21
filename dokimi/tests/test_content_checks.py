@@ -428,6 +428,14 @@ def test_two_adjacent_bidi_marks_in_latin_text_are_reported(tmp_path, mark):
     assert len(_messages(tmp_path, "hidden-unicode")) == 2
 
 
+@pytest.mark.parametrize("text", [HEBREW + RLM + LRM, LRM + RLM + HEBREW, HEBREW + ALM + RLM + LRM],
+                         ids=["rlm-lrm-after", "lrm-rlm-before", "three-marks"])
+def test_bidi_marks_in_a_row_next_to_hebrew_are_not_reported(tmp_path, text):
+    """#960: another bidi mark does not end the search for the nearest letter."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\n{text}\n")
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
 def test_bidi_mark_beside_hebrew_punctuation_is_reported(tmp_path):
     """#960: U+05BE has bidi class R but is not a letter, so it does not exempt a mark."""
     _skill(tmp_path / "skills", "marks", body=f"# Marks\n\nabc{RLM}־def\n")
