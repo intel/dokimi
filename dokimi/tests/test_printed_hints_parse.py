@@ -89,10 +89,10 @@ def test_baseline_compare_hint_parses(tmp_path, monkeypatch, capsys):
 
 
 def test_baseline_only_report_hint_parses():
-    from dokimi.report.model_compare import _BASELINE_ONLY_LIMITATION
+    from dokimi.report.compare_limits import BASELINE_ONLY_LIMITATION
 
     # The report quotes the command with a "> " prefix on every line.
-    _assert_hints_parse("\n".join(line.removeprefix("> ") for line in _BASELINE_ONLY_LIMITATION))
+    _assert_hints_parse("\n".join(line.removeprefix("> ") for line in BASELINE_ONLY_LIMITATION))
 
 
 def _docstring_nodes(tree: ast.AST) -> set[int]:
