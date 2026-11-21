@@ -5,12 +5,12 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Added
 
-- **`repo scan` has a gate any repository can adopt** (#851). `--baseline FILE` takes an earlier report, and `--fail-on-fail` then fails only on a claim that report does not also fail (matched by file, kind and text, not line). The report's `baseline` block gives `known`, `new` and `fixed`. `.dokimi/scan.toml` is the repository's own setting: `[[ignore]]` entries (`pattern`, optional `kind`, required `reason`) mark matching claims `unresolved_ignored`, and `identifiers = "fail"` opts back in to failing on a missing bare name. `scan_config` in the report lists each entry with its hit count.
+- **`repo scan` has a gate any repository can adopt** (#851). `--baseline FILE` takes an earlier report, and `--fail-on fail` then fails only on a claim that report does not also fail (matched by file, kind and text, not line). The report's `baseline` block gives `known`, `new` and `fixed`. `.dokimi/scan.toml` is the repository's own setting: `[[ignore]]` entries (`pattern`, optional `kind`, required `reason`) mark matching claims `unresolved_ignored`, and `identifiers = "fail"` opts back in to failing on a missing bare name. `scan_config` in the report lists each entry with its hit count.
 - **`report summary --format sarif`** writes SARIF 2.1.0, one result per finding at its file and line, or at its input file, with no line, when it has no file (a failed or stopped check is a result too), for GitHub code scanning, Azure DevOps, and the GitLab and Jenkins SARIF importers.
 
 ### Changed
 
-- **A bare identifier the tree lacks is `unresolved_identifier`, not `fail`.** It may be an external API, a sibling package or a builtin, so it no longer fails `--fail-on-fail` unless `.dokimi/scan.toml` sets `identifiers = "fail"`. A name that is the stem of a tracked file (`bench_fftnd` for `bench_fftnd.py`) is `ok_stem`.
+- **A bare identifier the tree lacks is `unresolved_identifier`, not `fail`.** It may be an external API, a sibling package or a builtin, so it no longer fails `--fail-on fail` unless `.dokimi/scan.toml` sets `identifiers = "fail"`. A name that is the stem of a tracked file (`bench_fftnd` for `bench_fftnd.py`) is `ok_stem`.
 
 ### Fixed
 

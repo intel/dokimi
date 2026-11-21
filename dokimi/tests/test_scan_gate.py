@@ -45,7 +45,7 @@ TREE = {
 
 
 def test_a_bare_name_the_tree_lacks_is_unresolved_and_a_file_stem_is_found(tmp_path, capsys):
-    code, doc = _scan(capsys, str(_write(tmp_path, TREE)), "--fail-on-fail")
+    code, doc = _scan(capsys, str(_write(tmp_path, TREE)), "--fail-on", "fail")
     data = doc["data"]
     assert _status(data, "ToyWidget") == "ok"
     assert _status(data, "bench_fftnd") == "ok_stem"
@@ -81,14 +81,14 @@ def test_a_baseline_gates_only_new_drift(tmp_path, capsys):
     root = _write(tmp_path / "repo", TREE)
     base = tmp_path / "base.json"
     _scan(capsys, str(root), "--out", str(base))
-    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on-fail")
+    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on", "fail")
     assert code == 0 and doc["data"]["baseline"]["known"] == 1 and doc["data"]["baseline"]["new"] == 0
     (root / "AGENTS.md").write_text(TREE["AGENTS.md"] + "\nAlso `src/also_gone.py`.\n", encoding="utf-8")
-    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on-fail")
+    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on", "fail")
     assert code == 1 and doc["data"]["baseline"] == {"source": str(base), "known": 1, "new": 1, "fixed": 0}
     assert "1 claim(s) failed (1 more known in the baseline)" in doc["reason"]
     (root / "AGENTS.md").write_text("Use `ToyWidget`.\n", encoding="utf-8")
-    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on-fail")
+    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on", "fail")
     assert code == 0 and doc["data"]["baseline"]["fixed"] == 1
 
 
@@ -97,7 +97,7 @@ def test_a_baseline_may_be_the_cli_output_envelope(tmp_path, capsys):
     _, envelope = _scan(capsys, str(root))
     base = tmp_path / "base.json"
     base.write_text(json.dumps(envelope), encoding="utf-8")
-    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on-fail")
+    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on", "fail")
     assert code == 0 and doc["data"]["baseline"]["known"] == 1
     (finding,) = [f for sub in doc["subjects"] for f in sub.get("findings") or [] if f["code"].startswith("fail")]
     assert finding["level"] == "info" and finding["message"].endswith("(known: in the baseline)")
@@ -268,7 +268,7 @@ def test_an_ignore_covers_a_repository_static_claim(tmp_path, capsys):
     static = {"schema": "repo_static.v1", "claims": [
         {"file": "AGENTS.md", "line": 2, "kind": "path", "claim": "src/gone.py", "status": "fail", "why": "missing"}]}
     (tmp_path / "static.json").write_text(json.dumps(static), encoding="utf-8")
-    code, doc = _scan(capsys, str(tmp_path / "r"), "--static", str(tmp_path / "static.json"), "--fail-on-fail")
+    code, doc = _scan(capsys, str(tmp_path / "r"), "--static", str(tmp_path / "static.json"), "--fail-on", "fail")
     assert _status(doc["data"], "src/gone.py") == "unresolved_ignored" and code == 0
     assert doc["data"]["scan_config"]["ignore"][0]["hits"] == 1
 
@@ -278,7 +278,7 @@ def test_a_static_claim_cannot_bring_its_own_baselined_mark(tmp_path, capsys):
         {"file": "AGENTS.md", "line": 1, "kind": "path", "claim": "x.py", "status": "fail", "baselined": True}]}
     (tmp_path / "static.json").write_text(json.dumps(static), encoding="utf-8")
     code, _ = _scan(capsys, str(_write(tmp_path / "r", {"AGENTS.md": "Hi.\n"})), "--static",
-                    str(tmp_path / "static.json"), "--fail-on-fail")
+                    str(tmp_path / "static.json"), "--fail-on", "fail")
     assert code == 1
 
 
@@ -296,7 +296,7 @@ def test_the_baseline_is_applied_before_out_overwrites_it(tmp_path, capsys):
     base = tmp_path / "base.json"
     _scan(capsys, str(root), "--out", str(base))
     (root / "AGENTS.md").write_text(TREE["AGENTS.md"] + "\nAlso `src/also_gone.py`.\n", encoding="utf-8")
-    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--out", str(base), "--fail-on-fail")
+    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--out", str(base), "--fail-on", "fail")
     assert code == 1 and doc["data"]["baseline"]["new"] == 1
     saved = json.loads(base.read_text(encoding="utf-8"))
     assert saved["baseline"]["new"] == 1 and any(c.get("baselined") is False for c in saved["claims"])
@@ -437,13 +437,13 @@ def test_a_multi_dot_or_doc_file_is_not_the_stem_of_a_missing_identifier(tmp_pat
     _write(tmp_path, {"ghost_widget.test.py": "x = 1\n", "docs/build_index.md": "# index\n",
                       ".dokimi/scan.toml": 'identifiers = "fail"\n',
                       "AGENTS.md": "Use `ghost_widget` and `build_index`.\n"})
-    code, doc = _scan(capsys, str(tmp_path), "--fail-on-fail")
+    code, doc = _scan(capsys, str(tmp_path), "--fail-on", "fail")
     assert _status(doc["data"], "ghost_widget") == _status(doc["data"], "build_index") == "fail" and code == 1
 
 
 def test_a_config_error_makes_the_scan_incomplete_and_the_gate_fail(tmp_path, capsys):
     _write(tmp_path, {**TREE, ".dokimi/scan.toml": 'identifiers = "fail"\nidentifier = "x"\n'})
-    code, doc = _scan(capsys, str(tmp_path), "--fail-on-fail")
+    code, doc = _scan(capsys, str(tmp_path), "--fail-on", "fail")
     assert doc["data"]["incomplete"] is True and doc["data"]["scan_config"]["errors"]
     assert code == 1
 
@@ -454,7 +454,7 @@ def test_a_baseline_holding_a_failure_once_does_not_cover_a_repeat_of_it(tmp_pat
     _scan(capsys, str(root), "--out", str(base))
     (root / "AGENTS.md").write_text(TREE["AGENTS.md"] + "\nAgain `src/gone.py`.\n\nOnce more `src/gone.py`.\n",
                                     encoding="utf-8")
-    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on-fail")
+    code, doc = _scan(capsys, str(root), "--baseline", str(base), "--fail-on", "fail")
     assert doc["data"]["baseline"] == {"source": str(base), "known": 1, "new": 2, "fixed": 0} and code == 1
 
 

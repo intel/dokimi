@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """`repo scan` helpers kept out of commands/repo.py, which is at its size cap: the `--typecheck` check, the text
-report, and the reason and gate of a failed --json or --fail-on-fail run."""
+report, and the reason and gate of a failed --json or --fail-on fail run."""
 
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
     for warning in payload["warnings"]:
         print(f"  warning: {warning}")
     if payload["incomplete"]:
-        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on-fail exits 1)")
+        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on fail exits 1)")
     tc = payload["typecheck"]
     if tc is not None:
         where = tc["python"] or "no --python-env: unknown"
@@ -138,25 +138,25 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
         print(f"wrote {out}")
 
 
-def _scan_reason(payload: dict, static_errors: list, fail_on_fail: bool) -> str:
+def _scan_reason(payload: dict, static_errors: list, gate: bool) -> str:
     """Why a --json scan failed: every cause the gate tripped on, joined by ``; `` (a scan can fail on more than
     one). The --static problems always fail the run; the failed claims and the incomplete scan only under
-    --fail-on-fail."""
+    --fail-on fail."""
     parts = []
     if static_errors:
         parts.append(f"{len(static_errors)} --static problem(s) not merged")
-    if fail_on_fail and new_failures(payload):
+    if gate and new_failures(payload):
         known = (payload.get("baseline") or {}).get("known")
         parts.append(f"{new_failures(payload)} claim(s) failed" + (f" ({known} more known in the baseline)" if known else ""))
-    if fail_on_fail and payload["incomplete"]:
+    if gate and payload["incomplete"]:
         reasons = "; ".join(payload.get("incomplete_reasons") or [])
         parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
     return "; ".join(parts)
 
 
-def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
-    """--fail-on-fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
-    if not fail_on_fail or not (new_failures(payload) or payload["incomplete"]):
+def _scan_gate(payload: dict, gate: bool) -> None:
+    """--fail-on fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
+    if not gate or not (new_failures(payload) or payload["incomplete"]):
         return
     if payload["incomplete"]:
         print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)

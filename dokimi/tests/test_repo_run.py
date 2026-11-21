@@ -57,7 +57,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert meta["agent_network"] == "host"
     assert meta["egress_proxy"] is False and len(meta["start_sha"]) == 40
     events = [json.loads(line) for line in (rd / "events.jsonl").read_text().splitlines()]
-    assert events == [{"kind": "edit", "path": "src/calc.py", "rc": 0, "t": None, "v": 1}]  # relative to /eval/run/workspace
+    assert events == [{"kind": "edit", "path": "src/calc.py", "rc": 0, "t": None, "v": 2}]  # relative to /eval/run/workspace
     assert (rd / "answer.txt").read_text() == "done: src/calc.py"
     assert (rd / "config/settings.json").read_text() == '{"hook": "python3 /eval/support/no_background.py"}'
     result = json.loads((rd / "result.json").read_text())
@@ -124,8 +124,8 @@ def test_an_unreadable_trace_leaves_process_null_and_still_grades(setup, monkeyp
 
 
 def test_an_agent_that_left_no_trace_is_not_given_a_process_metrics_error(setup, monkeypatch):
-    # No events and no turns: the metrics are not run on the missing trace, so they record no failure.
-    monkeypatch.setenv("FAKE_ACTION", "silent")
+    # No events and no turns (exit 0: a nonzero exit is a crash): the metrics are not run on the missing trace.
+    monkeypatch.setenv("FAKE_ACTION", "quiet")
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["process"] is None
@@ -502,7 +502,7 @@ def test_timed_out_cell_counts_toward_batch_budget(setup, monkeypatch, capsys):
     monkeypatch.setenv("FAKE_ACTION", "sleep")
     with pytest.raises(SystemExit) as exc:
         _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2", "--timeout", "2",
-             "--budget", "0.5", "--max-batch-usd", "0.01")
+             "--max-usd-per-cell", "0.5", "--max-usd", "0.01")
     assert exc.value.code == 1
     assert "1 ran" in (out := capsys.readouterr().out) and "1 not started (batch budget), 0 unsupported; $0.5000" in out
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
@@ -736,7 +736,7 @@ def test_a_trace_that_cannot_be_converted_charges_the_cell_cap(setup, monkeypatc
         raise ValueError("unreadable trace")
 
     monkeypatch.setattr("dokimi.repos.runner.convert", boom)
-    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--budget", "0.5")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--max-usd-per-cell", "0.5")
     rec = _only_cell(setup)
     assert rec["grade"]["status"] == "grader_failure" and "unreadable trace" in rec["grade"]["reasons"][0]
     assert rec["agent"]["cost_usd"] is None and rec["agent"]["charged_usd"] == 0.5
@@ -747,8 +747,8 @@ def test_a_trace_that_cannot_be_converted_charges_the_cell_cap(setup, monkeypatc
 def test_a_batch_budget_counts_a_cell_whose_grading_failed(setup, monkeypatch, capsys):
     monkeypatch.setattr("dokimi.repos.runner.run_entry", lambda *a, **kw: 1 / 0)
     with pytest.raises(SystemExit):
-        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2", "--budget", "0.5",
-             "--max-batch-usd", "0.01")
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2", "--max-usd-per-cell", "0.5",
+             "--max-usd", "0.01")
     out = capsys.readouterr().out
     assert "1 ran" in out and "1 not started (batch budget)" in out
 

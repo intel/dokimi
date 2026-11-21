@@ -15,8 +15,16 @@ rest of the pipeline keeps working without it.
 from __future__ import annotations
 
 import importlib.util
+import itertools
+import logging
 import os
 from pathlib import Path
+
+from dokimi.artifacts import load_artifact, save_artifact
+from dokimi.atomic_write import write_text_atomic
+from dokimi.utils import InputError
+
+logger = logging.getLogger(__name__)
 
 # Document types Docling can convert to Markdown.
 SUPPORTED_SUFFIXES = frozenset({
@@ -25,6 +33,9 @@ SUPPORTED_SUFFIXES = frozenset({
 })
 
 _INSTALL_HINT = "Docling is not installed. Install it with: pip install 'dokimi[ocr]'"
+
+# In the output directory: which source each .md was converted from (schemas/docling_sources.v1.json).
+SOURCES_NAME = ".dokimi-docling.json"
 
 
 def docling_available() -> bool:
@@ -64,23 +75,84 @@ def convert_to_markdown(path) -> str:
 def materialize_markdown(inputs, out_dir) -> list[Path]:
     """Convert ``inputs`` to Markdown files under ``out_dir``; return written paths.
 
-    Makes a corpus of PDFs/Office/scans benchmark-ready by emitting one ``.md``
-    per source document.
+    Makes a corpus of PDFs/Office/scans benchmark-ready by emitting one ``<stem>-<ext>.md`` per
+    source document. A source converted into ``out_dir`` before replaces its own file (#687): the
+    ``.dokimi-docling.json`` record there names each file's source. Another source with the same
+    name, a file no record names and a link of any kind are left alone, and the next free
+    ``<stem>-<ext>-N.md`` is written instead.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    record = out_dir / SOURCES_NAME
+    # an entry whose file and source are both gone holds its name no longer; the source is
+    # found as _source_id built it, lexically, even when out_dir is a link
+    base = os.path.abspath(out_dir)
+    owners = {name: source for name, source in _read_owners(record).items()
+              if os.path.lexists(out_dir / name) or os.path.lexists(os.path.normpath(os.path.join(base, source)))}
     written: list[Path] = []
     for src in inputs:
         src = Path(src)
         markdown = convert_to_markdown(src)
-        # Disambiguate by suffix and a counter so same-named inputs (a.pdf, a.docx,
-        # or two a.pdf in different dirs) don't overwrite each other.
-        base = f"{src.stem}-{src.suffix.lstrip('.').lower()}"
-        dest = out_dir / f"{base}.md"
-        i = 2
-        while os.path.lexists(dest):  # a link of any kind is taken: a write would follow it (#545)
-            dest = out_dir / f"{base}-{i}.md"
-            i += 1
-        dest.write_text(markdown, encoding="utf-8")
+        source = _source_id(src, out_dir)
+        dest = _dest(src, out_dir, owners, source)
+        # Recorded before the write: a file is never left that no record names (a rerun would write a -2).
+        owners = {name: s for name, s in owners.items() if s != source} | {dest.name: source}
+        _save_owners(record, owners)
+        write_text_atomic(dest, markdown)
         written.append(dest)
     return written
+
+
+def _source_id(src: Path, out_dir: Path) -> str:
+    """The source as the record names it: relative to ``out_dir``, so the two can move together.
+    Links are not followed: a link is a source of its own, whatever it points at. Letter case is
+    folded where the platform does (Windows)."""
+    absolute = os.path.normcase(os.path.abspath(src))  # RAW/A.PDF and raw/a.pdf are one file on Windows
+    try:
+        return Path(os.path.relpath(absolute, os.path.normcase(os.path.abspath(out_dir)))).as_posix()
+    except ValueError:  # on another Windows drive there is no relative path
+        return Path(absolute).as_posix()
+
+
+def _dest(src: Path, out_dir: Path, owners: dict[str, str], source: str) -> Path:
+    """The file the record gives ``source``, else the first free name: one no other source holds in
+    the record (letter case aside), even when its file was deleted, and no file or link of any kind
+    is at (#545)."""
+    for name, owner in owners.items():
+        path = out_dir / name
+        if owner != source or path.name != name:  # a `\` is a separator on Windows: not a name there
+            continue
+        if path.is_file() and not path.is_symlink() or not os.path.lexists(path):
+            return path
+    base = f"{src.stem}-{src.suffix.lstrip('.').lower()}"
+    names = itertools.chain([f"{base}.md"], (f"{base}-{i}.md" for i in itertools.count(2)))
+    held = {name.casefold() for name in owners}  # A-pdf.md and a-pdf.md are one file on a case-insensitive disk
+    return next(out_dir / n for n in names if n.casefold() not in held and not os.path.lexists(out_dir / n))
+
+
+def _read_owners(record: Path) -> dict[str, str]:
+    """File name -> source, from the record an earlier run left; empty when there is none to use."""
+    if not os.path.lexists(record):
+        return {}
+    if record.is_dir() and not record.is_symlink():
+        return {}  # _save_owners refuses before any file is written: no warning that new files follow
+    if record.is_symlink():
+        reason = f"{record} is a link, which this run replaces with a record of its own"
+    else:
+        try:
+            return {f["name"]: f["source"] for f in load_artifact("docling_sources", record)["files"]}
+        except InputError as exc:
+            reason = str(exc)
+    # the files stay: a rerun writes beside them and starts a new record
+    logger.warning("Ignoring the record of converted files: %s. The files already in %s are kept, "
+                   "and this run writes new ones beside them", reason, record.parent)
+    return {}
+
+
+def _save_owners(record: Path, owners: dict[str, str]) -> None:
+    if record.is_dir() and not record.is_symlink():
+        raise InputError(f"{record} is a directory, not the record of converted files: remove it or use another --out-dir")
+    if record.is_symlink():  # save_artifact would write through it, out of out_dir (#545)
+        record.unlink()
+    files = [{"name": name, "source": source} for name, source in sorted(owners.items())]
+    save_artifact("docling_sources", {"files": files}, record)

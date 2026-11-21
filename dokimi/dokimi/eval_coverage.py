@@ -47,7 +47,7 @@ class LabelledEval:
 
 
 def load_graph(path: Path) -> dict:
-    """Read and validate a ``need_graph.v1`` file (an unstamped ``save_graph`` file is valid).
+    """Read and validate a ``need_graph.v1`` file (an unstamped file is valid).
 
     Raises ``ValueError`` when two nodes share an id: ids are what the ``needs`` labels join on.
     """

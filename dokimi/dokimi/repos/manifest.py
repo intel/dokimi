@@ -30,13 +30,14 @@ import yaml
 
 from dokimi.artifacts import schema_errors
 from dokimi.measure import SCORE_BOUND, as_float, is_finite
+from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
 
 from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX, TASK_PROBLEMS
 from .graders.hidden_tests import HIDDEN_DIR, hidden_files
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
 from .probes import validate_config
-from .source import RepoTree, SourceError
+from .source import RepoTree, SourceArgumentError, SourceError, _NoSuchPath
 from .useful_spec import UsefulSpecError, parse_useful
 
 SCHEMA_VERSION = "repo_manifest.v1"
@@ -513,6 +514,16 @@ def _expected_skill_problems(raw: dict) -> list[str]:
     return []
 
 
+def _read_task_json(tree: RepoTree, where: str) -> tuple[Any, str]:
+    """The parsed task.json and "", or None and what is wrong with it."""
+    try:
+        return json.loads(tree.read_text(tree.resolve(where))), ""
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return None, f"not valid JSON: {exc}"
+    except (OSError, SourceArgumentError, _NoSuchPath) as exc:  # a link that loops, names a directory or nothing (also past an absent directory), or leaves the tree; a failed git show is raised
+        return None, f"cannot read task.json: {exc}"
+
+
 def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     name = PurePosixPath(task_dir).name
     where = f"{task_dir}/task.json"
@@ -522,10 +533,9 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         report.errors.append(f"{where}: task id {name!r} contains whitespace or a comma; task ids are "
                              "split on whitespace and commas in the workflow's tasks, smoke-tasks and exclude-tasks inputs")
         return
-    try:
-        raw = json.loads(tree.read_text(where))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        report.errors.append(f"{where}: not valid JSON: {exc}")
+    raw, unreadable = _read_task_json(tree, where)
+    if unreadable:
+        report.errors.append(f"{where}: {unreadable}")
         return
     if not isinstance(raw, dict):
         report.errors.append(f"{where}: must be a JSON object")
@@ -593,6 +603,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     except HostSpecError as exc:
         problems.append(str(exc).split("task.json ", 1)[-1])
     problems += _useful_problems(raw)
+    problems += _provenance_problems(raw)
     report.errors.extend(f"{where}: {p}" for p in problems)
     if not problems:
         report.tasks.append(TaskSummary(
@@ -630,6 +641,19 @@ def _useful_problems(raw: dict[str, Any]) -> list[str]:
     try:
         parse_useful(raw.get("useful"))
     except UsefulSpecError as exc:
+        return [str(exc)]
+    return []
+
+
+def _provenance_problems(raw: dict[str, Any]) -> list[str]:
+    """The ``version`` and ``provenance`` keys' shape problems, if any; both are optional (dokimi.provenance)."""
+    for key in ("version", "provenance"):
+        if key in raw and raw[key] is None:
+            return [f"{key} is null: omit the key instead"]
+    try:
+        parse_version(raw.get("version"))
+        parse_provenance(raw.get("provenance"))
+    except ProvenanceError as exc:
         return [str(exc)]
     return []
 

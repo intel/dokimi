@@ -92,7 +92,7 @@ def test_estimate_only_counts_the_calls_prices_them_and_sends_nothing(tmp_path, 
     args = _parse("skill", "routing",
                   _skill(tmp_path, "perf", "profile a binary with perf record"), "--competitors",
                   _skill(tmp_path, "tbb", "parallelize loops with task groups"), "--queries",
-                  str(queries), "--model", "m", "--reps", "2", "--estimate-only",
+                  str(queries), "--model", "m", "--reps", "2", "--dry-run",
                   "--out", str(out))
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
@@ -112,7 +112,7 @@ def test_estimate_only_without_a_model_is_lexical_and_free(tmp_path, capsys):
     args = _parse("skill", "routing",
                   _skill(tmp_path, "perf", "profile a binary with perf record"), "--competitors",
                   _skill(tmp_path, "tbb", "parallelize loops"), "--queries",
-                  str(queries), "--estimate-only")
+                  str(queries), "--dry-run")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert (estimate["n_calls"], estimate["input_tokens"], estimate["expected_usd"]) == (0, 0, 0.0)
@@ -147,7 +147,7 @@ def test_estimate_prices_each_call_so_a_long_context_tier_is_not_reached_by_the_
     args = _parse("skill", "routing",
                   _skill(tmp_path, "perf", "profile " + "filler " * 27_000), "--competitors",
                   _skill(tmp_path, "tbb", "parallelize loops"), "--queries",
-                  str(queries), "--model", "m", "--reps", "3", "--estimate-only")
+                  str(queries), "--model", "m", "--reps", "3", "--dry-run")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert estimate["input_tokens"] > 200_000 and estimate["n_calls"] == 6
@@ -162,7 +162,7 @@ def test_estimate_only_gives_a_null_dollar_figure_for_a_routing_model_with_no_pr
     args = _parse("skill", "routing",
                   _skill(tmp_path, "perf", "profile a binary with perf record"), "--competitors",
                   _skill(tmp_path, "tbb", "parallelize loops"), "--queries",
-                  str(queries), "--model", "foo-bar-9", "--provider", "openai", "--estimate-only")
+                  str(queries), "--model", "foo-bar-9", "--provider", "openai", "--dry-run")
     args.func(args)
     captured = capsys.readouterr()
     estimate = json.loads(captured.out)
@@ -182,7 +182,7 @@ def test_estimate_only_refuses_the_run_the_real_run_refuses(tmp_path, capsys, qu
     args = _parse("skill", "routing",
                   _skill(tmp_path, "grill", "Stop.", body="# Grill\n\n## Steps\n"), "--competitors",
                   _skill(tmp_path, "b", "tune a database"), *flags,
-                  "--model", "m", "--estimate-only", "--out", str(out))
+                  "--model", "m", "--dry-run", "--out", str(out))
     with pytest.raises(InputError, match="no usable queries"):
         args.func(args)
     assert not out.exists()

@@ -160,7 +160,7 @@ python cli.py benchmark run \
   --model gpt-6.1-sol \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --multi-run 3 \
+  --reps 3 \
   --out-dir results/onetbb_sol
 ```
 
@@ -478,7 +478,7 @@ effort is set, which dokimi does not do). The run stops at the probe below, befo
 any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
 pinned, only measured: run the same configuration several times
-(`benchmark run --multi-run N`; for `arms run`, repeat the run into separate
+(`benchmark run --reps N`; for `arms run`, repeat the run into separate
 `--out` files) and quote the spread.
 
 - `--temperature`, `--seed`: sampling for answer generation, recorded in
@@ -615,7 +615,7 @@ under several judges (absolute, and with `--grounded` against each question's
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
 `NOT MEASURED` when no voting measure compared a single question (every call
-errored, or every judge was gated out); `--strict` exits 1 on that too. A
+errored, or every judge was gated out); `--strict` exits 3 on that, and 4 on a `JUDGE-DEPENDENT` arm. A
 `--judges` judge that leaves answers unscored prints how many and its first
 error, which the report keeps under `unscored`; one that scored none of its
 answers exits 1 once the report is written, with or without `--strict`, as
