@@ -441,6 +441,13 @@ def test_a_multi_dot_or_doc_file_is_not_the_stem_of_a_missing_identifier(tmp_pat
     assert _status(doc["data"], "ghost_widget") == _status(doc["data"], "build_index") == "fail" and code == 1
 
 
+def test_a_qualified_name_is_not_found_by_the_stem_of_its_last_component(tmp_path, capsys):
+    _write(tmp_path, {"DemoWidget.py": "pass\n", ".dokimi/scan.toml": 'identifiers = "fail"\n',
+                      "AGENTS.md": "Use `WrongNamespace::DemoWidget`.\n"})
+    code, doc = _scan(capsys, str(tmp_path), "--fail-on", "fail")
+    assert _status(doc["data"], "WrongNamespace::DemoWidget") == "fail" and code == 1
+
+
 def test_a_config_error_makes_the_scan_incomplete_and_the_gate_fail(tmp_path, capsys):
     _write(tmp_path, {**TREE, ".dokimi/scan.toml": 'identifiers = "fail"\nidentifier = "x"\n'})
     code, doc = _scan(capsys, str(tmp_path), "--fail-on", "fail")

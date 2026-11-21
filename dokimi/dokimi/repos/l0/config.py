@@ -126,7 +126,7 @@ def apply_config(claims: list[dict[str, Any]], config: ScanConfig, files: Iterab
         status = str(claim.get("status", ""))
         framework = claim.get("source", "framework") == "framework"  # a repository's own verdict is not re-read
         if framework and claim.get("kind") == "identifier" and not status.startswith("ok") \
-                and (stem := stems.get(str(claim.get("claim")).split("::")[-1])):
+                and (stem := stems.get(str(claim.get("claim")))):
             claim["status"], claim["why"] = "ok_stem", f"`{claim['claim']}` names {stem} (no extension)"
             continue
         if framework and config.identifiers == "unresolved" and claim.get("kind") == "identifier" and status == "fail" \
