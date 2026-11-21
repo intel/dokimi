@@ -211,6 +211,20 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("import time\n\n\ndef test_a():\n    x: int = time.sleep(1)\n", {"time.sleep": 1}),
     ("import time\nx: time.sleep(1)\n", {"time.sleep": 1}),
     ("import time\n\n\nclass T:\n    x: time.sleep(1)\n", {"time.sleep": 1}),
+    ("def test_a():\n    import time\n    x: (time := None)\n    time.sleep(1)\n", {"time.sleep": 1}),
+    ("def test_a():\n    import time\n    x: (time := None) = 0\n    time.sleep(1)\n", {"time.sleep": 1}),
+    ("from __future__ import annotations\nimport time\nx: (time := None) = 0\ntime.sleep(1)\n",
+     {"time.sleep": 1}),
+    ("import time\nx: (time := None) = 0\ntime.sleep(1)\n", {}),
+    ("from time import sleep\n[sleep(1) for _ in (0,) if (sleep := lambda _: True)]\n", {}),
+    ("from time import sleep\n{sleep(1) for _ in (0,) if (sleep := lambda _: True)}\n", {}),
+    ("from time import sleep\n{sleep(1): 0 for _ in (0,) if (sleep := lambda _: True)}\n", {}),
+    ("from time import sleep\n[sleep(1) for _ in (sleep := lambda _: [0],)]\n", {}),
+    ("from time import sleep\n[sleep(1) for _ in (0,) for y in (0,) if (sleep := lambda _: True)]\n", {}),
+    ("from time import sleep\n[0 for _ in (0,) if [sleep(1) for y in (0,) if (sleep := None)]]\n", {}),
+    ("from time import sleep\n[sleep(1) for _ in (0,) if sleep(2) if (sleep := None)]\n",
+     {"time.sleep": 1}),
+    ("from time import sleep\n[sleep(1) for _ in (0,) if (sleep := sleep(2))]\n", {"time.sleep": 1}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])

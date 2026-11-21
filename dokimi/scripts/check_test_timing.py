@@ -153,36 +153,53 @@ def _bind(node: ast.AST, names: Names, at: Pos | None = None, *, local: bool = F
         if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
             at = _end(node)
         _bind_target(node, names, at)
-        for child in ast.iter_child_nodes(node):
+        for child in _run_children(node, local or postponed):
             after = _end(node.iter) if isinstance(node, (ast.For, ast.AsyncFor)) and child is node.target else at
             _bind(child, names, after, local=local, postponed=postponed)
 
 
-def _bind_walruses(node: ast.AST, names: Names, unseen: tuple[Span, ...]) -> None:
+def _run_children(node: ast.AST, skip_annotation: bool) -> list[ast.AST]:
+    """The children of ``node``, without the annotation of an ``x: T = v`` that never evaluates it."""
+    skip = node.annotation if skip_annotation and isinstance(node, ast.AnnAssign) else None
+    return [child for child in ast.iter_child_nodes(node) if child is not skip]
+
+
+def _bind_comprehension(node: ast.AST, names: Names, unseen: tuple[Span, ...], lift: tuple[Span, ...]) -> None:
+    gens = node.generators  # type: ignore[attr-defined]
+    elts = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]  # type: ignore[attr-defined]
+    own = (elts[0].lineno, elts[0].col_offset), _end(elts[-1])
+    here = (*lift, own)
+    _bind_walruses(gens[0].iter, names, unseen, here)
+    if isinstance(node, ast.GeneratorExp):
+        return
+    for gen in gens:
+        for part in ([] if gen is gens[0] else [gen.iter]) + gen.ifs:
+            _bind_walruses(part, names, unseen, here)
+    ran_first = tuple(_span(part) for gen in gens for part in (gen.iter, *gen.ifs))
+    for part in elts:
+        _bind_walruses(part, names, (*unseen, *ran_first), lift)
+
+
+def _bind_walruses(node: ast.AST, names: Names, unseen: tuple[Span, ...], lift: tuple[Span, ...] = ()) -> None:
     """A ``:=`` in a comprehension binds in the scope around it, though not in a lambda's body. The element
     of a comprehension runs after its iterables and filters, whatever the text order: ``unseen`` holds
-    those, where the element's binding is not in effect. A generator expression runs only its first
-    iterable where it stands, so the ``:=`` in the rest of it binds nothing here."""
+    those, where the element's binding is not in effect. A ``:=`` in an iterable or filter is in effect
+    for the element, which stands before it in the text: ``lift`` holds the spans of the elements around
+    it, the binding takes effect where each starts, and not in the text from its end to the ``:=``.
+    A generator expression runs only its first iterable where it stands, so the ``:=`` in the rest of it
+    binds nothing here."""
     if isinstance(node, ast.Lambda):
         for part in _outer_parts(node):
-            _bind_walruses(part, names, unseen)
+            _bind_walruses(part, names, unseen, lift)
         return
     if isinstance(node, COMPREHENSIONS):
-        gens = node.generators
-        _bind_walruses(gens[0].iter, names, unseen)
-        if isinstance(node, ast.GeneratorExp):
-            return
-        for gen in gens:
-            for part in ([] if gen is gens[0] else [gen.iter]) + gen.ifs:
-                _bind_walruses(part, names, unseen)
-        ran_first = tuple(_span(part) for gen in gens for part in (gen.iter, *gen.ifs))
-        for part in [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]:
-            _bind_walruses(part, names, (*unseen, *ran_first))
+        _bind_comprehension(node, names, unseen, lift)
         return
     if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
-        _note(names, node.target.id, _end(node), None, unseen)
+        for start, end in lift or ((_end(node), (0, 0)),):
+            _note(names, node.target.id, start, None, (*unseen, (end, _end(node))) if lift else unseen)
     for child in ast.iter_child_nodes(node):
-        _bind_walruses(child, names, unseen)
+        _bind_walruses(child, names, unseen, lift)
 
 
 def _bind_target(node: ast.AST, names: Names, at: Pos | None) -> None:
