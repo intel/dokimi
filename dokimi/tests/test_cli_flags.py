@@ -161,6 +161,12 @@ _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
 # Known clashes, keyed by (leaf, spelling, aspect): each waits for a later F1b migration and
 # changes no CLI behaviour now. A new clash fails unless its key is here.
 MEANING_EXCEPTIONS: dict[tuple[str, str, str], str] = {
+    ("dokimi catalog routing-compare", "--arm", "choices"): "Selects one of the built-in comparison arms.",
+    ("dokimi eval triggers generate", "--fail-on", "choices"): "Only warnings can trigger this gate.",
+    ("dokimi repo budget", "--fail-on", "choices"): "Only warnings can trigger this gate.",
+    ("dokimi repo scan", "--fail-on", "choices"): "Only a failure can trigger this gate.",
+    ("dokimi repo reach", "--max-usd-per-cell", "type"): "The existing probe parses a float and checks its budget in the handler.",
+    ("dokimi repo skill-reach", "--max-usd-per-cell", "type"): "The existing probe parses a float and checks its budget in the handler.",
     ("dokimi arms run", "--judge", "switch"): (
         "a switch that adds the LLM-as-judge; the registry's role_models `--judge` takes "
         "PROVIDER/MODEL. The clash issue #94 names (sec. 2.4, D10); F1b moves this leaf to `--judge P/M`"),
