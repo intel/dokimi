@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import secrets
@@ -26,7 +27,7 @@ def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -
 
     The tmp name keeps at most 32 characters of the file name, so it stays under 170 bytes
     however long the file name is. The tmp file is created new (``O_EXCL``), so a link planted
-    at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group (root also keeps the owner, or raises ``PermissionError`` with the old file kept when it may not chown). Concurrent writers to one
+    at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group (root also keeps the owner, and raises ``PermissionError`` with the old file kept when it may not chown the owner or the group). Concurrent writers to one
     path each publish a whole file; the last one wins. A failed write removes its tmp file and
     leaves the file at ``path`` as it was. Missing parent directories are created.
     """
@@ -42,7 +43,7 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
 
     A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory,
-    a file another user owns (root excepted: it restores the owner, or writes in place when it may not chown), a file in a group the user is not in, a file with a POSIX access ACL and a file in a directory with a default ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
+    a file another user owns (root excepted: it restores the owner and group, or writes in place when it may not chown), a file whose name is a mount point (``os.replace`` fails with EBUSY) is written in place, a file in a group the user is not in, a file with a POSIX access ACL and a file in a directory with a default ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
     writable file in a read-only directory is rewritten, a file keeps its owner, group and ACL, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
     """
     path = Path(path)
@@ -52,6 +53,9 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
             return
         except _OwnerRefused:
             pass
+        except OSError as exc:
+            if exc.errno != errno.EBUSY:
+                raise
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
 
@@ -143,7 +147,7 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
 def _keep_owner_and_group(fd: int, old: os.stat_result) -> None:
     """Give the new inode the old file's group and, for root, its owner.
 
-    A refused group change leaves the group the inode got; a refused owner change (root without CAP_CHOWN) raises :class:`_OwnerRefused`.
+    A refused group change of a user who is not root leaves the group the inode got; a refused change of root (no CAP_CHOWN, or a policy that denies it), of the owner or of the group alone, raises :class:`_OwnerRefused`.
     """
     if not hasattr(os, "fchown"):
         return
@@ -156,8 +160,8 @@ def _keep_owner_and_group(fd: int, old: os.stat_result) -> None:
     try:
         os.fchown(fd, uid, gid)
     except PermissionError as exc:
-        if uid != -1:
-            raise _OwnerRefused(exc.errno, "root may not give the new file the owner of the file it replaces") from exc
+        if root:
+            raise _OwnerRefused(exc.errno, "root may not give the new file the owner or group of the file it replaces") from exc
 
 
 def _existing_stat(path: Path) -> os.stat_result | None:

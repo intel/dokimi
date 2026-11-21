@@ -158,6 +158,94 @@ def test_root_without_the_right_to_chown_does_not_replace_a_file_atomically(tmp_
     assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
 
+def _root_denied_group_only(monkeypatch):
+    """Root without CAP_CHOWN, the new inode owned by the file's owner but in another group: only the group differs."""
+    real = os.fstat
+
+    def other_group(fd):
+        values = list(real(fd))
+        values[5] += 1
+        return os.stat_result(values)
+
+    def denied(fd, uid, gid):
+        assert uid == -1
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "fchown", denied)
+    monkeypatch.setattr(os, "fstat", other_group)
+
+
+def test_root_denied_a_group_change_writes_the_report_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    target.chmod(0o640)
+    before = target.stat()
+    _root_denied_group_only(monkeypatch)
+    write_bytes_in_place_or_atomic(target, b"new")
+    after = target.stat()
+    assert (target.read_bytes(), after.st_ino, after.st_gid) == (b"new", before.st_ino, before.st_gid)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_root_denied_a_group_change_does_not_replace_a_file_atomically(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    _root_denied_group_only(monkeypatch)
+    with pytest.raises(PermissionError):
+        write_bytes_atomic(target, b"new")
+    assert target.read_bytes() == b"old"
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_a_user_who_is_not_root_denied_a_group_change_still_replaces_the_file(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_denied_group_only(monkeypatch)
+    monkeypatch.setattr(os, "geteuid", lambda: target.stat().st_uid)
+    write_bytes_atomic(target, b"new")
+    assert (target.read_bytes(), target.stat().st_ino != before) == (b"new", True)
+
+
+def _replace_busy(monkeypatch):
+    """``os.replace`` as the kernel answers it for a file that is a mount point."""
+
+    def busy(src, dst):
+        raise OSError(errno.EBUSY, "Device or resource busy")
+
+    monkeypatch.setattr(os, "replace", busy)
+
+
+def test_a_report_that_is_a_mount_point_is_written_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _replace_busy(monkeypatch)
+    write_bytes_in_place_or_atomic(target, b"new")
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_a_strict_atomic_write_to_a_mount_point_raises_and_keeps_the_file(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    _replace_busy(monkeypatch)
+    with pytest.raises(OSError) as raised:
+        write_bytes_atomic(target, b"new")
+    assert raised.value.errno == errno.EBUSY
+    assert target.read_bytes() == b"old"
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_another_replace_failure_is_not_hidden_by_an_in_place_write(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+
+    def full(src, dst):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "replace", full)
+    with pytest.raises(OSError) as raised:
+        write_bytes_in_place_or_atomic(target, b"new")
+    assert raised.value.errno == errno.ENOSPC
+    assert target.read_bytes() == b"old"
+
+
 def test_a_file_with_an_access_acl_is_written_in_place(tmp_path, monkeypatch):
     target = _report(tmp_path)
     before = target.stat().st_ino
