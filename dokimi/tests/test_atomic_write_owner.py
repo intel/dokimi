@@ -296,6 +296,33 @@ def test_a_file_with_an_access_acl_is_written_in_place(tmp_path, monkeypatch):
     assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
 
 
+def test_a_file_with_a_user_xattr_is_written_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    monkeypatch.setattr(os, "listxattr", lambda path: ["user.project"] if Path(path) == target else [], raising=False)
+    write_bytes_in_place_or_atomic(target, b"new")
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
+
+
+def test_a_file_with_only_a_system_or_security_xattr_is_still_replaced(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    monkeypatch.setattr(os, "listxattr", lambda path: ["security.selinux", "system.other"], raising=False)
+    write_bytes_in_place_or_atomic(target, b"new")
+    assert (target.read_bytes(), target.stat().st_ino != before) == (b"new", True)
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="needs xattrs")
+def test_a_real_user_xattr_survives_a_rewrite(tmp_path):
+    target = _report(tmp_path)
+    try:
+        os.setxattr(target, "user.project", b"docs")
+    except OSError:
+        pytest.skip("the file system takes no user xattr")
+    write_bytes_in_place_or_atomic(target, b"new")
+    assert (target.read_bytes(), os.getxattr(target, "user.project")) == (b"new", b"docs")
+
+
 def test_a_file_in_a_directory_with_a_default_acl_is_written_in_place(tmp_path, monkeypatch):
     target = _report(tmp_path)
     before = target.stat().st_ino

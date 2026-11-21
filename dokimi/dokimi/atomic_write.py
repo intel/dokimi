@@ -43,7 +43,7 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
 
     A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory,
-    a file another user owns (root excepted: it restores the owner and group, or writes in place when it may not chown), a file whose name is a mount point (``os.replace`` fails with EBUSY) is written in place, a file in a group the user is not in, a file with a POSIX access ACL and a file in a directory with a default ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
+    a file another user owns (root excepted: it restores the owner and group, or writes in place when it may not chown), a file whose name is a mount point (``os.replace`` fails with EBUSY) is written in place, a file in a group the user is not in, a file with a POSIX access ACL or a ``user.*`` extended attribute and a file in a directory with a default ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
     writable file in a read-only directory is rewritten, a file keeps its owner, group and ACL, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
     """
     path = Path(path)
@@ -73,6 +73,7 @@ def _is_plain_writable_file(path: Path) -> bool:
         and _can_keep_owner(info)
         and _can_keep_group(info)
         and not _has_access_acl(path)
+        and not _has_user_xattr(path)
         and not _has_default_acl(path.parent)
     )
 
@@ -94,6 +95,14 @@ def _has_access_acl(path: Path) -> bool:
     """A POSIX access ACL (Linux) is not copied by a new inode, and its mask shows as the group bits of the mode."""
     try:
         return "system.posix_acl_access" in os.listxattr(path)
+    except (AttributeError, OSError):
+        return False
+
+
+def _has_user_xattr(path: Path) -> bool:
+    """A ``user.*`` extended attribute (Linux) is not copied by a new inode, so a rewritten report would lose it."""
+    try:
+        return any(name.startswith("user.") for name in os.listxattr(path))
     except (AttributeError, OSError):
         return False
 
