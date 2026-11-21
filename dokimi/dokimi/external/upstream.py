@@ -7,7 +7,7 @@ The upstreams are the caller's, offline, and nothing is fetched: a git checkout 
 every version of each ``SKILL.md``, or a manifest (``--upstream-manifest``), a JSON file that carries the bytes of each
 version it lists. No upstream list is built in.
 
-A loaded skill is matched in two steps, by its bytes first:
+A copy is matched in two steps, by its bytes first, even when it does not load:
 
 - ``exact``: its ``SKILL.md`` is byte-identical to an upstream ``SKILL.md`` at the upstream head or in its history
   (the git blob sha). The copy is not edited. When several versions have those bytes, the newest one is the match.
@@ -15,7 +15,8 @@ A loaded skill is matched in two steps, by its bytes first:
   similarity of at least :data:`SIMILAR_JACCARD` to the copy's text. The copy is edited.
 
 Otherwise the copy is ``unmatched``. Blob shas are git's own (``sha1("blob <size>\\0" + bytes)``), so a checkout, a
-manifest and the copy agree with ``git hash-object``, in a sha-1 or a sha-256 repository.
+manifest and the copy agree with ``git hash-object``, in a sha-1 or a sha-256 repository. A copy with CRLF line
+endings also matches by its LF form, as ``git hash-object`` does in a checkout with ``core.autocrlf``.
 
 The history of a checkout is read in two git calls (``log --raw`` over every ``SKILL.md``, ``ls-tree`` at head) and one
 ``cat-file --batch``. ``behind`` counts the commits that touched the path after the version; the months are the head
@@ -43,7 +44,11 @@ MONTH_DAYS = 30.44
 MANIFEST_SCHEMA = "dokimi.upstream.v1"
 _SKILL_PATHSPEC = ":(glob,icase)**/SKILL.md"
 _WORDS = re.compile(r"[a-z0-9]+")
-_ZERO_SHA = "0" * 40
+
+
+def _is_zero(sha: str) -> bool:
+    """The all-zero object id git prints for an absent side of a change, in a sha-1 or a sha-256 repository."""
+    return set(sha) == {"0"}
 
 
 def blob_sha(raw: bytes) -> str:
@@ -57,10 +62,11 @@ def blob_sha256(raw: bytes) -> str:
 
 
 def _exact_rank(version: "Version") -> tuple:
-    """The order of versions with the same bytes: the head, then the fewest commits behind, then the earlier upstream
-    on the command line, then the newest commit date within that upstream (a manifest gives no commit count)."""
+    """The order of versions with the same bytes: the head, then the earlier upstream on the command line, then the
+    newest commit date within that upstream, then the fewest commits behind (a manifest gives no commit count)."""
     newest = (0, -version.date.timestamp()) if version.date is not None else (1, 0.0)
-    return (not version.head, version.behind if version.behind is not None else 1 << 30, version.upstream.order, newest)
+    behind = version.behind if version.behind is not None else 1 << 30
+    return (not version.head, version.upstream.order, newest, behind)
 
 
 def _tokens(text: str) -> frozenset[str]:
@@ -107,7 +113,8 @@ class Upstream:
     order: int  # its place on the command line; a tie between two upstreams goes to the earlier one
     head_commit: Optional[str]
     head_date: Optional[datetime]
-    history: str  # "full", "shallow" (a shallow clone: older versions are not seen) or "manifest" (as listed)
+    history: str  # "full", "shallow" (a shallow clone: older versions are not seen), "partial" or "manifest" (as listed)
+    missing: int = 0  # blobs of the history the clone does not hold: their versions are not in the index
 
 
 @dataclass(frozen=True)
@@ -124,6 +131,7 @@ class Version:
     date: Optional[datetime]
     head: bool
     behind: Optional[int]  # commits that touched the path after this version; None when the history does not say
+    removed: Optional[bool] = None  # the path is not in the upstream head tree; None when the upstream does not say
 
     @property
     def months_behind(self) -> Optional[float]:
@@ -164,7 +172,13 @@ class Index:
 
     def match(self, raw: bytes, name: Optional[str]) -> Optional[Match]:
         """The upstream version a copy with bytes ``raw`` and frontmatter ``name`` came from, or None."""
-        exact = [*self._by_blob.get(blob_sha(raw), []), *self._by_blob.get(blob_sha256(raw), [])]
+        # A CRLF checkout (core.autocrlf) of an LF blob is the same file to git: its LF form is looked up too.
+        forms = (raw, raw.replace(b"\r\n", b"\n")) if b"\r\n" in raw else (raw,)
+        exact: list[Version] = []
+        for form in forms:
+            exact = [v for sha in (blob_sha(form), blob_sha256(form)) for v in self._by_blob.get(sha, [])]
+            if exact:
+                break
         if exact:
             best = min(exact, key=_exact_rank)
             return Match("exact", best, edited=False, jaccard=None)
@@ -177,7 +191,8 @@ class Index:
         best_score, best = max(
             scored,
             key=lambda pair: (pair[0], pair[1].head, -pair[1].upstream.order,
-                              -(pair[1].behind if pair[1].behind is not None else 1 << 30)),
+                              -(pair[1].behind if pair[1].behind is not None else 1 << 30),
+                              pair[1].date.timestamp() if pair[1].date is not None else float("-inf")),
         )
         if best_score < SIMILAR_JACCARD:
             return None
@@ -191,7 +206,8 @@ def _unquote(path: str) -> str:
     body = path[1:-1].encode("utf-8", errors="surrogateescape")
     out = bytearray()
     i = 0
-    escapes = {ord("t"): 9, ord("n"): 10, ord('"'): 34, ord("\\"): 92}
+    escapes = {ord("a"): 7, ord("b"): 8, ord("t"): 9, ord("n"): 10, ord("v"): 11, ord("f"): 12, ord("r"): 13,
+               ord('"'): 34, ord("\\"): 92}
     while i < len(body):
         if body[i] == ord("\\") and i + 1 < len(body):
             nxt = body[i + 1]
@@ -253,30 +269,45 @@ def _read_blobs(root: Path, shas: Sequence[str]) -> dict[str, bytes]:
 
 def _history(root: Path) -> tuple[list[tuple[str, str, list[tuple[str, str]]]], dict[str, list[str]]]:
     """``(commit, date, [(path, blob sha)])`` for each commit that changed a ``SKILL.md``, newest first, and the
-    commits that touched each path (newest first). A deletion is a touch with no blob."""
-    # --diff-merges=first-parent: a merge commit prints no diff by default, so a SKILL.md version that a merge
-    # resolved (or changed) would never be seen and the commits it counts as behind would be short.
+    commits that touched each path (newest first). A deletion is a touch with no blob. A merge counts as a touch
+    only where it gives the path a blob it did not have (a conflict resolution)."""
+    # first-parent merge diffs, --root and --no-show-signature: git config in the checkout must not hide a version
+    # or run its gpg.program.
     log = _git(root, "-c", "core.quotepath=off", "log", "--raw", "--no-abbrev", "--no-renames", "--full-history",
-               "--diff-merges=first-parent", "--format=C %H %cI", "HEAD", "--", _SKILL_PATHSPEC)
+               "--diff-merges=first-parent", "--root", "--no-show-signature", "--format=C %H %cI %P", "HEAD", "--",
+               _SKILL_PATHSPEC)
     if log.returncode:
         raise ValueError(f"{root}: cannot read history: {_git_error(log)}")
     commits: list[tuple[str, str, list[tuple[str, str]]]] = []
-    touches: dict[str, list[str]] = {}
-    for line in log.stdout.splitlines():
+    merges: set[str] = set()
+    for line in log.stdout.split("\n"):  # not splitlines(): U+2028 and the like may be in a path
         if line.startswith("C "):
-            _, sha, date = line.split(" ", 2)
+            _, sha, date, *parents = line.split(" ")
             commits.append((sha, date, []))
+            if len(parents) > 1:
+                merges.add(sha)
         elif line.startswith(":") and commits and "\t" in line:
             meta, _, path = line.partition("\t")
             new_sha = meta.split()[3]
             path = _unquote(path)
             commits[-1][2].append((path, new_sha))
-            touches.setdefault(path, []).append(commits[-1][0])
+    # A merge's first-parent diff repeats the edit its branch made: keep the older commit, as ``git log -- path``.
+    last: dict[str, str] = {}
+    for commit, _, changes in reversed(commits):
+        if commit in merges:
+            changes[:] = [(path, new_sha) for path, new_sha in changes if last.get(path) != new_sha]
+        last.update(changes)
+    touches: dict[str, list[str]] = {}
+    for commit, _, changes in commits:
+        for path, _ in changes:
+            touches.setdefault(path, []).append(commit)
     return commits, touches
 
 
 def load_checkout(root: Path, order: int) -> tuple[Upstream, list[Version]]:
     """The upstream and every ``SKILL.md`` version a git checkout holds, from its history."""
+    if not root.is_dir():
+        raise ValueError(f"{root} is not a directory: --upstream takes the top level of a git checkout")
     top = _git(root, "rev-parse", "--show-toplevel")
     # git walks up from any directory to an enclosing repository: a plain folder inside one is not a checkout.
     if top.returncode or Path(top.stdout.strip()).resolve() != root.resolve():
@@ -285,26 +316,27 @@ def load_checkout(root: Path, order: int) -> tuple[Upstream, list[Version]]:
     if head.returncode:
         raise ValueError(f"{root} is not a git checkout with a commit: --upstream takes a git checkout")
     head_sha = head.stdout.strip()
-    head_date_text = _git(root, "log", "-1", "--format=%cI", head_sha).stdout.strip()
+    head_date_text = _git(root, "log", "-1", "--no-show-signature", "--format=%cI", head_sha).stdout.strip()
     shallow = _git(root, "rev-parse", "--is-shallow-repository").stdout.strip() == "true"
-    upstream = Upstream(
-        name=root.resolve().name, order=order, head_commit=head_sha,
-        head_date=_parse_date(head_date_text or None),
-        history="shallow" if shallow else "full",
-    )
     heads = _head_blobs(root)
     commits, touches = _history(root)
     first_seen: dict[tuple[str, str], tuple[str, str]] = {}  # (path, blob) → (commit, date), newest occurrence
     for commit, date, changes in commits:
         for path, new_sha in changes:
-            if new_sha != _ZERO_SHA:
+            if not _is_zero(new_sha):
                 first_seen.setdefault((path, new_sha), (commit, date))
     keys = set(first_seen) | {(path, sha) for path, sha in heads.items()}
     texts = _read_blobs(root, [sha for _, sha in keys])
+    missing = len({sha for _, sha in keys if sha not in texts})
+    upstream = Upstream(
+        name=root.resolve().name, order=order, head_commit=head_sha,
+        head_date=_parse_date(head_date_text or None),
+        history="partial" if missing else "shallow" if shallow else "full", missing=missing,
+    )
     versions: list[Version] = []
     for path, sha in sorted(keys):
         if sha not in texts:
-            continue  # a blob the clone does not hold
+            continue  # a blob the clone does not hold: counted in ``missing``
         at: tuple[str, str] | None = first_seen.get((path, sha))
         at_commit = at[0] if at else None
         is_head = heads.get(path) == sha
@@ -315,6 +347,7 @@ def load_checkout(root: Path, order: int) -> tuple[Upstream, list[Version]]:
             upstream=upstream, path=path, blob_sha=sha, name=_norm_name(meta.get("name")),
             version=_version_label(meta), text=text, commit=at_commit,
             date=_parse_date(at[1] if at else None), head=is_head, behind=behind,
+            removed=path not in heads,
         ))
     return upstream, versions
 
@@ -331,10 +364,12 @@ def load_manifest(path: Path, order: int) -> tuple[Upstream, list[Version]]:
     if not isinstance(name, str) or not name.strip():
         raise InputError(f"{path}: the manifest needs a \"name\"")
     head_raw = data.get("head")
-    head: dict[str, Any] = head_raw if isinstance(head_raw, dict) else {}
+    if head_raw is not None and not isinstance(head_raw, dict):
+        raise InputError(f"{path}: \"head\" must be an object {{commit, date}}")
+    head: dict[str, Any] = head_raw or {}
     upstream = Upstream(
-        name=name.strip(), order=order, head_commit=head.get("commit"),
-        head_date=_parse_date(head.get("date")), history="manifest",
+        name=name.strip(), order=order, head_commit=_optional_str(head, "commit", path, "head"),
+        head_date=_parse_date(_optional_str(head, "date", path, "head")), history="manifest",
     )
     entries = data.get("skills")
     if not isinstance(entries, list):
@@ -345,13 +380,30 @@ def load_manifest(path: Path, order: int) -> tuple[Upstream, list[Version]]:
             raise InputError(f"{path}: each entry needs a string \"path\" and \"content\"")
         text = entry["content"]
         meta = _meta(text)
+        where = f"skills entry {entry['path']!r}"
+        if entry.get("head") is not None and not isinstance(entry["head"], bool):
+            raise InputError(f"{path}: \"head\" in {where} must be true or false")
         versions.append(Version(
             upstream=upstream, path=entry["path"], blob_sha=blob_sha(text.encode("utf-8")),
             name=_norm_name(meta.get("name")), version=_version_label(meta), text=text,
-            commit=entry.get("commit"), date=_parse_date(entry.get("date")),
+            commit=_optional_str(entry, "commit", path, where),
+            date=_parse_date(_optional_str(entry, "date", path, where)),
             head=entry.get("head") is True, behind=None,
         ))
     return upstream, versions
+
+
+def _optional_str(obj: dict, key: str, path: Path, where: str) -> Optional[str]:
+    """``obj[key]`` when it is a string, None when it is absent or null; anything else is refused."""
+    value = obj.get(key)
+    if value is not None and not isinstance(value, str):
+        raise InputError(f"{path}: \"{key}\" in {where} must be a string or null, not {value!r}")
+    return value
+
+
+def frontmatter_name(raw: bytes) -> Optional[str]:
+    """The frontmatter ``name`` of a skill copy, or None when it has none (no fallback to the directory name)."""
+    return _norm_name(_meta(raw.decode("utf-8", errors="replace")).get("name"))
 
 
 def _meta(text: str) -> dict:
@@ -383,7 +435,8 @@ def to_row(match: Optional[Match], *, head_known: bool = True) -> dict:
     """The report fields of one skill's match; ``match`` None gives ``match: null`` and nothing else."""
     if match is None:
         return {"match": None, "upstream": None, "path": None, "commit": None, "date": None, "version": None,
-                "at_head": None, "behind_commits": None, "behind_months": None, "edited": None, "jaccard": None}
+                "at_head": None, "behind_commits": None, "behind_months": None, "edited": None, "jaccard": None,
+                "removed_at_head": None}
     v = match.version
     return {
         "match": match.kind,
@@ -397,6 +450,7 @@ def to_row(match: Optional[Match], *, head_known: bool = True) -> dict:
         "behind_months": v.months_behind if head_known else None,
         "edited": match.edited,
         "jaccard": match.jaccard,
+        "removed_at_head": v.removed,
     }
 
 
@@ -404,7 +458,8 @@ def upstream_rows(index: Index) -> list[dict]:
     """One report row per upstream: its name, head, and how its history was read."""
     return [
         {"name": u.name, "head_commit": u.head_commit[:12] if u.head_commit else None,
-         "head_date": u.head_date.date().isoformat() if u.head_date else None, "history": u.history}
+         "head_date": u.head_date.date().isoformat() if u.head_date else None, "history": u.history,
+         "missing_blobs": u.missing}
         for u in index.upstreams
     ]
 
