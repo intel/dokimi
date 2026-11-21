@@ -558,7 +558,7 @@ def register(sub, positive_int, eval_sub) -> None:
     scan_p.add_argument(
         "--per-skill", action="store_true",
         help="Review each skill alone: the cross-catalog checks (duplicate, name-conflict, "
-             "mirror-drift, description-near-duplicate) do not fire between skills",
+             "mirror-drift, description-near-duplicate, similar-skills-exist) do not fire between skills",
     )
     scan_p.add_argument(
         "--skip-nested", action="store_true",

@@ -4,7 +4,7 @@
 """``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--concurrency`` and ``--resume``.
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
-``description-near-duplicate``) need every skill reviewed together. This mode gives them up
+``description-near-duplicate``, ``similar-skills-exist``) need every skill reviewed together. This mode gives them up
 and reviews one skill per row. Every SKILL.md body the scan finds is loaded before the first row (eager, so
 memory grows with the catalog; lazy per-skill loading is #434). Rows are written in
 catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
