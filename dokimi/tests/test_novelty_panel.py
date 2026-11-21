@@ -270,7 +270,7 @@ def test_estimate_only_counts_each_panel_judge_at_the_command(tmp_path, capsys):
     def estimate(*judges):
         flags = [f for j in judges for f in ("--judge", j)]
         args = build_parser().parse_args(["skill", "novelty", "analyze", "--artifact",
-                                          f"skill:{tmp_path}", "--estimate-only", *flags])
+                                          f"skill:{tmp_path}", "--dry-run", *flags])
         args.func(args)
         out = json.loads(capsys.readouterr().out)
         return dict(out["estimate"], expected_usd=out["expected_usd"])
@@ -287,7 +287,7 @@ def test_estimate_only_refuses_an_unusable_judge(tmp_path):
     (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                        encoding="utf-8")
     args = build_parser().parse_args(["skill", "novelty", "analyze", "--artifact",
-                                      f"skill:{tmp_path}", "--estimate-only", "--judge", "nope/x"])
+                                      f"skill:{tmp_path}", "--dry-run", "--judge", "nope/x"])
     with pytest.raises(InputError, match="PROVIDER/MODEL"):
         args.func(args)
 

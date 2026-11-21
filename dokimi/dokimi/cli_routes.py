@@ -494,7 +494,8 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
         name, equals, value = token.partition("=")
         for move in FLAG_MOVES:
             if name == move.old and (not move.leaves or leaf in move.leaves):
-                rewritten[index] = f"{move.new}{equals}{value}"
+                # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
+                rewritten[index] = move.new if "=" in move.new else f"{move.new}{equals}{value}"
                 changed = True
                 break
     return rewritten if changed else None

@@ -117,7 +117,7 @@ def test_a_rule_linked_to_a_guidance_name_is_still_checked(tmp_path, capsys):
 
 def test_a_rules_link_to_a_directory_makes_the_default_scan_incomplete(tmp_path, capsys):
     # budget warns that the rules behind a linked .claude/rules are not counted; the scan must say so too,
-    # or --fail-on-fail reads the unchecked rules as a clean pass
+    # or --fail-on fail reads the unchecked rules as a clean pass
     root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
                                    "shared/rules/a.md": "See `src/gone_a.py`.\n"})
     (root / ".claude").mkdir()

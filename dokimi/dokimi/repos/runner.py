@@ -181,7 +181,7 @@ def task_caps(task: Task, opts: AgentOptions) -> dict[str, float]:
         value = task.raw.get(key)
         value = default if value is None else value
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
-            # NaN would make charged_usd, and so the batch total, NaN: --max-batch-usd would never trip
+            # NaN would make charged_usd, and so the batch total, NaN: --max-usd would never trip
             raise PrepError(f"task {task.id}: {key} must be a positive, finite number, got {value!r}")
         caps[key] = float(value)
     caps["max_turns"] = int(caps["max_turns"])
@@ -476,7 +476,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         if task.id in unsupported:
             _run_unsupported(batch_dir, name, cell, unsupported[task.id], verdicts[task.id][1], host, state, lock, log)
             return
-        # the harness's cap on this cell (task.json's, else --budget)
+        # the harness's cap on this cell (task.json's, else --max-usd-per-cell)
         reserved = _reserve(state, lock, max_batch_usd, batch_dir / name,
                             task_caps(task, opts)["budget_usd"], force)
         if reserved is None:
@@ -634,7 +634,7 @@ def _write_batch_spend(batch_dir: Path, spent: float) -> None:
 
 def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> None:
     """Refuse a plan naming one cell directory twice, or two names one case-insensitive volume maps to one
-    directory: with --jobs 2 both would run in it and mix their files (or one would delete the other's)."""
+    directory: with --concurrency 2 both would run in it and mix their files (or one would delete the other's)."""
     names = Counter(cell_name(t.id, a, o.model, r) for t, a, o, r in cells)
     problems = [f"cell {name} is planned {names[name]} times" for name in sorted(names) if names[name] > 1]
     by_fold: dict[str, list[str]] = {}

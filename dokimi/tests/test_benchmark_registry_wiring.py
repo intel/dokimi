@@ -76,7 +76,7 @@ def test_a_custom_entry_without_an_id_is_not_looked_up_in_the_bundled_registry(s
 
 
 def test_multi_run_and_batch_hand_the_registry_over_too(spy, tmp_path):
-    _run(tmp_path, "my_lib", "--multi-run", "2")
+    _run(tmp_path, "my_lib", "--reps", "2")
     registry = tmp_path / "my.yaml"
     args = _subparser("benchmark", "batch").parse_args(
         ["--libraries", "my_lib", "--registry", str(registry), "--out-dir", str(tmp_path / "batch")]
