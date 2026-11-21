@@ -1129,7 +1129,7 @@ DOKIMI_RESPONSE_CACHE=0 python cli.py skill novelty analyze --artifact skill:$S 
 python cli.py skill novelty retest --baseline runs/a --retest runs/b --out-dir runs/retest
 ```
 
-`retest` pairs the baseline run and the retest by artifact ref and writes `retest.md` and `retest.json`. Its
+`retest` pairs the baseline run and the retest by artifact ref and writes `retest.md` and `retest.json` (`novelty_retest.v1`). Its
 statistics are over `k0.lenient` by default (`--scoring strict` for the strict one):
 
 - **Noise floor** = 1.96 × the sample standard deviation of `second − first`. A difference

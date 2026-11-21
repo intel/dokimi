@@ -5,10 +5,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
+from dokimi.artifacts import save_artifact
 from dokimi.utils import InputError
 
 
@@ -36,8 +36,7 @@ def cmd_novelty_retest(args: argparse.Namespace) -> None:
             print(f"Caveat: fewer than {SMALL_SAMPLE_N} items; read the floor as an order of magnitude.")
     if args.out_dir:
         out = Path(args.out_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        (out / "retest.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        save_artifact("novelty_retest", summary, out / "retest.json")
         (out / "retest.md").write_text(render_markdown(summary, warnings=paired["warnings"]),
                                        encoding="utf-8")
         print(f"OK Saved retest report: {out / 'retest.md'}")

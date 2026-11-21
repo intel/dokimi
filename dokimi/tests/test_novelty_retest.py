@@ -260,6 +260,7 @@ def test_the_retest_command_is_registered_and_writes_the_report(tmp_path):
     args.func(args)
 
     saved = json.loads((tmp_path / "out" / "retest.json").read_text(encoding="utf-8"))
+    assert saved["schema_version"] == "novelty_retest.v1"
     assert saved["n_items"] == 10
     assert saved["pearson_r"] == pytest.approx(0.86, abs=0.005)
     report = (tmp_path / "out" / "retest.md").read_text(encoding="utf-8")

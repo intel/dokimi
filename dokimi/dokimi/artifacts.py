@@ -68,6 +68,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "subject_scorecard": "subject_scorecard.v2",
     "skill_evidence": "skill_evidence.v1",
     "novelty": "novelty.v1",
+    "novelty_retest": "novelty_retest.v1",
     "task_runs": "task_runs.v1",
     "explore_runs": "explore_runs.v1",
     "guidance_reach": "guidance_reach.v1",

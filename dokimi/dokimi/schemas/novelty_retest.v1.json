@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/novelty_retest.v1.json",
+  "$comment": "Copyright (C) 2026 Intel Corporation. SPDX-License-Identifier: Apache-2.0",
+  "title": "Novelty test-retest report v1",
+  "description": "Noise floor, paired scores, comparisons below the floor, and exclusions from two novelty analyses.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "dokimi_version",
+    "scoring",
+    "n_items",
+    "mean_abs_diff",
+    "mean_shift",
+    "sd_diff",
+    "pearson_r",
+    "floor",
+    "small_sample",
+    "n_comparisons",
+    "n_below_floor",
+    "below_floor",
+    "items",
+    "warnings",
+    "unmatched",
+    "unscored"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "novelty_retest.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "scoring": {
+      "enum": [
+        "lenient",
+        "strict"
+      ]
+    },
+    "n_items": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "mean_abs_diff": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "mean_shift": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "sd_diff": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "pearson_r": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "floor": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "small_sample": {
+      "type": "boolean"
+    },
+    "n_comparisons": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "n_below_floor": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "below_floor": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "a",
+          "b",
+          "gap"
+        ],
+        "properties": {
+          "a": {
+            "type": "string"
+          },
+          "b": {
+            "type": "string"
+          },
+          "gap": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "first",
+          "second",
+          "diff",
+          "abs_diff"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "first": {
+            "type": "number"
+          },
+          "second": {
+            "type": "number"
+          },
+          "diff": {
+            "type": "number"
+          },
+          "abs_diff": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unmatched": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unscored": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
