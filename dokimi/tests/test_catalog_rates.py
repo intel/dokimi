@@ -166,3 +166,8 @@ def test_unchecked_and_skipped_rows_have_their_own_rates(tmp_path):
     states = tally.summary()['states']
     for state in ('ok', 'not_checked', 'skipped'):
         assert states[state] == {'skills': 1, 'rate': 0.3333, 'repo_rate': 0.3333}
+
+
+def test_empty_catalog_rates_have_no_denominator(tmp_path):
+    states = RateTally(tmp_path).summary()["states"]
+    assert all(entry == {"skills": 0, "rate": None, "repo_rate": None} for entry in states.values())

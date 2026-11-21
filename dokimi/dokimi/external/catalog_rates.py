@@ -74,8 +74,10 @@ class RateTally:
 
         def entry(by_repo: Counter[str]) -> dict:
             count = sum(by_repo.values())
-            per_repo = sum(n / self.skills[repo] for repo, n in by_repo.items()) / repos if repos else 0.0
-            return {"skills": count, "rate": round(count / total, 4) if total else 0.0,
+            if not total:
+                return {"skills": 0, "rate": None, "repo_rate": None}
+            per_repo = sum(n / self.skills[repo] for repo, n in by_repo.items()) / repos
+            return {"skills": count, "rate": round(count / total, 4),
                     "repo_rate": round(per_repo, 4)}
 
         return {
