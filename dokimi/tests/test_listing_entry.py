@@ -19,6 +19,12 @@ def test_the_separator_is_counted_only_for_a_non_empty_when_to_use(when, chars):
     assert listing_text_chars("12345", when) == chars
 
 
+@pytest.mark.parametrize("when, chars", [(False, 5 + 3 + 5), (0, 5 + 3 + 1)])
+def test_a_falsy_non_string_when_to_use_is_counted_as_its_text(when, chars):
+    """#943: `false` adds 8 and `0` adds 4 characters; the changelog fragment says so."""
+    assert listing_text_chars("12345", when) == chars
+
+
 @pytest.mark.parametrize("when, listed", [
     ("when_to_use: On save.\n", len("Format code. - On save.")),
     ("when_to_use: ''\n", len("Format code.")),
