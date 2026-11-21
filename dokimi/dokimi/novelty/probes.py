@@ -94,12 +94,12 @@ _LEADING_CUES = re.compile(
     r"true that|right that|confirm that|so it is safe to|so you can)\b",
     re.I,
 )
-# Bounds, permissions, "skip"/"unless" and antonym adjectives (#1006), never filler: a restated
-# truth has "still", "also", "even", "just", "works" and "instead" as readily as an inversion.
+# Bounds, permissions, "skip" and antonym adjectives (#1006), never filler or "unless":
+# "still", "also", "works" and "fails unless X" restate a truth as readily as invert it.
 _INVERSION_MARKERS = re.compile(
     r"\b(?:any|anything|all|either|including|older|earlier|lower|below|newer|regardless|"
     r"optional|unnecessary|no longer|fine|safe|allowed|permitted|"
-    r"unless|skip|unreliable|useless|unsuitable|unhelpful|wrong)\b",
+    r"skip|unreliable|useless|unsuitable|unhelpful|wrong)\b",
     re.I,
 )
 # A quantifier counts only when the candidate drops a limiter of the source that it inverts;

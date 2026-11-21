@@ -371,10 +371,6 @@ def test_a_filler_word_does_not_turn_a_restated_truth_into_a_reversal(candidate)
         ("When measuring a speedup, warm up first and then time the steady state.",
          "When measuring a speedup, you should skip warm-up and time the first cold run, "
          "right?"),
-        ("Setting ONEAPI_DEVICE_SELECTOR before a program starts restricts the devices it "
-         "uses.",
-         "Setting ONEAPI_DEVICE_SELECTOR before a program starts restricts the devices it "
-         "uses unless you change its code, right?"),
         ("try/except is the only reliable gate for dpnp function coverage.",
          "try/except is an unreliable gate for dpnp function coverage, correct?"),
         ("Restricting dpnp to CPU devices from outside the process is done with "
@@ -409,6 +405,14 @@ def test_an_antonym_or_quantifier_inversion_is_a_reversal(source, candidate):
 def test_a_restated_truth_with_a_filler_or_a_quantifier_over_no_limit_is_rejected(candidate):
     # STATEMENT limits nothing, so "always" widens nothing; "still" and "just" are filler.
     assert check_wording("reversal", source=STATEMENT, candidate=candidate) != []
+
+
+def test_a_prerequisite_restated_with_unless_is_not_a_reversal():
+    # "fails unless the SDK is installed" says the SDK is required, as the source does.
+    assert check_wording(
+        "reversal", source="The SDK must be installed before building the project.",
+        candidate="Building the project fails unless the SDK is installed first, right?",
+    ) == ["polarity_not_flipped"]
 
 
 def test_a_skip_cancelled_by_a_negative_adjective_restates_the_source():

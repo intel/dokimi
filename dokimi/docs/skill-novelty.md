@@ -714,7 +714,7 @@ Known gap: the paraphrase polarity check only asks whether a negation is present
 faithful paraphrase that drops one (`Can you run X without root?` to `Is root required to
 run X?`) is rejected and counted in `malformed_rate`. The error inflates the rate; it never
 lets a corrupted wording through. The reversal check is lexical too. It accepts an inversion
-that adds one of these words the source lacks: `skip`, `unless`, `unreliable`, `useless`,
+that adds one of these words the source lacks: `skip`, `unreliable`, `useless`,
 `unsuitable`, `unhelpful`, `wrong`, plus the bound and permission words (`any`, `all`, `newer`,
 `safe`, ...); `always` when the source holds `sometimes`, `occasionally`, `rarely`, `never` or
 `only the first` and the candidate drops it; and `entirety` when the source holds `subset`,
