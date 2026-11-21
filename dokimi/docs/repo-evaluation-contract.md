@@ -369,7 +369,7 @@ The schema is `dokimi/schemas/suite_manifest.v1.json`; an example is
 
 The framework interprets the **core** and **workspace** keys. Every other key
 belongs to the repository's grader and is passed through unread, except `grader`, which the framework reads to tell a `dokimi:` name (§4.5) from a repository's.
-`repo validate` reports a `task.json` that is not valid JSON, not a JSON object, or cannot be
+`eval check --schema-only` reports a `task.json` that is not valid JSON, not a JSON object, or cannot be
 read (a link that loops, names a directory or nothing, or leaves the repository, in a tree or at `<dir>@rev`) as an `error:` line, and exits 1.
 
 | Key | Required | Read by | Meaning |
