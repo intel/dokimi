@@ -598,3 +598,8 @@ def test_env_runs_its_program_not_an_env_probe():
     assert ("env", "env") in _probed("env | grep X")
     assert ("env", "env") in _probed("env > f")
     assert ("env", "printenv") in _probed("printenv")
+
+
+@pytest.mark.parametrize("program", ["exit 0", "exec true"])
+def test_pipeline_termination_leaves_the_parent_running(program):
+    assert _probes(f"{program} | cat; nproc") == ["nproc"]

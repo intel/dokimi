@@ -244,7 +244,7 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
                     yield from _pipelines(script_arg)
 
 
-        if flat and not conditional and not in_subshell and any(_ends_shell(stage) for stage in stages):
+        if flat and not conditional and not in_subshell and len(stages) == 1 and _ends_shell(stages[0]):
             return
 
 
