@@ -2159,7 +2159,8 @@ binary file, a file over 2 MB), named with the reason. A `--static`
 file that cannot be read or is not JSON exits 2; a document that fails the
 `repo_static.v1` schema is not merged, and the command exits 1. `--fail-on fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
-read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
+read or listed (a directory above it cannot be searched), a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...)
+cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
 does not fail the gate, so a file the gate must see belongs in `also_scan`.
 `incomplete_reasons` lists the warnings that make the scan `incomplete`, as
