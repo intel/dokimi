@@ -14,7 +14,8 @@ Two properties are enforced here rather than hoped for:
   is dropped — it cannot be attributed, coloured, or protected, so it would only
   inflate counts.
 * **Faithfulness, separately from recall.** :func:`verify_atoms` re-reads each atom
-  against its own spans (plus their heading and lead-in, to resolve references only)
+  against its own spans (plus their heading, lead-in and the span after a colon-ended lead-in, to resolve
+  references only)
   and labels it ``supported`` / ``distorted`` / ``unsupported``.
   That check says nothing about what the extractor *missed*; extractor recall is
   measured across extractors in skill-novelty-evidence.md §10.7, not by this module.
