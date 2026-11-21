@@ -268,12 +268,21 @@ def _without_heredocs(script: str) -> str:
                 if (data.lstrip("\t") if match.group(0).startswith("<<-") else data) == match.group(2):
                     break
                 body.append(data)
-            if _SHELL_LINE.match(line):
+            prefix = line[:match.start()]
+            words = command_stages(prefix)
+            if words and _reads_script_from_stdin(words[-1]):
                 out.extend(body)
             elif not match.group(1):
                 additions = " ".join(_expansions("\n".join(body)))
                 out[opening] = out[opening][:match.start()] + additions + " " + out[opening][match.start():]
     return "\n".join(out)
+
+
+def _reads_script_from_stdin(words: list[str]) -> bool:
+    for program, args in _views(words):
+        if program in _SHELLS:
+            return not args or all(word in ("-s", "-e", "-u", "-x") for word in args)
+    return False
 
 
 def _openers(line: str) -> Iterator[re.Match[str]]:

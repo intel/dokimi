@@ -616,3 +616,8 @@ def test_a_later_substitution_does_not_cancel_an_earlier_exit():
 
 def test_multiple_heredocs_are_consumed_in_order():
     assert _probes("cat <<A <<B\nignored\nA\nnproc\nB") == []
+
+
+@pytest.mark.parametrize("invocation", ["bash -c 'cat'", "bash --help", "sh script.sh"])
+def test_a_shell_with_its_own_script_treats_stdin_as_data(invocation):
+    assert _probes(f"{invocation} <<'EOF'\nnproc\nEOF") == []
