@@ -220,7 +220,8 @@ def _emit(report: dict[str, Any], out: Path, root: Path) -> None:
         if path is not None and path.is_dir():
             path = next((path / name for name in ("SKILL.md", "task.toml", "task.yaml", "task.md")
                          if (path / name).is_file()), path)
-        return cli_output.finding(item["level"], item["code"], item["message"], path and path.as_posix())
+        return cli_output.finding(item["level"], item["code"], item["message"], path and path.as_posix(),
+                                  script=item.get("script"))
 
     selected = set(report["selection"]["selected"])
     subjects = [{"subject": row["name"], "verdict": row["checks"]["status"] if row["name"] in selected else None,

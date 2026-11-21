@@ -5,9 +5,9 @@
 
 The framework counts what every repository asks of a trace:
 
-- ``tool_calls``: every event of a known kind (:data:`~dokimi.repos.event_format.KNOWN_KINDS`), so every tool call
-  of the parent and its subagents, and each ``read`` event kept
-  from a shell command, a denied one or one of a failed multi-file read (``cat a missing``) too;
+- ``tool_calls``: every tool event (:data:`~dokimi.repos.event_format.TOOL_KINDS`), so every tool call of the
+  parent and its subagents, and each ``read`` event kept from a shell command, a denied one or one of a
+  failed multi-file read (``cat a missing``) too;
 - ``commands``: the ``command`` events;
 - ``failed_commands``: commands not denied whose ``rc`` is neither ``0`` nor ``null`` (``null`` means
   no result came back, which is not a failure; a permission denial carries ``rc`` 1 but never ran);
@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from dokimi.repos.event_format import KNOWN_KINDS
+from dokimi.repos.event_format import TOOL_KINDS
 
 COUNTER_FIELDS = ("text", "output", "any")
 
@@ -91,7 +91,7 @@ def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[
     reads = {w for e in events if e.get("kind") == "read" and e.get("path") and not e.get("denied")
              and e.get("rc") in (0, None) and (w := _workspace_path(str(e["path"]))) is not None}
     return {
-        "tool_calls": sum(e.get("kind") in KNOWN_KINDS for e in events),
+        "tool_calls": sum(e.get("kind") in TOOL_KINDS for e in events),
         "commands": len(commands),
         "failed_commands": sum(e.get("rc") not in (0, None) and not e.get("denied") for e in commands),
         "denied_commands": sum(bool(e.get("denied")) for e in commands),

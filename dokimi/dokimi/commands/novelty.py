@@ -481,7 +481,7 @@ def cmd_skill_routing(args: argparse.Namespace) -> None:
             done = cmd_routing(args)
         except RoutingStopped as stop:  # the result is saved: its document is printed, then the exit stands
             done, stopped = stop.result, stop
-    if done is None:  # --estimate-only: an estimate, nothing measured
+    if done is None:  # --dry-run: an estimate, nothing measured
         cli_output.emit_leaf("skill routing", None, reason="estimate only, nothing measured")
         return
     payload, out, skill = done

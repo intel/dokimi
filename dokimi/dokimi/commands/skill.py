@@ -108,7 +108,7 @@ def register_skill(skill_sub, positive_int) -> None:
                                 "study ~1000 on the same 1,700-word skill. Every tier records "
                                 "the claims it forfeits into run_config and the artifact's "
                                 "warnings. An explicit flag always wins over the tier")
-    analyze_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
+    cli_flags.add(analyze_p, "dry_run", "--dry-run", action="store_true", dest="estimate_only",
                            help="Print the projected model-call bill and exit without "
                                 "spending anything")
     _add_bundle_args(analyze_p, positive_int)

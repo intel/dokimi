@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from dokimi import cli_flags
+from dokimi.commands._output import exit_on_rejected
 from dokimi.utils import InputError
 
 
@@ -36,7 +37,8 @@ def cmd_dashboard_generate(args: argparse.Namespace) -> None:
         print(f"✅ Markdown dashboard: {md_path}")
 
         if not args.no_json:
-            save_dashboard_json(data, json_path)
+            with exit_on_rejected("dashboard"):
+                save_dashboard_json(data, json_path)
             print(f"✅ JSON data:          {json_path}")
     except OSError as exc:
         raise InputError(f"cannot write the dashboard to {output_dir}: {exc}") from exc
