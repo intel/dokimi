@@ -8,7 +8,9 @@ No docker here: a :class:`DockerCLI` stands for the daemon and its verifier.
 
 from __future__ import annotations
 
+import os
 import shlex
+import shutil
 from pathlib import Path
 
 import pytest
@@ -84,6 +86,7 @@ def test_docker_null_requires_evidence_of_failure_from_pytest(tmp_path, summary)
     assert result.passed is False
 
 
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="runs the Linux verifier shell locally")
 @pytest.mark.parametrize(("first", "last", "expected"), [
     ("1 failed in 0.20s", "no tests ran in 0.01s", null_check.NO_VERDICT),
     ("no tests ran in 0.01s", "1 failed in 0.20s", null_check.NULL_FAIL),
