@@ -12,6 +12,7 @@
     "denied": {"type": "boolean", "description": "The call was refused and never ran."},
     "output": {"type": "string", "description": "A command's output as the harness returned it, clipped to 8 KB."},
     "output_truncated": {"type": "boolean"},
+    "searched": {"type": "array", "items": {"type": "string"}, "description": "On a command event, the workspace paths its grep, rg or git grep parts showed lines of; on a Claude Code Grep tool event, its path when output_mode was content. Absent when it searched none."},
     "target": {"type": "string", "description": "A probe event's target: what the command asked the host for (cpu, gpu, os, memory, packages, env, network)."},
     "pattern": {"type": "string", "description": "A probe event's configured pattern that the command matched."}
   },
