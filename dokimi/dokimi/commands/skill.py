@@ -69,6 +69,7 @@ def register_skill(skill_sub, positive_int) -> None:
         cmd_novelty_shorten,
         cmd_novelty_view,
     )
+    from dokimi.commands.novelty_retest import cmd_novelty_retest
     from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
     from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
@@ -180,6 +181,21 @@ def register_skill(skill_sub, positive_int) -> None:
     view_p.add_argument("--format", default="html", choices=["html", "md"])
     view_p.add_argument("--out", default=None)
     view_p.set_defaults(func=cmd_novelty_view)
+
+    # Noise floor from two runs of the same items (no model calls): see docs/skill-novelty.md.
+    retest_p = novelty_sub.add_parser(
+        "retest", help="Noise floor from two analyze runs of the same items (no model calls)")
+    retest_p.add_argument("--baseline", required=True,
+                          help="The baseline: a directory of `skill novelty analyze` output, or one "
+                               "file, read whatever its name. In a directory only files named "
+                               "novelty.json are read (not an --out-json under another name)")
+    retest_p.add_argument("--retest", required=True,
+                          help="The retest: same items, another --seed, a fresh --cache-dir, and no "
+                               "DOKIMI_RESPONSE_CACHE replay (a replayed call warns)")
+    retest_p.add_argument("--scoring", default="lenient", choices=["lenient", "strict"])
+    retest_p.add_argument("--out-dir", default=None, dest="out_dir",
+                          help="Write retest.json and retest.md here")
+    retest_p.set_defaults(func=cmd_novelty_retest)
 
     shorten_p = skill_sub.add_parser(
         "shorten", help="Score shortening candidates on tokens/knowledge/value/protection/routing"
