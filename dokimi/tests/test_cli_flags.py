@@ -8,7 +8,7 @@ spelling in ``dokimi/cli_flags.py`` or a row of ``tests/data/cli_flags_allowlist
 banned synonym fails unless it is allowlisted. An allowlist row that no parser uses, or
 that is now canonical, fails too, so the list keeps no stale row. A canonical spelling must also
 mean its registry row on every leaf (switch or value, metavar, choices, type): ``meaning_problems``
-checks that, and a clash is listed in ``MEANING_EXCEPTIONS`` (leaf, spelling, aspect) with a reason. The snapshot
+checks that. ``MEANING_EXCEPTIONS`` pins the observed value and reason for each (leaf, spelling, aspect). The snapshot
 ``docs/reference/cli-interface.json`` must equal the dump of ``scripts/cli_surface.py``
 (the #88 dumper); ``make cli-snapshot`` regenerates it.
 """
@@ -158,44 +158,50 @@ _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
     "usd": frozenset({"positive_usd", "_usd"}),
 }
 
-# Registry differences are keyed by (leaf, spelling, aspect). Some await an F1b migration.
-# Others document an intentional restriction, such as the levels a given gate can enforce.
-MEANING_EXCEPTIONS: dict[tuple[str, str, str], str] = {
-    ("dokimi catalog routing-compare", "--arm", "choices"): "Selects a built-in comparison arm by name. The registry accepts [NAME=]REF.",
-    ("dokimi eval triggers generate", "--fail-on", "choices"): "Only warnings can trigger this gate.",
-    ("dokimi repo budget", "--fail-on", "choices"): "Only warnings can trigger this gate.",
-    ("dokimi repo scan", "--fail-on", "choices"): "Only a failure can trigger this gate.",
-    ("dokimi repo reach", "--max-usd-per-cell", "type"): "The existing probe parses a float and checks its budget in the handler.",
-    ("dokimi repo skill-reach", "--max-usd-per-cell", "type"): "The existing probe parses a float and checks its budget in the handler.",
-    ("dokimi arms run", "--judge", "switch"): (
+# An exception covers one observed value on one leaf. Its reason explains the difference from the registry.
+ExceptionValue = str | bool | frozenset[str] | None
+MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
+    ("dokimi catalog routing-compare", "--arm", "choices"): (frozenset({"lexical", "model"}),
+        "Selects a built-in comparison arm by name. The registry accepts [NAME=]REF."),
+    ("dokimi eval triggers generate", "--fail-on", "choices"): (frozenset({"warn"}),
+        "Only warnings can trigger this gate."),
+    ("dokimi repo budget", "--fail-on", "choices"): (frozenset({"warn"}),
+        "Only warnings can trigger this gate."),
+    ("dokimi repo scan", "--fail-on", "choices"): (frozenset({"fail"}),
+        "Only a failure can trigger this gate."),
+    ("dokimi repo reach", "--max-usd-per-cell", "type"): ("float",
+        "The existing probe parses a float and checks its budget in the handler."),
+    ("dokimi repo skill-reach", "--max-usd-per-cell", "type"): ("float",
+        "The existing probe parses a float and checks its budget in the handler."),
+    ("dokimi arms run", "--judge", "switch"): (True,
         "a switch that adds the LLM-as-judge; the registry's role_models `--judge` takes "
         "PROVIDER/MODEL. The clash issue #94 names (sec. 2.4, D10); F1b moves this leaf to `--judge P/M`"),
-    ("dokimi arms matrix-run", "--judge", "switch"): (
+    ("dokimi arms matrix-run", "--judge", "switch"): (True,
         "a switch that adds the LLM-as-judge; the registry's role_models `--judge` takes "
         "PROVIDER/MODEL. The clash issue #94 names (sec. 2.4, D10); F1b moves this leaf to `--judge P/M`"),
-    ("dokimi subjects run", "--judge", "switch"): (
+    ("dokimi subjects run", "--judge", "switch"): (True,
         "a switch that adds the LLM-as-judge; the registry's role_models `--judge` takes "
         "PROVIDER/MODEL. The clash issue #94 names (sec. 2.4, D10); F1b moves this leaf to `--judge P/M`"),
-    ("dokimi eval tasks generate", "--from", "choices"): (
+    ("dokimi eval tasks generate", "--from", "choices"): (frozenset({"graph", "prs", "replay"}),
         "a source kind (graph, prs, replay; #94's owner decision of 11-01 lists history where "
         "the code has prs); the registry's `--from RUN` is the inputs concept. Decide the row at F1b"),
-    ("dokimi repo reach", "--from", "metavar"): (
+    ("dokimi repo reach", "--from", "metavar"): ("REACH_JSON",
         "takes a REACH_JSON file, not a RUN; the registry's `--from RUN` is the inputs concept. "
         "Not one of the #94 audit rows: rename it or split the concept at F1b"),
-    ("dokimi eval import", "--format", "choices"): (
+    ("dokimi eval import", "--format", "choices"): (None,
         "forces an input format (no choices); the registry's `--format` is a render format "
         "(output concept). Not one of the #94 audit rows; split at F1b"),
-    ("dokimi trace consistency", "--arm", "metavar"): (
+    ("dokimi trace consistency", "--arm", "metavar"): ("LABEL=GLOB",
         "LABEL=GLOB selects traces by glob, not the `[NAME=]REF` of the arm concept. Not one of "
         "the #94 audit rows; rename at F1b"),
-    ("dokimi eval check", "--cache", "metavar"): (
+    ("dokimi eval check", "--cache", "metavar"): ("NAME=PATH",
         "metavar NAME=PATH where the registry says NAME=DIR: wording only; F1b aligns it"),
-    ("dokimi repo run", "--cache", "metavar"): (
+    ("dokimi repo run", "--cache", "metavar"): ("NAME=PATH",
         "metavar NAME=PATH where the registry says NAME=DIR: wording only; F1b aligns it"),
-    ("dokimi tasks run", "--network", "metavar"): (
+    ("dokimi tasks run", "--network", "metavar"): ("PHASE=MODE",
         "repeatable PHASE=MODE, with no `:hosts` form; the registry's `--network` is one "
         "`[PHASE=]MODE[:hosts]`. F1b aligns it"),
-    ("dokimi eval triggers generate", "--questions", "metavar"): (
+    ("dokimi eval triggers generate", "--questions", "metavar"): ("PATH=LABEL",
         "repeatable PATH=LABEL pairs; the registry's `--questions FILE` is one file. F1b aligns it"),
 }
 
@@ -223,8 +229,8 @@ def _choice_clash(flag: cli_flags.Flag, choices: frozenset[str] | None) -> tuple
 
 def meaning_clashes(found: Sequence[Use],
                     concepts: Iterable[cli_flags.Concept] = cli_flags.CONCEPTS,
-                    ) -> list[tuple[str, str, str, str]]:
-    """(leaf, spelling, aspect, what clashes) for every use of a canonical spelling that disagrees
+                    ) -> list[tuple[Use, str, str]]:
+    """(use, aspect, what clashes) for every use of a canonical spelling that disagrees
     with its registry row. Aspects: ``switch`` (a switch where the kind takes a value, or the
     reverse), ``metavar`` (set, and differs from ``value``), ``choices`` (choices where the kind is
     not ``choice``, or a missing or divergent set for a ``choice`` row), ``empty_choices``
@@ -233,40 +239,49 @@ def meaning_clashes(found: Sequence[Use],
     repeatability is not compared.
     """
     flags = {flag.spelling: flag for concept in concepts for flag in concept.canonical}
-    clashes: list[tuple[str, str, str, str]] = []
+    clashes: list[tuple[Use, str, str]] = []
     for use in found:
         flag = flags.get(use.option)
         if flag is None:
             continue
-        where = (use.leaf, use.option)
         if (flag.kind == "flag") != (use.nargs == 0):
             shape = "a switch" if use.nargs == 0 else "a value"
-            clashes.append((*where, "switch", f"is {shape} here, but the registry kind is `{flag.kind}`"))
+            clashes.append((use, "switch", f"is {shape} here, but the registry kind is `{flag.kind}`"))
         if flag.kind != "flag" and use.metavar is not None and use.metavar != flag.value:
-            clashes.append((*where, "metavar", f"has metavar `{use.metavar}`, the registry says `{flag.value}`"))
+            clashes.append((use, "metavar", f"has metavar `{use.metavar}`, the registry says `{flag.value}`"))
         if choice_clash := _choice_clash(flag, use.choices):
-            clashes.append((*where, *choice_clash))
+            clashes.append((use, *choice_clash))
         allowed = _TYPES_BY_KIND.get(flag.kind)
         if allowed is not None and use.type not in allowed:
-            clashes.append((*where, "type", f"has type `{use.type}`, kind `{flag.kind}` takes "
+            clashes.append((use, "type", f"has type `{use.type}`, kind `{flag.kind}` takes "
                                             f"{' or '.join(sorted(allowed))}"))
     return clashes
 
 
-def meaning_problems(found: Sequence[Use], exceptions: Mapping[tuple[str, str, str], str] = MEANING_EXCEPTIONS,
+def meaning_problems(found: Sequence[Use],
+                     exceptions: Mapping[tuple[str, str, str], tuple[ExceptionValue, str]] = MEANING_EXCEPTIONS,
                      concepts: Iterable[cli_flags.Concept] = cli_flags.CONCEPTS) -> list[str]:
-    """Each clash that no exception covers, plus each exception that no longer clashes. Empty when clean."""
-    clashes = meaning_clashes(found, concepts)
-    problems = [
-        f"{leaf}: `{option}` {what}. Use the registry meaning, or add the row to "
-        f"MEANING_EXCEPTIONS in dokimi/tests/test_cli_flags.py with a reason."
-        for leaf, option, aspect, what in clashes if (leaf, option, aspect) not in exceptions
-    ]
-    clashing = {(leaf, option, aspect) for leaf, option, aspect, _ in clashes}
+    """Each mismatch outside the recorded exceptions, plus any stale or unexplained exception."""
+    problems = []
+    clashing = set()
+    for use, aspect, what in meaning_clashes(found, concepts):
+        key = (use.leaf, use.option, aspect)
+        clashing.add(key)
+        if key not in exceptions:
+            problems.append(f"{use.leaf}: `{use.option}` {what}. Use the registry meaning, or add the row to "
+                            "MEANING_EXCEPTIONS in dokimi/tests/test_cli_flags.py with a reason.")
+            continue
+        expected, _ = exceptions[key]
+        values = {"switch": use.nargs == 0, "choices": use.choices, "empty_choices": use.choices,
+                  "type": use.type, "metavar": use.metavar}
+        observed = values[aspect]
+        if observed != expected:
+            problems.append(f"{use.leaf}: `{use.option}` ({aspect}) {what}. "
+                            f"The existing exception covers {expected!r}.")
     problems += [f"MEANING_EXCEPTIONS: `{option}` on `{leaf}` ({aspect}) no longer clashes; delete the row."
                  for leaf, option, aspect in sorted(set(exceptions) - clashing)]
     problems += [f"MEANING_EXCEPTIONS: `{option}` on `{leaf}` ({aspect}) has no reason; say why it stays."
-                 for (leaf, option, aspect), reason in exceptions.items() if not reason.strip()]
+                 for (leaf, option, aspect), (_, reason) in exceptions.items() if not reason.strip()]
     return problems
 
 
@@ -330,7 +345,7 @@ def test_meaning_clashes_name_each_disagreement_with_its_registry_row():
         Use("dokimi a", "--name", "_StoreAction", "str", "name", None, "NAME", frozenset({"name"})),
         Use("dokimi a", "--name", "_StoreAction", "str", "name", None, "NAME"),
     ]
-    text = [what for _leaf, _option, _aspect, what in meaning_clashes(found, concepts)]
+    text = [what for _use, _aspect, what in meaning_clashes(found, concepts)]
     assert text == [
         "has metavar `SEED`, the registry says `N`",
         "has type `str`, kind `int` takes int or non_negative_int or positive_int",
@@ -355,7 +370,7 @@ def test_enumerated_choice_values_match_the_registry(value, choices, clashes):
     concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--pick", value, "choice"),)),)
     parser = argparse.ArgumentParser()
     parser.add_argument("--pick", choices=choices)
-    assert [aspect for _, _, aspect, _ in meaning_clashes(uses(parser), concepts)] == (
+    assert [aspect for _, aspect, _ in meaning_clashes(uses(parser), concepts)] == (
         ["choices"] if clashes else [])
 
 
@@ -364,7 +379,7 @@ def test_empty_choices_are_reported_for_any_kind(kind, value):
     concepts = (cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--pick", value, kind),)),)
     parser = argparse.ArgumentParser()
     parser.add_argument("--pick", choices=[])
-    assert [aspect for _, _, aspect, _ in meaning_clashes(uses(parser), concepts)] == ["empty_choices"]
+    assert [aspect for _, aspect, _ in meaning_clashes(uses(parser), concepts)] == ["empty_choices"]
 
 
 def test_format_exception_does_not_allow_empty_choices():
@@ -420,7 +435,7 @@ def test_a_new_use_that_clashes_fails_and_an_exception_is_leaf_scoped(monkeypatc
 
 def test_a_meaning_exception_that_no_longer_clashes_fails():
     found = [Use("dokimi arms run", "--judge", "_StoreAction", "_judge_ref", "judge", None, "PROVIDER/MODEL")]
-    problems = meaning_problems(found, {("dokimi arms run", "--judge", "switch"): "reason"})
+    problems = meaning_problems(found, {("dokimi arms run", "--judge", "switch"): (True, "reason")})
     assert problems == ["MEANING_EXCEPTIONS: `--judge` on `dokimi arms run` (switch) no longer clashes; "
                         "delete the row."]
 
@@ -533,7 +548,7 @@ def test_an_exception_covers_its_aspect_only_on_its_pair():
         Use("dokimi arms run", "--judge", "_StoreTrueAction", "bool", "judge", 0, None),
         Use("dokimi arms run", "--judge", "_StoreAction", "int", "judge", None, "N"),
     ]
-    exceptions = {("dokimi arms run", "--judge", "switch"): "reason"}
+    exceptions = {("dokimi arms run", "--judge", "switch"): (True, "reason")}
     problems = meaning_problems(found, exceptions)
     assert problems == [
         "dokimi arms run: `--judge` has metavar `N`, the registry says `PROVIDER/MODEL`. Use the "
@@ -543,7 +558,7 @@ def test_an_exception_covers_its_aspect_only_on_its_pair():
 
 def test_a_meaning_exception_needs_a_reason():
     found = [Use("dokimi arms run", "--judge", "_StoreTrueAction", "bool", "judge", 0, None)]
-    problems = meaning_problems(found, {("dokimi arms run", "--judge", "switch"): " "})
+    problems = meaning_problems(found, {("dokimi arms run", "--judge", "switch"): (True, " ")})
     assert problems == ["MEANING_EXCEPTIONS: `--judge` on `dokimi arms run` (switch) has no reason; "
                         "say why it stays."]
 
@@ -552,3 +567,27 @@ def test_a_tuple_metavar_is_compared_as_one_text():
     assert _metavar_text(("A", "B")) == "A B"
     assert _metavar_text("N") == "N"
     assert _metavar_text(None) is None
+
+
+@pytest.mark.parametrize(("path", "option", "aspect", "changed"), [
+    (("repo", "budget"), "--fail-on", "choices", ("warn", "bogus")),
+    (("eval", "tasks", "generate"), "--from", "choices", ("graph", "prs")),
+    (("repo", "reach"), "--from", "metavar", "OTHER_FILE"),
+    (("repo", "reach"), "--max-usd-per-cell", "type", str),
+])
+def test_meaning_exception_only_covers_its_recorded_value(path, option, aspect, changed):
+    parser = cli.build_parser()
+    action = next(a for a in _subparser(parser, *path)._actions if option in a.option_strings)
+    setattr(action, aspect, changed)
+    problems = meaning_problems(uses(parser))
+    assert len(problems) == 1
+    assert option in problems[0] and aspect in problems[0] and " ".join(path) in problems[0]
+    assert "The existing exception covers" in problems[0]
+
+
+def test_exception_can_check_the_observed_empty_set_of_choices():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pick", choices=[])
+    concept = cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--pick", "A|B", "choice"),))
+    rows = {("dokimi", "--pick", "empty_choices"): (frozenset(), "Intentionally disabled.")}
+    assert meaning_problems(uses(parser), rows, (concept,)) == []
