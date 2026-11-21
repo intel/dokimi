@@ -15,7 +15,7 @@ from functools import partial
 
 import pytest
 
-from dokimi.eval.reference_checks import _fenced_body, parse_json
+from dokimi.eval.reference_checks import _BOLD_LETTERS, _MATH_LETTERS, _fenced_body, chosen_letters, parse_json
 from dokimi.novelty.symbols import _blank_skipped, header_names
 from dokimi.repos.answers import _has_header_tail
 from dokimi.repos.l0.core import _TRAILING_COMMENT, logical_lines
@@ -291,4 +291,112 @@ def test_trailing_comment_strip_is_linear(shape) -> None:  # type: ignore[no-unt
 def test_logical_lines_is_linear_on_a_long_whitespace_run() -> None:
     ratio, lines = growth(lambda k: partial(logical_lines, [(1, "x" + " " * k), (2, "y" + " " * k + "\\")]), 375)
     assert [n for n, _ in lines] == [1, 2]
+    assert ratio < GROWTH_LIMIT
+
+
+# --- eval/reference_checks.chosen_letters: the **x** and $x$ unwrapping ---------------------------
+
+_OLD_BOLD = r"\*\*\s*([A-Za-z\d][A-Za-z\d ,]*?)\s*\*\*"
+_OLD_MATH = r"\$\s*([A-Za-z\d][A-Za-z\d ,]*?)\s*\$"
+_ANSWER_STRICT = re.compile(r"(?im)^ANSWER\s*:\s*([A-Za-z\d ,]+)\s*(?:$|\.)")
+_ANSWER_LENIENT = re.compile(r"(?i)ANSWER\s*:\s*([A-Za-z\d ,]+)(?:[^\w]|$)")
+
+
+def _old_unwrap(answer: str) -> str:
+    text = re.sub(_OLD_BOLD, r"\1", answer)
+    return re.sub(_OLD_MATH, r"\1", text)
+
+
+def _new_unwrap(answer: str) -> str:
+    return _MATH_LETTERS.sub(r"\1", _BOLD_LETTERS.sub(r"\1", answer))
+
+
+def _old_chosen_letters(answer: str) -> frozenset[str] | None:
+    text = _old_unwrap(answer)
+    text = re.sub(r"(?i)(^|[:,])(\s*)\(([A-Za-z\d])\)(?=\s*(?:,|\.|\n|\Z))", r"\1\2\3", text)
+    found = _ANSWER_STRICT.findall(text) or _ANSWER_LENIENT.findall(text)
+    if not found:
+        return None
+    return frozenset(x.upper() for x in re.findall(r"[A-Za-z]", found[-1])) or None
+
+
+_LETTERS_TABLE = [
+    ("ANSWER: **A**", {"A"}),
+    ("ANSWER: ** A **", {"A"}),
+    ("ANSWER: **A, B**", {"A", "B"}),
+    ("ANSWER: **A,**", {"A"}),
+    ("ANSWER: **A ,B**", {"A", "B"}),
+    ("ANSWER: **A **", {"A"}),
+    ("ANSWER: **A\t**", {"A"}),
+    ("ANSWER: **A\n**", {"A"}),
+    ("ANSWER: ** A **", {"A"}),
+    ("ANSWER: $ A $", {"A"}),
+    ("ANSWER: $A, B$", {"A", "B"}),
+    ("ANSWER: $A ,$", {"A"}),
+    ("ANSWER: **(A)**", None),  # the wrapped text starts with a letter or digit: `(A)` is not unwrapped
+    ("ANSWER: $(A)$", None),
+    ("ANSWER: (A)", {"A"}),
+    ("ANSWER: **A** and **B**", {"A", "B", "D", "N"}),
+    ("**A** **B**\nANSWER: B", {"B"}),
+    ("ANSWER: **1**", None),
+    ("ANSWER: **٣**", None),
+    ("ANSWER: **A**B**", {"A", "B"}),
+    ("ANSWER: **A", None),
+    ("ANSWER: **A   ", None),
+    ("ANSWER: $A   ", None),
+    ("ANSWER: ****", None),
+    ("ANSWER: $$", None),
+    ("ANSWER: ** **", None),
+    ("ANSWER: **,A**", None),
+    ("ANSWER: **A*B**", None),
+    ("no answer **A**", None),
+]
+
+
+@pytest.mark.parametrize(("answer", "letters"), _LETTERS_TABLE)
+def test_chosen_letters_unwrapping_table_matches_old_regex(answer: str, letters: set[str] | None) -> None:
+    expected = frozenset(letters) if letters else None
+    assert _old_chosen_letters(answer) == expected
+    assert chosen_letters(answer) == expected
+    assert _new_unwrap(answer) == _old_unwrap(answer)
+
+
+def test_chosen_letters_random_texts_match_old_regex() -> None:
+    pieces = ["**", "$", "*", "A", "b", "1", "٣", " ", "  ", ",", "\t", "\n", " ", "(", ")", ".", "ANSWER: "]
+    texts = _random_texts(pieces, 998, longest=14)
+    rng = random.Random(9980)
+    wrappers = ["**", "$"]
+    for _ in range(CASES):  # a wrapped run of letters, spaces and commas, mostly well formed
+        wrap = rng.choice(wrappers)
+        inner = "".join(rng.choice(["A", "b", " ", ",", "  ", "\t", "\n"]) for _ in range(rng.randint(0, 6)))
+        texts.append(rng.choice(["", "ANSWER: ", "x "]) + wrap + rng.choice(["", " "]) + inner + rng.choice(["", " "])
+                     + rng.choice([wrap, wrap, "*", ""]) + rng.choice(["", "\nANSWER: B", " ."]))
+    unwrapped = [_old_unwrap(t) for t in texts]
+    assert sum(1 for t, u in zip(texts, unwrapped, strict=True) if t != u) > CASES // 10
+    assert sum(1 for t in texts if _old_chosen_letters(t)) > CASES // 10
+    assert [t for t, u in zip(texts, unwrapped, strict=True) if _new_unwrap(t) != u] == []
+    assert [t for t in texts if chosen_letters(t) != _old_chosen_letters(t)] == []
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "**a" + " " * k,  # an opener, a letter and a run of spaces with no closer: every split was tried
+    lambda k: "$a" + " " * k,
+    lambda k: "**a" + "\t" * k,
+    lambda k: "**a " * k,  # the opener repeated
+    lambda k: "$a " * k,
+    lambda k: "**a, " * k,
+    lambda k: "$a, " * k,
+    lambda k: "**a" + " b" * k,
+    lambda k: "**" + " " * k + "a" + " " * k,
+], ids=["bold-spaces", "math-spaces", "bold-tabs", "bold-repeat", "math-repeat", "bold-commas", "math-commas",
+        "bold-words", "bold-padded"])
+def test_chosen_letters_unwrapping_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, letters = growth(lambda k: partial(chosen_letters, shape(k)), 375)
+    assert letters is None
+    assert ratio < GROWTH_LIMIT
+
+
+def test_chosen_letters_unwrapping_is_linear_when_the_wrapper_closes() -> None:
+    ratio, letters = growth(lambda k: partial(chosen_letters, "ANSWER: **A" + " b" * k + " **"), 375)
+    assert letters == frozenset("AB")
     assert ratio < GROWTH_LIMIT
