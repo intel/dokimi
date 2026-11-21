@@ -155,7 +155,7 @@ def test_a_skipped_data_file_does_not_make_repo_scan_incomplete(tmp_path, writte
         args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--fail-on", "fail", "--json"])
         try:
             args.func(args)
-            code = 0
+            code: object = 0
         except SystemExit as exc:
             code = exc.code
     finally:
@@ -397,6 +397,38 @@ def _scan_through_links(tmp_path, links):
 def test_a_skipped_markdown_import_through_an_absolute_file_link_makes_the_scan_incomplete(tmp_path):
     """Second review: `alias.md` links to the absolute path of `d/context.md`, inside the repository."""
     assert _scan_through_links(tmp_path, {"alias.md": str(tmp_path / "d/context.md")}) == 1
+
+
+def test_a_skipped_markdown_import_through_an_absolute_link_with_dot_components_makes_the_scan_incomplete(tmp_path):
+    """Review of #1028: `alias.md -> <parent>/./<repo>/d/context.md` is the same file as the canonical path."""
+    target = f"{tmp_path.parent}/./{tmp_path.name}//d/./context.md"
+    assert _scan_through_links(tmp_path, {"alias.md": target}) == 1
+
+
+@pytest.mark.parametrize("backslashes", ["relative", "absolute", "extended"])
+def test_a_skipped_markdown_import_through_a_link_with_native_windows_separators_makes_the_scan_incomplete(
+        tmp_path, monkeypatch, backslashes):
+    """Review of #1028: `os.readlink` gives `d\\context.md` on Windows; the tree lists `d/context.md`."""
+    from dokimi.commands import repo_scan
+
+    monkeypatch.setattr(repo_scan, "_WINDOWS", True)
+    absolute = str(tmp_path / "d/context.md").replace("/", "\\")
+    target = {"relative": "d\\context.md", "absolute": absolute, "extended": "\\\\?\\" + absolute}[backslashes]
+    assert _scan_through_links(tmp_path, {"alias.md": target}) == 1
+
+
+def test_a_skipped_markdown_import_through_a_relative_link_under_a_drive_named_directory_makes_the_scan_incomplete(
+        tmp_path):
+    """Review of #1028: off Windows `C:/d/context.md` is a relative target under a directory named `C:`."""
+    _repo(tmp_path)
+    _track(tmp_path, {"CLAUDE.md": "@alias.md\n", "C:/d/context.md": "Read `missing.py`.\n"})
+    os.symlink("C:/d/context.md", tmp_path / "alias.md")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    mode = _lock(tmp_path / "C:" / "d")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "C:" / "d").chmod(mode)
 
 
 def test_a_skipped_markdown_import_through_a_chain_of_file_links_makes_the_scan_incomplete(tmp_path):

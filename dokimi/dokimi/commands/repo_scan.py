@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 import posixpath
+import re
 import sys
 import shutil
 
@@ -119,6 +120,17 @@ def _link_routes(tree, paths: list[str]) -> dict[str, str]:
     return routes
 
 
+_WINDOWS = os.name == "nt"
+
+
+def _posix(path: str) -> str:
+    """``path`` with ``/`` separators and no ``\\\\?\\`` prefix: ``os.readlink`` returns native ones, the tree lists ``/`` paths."""
+    if not _WINDOWS:
+        return path
+    path = path.replace("\\", "/")
+    return path[4:] if path.startswith(("//?/", "//./")) else path  # `\\?\C:\repo` is `C:/repo`
+
+
 def _link_target(tree, path: str) -> str | None:
     """Where ``path`` finally points when a link on it (the file, or a directory above it) is followed
     component by component without resolving the file, which a skipped file does not allow; the path inside
@@ -126,7 +138,7 @@ def _link_target(tree, path: str) -> str | None:
     root = getattr(tree, "root", None)
     if root is None:
         return None
-    roots = {os.path.abspath(root), os.path.realpath(root)}
+    roots = {_posix(r) for r in (os.path.abspath(root), os.path.realpath(root))}
     pending, hops = path.split("/"), 0
     done: list[str] = []
     while pending:
@@ -146,7 +158,9 @@ def _link_target(tree, path: str) -> str | None:
         hops += 1
         if hops > 40:
             return None
-        if posixpath.isabs(where):
+        where = _posix(where)
+        if posixpath.isabs(where) or (_WINDOWS and re.match(r"[A-Za-z]:/", where)):
+            where = re.sub(r"/(?:\.?/)+", "/", where)  # `/repo/./d` is `/repo/d`; a `..` stays, a link may precede it
             inside = [posixpath.relpath(where, r) for r in roots if where == r or where.startswith(r + "/")]
             if not inside:
                 return None

@@ -6,3 +6,4 @@
   listed, a Bazel build input when the Bazel adapter is on); any other skipped path is only a warning. Outside git the
   directory `os.walk` could not list is named the same way, and a task workspace export of such a tree raises `PrepError`
   instead of copying a partial repository.
+  A Markdown import through a link whose target has `.` components or Windows separators is followed to the skipped file as well.
