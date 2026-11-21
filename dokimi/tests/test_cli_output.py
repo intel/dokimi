@@ -221,6 +221,65 @@ def test_a_json_leaf_usage_error_prints_its_failed_document_with_exit_2(monkeypa
     assert doc["reason"] == message and schema_errors("cli_output.v1", doc) == []
 
 
+@pytest.mark.parametrize("path", sorted(_json_leaves()), ids=" ".join)
+def test_a_usage_error_document_names_a_help_command_that_works(monkeypatch, capsys, path):
+    # #941: the failed document's `next` is the leaf's own --help, free, and running it shows that leaf's usage
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, [*path, "--json", "--no-such-flag"])
+    assert exc.value.code == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert schema_errors("cli_output.v1", doc) == []
+    [step] = doc["next"]
+    assert step["argv"] == ["dokimi", *path, "--help"]
+    assert (step["spends"], step["est_usd"], step["kind"]) == (False, 0, "sequence")
+    with pytest.raises(SystemExit) as helped:
+        _run_main(monkeypatch, step["argv"][1:])
+    assert helped.value.code == 0
+    assert f"usage: {' '.join(step['argv'][:-1])}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv, help_argv", [
+    (["--no-such-flag", "backends", "--json"], ["dokimi", "backends", "--help"]),
+    (["--no-such-flag", "repo", "budget", ".", "--json"], ["dokimi", "repo", "budget", "--help"]),
+    (["repo", "--no-such-flag", "budget", ".", "--json"], ["dokimi", "repo", "budget", "--help"]),
+])
+def test_an_unknown_flag_before_the_leaf_carries_the_help_step(monkeypatch, capsys, argv, help_argv):
+    # the root parser reports these extras, not the leaf: its document names the help too
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert schema_errors("cli_output.v1", doc) == []
+    assert [s["argv"] for s in doc["next"]] == [help_argv]
+
+
+def test_a_missing_argument_document_carries_the_same_help_step(monkeypatch, capsys):
+    # the error() path (not the extras path): a required positional left out
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["repo", "budget", "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    assert schema_errors("cli_output.v1", doc) == []
+    assert [s["argv"] for s in doc["next"]] == [["dokimi", "repo", "budget", "--help"]]
+
+
+def test_an_empty_help_argv_adds_no_next_step(capsys):
+    cli_output.reset()
+    # an empty argv is no runnable step, and cli_output.v1 requires a non-empty `argv` in `next`
+    cli._usage_document("backends", "bad", help_argv=[])
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["next"] == []
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_root_extras_with_a_cli_kind_do_not_read_cmd(monkeypatch, capsys):
+    cli_output.reset()
+    # the kind falls back to `cmd` only when `cli_kind` is absent: a namespace without `cmd` must not raise
+    ns = argparse.Namespace(cli_kind="backends", emits_cli_output=True, json=True)
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_known_args", lambda self, args=None, namespace=None: (ns, ["--x"]))
+    cli._RoutedParser(prog="dokimi").parse_known_args([])
+    assert json.loads(capsys.readouterr().out)["kind"] == "backends"
+
+
 @pytest.mark.parametrize("argv", [["repo", "budget", "--jso"], ["repo", "budget", "--j"]])
 def test_an_abbreviated_json_flag_on_a_leaf_prints_its_document(monkeypatch, capsys, argv):
     # the abbreviation branch of _json_requested: only the leaf's own --json is an abbreviation of --json here
