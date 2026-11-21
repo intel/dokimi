@@ -426,3 +426,104 @@ def test_an_apostrophe_inside_double_quotes_does_not_open_a_single_quote(tmp_pat
     review, _ = _review(tmp_path / "absent", body)
     [finding] = _path_findings(review)
     assert finding.message.startswith("'assets/a\\'\"b\\'c.svg' (in ")
+
+
+URL = "https://github.com/NVIDIA/compileiq/blob/main/examples/compilers/triton_example/mixed_triton.py"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        f"See [`examples/triton_example/mixed_triton.py`]({URL}) upstream.\n",
+        f"See [the `examples/mixed.py` file]({URL}) upstream.\n",
+        f"See [`examples/mixed.py`](<{URL}>) upstream.\n",
+        "Mail [`examples/mixed.py`](mailto:a@b.example).\n",
+        f"See [![`examples/mixed.py`](badge.svg) `examples/other.py`]({URL}).\n",
+    ],
+)
+def test_1089_a_code_span_in_the_label_of_a_url_link_is_not_path_missing(tmp_path, body):
+    """#1089: the label of an upstream example link names no bundled file."""
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        f"See `examples/mixed.py`, then [docs]({URL}).\n",
+        f"See [docs]({URL}) and [`examples/mixed.py`](notes.md).\n",
+        "See [`examples/mixed.py`] and (https://example.com/x).\n",
+    ],
+)
+def test_1089_a_code_span_outside_a_url_link_label_is_still_checked(tmp_path, body):
+    """#1089: only the label of a URL link is skipped."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "examples/mixed.py" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_a_missing_local_link_target_is_reported_once(tmp_path):
+    """#1089: the span of a local link is not dropped; the missing target is one `link-missing`, not a `path-missing` too."""
+    review, _ = _review(tmp_path, "See [`examples/mixed.py`](examples/mixed.py).\n")
+    assert _codes(review).count("link-missing") == 1
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Run [`scripts/deploy.sh` and [guide](notes.md)](https://example.com).\n",
+        "Run [`scripts/deploy.sh` and [guide][g]](https://example.com).\n\n[g]: notes.md\n",
+    ],
+)
+def test_1089_a_label_that_holds_a_link_is_not_a_link_label(tmp_path, body):
+    """#1089: CommonMark does not nest links, so the outer brackets are text and the span is checked."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert [f.message.split(" ")[0] for f in _path_findings(review)] == ["'scripts/deploy.sh'"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "See [`examples/mixed.py`][upstream].\n\n[upstream]: https://example.com/mixed.py\n",
+        "See [`examples/mixed.py`][Up  Stream].\n\n[up stream]: <https://example.com/mixed.py> \"t\"\n",
+        "See [`examples/mixed.py`][upstream].\n\n[upstream]:\n  https://example.com/mixed.py\n",
+    ],
+)
+def test_1089_a_code_span_in_the_label_of_a_reference_url_link_is_not_path_missing(tmp_path, body):
+    """#1089: a reference link whose definition is a URL is judged by its destination, like an inline one."""
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "See [`examples/mixed.py`][local].\n\n[local]: notes.md\n",
+        "See [`examples/mixed.py`][absent].\n\n[upstream]: https://example.com/mixed.py\n",
+    ],
+)
+def test_1089_a_code_span_in_the_label_of_a_reference_local_link_is_still_checked(tmp_path, body):
+    """#1089: only a reference whose definition is a URL is skipped."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "examples/mixed.py" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_the_first_definition_of_a_reference_decides(tmp_path):
+    """#1089: CommonMark uses the first definition of a label, so a later URL one does not make a local link external."""
+    body = "Run [`scripts/deploy.sh`][guide].\n\n[guide]: notes.md\n[guide]: https://example.com\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_a_first_url_definition_wins_over_a_later_local_one(tmp_path):
+    """#1089: the first definition decides in this direction too."""
+    body = "Run [`scripts/deploy.sh`][guide].\n\n[guide]: https://example.com\n[guide]: notes.md\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _path_findings(review) == []
+
+
+def test_1089_an_undefined_reference_inside_a_url_label_is_text(tmp_path):
+    """#1089: `[guide][undefined]` with no definition is no link, so it does not stop the outer URL link."""
+    body = "See [`examples/mixed.py` and [guide][undefined]](https://example.com).\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []

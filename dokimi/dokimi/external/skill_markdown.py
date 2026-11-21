@@ -26,6 +26,9 @@ BRACKET_RE = re.compile(r"\\\\|\\[\[\]]|[\[\]]")
 # break inside), with an optional title; split() reads one level of parentheses only, so these are read here.
 _TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
 _LINK_OPEN_RE = re.compile(r"\]\(\s*")
+_SCHEME_RE = re.compile(r"<?[A-Za-z][A-Za-z0-9+.-]+:")
+_REFERENCE_RE = re.compile(r"\]\[([^\]]+)\]")
+_DEFINITION_RE = re.compile(r"^ {0,3}\[(?!\^)([^\]]+)\]:\s*(\S+)")
 _LINK_END_RE = re.compile(rf"{_TARGET_TITLE}\s*\)")
 LINK_PAREN_DEPTH_MAX = 32
 # A reference label alone on its line: its destination may be on the next line.
@@ -232,23 +235,85 @@ def _join_label_lines(lines: list[str]) -> list[str]:
     return out
 
 
+def _label_start(masked: str, close: int) -> int | None:
+    """The index of the ``[`` that opens the label closed by the ``]`` at ``close``, or None."""
+    depth = 0
+    for i in range(close, -1, -1):
+        if masked[i] == "]":
+            depth += 1
+        elif masked[i] == "[":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def _reference_definitions(masked: str, found: dict[str, bool]) -> None:
+    """Add to ``found`` the reference definitions in ``masked``: label (case-folded, spaces collapsed) -> whether the
+    destination has a URL scheme. The first definition of a label decides, as in CommonMark."""
+    for line in _join_label_lines(masked.split("\n")):
+        m = _DEFINITION_RE.match(line)
+        if m:
+            found.setdefault(" ".join(m.group(1).casefold().split()), bool(_SCHEME_RE.match(m.group(2))))
+
+
+def _external_labels(masked: str, definitions: dict[str, bool]) -> list[tuple[int, int]]:
+    """The ``(start, end)`` of each link label in ``masked`` whose destination has a URL scheme (``https:``, ``mailto:``).
+
+    The destination is inline, or a reference whose first definition in ``definitions`` has one. A code span in such a
+    label is the link's text, not a file of the skill. A label that holds another link (an image is fine) is
+    no link, as links do not nest. ``masked`` has its code spans blanked to the same length, so offsets match.
+    A collapsed (``[a][]``) or shortcut reference is not read: its label is its key, which is blanked when it holds a code span."""
+    found: list[tuple[int, int]] = []
+    closes: list[tuple[int, bool]] = []  # (index of "]", destination is a URL) of each inline or reference link
+    for opened in _LINK_OPEN_RE.finditer(masked):
+        stop = _destination_stop(masked, opened.end())
+        if stop is not None and _LINK_END_RE.match(masked, stop):
+            closes.append((opened.start(), bool(_SCHEME_RE.match(masked, opened.end()))))
+    for ref in _REFERENCE_RE.finditer(masked):
+        start = _label_start(masked, ref.start())
+        if start is None:
+            continue
+        key = " ".join(ref.group(1).casefold().split())
+        if key in definitions:  # an undefined reference is plain text, not a link
+            closes.append((ref.start(), definitions[key]))
+    starts = {close: _label_start(masked, close) for close, _ in closes}
+    for close, is_url in closes:
+        start = starts[close]
+        if start is None or not is_url:
+            continue
+        nested = any(
+            (inner := starts[c]) is not None and start < inner and c < close and masked[inner - 1 : inner] != "!"
+            for c, _ in closes
+        )
+        if not nested:
+            found.append((start, close))
+    return found
+
+
 def link_pieces(lines: list[str]) -> tuple[list[str], list[str]]:
     """The link destinations and the code-span texts of ``lines`` (outside fences), as written.
 
     A code span is matched by its run of backticks, across the lines of its paragraph, and its text is
-    taken whole. Its text and the escaped brackets are then blanked. Inline links are read from the
+    taken whole, except one in the label of a link with a URL destination (``[`examples/a.py`](https://...)``, or a reference to a definition with one),
+    which is the link's text. Its text and the escaped brackets are then blanked. Inline links are read from the
     paragraph (parentheses up to 32 deep, a destination over lines), and reference definitions by the
     markdown splitter of L0 (``dokimi.repos.l0.markdown.split``), line by line. The splitter's inline
     reader is not used: it reads one level of parentheses and no escapes, so it would disagree with this one.
     """
     targets: dict[str, None] = {}
     spans: dict[str, None] = {}
-    for paragraph in _paragraphs(lines):
+    paragraphs = _paragraphs(lines)
+    maskeds = [_unlinked_brackets(CODE_SPAN_RE.sub(lambda m: " " * len(m.group()), p)) for p in paragraphs]
+    definitions: dict[str, bool] = {}
+    for masked in maskeds:
+        _reference_definitions(masked, definitions)
+    for paragraph, masked in zip(paragraphs, maskeds, strict=True):
+        labels = _external_labels(masked, definitions)
         for m in CODE_SPAN_RE.finditer(paragraph):
             text = m.group(2).replace("\n", " ").strip()
-            if text:
+            if text and not any(a <= m.start() < b for a, b in labels):
                 spans[text] = None
-        masked = _unlinked_brackets(CODE_SPAN_RE.sub(lambda m: " " * len(m.group()), paragraph))
         for target in _inline_destinations(masked):
             targets[target] = None
         for line in _join_label_lines(masked.split("\n")):
