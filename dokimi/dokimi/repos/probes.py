@@ -50,10 +50,11 @@ DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
 _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep", "egrep", "fgrep", "awk", "tac",
                       "strings", "wc", "rg"})
 _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is an expression, not a file
-_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice", "timeout", "xargs"})  # each runs
+_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice", "timeout", "xargs", "doas", "stdbuf"})  # each runs
 # the command after it
 _KEYWORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!"})  # shell keywords before a command
-_OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u"), ("timeout", "-s"), ("timeout", "-k"),
+_OPTION_OPERANDS = frozenset({("doas", "-u"), ("doas", "-C"), ("stdbuf", "-i"), ("stdbuf", "-o"), ("stdbuf", "-e"),
+                              ("nice", "-n"), ("sudo", "-u"), ("timeout", "-s"), ("timeout", "-k"),
                               ("xargs", "-n"), ("xargs", "-I"), ("xargs", "-L"), ("xargs", "-P"), ("xargs", "-d"),
                               ("xargs", "-E"), ("xargs", "-s"), ("xargs", "-a")})  # wrapper options that take a value
 _ENV_VALUES = frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"})  # env options with a value word

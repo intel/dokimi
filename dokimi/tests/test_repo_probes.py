@@ -630,3 +630,10 @@ def test_a_shell_with_its_own_script_treats_stdin_as_data(invocation):
 ])
 def test_only_a_real_heredoc_masks_its_body(script, expected):
     assert _probes(script) == expected
+
+
+@pytest.mark.parametrize("text", ["stdbuf -oL nproc", "stdbuf -o L nproc", "doas -u user nproc",
+                                  "timeout 3 nproc", "uv run python -W default -c 'import os; os.cpu_count()'",
+                                  "bash -o pipefail -c nproc"])
+def test_probe_follows_a_launcher_to_its_program(text):
+    assert _probes(text)
