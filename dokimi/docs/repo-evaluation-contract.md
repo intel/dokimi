@@ -624,6 +624,7 @@ The line format, its version and the promise that comes with it: [events-format.
   A choice needs the call's own exit code 0: a failed or denied call, or one with no result, gives none.
   An install or removal gives a choice only when its command joins every part to the next with `&&` and has no pipe:
   the harness reports one exit code per command, so a `;`, `||` or `|` part could have failed or never run. A
+  missing install choice leaves the installation unmeasured, including when output from a pipeline mentions success. A
   `--dry-run` installs nothing and gives none. An install in a `bash -c` wrapper, or whose first word carries a
   parenthesis (`(pip install X)`), gives none.
   Choice events are written to `events.jsonl`; the counters and `first_useful` do not read them.
