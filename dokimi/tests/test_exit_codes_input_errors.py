@@ -297,6 +297,19 @@ def test_benchmark_run_explicit_gemini_route_needs_no_provider_key(tmp_path, mon
     assert exc.value.code == 2
 
 
+def test_benchmark_run_off_table_route_needs_no_provider_key(tmp_path, monkeypatch):
+    """#967: `--provider anthropic --model azure/...` reads Azure's own variables, so an unset `ANTHROPIC_API_KEY` is no refusal."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    built, _ = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "anthropic", "--model", "azure/my-deployment",
+         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+    )
+    cli.main()
+    assert len(built) == 1
+
+
 def _no_codex(monkeypatch, authenticated=False, installed=False):
     from dokimi import llm_cli
 

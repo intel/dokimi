@@ -151,7 +151,8 @@ def _credential_providers(args: argparse.Namespace) -> list[str]:
 
     A CLI backend takes its login whatever the model name says. `vertex_ai/` (ADC) and `bedrock/`
     (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider; a `gemini/`
-    route needs GEMINI_API_KEY or GOOGLE_API_KEY; another provider's route needs that provider's key.
+    route needs GEMINI_API_KEY or GOOGLE_API_KEY; another provider's route needs that provider's key;
+    a route off the table (`azure/`, `ollama/`) needs none when the configured key is unset.
     """
     from dokimi import llm_cli
 
@@ -165,16 +166,20 @@ def _credential_providers(args: argparse.Namespace) -> list[str]:
         if llm_cli.backend(canonical) is not None:
             providers.append(canonical)
             continue
-        route = resolve_model(str(model), provider).split("/", 1)[0]
+        resolved = resolve_model(str(model), provider)
+        route = resolved.split("/", 1)[0]
         if canonical == "amazon-bedrock" or route in ("vertex_ai", "bedrock"):
             continue
-        if route in ("gemini", *PROVIDERS) and route != canonical and canonical != "openai-codex":
+        off_table = "/" in resolved and route not in ("gemini", *PROVIDERS)
+        if route != canonical and canonical != "openai-codex" and (off_table or route in ("gemini", *PROVIDERS)):
             # The call sends the configured provider's key when it has one (an unreadable file is
             # refused); with none, litellm reads the route provider's own variable.
             try:
                 has_key = bool(resolve_api_key(canonical))
             except ValueError:
                 has_key = True
+            if not has_key and off_table:
+                continue  # litellm reads the route's own variables (azure/, ollama/): no key to check
             if not has_key:
                 canonical = "google-vertex" if route == "gemini" else route
                 try:
