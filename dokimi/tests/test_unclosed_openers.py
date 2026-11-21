@@ -316,11 +316,11 @@ def _long_delimiters_one_closing_length(k: int) -> str:
 def test_cli_trace_heredoc_scans_long_delimiters_among_closing_lines_of_many_lengths_in_linear_time() -> None:
     """The growth is set against linear work on a text of the same size: a big text slows both alike (cache misses), copying prefixes only the first."""
     def relative() -> float:
-        ratio, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_unrelated_closing_lines(k)), 200_000)
-        linear, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_one_closing_length(k)), 200_000)
+        ratio, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_unrelated_closing_lines(k)), 25_000)
+        linear, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_one_closing_length(k)), 25_000)
         return ratio / linear
 
-    assert any(relative() < 1.3 for _ in range(5))  # copying prefixes: 1.6 in every attempt; a busy host spoils some attempts, and an attempt that passes ends the test
+    assert any(relative() < 1.3 for _ in range(3))  # copying prefixes: 2.3 in every attempt; a busy host spoils some attempts, and an attempt that passes ends the test
 
 
 def test_cli_trace_heredoc_closes_an_unquoted_opener_by_a_line_of_a_prefix_of_its_delimiter_after_it() -> None:
