@@ -8,10 +8,12 @@ No docker here: a :class:`DockerCLI` stands for the daemon and its verifier.
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import pytest
 
+from dokimi import process
 from dokimi.cli import build_parser
 from dokimi.harnesses import create_harness, known_harnesses, load_task, null_check
 from dokimi.harnesses.docker_solver import DockerSolverHarness
@@ -80,6 +82,28 @@ def test_docker_null_requires_evidence_of_failure_from_pytest(tmp_path, summary)
     result = create_harness("docker-null", runner=cli).run(task, output_dir=tmp_path / "out")
     assert result.metrics["null_check"] == null_check.NO_VERDICT
     assert result.passed is False
+
+
+@pytest.mark.parametrize(("first", "last", "expected"), [
+    ("1 failed in 0.20s", "no tests ran in 0.01s", null_check.NO_VERDICT),
+    ("no tests ran in 0.01s", "1 failed in 0.20s", null_check.NULL_FAIL),
+])
+def test_docker_null_uses_verifier_streams_in_write_order(tmp_path, first, last, expected):
+    task = load_task(_harbor(tmp_path))
+    script = task.tests_dir / "test.sh"
+    script.write_text(f"#!/bin/sh\necho '{first}' >&2\necho '{last}'\n", encoding="utf-8")
+
+    def run_verifier(call):
+        if "-lc" in call.argv:
+            # Execute the verifier command locally with just the container paths remapped.
+            command = call.argv[-1].replace("/tests/test.sh", shlex.quote(str(script)))
+            command = command.replace("/logs/verifier", shlex.quote(str(tmp_path / "logs")))
+            return process.run(["bash", "-c", command], timeout=10, env=process.Env.inherit())
+        return None
+
+    cli = DockerCLI(reward="0.0", answer=run_verifier)
+    result = create_harness("docker-null", runner=cli).run(task, output_dir=tmp_path / "out")
+    assert result.metrics["null_check"] == expected
 
 
 def test_pytest_counts_takes_the_last_summary_line():

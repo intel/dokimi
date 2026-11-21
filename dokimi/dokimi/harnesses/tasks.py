@@ -178,8 +178,9 @@ class TaskSpec:
             # 2>&1: one ordered stream, as terminal-bench reads it from the tmux pane
             return ContainerStep(copies, f"bash {tbench_v1.TEST_DIR}/run-tests.sh 2>&1", user=None,
                                  parser=tbench_v1.PARSER_PYTEST)
+        # Keep verifier summaries in emission order when the script uses both streams.
         return ContainerStep(((self.tests_dir, "/tests"), (self.tests_dir, "/verifier")),
-                             "mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh")
+                             "exec 2>&1; mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh")
 
     def local_docker_problem(self, *, oracle: bool) -> str | None:
         """Why a docker-* harness cannot run this task as its own runner would, or ``None``."""
