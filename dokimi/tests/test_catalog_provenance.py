@@ -685,3 +685,18 @@ def test_manifest_without_a_head_for_this_path_reports_unknown_drift(tmp_path) -
     assert row["match"] == "exact"
     assert (row["at_head"], row["behind_commits"], row["behind_months"]) == (None, None, None)
     assert report["summary"]["median_months_behind"] is None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permits non-UTF-8 filename bytes")
+def test_non_utf8_history_and_checkout_names_round_trip(tmp_path):
+    repo = tmp_path / os.fsdecode(b"upstream-\xff")
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    path = os.fsdecode(b"skills/\xff/SKILL.md")
+    _commit(repo, {path: V1}, "2026-01-01T10:00:00+00:00", "v1")
+    _commit(repo, {path: V2}, "2026-02-01T10:00:00+00:00", "v2")
+    for index, content in enumerate((V1, V2)):
+        root = _copy_root(tmp_path / str(index), {"skills/pdf/SKILL.md": content})
+        row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+        assert (row["path"], row["removed_at_head"], row["at_head"]) == (path, False, bool(index))
+        assert row["commit"] and row["date"]
