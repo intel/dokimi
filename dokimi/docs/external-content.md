@@ -329,8 +329,9 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
 (`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
-an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
-package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
+an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm`, `pnpm` (`add`, `install`, `i`, `dlx`), `pnpx` or `npx` install that names a
+package with no version is a `warn` with the count of distinct packages for the skill (`install-unpinned`); the
+same install shown twice is one, and a command inside the quoted text of an `echo` or `printf` is not an install (unless a `$(...)` or backtick substitution in it runs it, or the output is piped to a shell); a requirements
 file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
 blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
 text file, such as a script. The scan reads at most 200
