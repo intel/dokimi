@@ -705,31 +705,53 @@ prompt asks for. A negation written as its synonym counts as the negation itself
 `X rather than Y` and `non-deterministic` restate `X, not Y` and `not deterministic`
 rather than inverting them. An opening `Doesn't` / `Isn't` is question phrasing and is not counted, so
 `Doesn't X support Y?` restates `X supports Y`, while `Is it true that X supports Y?`
-inverts `X does not support Y`. A reversal may run up to 15 words past the 2.5x length cap,
+inverts `X does not support Y`. A tag at the end (`..., doesn't it?`, `..., is it not?`) is question phrasing
+in the same way, so `The skill ships with numbers, doesn't it?` inverts `No numbers ship with
+the skill`; `Is it NOT the case that ...?` still counts as a negation. A reversal may run up to 15 words past the 2.5x length cap,
 the size of a leading frame such as `Isn't it true that ... NOT ..., but rather ...?`.
 
 Known gap: the paraphrase polarity check only asks whether a negation is present, so a
 faithful paraphrase that drops one (`Can you run X without root?` to `Is root required to
 run X?`) is rejected and counted in `malformed_rate`. The error inflates the rate; it never
-lets a corrupted wording through. The reversal check is lexical too: an inversion made by a
-plain antonym (`faster` to `slower`, `off` to `on`) is rejected and inflates the rate, while a
-restatement whose verb carries the negation (`does not support` to `lacks support for`) is
-not detected and is probed with a true premise.
+lets a corrupted wording through. The reversal check is lexical too. It accepts an inversion
+that adds one of these words the source lacks: `skip`, `unless`, `unreliable`, `useless`,
+`unsuitable`, `unhelpful`, `wrong`, plus the bound and permission words (`any`, `all`, `newer`,
+`safe`, ...); `always` when the source holds `sometimes`, `occasionally`, `rarely`, `never` or
+`only the first` and the candidate drops it; and `entirety` when the source holds `subset`,
+`partial`, `some` or `few` and the candidate drops it. `Only administrators ...` to `... always ...`
+is rejected, since `only`, `once` and `single` limit who, when and how many, which `always` does not
+widen. `skip` governed by `wrong`, `useless`, `unreliable`, `unsuitable`, `unhelpful`, `unwise`,
+`bad`, `risky` or `mistake` cancels, in `... to skip` (up to two words between, `to ever skip`
+included) and in `skipping ... <judgement>` at the end of a clause (`Is it wrong to skip
+warm-up?`, `Is skipping warm-up a mistake?` restate `warm up first`) and is rejected; the adjective
+after `skip` (`skip warm-up because it is useless`) does not cancel it. A filler word (`still`, `also`, `even`, `just`) is never one. An
+inversion made by a pure antonym with no listed word (`preferable`, `stays the same`, `faster`
+to `slower`, `off` to `on`) is rejected and inflates the rate, while a restatement whose verb
+carries the negation (`does not support` to `lacks support for`) is not detected and is probed
+with a true premise.
 
 Rejected wordings are dropped, never probed, and the rate ships with the result:
 
 ```json
 "probes": {"n_probes": 81, "malformed_rate": 0.12,
            "by_kind": {"paraphrase": {"generated": 27, "kept": 24, "rejected": 3,
-                                      "reasons": {"anchor_dropped": 3}}}}
+                                      "reasons": {"anchor_dropped": 3},
+                                      "rejected_examples": [
+                                        {"atom_id": "a007", "source": "Which flag enables the accelerator on driver 2.1?",
+                                         "candidate": "Which flag enables the accelerator?",
+                                         "reasons": ["anchor_dropped"]}]}}}
 ```
+
+`rejected_examples` keeps the first 20 rejected wordings of each kind (an empty generator row
+is kept with `candidate` `""`), so a reader can audit the rate; `reasons` still counts every
+rejection.
 
 Read it as a budget statement, not a quality score. The denominator is **atoms asked for**,
 not rows the generator returned, so a failed or truncated generation counts: a
 `malformed_rate` of 0.12 on paraphrases means that kind probed 24 of 27 atoms, and a
 `redundant` verdict that was supposed to be confirmed under reworded phrasing was not
 confirmed for three of them. Above
-0.2 the run says so in `warnings`. The checks reject on evidence only, so a rate of 0.0 is
+0.2 the run says so in `warnings`, which names `probes.by_kind.<kind>.rejected_examples`. The checks reject on evidence only, so a rate of 0.0 is
 the absence of detectable corruption — not proof that the wordings are faithful.
 
 ## Can the artifact be selected at all

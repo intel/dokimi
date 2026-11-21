@@ -332,7 +332,8 @@ def _analyze(
                 f"{row['rejected']} of {row['generated']} generated {kind} wordings failed "
                 f"the fidelity check and were dropped "
                 f"({', '.join(sorted(row['reasons']))}); {kind} probes cover "
-                f"{row['kept']} of {len(atom_list)} atoms"
+                f"{row['kept']} of {len(atom_list)} atoms; the first rejected wordings are in "
+                f"probes.by_kind.{kind}.rejected_examples"
             )
     progress.stage = "measurement"
     measure_result = progress.measure_result = measure.run_measurement(

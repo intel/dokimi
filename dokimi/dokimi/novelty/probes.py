@@ -94,14 +94,31 @@ _LEADING_CUES = re.compile(
     r"true that|right that|confirm that|so it is safe to|so you can)\b",
     re.I,
 )
-# Evidence that a claim was *widened* rather than negated, which is how a value bound is
-# correctly inverted: "requires driver 2.1 or newer" to "works on any driver, including 2.1
-# and older". A leading cue alone is not evidence -- "Is it true that <the statement>?"
-# carries one and inverts nothing -- and neither is a filler word: "still", "also", "even",
-# "works", "supported", "instead" turn up in a restated truth as often as in an inversion.
+# Bounds, permissions, "skip"/"unless" and antonym adjectives (#1006), never filler: a restated
+# truth has "still", "also", "even", "just", "works" and "instead" as readily as an inversion.
 _INVERSION_MARKERS = re.compile(
     r"\b(?:any|anything|all|either|including|older|earlier|lower|below|newer|regardless|"
-    r"optional|unnecessary|no longer|fine|safe|allowed|permitted)\b",
+    r"optional|unnecessary|no longer|fine|safe|allowed|permitted|"
+    r"unless|skip|unreliable|useless|unsuitable|unhelpful|wrong)\b",
+    re.I,
+)
+# A quantifier counts only when the candidate drops a limiter of the source that it inverts;
+# "only", "once" and "single" limit who, when and how many, which "always" does not widen.
+_QUANTIFIER_LIMITERS = {
+    "always": re.compile(
+        r"\b(?:sometimes|occasionally|rarely|never)\b|\bonly\s+(?:the\s+)?(?:first|initial|once)\b",
+        re.I,
+    ),
+    "entirety": re.compile(r"\b(?:subset|partial(?:ly)?|some|few)\b", re.I),
+}
+_NEGATIVE_ADJECTIVES = frozenset({"unreliable", "useless", "unsuitable", "unhelpful", "wrong"})
+# Words that, beside "skip", say the skip is the error: they cancel it, though they are no marker.
+_NEGATIVE_JUDGEMENTS = "|".join(sorted(_NEGATIVE_ADJECTIVES | {"unwise", "mistake", "bad", "risky"}))
+# "wrong to skip" and "skipping it is wrong" negate the skip; "skip it because it is useless" does not.
+_CANCELLING_SKIP = re.compile(
+    r"\b(?:" + _NEGATIVE_JUDGEMENTS + r")\s+(?:\w+\s+){0,2}?to\s+(?:(?:ever|always|just|simply|really)\s+)*skip\b"
+    r"|\bskipping\b(?:\s+[\w'-]+){1,5}?\s+(?:(?:is|be)\s+)?(?:an?\s+)?(?:" + _NEGATIVE_JUDGEMENTS
+    + r")\b(?=\s*[?,.;]|\s*$)",
     re.I,
 )
 # A contracted negative auxiliary that opens a question ("Doesn't X support Y?", "Isn't it
@@ -111,6 +128,14 @@ _INVERSION_MARKERS = re.compile(
 # explicit denial, so it still counts.
 _LEADING_NEGATIVE = re.compile(
     r"^\s*(?:isn't|aren't|doesn't|don't|didn't|can't|won't|wasn't|weren't|shouldn't)\b",
+    re.I,
+)
+# A trailing tag ("..., doesn't it?") is question phrasing too, not a negation of the claim.
+_TRAILING_TAG = re.compile(
+    r",\s*(?:(?:isn't|aren't|doesn't|don't|didn't|can't|won't|wasn't|weren't|shouldn't)\s+"
+    r"(?:it|they|you|we|that|this|there)"
+    r"|(?:is|are|does|do|did|can|will|was|were|should)\s+(?:it|they|you|we|that|this|there)"
+    r"\s+not)\s*\?\s*$",
     re.I,
 )
 # A negation written as its synonym is the same negation: "X rather than Y" restates "X,
@@ -157,6 +182,10 @@ STATEMENTS:
 """
 
 
+#: Rejected wordings kept per kind in the artifact, so it does not grow with the run.
+MAX_REJECTED_EXAMPLES = 20
+
+
 @dataclass
 class Probe:
     """One question to ask, with what counts as a correct answer."""
@@ -188,7 +217,8 @@ class ProbeSet:
     """The probes to ask, plus what was thrown away getting them."""
 
     probes: list[Probe]
-    #: ``{kind: {"generated": n, "kept": n, "rejected": n, "reasons": {reason: n}}}``
+    #: ``{kind: {generated, kept, rejected, reasons: {reason: n}, rejected_examples: [...]}}``;
+    #: at most :data:`MAX_REJECTED_EXAMPLES` examples, while ``reasons`` counts every one.
     fidelity: dict[str, dict] = field(default_factory=dict)
 
     def malformed_rate(self, kind: str | None = None) -> float:
@@ -291,9 +321,7 @@ def check_wording(kind: str, *, source: str, candidate: str, answer: str = "") -
         scaffolding_only = _stems(cand_claim) - _QUESTION_SCAFFOLD <= _stems(src_claim)
         # A marker only counts as evidence when the candidate introduced it: "newer" in
         # both texts says nothing, the same word appearing only in the candidate does.
-        new_markers = {m.lower() for m in _INVERSION_MARKERS.findall(text)} - {
-            m.lower() for m in _INVERSION_MARKERS.findall(source)
-        }
+        new_markers = _new_markers(source, text)
         # Inverting a statement that already says "not" means removing or moving that
         # negation, so the candidate's words are the source's. It restates the source only
         # if its claim negations also match: same number, on the same words.
@@ -314,6 +342,25 @@ def check_wording(kind: str, *, source: str, candidate: str, answer: str = "") -
     return reasons
 
 
+def _new_markers(source: str, text: str) -> set[str]:
+    """Inversion markers ``text`` has and ``source`` lacks.
+
+    A quantifier counts only when ``source`` holds a limiter it inverts and ``text`` drops
+    that limiter (:data:`_QUANTIFIER_LIMITERS`), and ``skip`` cancels against a negative
+    judgement that governs it ("wrong to skip", "skipping it is wrong" keep the source's
+    meaning; "skip it because it is useless" does not).
+    """
+    ungoverned = _CANCELLING_SKIP.sub(" ", text)
+    found = {m.lower() for m in _INVERSION_MARKERS.findall(ungoverned)}
+    found -= {m.lower() for m in _INVERSION_MARKERS.findall(source)}
+    for quantifier, limiter in _QUANTIFIER_LIMITERS.items():
+        if (re.search(rf"\b{quantifier}\b", ungoverned, re.I)
+                and not re.search(rf"\b{quantifier}\b", source, re.I)
+                and limiter.search(source) and not limiter.search(text)):
+            found.add(quantifier)
+    return found
+
+
 def _normalise_negations(text: str) -> str:
     """``text`` with every negation synonym in :data:`_NEGATION_SYNONYMS` written as "not"."""
     for pattern, replacement in _NEGATION_SYNONYMS:
@@ -324,13 +371,14 @@ def _normalise_negations(text: str) -> str:
 def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     """How many negations ``text``'s claim carries, and which of ``source``'s words they hit.
 
-    A leading negative auxiliary is question phrasing and is not counted. A negation's
+    A leading negative auxiliary and a trailing tag ("..., doesn't it?") are question
+    phrasing and are not counted. A negation's
     target is the first content word after it; only targets that are words of ``source``
     are kept, so a negation that moved onto another of the source's words ("computed with
     BLAKE3, not over contents" to "over contents, NOT with BLAKE3") can be told apart from
     one reworded onto a new verb, which is not evidence of anything.
     """
-    claim = _LEADING_NEGATIVE.sub(" ", text, count=1)
+    claim = _TRAILING_TAG.sub("?", _LEADING_NEGATIVE.sub(" ", text, count=1), count=1)
     source_stems = _stems(source)
     targets = set()
     for match in _NEGATIONS.finditer(claim):
@@ -418,18 +466,17 @@ def build_probe_set(
 
     fidelity = built.fidelity
 
-    def tally(kind: str, reasons: list[str]) -> bool:
+    def tally(kind: str, atom: Atom, source: str, candidate: str, reasons: list[str]) -> bool:
         row = fidelity.setdefault(
-            kind, {"generated": 0, "kept": 0, "rejected": 0, "reasons": {}}
+            kind,
+            {"generated": 0, "kept": 0, "rejected": 0, "reasons": {}, "rejected_examples": []},
         )
         row["generated"] += 1
-        if reasons:
-            row["rejected"] += 1
-            for reason in reasons:
-                row["reasons"][reason] = row["reasons"].get(reason, 0) + 1
-            return False
-        row["kept"] += 1
-        return True
+        if not reasons:
+            row["kept"] += 1
+            return True
+        _record_rejection(row, atom.id, source, candidate, reasons)
+        return False
 
     if paraphrases:
         for chunk, worded in _worded(client, _PARAPHRASE_PROMPT, atoms, batch, "question"):
@@ -438,7 +485,7 @@ def build_probe_set(
                     "paraphrase", source=atom.question, candidate=question,
                     answer=atom.answer,
                 )
-                if tally("paraphrase", reasons):
+                if tally("paraphrase", atom, atom.question, question, reasons):
                     probes.append(Probe(atom_id=atom.id, kind="paraphrase",
                                         question=question.strip(), expected=atom.answer,
                                         grading=atom_grading(atom)))
@@ -448,13 +495,27 @@ def build_probe_set(
                 reasons = check_wording(
                     "reversal", source=atom.statement, candidate=question,
                 )
-                if tally("reversal", reasons):
+                if tally("reversal", atom, atom.statement, question, reasons):
                     probes.append(Probe(
                         atom_id=atom.id, kind="reversal", question=question.strip(),
                         expected=f"Refuse the premise. The truth is: {atom.statement}",
                         expect_refusal=True,
                     ))
     return built
+
+
+def _record_rejection(
+    row: dict, atom_id: str, source: str, candidate: str, reasons: list[str],
+) -> None:
+    """Count one rejected wording in ``row``; keep it as an example while there is room."""
+    row["rejected"] += 1
+    for reason in reasons:
+        row["reasons"][reason] = row["reasons"].get(reason, 0) + 1
+    if len(row["rejected_examples"]) < MAX_REJECTED_EXAMPLES:
+        row["rejected_examples"].append({
+            "atom_id": atom_id, "source": source, "candidate": candidate,
+            "reasons": list(reasons),
+        })
 
 
 def atom_grading(atom: Atom) -> dict | None:

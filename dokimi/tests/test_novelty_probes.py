@@ -266,6 +266,8 @@ def test_a_non_string_row_is_a_rejected_wording_not_a_silently_skipped_atom():
     probe_set = build_probe_set(atoms, client=client, paraphrases=1, reversals=False)
     assert probe_set.fidelity["paraphrase"] == {
         "generated": 1, "kept": 0, "rejected": 1, "reasons": {"empty": 1},
+        "rejected_examples": [{"atom_id": atoms[0].id, "source": QUESTION, "candidate": "",
+                               "reasons": ["empty"]}],
     }
 
 
@@ -355,6 +357,219 @@ def test_a_filler_word_does_not_turn_a_restated_truth_into_a_reversal(candidate)
     # words that a restatement adds as readily as an inversion does. Each of these asserts
     # the TRUE premise and would ship with `expect_refusal`.
     assert check_wording("reversal", source=STATEMENT, candidate=candidate) != []
+
+
+@pytest.mark.parametrize(
+    ("source", "candidate"),
+    [
+        # entirety: "only a subset" inverted by a quantifier (#1006)
+        ("dpnp implements only a subset of NumPy.",
+         "dpnp implements the entirety of NumPy, right?"),
+        # always: "never from memory" inverted by a quantifier
+        ("Only the first call to dpnp.asnumpy() copies data from device to host.",
+         "Doesn't dpnp.asnumpy() always copy data from device to host?"),
+        ("When measuring a speedup, warm up first and then time the steady state.",
+         "When measuring a speedup, you should skip warm-up and time the first cold run, "
+         "right?"),
+        ("Setting ONEAPI_DEVICE_SELECTOR before a program starts restricts the devices it "
+         "uses.",
+         "Setting ONEAPI_DEVICE_SELECTOR before a program starts restricts the devices it "
+         "uses unless you change its code, right?"),
+        ("try/except is the only reliable gate for dpnp function coverage.",
+         "try/except is an unreliable gate for dpnp function coverage, correct?"),
+        ("Restricting dpnp to CPU devices from outside the process is done with "
+         "ONEAPI_DEVICE_SELECTOR='*:cpu'.",
+         "Isn't ONEAPI_DEVICE_SELECTOR='*:cpu' useless for restricting dpnp to CPU devices "
+         "from outside the process?"),
+        ("Use the dpnp troubleshooting skill when no SYCL device is found.",
+         "Isn't the dpnp troubleshooting skill unsuitable for cases where no SYCL device is "
+         "found?"),
+        ("Use the dpnp troubleshooting skill when another library rejects a dpnp array.",
+         "Isn't the dpnp troubleshooting skill unhelpful when another library rejects a dpnp "
+         "array?"),
+        ("Use the dpnp troubleshooting skill when dpnp code is slower than the NumPy it "
+         "replaced.",
+         "Isn't the dpnp troubleshooting skill the wrong choice when dpnp code is slower "
+         "than the NumPy it replaced?"),
+    ],
+)
+def test_an_antonym_or_quantifier_inversion_is_a_reversal(source, candidate):
+    assert check_wording("reversal", source=source, candidate=candidate) == []
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        "Is it true that the --accel flag still requires driver 2.1 or newer?",
+        "Is it true that the --accel flag requires driver 2.1 or newer, just as before?",
+        "Is it true that the --accel flag always requires driver 2.1 or newer?",
+        "Is it true that the entirety of the --accel flag requires driver 2.1 or newer?",
+    ],
+)
+def test_a_restated_truth_with_a_filler_or_a_quantifier_over_no_limit_is_rejected(candidate):
+    # STATEMENT limits nothing, so "always" widens nothing; "still" and "just" are filler.
+    assert check_wording("reversal", source=STATEMENT, candidate=candidate) != []
+
+
+def test_a_skip_cancelled_by_a_negative_adjective_restates_the_source():
+    # "wrong to skip" recommends the warm-up the source recommends: a true premise.
+    assert check_wording(
+        "reversal", source="When measuring a speedup, warm up first.",
+        candidate="Is it wrong to skip warm-up when measuring a speedup?",
+    ) != []
+
+
+def test_a_governed_skip_is_cancelled_when_the_source_already_has_the_adjective():
+    # "wrong" is in both texts, so it is no new marker; the "skip" it governs still cancels.
+    assert check_wording(
+        "reversal", source="It is wrong to omit warm-up when measuring a speedup.",
+        candidate="Is it wrong to skip warm-up when measuring a speedup?",
+    ) == ["polarity_not_flipped"]
+
+
+def test_only_the_governed_skip_is_cancelled_and_an_ungoverned_one_inverts():
+    source = "When measuring a speedup, warm up first and then time the steady state."
+    assert check_wording(
+        "reversal", source=source,
+        candidate="When measuring a speedup, is it wrong to skip steady-state timing but "
+        "should you skip warm-up first?",
+    ) == []
+
+
+def test_an_adjective_describing_what_is_skipped_does_not_cancel_the_skip():
+    source = "When measuring a speedup, warm up first and then time the steady state."
+    assert check_wording(
+        "reversal", source=source,
+        candidate="When measuring a speedup, should you skip warm-up because it is useless "
+        "and time the first cold run?",
+    ) == []
+
+
+def test_a_quantifier_beside_a_limiter_the_candidate_keeps_is_rejected():
+    # The candidate keeps "sometimes", so "always" is no widening; dropping the limiter inverts.
+    source = "Administrators can sometimes configure the tool."
+    assert check_wording(
+        "reversal", source=source,
+        candidate="Is it true that administrators sometimes always configure the tool?",
+    ) != []
+    assert check_wording(
+        "reversal", source=source,
+        candidate="Is it true that administrators can always configure the tool?",
+    ) == []
+
+
+def test_a_quantifier_beside_a_reworded_limiter_is_rejected():
+    # "subset" became "some": the limiter is reworded, not removed.
+    assert check_wording(
+        "reversal", source="Only a subset of users can configure the tool.",
+        candidate="Is it true that the entirety of some users can configure the tool?",
+    ) != []
+
+
+@pytest.mark.parametrize(
+    ("source", "candidate"),
+    [
+        ("Only administrators can rotate keys.", "Can administrators always rotate keys?"),
+        ("Once installed, the tool requires a GPU.",
+         "Does the tool always require a GPU after install?"),
+        ("A single command builds the image.", "Does one command always build the image?"),
+    ],
+)
+def test_always_over_a_limiter_it_does_not_invert_restates_the_source(source, candidate):
+    # "only <who>", "once <when>" and "single <how many>" limit who, when and how many; "always"
+    # widens none of them, so each candidate is the true premise.
+    assert check_wording("reversal", source=source, candidate=candidate) != []
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        "Is skipping the warm-up wrong?",
+        "Is skipping the warm-up a mistake?",
+        "Is it unwise to skip the warm-up?",
+        "Is it a mistake to skip the warm-up?",
+        "Is it wrong to ever skip the warm-up?",
+    ],
+)
+def test_a_skip_the_candidate_calls_wrong_restates_the_source(candidate):
+    assert check_wording(
+        "reversal", source="Run the warm-up first.", candidate=candidate,
+    ) != []
+
+
+def test_a_gerund_skip_with_a_judgement_on_something_else_still_inverts():
+    assert check_wording(
+        "reversal", source="Run the warm-up first.",
+        candidate="Is skipping the warm-up fine because the first run is useless?",
+    ) == []
+
+
+def test_a_spelled_out_trailing_tag_is_phrasing_not_a_negation():
+    assert "restates_source" in check_wording(
+        "reversal", source="Warm-up is required.", candidate="Warm-up is required, isn't it?",
+    )
+    assert check_wording(
+        "reversal", source="Warm-up is required.", candidate="Warm-up is required, is it not?",
+    ) != []
+    assert check_wording(
+        "reversal", source="Warm-up is not required.",
+        candidate="Warm-up is required, is it not?",
+    ) == []
+
+
+def test_a_trailing_tag_question_is_phrasing_not_a_negation():
+    # The tag "doesn't it?" is not a negation, so dropping the source's "No" is the inversion.
+    assert check_wording(
+        "reversal", source="No measured performance numbers ship with the dpnp skill.",
+        candidate="The dpnp skill ships with measured performance numbers, doesn't it?",
+    ) == []
+    # A tag on a restatement does not invert it ...
+    assert "restates_source" in check_wording(
+        "reversal", source="The dpnp skill ships with numbers.",
+        candidate="The dpnp skill ships with numbers, isn't it?",
+    )
+    # ... and a spelled-out denial still counts as a negation.
+    assert check_wording(
+        "reversal", source="No measured performance numbers ship with the dpnp skill.",
+        candidate="Is it NOT the case that measured performance numbers ship with the dpnp "
+                  "skill?",
+    ) != []
+
+
+def test_rejected_wordings_are_kept_as_examples_capped_per_kind():
+    atoms = [Atom(statement=f"The --flag{i} flag requires driver 2.1 or newer.",
+                  question=f"Which flag{i}?", answer="a", span_ids=("s0001",))
+             for i in range(25)]
+
+    def transport(prompt: str, system: str | None):
+        if "Rewrite each statement" in prompt:
+            # Every wording restates its source; the last atom gets no row at all.
+            rows = [f"Does the --flag{i} flag require driver 2.1 or newer?" for i in range(24)]
+            return json.dumps(rows), None
+        return "[]", None
+
+    client = LLMClient(model="m", role="extractor", transport=transport)
+    probe_set = build_probe_set(atoms, client=client, paraphrases=0, reversals=True, batch=30)
+    row = probe_set.fidelity["reversal"]
+    assert row["rejected"] == 25 and row["reasons"]["restates_source"] == 24
+    assert len(row["rejected_examples"]) == 20
+    first = row["rejected_examples"][0]
+    assert first == {
+        "atom_id": atoms[0].id, "source": atoms[0].statement,
+        "candidate": "Does the --flag0 flag require driver 2.1 or newer?",
+        "reasons": ["restates_source"],
+    }
+    assert probe_set.as_dict()["by_kind"]["reversal"]["rejected_examples"] == row[
+        "rejected_examples"]
+
+
+def test_an_empty_row_is_recorded_as_an_example_with_an_empty_candidate():
+    client = LLMClient(model="m", role="extractor", transport=lambda p, s: ("[]", None))
+    atom = _atom()
+    probe_set = build_probe_set([atom], client=client, paraphrases=0, reversals=True)
+    assert probe_set.fidelity["reversal"]["rejected_examples"] == [{
+        "atom_id": atom.id, "source": STATEMENT, "candidate": "", "reasons": ["empty"],
+    }]
 
 
 def test_reversal_length_cap_allows_a_leading_frame():
