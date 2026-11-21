@@ -608,3 +608,7 @@ def test_pipeline_termination_leaves_the_parent_running(program):
 @pytest.mark.parametrize("conditional", ["false || exit 1", "true && exit 0"])
 def test_a_known_condition_runs_its_shell_exit(conditional):
     assert _probes(f"{conditional}; nproc") == []
+
+
+def test_a_later_substitution_does_not_cancel_an_earlier_exit():
+    assert _probes("exit 0; echo $(date); nproc") == []

@@ -223,7 +223,7 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
     status: bool | None = None  # the exit status of the last part that ran; None when it is not known
     before = ""  # the operator before this part
     text = _without_heredocs(script)
-    flat = not _GROUPED.search(text)  # a group or a block may hold an exit that does not run: then nothing ends the scan
+    flat = not _GROUPED.search(_substitutions(_mask(text))[1])  # a group or a block may hold an exit that does not run: then nothing ends the scan
     for part, after, in_subshell, _outer in split_script(text):
         conditional = before in ("||", "&&") and status is None  # the part runs only if the one before it did, or did not, succeed
         skipped, before = (before == "||" and status is True) or (before == "&&" and status is False), after
