@@ -122,13 +122,14 @@ def test_the_per_skill_path_reports_the_same_shares(tmp_path, capsys):
     assert report["rates"]["states"]["warn"] == {"skills": 2, "rate": 0.5, "repo_rate": 0.3333}
 
 
-def test_the_text_output_names_the_repo_shares(tmp_path, capsys):
+@pytest.mark.parametrize("scan_args", [[], ["--per-skill"]])
+def test_the_text_output_names_the_repo_shares(tmp_path, capsys, scan_args):
     _repo(tmp_path, "big")
     _repo(tmp_path, "small")
     _skill(tmp_path / "big", "s1", name="s1", description=WHEN)
     _skill(tmp_path / "small", "t1", name="t1", description=NO_WHEN)
 
-    out, _ = _run(["--root", str(tmp_path), "--kind", "skills"], capsys)
+    out, _ = _run(["--root", str(tmp_path), "--kind", "skills", *scan_args], capsys)
     assert "# rates per skill and per repo (2 repos, each repo counted once):" in out
     # Per skill 1 of 2 is warn; per repo big has none and small all, so the repo share is also 50%.
     assert "#   warn: 50.0% of skills, 50.0% per repo (1 skills)" in out
