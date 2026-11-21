@@ -316,6 +316,34 @@ def test_exported_task_toml_parses_with_a_non_bmp_character(tmp_path):
     assert tomllib.loads((dest / "task.toml").read_text(encoding="utf-8"))["metadata"]["author_email"] == author
 
 
+@pytest.mark.parametrize("escape", ["\\udcff", "\\ud800"])
+def test_harbor_view_writes_a_lone_surrogate_in_the_metadata_as_a_question_mark(tmp_path, escape):
+    import tomllib
+
+    task = load_task(_tb1(tmp_path / "tasks", yaml_extra=f'author_email: "n{escape}"\n'))
+    view = harbor_export.harbor_view(task, cache_root=tmp_path / "cache")
+    raw = (view.path / "task.toml").read_bytes()
+    assert tomllib.loads(raw.decode("utf-8"))["metadata"]["author_email"] == "n?"
+
+
+def test_harbor_view_writes_a_lone_surrogate_in_the_instruction_as_a_question_mark(tmp_path):
+    path = _tb1(tmp_path / "tasks")
+    _write(path / "task.yaml", 'instruction: "Create n\\udcff.txt"\nauthor_name: a\n')
+    view = harbor_export.harbor_view(load_task(path), cache_root=tmp_path / "cache")
+    assert (view.path / "instruction.md").read_text(encoding="utf-8") == "Create n?.txt\n"
+
+
+def test_harbor_view_joins_a_json_surrogate_pair_in_the_metadata_and_the_instruction(tmp_path):
+    import tomllib
+
+    path = _tb1(tmp_path / "tasks", yaml_extra='author_email: "n\\ud83d\\ude00"\n')
+    _write(path / "task.yaml", 'instruction: "Reply with \\ud83d\\ude00"\nauthor_email: "n\\ud83d\\ude00"\n')
+    view = harbor_export.harbor_view(load_task(path), cache_root=tmp_path / "cache")
+    toml = tomllib.loads((view.path / "task.toml").read_bytes().decode("utf-8"))
+    assert toml["metadata"]["author_email"] == "n\U0001f600"
+    assert (view.path / "instruction.md").read_text(encoding="utf-8") == "Reply with \U0001f600\n"
+
+
 def test_export_puts_a_subdir_context_and_its_named_dockerfile_where_harbor_builds(tmp_path):
     compose = _COMPOSE.replace("      dockerfile: Dockerfile\n",
                                "      context: ./env\n      dockerfile: Dockerfile.x\n    working_dir: /srv\n")
@@ -451,9 +479,45 @@ def test_host_side_agent_is_refused_for_a_tb1_task(tmp_path):
 
 # ── real docker ──────────────────────────────────────────────────────────────
 
+def _stub_docker(directory) -> None:
+    """A `docker` executable that `shutil.which` finds (`docker.exe` where PATHEXT applies)."""
+    docker = directory / ("docker.exe" if os.name == "nt" else "docker")
+    docker.write_text("#!/bin/sh\n")
+    docker.chmod(0o755)
+
+
+def _docker_tests_enabled() -> bool:
+    return os.environ.get("DOKIMI_DOCKER_TESTS") == "1" and shutil.which("docker") is not None
+
+
+@pytest.mark.parametrize("value", ["0", "false", ""])
+def test_docker_tests_value_other_than_one_is_off(monkeypatch, tmp_path, value):
+    """#968: the skip reason says `set DOKIMI_DOCKER_TESTS=1`; `0`, `false` and empty are off."""
+    _stub_docker(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("DOKIMI_DOCKER_TESTS", value)
+    assert _docker_tests_enabled() is False
+
+
+def test_docker_tests_one_needs_a_docker_binary(monkeypatch, tmp_path):
+    """#968: `DOKIMI_DOCKER_TESTS=1` opts in only with `docker` on PATH, as the skip reason says."""
+    monkeypatch.setenv("DOKIMI_DOCKER_TESTS", "1")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert _docker_tests_enabled() is False
+    _stub_docker(tmp_path)
+    assert _docker_tests_enabled() is True
+
+
+def test_docker_tests_unset_is_off(monkeypatch, tmp_path):
+    """#968: an unset `DOKIMI_DOCKER_TESTS` leaves the real-docker test skipped."""
+    _stub_docker(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.delenv("DOKIMI_DOCKER_TESTS", raising=False)
+    assert _docker_tests_enabled() is False
+
+
 @pytest.mark.timeout(900)
-@pytest.mark.skipif(not os.environ.get("DOKIMI_DOCKER_TESTS") or shutil.which("docker") is None,
-                    reason="set DOKIMI_DOCKER_TESTS=1 with docker available")
+@pytest.mark.skipif(not _docker_tests_enabled(), reason="set DOKIMI_DOCKER_TESTS=1 with docker available")
 def test_docker_oracle_passes_and_a_no_op_fails_on_real_docker(tmp_path):
     path = _tb1(tmp_path / "tasks")
     _write(path / "Dockerfile", "FROM python:3.12-slim\nRUN pip install -q pytest==8.3.3\nWORKDIR /app\n")

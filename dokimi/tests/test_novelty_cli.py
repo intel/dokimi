@@ -136,7 +136,7 @@ def test_dropping_the_baseline_arm_is_refused(tmp_path):
     # The CLI exits with the same message.
     (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                        encoding="utf-8")
-    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--estimate-only",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--dry-run",
                   "--arms", "full")
     with pytest.raises(InputError, match="^--arms must include no_artifact: the 2x2"):
         args.func(args)

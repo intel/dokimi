@@ -6,13 +6,13 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from dokimi import __version__
+from dokimi.utils import key_bytes
 
 from .loader import awareness_arm_specs, work_arm_specs
 from .models import SubjectDescriptor
@@ -132,14 +132,21 @@ def build_subject_scorecard(
     }
 
 
+def _field(text: str) -> bytes:
+    """A fixed-width field for *text*, so a NUL or any byte in it cannot run into the next field."""
+    return hashlib.sha256(key_bytes(text)).digest()
+
+
 def _digest_values(values: tuple[str, ...]) -> str:
+    """Per value: its text's digest, then a tag for file or no file, then the file's digest when it names one."""
     h = hashlib.sha256()
     for value in values:
-        h.update(os.fsencode(value))
-        h.update(b"\0")
+        h.update(_field(value))
         path = Path(value)
         if path.is_file():
-            h.update(path.read_bytes())
+            h.update(b"f" + hashlib.sha256(path.read_bytes()).digest())
+        else:
+            h.update(b"t")
     return "sha256:" + h.hexdigest()
 
 
@@ -175,35 +182,39 @@ def distribution_digest(ref: str | None, *, base: Path) -> str | None:
 
 
 def _digest_ref(ref: str | None, *, base: Path) -> str | None:
+    return _digest_ref_kind(ref, base=base)[0]
+
+
+def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]:
+    """The digest of *ref* and a tag for what it named: ``f`` a file, ``d`` a directory, ``t`` neither."""
     if not ref:
-        return None
+        return None, b"t"
     path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
         path = base / path
-    h = hashlib.sha256()
     if path.is_file():
-        h.update(path.read_bytes())
-    elif path.is_dir():
-        for child in sorted(p for p in path.rglob("*") if p.is_file()):
-            h.update(os.fsencode(str(child.relative_to(path))))
-            h.update(b"\0")
-            h.update(child.read_bytes())
-            h.update(b"\0")
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(), b"f"
+    h = hashlib.sha256()
+    kind = b"t"
+    if path.is_dir():
+        kind = b"d"
+        h.update(b"d")
+        # POSIX names, ordered by their parts as utils.tree_digest does, so the same tree digests the same on Windows
+        for child in sorted((p for p in path.rglob("*") if p.is_file()), key=lambda p: p.relative_to(path).parts):
+            h.update(_field(child.relative_to(path).as_posix()))
+            h.update(hashlib.sha256(child.read_bytes()).digest())
     else:
-        h.update(os.fsencode(ref))
-    return "sha256:" + h.hexdigest()
+        h.update(b"t" + _field(ref))
+    return "sha256:" + h.hexdigest(), kind
 
 
 def _digest_arm_spec(spec: str, *, base: Path) -> str:
     from dokimi.treatments.specs import content_refs
 
     h = hashlib.sha256()
-    h.update(os.fsencode(spec))
-    h.update(b"\0")
+    h.update(_field(spec))
     for part, content_ref in content_refs(spec):
-        h.update(os.fsencode(part))
-        h.update(b"\0")
-        digest = _digest_ref(content_ref, base=base)
-        h.update((digest or "").encode("utf-8"))
-        h.update(b"\0")
+        h.update(_field(part))
+        digest, kind = _digest_ref_kind(content_ref, base=base)
+        h.update(kind + _field(digest or ""))
     return "sha256:" + h.hexdigest()

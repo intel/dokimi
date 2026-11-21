@@ -102,6 +102,8 @@ KEEP = (
     "SSL_CERT_FILE",
     "REQUESTS_CA_BUNDLE",
     "CONDA_PKGS_DIRS",
+    # A self-hosted runner's cap on `pytest -n auto`, which otherwise counts the whole host.
+    "PYTEST_XDIST_AUTO_NUM_WORKERS",
     "SYSTEMROOT",
     "SYSTEMDRIVE",
     "WINDIR",

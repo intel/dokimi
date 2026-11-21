@@ -12,7 +12,6 @@ import json
 import os
 import signal
 import threading
-import time
 
 import pytest
 import yaml
@@ -56,7 +55,7 @@ def test_a_plan_naming_one_cell_twice_is_refused_before_any_agent(setup, capsys,
     # cfg/code_main_dup_plan.cfg: two threads took one cell; the second rmtree'd the first one's directory while
     # its agent ran, and the first then wrote result.json next to the second one's meta.json and answer.txt.
     with pytest.raises(SystemExit) as exc:
-        _run(setup, *extra, "--jobs", "2", models=models)
+        _run(setup, *extra, "--concurrency", "2", models=models)
     assert exc.value.code == 1
     assert "is planned 2 times" in capsys.readouterr().err
     assert not _agents(setup)
@@ -66,7 +65,7 @@ def test_a_plan_naming_one_cell_twice_is_refused_before_any_agent(setup, capsys,
 def test_every_repeated_cell_is_named_in_the_refusal(setup, capsys):
     # two repeated --task values plan two cells twice: the refusal names both, not only the first
     with pytest.raises(SystemExit) as exc:
-        _run(setup, "--task", "fix_add", "--task", "fix_add", "--reps", "2", "--jobs", "2")
+        _run(setup, "--task", "fix_add", "--task", "fix_add", "--reps", "2", "--concurrency", "2")
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert "cell fix_add__guidance-raw__m-1__r1 is planned 2 times" in err
@@ -78,13 +77,13 @@ def test_names_that_differ_only_in_case_are_refused_before_any_agent(setup, caps
     # on a case-insensitive volume (default macOS APFS) ...__m-1__r1 and ...__M-1__r1 are one directory: the
     # run of one would rmtree the other's while it works in it
     with pytest.raises(SystemExit) as exc:
-        _run(setup, "--task", "fix_add", "--jobs", "2", models=("m-1", "M-1"))
+        _run(setup, "--task", "fix_add", "--concurrency", "2", models=("m-1", "M-1"))
     assert exc.value.code == 1
     assert "case-insensitive volume" in capsys.readouterr().err
     assert not _agents(setup)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="os.kill with SIGINT terminates the process on Windows")
+@pytest.mark.skipif(os.name == "nt", reason="signal.pthread_kill is POSIX-only")
 def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     # CancelContract of cfg/fixed.cfg (cfg/mut_no_cancel_guard.cfg breaks it): SIGINT wakes the main thread and
     # pool.map cancels the queued cells; _thread.interrupt_main() sends no signal and would let them start.
@@ -92,24 +91,33 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     both = threading.Barrier(2)
     ended = threading.Semaphore(0)
     real = repo_runner.run_cell
+    cancelled = threading.Event()
+    real_shutdown = repo_runner.ThreadPoolExecutor.shutdown
+
+    def shutdown(self, wait=True, *, cancel_futures=False):
+        real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+        if cancel_futures:
+            cancelled.set()
 
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
         started.append(rep)
         if rep <= 2:
             both.wait(5)  # both threads busy, every cell already submitted to the pool
             if rep == 1:
-                os.kill(os.getpid(), signal.SIGINT)  # what Ctrl-C sends
-            time.sleep(0.3)  # the main thread takes the interrupt while these cells still run
+                signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)  # emulates Ctrl-C reaching the main thread
+            # the cells wait for the cancel, not for time (#874)
+            assert cancelled.wait(30)
         try:
             return real(ctx, task, arm, rep, *args, **kwargs)
         finally:
             ended.release()
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
+    monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "shutdown", shutdown)
     old = signal.signal(signal.SIGINT, signal.default_int_handler)  # a shell may have left SIGINT ignored
     try:
         with pytest.raises(KeyboardInterrupt):
-            _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
+            _run(setup, "--task", "fix_add", "--reps", "5", "--concurrency", "2")
     finally:
         signal.signal(signal.SIGINT, old)
     batch = setup["out"] / "b1"
@@ -123,28 +131,48 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
 def test_an_interrupt_during_submission_starts_no_queued_cell(setup, monkeypatch):
     # Ctrl-C lands in the main thread while pool.map is still submitting: the queued cells must not start.
     started = []
+    waited = []
     calls = []
+    ended = threading.Semaphore(0)
+    entered = threading.Semaphore(0)
+    cancelled = threading.Event()
     real = repo_runner.run_cell
     real_submit = repo_runner.ThreadPoolExecutor.submit
+    real_shutdown = repo_runner.ThreadPoolExecutor.shutdown
 
     def submit(self, fn, *a, **k):
         calls.append(1)
         if len(calls) == 4:
-            time.sleep(0.2)
+            # both workers are inside run_cell before the interrupt, so none is cancelled while still queued
+            assert all(entered.acquire(timeout=30) for _ in range(2))
             raise KeyboardInterrupt
         return real_submit(self, fn, *a, **k)
 
+    def shutdown(self, wait=True, *, cancel_futures=False):
+        real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+        if cancel_futures:
+            cancelled.set()
+
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
         started.append(rep)
-        time.sleep(0.5)  # both workers busy, cell 3 queued
-        return real(ctx, task, arm, rep, *args, **kwargs)
+        entered.release()
+        try:
+            # both workers stay busy until the queue is cancelled, not for time (#918); a failed assert in a worker
+            # is only a cell error, so the main thread checks the waits too
+            waited.append(cancelled.wait(30))
+            assert waited[-1]
+            return real(ctx, task, arm, rep, *args, **kwargs)
+        finally:
+            ended.release()
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
     monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "submit", submit)
+    monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "shutdown", shutdown)
     with pytest.raises(KeyboardInterrupt):
-        _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
-    time.sleep(1)
+        _run(setup, "--task", "fix_add", "--reps", "5", "--concurrency", "2")
+    assert all(ended.acquire(timeout=30) for _ in range(2))  # running cells finish, maybe after run_batch raised
     assert sorted(started) == [1, 2]
+    assert waited == [True, True]  # both running cells were released by the cancel
 
 
 def test_a_force_run_stopped_part_way_does_not_pool_two_executions(setup, monkeypatch, capsys):
@@ -259,6 +287,7 @@ def test_compare_with_a_model_refuses_only_a_mixed_row_of_that_model(setup):
 
 _CTRL_C_DRIVER = """
 import os, signal, sys, threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
@@ -272,11 +301,29 @@ import dokimi.repos.container as container
 container.DockerRunner = lambda *a, **k: fake
 os.environ["FAKE_ACTION"] = "fix"
 both, real = threading.Barrier(2), repo_runner.run_cell
+cancelled, real_shutdown = threading.Event(), ThreadPoolExecutor.shutdown
+def shutdown(self, wait=True, *, cancel_futures=False):
+    real_shutdown(self, wait=wait, cancel_futures=cancel_futures)
+    if cancel_futures:
+        cancelled.set()
+ThreadPoolExecutor.shutdown = shutdown
+busy, real_result = threading.Event(), Future.result
+def result(self, timeout=None):
+    if threading.current_thread() is threading.main_thread():  # _run_cells is about to wait on its cells
+        if not busy.wait(30):
+            os._exit(3)
+        # raised in the main thread itself: a SIGINT sent from a worker thread just before the main thread blocks
+        # in the wait stays pending until a cell ends (the handler runs on its next bytecode, not in the lock wait)
+        signal.raise_signal(signal.SIGINT)
+    return real_result(self, timeout)
+Future.result = result
 def run_cell(ctx, task, arm, rep, *args, **kwargs):
     if rep <= 2:
         both.wait(30)
-        if rep == 1:
-            os.kill(os.getpid(), signal.SIGINT)
+        busy.set()
+        # both workers stay busy until the queue is cancelled, so this checks the cancel, not an early start (#874)
+        if not cancelled.wait(30):
+            os._exit(4)
     return real(ctx, task, arm, rep, *args, **kwargs)
 repo_runner.run_cell = run_cell
 signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -284,7 +331,7 @@ out = tmp / "runs"
 sys.argv = ["dokimi", "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
             str(profile), "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out-dir", str(out),
             "--cache-root", str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw",
-            "--task", "fix_add", "--reps", "5", "--jobs", "2"]
+            "--task", "fix_add", "--reps", "5", "--concurrency", "2"]
 cli.main()
 """
 

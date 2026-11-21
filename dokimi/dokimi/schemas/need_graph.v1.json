@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/need_graph.v1.json",
   "title": "Need graph v1",
-  "description": "What a user of a subject needs, built from the subject's name and description only (dokimi.novelty.needs), frozen in a file so that `eval coverage` reads it instead of regenerating it. The graph `dokimi.novelty.needs.save_graph` writes is valid unstamped. `confirmed_by` says whether a person confirmed a node (`user`) or it is a model's guess (`hypothesis`, the default).",
+  "description": "What a user of a subject needs, built from the subject's name and description only (dokimi.novelty.needs), frozen in a file so that `eval coverage` reads it instead of regenerating it. `confirmed_by` says whether a person confirmed a node (`user`) or it is a model's guess (`hypothesis`, the default).",
   "type": "object",
   "required": ["artifact_name", "nodes"],
   "properties": {

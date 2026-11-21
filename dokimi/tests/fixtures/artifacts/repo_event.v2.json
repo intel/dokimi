@@ -1,0 +1,9 @@
+{
+  "kind": "command",
+  "output": "ERROR: icpx is not found",
+  "output_truncated": false,
+  "rc": 1,
+  "t": 31.0,
+  "text": "bazel test :x",
+  "v": 2
+}

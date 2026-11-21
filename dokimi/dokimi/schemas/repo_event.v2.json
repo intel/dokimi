@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/repo_event.v2.json",
+  "title": "One line of events.jsonl, format version 2",
+  "description": "A line of a repository run's normalized trace (docs/events-format.md). One JSON object per line; this schema validates one line. Within version 2 a kind and a field are only ever added, so a reader must ignore a kind it does not know (this schema allows any kind) and a field it does not know. A line with no `v` is a version 1 line, written before the version field existed; version 1 lines validate against repo_event.v1.json.",
+  "type": "object",
+  "properties": {
+    "v": {"const": 2, "description": "The format version of this line. Absent on a line written before the field existed."},
+    "kind": {"type": "string", "description": "What the event is. Readers ignore a kind they do not know."},
+    "t": {"type": ["number", "null"], "description": "Seconds since the first timestamped trace line; null when the harness has no timestamps."},
+    "agent": {"type": "string", "description": "The id of the parent's Agent/Task call that started this event; absent on the parent's events."},
+    "denied": {"type": "boolean", "description": "The call was refused and never ran."},
+    "target": {"type": "string", "description": "A probe event's target: what the command asked the host for (cpu, gpu, os, memory, packages, env, network)."},
+    "pattern": {"type": "string", "description": "A probe event's configured pattern that the command matched."}
+  },
+  "required": ["kind", "t"],
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "command"}}, "required": ["kind"]},
+      "then": {
+        "required": ["text", "rc"],
+        "properties": {
+          "text": {"type": "string"},
+          "rc": {"type": ["integer", "null"]},
+          "output": {"type": "string", "description": "The command's output as the harness returned it, clipped to 8 KB."},
+          "output_truncated": {"type": "boolean"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "read"}}, "required": ["kind"]},
+      "then": {
+        "properties": {"path": {"type": "string"}, "rc": {"type": ["integer", "null"]}}
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "edit"}}, "required": ["kind"]},
+      "then": {
+        "required": ["path"],
+        "properties": {"path": {"type": "string"}, "rc": {"type": ["integer", "null"]}, "deleted": {"type": "boolean"}}
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "tool"}}, "required": ["kind"]},
+      "then": {
+        "required": ["name"],
+        "properties": {"name": {"type": "string"}, "skill": {"type": "string"}}
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "turn"}}, "required": ["kind"]},
+      "then": {
+        "required": ["turn", "input", "output", "cache_read", "cache_write", "prompt_tokens"],
+        "properties": {
+          "turn": {"type": "integer", "minimum": 0},
+          "input": {"type": ["integer", "null"]},
+          "output": {"type": ["integer", "null"]},
+          "cache_read": {"type": ["integer", "null"]},
+          "cache_write": {"type": ["integer", "null"]},
+          "prompt_tokens": {"type": ["integer", "null"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "compaction"}}, "required": ["kind"]},
+      "then": {
+        "required": ["turn"],
+        "properties": {"turn": {"type": ["integer", "null"], "minimum": 0}}
+      }
+    }
+  ]
+}

@@ -44,6 +44,7 @@ CONTENTS = {
     "subject_scorecard.v2": {"cells": 0},
     "skill_evidence.v1": {"results": 2, "warnings": 0},
     "cli_routes.v1": {"roots": 2, "leaves": 2, "tombstones": 1},
+    "report_summary.v1": {"checks": 1, "subjects": 1},
     "repo_ledger.v1": {"rules": 2},
     "headroom.v1": {"items": 2, "inputs": 1},
     "redteam.v1": {"violations": 2, "questions": 2},
@@ -68,6 +69,10 @@ CONTENTS = {
     "question_panel.v1": {"questions": 2},
     "question_quality.v1": {"questions": 2, "trivial_questions": 1, "recommendations": 1},
     "report_qa.v1": {"records": 1},
+    "docling_sources.v1": {"files": 2},
+    "docs_run.v1": {"docs": 2},
+    "dashboard.v1": {"products": 1},
+    "baseline_manifest.v1": {"baselines": 2},
 }
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
@@ -539,6 +544,48 @@ def test_an_artifact_file_of_the_run_ids_name_is_shown_instead(monkeypatch, caps
     save_artifact("eval", _fixture("eval.v1"), runs / "nightly-1")
 
     assert _show(monkeypatch, capsys, "nightly-1").out.startswith("path:       nightly-1\n")
+
+
+@pytest.mark.parametrize("body", ["notes", "", "{}", '{"schema_version": "nope.v9"}'])
+def test_a_file_of_the_run_ids_name_that_is_not_an_artifact_does_not_shadow_the_run(
+        monkeypatch, capsys, runs, body):
+    """#972: docs/runs.md says only a file ``runs show`` can open wins over a run_id."""
+    (runs / "nightly-1").write_text(body, encoding="utf-8")
+
+    assert _show(monkeypatch, capsys, "nightly-1").out.startswith("run_id:     nightly-1\n")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are POSIX")
+def test_a_fifo_of_the_run_ids_name_keeps_its_error_instead_of_the_run(monkeypatch, capsys, runs):
+    """A FIFO is not opened, so its error is printed rather than the run silently listed."""
+    os.mkfifo(runs / "nightly-1")
+
+    assert _fails(monkeypatch, capsys, "nightly-1") == "Error: nightly-1 is not a regular file\n"
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root reads every file")
+def test_an_unreadable_file_of_the_run_ids_name_keeps_its_error_instead_of_the_run(
+        monkeypatch, capsys, runs):
+    """It may be the run's artifact, so the reason is printed rather than the run listed."""
+    (runs / "nightly-1").write_text("{}", encoding="utf-8")
+    (runs / "nightly-1").chmod(0)
+    try:
+        err = _fails(monkeypatch, capsys, "nightly-1")
+    finally:
+        (runs / "nightly-1").chmod(0o644)
+
+    assert err == "Error: nightly-1: cannot read: Permission denied\n"
+
+
+def test_with_no_such_run_a_file_that_is_not_an_artifact_keeps_its_error(monkeypatch, capsys,
+                                                                         runs):
+    """#972: docs/runs.md: when no artifact has the run_id, a file under the root that is not an
+    artifact (a text file) gets the error it got before."""
+    (runs / "nightly-5").write_text("notes", encoding="utf-8")
+
+    assert _fails(monkeypatch, capsys, "nightly-5") == (
+        "Error: nightly-5 is not an artifact: it does not open with a schema_version\n")
 
 
 def test_with_no_such_run_a_directory_or_an_outside_path_keeps_its_error(monkeypatch, capsys,

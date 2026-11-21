@@ -6,6 +6,9 @@ depends_on:
   - dokimi/dokimi/eval/reference_run.py
   - dokimi/dokimi/commands/answer_formats.py
   - dokimi/dokimi/llm_cli.py
+  - dokimi/dokimi/records.py
+  - dokimi/dokimi/report/single_condition_report.py
+  - dokimi/dokimi/eval/diagnoser.py
 ---
 <!--
 Copyright (C) 2026 Intel Corporation
@@ -54,9 +57,9 @@ context-arm line, because there is no context arm.
 `mean_score`. A question with no `grading` block is counted in
 `run_metadata.ungraded_questions` and not in the summary. When the `--answers` file is an
 `arms.v1` file (route B), the artifact stays `arms.v1` and the same per-condition tally sits
-under `reference_scoring.summary`. Drop `--no-judge` to let the judge grade the checks that
-need one (`judge` checks); with `--no-judge` those are left unscored and the pass rate covers only the checks that
-ran: read `judge_unscored` before you compare it with a judged run.
+under `reference_scoring.summary`. Drop `--no-judge` to let the judge grade the checks that need one
+(`judge` checks); with `--no-judge` those are left unscored and the pass rate covers only the checks
+that ran: read `judge_unscored` before you compare it with a judged run.
 
 For a judge-only score with no checks, use `eval score pointwise --product demo --answers
 knowledge/demo-answers.json --output knowledge/demo-judged.json`. Its per-question rows have
@@ -96,12 +99,59 @@ flag before it starts. An agentic arm (`agent:`, `skill-agent:`, `skill-catalog:
 refused on it too, because the CLI runs one prompt with no tools. A knowledge run has
 neither, so that refusal does not affect this page.
 
-**Codex and Copilot are not answering routes.** Only `claude-cli` runs as a provider.
-`codex`, `claude-code`, `copilot`, `command:*`, `terminal-bench:*`, `benchflow*` and `docker-*` name
-agent-CLI harnesses (`tasks run`, `repo run`; see [coding-harnesses.md](coding-harnesses.md)): they run an agent
-in a sandbox against executable tasks. `arms run --harness codex` is refused for that reason,
-because the label would stamp answers that the model behind `--provider` produced. Use
-`--provider claude-cli` for the Claude Code CLI, or leave `--harness` out.
+`--provider copilot-cli` answers through the GitHub Copilot CLI the same way, on both routes.
+`--provider codex-cli` answers through the OpenAI Codex CLI on a comparison, but not on a
+knowledge run: Codex has no switch that turns its own tools off, so `--doc-source none` and
+`arms run --arms baseline` refuse it before any call (exit 2). Use `copilot-cli` or `claude-cli`
+for a knowledge run. Each CLI must be installed and signed in (`codex login`, or Copilot's own
+login). `python cli.py backends` lists what dokimi can see, with no model call:
+
+```bash
+python cli.py answers generate --product demo --questions questions/demo.json \
+  --doc-source none --provider copilot-cli --model claude-sonnet-4.5 --output knowledge/demo-copilot.json
+```
+
+The model name is passed to the CLI as given; dokimi does not check it against the CLI's
+catalogue. Both are answering-only: no conversation. `copilot-cli` runs with no tools
+(`--available-tools __none__`). `codex-cli` has no switch for its tools, so it is refused on a knowledge
+run. Pass `--judge-model` and `--judge-provider` for an API judge, as the judge runs on an API
+provider. See
+[subscription-backends.md](subscription-backends.md) for the login and the per-call costs.
+
+Isolation, per call, is the same idea as for `claude-cli`: a fixed empty work directory under
+dokimi's cache, outside any repository (`GIT_CEILING_DIRECTORIES` stops the search for one), and
+no user instructions, rules, or project docs read from it.
+
+- **`codex-cli`** runs `codex exec --json --ephemeral --ignore-user-config --ignore-rules
+  --skip-git-repo-check --sandbox read-only` with the prompt on stdin. `--sandbox read-only`
+  limits writes, not file reads or shell commands, so this is not a no-tools route. The system text goes
+  by a temporary file as the model instructions, and the project doc size is set to 0, so no
+  `AGENTS.md` is read. Its API key and base-URL variables are removed from the environment, so
+  the login is what answers; `CODEX_HOME` is kept. Token counts come from the event stream.
+  Cost is not computed: a login is not billed per call.
+- **`copilot-cli`** runs `copilot -p <prompt> -s` with no custom instructions, no built-in
+  MCP servers, no auto-update, no questions to the user, and no tools
+  (`--available-tools __none__`). It has no system-prompt flag, so the system text is prepended to
+  the prompt, and the prompt is one command-line argument: a prompt over 100,000 bytes is
+  refused before the call. GitHub token and BYOK provider variables are removed from the
+  environment. The text output carries no token counts, so the record shows none and no cost.
+  Its `detect` can say the CLI is installed but not whether the login works: a call that fails
+  for want of a login is the first sign.
+
+Errors are classed the same way on all three CLIs. A usage limit or a missing login stops the
+run, since every later call would fail too; so does a command line Codex or Copilot rejects (a
+flag a newer release removed). A rate limit, overload or timeout is retried; a
+reply with no text is not retried. The timeout is per call.
+
+Codex and Copilot take no temperature or seed, so `arms run` refuses either flag on them, as it
+does for `claude-cli`. An agentic arm is refused on all three, for the same reason.
+
+**Task harnesses are not answering routes.** `codex`, `claude-code`, `copilot`,
+`command:*`, `terminal-bench:*`, `benchflow*` and `docker-*` name agent-CLI harnesses (`tasks run`,
+`repo run`; see [coding-harnesses.md](coding-harnesses.md)): they run an agent in a sandbox
+against executable tasks. `arms run --harness codex` is refused for that reason, because the
+label would stamp answers that the model behind `--provider` produced. Use `--provider
+codex-cli` (or `claude-cli`, `copilot-cli`) to answer through a CLI, or leave `--harness` out.
 
 ## Questions with grading checks
 
@@ -124,9 +174,12 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
 - Compare a knowledge run with another knowledge run, not with a comparison's delta:
   `summary.per_arm` (judged arms) holds each condition's own average; `run_metadata.summary`
   (eval) and `reference_scoring.summary` (arms graded by reference) hold its pass rate.
-- `report eval` is for paired runs. On a knowledge run every question is unpaired, so its
-  summary says `No complete pairs` and withholds the baseline mean (it shows `—`). Read the per-condition
-  averages above instead.
+- `report eval` on a knowledge run writes a one-condition page: one row for
+  `without_docs (knowledge)` (questions, scored, mean, lowest, highest), or for the arm's
+  name on a one-arm `arms.v1` file (route B), the same row by
+  difficulty, the lowest-scoring questions, and every question with its score. A paired run
+  keeps the paired report. On a binary knowledge run each question's diagnosis is
+  `⚪ One condition (no delta)`, not insufficient data, and `eval score pointwise` gives the per-condition score the same way.
 - Keep the answerer fixed across the knowledge run and the with-docs run that follows:
   the same `--provider`, `--model`, questions file and judge. A knowledge run made with
   `arms run --arms baseline` sends the same prompt as the `baseline` arm of the comparison,

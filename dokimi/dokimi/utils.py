@@ -125,6 +125,14 @@ def digest_text(text: str) -> str:
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
+def key_bytes(text: str) -> bytes:
+    """Bytes a cache key hashes: ``surrogateescape``; NUL-led text gets ``\\0e``; a surrogate it cannot map (U+D800..U+DC7F, U+DD00..U+DFFF) tags the text ``\\0sp`` and uses ``surrogatepass``."""
+    try:
+        return b"\0e" * text.startswith("\0") + text.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError:  # a JSON `\ud800` has no escape
+        return b"\0sp" + text.encode("utf-8", "surrogatepass")
+
+
 def _plain_path(text: str) -> str:
     r"""A Windows absolute path without its extended-length prefix. os.readlink gives an absolute link target as
     \\?\C:\... (or \\?\UNC\...), while the anchors are plain: the two read as different drives.
@@ -577,7 +585,7 @@ _REGION_PROFILES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "
 _ROUTES = frozenset({
     "openai", "openai-codex", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
     "bedrock", "converse", "vertex_ai", "azure", "azure_ai", "models", "groq", "ollama", "mistral", "deepseek",
-    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface", "claude-cli",
+    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface", "claude-cli", "codex-cli", "copilot-cli",
 })
 
 
@@ -768,25 +776,25 @@ def refuse_device(path: str | os.PathLike[str], flag: str | None = None) -> None
 
 
 def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) -> Any:
-    """The parsed JSON at ``path``, or :class:`InputError` naming the file and the reason.
+    """The parsed JSON at ``path``: :func:`read_json_input_bytes` without the bytes."""
+    return read_json_input_bytes(path, flag=flag)[1]
 
-    Covers a missing or unreadable file, a device (:func:`refuse_device`), bytes that are not
-    UTF-8, text that is not JSON and JSON nested too deeply to parse. With ``flag`` (the option
-    the file was given to) the message is that option's own, ``<flag> <path>: <reason>``.
-    An empty path is refused first, quoted (``--answers "": no file given``): ``Path("")`` is the
-    current directory, which would read as ``Is a directory`` with nothing after the flag.
-    """
+
+def read_json_input_bytes(path: str | os.PathLike[str], *, flag: str | None = None) -> tuple[bytes, Any]:
+    """The bytes at ``path``, read once, and the JSON they hold, or :class:`InputError` naming the file and why:
+    missing or unreadable, a device (:func:`refuse_device`), not UTF-8, not JSON or nested too deeply to parse.
+    With ``flag`` (the option the file was given to) the message is ``<flag> <path>: <reason>``. An empty path is
+    refused first, quoted (``--answers "": no file given``), as ``Path("")`` would read the current directory."""
     if os.fspath(path) == "":
         raise InputError(f'{flag} "": no file given' if flag else 'cannot read "": no file given')
     refuse_device(path, flag)
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except OSError as exc:
-        reason = exc.strerror or exc
-        raise InputError(f"{flag} {path}: {reason}" if flag else f"cannot read {path}: {reason}") from exc
+        raw = Path(path).read_bytes()
+        return raw, json.loads(raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
         raise InputError(f"{flag} {path}: {exc}" if flag else f"{path} is not UTF-8 text: {exc}") from exc
     except (json.JSONDecodeError, RecursionError) as exc:  # deep nesting is named as bad JSON, as on main
         raise InputError(f"{flag} {path}: {exc}" if flag else f"{path} is not valid JSON: {exc}") from exc
-    except ValueError as exc:  # e.g. "embedded null byte" in the path: pathlib raises a bare ValueError
-        raise InputError(f"{flag} {path}: {exc}" if flag else f"cannot read {path}: {exc}") from exc
+    except (OSError, ValueError) as exc:  # ValueError: e.g. "embedded null byte" in the path, from pathlib
+        reason = getattr(exc, "strerror", None) or exc
+        raise InputError(f"{flag} {path}: {reason}" if flag else f"cannot read {path}: {reason}") from exc

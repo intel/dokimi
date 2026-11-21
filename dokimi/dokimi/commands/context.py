@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import argparse
 import glob
-import math
 import os
 import sys
 from pathlib import Path
 from typing import NoReturn
 
+from dokimi.cli_types import non_negative_int, unit_interval
 from dokimi.utils import InputError, refuse_device
 
 
@@ -38,12 +38,14 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
             row["compaction_events"] = trace.compactions
         rows.append(row)
 
+    if not rows:  # nothing read is a bad input (exit 2), not a partial result
+        raise InputError("no trace could be read (see stderr)")
     if args.json:  # always a list, one entry per trace that read
-        status = "failed" if not rows else "partial" if failed or skipped else "complete"  # nothing read: failed
+        status = "partial" if failed or skipped else "complete"
         reason = ("one or more traces could not be read (see stderr)" if failed
                   else "lines of a trace were skipped (see stderr)" if skipped else None)
         cli_output.emit_leaf("trace inspect", rows, status=status, reason=reason)
-    elif rows:
+    else:
         _print_text(rows, args)
     if failed:
         sys.exit(1)
@@ -76,7 +78,9 @@ def _table(rows: list[dict], window: int | None) -> str:
             if value is None:
                 cells.append("–")
             elif key == "peak_fill":
-                cells.append(f"{value:.0%}")
+                # from the token counts: `value` is already rounded to 4 places, and rounding it
+                # again would show 198,999 of 200,000 as 100%
+                cells.append(f"{row['peak_prompt_tokens'] / window:.0%}")
             else:
                 cells.append(f"{value:,}")
         trace = row["trace"].replace("|", "\\|")  # a `|` in a file name would split the cell
@@ -107,7 +111,9 @@ def _refuse(message: str) -> NoReturn:
 
 
 def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list], bool]:
-    """The runs of each arm, and whether some trace could not be read (reported on stderr)."""
+    """The runs of each arm, and whether some trace could not be read (reported on stderr).
+
+    Nothing read at all is a bad input (exit 2), not a partial result."""
     from dokimi.context import TraceError
     from dokimi.context.consistency import read_run
 
@@ -121,6 +127,8 @@ def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list],
             except TraceError as exc:
                 print(f"✗ {exc}", file=sys.stderr)
                 failed = True
+    if not any(loaded.values()):
+        raise InputError("no trace could be read (see stderr)")
     return loaded, failed
 
 
@@ -156,7 +164,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         report[label]["shell"] = args.shell  # the grain the step counts were taken at
 
     if args.json:
-        status = "failed" if not any(loaded.values()) else "partial" if failed else "complete"
+        status = "partial" if failed else "complete"
         cli_output.emit_leaf("trace consistency", report, status=status,
                              reason="one or more traces could not be read (see stderr)" if failed else None)
     else:
@@ -177,7 +185,8 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     except OSError as exc:  # missing, a directory, unreadable: an input refusal, exit 2
         _refuse(f"guidance {guidance}: {exc.strerror or exc}")
 
-    sessions, failed = _read_sessions(args.sessions)
+    unreadable: list = []
+    sessions, failed = _read_sessions(args.sessions, unreadable)
     if not sessions:
         _refuse("no session could be read")
     report = build_report(guidance.name, text, sessions, window=args.window, min_sessions=args.min_sessions,
@@ -185,7 +194,7 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     if not report["claims"]:
         print(f"warning: no rules found in {guidance}", file=sys.stderr)
     if args.json:
-        skipped = any(s.errors for s in sessions)
+        skipped = any(s.errors for s in [*sessions, *unreadable])  # #938: a dropped session's records count
         reason = ("one or more sessions could not be read (see stderr)" if failed
                   else "records of a session were skipped (see stderr)" if skipped else None)
         cli_output.emit_leaf("trace prefilter", report, status="partial" if reason else "complete", reason=reason)
@@ -195,12 +204,14 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _read_sessions(names: list[str]) -> tuple[list, bool]:
+def _read_sessions(names: list[str], dropped: list | None = None) -> tuple[list, bool]:
     """Every readable session of ``names``: JSONL logs or Goose stores; a quoted glob expands.
 
     A file is read once however often it is named (a repeat, a glob that overlaps, a symlink to it). A Claude Code
     session is read with its subagents' transcripts; such a transcript named on its own is skipped with a warning.
-    Logs that share a record (a resumed or forked session) are one session.
+    Logs that share a record (a resumed or forked session) are one session. Given ``dropped``, the sessions left out
+    (Goose sessions of unreadable messages only, subagent transcripts named alone) are appended there, so their
+    errors can still set the status.
     """
     from dokimi.context.goose_log import is_goose_store, read_goose_store
     from dokimi.context.session_log import SessionError, merge_repeats, read_session_tree, subagent_files
@@ -211,7 +222,7 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
     for path in paths:
         if os.path.realpath(path) in folded:  # read with its session
             continue
-        unreadable: list = []  # Goose sessions of unreadable messages only: not counted, still reported
+        unreadable: list = []  # sessions left out (see above): not counted, still reported
         try:
             source = Path(path)
             refuse_device(source)  # before is_goose_store's header read, which blocks on an idle terminal
@@ -221,18 +232,29 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
             print(f"✗ {exc}", file=sys.stderr)
             failed = True
             sessions = []
-        for session in [*sessions, *unreadable]:
-            for problem in session.errors:
-                print(f"warning: {session.name}: {problem}", file=sys.stderr)
+        _warn_skipped_records([*sessions, *unreadable])
         for session in sessions:
             if session.sidechain_only:
                 print(f"warning: {path}: a subagent transcript without its session log; skipped", file=sys.stderr)
+                unreadable.append(session)
             else:
                 loaded.append(session)
+        if dropped is not None:
+            dropped.extend(unreadable)
     loaded, notes = merge_repeats(loaded)
     for note in notes:
         print(f"warning: {note}", file=sys.stderr)
     return loaded, failed
+
+
+def _warn_skipped_records(sessions: list) -> None:
+    """One stderr line per skipped record of ``sessions``, and a count of those past the listing limit."""
+    for session in sessions:
+        for problem in session.errors:
+            print(f"warning: {session.name}: {problem}", file=sys.stderr)
+        if session.errors_dropped:
+            noun = "record" if session.errors_dropped == 1 else "records"
+            print(f"warning: {session.name}: {session.errors_dropped} more skipped {noun} not listed", file=sys.stderr)
 
 
 def _session_paths(names: list[str]) -> list[str]:
@@ -249,20 +271,6 @@ def _session_paths(names: list[str]) -> list[str]:
             seen.add(real)
             paths.append(path)
     return paths
-
-
-def _non_negative_int(value: str) -> int:
-    number = int(value)
-    if number < 0:
-        raise argparse.ArgumentTypeError(f"must be 0 or more, not {value}")
-    return number
-
-
-def _unit_rate(value: str) -> float:
-    rate = float(value)
-    if not math.isfinite(rate) or not 0 <= rate <= 1:
-        raise argparse.ArgumentTypeError(f"must be a number from 0 to 1, not {value}")
-    return rate
 
 
 def _unique_traces(label: str, names: list[str]) -> list[str]:
@@ -369,9 +377,9 @@ def register(sub, positive_int) -> None:
                        "correction (default 10)")
     pre_p.add_argument("--min-sessions", type=positive_int, default=5,
                        help="Fewer sessions than this: no candidates are ranked (default 5)")
-    pre_p.add_argument("--rare-max", type=_non_negative_int, default=3,
+    pre_p.add_argument("--rare-max", type=non_negative_int, default=3,
                        help="A rule triggered in at most this many sessions is rare: listed, not ranked (default 3)")
-    pre_p.add_argument("--in-use-rate", type=_unit_rate, default=0.2,
+    pre_p.add_argument("--in-use-rate", type=unit_interval, default=0.2,
                        help="A rule triggered in at least this share of sessions is in use, not a candidate (default 0.2)")
     pre_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
     pre_p.set_defaults(func=cmd_context_prefilter, emits_cli_output=True, cli_kind="trace prefilter")

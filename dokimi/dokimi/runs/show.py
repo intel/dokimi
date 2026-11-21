@@ -164,20 +164,26 @@ class ShownRun:
 def names_a_run(root: Path, address: str) -> bool:
     """Whether ``address`` may mean a run: a run id that names no file ``runs show`` could open.
 
-    It looks at the path :func:`resolve` would open (:func:`_pick`). A file there, inside the
-    root, is the artifact, and so is a name that cannot be looked up, so the path check names
-    the reason. A directory (a run's own, say), a path outside the root and a missing one do
-    not stop it.
+    It looks at the path :func:`resolve` would open (:func:`_pick`). An artifact file there,
+    inside the root, is shown instead of the run; so is a name that cannot be looked up or read,
+    and a file that is not a regular one, so the path check names the reason. A directory (a
+    run's own, say), a path outside the root, a missing one and a regular file that is not an
+    artifact of a registered kind (a text file of that name) do not stop it.
     """
     if not is_run_id(address):
         return False
     try:
         path = _pick(root, address)
         found = lookup(path)
-    except OSError:  # no permission to look: the path check reports it
+        if not found or stat.S_ISDIR(found.st_mode):
+            return True
+        if not inside(os.path.realpath(root), os.path.realpath(path)):
+            return True
+        if not stat.S_ISREG(found.st_mode):  # a FIFO is not opened: the path check says why
+            return False
+        return head_version(path) not in VERSION_KINDS
+    except OSError:  # no permission to look or read: the path check reports it
         return False
-    return not (found and not stat.S_ISDIR(found.st_mode)
-                and inside(os.path.realpath(root), os.path.realpath(path)))
 
 
 def show_target(root: Path, address: str) -> Shown | ShownRun:
