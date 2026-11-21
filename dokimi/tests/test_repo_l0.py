@@ -139,8 +139,8 @@ def test_generic_checks_and_adapters(toy):
         ("path", "<out>/a.h"): "ok",  # a.h exists below some directory
         ("path", "{run_dir}/x.json"): "unresolved",  # the root is not in the tree
         ("identifier", "ToyWidget"): "ok",
-        ("identifier", "GhostWidget"): "fail",
-        ("identifier", "OnlyInDocs"): "fail",  # prose is not code
+        ("identifier", "GhostWidget"): "unresolved",  # #851: a bare name may live outside the tree
+        ("identifier", "OnlyInDocs"): "unresolved",  # prose is not code
         ("bazel_label", "//lib:core"): "ok",
         ("bazel_label", "//lib:nope"): "fail",
         ("bazel_label", "//pkg2:gen_extra"): "unresolved",  # pkg2/BUILD calls a macro

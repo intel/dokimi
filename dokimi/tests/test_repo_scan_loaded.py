@@ -266,3 +266,15 @@ def test_a_rule_linked_to_claude_md_is_scanned_without_its_frontmatter(tmp_path,
     (root / ".claude/rules").mkdir(parents=True)
     (root / ".claude/rules/x.md").symlink_to("../../private/CLAUDE.md")
     assert (".claude/rules/x.md", "src/gone_fm_link.py") in _fails(_scan(capsys, str(root)))
+
+
+def test_a_bare_identifier_missing_from_the_tree_is_unresolved_and_a_missing_path_still_fails(tmp_path, capsys):
+    """#851: a bare name may be a builtin or a sibling package; only a path or command is proof of drift."""
+    root = _write(tmp_path / "r", {
+        "AGENTS.md": "Raise `ImportError` when `mkl_random` is absent.\nRun `scripts/publish.sh`.\n",
+        "scripts/build.sh": "true\n",
+    })
+    status = {c["claim"]: c["status"] for c in _scan(capsys, str(root))["claims"]}
+    assert status["scripts/publish.sh"] == "fail"
+    assert status["ImportError"] == "unresolved"
+    assert status["mkl_random"] == "unresolved"

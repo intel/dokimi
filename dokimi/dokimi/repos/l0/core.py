@@ -571,11 +571,9 @@ class Scan:
             tok = span.split("::")[-1]
             if tok in self.words():
                 self.add(file, line, "identifier", span, "ok", f"`{tok}` found in tracked non-doc files", ctx)
-            elif _ALLCAPS.match(span):  # often an environment variable read by a tool, not by this code
-                self.add(file, line, "identifier", span, "unresolved",
-                         f"`{tok}` not in tracked non-doc files; it may be read outside this tree", ctx)
-            else:
-                self.add(file, line, "identifier", span, "fail", f"`{tok}` not found in tracked non-doc files", ctx)
+            else:  # #851: a bare name may be an external API, sibling package or builtin; not proof of drift
+                why = "it may be read outside this tree" if _ALLCAPS.match(span) else "it may name something outside this tree"
+                self.add(file, line, "identifier", span, "unresolved", f"`{tok}` not in tracked non-doc files; {why}", ctx)
 
     def check_command(self, file: str, line: int, text: str, ctx: str) -> None:
         from . import adapters
