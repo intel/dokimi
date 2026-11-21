@@ -25,7 +25,7 @@ class _FakePipeline:
         return {"steps": {}}
 
 
-@pytest.mark.parametrize("extra, runs", [([], 1), (["--multi-run", "2"], 2)], ids=["single-run", "multi-run"])
+@pytest.mark.parametrize("extra, runs", [([], 1), (["--reps", "2"], 2)], ids=["single-run", "multi-run"])
 def test_benchmark_run_hands_the_judge_flags_to_the_pipeline(monkeypatch, tmp_path, extra, runs):
     """The real handler runs; only the pipeline is faked. Both flags reach it in every mode."""
     from dokimi.commands import benchmark

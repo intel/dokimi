@@ -328,7 +328,7 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
 def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     """Every skill in the field is the gold in turn: confusion matrix and attractors."""
     from dokimi.novelty import cost
-    from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
+    from dokimi.novelty.all_vs_all import all_vs_all, check_acceptable, load_queries_with_acceptable
     from dokimi.novelty.client import roll_up_cost
     from dokimi.novelty.routing import tokenize
 
@@ -339,12 +339,13 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     unloaded: dict[str, str] = {}
     field = load_all_vs_all_field(args, left_out, dropped, conflicts, unloaded)
     try:
-        queries_by_skill = load_queries_by_skill(args.queries_by_skill)
+        queries_by_skill, acceptable = load_queries_with_acceptable(args.queries_by_skill)
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read the queries: {exc}") from exc
     check_all_vs_all_field(args, field, dropped, conflicts)
     queries_by_skill, dropped_queries = drop_queries_left_out(queries_by_skill, field, dropped,
                                                               unloaded)
+    check_acceptable([c.name for c in field], queries_by_skill, acceptable)
     if args.estimate_only:
         print_all_vs_all_estimate(args, field, queries_by_skill)
         return
@@ -359,7 +360,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
     result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed,
-                        repeats=args.repeats)
+                        repeats=args.repeats, acceptable=acceptable)
     without = [c.name for c in field if c.name not in queries_by_skill]
     if without:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
@@ -480,7 +481,7 @@ def cmd_skill_routing(args: argparse.Namespace) -> None:
             done = cmd_routing(args)
         except RoutingStopped as stop:  # the result is saved: its document is printed, then the exit stands
             done, stopped = stop.result, stop
-    if done is None:  # --estimate-only: an estimate, nothing measured
+    if done is None:  # --dry-run: an estimate, nothing measured
         cli_output.emit_leaf("skill routing", None, reason="estimate only, nothing measured")
         return
     payload, out, skill = done

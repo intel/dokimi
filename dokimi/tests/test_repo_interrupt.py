@@ -236,3 +236,72 @@ def test_a_ctrl_c_while_a_grade_runs_records_the_cell_and_the_resume_does_not_re
     agents.clear()
     _run(root, runs, DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--task", "fix_add")
     assert len(agents) == 1 and len(list(runs.rglob("result.json"))) == 2
+
+
+def test_a_cell_that_starts_after_the_halt_drops_before_reserving_preparing_or_starting_an_agent(tmp_path, monkeypatch):
+    """Contract §9: Ctrl-C starts no queued cell. A worker that dequeues a cell after the halt drops it, recorded nowhere."""
+    from dokimi.repos import container as container_mod
+    from dokimi.repos import runner as runner_mod
+
+    ran, prepared = [], []
+    real_run_cells = runner_mod._run_cells
+
+    def run_cell(ctx, task, arm, rep, batch_dir, opts, **kw):
+        ran.append(rep)
+        raise AssertionError("a cell started after the halt")
+
+    def halted_run_cells(cells, one, jobs):
+        container_mod.halt_and_kill_started()  # the Ctrl-C has set the halt; the workers still hold queued cells
+        real_run_cells(cells, one, jobs)
+
+    def answer(call):
+        if call.argv[1] == "run" and PROBE in call.argv:
+            call.stdout_to.write_text(json.dumps(_probe_out()) + "\n", encoding="utf-8")
+        return process.reply()
+
+    real_prepare = runner_mod.prepare_workspace
+    monkeypatch.setattr(runner_mod, "prepare_workspace", lambda *a, **k: (prepared.append(1), real_prepare(*a, **k))[1])
+    monkeypatch.setattr(runner_mod, "run_cell", run_cell)
+    monkeypatch.setattr(runner_mod, "_run_cells", halted_run_cells)
+    root, runs = _repo(tmp_path), tmp_path / "runs"
+    try:
+        with pytest.raises(BatchInterrupted, match="not started after Ctrl-C"):
+            _run(root, runs, DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--max-usd", "5")
+    finally:
+        container_mod.clear_halt()
+    batch = runs / "b1"
+    assert ran == [] and prepared == []
+    assert not any(p.name.startswith("fix_") for p in batch.iterdir())  # no run directory for any cell
+    spend = batch / "spend.json"
+    assert not spend.exists() or json.loads(spend.read_text(encoding="utf-8"))["spent_usd"] == 0
+
+
+def test_the_interrupt_sets_the_halt_before_it_cancels_the_queued_cells(monkeypatch):
+    from dokimi.repos import container as container_mod
+    from dokimi.repos import runner as runner_mod
+
+    started = threading.Event()
+    halted_at_cancel = []
+
+    class Spy(runner_mod.ThreadPoolExecutor):
+        def submit(self, fn, /, *args, **kwargs):
+            super().submit(fn, *args, **kwargs)
+            started.wait(5)
+            raise KeyboardInterrupt
+
+        def shutdown(self, wait=True, *, cancel_futures=False):
+            if cancel_futures:
+                halted_at_cancel.append(container_mod.halted())
+            return super().shutdown(wait=wait, cancel_futures=cancel_futures)
+
+    def one(cell):
+        started.set()
+
+    monkeypatch.setattr(runner_mod, "ThreadPoolExecutor", Spy)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            runner_mod._run_cells([1], one, 1)
+    finally:
+        container_mod.clear_halt()
+    assert halted_at_cancel and halted_at_cancel[0] is True
+    assert container_mod.halted() is False  # cleared once the workers returned
