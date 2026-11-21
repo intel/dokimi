@@ -8,7 +8,8 @@ on a fast machine and fails on a busy runner: wait on the condition with ``tests
 instead. This counts, per file under ``tests/``, the calls the file's imports resolve to
 ``time.sleep`` or ``threading.Timer`` (``import time``, ``import time as t``, ``from time import
 sleep as nap``, ``from time import *``, and the same for ``threading``). Only imports are followed: a
-name assigned from them (``nap = time.sleep``) is not. A ``sleep`` in a string, such as a child's shell
+name assigned from them (``nap = time.sleep``) is not. Where branches meet (``if``/``else``, ``try``/
+``except``, ``case``), a name counts when any branch binds it to a sleep or timer. A ``sleep`` in a string, such as a child's shell
 command, is not a call. ``tests/waiting.py`` is the one file not counted.
 
 The counts are recorded in ``test_timing_baseline.json`` and are exact: a file may not go above its
@@ -29,6 +30,7 @@ import json
 import re
 import sys
 import tokenize
+from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -47,8 +49,20 @@ FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 Pos = tuple[int, int]  # (line, column) where a binding takes effect
 Span = tuple[Pos, Pos]  # the text where a binding is not yet in effect, though it stands before it
-#: name -> bindings in source order: (position, "time" / "time.sleep" / None, spans that do not see it)
-Names = dict[str, list[tuple[Pos, str | None, tuple[Span, ...]]]]
+
+
+class Arm(NamedTuple):
+    """One arm of a branching statement, with the text of every arm of it: a binding in an arm may or may
+    not have run, and one in a different arm of the same statement never ran with it."""
+
+    key: object
+    side: int
+    spans: tuple[Span, ...]
+
+
+Arms = tuple[Arm, ...]  # the arms a binding stands in, outermost first
+#: name -> bindings in source order: (position, "time" / "time.sleep" / None, spans that do not see it, arms)
+Names = dict[str, list[tuple[Pos, str | None, tuple[Span, ...], Arms]]]
 
 
 class Scope(NamedTuple):
@@ -65,8 +79,56 @@ def _span(node: ast.AST) -> Span:
     return (node.lineno, node.col_offset), _end(node)  # type: ignore[attr-defined]
 
 
-def _note(names: Names, name: str, pos: Pos, meaning: str | None, unseen: tuple[Span, ...] = ()) -> None:
-    names.setdefault(name, []).append((pos, meaning, unseen))
+def _note(names: Names, name: str, pos: Pos, meaning: str | None, unseen: tuple[Span, ...] = (),
+          path: Arms = ()) -> None:
+    names.setdefault(name, []).append((pos, meaning, unseen, path))
+
+
+def _group_span(group: Sequence[ast.AST]) -> Span:
+    """The text of statements, handlers or cases that stand together; a ``case`` has no position of its own."""
+    if not group:
+        return (0, 0), (0, 0)
+    first, last = group[0], group[-1]
+    if isinstance(first, ast.match_case):
+        first = first.pattern
+    if isinstance(last, ast.match_case):
+        last = last.body[-1]
+    return (first.lineno, first.col_offset), _end(last)  # type: ignore[attr-defined]
+
+
+def _child_arms(node: ast.AST) -> dict[int, Arm]:
+    """The arm each child of a branching statement stands in: the two sides of an ``if``, the ``try`` body
+    (with its ``else``) and each handler, each ``case``. A loop body and its ``else`` may or may not run,
+    but not instead of one another, so each is an arm alone."""
+    groups: list[Sequence[ast.AST]]
+    if isinstance(node, ast.If):
+        groups = [node.body, node.orelse]
+    elif isinstance(node, (ast.Try, ast.TryStar)):
+        groups = [[*node.body, *node.orelse], *([handler] for handler in node.handlers)]
+    elif isinstance(node, ast.Match):
+        groups = [[case] for case in node.cases]
+    elif isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
+        return {id(child): Arm((id(node), n), 0, (_group_span(group),))
+                for n, group in enumerate((node.body, node.orelse)) for child in group}
+    else:
+        return {}
+    spans = tuple(_group_span(group) for group in groups)
+    return {id(child): Arm(id(node), n, spans) for n, group in enumerate(groups) for child in group}
+
+
+def _survivors(entries: list[tuple[Pos, str | None, tuple[Span, ...], Arms]], pos: Pos) -> list[str | None]:
+    """What a name may mean at ``pos`` after these bindings (in source order): the last one, and each earlier
+    one that no later binding made on every path to it, such as the other arm of an ``if``. A binding in an
+    arm the call is not in never ran with it."""
+    out: list[str | None] = []
+    later: list[Arms] = []
+    for _, meaning, _, path in reversed(entries):
+        if any(a.side != n and lo <= pos < hi for a in path for n, (lo, hi) in enumerate(a.spans)):
+            continue
+        if not any(path[:len(other)] == other for other in later):
+            out.append(meaning)
+        later.append(path)
+    return out
 
 
 def _declared(nodes: list[ast.AST]) -> set[str]:
@@ -114,48 +176,48 @@ def _comp_names(comp: ast.AST) -> Names:
     return names
 
 
-def _bind_import(node: ast.Import | ast.ImportFrom, names: Names) -> None:
+def _bind_import(node: ast.Import | ast.ImportFrom, names: Names, path: Arms) -> None:
     pos = _end(node)
     for alias in node.names:
         if isinstance(node, ast.Import):
             bound = alias.asname or alias.name.split(".")[0]
             full = alias.name if alias.asname else alias.name.split(".")[0]
-            _note(names, bound, pos, full if full in TARGETS else None)
+            _note(names, bound, pos, full if full in TARGETS else None, path=path)
         elif node.module in TARGETS and node.level == 0 and alias.name == "*":
             for target in TARGETS[node.module]:
-                _note(names, target, pos, f"{node.module}.{target}")
+                _note(names, target, pos, f"{node.module}.{target}", path=path)
         elif node.module in TARGETS and node.level == 0 and alias.name in TARGETS[node.module]:
-            _note(names, alias.asname or alias.name, pos, f"{node.module}.{alias.name}")
+            _note(names, alias.asname or alias.name, pos, f"{node.module}.{alias.name}", path=path)
         else:
-            _note(names, alias.asname or alias.name, pos, None)
+            _note(names, alias.asname or alias.name, pos, None, path=path)
 
 
 def _bind(node: ast.AST, names: Names, at: Pos | None = None, *, local: bool = False,
-          postponed: bool = False) -> None:
+          postponed: bool = False, path: Arms = ()) -> None:
     """Record the names ``node`` binds in its scope, each with where it takes effect, without entering a
     nested function, class or lambda. An assignment binds once its right side has run, a ``for`` target
     once its iterable has; the targets of a comprehension stay in it, except a ``:=``. ``x: T`` with no value
     binds ``x`` in a function (``local``) and nowhere else."""
     if isinstance(node, (ast.Import, ast.ImportFrom)):
-        _bind_import(node, names)
+        _bind_import(node, names, path)
     elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        _note(names, node.name, _end(node), None)
+        _note(names, node.name, _end(node), None, path=path)
         for part in (*_outer_parts(node), *([] if postponed else _annotations(node))):
-            _bind_walruses(part, names, ())
-    elif isinstance(node, ast.Lambda):
-        _bind_walruses(node, names, ())
-    elif isinstance(node, COMPREHENSIONS):
-        _bind_walruses(node, names, ())
+            _bind_walruses(part, names, (), path=path)
+    elif isinstance(node, (ast.Lambda, *COMPREHENSIONS)):
+        _bind_walruses(node, names, (), path=path)
     elif isinstance(node, ast.AnnAssign) and node.value is None and not local:
         if not postponed:
-            _bind(node.annotation, names, local=local)
+            _bind(node.annotation, names, local=local, path=path)
     else:
         if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
             at = _end(node)
-        _bind_target(node, names, at)
+        _bind_target(node, names, at, path)
+        arms = _child_arms(node)
         for child in _run_children(node, local or postponed):
             after = _end(node.iter) if isinstance(node, (ast.For, ast.AsyncFor)) and child is node.target else at
-            _bind(child, names, after, local=local, postponed=postponed)
+            arm = arms.get(id(child))
+            _bind(child, names, after, local=local, postponed=postponed, path=(*path, arm) if arm else path)
 
 
 def _run_children(node: ast.AST, skip_annotation: bool) -> list[ast.AST]:
@@ -164,23 +226,25 @@ def _run_children(node: ast.AST, skip_annotation: bool) -> list[ast.AST]:
     return [child for child in ast.iter_child_nodes(node) if child is not skip]
 
 
-def _bind_comprehension(node: ast.AST, names: Names, unseen: tuple[Span, ...], lift: tuple[Span, ...]) -> None:
+def _bind_comprehension(node: ast.AST, names: Names, unseen: tuple[Span, ...], lift: tuple[Span, ...],
+                        path: Arms) -> None:
     gens = node.generators  # type: ignore[attr-defined]
     elts = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]  # type: ignore[attr-defined]
     own = (elts[0].lineno, elts[0].col_offset), _end(elts[-1])
     here = (*lift, own)
-    _bind_walruses(gens[0].iter, names, unseen, here)
+    _bind_walruses(gens[0].iter, names, unseen, here, path)
     if isinstance(node, ast.GeneratorExp):
         return
     for gen in gens:
         for part in ([] if gen is gens[0] else [gen.iter]) + gen.ifs:
-            _bind_walruses(part, names, unseen, here)
+            _bind_walruses(part, names, unseen, here, path)
     ran_first = tuple(_span(part) for gen in gens for part in (gen.iter, *gen.ifs))
     for part in elts:
-        _bind_walruses(part, names, (*unseen, *ran_first), lift)
+        _bind_walruses(part, names, (*unseen, *ran_first), lift, path)
 
 
-def _bind_walruses(node: ast.AST, names: Names, unseen: tuple[Span, ...], lift: tuple[Span, ...] = ()) -> None:
+def _bind_walruses(node: ast.AST, names: Names, unseen: tuple[Span, ...], lift: tuple[Span, ...] = (),
+                   path: Arms = ()) -> None:
     """A ``:=`` in a comprehension binds in the scope around it, though not in a lambda's body. The element
     of a comprehension runs after its iterables and filters, whatever the text order: ``unseen`` holds
     those, where the element's binding is not in effect. A ``:=`` in an iterable or filter is in effect
@@ -190,53 +254,53 @@ def _bind_walruses(node: ast.AST, names: Names, unseen: tuple[Span, ...], lift: 
     binds nothing here."""
     if isinstance(node, ast.Lambda):
         for part in _outer_parts(node):
-            _bind_walruses(part, names, unseen, lift)
+            _bind_walruses(part, names, unseen, lift, path)
         return
     if isinstance(node, COMPREHENSIONS):
-        _bind_comprehension(node, names, unseen, lift)
+        _bind_comprehension(node, names, unseen, lift, path)
         return
     if isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
         for start, end in lift or ((_end(node), (0, 0)),):
-            _note(names, node.target.id, start, None, (*unseen, (end, _end(node))) if lift else unseen)
+            _note(names, node.target.id, start, None, (*unseen, (end, _end(node))) if lift else unseen, path)
     for child in ast.iter_child_nodes(node):
-        _bind_walruses(child, names, unseen, lift)
+        _bind_walruses(child, names, unseen, lift, path)
 
 
-def _bind_target(node: ast.AST, names: Names, at: Pos | None) -> None:
+def _bind_target(node: ast.AST, names: Names, at: Pos | None, path: Arms) -> None:
     if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
-        _note(names, node.id, at or _end(node), None)
+        _note(names, node.id, at or _end(node), None, path=path)
     elif isinstance(node, ast.ExceptHandler) and node.name:
-        _note(names, node.name, (node.lineno, node.col_offset), None)
+        _note(names, node.name, (node.lineno, node.col_offset), None, path=path)
 
 
 def _resolve(call: ast.Call, scopes: list[Scope]) -> str | None:
     """``"time.sleep"`` or ``"threading.Timer"`` when ``call`` is one, by the innermost binding of its name.
     In the scope the call stands in, that is the last binding before the call; in a scope around a
-    function, the last binding of the scope."""
+    function, the last binding of the scope. Where branches meet, a name may mean several things (one
+    import on Windows, another elsewhere): the call counts when any of them is a sleep or timer."""
     pos = (call.lineno, call.col_offset)
 
-    def meaning(name: str) -> str | None:
+    def meanings(name: str) -> list[str | None]:
         by_position = True
         for scope in scopes:
             entries = scope.names.get(name)
             if entries:
-                seen = [m for p, m, unseen in entries
-                        if not by_position or (p <= pos and not any(a <= pos < b for a, b in unseen))]
+                seen = [e for e in entries
+                        if not by_position or (e[0] <= pos and not any(a <= pos < b for a, b in e[2]))]
                 if seen:
-                    return seen[-1]
+                    return _survivors(seen, pos)
                 if not scope.is_class:
-                    return None
+                    return []
             by_position = by_position and (scope.is_comp or scope.is_class)
-        return None
+        return []
 
     func = call.func
     if isinstance(func, ast.Name):
-        target = meaning(func.id)
-        return target if target and "." in target else None
+        return next((m for m in meanings(func.id) if m and "." in m), None)
     if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-        module = meaning(func.value.id)
-        if module in TARGETS and func.attr in TARGETS[module]:
-            return f"{module}.{func.attr}"
+        for module in meanings(func.value.id):
+            if module in TARGETS and func.attr in TARGETS[module]:
+                return f"{module}.{func.attr}"
     return None
 
 
@@ -376,7 +440,7 @@ def measure(root: Path) -> tuple[dict[str, int], dict[str, int], list[str]]:
 def load_baseline(path: Path) -> dict[str, int]:
     """The ``files`` counts of the baseline; ``ValueError`` when the file is not one."""
     data = json.loads(path.read_text(encoding="utf-8"))
-    files = data.get("files", {}) if isinstance(data, dict) else None
+    files = data.get("files") if isinstance(data, dict) else None
     if not isinstance(files, dict):
         raise ValueError('expected {"files": {"<file>": <count>}}')
     if not all(type(v) is int for v in files.values()):

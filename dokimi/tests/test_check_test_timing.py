@@ -82,7 +82,7 @@ def test_a_tests_root_that_is_not_a_directory_exits_2_and_leaves_the_baseline_al
         assert entries(tmp_path) == baseline
 
 
-@pytest.mark.parametrize("content", ['{"files": null}', '[1]', '{"files": {"tests/a.py": null}}', "{not json",
+@pytest.mark.parametrize("content", ['{"files": null}', '{"wrong_key": {}}', "{}", '[1]', '{"files": {"tests/a.py": null}}', "{not json",
                                      '{"files": {"tests/a.py": 1.9}}', '{"files": {"tests/a.py": "2"}}'])
 def test_a_baseline_that_is_not_one_fails_naming_it(tmp_path, capsys, content):
     (tmp_path / "tests").mkdir()
@@ -227,6 +227,37 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("from time import sleep\n[sleep(1) for _ in (0,) if (sleep := sleep(2))]\n", {"time.sleep": 1}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
+    assert ctt.scan(source, "x.py") == (expected, [])
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("import sys\nif sys.platform == 'win32':\n    from time import sleep as wait\nelse:\n"
+     "    from my_helpers import wait\nwait(1)\n", {"time.sleep": 1}),
+    ("import sys\nif sys.platform != 'win32':\n    from my_helpers import wait\nelse:\n"
+     "    from time import sleep as wait\nwait(1)\n", {"time.sleep": 1}),
+    ("try:\n    from time import sleep as wait\nexcept ImportError:\n    from my_helpers import wait\nwait(1)\n",
+     {"time.sleep": 1}),
+    ("try:\n    from my_helpers import wait\nexcept ImportError:\n    from time import sleep as wait\nwait(1)\n",
+     {"time.sleep": 1}),
+    ("import sys\nmatch sys.platform:\n    case 'win32':\n        import time as t\n    case _:\n"
+     "        import json as t\nt.sleep(1)\n", {"time.sleep": 1}),
+    ("from my_helpers import wait\nimport sys\nif sys.platform == 'win32':\n    from time import sleep as wait\n"
+     "wait(1)\n", {"time.sleep": 1}),
+    ("import sys\nfrom time import sleep as wait\nif sys.platform == 'win32':\n    from my_helpers import wait\n"
+     "wait(1)\n", {"time.sleep": 1}),
+    ("import sys\nfrom time import sleep as wait\nif sys.platform == 'win32':\n    from my_helpers import wait\n"
+     "else:\n    wait = print\nwait(1)\n", {"time.sleep": 1}),
+    ("import sys\nfrom time import sleep as wait\nwait = print\nif sys.platform == 'win32':\n"
+     "    from my_helpers import wait\nwait(1)\n", {}),
+    ("import sys\nif sys.platform == 'win32':\n    from time import sleep as wait\nelse:\n"
+     "    from my_helpers import wait\n    wait(1)\n", {}),
+    ("import sys\nif sys.platform == 'win32':\n    from time import sleep as wait\n    wait(1)\nelse:\n"
+     "    from my_helpers import wait\n", {"time.sleep": 1}),
+    ("import sys\nif sys.platform == 'win32':\n    from time import sleep as wait\nelse:\n"
+     "    from my_helpers import wait\nwait = print\nwait(1)\n", {}),
+    ("from time import sleep as wait\nfor _ in range(2):\n    wait = print\nwait(1)\n", {"time.sleep": 1}),
+])
+def test_a_name_bound_differently_in_each_branch_counts_when_any_branch_makes_it_a_sleep(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
 
 
