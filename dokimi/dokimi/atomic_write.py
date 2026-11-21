@@ -49,7 +49,7 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
     path = Path(path)
     if _is_plain_writable_file(path):
         try:
-            _publish(path, lambda fd: os.fdopen(fd, "wb"), data)
+            _publish(path, lambda fd: os.fdopen(fd, "wb"), data, keep_group=True)
             return
         except _OwnerRefused:
             pass
@@ -117,7 +117,7 @@ def write_json_atomic(path: Path | str, obj: Any) -> None:
     write_bytes_atomic(path, utf8_bytes(text.replace("\n", os.linesep)))
 
 
-def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> None:
+def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes, *, keep_group: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
     old = _existing_stat(path)
@@ -128,7 +128,7 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
         fd = os.open(tmp, flags, mode)
         if old is not None:
             try:
-                _keep_owner_and_group(fd, old)
+                _keep_owner_and_group(fd, old, keep_group=keep_group)
             except BaseException:
                 os.close(fd)
                 raise
@@ -147,10 +147,10 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
         raise
 
 
-def _keep_owner_and_group(fd: int, old: os.stat_result) -> None:
+def _keep_owner_and_group(fd: int, old: os.stat_result, *, keep_group: bool = False) -> None:
     """Give the new inode the old file's group and, for root, its owner.
 
-    A refused group change of a user who is not root leaves the group the inode got; a refused change of root (no CAP_CHOWN, or a policy that denies it), of the owner or of the group alone, raises :class:`_OwnerRefused`.
+    A refused group change of a user who is not root leaves the group the inode got, unless ``keep_group`` (the caller falls back to an in-place write); a refused change of root (no CAP_CHOWN, or a policy that denies it), of the owner or of the group alone, raises :class:`_OwnerRefused`.
     """
     if not hasattr(os, "fchown"):
         return
@@ -163,7 +163,7 @@ def _keep_owner_and_group(fd: int, old: os.stat_result) -> None:
     try:
         os.fchown(fd, uid, gid)
     except PermissionError as exc:
-        if root:
+        if root or keep_group:
             raise _OwnerRefused(exc.errno, "root may not give the new file the owner or group of the file it replaces") from exc
 
 

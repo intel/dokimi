@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi import atomic_write
 from dokimi.atomic_write import _keep_owner_and_group, write_bytes_atomic, write_bytes_in_place_or_atomic
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "geteuid") or not hasattr(os, "fchown"), reason="needs POSIX owners")
@@ -203,6 +204,17 @@ def test_a_user_who_is_not_root_denied_a_group_change_still_replaces_the_file(tm
     monkeypatch.setattr(os, "geteuid", lambda: 1)
     write_bytes_atomic(target, b"new")
     assert (target.read_bytes(), target.stat().st_ino != before) == (b"new", True)
+
+
+def test_a_user_denied_the_group_of_a_report_writes_it_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_denied_group_only(monkeypatch)
+    monkeypatch.setattr(os, "geteuid", lambda: 1)
+    monkeypatch.setattr(atomic_write, "_is_plain_writable_file", lambda path: True)
+    write_bytes_in_place_or_atomic(target, b"new")
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
 
 def _root_chowned_but_denied_chmod(monkeypatch):
