@@ -171,3 +171,16 @@ def test_unchecked_and_skipped_rows_have_their_own_rates(tmp_path):
 def test_empty_catalog_rates_have_no_denominator(tmp_path):
     states = RateTally(tmp_path).summary()["states"]
     assert all(entry == {"skills": 0, "rate": None, "repo_rate": None} for entry in states.values())
+
+
+def test_two_names_for_one_repo_directory_share_its_bucket(tmp_path):
+    _repo(tmp_path, "Repo")
+    alias = tmp_path / "repo"
+    if not alias.is_dir():  # on a case-sensitive filesystem, make a second name for the directory
+        alias.symlink_to(tmp_path / "Repo", target_is_directory=True)
+    tally = RateTally(tmp_path)
+    for path, state in [("Repo/a", "warn"), ("repo/b", "ok"), ("Repo/c", "ok")]:
+        tally.add(_row(path, state))
+    report = tally.summary()
+    assert report["repos"] == 1
+    assert report["states"]["warn"]["repo_rate"] == 0.3333

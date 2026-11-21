@@ -33,6 +33,7 @@ class RateTally:
         self.skills: Counter[str] = Counter()  # repo -> skills
         self.states: dict[str, Counter[str]] = defaultdict(Counter)  # state -> repo -> skills
         self.codes: dict[str, Counter[str]] = defaultdict(Counter)  # code -> repo -> skills with the code
+        self._repo_names: dict[tuple[int, int], str] = {}
         self._repos: dict[tuple[str, ...], str] = {}
 
     def add(self, row: dict) -> None:
@@ -57,8 +58,12 @@ class RateTally:
         for end in range(len(parts), 0, -1):
             prefix = parts[:end]
             if prefix not in self._repos:
-                is_repo = (self._abs_root.joinpath(*prefix) / ".git").exists()
-                self._repos[prefix] = "/".join(prefix) if is_repo else ""
+                directory = self._abs_root.joinpath(*prefix)
+                key = ""
+                if (directory / ".git").exists():
+                    stat = directory.stat()
+                    key = self._repo_names.setdefault((stat.st_dev, stat.st_ino), "/".join(prefix))
+                self._repos[prefix] = key
             if self._repos[prefix]:
                 return self._repos[prefix]
         return "."
