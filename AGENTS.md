@@ -40,6 +40,12 @@ also holds a PR to:
 - Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
   checks types, echoes its input, only checks a mock was called, asserts nothing or
   repeats another (`python scripts/audit_test_quality.py` lists them).
+- No silent test narrowing (`scripts/check_test_narrowing.py`): removing a test,
+  dropping a check, adding skip/xfail, dropping `match=` or widening
+  `pytest.raises`, loosening a tolerance or cutting `parametrize` cases fails
+  unless a commit message or a comment in the test says `Test-narrowed: <reason>`.
+  So does a skip at the top of a module, and a `collect_ignore*` or
+  `pytest_ignore_collect` a `conftest.py` gains (waived by a commit line).
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
@@ -72,8 +78,10 @@ also holds a PR to:
 - Executable tasks (Docker + oracle solution + pytest verifier) or harnesses:
   `dokimi/docs/contributing-terminal-bench-task.md`. Tasks live in a
   content repository; the framework reads a checkout via `--tasks-root`.
-- Anything else: the index, `dokimi/docs/README.md`. A new doc page also goes
-  in the `nav:` of `dokimi/mkdocs.yml`, the published site.
+- Anything else: the index, `dokimi/docs/documentation-index.md`. A new page
+  at any depth under `dokimi/docs/` goes in that index
+  (`dokimi/tests/test_docs_links.py` checks it) and in the `nav:` of
+  `dokimi/mkdocs.yml`, the published site.
 
 Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
@@ -127,8 +135,8 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
 - Commit with `git commit -s`: the repo is public and takes DCO sign-off
   (`CONTRIBUTING.md` at the root).
-- A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` /
-  `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
+- A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` (bar
+  `project.version`) / `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
   `dokimi/changelog.d/` (`scriv create`), never an edit to `CHANGELOG.md`; the
   `Fragment for package changes` step in `ci.yml`'s `static` job enforces it. Versioning and releases:
   `dokimi/docs/releasing.md`.
@@ -148,6 +156,14 @@ finds little:
 
 - For each test of changed behaviour, break the code it covers (flip a
   condition, drop a branch), confirm the test fails, then revert the break.
+  CI's `Mutation of changed lines` job (`dokimi/scripts/mutate_changed.py`)
+  does this for the package lines a PR changes, up to 40 mutants, and lists
+  each surviving mutant in its step summary. A survivor whose module has a
+  candidate test file that did not run is `inconclusive`, not a gap. It warns,
+  it does not fail: kill
+  a survivor with an assertion, or say in the description why it is
+  equivalent. Run it locally with
+  `python scripts/mutate_changed.py --base origin/main` from `dokimi/`.
 - For a bug fix, find every other site with the same bug class. Fix the ones
   within this PR's scope; list the rest in the description or an issue.
 - Where it applies, run the changed command on a bad input: missing file,

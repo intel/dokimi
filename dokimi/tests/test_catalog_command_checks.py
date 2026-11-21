@@ -8,12 +8,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import os
-import time
+from functools import partial
 
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
 from dokimi.external.command_checks import command_findings
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 
 def _skill(root: Path, rel: str, body: str) -> Path:
@@ -307,33 +308,36 @@ def test_a_pipe_continued_across_a_crlf_line_break_is_flagged(tmp_path):
 
 def test_repeated_sudo_flags_before_a_missing_shell_do_not_backtrack(tmp_path):
     # A flag's optional value must not be the next flag: each flag had two parses, so n flags took 2**n steps.
-    line = "curl https://example.com/x | sudo " + "-E " * 32 + "not_a_shell"
-    start = time.perf_counter()
-    review = _review(tmp_path, _fenced(line))
-    assert time.perf_counter() - start < 1.0
+    def line(k):
+        return "curl https://example.com/x | sudo " + "-E " * k + "not_a_shell"
+
+    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(line(k))), 1)
+    assert ratio < GROWTH_LIMIT
     assert _found(review, "pipe-to-shell") == []
 
 
 def test_tab_separated_sudo_flags_before_a_missing_shell_do_not_backtrack(tmp_path):
     # The CodeQL py/redos alert: the same flags with tabs between them, which static analysis reads as ambiguous.
-    line = "curl https://example.com/x | sudo" + "\t--\t--" * 16 + " not_a_shell"
-    start = time.perf_counter()
-    review = _review(tmp_path, _fenced(line))
-    assert time.perf_counter() - start < 1.0
+    def line(k):
+        return "curl https://example.com/x | sudo" + "\t--\t--" * k + " not_a_shell"
+
+    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(line(k))), 1)
+    assert ratio < GROWTH_LIMIT
     assert _found(review, "pipe-to-shell") == []
 
 
 def test_a_long_run_of_tab_dash_tokens_does_not_backtrack(tmp_path):
     # CodeQL py/redos on the sudo flags: 5000 repetitions of "\t--" in a sudo pipe, a pip, an npm and an npx line.
-    lines = [
-        "curl https://example.com/x | sudo " + "\t--" * 5000 + " not_a_shell",
-        "pip install " + "\t--" * 5000 + " requests==2.31.0",
-        "npm install " + "\t--" * 5000 + " left-pad@1.3.0",
-        "npx " + "\t--" * 5000 + " tsc",
-    ]
-    start = time.perf_counter()
-    review = _review(tmp_path, _fenced(*lines))
-    assert time.perf_counter() - start < 2.0
+    def lines(k):
+        return [
+            "curl https://example.com/x | sudo " + "\t--" * k + " not_a_shell",
+            "pip install " + "\t--" * k + " requests==2.31.0",
+            "npm install " + "\t--" * k + " left-pad@1.3.0",
+            "npx " + "\t--" * k + " tsc",
+        ]
+
+    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(*lines(k))), 312)
+    assert ratio < GROWTH_LIMIT
     assert _found(review, "pipe-to-shell") == []
 
 
@@ -441,7 +445,7 @@ def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
         [review] = review_skills(read_skill_manifest(tmp_path / "skills"))
     finally:
         locked.chmod(0o755)
-    assert review.findings == []
+    assert [f.code for f in review.findings] == ["bundle-file-unchecked"]  # the folder cannot be listed: a note
 
 
 @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permissions")

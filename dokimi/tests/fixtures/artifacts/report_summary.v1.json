@@ -1,0 +1,15 @@
+{
+  "schema_version": "report_summary.v1",
+  "overall": "fail",
+  "checks": [
+    {"source": "out/catalog-check.json", "state": "fail", "kind": "catalog check", "status": "complete",
+     "verdict": "fail", "reason": "1 subject(s) fail", "subjects": 1, "summary": {"tasks": 0},
+     "spent_usd": 0.0, "cap_usd": null, "priced": null}
+  ],
+  "subjects": [
+    {"subject": "alpha", "verdicts": {"catalog check": "fail"},
+     "findings": [{"check": "catalog check", "level": "error", "code": "load-error", "message": "bad frontmatter",
+                   "file": "skills/alpha/SKILL.md", "line": null}]}
+  ],
+  "spent_usd": 0.0
+}

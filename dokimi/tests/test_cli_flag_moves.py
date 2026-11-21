@@ -80,3 +80,43 @@ def test_add_refuses_a_spelling_the_concept_does_not_own():
         cli_flags.add(parser, "output", "--output")
     with pytest.raises(KeyError):
         cli_flags.add(parser, "no-such-concept", "--out")
+
+
+@pytest.mark.parametrize(("old", "new"), [
+    (["repo", "validate", "src", "--fail-on-warning"], ["repo", "validate", "src", "--fail-on=warn"]),
+    (["repo", "budget", "src", "--fail-on-warning"], ["repo", "budget", "src", "--fail-on=warn"]),
+    (["repo", "scan", "src", "--fail-on-fail"], ["repo", "scan", "src", "--fail-on=fail"]),
+    (["repo", "inspect", "src", "--fail-on-error"], ["repo", "inspect", "src", "--fail-on=fail"]),
+    (["eval", "triggers", "generate", "--catalog", "c", "--strict"],
+     ["eval", "triggers", "generate", "--catalog", "c", "--fail-on=warn"]),
+    # a retired command and a moved flag: the printed line is the final command
+    (["catalog", "trigger-set", "--strict"], ["eval", "triggers", "generate", "--fail-on=warn"]),
+])
+def test_a_fail_on_spelling_tombstones_with_the_new_argv(old, new, capsys):
+    assert " ".join(new) in _tombstone(old, capsys)
+
+
+def test_a_fail_on_spelling_with_a_stray_value_suggests_no_malformed_replacement(capsys):
+    # the old flag took no value: the suggestion is the valid new flag, not --fail-on=warn=1
+    text = _tombstone(["repo", "budget", "src", "--fail-on-warning=1"], capsys)
+    assert "--fail-on=warn" in text and "warn=1" not in text
+
+
+@pytest.mark.parametrize("argv", [
+    ["docs", "check", "--spec", "s.yaml", "--strict"],  # a hard gate, not a finding level: --strict stays
+    ["catalog", "check", "--strict"],
+])
+def test_strict_stays_on_the_leaves_that_gate_a_verdict(argv):
+    assert cli_routes.moved_flags_argv(argv) is None
+
+
+def test_each_fail_on_leaf_takes_only_the_level_it_gates_on():
+    parser = cli.build_parser()
+    assert parser.parse_args(["repo", "budget", "src", "--fail-on", "warn"]).fail_on == "warn"
+    assert parser.parse_args(["repo", "scan", "src", "--fail-on", "fail"]).fail_on == "fail"
+    for leaf in ("validate", "inspect"):  # both levels, as memory lint and repo security take them
+        for level in ("warn", "fail"):
+            assert parser.parse_args(["repo", leaf, "src", "--fail-on", level]).fail_on == level
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["repo", "scan", "src", "--fail-on", "warn"])
+    assert exc.value.code == 2

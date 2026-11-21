@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from .probes import command_stages, command_words, split_redirects
+from .probes import command_stages, command_words
 from .shell_split import split_script
 
 ACTS = ("install", "import", "use", "remove")
@@ -123,10 +123,10 @@ def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str
     for part, *_ in parts:
         if part.startswith("("):  # a subshell: its exit code is not the command's own
             continue
-        stages, _inner = command_stages(part)
+        stages = command_stages(part)
         if len(stages) > 1:  # a pipeline reports its last stage's exit code
             continue
-        words = split_redirects(stages[0] if stages else [])[0]  # ``exec >log`` has no program, ``> scipy`` no operand
+        words = stages[0] if stages else []  # ``exec >log`` has no program, ``> scipy`` no operand
         views = list(command_words(words))
         if any(view[:1] == ["exit"] for view in views):  # no later part runs
             break
@@ -221,7 +221,7 @@ def _package_call(words: list[str]) -> tuple[str, list[str]] | None:
         return None
     names: list[str] = []
     skip = False
-    for word in split_redirects(rest[1:])[0]:  # ``> scipy`` names an output file, not a package
+    for word in rest[1:]:  # ``> scipy`` names an output file, not a package
         if skip:
             skip = False
         elif word.startswith("-"):

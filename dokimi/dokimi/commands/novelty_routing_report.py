@@ -441,6 +441,17 @@ def print_cost(cost: dict) -> None:
           f"{spent}{replayed}")
 
 
+def _acceptable_line(arm: str, section: dict, unit: str) -> str:
+    """One arm's own rate next to its gold-or-acceptable rate, both pooled over the scored queries."""
+    total = sum(section["n_scored"].values())
+    if not total:
+        return f"{arm}: no {unit} scored"
+    own = sum(picks.get(gold, 0) for gold, picks in section["confusion"].items())
+    either = own + sum(section["acceptable_picks"].values())
+    return (f"{arm}: gold {own} of {total} {unit} ({own / total:.3f}), gold or acceptable "
+            f"{either} of {total} ({either / total:.3f})")
+
+
 def print_attractors(result: dict) -> None:
     """The top five attractors of each arm, one line each, and what the arm left out.
 
@@ -461,6 +472,8 @@ def print_attractors(result: dict) -> None:
         # The model arm counts calls, one per query and repeat; the lexical arm counts queries.
         unit = "calls" if section.get("repeats", 1) > 1 else "queries"
         rows = section["attractors"][:5]
+        if "acceptable_rate" in section:
+            print(_acceptable_line(arm, section, unit))
         if not rows:
             print(f"{arm}: no skill was picked for another skill's query")
         for row in rows:
@@ -529,7 +542,7 @@ def _is_partial_file(path: Path) -> bool:
     """Whether ``path`` holds a partial result; a file this cannot read is not one."""
     try:
         earlier = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):  # RecursionError: nesting too deep for json
         return False
     return isinstance(earlier, dict) and ("partial" in earlier or earlier.get("status") == "partial")
 

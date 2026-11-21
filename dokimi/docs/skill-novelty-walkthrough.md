@@ -15,8 +15,8 @@ One sitting, one artifact, one model. Each step says what it costs and what it r
 claim. [skill-novelty.md](skill-novelty.md) is the reference for *why* each number means
 what it means; this is the order to run them in.
 
-The three free steps come first on purpose. Two of them can tell you not to spend anything
-at all.
+The two free steps come first on purpose. They can tell you not to spend anything
+at all; the following triage step makes paid model calls.
 
 | step | what it answers | cost |
 |---|---|---|
@@ -59,7 +59,7 @@ listing truncates descriptions selects on less text than the command shows.
 ## 2. What will the measurement cost? (free)
 
 ```bash
-python cli.py skill novelty analyze --artifact skill:skills/my-skill --tier study --estimate-only \
+python cli.py skill novelty analyze --artifact skill:skills/my-skill --tier study --dry-run \
     --include-resources
 ```
 

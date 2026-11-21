@@ -85,6 +85,8 @@ CONCEPTS: tuple[Concept, ...] = (
         canonical=(
             Flag("--judge", "PROVIDER/MODEL", _MODEL_REF, repeatable=True,
                  meaning="the judge; repeated, it is a panel"),
+            Flag("--judge-aggregate", "{median,majority,unanimous}", "choice",
+                 meaning="how a judge panel's verdicts become one"),
             Flag("--extract-model", "PROVIDER/MODEL", _MODEL_REF),
             Flag("--escalate-model", "PROVIDER/MODEL", _MODEL_REF),
             Flag("--fill-model", "PROVIDER/MODEL", _MODEL_REF),
@@ -212,6 +214,8 @@ CONCEPTS: tuple[Concept, ...] = (
         help="exit non-zero on warnings or failures",
         canonical=(Flag("--fail-on", "{warn,fail}", "choice"),),
         banned=("--strict", "--fail-on-warning", "--fail-on-error", "--fail-on-fail"),
+        note="A leaf takes the values it can gate on: warn, fail, or both. --strict stays where it "
+             "gates a verdict (an exit code of its own), not a finding level; the allowlist says why.",
     ),
     Concept(
         name="run_name",
@@ -224,6 +228,13 @@ CONCEPTS: tuple[Concept, ...] = (
         help="network policy, per phase",
         canonical=(Flag("--network", "[PHASE=]MODE[:hosts]", "text"),),
         banned=("--agent-network", "--build-network"),
+    ),
+    Concept(
+        name="suite",
+        help="a suite manifest: tasks whose base is in another repository (contract §2.1)",
+        canonical=(Flag("--suite", "PATH", "text", meaning="the suite file, in the eval tree"),
+                   Flag("--allow-floating-suite-revs", kind="flag",
+                        meaning="resolve a branch or tag of a suite repository when the run starts")),
     ),
     Concept(
         name="online",
@@ -287,6 +298,26 @@ CONCEPTS: tuple[Concept, ...] = (
         ),
         banned=("--doc-source", "--context7-id"),
         note="A documentation source is an arm: --arm docs:SOURCE.",
+    ),
+    Concept(
+        name="api_header",
+        help="a C header whose declared names a veto may check",
+        canonical=(Flag("--header", "PATH", "path", repeatable=True,
+                        meaning="a C header of the API (glob ok)"),),
+        note="Used with --prefix (and --shared-lib) by skill novelty ground.",
+    ),
+    Concept(
+        name="shared_library",
+        help="a shared library whose exported symbols a veto may check",
+        canonical=(Flag("--shared-lib", "PATH", "path", repeatable=True,
+                        meaning="a shared library whose exported (nm -D) names are known"),),
+        note="Used with --prefix (and --header) by skill novelty ground.",
+    ),
+    Concept(
+        name="symbol_prefix",
+        help="the C identifier prefix that scopes the names a veto checks",
+        canonical=(Flag("--prefix", "PREFIX", "text", repeatable=True,
+                        meaning="a C identifier prefix ending in '_' (cblas_)"),),
     ),
     Concept(
         name="force",
@@ -374,6 +405,32 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--out", "--out-dir", leaves=(
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
+    )),
+    # Reps concept (F1b): each old spelling counted the same thing on its one leaf, so the move
+    # is limited to that leaf (elsewhere the hint would name a flag the command does not take).
+    FlagMove("--repeats", "--reps", leaves=(("tasks", "run"),)),
+    FlagMove("--work-repeats", "--reps", leaves=(("subjects", "run"),)),
+    FlagMove("--multi-run", "--reps", leaves=(("benchmark", "run"),)),
+    FlagMove("--trials", "--reps", leaves=(("catalog", "trigger-probe"),)),
+    # Concurrency concept (F1b): how much runs at once; `-j` stays as its short form. The old
+    # `--jobs` was on these three leaves only.
+    FlagMove("--jobs", "--concurrency", leaves=(("catalog", "check"), ("eval", "check"), ("repo", "run"))),
+    # Fail-on concept (F1b): a gate on warnings or failures is `--fail-on {warn,fail}`. The moved
+    # leaves gate on the level their old flag gated on; `--strict` keeps its other meanings.
+    FlagMove("--fail-on-warning", "--fail-on=warn", leaves=(("repo", "validate"), ("repo", "budget"))),
+    FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
+    FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
+    FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
+    # Spend concept (F1b): a whole-command cap is --max-usd, a cap per agent run is --max-usd-per-cell.
+    FlagMove("--max-cost-usd", "--max-usd", leaves=(("tools", "preference"),)),
+    FlagMove("--max-batch-usd", "--max-usd", leaves=(("repo", "run"),)),
+    FlagMove("--budget", "--max-usd-per-cell", leaves=(
+        ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
+    )),
+    # Dry-run concept (F1b): estimate, make no paid call. `subjects run --work-dry-run` is not moved:
+    # it gates only executable-task agents, so it has no matching canonical meaning (see the allowlist).
+    FlagMove("--estimate-only", "--dry-run", leaves=(
+        ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
     )),
 )
 

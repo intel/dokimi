@@ -15,6 +15,7 @@ from dokimi.cli import build_parser
 from dokimi.repos.budget import budget as _budget
 from dokimi.repos.source import GitTree, SourceError, WorkTree
 from tests.cli_refusal import refusal
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
 budget = partial(_budget, claude_displaces_agents=True)  # as `repo budget --harness claude-code` calls it
@@ -293,7 +294,7 @@ def test_identical_two_word_descriptions_are_duplicates(tmp_path):
 @pytest.mark.outcome("cjm-repo-budget")
 def test_gate_passes_a_clean_tree(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, ".claude/skills/a/SKILL.md": _skill("a", "Format Python code.")})
-    out = _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys).out  # no SystemExit
+    out = _run(["repo", "budget", str(tmp_path), "--fail-on", "warn"], capsys).out  # no SystemExit
     assert "start 40 chars, lazy 0, on demand 13, off 0" in out and "warning" not in out
     assert "| start | guidance | CLAUDE.md | 20 |" in out
 
@@ -308,7 +309,7 @@ def _run(argv, capsys):
 def test_cli_table_and_gate(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, "AGENTS.md": "a" * 10, ".mcp.json": '{"mcpServers": {"docs": {}}}'})
     with refusal() as exc:
-        _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys)
+        _run(["repo", "budget", str(tmp_path), "--fail-on", "warn"], capsys)
     assert exc.code == 1
     out = _run(["repo", "budget", str(tmp_path)], capsys).out
     assert "start 20 chars, lazy 0, on demand 0, off 10" in out
@@ -692,15 +693,12 @@ def test_a_code_span_wrapped_onto_the_next_line_hides_its_import(tmp_path):
 
 def test_code_span_stripping_is_linear_on_backtick_runs():
     """Long backtick runs once made the code-span regex backtrack exponentially (CodeQL py/redos)."""
-    import time
-
     from dokimi.repos.budget import _strip_code_spans
 
-    for text in ("`" * 50_000, "`" + "`a" * 50_000, "``" + "` " * 50_000 + "\n\n@x.md"):
-        started = time.monotonic()
-        _strip_code_spans(text)
-        # Permissive timing check to avoid flakiness on slower/contended runners
-        assert time.monotonic() - started < 5
+    shapes = (lambda k: "`" * k, lambda k: "`" + "`a" * k, lambda k: "``" + "` " * k + "\n\n@x.md")
+    for shape in shapes:
+        ratio, _ = growth(lambda k, shape=shape: partial(_strip_code_spans, shape(k)), 1_250, reps=15)  # a call of 6 µs to 0.3 ms at n
+        assert ratio < GROWTH_LIMIT
     assert _strip_code_spans("a `b` c ``d`e`` f") == "a  c  f"
     assert _strip_code_spans("`a\nb` @x.md") == " @x.md"
     assert _strip_code_spans("`a\n\nb` @x.md") == "`a\n\nb` @x.md"

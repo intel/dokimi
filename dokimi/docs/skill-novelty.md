@@ -103,20 +103,24 @@ be right or wrong) and `harmful_conflicting` (below), which overrides the other 
   `redundant` or `degraded` means known. An atom that was never probed counts as new, which is
   the direction that does not claim the model knew something nobody asked it. The model is never
   asked whether it knew something.
+
 - **Needed vs inert is judged.** The extractor model sees the task and answers, per atom, *"can
   acting on this task go wrong, or be much slower, without knowing it?"* The task is built from
   the artifact's `name` and `description` plus the need graph's `core` and `rare_critical` nodes,
   never from the body, so an artifact cannot make itself relevant by containing a sentence.
   Eval files are not part of it either.
+
 - **Reliability.** In the study both axes were judged, and an independent reviewer agreed with
   71.6% of assignments (853 atoms), with useful-vs-inert at ±3 points and known-vs-novel at ±2;
   `scaffolding` was the most stable share ([§4](skill-novelty-evidence.md)). Here only the ±3
   carries over. Known vs new is read off the paired probes instead, so its error is the probe
   grading's: two judges agreed on 85% of verdicts on the correct-ish binary collapse (above).
+
 - **Inert is not "safe to delete".** The `drop-inert 0.60` candidate, which cuts inert text under
   a 0.60 token budget (the suffix is a budget, as for every §10.6 candidate, not "all inert atoms
   at once"), was non-inferior on pooled data (+0.005, CI [−0.045, +0.057]) and *worse* on
   `nemotron-nano-12b` for `dpnp-quickstart` ([§10.6](skill-novelty-evidence.md)).
+
 - An atom the value judge did not answer for gets no category. The artifact says how many
   (`N of M atoms got no need/scaffolding verdict`, split into calls that failed, rows the reply
   skipped, malformed rows, and replies with no usable verdict row; an empty list for a batch is
@@ -131,6 +135,7 @@ marked. Read it as a review queue:
 
 - **Internal only.** It says the two statements disagree, not which is wrong. That needs a
   primary source, which this layer does not consult.
+
 - **Lower bound.** Only atoms in the same call are compared. `analyze` sends the whole
   probed atom set (at most `max_atoms`, 120 by default) in one call, so every pair is compared
   unless a call fails or its reply has to be split. The artifact records the share as
@@ -146,6 +151,7 @@ marked. Read it as a review queue:
   `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before
   `conflict_coverage` existed has no such field and keeps the old reading, a 0 that counts as
   cleared, unless its atom set was capped; re-run `analyze` to check it.
+
 - **Unchecked atoms.** A call whose reply does not parse, or whose rows name no pair of the batch
   (an empty list is fine: it means no conflicts), is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
@@ -153,6 +159,7 @@ marked. Read it as a review queue:
   a chunk (the 41st, say), are counted in `N of M atoms were not checked for conflicts`, split by
   cause (`K in calls that failed (last error: …)`, `K whose reply named no usable pair`, `K alone in a batch, with no pair to check`).
   Their ids are not written to the artifact.
+
 - **False positives (anecdotal, not a rate).** Spot-checking 7 of the 31 pairs one run reported
   ([mattpocock/skills](https://github.com/mattpocock/skills) @ `49dd158`) found 4 real, 1
   ambiguous and 2 false positives: steps of one procedure read as alternatives ("watch it fail"
@@ -205,6 +212,7 @@ Consequences for authoring:
 
 - A skill that looks bloated against a frontier model may be correctly sized for a small one. Decide
   which tier you are writing for, and record it.
+
 - `degraded` rises as the model weakens (0.019 → 0.076). Weak models copy your errors; strong models
   overrule them. A stale line in a skill is a bigger risk to a small model — **except** for reversed
   or out-of-date claims, where the opposite holds: strong models resisted planted inversions *less*
@@ -274,7 +282,7 @@ Anthropic's).
 model that wrote the saved answer key (the atoms file's `extractor`) against the judge. The same model,
 or two models of one vendor family (the vendor is read off the model id: `claude`, `sonnet`,
 `haiku`, `opus` and `anthropic` are one family; `gpt` and `openai` another; `gemini` and
-`mistral` likewise), prints a `WARNING` on stderr. The vendor is read off the name, so a model
+`mistral` likewise; `grok` and `xai` another), prints a `WARNING` on stderr. The vendor is read off the name, so a model
 served locally under a vendor's name (`gpt-oss-120b` is OpenAI's) counts as that vendor; ids that
 name no known vendor never match. `analyze` records the result in the artifact's
 `run_config.extractor_judge` (`extractor`, `judge`, `same_model`, `same_vendor`); `probe`
@@ -298,9 +306,53 @@ family with one of them, and the warning does not check that; say so when you qu
 A third family keeps all three apart. Changing the extractor changes the atoms, so compare
 only cells that name the same extractor.
 
+## A judge panel
+
+One judge is one opinion. The [judge-panel study](judge-panel-study.md) graded the same answers with
+seven judges. The added share of one answer model moved by up to 0.23 with the judge. The
+original single judge was the most lenient of all, so its added shares sat at or near the
+bottom of the panel's range. `analyze` and `probe` take a panel:
+
+```bash
+python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.json     --model grok-4.6 --provider openrouter     --judge openrouter/openai/gpt-6-luna --judge openrouter/anthropic/claude-sonnet-5     --judge openrouter/moonshotai/kimi-k3 --judge-aggregate median
+```
+
+- `--judge PROVIDER/MODEL`, repeated, is the panel. It replaces `--judge-model` and
+  `--judge-provider`, and the two forms cannot be mixed. The first judge is the default
+  extractor. Every judge is checked against the answerer like a single judge.
+
+- `--judge-aggregate` turns the verdicts into one per answer:
+
+    - `median` (default): the median of the verdict scale, rounding toward wrong on an even
+      panel.
+    - `majority`: correct when more than half the judges say so.
+    - `unanimous`: correct only when all of them say so.
+
+    In the study, median and majority matched Dawid-Skene on 99.3% of rows. Any-correct
+    moved the headline by up to 0.20, and unanimous raised the added share by up to 0.09 over
+    majority. A judge whose grade fails is left out of the vote, except for a permanent provider
+    error (a bad key, an unknown model), which stops the run and keeps the partial record.
+
+- The record gets a `judge_panel` block with:
+
+    - the judges and the rule;
+    - each judge's own paired 2×2 (`per_judge_paired`);
+    - the judge range of the added share (`added_share_range`);
+    - `judge_sensitive`, set when the lenient range exceeds 0.10 (the study's noise floor).
+
+    Each run keeps every judge's verdict in `judge_verdicts`. `analyze` writes them beside
+    the record as `<record>.judge_verdicts.json`; the report names the panel instead of one judge.
+
+- Two judges of one vendor family (the families named above) print a warning. Same-family judges agree with each other
+  more than with the rest, so the panel then has fewer independent votes than judges. Three
+  judges from three families cut the spread across panels from SD 0.039 to 0.025.
+
+Each extra judge grades every answer again, so it adds the judge's share of the cost.
+`--dry-run` counts it, and `--max-usd` caps the whole panel.
+
 ## Using it as an authoring tool
 
-The commands in order, with the costs and the three free steps that come first, are in
+The commands in order, with the costs and the two free steps that come first, are in
 [skill-novelty-walkthrough.md](skill-novelty-walkthrough.md). This section is the reference
 for what each output means.
 
@@ -370,6 +422,7 @@ Two derived views an author acts on directly:
 
 - **Dead weight**: the dim spans, sorted by token cost. The largest single win in most artifacts.
   Unread spans are not listed.
+
 - **Sole carriers**: spans that are the only source of some atom. These are what a careless edit
   silently deletes; the shortener pins them.
 
@@ -385,9 +438,11 @@ the highlight is load-bearing. Three measured constraints ship with it:
 - **Do not attribute by lexical overlap** with the atom statement. It misses negation — negation words
   are function words — so its extra loss on `negative-constraint` atoms is +0.143 against an LLM
   attributor's +0.392. The cheap attributor is weakest on exactly the knowledge that matters most.
+
 - **Carry the heading path** wherever a span is checked. Atom recovery from a bare span is 0.833 and
   rises to 0.907 with the heading path prepended, for about 16 tokens: a span reading "Use 4 for most
   workloads" is not a bad citation, it is a sentence whose subject lives in its heading.
+
 - **Render an unlocated state.** 19% of atoms are not recoverable from their cited *file* at all —
   syntheses inferred while reading the whole document, which the faithfulness check calls supported.
   Their span pointer is a fiction, and colouring a span for them is worse than saying nothing.
@@ -397,6 +452,9 @@ the highlight is load-bearing. Three measured constraints ship with it:
 ```bash
 python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
 ```
+
+`skill novelty analyze` scores the same candidates at its `--budgets` unless you pass `--no-shorten`
+(`--tier triage` skips them too).
 
 Never one "retention" number, because a single score hides the one failure that matters. A measured
 example from the study: a candidate at **21% of the original tokens** retained **0.916** of the
@@ -460,6 +518,7 @@ Two limits on that rule, both measured:
 - **Per artifact it is unproven.** With 7–8 tasks per (artifact, model) cell the 95% interval is
   ~0.32 task-score points wide, so 44 of 60 individual cells were inconclusive. Pooled evidence
   licenses a shortening *policy*; it does not license a specific cut without running that cut.
+
 - **The verdict does not transfer across model tiers.** Of 20 (artifact, candidate) pairs measured on
   three models each, only 9 agreed; the smallest model was the worst-hit in 9 of 20, and the same
   candidate was non-inferior on a frontier model and *worse* on a small one. Small models need the
@@ -474,6 +533,7 @@ Two content patterns were measured as actively harmful, independent of topic:
   entirely: it replied with a preamble promising to look things up and scored 0.047, against 0.537
   with no skill at all. Skill bodies should be answerable standalone; progressive disclosure is a
   loading strategy, not a sentence to write.
+
 - **Investment in prose order.** The study's shuffled arm scored *higher* than the intact artifact
   on four of five models, but it injected more files than the artifact did, so that result does not
   carry over to this measurement. Ordering, transitions and narrative framing carried no
@@ -522,6 +582,7 @@ the artifact's contribution runs the other way. The weakest model knew *no* loca
 
 - **Conceptual prose is the first thing to cut.** It is the half the model already has. Explaining
   what a cache miss is spends tokens; stating this stack's exact flag, threshold or ordering does not.
+
 - **Write the procedure down, precisely.** `motif` and `contract` atoms — gates, orderings, flags,
   output formats — are where the artifact is least replaceable, and they are also the atoms a greedy
   token-budget shortener discards first (their value is conditional on a failure the sentence does
@@ -564,6 +625,7 @@ Things to know before reading a bundle result:
 - **It is an upper bound.** Injecting the whole bundle measures what the artifact *could*
   deliver if the agent read all of it. Whether the agent chooses to load `references/x.md`
   at runtime is the agentic track's question (`skill-agent:`), not this one.
+
 - **The two modes are different cells.** `include_resources` is recorded in `run_config`;
   an entry-point run and a bundle run of the same skill are not comparable numbers. A run
   that read half or less of the readable words says so on stdout (the `coverage:` line
@@ -574,11 +636,13 @@ Things to know before reading a bundle result:
   `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share` to 4
   places, which nets out the role decisions below; `outside_share` is the
   on-disk figure, and the two differ for a skill whose only resources are its evals).
+
 - **A skill's own `evals/` are not content.** They are the question/answer keys for
   testing the skill, so extracting atoms from them would credit the skill with delivering
   its own test set. Excluded by default (10 of the 33 corpus skills ship them), with the
   reason naming the opt-in; `.git/`, `__pycache__/`, `venv/`, hidden files and friends
   are never walked at all.
+
 - **Exclusions are reported, never silent.** A file over `--max-file-words` is skipped
   whole rather than truncated, because a cut reference would be attributed as if complete;
   every skip, role filter, budget overrun and non-text file appears in `bundle.excluded`
@@ -588,6 +652,7 @@ Things to know before reading a bundle result:
   A file that is mostly printable text but does not decode as UTF-8 (latin-1, cp1252, UTF-16)
   is reported `unreadable` whatever its suffix, and the coverage check then says `measured=False`;
   only a NUL-bearing non-UTF-16 file, or a blob that is not mostly printable, is silently "not text".
+
 - **One rule decides what an exclusion means.** Every row's `kind` has one class
   (`metrics/bundle_coverage.py`, `EXCLUSION_CLASS`): `budget` and `not_requested` are a *gap* — the words
   in `unmeasured_words`, the files a warning calls "excluded"; `policy` is a *decision*, never
@@ -595,6 +660,7 @@ Things to know before reading a bundle result:
   exclusion is a *file* the run did not select; text it selected that no extraction call could
   read is an *unread span* (`spans.n_unread`, below), which narrows the dead-token figure and
   not coverage.
+
 - **Coverage has one basis, and the record says which.** The CLI note, the analyzer's
   warnings, the gate's `artifact_coverage` and the report all read the record through the same
   `Coverage`, over *readable* words: role decisions are left out of the denominator, so for an
@@ -727,7 +793,7 @@ A catalog that holds the same `SKILL.md` under two paths (a plugin copy of its `
 tree) counts it once: the copy nearest the catalog root stands for the card, and the
 others are named on stderr.
 
-`--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
+`--dry-run` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
 is zero. Input is the selection prompt sized at `chars_per_input_token` (2.6) characters per token, counted
 locally with no tokenizer, so it is a projection, not a count. Output is `output_tokens_per_call` (150) times
@@ -742,6 +808,7 @@ Two numbers, reported side by side and never merged:
 
 - **Lexical** — BM25 over each candidate's `name + description`, which is exactly the text
   a tool schema shows. Free, deterministic, and a floor.
+
 - **Model** (`--model`, optional) — a model picks from the same cards, with the card order
   a **seeded random permutation per query** (`--seed`), so a model that always picks the
   first option tends to `1/N` rather than to a figure set by how the query count lines up
@@ -808,8 +875,7 @@ where a single-artifact run names the first card in the field. `rank` and `picke
 only, so each row also keeps `scores` (card name to BM25 score, in the order of the field), which do not depend
 on the gold: `rescore_lexical_row(row, gold)` in `dokimi.novelty.all_vs_all` gives `rank` and `picked` for a
 corrected gold, ties included, and keeps a row with no content word unscored. A saved run can be rescored from them for corrected gold labels (one gold per row), split by
-query set half, or compared query by query with another run; scoring a set of acceptable golds per query is not
-shipped (#710). The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
+query set half, or compared query by query with another run (`catalog routing-compare`, below). The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
 with one repeat. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
@@ -817,7 +883,7 @@ field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_un
 `{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a single-artifact run
 records it too. An all-vs-all result also records `shared_queries` (`{shared, total}`: how many of the queries with a content word are listed for more than one skill), so a file saved from a run on shared queries says so. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
 `{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
-that failed to load refuses the run and names the load error. It refuses `--artifact`, `--queries` and `--queries-from-headings`: it takes `--queries-by-skill` only. `--estimate-only` prints the calls and the
+that failed to load refuses the run and names the load error. It refuses `--artifact`, `--queries` and `--queries-from-headings`: it takes `--queries-by-skill` only. `--dry-run` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
 no query sent; it needs no `--out`. `--reps` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
@@ -828,6 +894,48 @@ in the field, or no queries at all. A query file that names a skill the field le
 two different skills share) drops that skill's queries with a WARNING naming the flag that keeps it; the run
 goes on with the rest, and is refused only when no query is left. A name no rule explains is refused, since
 it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported in one error.
+
+**Acceptable alternatives.** A request in the queries file may be an object instead of a string:
+`{"query": "<request>", "acceptable": ["<other skill name>", ...]}`, for a request a second skill
+answers as well as the gold. A file of strings reads and saves as before: no new key is written.
+`acceptable` must be a list of strings and the object has no key besides `query` and `acceptable`, or the file
+is refused naming the file, the skill and the query; the gold named as its own alternative is dropped
+(also from a direct `all_vs_all` call, so a pick of the gold is never counted as both), and a blank `query` is dropped with its object. An acceptable name that is not in the field is refused,
+naming the skill, the query and the name, before a `--dry-run` too; the alternatives of a skill
+the field leaves out (its queries are dropped with a WARNING) are moot and not checked. When the file names
+at least one alternative, each arm adds `acceptable_rate` per gold skill beside `own_rate`: the share of its scored queries
+(the same denominator) whose pick is the gold or one of that query's alternatives, and the summary prints
+the pooled gold and gold-or-acceptable counts, taken from `confusion` and from `acceptable_picks` (the exact
+count per gold skill of picks that were an acceptable name), not from the rounded rates. `(none)`, `(tie)` and a failed call never count, and the
+model arm counts per call as its other counts do. `confusion` and `attractors` stay defined by the
+gold alone: an acceptable pick of another skill is still counted there. The rows of a query with alternatives
+(`lexical.per_query` and `model.noise.per_query`) keep `acceptable`; the rows of other queries do not get the key.
+
+**Comparing two saved runs.** `catalog routing-compare BASE.json OTHER.json [--arm lexical|model] [--out FILE]`
+reads two files `catalog routing` saved and makes no model call. Rows are paired by `(gold, query)`
+(a request listed twice for one gold pairs in order). `--arm lexical` (the default) reads
+`result.lexical.per_query`; `--arm model` reads `result.model.noise.per_query` and is refused when either run was
+made without `--model`. `--out` writes the comparison as JSON and creates a missing parent directory, as
+`catalog routing --out` does. A file that is not JSON, not an all-vs-all result, has no `result` object, or has no per-query rows (a file saved before
+the lexical arm kept them) is refused with the file and the cause, and so is a row whose `query` or `gold` is
+not a string, whose `acceptable` is not a list of strings, or, with the lexical arm, whose `rank` is missing or is
+neither null nor a positive integer, or whose `picked` is not a string while `rank` is set (a `null` rank and the
+picks `(none)` and `(tie)` are kept), or, with `--arm model`, whose `picks` is not a list of
+strings (the message names the file and the row number), and so are two runs with no pair in common. A query in one
+run only is counted and shown by example, and left out of every figure. A row left unscored in either
+run is left out and counted: a lexical row with no content word, and in the model arm a query with no answered call or, with `--reps`, one
+whose most common pick is not unique (the modal pick is the pick otherwise). The report gives the pairs
+scored, each run's number right, the pairs right in BASE only and in OTHER only, the exact two-sided
+sign test p (binomial, p = 0.5; 1.0 with none), and the queries whose pick
+changed with both picks. The test counts distinct `(gold, query)` queries, not pairs: a request listed
+twice is one query, right in BASE only when more of its pairs are right there than in OTHER, in OTHER only
+when fewer, and neither when equal, so repeating a request does not add evidence (`discordant_queries` in the
+JSON; `discordant` keeps the pair counts). For example, 10 distinct queries with BASE right on 5 that OTHER misses and OTHER right
+on none give p = 0.0625, not significant at 0.05, and 6 and 0 give p = 0.03125. A pair is right when
+the pick is the gold; when both runs name the same `acceptable` for it, the gold or one of those names. When
+only one run names alternatives, or the two differ, that pair is scored on the gold alone and the report prints a note, so the
+two runs are never scored on different keys. `--out` writes the same figures as JSON (`mode` `routing_compare`; no schema, as
+for `catalog routing --out`).
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
 across every skill in the field: the call count is the number of queries in `queries.json` that have a
@@ -887,6 +995,7 @@ Three properties worth knowing before quoting either:
   says why, and still writes the result with `"status": "no_queries"`. Every rate line
   prints its `n_queries` (and `triage: self-derived` when it is self-derived), and fewer
   than five scored queries draw a warning.
+
 - **The model figure is an upper bound on harness behaviour.** A harness whose own skill
   listing truncates or omits descriptions selects on less text than this command shows —
   which has been observed. Only a run inside the harness settles it.
@@ -931,7 +1040,8 @@ python cli.py skill novelty items --probes m1.json m2.json m3.json
 [reference checks](answer-formats.md); every probe built from it except the reversal gets it,
 and its non-judge checks run on each answer next to the judge. `skill novelty ground --atoms
 atoms.json --tool "perf report"` writes one such check: a veto that fails an answer naming a
-`perf report --flag` the tool's own `--help` does not list. The judge's verdict is kept on
+`perf report --flag` the tool's own `--help` does not list. With `--header` and `--shared-lib` and a
+`--prefix` (`cblas_`), it vetoes a C API name no header declares and no library exports. The judge's verdict is kept on
 each checked run and the record's `checks` block counts how often the judge passed an answer
 a veto failed. Design and evidence: [grading-tiers.md](grading-tiers.md).
 
@@ -965,6 +1075,7 @@ run, so on a two-arm run too `ci95_added` changes (and is null below 5 atoms).
 - **Placebo-gated `added`** (`added_over_placebo`, needs the `placebo` arm). This counts a
   probe only when it is right with the artifact, wrong without it, *and* wrong with the
   placebo text. A gain the placebo also gets is a context effect, not knowledge.
+
 - **Noise floor** (`noise_floor`, needs the `no_artifact_repeat` arm). That arm asks every
   baseline question again as a new sample (a new cache `draw`). Its flips against the
   baseline are what `added` and `degraded` would be if the artifact did nothing.
@@ -1050,6 +1161,7 @@ The hybrid ships. Two consequences worth remembering when reading a `knowledge` 
 - **Never accept an embedding-only retention score.** Both cheap matchers scored 0.00 recall on the
   contradiction label: they cannot tell *restates* from *reverses*, so a rewrite that inverted a rule
   would be reported as faithfully retained.
+
 - **The oracle fails safe.** With no adjudicator configured, the ambiguous band resolves to *absent*,
   so reported `knowledge` is a floor — a shortening can look worse than it is, never better.
 
@@ -1065,6 +1177,7 @@ reverses to +0.047. Two things not to conclude from that:
   adjudications, ≤0.0072 even at 0.80 agreement, and replacing per-pair verdicts with a calibrated
   aggregate collapses to a constant. The escalation *is* the oracle. Shortcut only at `hhem ≥ 0.995 AND
   top_sim ≥ 0.6 AND the atom carries no number or version`, and never shortcut the "no" end.
+
 - **No cheap matcher may score a protected atom.** Agreement against the band mean falls −0.18 to −0.25
   on numeric atoms, −0.07 to −0.10 on version-bound ones, −0.03 to −0.05 on negations, because a
   similarity score reads topic and not value: `_mm512_reduce_add_epi64` scores mid-scale against an atom
@@ -1130,10 +1243,10 @@ content, not on the tier.
 
 ```bash
 python cli.py skill novelty analyze --artifact skill:s --tier triage          # ~10x cheaper
-python cli.py skill novelty analyze --artifact skill:s --tier study --estimate-only
+python cli.py skill novelty analyze --artifact skill:s --tier study --dry-run
 ```
 
-`--estimate-only` prints the projected bill and exits without constructing a client, so
+`--dry-run` prints the projected bill and exits without constructing a client, so
 the decision costs nothing. Pricing imports litellm, which tries to fetch its price map
 from the network before it falls back to the copy bundled with the package; on a host
 with no network that is a pause of a few seconds and a warning. Setting
@@ -1163,7 +1276,7 @@ the `runs` (probe answers and judgments) so far; it has no `paired`, `arms`, `k0
 how to get the paid calls back: with `DOKIMI_RESPONSE_CACHE` set to a writable directory on the capped run, a rerun with a
 higher `--max-usd` and the same cache replays them at $0 (a reply that was cut off or unusable is
 asked again; after a `no_price` stop the message says to price the model or drop `--max-usd`
-instead, since a higher cap does not help); without it, or when it could not be written, the message says the calls were not cached. `novelty view`, `subjects`
+instead, since a higher cap does not help); without it, or when it could not be written, the message says the calls were not cached. `skill novelty view`, `subjects`
 (`--novelty-artifact`) and every other reader of a `novelty.json` refuse a partial file by name,
 and `runs list` does not list it (it opens with `status`, not `schema_version`). A record
 with `status: "partial"` but no `partial` block is refused too, and so is saving one with
@@ -1208,11 +1321,11 @@ faithfulness forfeit, and `--all-atoms` or a skill with no more atoms than the c
 keeps every atom: `extraction.sampled` is `null`) drops the cap's one (that `added` is a rate
 over the sample of extracted atoms the cap kept, not over every atom). A capped run indexes its
 spans from every extracted atom, so `frac_carrying_nothing` is not forfeit. The forfeits do not
-depend on which atoms the cap kept (`--estimate-only` lists them before it is known). With
+depend on which atoms the cap kept (`--dry-run` lists them before it is known). With
 shortening on, a cap that left atoms out adds that ``shortening candidates are scored against a
 spread sample of 60 of the extracted atoms: `knowledge` and `value` are retention of that sample,
 not of every atom, though the sole carriers a safe candidate keeps come from every atom`` (60 at
-`standard`, 120 at `study`). `--estimate-only` cannot know the atom count yet, so it lists them:
+`standard`, 120 at `study`). `--dry-run` cannot know the atom count yet, so it lists them:
 
 > tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected
 > against the model matching the artifact's own wording
@@ -1272,13 +1385,13 @@ one. Those outside the sample were never checked for faithfulness, so when any o
 `unchecked`, `--all-atoms` prints a `WARNING` with how many, and that `skill novelty atoms --all-atoms`
 (a new, uncapped extraction) verifies every atom it extracts. On a bundle, `skill shorten` keeps only the entry point's atoms; when none of the sample is
 among them it would score nothing, so it exits 2 and asks for `--all-atoms`.
-`novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
+`skill novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
 written before the record existed, held only the atoms its run probed, and is read as all of them
 sampled; one whose `sampled_atom_ids` names an atom the file does not hold, or names one twice,
 is refused (exit 2).
 When such an older file's record shows a cap that bound (`extraction.sampled` set, or `cap` set
 with any `extraction.reached` object, which a document-order cap wrote only when it bound),
-`skill novelty probe`, `skill shorten` and `novelty view` print a `WARNING` on stderr: the file holds
+`skill novelty probe`, `skill shorten` and `skill novelty view` print a `WARNING` on stderr: the file holds
 only the atoms its run probed, so spans whose atoms fell outside them read as carrying nothing and
 a shortening can cut them; re-run `skill novelty atoms` to index every atom. A document-order cap whose
 `reached` is the input's last span (`spans` equal to `of`) may still have cut atoms from that last
@@ -1322,7 +1435,9 @@ recorded sample) or, with `all_atoms: true`, every one, so a rate over a sample 
 the file's; records written before it have no `sampling`. Every novelty
 `ref_digest` is the bundle's `measured_digest` (the measured files' paths and text digests);
 the subject scorecard's `subject.ref_digest` is a different hash, of every file under the
-subject path, and the two are not meant to match. `shorten`
+subject path (each file's path and content as separate fixed-width digests; a scorecard
+written by an earlier release hashed them differently, so its `ref_digest` differs for
+the same tree), and the two are not meant to match. `shorten`
 rewrites one file, so with a bundle-derived atom set it scores only the entry point's spans
 and says so.
 
@@ -1330,7 +1445,7 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
-The cache key carries a version (`retention-cache-v5`). Entries written before failed
+The cache key carries a version (`retention-cache-v6`). Entries written before failed
 adjudications were kept out of the cache can hold a failure stored as `absent`, entries written
 before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`, and
 entries written before a reply cut at the output ceiling was an error can hold a verdict parsed
@@ -1338,6 +1453,13 @@ from a truncated reply, and entries written by a `--lexical-only` run can hold i
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
 `DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
 calls now send 16384 where they sent none, so those entries miss too.
+
+Entries written under `retention-cache-v5` are not read either: that key used to join the
+statement and the text with a bare NUL byte, so a statement ending in NUL and a text starting with
+NUL hashed the same bytes and one atom could replay another atom's verdict. The key now hashes the
+statement's byte length as 8 bytes (big-endian) before the statement, which no statement and text
+can collide on. The old files stay in `--cache-dir` and can be deleted, and the first run after
+upgrading pays the adjudication calls again.
 
 **Pass `--max-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
 16384 output tokens unless `--max-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
@@ -1413,6 +1535,7 @@ answer is a failed probe run (its pair is dropped), not a wrong answer.
   far from 1 (0.629 one way, 0.851 the other, over 1134 oracle comparisons, and 0.733/0.876 with a third extractor that never saw the reference set). **An atom count is
   extractor-conditional; an `added` rate is a ratio over whatever inventory the extractor produced and
   is far more robust.** Quote counts with the extractor named.
+
 - **Tag labelling reproduces; the `type` vocabulary does not.** Holding extraction fixed and having two
   other models re-label the same 2640 atoms under the same glossary, six of nine tags reach κ 0.52–0.73
   and the knowledge-type table above re-derives to within 0.08 under every labeller — so the
@@ -1422,6 +1545,7 @@ answer is a failed probe run (its pair is dropped), not a wrong answer.
   with both labellers moving `contract` and `edge` atoms into `motif`. Gate on the protection tags
   (`routing`, `negative-constraint`, `version-bound` — the top three by κ); report shape slices without
   gating on them.
+
 - **Judge calibration — and a 0.15 band on `added` differences.** Signs and rankings, not second decimals.
   Quantified: the two graders' fine-scale κ is 0.576 (the 0.664 figure is raw agreement), and they differ
   by +7.7pp under strict grading and −11.6pp under lenient — opposite directions, which is the bias shape
@@ -1429,22 +1553,27 @@ answer is a failed probe run (its pair is dropped), not a wrong answer.
   [0.106, 0.194]**, so **no `added` difference below 0.15 may be quoted**, and for one model that band
   covers almost the entire between-artifact spread. Narrowing it needs more dual grading (only 25 probes
   have both arms dual-graded), not more probes.
+
 - **Retention is not monotone in the text you supply.** The matcher retrieves its top chunks before it
   entails, so a longer text can score *lower* than a subset of itself: atom recovery from a cited span
   is 0.833, rises to 0.907 with the heading path, then falls to 0.809 when the whole file is supplied.
   Compare retention only between texts of similar length — which the shortening candidates are, by
   construction — and never read a retention figure across a large length gap.
+
 - **The need graph has a 14% noise floor** (author/critic path-label agreement was 86%), which
   propagates into relevance-weighted `value`.
+
 - **Need frequency is assumed uniform.** Nothing here measures how often each need actually arises,
   so `value` ranks atoms *within* one artifact and must not be compared across artifacts. Real query
   or issue traffic is what closes that, not another judge.
+
 - **Category boundaries are partly judged.** In the study, where both axes were judged, an
   independent reviewer agreed with the five-category assignment on 72% of atoms; the
   disagreements concentrate on useful-vs-inert (±3 points) and known-vs-novel (±2 points). The
   scaffolding share is the most robust of them. Here useful-vs-inert is still judged and the ±3
   applies; known-vs-novel is measured by the paired probes, so it carries the probe grading's
   error instead.
+
 - **Per-artifact `added` is a profile, not a ranking.** Paired probes per artifact were 12–29 in the
   study, and subsampling shows the cross-artifact ranking destabilizing below a 0.75 probe budget
   (Spearman ρ 0.43–0.63 at 0.10). Correlating `added` against the measured task delta says the same
@@ -1460,10 +1589,12 @@ answer is a failed probe run (its pair is dropped), not a wrong answer.
   soft. Two validity checks come with it: `K0` and `degraded` both predict the delta negatively in
   every group, as designed. All of it under **strict** grading — lenient `added` correlates at 0.126
   pooled and 0.000 within-artifact, so partial credit does not survive to task outcomes.
+
 - **A topic-level verdict is a distribution, never a label.** No whole artifact in the study had
   unanimous atom outcomes under strict grading, on any model; at heading level unanimity was 0.39–0.44
   and roughly one atom in four disagreed with its own section's majority. "This section is redundant"
   is not a statement this instrument can make.
+
 - **Loading a correct artifact raises resistance to a reversed premise.** An earlier reading of the
   study (45 probes worse, 14 better) had the sign inverted by its analysis script; recomputed on the
   planted-inversion probes, paired by probe and model, 49 got worse and 367 better
@@ -1473,6 +1604,7 @@ answer is a failed probe run (its pair is dropped), not a wrong answer.
   the artifact, a planted wrong value is stated 0.942 of the time when plausible, 0.846 when absurd, and
   flagged 3% of the time. `degraded` is the visible tip of that; the channel underneath it transmits at
   85–94%.
+
 - **A cell can stop being re-measurable.** Two of the models behind most of these numbers no longer
   resolve, and one that does no longer accepts `temperature=0`. A novelty figure is quotable only with
   the served model named and the date attached; a cell whose model is gone is a dead cell, not a cell
@@ -1482,4 +1614,5 @@ answer is a failed probe run (its pair is dropped), not a wrong answer.
 
 - [skill-novelty-evidence.md](skill-novelty-evidence.md) — the 33-skill study these numbers come
   from, with its method and its caveats.
+
 - [evaluating-treatments.md](evaluating-treatments.md) — the arm framework this layer consumes.

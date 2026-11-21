@@ -25,7 +25,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
     JUDGE_MODEL_FOR_PROVIDER,
 )
-from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
+from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model, refuse_task_harness
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
 from dokimi.judge_rule import JudgeIsAnswerer, default_judge
@@ -455,6 +455,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     from dokimi.eval.session import check_session_questions
 
     _refuse_judged_session(config)
+    refuse_task_harness(config)
     refuse_deferred_self_judge(config)  # reads only the config: before the probe and the library lookup
     if config.session_turns is not None:
         check_session_questions(questions, config.session_turns)
@@ -495,10 +496,17 @@ def run_prepared(prepared: PreparedArms, config: ArmsRunConfig, questions: list[
         concurrency=config.concurrency,
     )
     evaluations = None if prepared.judge is None else _judge_records(prepared.runner, prepared.judge, config, records)
-    return prepared.runner.build_output(
+    output = prepared.runner.build_output(
         config.product, records, evaluations=evaluations, baseline_arm=config.baseline_arm,
         judge=prepared.judge,
     )
+    if prepared.runner.stop_error is not None:  # the artifact says the run stopped, not that it completed
+        output["terminated"] = {
+            "reason": str(prepared.runner.stop_error),
+            "questions_requested": prepared.runner.questions_requested,
+            "questions_recorded": len(records),
+        }
+    return output
 
 
 def run_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> dict:
@@ -560,3 +568,5 @@ def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: 
         except (ValueError, OSError, RecursionError) as exc:
             raise MatrixCellError(cell.name, exc, usage=False) from exc
         on_cell(cell, output)
+        if "terminated" in output:  # a run-wide failure: the cell is saved, the matrix does not go on
+            raise MatrixCellError(cell.name, RuntimeError(output["terminated"]["reason"]), usage=False)

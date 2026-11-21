@@ -118,8 +118,8 @@ CI additionally holds a PR to:
   source tree whose file does not exist (an anchor into such a file is not
   checked), and on a list that nests differently on the site than on GitHub
   (Python-Markdown wants nested items indented 4 spaces and a blank line before
-  a list). A new page goes in two places: the `docs/README.md` index
-  (`tests/test_docs_links.py` checks it) and `nav:` in `mkdocs.yml` (the
+  a list). A new page goes in two places: the `docs/documentation-index.md`
+  index (`tests/test_docs_links.py` checks it) and `nav:` in `mkdocs.yml` (the
   build fails on a page missing from it). `mkdocs serve` previews the site.
 - **Dependencies match the imports** — `deptry .` (config in `[tool.deptry]` of
   `pyproject.toml`). A third-party module the package, `cli.py` or `scripts/`
@@ -269,6 +269,8 @@ move onto the registry, `cli_flags.py` is data only: no command reads it.
 
 - **New flag.** Use the canonical spelling of its concept. A new concept needs a row in
   `CONCEPTS`, which reviewers look at.
+- **Value checks.** A positive count takes the `positive_int` that `register(sub, positive_int)`
+  is given; a count from 0, a USD amount or a share takes its kind from `dokimi/cli_types.py`.
 - **Snapshot.** From `dokimi/`, after `make dev`, run `make cli-snapshot` and commit
   `docs/reference/cli-interface.json` with the change. CI's `typecheck` job and
   `tests/test_cli_flags.py` check it against the code, so a flag change without a

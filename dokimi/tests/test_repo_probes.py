@@ -103,7 +103,10 @@ def test_a_probe_in_a_substitution_is_run_by_the_command():
     ("conda list -n base", "conda list"),
     ("printenv PATH", "printenv"),
     ("env", "env"),
-    ("sysctl -a | grep machdep.cpu", "sysctl -a | grep machdep.cpu"),
+    ("sysctl -a | grep machdep.cpu", "sysctl"),
+    ("sysctl -n machdep.cpu.brand_string", "sysctl"),
+    ("sysctl -n hw.ncpu", "sysctl"),
+    ("sysctl hw.memsize", "sysctl"),
 ])
 def test_default_command_patterns_match_the_program_that_runs(command, pattern):
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
@@ -130,6 +133,90 @@ def test_a_python_one_liner_that_calls_a_probe_is_a_probe(command, target):
 def test_text_that_is_not_run_code_is_no_probe(command):
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
     assert all(e["kind"] != "probe" for e in events)
+
+
+@pytest.mark.parametrize("command", ["grep /proc/cpuinfo README", "grep -e /proc/meminfo README"])
+def test_a_search_expression_that_looks_like_a_path_is_no_probe(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+@pytest.mark.parametrize("command", ["grep -m 1 /proc/cpuinfo README", "cat > /proc/cpuinfo", "cat 2>> /proc/cpuinfo"])
+def test_an_option_value_or_a_redirection_target_is_no_file_the_command_reads(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("sudo -E lscpu", "lscpu"),
+    ("nice -n 5 nproc", "nproc"),
+    ("sudo -u root nproc", "nproc"),
+])
+def test_a_wrappers_options_do_not_hide_the_program_it_runs(command, pattern):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert [e["pattern"] for e in events if e["kind"] == "probe"] == [pattern]
+
+
+@pytest.mark.parametrize("command", ["if true; then nproc; fi", "for x in 1; do nproc; done"])
+def test_a_command_in_the_body_of_a_conditional_or_loop_is_a_probe(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert [e["pattern"] for e in events if e["kind"] == "probe"] == ["nproc"]
+
+
+@pytest.mark.parametrize("command", [
+    "echo '$(nproc)'",
+    "echo 'sysctl -n hw.ncpu'",
+])
+def test_quoted_text_is_no_probe(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+def test_a_call_inside_a_python_string_is_no_probe():
+    events = _claude(_claude_call("a", "python -c 'print(\"os.cpu_count()\")'", "2026-01-01T00:00:05Z"),
+                     _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("make -j$(python -c 'import os; print(os.cpu_count())')", "py:os.cpu_count"),
+    ("echo $(echo $(nproc))", "nproc"),
+    ("bash -c '>/dev/null; nproc'", "nproc"),
+    ("grep -m 1 >/tmp/cpu.txt processor /proc/cpuinfo", "/proc/cpuinfo"),
+    ("grep '>' /proc/cpuinfo", "/proc/cpuinfo"),
+    ("python -c'import os;print(os.cpu_count())'", "py:os.cpu_count"),
+    ("python -I -m pip list", "pip list"),
+    ("< /proc/cpuinfo cat", "/proc/cpuinfo"),
+    ("time bash -c 'nproc'", "nproc"),
+    ("FOO=bar bash -c 'nproc'", "nproc"),
+    ("bash --noprofile -c 'nproc'", "nproc"),
+    ("! nproc", "nproc"),
+    ('echo "$(printf "(" ; nproc)"', "nproc"),
+    ("python -W ignore -c 'import os; os.cpu_count()'", "py:os.cpu_count"),
+    ("grep --file=/proc/cpuinfo README", "/proc/cpuinfo"),
+    ("2>/dev/null nproc", "nproc"),
+    ("C:\\Windows\\System32\\nvidia-smi.exe --query-gpu=name", "nvidia-smi"),
+    ("/mnt/c/Program\\ Files/NVIDIA\\ Corporation/NVSMI/nvidia-smi.exe -L", "nvidia-smi"),
+])
+def test_a_probe_the_shell_runs_in_another_form_is_a_probe(command, pattern):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert [e["pattern"] for e in events if e["kind"] == "probe"] == [pattern]
+
+
+@pytest.mark.parametrize("command", [
+    "python echo_args.py -c 'os.cpu_count()'", "rg /proc/cpuinfo README", "command -v nproc",
+    "python -- -c 'import os; os.cpu_count()'", "grep 2>/dev/null /proc/cpuinfo README",
+])
+def test_a_script_argument_or_a_search_expression_is_no_probe(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+def test_a_probe_file_nested_too_deep_is_a_value_error_that_names_it(tmp_path):
+    path = tmp_path / "probes.yaml"
+    path.write_text("[" * 2000, encoding="utf-8")
+    with pytest.raises(ValueError, match="probes.yaml"):
+        load_probe_file(str(path))
 
 
 def test_a_windows_powershell_probe_is_matched_case_blind_and_through_parentheses():
@@ -255,6 +342,113 @@ def test_a_manifest_probes_key_is_read_and_a_bad_one_is_a_manifest_error():
         parse_manifest({**base, "probes": {"disk": ["df"]}})
 
 
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("python \\\n-c 'import os; print(os.cpu_count())'", "py:os.cpu_count"),
+    ("npro\\\nc", "nproc"),
+])
+def test_a_backslash_newline_continues_the_command_it_is_in(command, pattern):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert any(e["kind"] == "probe" and e["pattern"] == pattern for e in events)
+
+
+def test_a_quoted_parenthesis_inside_a_double_quoted_substitution_does_not_end_it():
+    events = _claude(_claude_call("a", 'echo "$(printf \')\'; nproc)"', "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert any(e["kind"] == "probe" and e["pattern"] == "nproc" for e in events)
+
+
+def test_a_search_option_value_is_no_operand_so_the_file_after_it_is_read():
+    events = _claude(_claude_call("a", "grep -f /proc/cpuinfo README", "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert any(e["kind"] == "probe" and e["pattern"] == "/proc/cpuinfo" for e in events)
+
+
+@pytest.mark.parametrize("command", ["rg -g '*.c' /proc/cpuinfo src", "rg -t c /proc/cpuinfo src"])
+def test_a_glob_or_type_value_of_a_search_is_no_expression_or_file(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+def test_a_powershell_assignment_is_skipped_so_the_command_after_it_is_the_probe():
+    command = "$cpu = Get-CimInstance Win32_Processor; $cpu.NumberOfCores"
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z", name="PowerShell"), _claude_result("a", "8"))
+    assert [e["target"] for e in events if e["kind"] == "probe"] == ["cpu"]
+
+
+@pytest.mark.parametrize(("command", "target"), [
+    ("python -Ic 'import os; print(os.cpu_count())'", "cpu"),
+    ("python -Im pip list", "packages"),
+])
+def test_python_flags_with_c_or_m_in_one_word_are_read_as_the_code_or_the_module(command, target):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert [e["target"] for e in events if e["kind"] == "probe"] == [target]
+
+
+def test_a_here_string_is_no_file_the_command_reads():
+    events = _claude(_claude_call("a", "cat <<< /proc/cpuinfo", "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
+def _matched(command: str, layer: dict | None = None) -> list[str]:
+    raw = "\n".join(json.dumps(x) for x in (
+        {"type": "system", "subtype": "init", "timestamp": "2026-01-01T00:00:00Z"},
+        _claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a")))
+    events = with_probes(convert("claude-stream-json", raw, WS).events, probes_for(layer))
+    return [e["pattern"] for e in events if e["kind"] == "probe"]
+
+
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("timeout 5 nproc", "nproc"),
+    ("echo | xargs -n 1 nproc", "nproc"),
+    ("uv run python -c 'import os; print(os.cpu_count())'", "py:os.cpu_count"),
+    ("bash -o pipefail -c nproc", "nproc"),
+    ("pwsh -Command Get-CimInstance Win32_Processor", "Get-CimInstance Win32_Processor"),
+    ("conda run -n x pip list", "pip list"),
+])
+def test_a_common_launcher_does_not_hide_the_probe_it_runs(command, pattern):
+    assert _matched(command) == [pattern]
+
+
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("env PYTHONPATH=. pytest -q", None),
+    ("env FOO=1 nproc", "nproc"),
+    ("env -u HOME nproc", "nproc"),
+    ("env", "env"),
+])
+def test_env_runs_the_program_after_its_assignments_and_is_a_probe_only_alone(command, pattern):
+    assert _matched(command) == ([] if pattern is None else [pattern])
+
+
+def test_a_conda_run_is_no_conda_list_probe():
+    assert "conda list" not in _matched("conda run -n x pip list")
+
+
+def test_a_pattern_spelled_as_a_pip3_or_python_m_pip_command_matches_it():
+    assert _matched("pip3 list", {"packages": ["pip3 list"]}) == ["pip3 list"]
+    assert _matched("python -m pip list", {"packages": ["python -m pip list"]}) == ["python -m pip list"]
+
+
+def test_a_pattern_that_starts_with_a_launcher_matches_the_program_it_runs():
+    assert _matched("uv run pip list", {"packages": ["uv run pip list"]}) == ["uv run pip list"]
+
+
+def test_a_powershell_command_after_its_options_is_a_probe():
+    cmd = "pwsh -NoProfile -ExecutionPolicy Bypass -com Get-CimInstance Win32_Processor"
+    assert _matched(cmd) == ["Get-CimInstance Win32_Processor"]
+
+
+@pytest.mark.parametrize("command", ["grep -nA 2 /proc/cpuinfo README", "grep -rm 1 /proc/cpuinfo README"])
+def test_a_search_value_ending_a_flag_cluster_is_no_operand(command):
+    assert _matched(command) == []
+
+
+def test_a_powershell_assignment_without_spaces_is_skipped():
+    assert _matched("$cpu=Get-CimInstance Win32_Processor") == ["Get-CimInstance Win32_Processor"]
+    assert _matched("$cpu= Get-CimInstance Win32_Processor") == ["Get-CimInstance Win32_Processor"]
+
+
+def test_a_command_with_an_unbalanced_quote_is_still_probed():
+    assert _matched('nproc "unterminated') == ["nproc"]
+
+
 def _probes(command: str) -> list[str]:
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
     return [e["pattern"] for e in events if e["kind"] == "probe"]
@@ -267,7 +461,6 @@ def _probes(command: str) -> list[str]:
     "echo '`nproc`'",
     "echo \\$(nproc)",
     "echo '|' nproc",
-    "sysctl -a '|' grep machdep.cpu",
     "grep -e /proc/cpuinfo README",
     "grep /proc/cpuinfo README",
     "rg -e /proc/cpuinfo README",
@@ -338,8 +531,12 @@ def test_commands_the_shell_runs_give_their_probe(command, found):
 
 
 def test_pattern_stages_must_be_consecutive():
-    assert _probes("sysctl -a | head | grep machdep.cpu") == []
-    assert _probes("sysctl -a | grep machdep.cpu") == ["sysctl -a | grep machdep.cpu"]
+    config = probes_for({"cpu": ("sysctl -a | grep machdep.cpu",)})
+    def patterns(text):
+        return [e["pattern"] for e in with_probes([{"kind": "command", "text": text}], config) if e["kind"] == "probe"]
+    assert patterns("sysctl -a '|' grep machdep.cpu") == []
+    assert patterns("sysctl -a | head | grep machdep.cpu") == []
+    assert patterns("sysctl -a | grep machdep.cpu") == ["sysctl -a | grep machdep.cpu"]
 
 
 def test_a_python_probe_needs_a_call_on_a_name_boundary():

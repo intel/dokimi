@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
+from dokimi.process_io import utf8_bytes
+from dokimi.repos.event_format import EVENT_VERSION
+
 OUTPUT_LIMIT = 8192
 OUTPUT_KEEP = 4096
 
@@ -47,6 +50,9 @@ class Transcript:
     init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
     answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
     added_text: list[tuple[dict[str, Any], str]] = field(default_factory=list)  # edit event, the text it adds (choices.py)
+    start_record: dict[str, Any] = field(default_factory=dict)  # the start-up record as printed (run_context reads it)
+    final_record: dict[str, Any] = field(default_factory=dict)  # the closing record as printed (run_context reads it)
+    stop_reasons: list[str] = field(default_factory=list)  # ``stop_reason`` of each main-thread reply that carried one
 
     def model_resolved(self) -> str | list[str] | None:
         """The model that answered: one name, a sorted list when several did, ``None`` when the trace cannot tell.
@@ -61,7 +67,8 @@ class Transcript:
         return {e["path"] for e in self.events if shown_read(e) and e.get("path")}
 
     def events_jsonl(self, events: list[dict[str, Any]] | None = None) -> str:
-        return "".join(json.dumps(e, sort_keys=True) + "\n" for e in (self.events if events is None else events))
+        return "".join(json.dumps({**e, "v": EVENT_VERSION}, sort_keys=True) + "\n"
+                       for e in (self.events if events is None else events))
 
 
 def shown_read(event: dict[str, Any]) -> bool:
@@ -70,10 +77,12 @@ def shown_read(event: dict[str, Any]) -> bool:
 
 
 def clip_output(text: str) -> tuple[str, bool]:
-    """``text`` kept whole up to :data:`OUTPUT_LIMIT` UTF-8 bytes, else its head and tail."""
-    data = text.encode("utf-8")
+    """``text`` kept whole up to :data:`OUTPUT_LIMIT` UTF-8 bytes, else its head and tail.
+
+    A surrogate pair is joined and a lone surrogate becomes ``?`` (:func:`dokimi.process_io.utf8_bytes`)."""
+    data = utf8_bytes(text)
     if len(data) <= OUTPUT_LIMIT:
-        return text, False
+        return data.decode("utf-8"), False
     head = data[:OUTPUT_KEEP].decode("utf-8", "ignore")
     tail = data[-OUTPUT_KEEP:].decode("utf-8", "ignore")
     # A character cut at either end is dropped whole, so count what was really left out.

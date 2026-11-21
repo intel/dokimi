@@ -16,6 +16,7 @@ from dokimi.eval.diagnoser import (
 )
 from dokimi.eval.stats import paired_summary
 from dokimi.records import BASELINE, CONTEXT, Record, records
+from dokimi.report import fmt
 
 #: The persisted condition key each report column reads.
 _MODES = {"with_docs": CONTEXT, "without_docs": BASELINE}
@@ -158,6 +159,7 @@ class ReportGenerator:
             "total_questions": s.total,
             "paired_questions": s.paired,
             "unpaired_questions": s.unpaired,
+            "delta_overflow_questions": s.delta_overflow,
             "with_docs": _stat_block(s, s.with_mean, s.with_min, s.with_max),
             "without_docs": _stat_block(s, s.without_mean, s.without_min, s.without_max),
             "delta": _stat_block(s, s.delta_mean, s.delta_min, s.delta_max),
@@ -192,9 +194,9 @@ class ReportGenerator:
         ]
     
     def _top_deltas(self, evaluations: Sequence[Record], limit: int) -> List[Dict]:
-        """Get top N improvements (WITH - WITHOUT)."""
+        """Get top N improvements (WITH - WITHOUT), positive deltas only."""
         # Both arms scored: a delta next to an unscored arm has no row to show.
-        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None
+        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None and d > 0
                   and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
         deltas.sort(reverse=True, key=lambda x: x[0])
         return [
@@ -209,9 +211,9 @@ class ReportGenerator:
         ]
     
     def _bottom_deltas(self, evaluations: Sequence[Record], limit: int) -> List[Dict]:
-        """Get bottom N (worst degradations from docs)."""
+        """Get bottom N (worst degradations from docs), negative deltas only."""
         # Both arms scored: a delta next to an unscored arm has no row to show.
-        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None
+        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None and d < 0
                   and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
         deltas.sort(key=lambda x: x[0])
         return [
@@ -307,12 +309,12 @@ class ReportGenerator:
             "",
             "| Metric | Context Arm | Baseline | Delta |",
             "|--------|-----------|--------------|-------|",
-            f"| Average | {_shown(stats['with_docs']['avg'])} | {_shown(stats['without_docs']['avg'])} "
-            f"| **{_shown(stats['delta']['avg'], signed=True)}** |",
-            f"| Min | {_shown(stats['with_docs']['min'])} | {_shown(stats['without_docs']['min'])} "
-            f"| {_shown(stats['delta']['min'], signed=True)} |",
-            f"| Max | {_shown(stats['with_docs']['max'])} | {_shown(stats['without_docs']['max'])} "
-            f"| {_shown(stats['delta']['max'], signed=True)} |",
+            f"| Average | {fmt.fixed(stats['with_docs']['avg'])} | {fmt.fixed(stats['without_docs']['avg'])} "
+            f"| **{fmt.signed(stats['delta']['avg'])}** |",
+            f"| Min | {fmt.fixed(stats['with_docs']['min'])} | {fmt.fixed(stats['without_docs']['min'])} "
+            f"| {fmt.signed(stats['delta']['min'])} |",
+            f"| Max | {fmt.fixed(stats['with_docs']['max'])} | {fmt.fixed(stats['without_docs']['max'])} "
+            f"| {fmt.signed(stats['delta']['max'])} |",
             "",
         ]
         lines += _unpaired_note(stats)
@@ -348,7 +350,7 @@ class ReportGenerator:
         ])
         
         for item in top_with:
-            lines.append(f"| {item['question_id']} | {item['score']:.1f} | {item['question_text']}... |")
+            lines.append(f"| {item['question_id']} | {fmt.fixed(item['score'])} | {item['question_text']}... |")
         
         lines.extend([
             "",
@@ -361,7 +363,7 @@ class ReportGenerator:
         ])
         
         for item in bottom_with:
-            lines.append(f"| {item['question_id']} | {item['score']:.1f} | {item['question_text']}... |")
+            lines.append(f"| {item['question_id']} | {fmt.fixed(item['score'])} | {item['question_text']}... |")
         
         lines.extend([
             "",
@@ -375,8 +377,8 @@ class ReportGenerator:
         
         for item in top_deltas:
             lines.append(
-                f"| {item['question_id']} | **+{item['delta']:.1f}** | "
-                f"{item['with_score']:.1f} | {item['without_score']:.1f} | "
+                f"| {item['question_id']} | **{fmt.signed(item['delta'])}** | "
+                f"{fmt.fixed(item['with_score'])} | {fmt.fixed(item['without_score'])} | "
                 f"{item['question_text']}... |"
             )
         
@@ -392,8 +394,8 @@ class ReportGenerator:
         
         for item in bottom_deltas:
             lines.append(
-                f"| {item['question_id']} | **{item['delta']:.1f}** | "
-                f"{item['with_score']:.1f} | {item['without_score']:.1f} | "
+                f"| {item['question_id']} | **{fmt.signed(item['delta'])}** | "
+                f"{fmt.fixed(item['with_score'])} | {fmt.fixed(item['without_score'])} | "
                 f"{item['question_text']}... |"
             )
         
@@ -410,8 +412,8 @@ class ReportGenerator:
         for cluster in clusters:
             lines.append(
                 f"| {cluster['topic']} | {_count_cell(cluster)} | "
-                f"{_shown(cluster['with_avg'])} | {_shown(cluster['without_avg'])} | "
-                f"**{_shown(cluster['delta_avg'], signed=True)}** |"
+                f"{fmt.fixed(cluster['with_avg'])} | {fmt.fixed(cluster['without_avg'])} | "
+                f"**{fmt.signed(cluster['delta_avg'])}** |"
             )
             
         # ── Source Breakdown ─────────────────────────────────────────────
@@ -428,8 +430,8 @@ class ReportGenerator:
             for src in sources_summary:
                 lines.append(
                     f"| {src['source_type']} | {_count_cell(src)} | "
-                    f"{_shown(src['with_avg'])} | {_shown(src['without_avg'])} | "
-                    f"**{_shown(src['delta_avg'], signed=True)}** |"
+                    f"{fmt.fixed(src['with_avg'])} | {fmt.fixed(src['without_avg'])} | "
+                    f"**{fmt.signed(src['delta_avg'])}** |"
                 )
         
         # ── Failure Analysis section ─────────────────────────────────────
@@ -449,7 +451,7 @@ class ReportGenerator:
             total_q = failure_summary.get("total", 1)
             for label, display in DIAGNOSIS_LABELS.items():
                 count = counts.get(label, 0)
-                rate = f"{count / total_q:.0%}" if total_q else "n/a"  # the pipeline may judge 0 answers
+                rate = fmt.percent(count / total_q) if total_q else "n/a"  # the pipeline may judge 0 answers
                 desc = DIAGNOSIS_DESCRIPTIONS.get(label, "")
                 lines.append(f"| {display} | {count} | {rate} | {desc} |")
 
@@ -473,7 +475,7 @@ class ReportGenerator:
                         if k != "delta" and v is not None
                     )
                     lines.append(
-                        f"| {e['question_id']} | **{(e.get('delta') or 0):+.1f}** "
+                        f"| {e['question_id']} | **{fmt.signed(e.get('delta') or 0)}** "
                         f"| {display} | {ev_str} |"
                     )
 
@@ -496,29 +498,26 @@ class ReportGenerator:
             lines.append("### Topics Needing Doc Improvements:")
             lines.append("")
             for c in worst_clusters[:5]:
-                lines.append(f"- **{c['topic']}** (delta: {c['delta_avg']:+.1f})")
+                lines.append(f"- **{c['topic']}** (delta: {fmt.signed(c['delta_avg'])})")
         
         return "\n".join(lines)
 
 
-def _stat_block(s: Any, mean: float, low: float, high: float) -> Dict[str, Optional[float]]:
-    """avg, min and max of one statistic, rounded; all None when no question is a complete pair."""
-    if not s.paired:
-        return {"avg": None, "min": None, "max": None}  # no complete pair: no value, not a zero
+def _stat_block(
+    s: Any, mean: Optional[float], low: Optional[float], high: Optional[float]
+) -> Dict[str, Optional[float]]:
+    """avg, min and max of one statistic, rounded; all None when no question is a complete pair or the statistic has no value."""
+    if not s.paired or mean is None or low is None or high is None:
+        return {"avg": None, "min": None, "max": None}  # no value, not a zero
     return {"avg": round(mean, 1), "min": round(low, 1), "max": round(high, 1)}
-
-
-def _shown(value: Optional[float], signed: bool = False) -> str:
-    """A statistic for the page: an em dash where no complete pair gives it a value."""
-    if value is None:
-        return "—"
-    return f"{value:+.1f}" if signed else f"{value:.1f}"
 
 
 def _overall_advice(stats: Dict[str, Any]) -> List[str]:
     """The Overall recommendation lines; no conclusion is drawn without a complete pair."""
     if not stats["paired_questions"]:
         return ["⚪ **Overall:** no complete pairs, so no conclusion can be drawn."]
+    if stats["delta"]["avg"] is None:
+        return ["⚪ **Overall:** a paired difference leaves the float range, so there is no delta and no conclusion."]
     if stats["delta"]["avg"] < 0:
         return ["⚠️ **Overall:** Documentation is hurting answer quality. Consider:",
                 "- Improving retrieval relevance",
@@ -541,7 +540,7 @@ def _arm_means(evaluations: Sequence[Record]) -> Dict[str, Any]:
         "unpaired": s.unpaired,
         "with_avg": None if not s.paired else round(s.with_mean, 1),
         "without_avg": None if not s.paired else round(s.without_mean, 1),
-        "delta_avg": None if not s.paired else round(s.delta_mean, 1),
+        "delta_avg": None if s.delta_mean is None or not s.paired else round(s.delta_mean, 1),
     }
 
 
@@ -557,8 +556,11 @@ def _complete_pairs(evaluations: Sequence[Record]) -> List[Record]:
 
 def _unpaired_note(stats: Dict[str, Any]) -> List[str]:
     """A line saying what the overall means leave out; nothing when every question is paired."""
+    overflow = stats.get("delta_overflow_questions", 0)
+    pairs = "pair differs" if overflow == 1 else "pairs differ"
+    note = [f"_No delta: {overflow} complete {pairs} by more than the float range._", ""] if overflow else []
     if not stats["unpaired_questions"]:
-        return []
+        return note
     if not stats["paired_questions"]:
         return [f"_No complete pairs: {stats['unpaired_questions']} unpaired questions, "
                 "so no arm mean or delta is given._", ""]
@@ -566,4 +568,4 @@ def _unpaired_note(stats: Dict[str, Any]) -> List[str]:
         f"_Averages, min/max, delta and the top/bottom tables are over the {stats['paired_questions']} complete pairs; "
         f"{stats['unpaired_questions']} unpaired (scored in one arm only) left out._",
         "",
-    ]
+    ] + note

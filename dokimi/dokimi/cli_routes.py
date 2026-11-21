@@ -79,8 +79,8 @@ ROOTS: tuple[Root, ...] = (
     Root("catalog", "Subjects"),
     Root("docs", "Subjects"),
     Root("skill", "Subjects"),
-    Root("novelty", "Subjects"),
     Root("repo", "Subjects"),
+    Root("memory", "Subjects"),
     Root("eval", "Evals"),
     Root("tools", "Analysis and data"),
     Root("trace", "Analysis and data"),
@@ -97,6 +97,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("report", "eval"), FREE),
     Leaf(("report", "generate"), FREE),
     Leaf(("report", "model-compare"), FREE),
+    Leaf(("report", "summary"), FREE),
     Leaf(("answers", "generate"), PAID),
     Leaf(("benchmark", "run"), PAID),
     Leaf(("benchmark", "preflight"), FREE),
@@ -125,11 +126,12 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("skill", "novelty", "probe"), PAID),
     Leaf(("skill", "novelty", "ground"), FREE),
     Leaf(("skill", "novelty", "items"), FREE),
+    Leaf(("skill", "novelty", "view"), FREE),
     Leaf(("skill", "shorten"), PAID),
     Leaf(("skill", "check"), FREE),
     Leaf(("skill", "routing"), PAID),
     Leaf(("catalog", "routing"), PAID),
-    Leaf(("novelty", "view"), FREE),
+    Leaf(("catalog", "routing-compare"), FREE),
     Leaf(("repo", "validate"), FREE),
     Leaf(("repo", "scan"), FREE),
     Leaf(("repo", "inspect"), FREE),
@@ -175,6 +177,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "export"), FREE),
     Leaf(("data", "import", "docling"), FREE),
     Leaf(("tools", "preference"), PAID),
+    Leaf(("memory", "lint"), FREE),
     Leaf(("trace", "inspect"), FREE),
     Leaf(("trace", "consistency"), FREE),
     Leaf(("trace", "prefilter"), FREE),
@@ -358,7 +361,7 @@ def _legacy_competitor(ref: str) -> str:
     return _legacy_artifact(ref)
 
 
-# The moves of #94 M1-M3 and D11. Not yet: `novelty view` (the proposal maps it to `report $RUN`).
+# The moves of #94 M1-M3 and D11. `novelty view` waits for L5 as `report $RUN`; until then it is `skill novelty view`.
 # A bare retired root comes last: the first match wins, and a root matches every path under it.
 TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("tasks", "inspect"), ("eval", "inspect")),
@@ -388,6 +391,7 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("novelty", "items"), ("skill", "novelty", "items")),
     Tombstone(("novelty", "shorten"), ("skill", "shorten")),
     Tombstone(("novelty", "routing"), ("skill", "routing"), rewrite=_novelty_routing_argv),
+    Tombstone(("novelty", "view"), ("skill", "novelty", "view")),
     Tombstone(("catalog", "scan"), ("catalog", "check")),
     Tombstone(("library", "intents"), ("catalog", "intents")),
     Tombstone(("library", "list"), ("catalog", "list"), ("--kind", "product")),
@@ -413,6 +417,7 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("product",), ("catalog",)),
     Tombstone(("dataset",), ("data", "export")),
     Tombstone(("ingest",), ("data", "import")),
+    Tombstone(("novelty",), ("skill", "novelty")),
 )
 
 SCHEMA_VERSION = "cli_routes.v1"
@@ -489,7 +494,8 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
         name, equals, value = token.partition("=")
         for move in FLAG_MOVES:
             if name == move.old and (not move.leaves or leaf in move.leaves):
-                rewritten[index] = f"{move.new}{equals}{value}"
+                # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
+                rewritten[index] = move.new if "=" in move.new else f"{move.new}{equals}{value}"
                 changed = True
                 break
     return rewritten if changed else None

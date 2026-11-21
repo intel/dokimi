@@ -57,7 +57,7 @@ def register_check(skill_sub) -> None:
 
 
 def register_skill(skill_sub, positive_int) -> None:
-    """Add `skill novelty` (analyze, atoms, probe, items) and `skill shorten` (#94 M2)."""
+    """Add `skill novelty` (analyze, atoms, probe, ground, items, view) and `skill shorten` (#94 M2)."""
     from dokimi.commands.novelty import (
         _add_bundle_args,
         _add_common,
@@ -67,6 +67,7 @@ def register_skill(skill_sub, positive_int) -> None:
         cmd_novelty_items,
         cmd_novelty_probe,
         cmd_novelty_shorten,
+        cmd_novelty_view,
     )
     from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
@@ -106,7 +107,7 @@ def register_skill(skill_sub, positive_int) -> None:
                                 "study ~1000 on the same 1,700-word skill. Every tier records "
                                 "the claims it forfeits into run_config and the artifact's "
                                 "warnings. An explicit flag always wins over the tier")
-    analyze_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
+    cli_flags.add(analyze_p, "dry_run", "--dry-run", action="store_true", dest="estimate_only",
                            help="Print the projected model-call bill and exit without "
                                 "spending anything")
     _add_bundle_args(analyze_p, positive_int)
@@ -136,15 +137,24 @@ def register_skill(skill_sub, positive_int) -> None:
     probe_p.set_defaults(func=stops_at_cap(cmd_novelty_probe))
 
     ground_p = novelty_sub.add_parser(
-        "ground", help="Add identifier vetoes from a tool's own --help to an atoms file"
+        "ground", help="Add identifier vetoes from a tool's --help or a C API to an atoms file"
     )
     ground_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
-    ground_p.add_argument("--tool", action="append", required=True,
+    ground_p.add_argument("--tool", action="append", default=None,
                           help="Command whose --help lists the valid options, e.g. "
                                "'perf report'. Repeatable; an atom gets the check of each "
                                "tool it names")
     ground_p.add_argument("--tool-version", default=None, dest="tool_version",
                           help="Version recorded with the help snapshot")
+    ground_p.add_argument("--header", action="append", default=None, metavar="PATH",
+                          help="C header whose API names are known (glob ok). Repeatable; "
+                               "needs --prefix")
+    ground_p.add_argument("--shared-lib", action="append", default=None, dest="shared_lib", metavar="PATH",
+                          help="Shared library whose exported symbols (nm -D) are known. "
+                               "Repeatable; needs --prefix")
+    ground_p.add_argument("--prefix", action="append", default=None, metavar="PREFIX",
+                          help="C identifier prefix ending in '_' (e.g. cblas_) that scopes "
+                               "--header and --shared-lib: only names with it are checked. Repeatable")
     ground_p.add_argument("--out", default=None, help="Default: rewrite --atoms in place")
     from dokimi.commands.novelty_ground import cmd_novelty_ground
 
@@ -162,6 +172,14 @@ def register_skill(skill_sub, positive_int) -> None:
                               "(default: the artifact arm)")
     items_p.add_argument("--out", default=None)
     items_p.set_defaults(func=cmd_novelty_items)
+
+    # Was `novelty view` (#94 M3 tail): re-render the saved artifact; no model calls.
+    view_p = novelty_sub.add_parser("view", help="Re-render the annotated artifact view")
+    view_p.add_argument("--novelty", required=True, help="novelty.json from `skill novelty analyze`")
+    view_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
+    view_p.add_argument("--format", default="html", choices=["html", "md"])
+    view_p.add_argument("--out", default=None)
+    view_p.set_defaults(func=cmd_novelty_view)
 
     shorten_p = skill_sub.add_parser(
         "shorten", help="Score shortening candidates on tokens/knowledge/value/protection/routing"

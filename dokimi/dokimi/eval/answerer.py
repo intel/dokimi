@@ -59,6 +59,22 @@ ANSWER_PROMPT_WITH_DOCS_VERBATIM = """Relevant documentation:
 {question}"""
 
 
+def _ground_truth_fields(question: Dict[str, Any]) -> Dict[str, Any]:
+    """The ground truth of a chunk-grounded question, for the answer record (none for other questions)."""
+    if not question.get("ground_truth_chunk"):
+        return {}
+    return {"ground_truth_chunk": question["ground_truth_chunk"],
+            "question_source": question.get("question_source", "chunk")}
+
+
+def _terminated_block(stop_error: Optional[Exception], requested: Optional[int], recorded: int) -> Dict[str, Any]:
+    """The ``terminated`` block of a run that a run-wide error stopped: the file says it is not the whole run."""
+    if stop_error is None:
+        return {}
+    return {"terminated": {"reason": str(stop_error), "questions_requested": requested,
+                           "questions_recorded": recorded}}
+
+
 class Answerer:
     """
     Generate answers to questions using LLM.
@@ -68,6 +84,9 @@ class Answerer:
     - Baseline: answer from LLM knowledge only.
     """
     
+    #: The run's intent, stamped on the answers file (``knowledge`` or ``paired``); ``None`` is a legacy file.
+    run_intent: Optional[str] = None
+
     def __init__(
         self,
         mcp_client=None,
@@ -148,7 +167,9 @@ class Answerer:
         lock = threading.Lock()
         completed = [0]
 
-        stop = threading.Event()  # set by a failed save: queued questions are skipped, not paid for
+        stop = threading.Event()  # set by a failed save or a run-wide error: queued questions are skipped
+        self.stop_error = None
+        self.questions_requested = n
 
         def _process(idx: int, q: Dict) -> None:
             if stop.is_set():
@@ -166,6 +187,10 @@ class Answerer:
                 )
             except Exception as e:  # noqa: BLE001 - the failure is stored on the pair and reported
                 failure = e
+                if getattr(e, "run_wide", False) is True:  # a CLI usage limit or login: queued questions are not paid for
+                    stop.set()
+                    self.stop_error = e  # the command exits nonzero after it saves what was answered
+                done_conditions = getattr(e, "partial_conditions", None) or {}
                 pair = {
                     "question_id": q_id,
                     "question_text": q.get("question") or q.get("text", ""),
@@ -175,7 +200,9 @@ class Answerer:
                     "persona": q.get("persona"),
                     "error": str(e),
                     "with_docs": None,
-                    "without_docs": None
+                    "without_docs": None,
+                    **done_conditions,
+                    **_ground_truth_fields(q),  # a kept context answer is graded with its question's rubric
                 }
             elapsed = time.time() - t0
             with lock:
@@ -202,17 +229,23 @@ class Answerer:
             for f in as_completed(futures):
                 f.result()  # wait for completion
 
-        answers = [results[i] for i in range(n)]
+        answers = [results[i] for i in sorted(results)]
+        self._print_summary(answers, n)
+        return answers
+
+    def _print_summary(self, answers: List[Dict[str, Any]], n: int) -> None:
+        if len(answers) < n:
+            print(f"  Stopped: {n - len(answers)} of {n} questions not asked (run-wide error)", flush=True)
         ok_with = sum(1 for a in answers if a.get("with_docs"))
         ok_without = sum(1 for a in answers if a.get("without_docs"))
         errors = sum(1 for a in answers if a.get("error"))
 
         print("\n✓ Generated answers:", flush=True)
-        print(f"  Context arm:  {ok_with}/{n}", flush=True)
+        if self.mcp_client is not None:  # a knowledge run (--doc-source none) has no context arm to count
+            print(f"  Context arm:  {ok_with}/{n}", flush=True)
         print(f"  Baseline:     {ok_without}/{n}", flush=True)
         if errors:
             print(f"  Errors:       {errors}", flush=True)
-        return answers
     
     def _generate_answer_pair(
         self,
@@ -268,9 +301,14 @@ class Answerer:
         else:
             logger.warning(f"No MCP client - skipping context arm for {qid}")
         
-        # Baseline
-        without_docs_answer = self._generate_without_docs(question_text, verbatim=verbatim)
-        
+        # Baseline. A failure here keeps the context answer already paid for (with its telemetry).
+        try:
+            without_docs_answer = self._generate_without_docs(question_text, verbatim=verbatim)
+        except Exception as exc:
+            carrier: Any = exc  # the pair's completed condition rides on the error for the caller
+            carrier.partial_conditions = {"with_docs": with_docs_answer, "without_docs": None}
+            raise
+
         result = {
             "question_id": qid,
             "question_text": question_text,
@@ -281,10 +319,7 @@ class Answerer:
             "with_docs": with_docs_answer,
             "without_docs": without_docs_answer,
         }
-        # Preserve ground truth chunk for chunk-grounded questions
-        if question.get("ground_truth_chunk"):
-            result["ground_truth_chunk"] = question["ground_truth_chunk"]
-            result["question_source"] = question.get("question_source", "chunk")
+        result.update(_ground_truth_fields(question))
         return result
     
     def _retrieve_docs(
@@ -435,9 +470,12 @@ class Answerer:
         return {
             "generated_at": self._get_timestamp(),
             "method_version": ANSWERING_METHOD_VERSION,
+            **({"run_intent": self.run_intent} if self.run_intent else {}),
             "model": self.model,
             "provider": self.provider,
             "total_questions": len(answers),
+            **_terminated_block(getattr(self, "stop_error", None), getattr(self, "questions_requested", None),
+                                len(answers)),
             "token_usage_summary": total_usage,
             "answers": answers,
         }

@@ -195,10 +195,7 @@ whose absolute calibration is poor.
    annotated HTML view of the artifact; `dokimi/gate/novelty_gate.py`
    turns the numbers into soft gates (the novelty track's use of `gate/`).
 
-Entry points: `python cli.py skill novelty {analyze,atoms,probe,items}`, `python cli.py skill shorten`,
-`python cli.py novelty view`, and
-`python cli.py subjects run` to attach the result to the subject scorecard it
-builds for that run.
+Entry points: `python cli.py skill novelty {analyze,atoms,probe,items,view}`, `python cli.py skill shorten`, and `python cli.py subjects run` to attach the result to the subject scorecard it builds for that run.
 
 Novelty is a property of the (artifact, model) pair, not of the file — the same
 skill is worth very different amounts to a frontier and to a small model, so the
@@ -302,7 +299,7 @@ next release.
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
   unreadable files (non-UTF-8, dangling or out-of-tree link), on imports past the harness's
   hop limit, and on a link at or below `.claude/rules` to a directory or out of the tree, or a root `.claude` link to a
-  directory with `rules/` or out of the tree, or a git submodule at `.claude` or at or below `.claude/rules` (the rules behind it are not counted at start), each of which also trips `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
+  directory with `rules/` or out of the tree, or a git submodule at `.claude` or at or below `.claude/rules` (the rules behind it are not counted at start), each of which also trips `--fail-on warn`. For a profile with `guidance.claude_rules` (Claude Code),
   `.claude/rules/**/*.md` files are `rule` entries: `start` in the root `.claude/rules/` when
   `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, but `start` whatever its `paths` when a root CLAUDE.md or
   AGENTS.md imports it, the frontmatter not counted. An `@` path in a rule is not followed, unless a CLAUDE.md or AGENTS.md
@@ -321,6 +318,10 @@ next release.
   into L0.
 - `dokimi/repos/bases.py` — checks that need every task base: each
   `base` must resolve, and the guidance globs are evaluated at each base.
+- `dokimi/repos/run_context.py` — builds the `run_context.v1` record
+  (`run_context.json` beside `events.jsonl`) from the start-up and closing
+  records the converters keep on the transcript, the command line, and config
+  digests taken before the agent starts; see `docs/repo-evaluation-contract.md` §4.9.
 - `dokimi/repos/events.py` — converts a harness trace to the
   `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
   Copilot JSON converters and the parser of the files a shell command prints
@@ -399,8 +400,8 @@ next release.
 
 Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,run,report}` (replay and authoring tasks: `eval tasks generate --from replay|prs`)
 (`python cli.py repo --help` is the current list). The interface a repository
-codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
-still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
+codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md).
+Its core is implemented, but the per-host egress proxy (§2) is not, so
 `repo run` needs `--agent-network` for an agent that must reach its model.
 
 ## Exploration quality
@@ -442,6 +443,12 @@ tool events; `dokimi/context/prefilter.py` matches a guidance file's rules
 against them (trigger, acted, corrected) and ranks candidates for ablation.
 Both are deterministic; `python cli.py trace prefilter`. Guide:
 [session-prefilter.md](session-prefilter.md).
+
+## Agent memory
+
+`dokimi/memory/store.py` reads a Claude Code auto-memory directory (`MEMORY.md`,
+topic files with YAML frontmatter, `archive/`); `dokimi/memory/lint.py` runs
+deterministic checks on it; `dokimi memory lint`. Guide: [memory.md](memory.md).
 
 ## Shared building blocks
 
@@ -524,7 +531,7 @@ runs `pip check` and the installed-package smoke test,
    hooks and bandit (pip-audit is its own workflow, `pip-audit.yml`). Schema checks: `schema_check` validates
    `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
    `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs
-   `repo scan` as a gate (`--fail-on-fail`).
+   `repo scan` as a gate (`--fail-on fail`).
 2. **mypy** — type check of the whole package (modules listed in the
    `pyproject.toml` override are exempt until fixed).
 3. **test** — pytest from `requirements.lock.txt`, offline, in parallel

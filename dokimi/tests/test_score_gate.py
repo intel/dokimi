@@ -81,3 +81,18 @@ def test_a_summary_without_a_score_fails_an_enabled_gate(kind):
     result = check_gate({}, _spec(kind, min_score=0.5), kind)
 
     assert (result.check("score").value, result.passed, result.status) == (0.0, False, "FAIL")
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_missing_score_is_listed_not_measured(kind):
+    result = check_gate({}, _spec(kind), kind)
+
+    assert result.not_measured == ["score"]
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_disabled_gate_lists_a_carried_score_as_measured(kind):
+    """Disabled means the gate is off, not that its input is missing."""
+    result = check_gate({"score": 0.10}, _spec(kind, enabled=False), kind)
+
+    assert (result.status, result.not_measured) == ("DISABLED", [])

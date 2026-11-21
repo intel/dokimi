@@ -62,11 +62,17 @@ header:
     # written verbatim as the agent's answer (.agent-eval/run.py).
     - '.agent-eval/tasks/**/*.patch'
     - '.agent-eval/tasks/**/oracle_answer.md'
+    # Generated study tables and figures (the judge-panel study's CSV and SVG, written by
+    # research/judge-panel): a header would break the CSV readers and is lost on regeneration.
+    - 'dokimi/docs/assets/judge-panel/**'
     # Changelog fragments (<timestamp>_<user>_<branch>.md) and the template
     # `scriv create` copies into each: `scriv collect` moves their text into
     # CHANGELOG.md, which carries the header itself.
     - 'dokimi/changelog.d/[0-9]*.md'
     - 'dokimi/changelog.d/fragment_template.md.j2'
+    # TLA+ specs and TLC configs carry the header in TLA+ comments, a style eyes does not know.
+    - 'dokimi/formal/**/*.tla'
+    - 'dokimi/formal/**/*.cfg'
     # Third-party eval files copied unchanged, under their own licenses
     # (dokimi/tests/fixtures/task_formats/MANIFEST.yaml, LICENSES/).
     - 'dokimi/tests/fixtures/task_formats/**'

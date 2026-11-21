@@ -32,7 +32,7 @@ RETAINED = "retained"
 ABSENT = "absent"
 CONTRADICTED = "contradicted"
 _VERDICTS = (RETAINED, ABSENT, CONTRADICTED)
-_CACHE_VERSION = b"retention-cache-v5\0"
+_CACHE_VERSION = b"retention-cache-v6\0"
 
 _STOP = frozenset("""
 a an the and or but if then than that this these those is are was were be been being
@@ -265,7 +265,8 @@ def _key(atom: Atom, text: str) -> str:
     # Bumped when what an entry means changes: every older entry is then not read.
     # The reason for each bump is in docs/skill-novelty.md, under the cache key.
     digest.update(_CACHE_VERSION)
-    digest.update(atom.statement.strip().encode("utf-8"))
-    digest.update(b"\0")
-    digest.update(text.encode("utf-8"))
+    statement = atom.statement.strip().encode("utf-8", "surrogatepass")  # model output and files can hold a lone surrogate
+    digest.update(len(statement).to_bytes(8, "big"))
+    digest.update(statement)
+    digest.update(text.encode("utf-8", "surrogatepass"))
     return digest.hexdigest()[:32]

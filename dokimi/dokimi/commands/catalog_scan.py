@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--jobs`` and ``--resume``.
+"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--concurrency`` and ``--resume``.
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
 ``description-near-duplicate``) need every skill reviewed together. This mode gives them up
@@ -9,7 +9,8 @@ and reviews one skill per row. Every SKILL.md body the scan finds is loaded befo
 memory grows with the catalog; lazy per-skill loading is #434). Rows are written in
 catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
 killed midway keeps the rows it wrote, and ``--resume`` reviews only the skills that have no
-row yet or whose directory changed since their row was written (its ``skill_sha256``).
+row yet, whose directory changed since their row was written (its ``skill_sha256``), or whose row
+another dokimi version wrote (``dokimi_version``).
 """
 
 from __future__ import annotations
@@ -19,22 +20,32 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
+from dokimi import __version__
+from dokimi.external.skill_format import UNSUPPORTED_CODE
 from dokimi.utils import InputError
 
 
 def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[Path] = (),
               ignore: frozenset = frozenset()) -> dict:
     """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
-    ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
-    when its frontmatter is broken YAML, and that review's finding is its only finding.
+    ``warn`` for a warning finding only, ``skipped`` for an unloaded skill that no format rule read (its
+    findings left no warning or error, whether or not ``--ignore`` dropped its note), else ``ok``. A skill
+    that did not load has a review only when its SKILL.md is plain Markdown or its frontmatter is broken YAML,
+    and that review's finding is its only finding.
     ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
     findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
     from dokimi.external.catalog_review import entry_relpath
-    from dokimi.external.validate import name_risky_commands, state_of
+    from dokimi.external.skill_format import not_a_failed_load
+    from dokimi.external.findings import state_of
+    from dokimi.external.validate import name_risky_commands
 
     kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
-    state = "error" if not skill.loaded else state_of(kept)
+    # An unloaded SKILL.md that is plain Markdown under OpenCode or an unsupported host is a warning or a note here, not a failed load (skill_format).
+    exempt = not skill.loaded and not_a_failed_load([f.code for f in review.findings] if review else [])  # before --ignore
+    state = "error" if not skill.loaded and not exempt else state_of(kept)
+    if not skill.loaded and exempt and state == "ok":
+        state = "skipped"  # not read by any format rule: not a pass, even when --ignore dropped its note
     return {
         "name": skill.name,
         "manifest_status": None if skill.status is None else str(skill.status),
@@ -42,14 +53,28 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "relpath": entry_relpath(skill),
         "nested_in": nested_in,
         "state": state,
-        "error": skill.error,
+        "error": None if exempt else skill.error,
         "disable_model_invocation": bool(review and review.disable_model_invocation),
         "content_sha256": review.content_sha256 if review else None,
         "skill_sha256": skill_dir_digest(skill, outputs),
+        "dokimi_version": __version__,
         "duplicate_of": review.duplicate_of if review else None,
         "ignored": sorted(ignore),
-        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
+        "findings": [{"level": f.level, "code": f.code, "message": f.message, **({"script": f.script} if f.script else {})}
+                     for f in kept],
     }
+
+
+def is_plain_markdown(row: dict) -> bool:
+    """Whether the row is a ``SKILL.md`` with no frontmatter: plain Markdown, not a broken skill."""
+    from dokimi.external.no_frontmatter import NO_FRONTMATTER
+
+    return any(f.get("code") == NO_FRONTMATTER for f in row["findings"])
+
+
+def plain_note(plain: int) -> str:
+    """The summary's note on the errors that are plain Markdown with no frontmatter; empty for none."""
+    return f", of them {plain} plain Markdown with no frontmatter" if plain else ""
 
 
 def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
@@ -80,9 +105,22 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
     return (out, out.with_name(out.name + ".part"))
 
 
+def _continued(message: str) -> str:
+    """``message`` with its continuation lines indented under the row, so a multi-line message stays in it."""
+    return message.replace("\n", "\n    ")
+
+
+NOT_CHECKED_CODES = ("description-when-not-checked", UNSUPPORTED_CODE)  # the notes that say a skill was not read
+
+
 def not_checked(row: dict) -> bool:
-    """Whether an ``ok`` row is only ok because the check did not read it (a ``description-when-not-checked`` note)."""
-    return row["state"] == "ok" and any(f["code"] == "description-when-not-checked" for f in row["findings"])
+    """Whether an ``ok`` row is only ok because the check did not read it (a ``NOT_CHECKED_CODES`` note)."""
+    return row["state"] == "ok" and any(f["code"] in NOT_CHECKED_CODES for f in row["findings"])
+
+
+def skipped_note(skipped: int) -> str:
+    """The summary's ``N skipped`` for the unloaded skills no format rule read; empty for none, as ``plain_note``."""
+    return f", {skipped} skipped" if skipped else ""
 
 
 def ok_text(ok: int, unchecked: int) -> str:
@@ -92,21 +130,26 @@ def ok_text(ok: int, unchecked: int) -> str:
 
 def print_skill_row(row: dict) -> None:
     if row["error"] is not None:
-        state = f"ERROR: {row['error']}"
+        state = f"ERROR: {_continued(row['error'])}"
     elif row["state"] == "ok" and not not_checked(row):
         state = "ok"
+    elif row["state"] == "skipped":
+        # An unloaded skill no format rule read: its note says why, and the state does not say ok.
+        note = row["findings"][0] if row["findings"] else None
+        state = "skipped" if note is None else f"skipped: {note['message']}"
     elif row["state"] == "ok":
         # A "not checked" note: the skill was not read, so it is not a pass and the state does not say ok.
-        note = next(f for f in row["findings"] if f["code"] == "description-when-not-checked")
+        note = next(f for f in row["findings"] if f["code"] in NOT_CHECKED_CODES)
         state = f"note: {note['message']}"
     else:
         worst = next(f for f in row["findings"] if f["level"] == row["state"])
-        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
+        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {_continued(worst['message'])}"
     print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
     for f in row["findings"]:
-        print(f"  {f['level']} {f['code']}: {f['message']}")
+        print(f"  {f['level']} {f['code']}: {_continued(f['message'])}")
     if row["disable_model_invocation"]:
-        print("  note disable-model-invocation: true (the model is never offered this skill)")
+        print("  note the model is never offered this skill"
+              " (disable-model-invocation, or opencode/autoinvoke: false under OpenCode)")
     if row["nested_in"] is not None:
         print(f"  note nested in {row['nested_in']}: a SKILL.md inside another skill's directory")
 
@@ -158,7 +201,7 @@ def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iter
     try:
         yield from pool.map(review, pairs, chunksize=32)
     except BrokenProcessPool as exc:
-        raise SystemExit("a --jobs worker process died; the rows written so far are kept: rerun with --resume") from exc
+        raise SystemExit("a --concurrency worker process died; the rows written so far are kept: rerun with --resume") from exc
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
@@ -192,25 +235,27 @@ class _Tally:
 
     def __init__(self, strict: bool) -> None:
         self.strict = strict
-        self.counts = {"ok": 0, "warn": 0, "error": 0}
+        self.counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
+        self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.not_checked = 0
         self.failed = False
         self.reasons: list[str] = []
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
+        self.plain += is_plain_markdown(row)
         self.not_checked += not_checked(row)
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
-        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
+        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):  # row error: None for a skill_format exemption
             self.failed = True
         reason = strict_reason(row) if self.strict else None
         if reason is not None:
             self.reasons.append(reason)
 
 
-_ROW_STATES = ("ok", "warn", "error")
+ROW_STATES = ("ok", "warn", "error", "skipped")
 
 
 def _is_row(row: object) -> bool:
@@ -218,7 +263,7 @@ def _is_row(row: object) -> bool:
         isinstance(row, dict)
         and isinstance(row.get("name"), str)
         and isinstance(row.get("relpath"), (str, type(None)))
-        and row.get("state") in _ROW_STATES
+        and row.get("state") in ROW_STATES
         and "error" in row
         and isinstance(row.get("findings"), list)
     )
@@ -248,8 +293,9 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
     *selected* maps each skill's key to its ``skill_sha256`` now. The file is read line by line and only
     the kept rows are held. A rewrite is due when a line is half-written, when the last line has no
     newline (the next row would be glued onto it), or when a row is for a skill this run does not
-    select, whose directory changed, or was written under other ``--ignore`` codes (the file must
-    match the counts printed).
+    select, whose directory changed, was written under other ``--ignore`` codes (the file must
+    match the counts printed), or was written by another dokimi version (or before the version was
+    recorded): a finding a newer version adds is not in the old row.
     """
     rows: list[dict] = []
     dirty = False
@@ -263,7 +309,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                     continue
                 key = _row_key(row)
                 if (key in selected and "skill_sha256" in row and row["skill_sha256"] == selected[key]
-                        and row.get("ignored", []) == sorted(ignore)):
+                        and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:
                     dirty = True
@@ -315,7 +361,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     counts = tally.counts
     where = f"; {resumed} resumed from {jsonl}" if jsonl is not None and resumed else ""
     print(f"# skills ({declared} declared under {root}; {ok_text(counts['ok'], tally.not_checked)}, {counts['warn']} warn, "
-          f"{counts['error']} error{where})")
+          f"{counts['error']} error{plain_note(tally.plain)}{skipped_note(counts['skipped'])}{where})")
     if jsonl is not None:
         print(f"rows written to {jsonl}")
     else:

@@ -42,7 +42,7 @@ def register(sub, positive_int) -> None:
     """Add the `backends` command."""
     p = sub.add_parser(
         "backends",
-        help="Coding-agent CLIs usable as --provider (claude-cli): installed, version, signed "
+        help="Coding-agent CLIs usable as --provider (claude-cli, codex-cli, copilot-cli): installed, version, signed "
         "in. No model call.",
     )
     p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (rows under data)")
