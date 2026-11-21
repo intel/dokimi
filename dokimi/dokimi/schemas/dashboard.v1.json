@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/dashboard.v1.json",
+  "title": "Dashboard data v1",
+  "description": "`dashboard.json` beside `DASHBOARD.md`, written by `dashboard generate` (dokimi.dashboard.aggregator.DashboardData): one entry per eval file found under `--results-dir`, its arm means over the complete pairs and its questions, worst first.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "products"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "dashboard.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "UTC, ISO 8601."
+    },
+    "products": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/product"
+      }
+    }
+  },
+  "$defs": {
+    "product": {
+      "type": "object",
+      "required": [
+        "product",
+        "library_key",
+        "evaluated_at",
+        "judge_model",
+        "total_questions",
+        "avg_with_docs",
+        "avg_without_docs",
+        "avg_delta",
+        "questions",
+        "source_file",
+        "by_source",
+        "doc_health"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "product": {
+          "type": "string",
+          "description": "The eval's library_name, else its product, else the file's stem."
+        },
+        "library_key": {
+          "type": "string"
+        },
+        "evaluated_at": {
+          "description": "Copied from the eval file as it is. \"\" when it has none."
+        },
+        "judge_model": {
+          "description": "Copied from the eval file as it is. \"unknown\" when it has none."
+        },
+        "total_questions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "avg_with_docs": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "avg_without_docs": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "avg_delta": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        },
+        "source_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "by_source": {
+          "type": "object",
+          "description": "question_source -> the means over its questions.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "count",
+              "grounded",
+              "avg_with_docs",
+              "avg_without_docs",
+              "avg_delta"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "grounded": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "avg_with_docs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "avg_without_docs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "avg_delta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "doc_health": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "The mean context score over every question, a retrieval miss counted as 0."
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "required": [
+        "question_id",
+        "question",
+        "with_docs_score",
+        "without_docs_score",
+        "delta",
+        "question_source",
+        "grounded",
+        "with_docs_dimensions",
+        "without_docs_dimensions",
+        "unjudged_miss"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "question_id": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "question": {
+          "type": "string"
+        },
+        "with_docs_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "without_docs_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "delta": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "question_source": {
+          "description": "Copied from the eval file as it is. \"persona\" when it has none."
+        },
+        "grounded": {
+          "type": "boolean"
+        },
+        "with_docs_dimensions": {
+          "type": "object",
+          "description": "The arm's numeric and boolean judge fields but `aggregate`, as the eval holds them: a dimension score, or `grounded` (eval/judge.py).",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "without_docs_dimensions": {
+          "type": "object",
+          "description": "The arm's numeric and boolean judge fields but `aggregate`, as the eval holds them: a dimension score, or `grounded` (eval/judge.py).",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "unjudged_miss": {
+          "type": "boolean",
+          "description": "The context score is the 0.0 of a retrieval miss the judge never saw."
+        }
+      }
+    }
+  }
+}

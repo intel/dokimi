@@ -135,8 +135,8 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
 - Commit with `git commit -s`: the repo is public and takes DCO sign-off
   (`CONTRIBUTING.md` at the root).
-- A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` /
-  `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
+- A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` (bar
+  `project.version`) / `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
   `dokimi/changelog.d/` (`scriv create`), never an edit to `CHANGELOG.md`; the
   `Fragment for package changes` step in `ci.yml`'s `static` job enforces it. Versioning and releases:
   `dokimi/docs/releasing.md`.

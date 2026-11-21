@@ -133,6 +133,11 @@
                     },
                     "path": {
                       "type": "string"
+                    },
+                    "script": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Only on a finding about one bundled script (`script-crlf`, `script-syntax`): its path relative to the skill directory, with `/` separators. `path` stays the skill's directory (#961)."
                     }
                   },
                   "required": [
@@ -234,6 +239,11 @@
           },
           "path": {
             "type": "string"
+          },
+          "script": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Only on a finding about one bundled script (`script-crlf`, `script-syntax`): its path relative to the skill directory, with `/` separators (#961)."
           }
         },
         "required": [

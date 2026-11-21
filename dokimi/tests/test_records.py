@@ -386,3 +386,18 @@ def test_an_arms_file_declaring_one_non_baseline_arm_is_not_a_knowledge_run():
 
     assert is_knowledge_run([], {"arms": ["docs"]}) is False
     assert is_knowledge_run([], {"arms": ["baseline"]}) is True
+
+
+def test_an_unstamped_record_that_tried_retrieval_and_missed_is_a_paired_run_not_a_knowledge_run():
+    """``retrieval_hit: false`` is set, so retrieval was tried, though the record holds no context block."""
+    legacy = records.record({"question_id": "q1", "retrieval_hit": False, "without_docs": {"answer": "b"}})
+    assert records.is_knowledge_run([legacy], {}) is False
+    untried = records.record({"question_id": "q1", "without_docs": {"answer": "b"}})
+    assert records.is_knowledge_run([untried], {}) is True
+
+
+def test_a_run_holding_only_the_context_condition_is_not_a_single_condition_run():
+    context_only = records.record({"question_id": "q1", "with_docs": {"answer": "w"}})
+    baseline_only = records.record({"question_id": "q1", "without_docs": {"answer": "b"}})
+    assert records.is_single_condition([context_only]) is False
+    assert records.is_single_condition([baseline_only]) is True

@@ -63,13 +63,28 @@ def test_a_ref_with_a_scheme_gets_no_digest_even_when_a_directory_collides(tmp_p
     assert distribution_digest("context7:/org/lib", base=tmp_path) is None
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the pinned digest hashes the POSIX separator of sub/é.md")
 def test_a_directory_ref_of_utf8_names_keeps_its_digest(tmp_path: Path):
     (tmp_path / "ok.md").write_bytes(b"ok\n")
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "é.md").write_bytes(b"two\n")
     assert _digest_ref(str(tmp_path), base=tmp_path) == (
-        "sha256:b81d3e4952432273d79f200d2d22373cefe695e569138fe2d6feab66fa962a76")
+        "sha256:8bebaf0c5b5da4acb85facaa866ec8beabd87373df2c2f38f0fc86a655e1303f")  # gitleaks:allow
+
+
+def test_a_directory_ref_digests_posix_names_in_case_sensitive_order(tmp_path: Path):
+    # The same tree on Windows: "/" in the name, and B.md before a.md, as on Linux.
+    # By components a/b comes before a-c, though the string "a-c" sorts before "a/b".
+    (tmp_path / "a.md").write_bytes(b"a")
+    (tmp_path / "B.md").write_bytes(b"b")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "b").write_bytes(b"ab")
+    (tmp_path / "a-c").write_bytes(b"ac")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "x.md").write_bytes(b"x")
+    h = hashlib.sha256(b"d")
+    for name, content in (("B.md", b"b"), ("a/b", b"ab"), ("a-c", b"ac"), ("a.md", b"a"), ("sub/x.md", b"x")):
+        h.update(hashlib.sha256(name.encode()).digest() + hashlib.sha256(content).digest())
+    assert _digest_ref(str(tmp_path), base=tmp_path) == "sha256:" + h.hexdigest()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a name that is not UTF-8 cannot be created on Windows")
@@ -89,7 +104,7 @@ def test_a_directory_ref_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_pa
 
 def test_a_ref_that_is_no_path_keeps_its_digest(tmp_path: Path):
     assert _digest_ref("no-such-é", base=tmp_path) == (
-        "sha256:63661dbcb1a932eeb0f6555a4df5f16b59516d27e1d56d1ce19777691bf1b78a")
+        "sha256:3124a1d714c608077eca68f5b382e3db438cc8826e0523d3e82768e517f08f9b")  # gitleaks:allow
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
@@ -120,6 +135,125 @@ def test_each_part_of_a_combined_spec_with_a_lone_surrogate_is_digested(tmp_path
     assert [part for part, _ in content_refs(spec)] == ["skill:./a", "skill:./n\udcff"]
     digest = _digest_arm_spec(spec, base=tmp_path)
     assert digest.startswith("sha256:") and digest != _digest_arm_spec("skill:./a+skill:./n\udcfe", base=tmp_path)
+
+
+def _tree(root: Path, files: dict[str, bytes]) -> str:
+    root.mkdir()
+    for name, content in files.items():
+        (root / name).write_bytes(content)
+    digest = _digest_ref(str(root), base=root)
+    assert digest is not None
+    return digest
+
+
+def test_a_nul_in_a_file_cannot_move_bytes_into_the_next_file_name(tmp_path: Path):
+    # #878: a = "b" and c = "" hashed the same bytes as a = "b\0c\0" alone.
+    two = _tree(tmp_path / "s1", {"a": b"b", "c": b""})
+    one = _tree(tmp_path / "s2", {"a": b"b\0c\0"})
+    assert two != one
+
+
+def test_a_nul_in_a_file_cannot_move_bytes_into_the_next_value(tmp_path: Path):
+    # #878: ("f", "c") with f = "b" hashed the same bytes as ("f",) with f = "bc\0".
+    f = tmp_path / "f"
+    f.write_bytes(b"b")
+    pair = _digest_values((str(f), "c"))
+    f.write_bytes(b"bc\0")
+    assert _digest_values((str(f),)) != pair
+
+
+def test_a_file_value_whose_content_spells_the_next_value_differs_from_the_two_values(tmp_path: Path):
+    # #892 review: the file's content digest was the same bytes as the digest of a following value spelled as that content.
+    f = tmp_path / "f"
+    f.write_bytes(b"missing-question")
+    single = _digest_values((str(f),))
+    f.unlink()
+    assert _digest_values((str(f), "missing-question")) != single
+
+
+def test_a_file_ref_digest_is_the_sha256_of_its_content(tmp_path: Path):
+    # The schema's ref_digest text and evidence.py's content_digest say a file's digest is its content digest.
+    (tmp_path / "SKILL.md").write_bytes(b"body\n")
+    assert _digest_ref("SKILL.md", base=tmp_path) == "sha256:" + hashlib.sha256(b"body\n").hexdigest()
+
+
+def test_a_value_naming_no_file_leaves_the_digest_unresolved(tmp_path: Path):
+    assert _digest_values((str(tmp_path / "nope"),)) is None
+
+
+def test_a_value_naming_a_file_is_tagged_with_the_digest_of_its_content(tmp_path: Path):
+    f = tmp_path / "f"
+    f.write_bytes(b"body\n")
+    assert _digest_values((str(f),)) == "sha256:" + hashlib.sha256(
+        hashlib.sha256(str(f).encode()).digest() + b"f" + hashlib.sha256(b"body\n").digest()).hexdigest()
+
+
+def test_an_arm_spec_digest_frames_the_spec_and_each_part_as_fixed_width_fields(tmp_path: Path):
+    # #878: the spec and each part were joined with a bare NUL, so this literal moved.
+    assert _digest_arm_spec("skill:./a+skill:./b", base=tmp_path) == (
+        "sha256:379da7938eee39f099be7c7b413df44ddbce217b3d4918f8299cf7cf7090a6bb")  # gitleaks:allow
+    assert _digest_arm_spec("baseline", base=tmp_path) == (
+        "sha256:f22917cace49ee841b942ac46ec9a946203ba2f89f8c816143557337cbcdf72c")  # gitleaks:allow
+
+
+def test_an_arm_spec_part_naming_a_file_differs_from_one_naming_no_file_spelled_as_its_content(tmp_path: Path):
+    f = tmp_path / "x"
+    f.write_bytes(b"t" + hashlib.sha256(b"./x").digest())
+    present = _digest_arm_spec("skill:./x", base=tmp_path)
+    f.unlink()
+    assert _digest_arm_spec("skill:./x", base=tmp_path) != present
+
+
+def test_an_arm_spec_part_naming_a_file_holding_d_differs_from_one_naming_an_empty_directory(tmp_path: Path):
+    (tmp_path / "x").write_bytes(b"d")
+    as_file = _digest_arm_spec("skill:./x", base=tmp_path)
+    (tmp_path / "x").unlink()
+    (tmp_path / "x").mkdir()
+    assert _digest_arm_spec("skill:./x", base=tmp_path) != as_file
+
+
+def test_a_file_ref_differs_from_a_missing_ref_spelled_as_its_content(tmp_path: Path):
+    (tmp_path / "doc.md").write_bytes(b"missing.md")
+    assert _digest_ref("doc.md", base=tmp_path) != _digest_ref("missing.md", base=tmp_path)
+
+
+def test_a_value_naming_an_empty_file_differs_from_a_value_naming_no_file(tmp_path: Path):
+    f = tmp_path / "f"
+    f.write_bytes(b"")
+    empty = _digest_values((str(f),))
+    f.unlink()
+    assert _digest_values((str(f),)) != empty
+
+
+def test_an_empty_file_ref_differs_from_a_missing_ref_spelled_as_the_same_path(tmp_path: Path):
+    (tmp_path / "present").mkdir()
+    (tmp_path / "present" / "e.md").write_bytes(b"")
+    (tmp_path / "absent").mkdir()
+    assert _digest_ref("e.md", base=tmp_path / "present") != _digest_ref("e.md", base=tmp_path / "absent")
+
+
+@pytest.mark.parametrize("digest", [
+    lambda f, base: _digest_ref(str(f), base=base),
+    lambda f, base: _digest_values((str(f),)),
+], ids=["ref", "values"])
+def test_rewriting_a_file_changes_its_digest(digest, tmp_path: Path):
+    f = tmp_path / "f"
+    f.write_bytes(b"a")
+    before = digest(f, tmp_path)
+    f.write_bytes(b"b")
+    assert digest(f, tmp_path) != before
+
+
+@pytest.mark.parametrize("digest", [
+    lambda text, base: _digest_ref(text, base=base),
+    lambda text, base: _digest_arm_spec(f"skill:./{text}", base=base),
+], ids=["ref", "arm_spec"])
+def test_a_high_surrogate_is_digested_and_told_apart(digest, tmp_path: Path):
+    # #795: a JSON "\ud800" escape has no surrogateescape byte form, so os.fsencode raised UnicodeEncodeError.
+    first = digest("n\ud800", tmp_path)
+    assert first.startswith("sha256:") and first == digest("n\ud800", tmp_path)
+    assert first != digest("n\ud801", tmp_path)
+    assert digest("n\udcff", tmp_path).startswith("sha256:")
 
 
 def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypatch):

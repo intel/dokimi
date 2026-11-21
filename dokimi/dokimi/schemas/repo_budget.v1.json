@@ -53,6 +53,6 @@
       "description": "Pairs of listed skills with near-duplicate descriptions; the agent picks between them from the listing alone."
     },
     "mcp_servers": {"type": "array", "items": {"type": "string"}, "description": "Server names in the root .mcp.json, sorted; their tools are listed by the server at start-up and not counted."},
-    "warnings": {"type": "array", "items": {"type": "string"}, "description": "What `repo budget --fail-on-warning` gates on: unreadable files, skills with no description, near-duplicate skills, AGENTS.md files turned off, imports past the harness's hop limit."}
+    "warnings": {"type": "array", "items": {"type": "string"}, "description": "What `repo budget --fail-on warn` gates on: unreadable files, skills with no description, near-duplicate skills, AGENTS.md files turned off, imports past the harness's hop limit."}
   }
 }

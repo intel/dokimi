@@ -273,7 +273,7 @@ def test_an_id_inside_a_code_fence_is_not_dangling(tmp_path):
 
 
 def test_an_attached_short_option_value_counts_as_its_option():
-    assert journeys.invoked(ROOT, "repo run --jobs", [["repo", "run", "src", "-j2"]])
+    assert journeys.invoked(ROOT, "repo run --concurrency", [["repo", "run", "src", "-j2"]])
 
 
 @pytest.mark.parametrize("entry, problem", [
@@ -331,7 +331,7 @@ def test_evidence_with_missing_id_is_rejected_even_without_outcome_contract(tmp_
 
 
 def test_a_real_anchor_and_surface_resolve(tmp_path):
-    entry = {"delivery": "available", "refs": ["doc.md#real-heading"], "surfaces": ["repo scan --fail-on-fail"]}
+    entry = {"delivery": "available", "refs": ["doc.md#real-heading"], "surfaces": ["repo scan --fail-on"]}
     assert _check(tmp_path, {"AC-J04-001": entry})["problems"] == []
 
 
@@ -485,11 +485,11 @@ def test_an_all_skipped_enforced_criterion_makes_the_session_inconclusive(pytest
 
 def test_an_enforced_surface_no_scenario_invokes_is_a_problem(tmp_path):
     entry = _enforced(SCAN)
-    entry["AC-J04-001"]["surfaces"] = ["repo scan --fail-on-fail"]
+    entry["AC-J04-001"]["surfaces"] = ["repo scan --fail-on"]
     report = _check(tmp_path, entry, results={"ev": ["passed"]},
                     invocations={"ev": [["repo", "scan", "src@HEAD", "--out=r.json"]]})
     assert report["verdict"] == "error"
-    assert any("no cli_scenario invokes the surface 'repo scan --fail-on-fail'" in p
+    assert any("no cli_scenario invokes the surface 'repo scan --fail-on'" in p
                for p in report["problems"])
 
 
@@ -503,11 +503,11 @@ def test_an_invoke_of_another_command_with_the_same_flag_does_not_cover_a_surfac
 
 
 def test_an_enforced_surface_a_scenario_declares_passes(tmp_path):
-    entry = _enforced({**SCAN, "invokes": ["repo scan --out", "repo scan --fail-on-fail"]})
-    entry["AC-J04-001"]["surfaces"] = ["repo scan --fail-on-fail"]
+    entry = _enforced({**SCAN, "invokes": ["repo scan --out", "repo scan --fail-on"]})
+    entry["AC-J04-001"]["surfaces"] = ["repo scan --fail-on"]
     report = _check(tmp_path, entry, results={"ev": ["passed"]},
                     invocations={"ev": [["repo", "scan", "s", "--out=r.json"],
-                                        ["repo", "scan", "s", "--fail-on-fail"]]})
+                                        ["repo", "scan", "s", "--fail-on", "fail"]]})
     assert report["problems"] == [] and report["verdict"] == "pass"
 
 
@@ -548,8 +548,8 @@ def test_the_journeys_report_must_be_json_and_its_directory_is_created(pytester,
 
 
 def test_a_short_alias_counts_as_its_long_option():
-    assert journeys.invoked(ROOT, "repo run --jobs", [["repo", "run", "src", "-j", "2"]])
-    assert journeys.invoked(ROOT, "repo run -j", [["repo", "run", "src", "--jobs=2"]])
+    assert journeys.invoked(ROOT, "repo run --concurrency", [["repo", "run", "src", "-j", "2"]])
+    assert journeys.invoked(ROOT, "repo run -j", [["repo", "run", "src", "--concurrency=2"]])
 
 
 def test_an_abbreviation_argparse_accepts_counts_as_its_option():
@@ -557,9 +557,9 @@ def test_an_abbreviation_argparse_accepts_counts_as_its_option():
 
 
 def test_text_after_the_separator_is_not_an_option():
-    # argparse reads this as source='--fail-on-fail' with fail_on_fail=False.
-    assert not journeys.invoked(ROOT, "repo scan --fail-on-fail", [["repo", "scan", "--", "--fail-on-fail"]])
-    assert "not '--'" in journeys.surface_problem(ROOT, "repo scan -- --fail-on-fail")
+    # after --, --fail-on is a positional, not the flag: argv is not a use of the flag.
+    assert not journeys.invoked(ROOT, "repo scan --fail-on", [["repo", "scan", "--", "--fail-on", "fail"]])
+    assert "not '--'" in journeys.surface_problem(ROOT, "repo scan -- --fail-on")
 
 
 def test_options_sharing_a_dest_stay_two_options():

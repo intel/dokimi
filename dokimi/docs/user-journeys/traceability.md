@@ -130,7 +130,7 @@ For `enforce: true` entries:
   leftover arguments; the command's handler need not have run. The plugin
   records those argvs while marked tests run, including from threads the test
   starts; a skipped or failed test contributes none. Options are compared as
-  argparse reads them: `-j` counts as `--jobs`, an abbreviation argparse accepts
+  argparse reads them: `-j` counts as `--concurrency`, an abbreviation argparse accepts
   counts as its option, and nothing after `--` is an option. Two options that
   share a `dest` (`--x`, `--no-x`) stay two options. A command written in a
   string, comment or docstring is not an invocation. The capture sees in-process
