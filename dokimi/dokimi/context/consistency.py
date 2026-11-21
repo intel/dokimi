@@ -79,11 +79,14 @@ class Run:
     calls_made: int = 0  # the next call's number, while a trace is read
 
     def calls(self) -> int:
-        """Tool calls made: a chained command (``a && b``) is several steps but one call."""
-        return len({e.call if e.call >= 0 else id(e) for e in self.events})
+        """Tool calls made: a chained command (``a && b``) is several steps but one call.
+
+        A blocked Stop hook is a step, not a call, so it is not counted.
+        """
+        return len({e.call if e.call >= 0 else id(e) for e in self.events if e.tool != "Hook"})
 
     def failed_calls(self) -> int:
-        return len({e.call if e.call >= 0 else id(e) for e in self.events if e.failed})
+        return len({e.call if e.call >= 0 else id(e) for e in self.events if e.failed and e.tool != "Hook"})
 
     def kinds(self) -> list[str]:
         return [e.kind for e in self.events]
@@ -182,8 +185,7 @@ def _assistant(run: Run, rec: dict[str, Any], message: dict[str, Any], content: 
 
 def _user(run: Run, content: list[Any], main: bool, by_id: dict[str, list[Event]]) -> None:
     if main and any(_text(b).startswith("Stop hook feedback") for b in content):
-        run.events.append(Event("Hook", "Hook:Stop", "Hook:Stop", {}, failed=True, call=run.calls_made))
-        run.calls_made += 1
+        run.events.append(Event("Hook", "Hook:Stop", "Hook:Stop", {}, failed=True))
     for block in content:
         if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
             # The trace does not say which chained command failed, so all of them may have:

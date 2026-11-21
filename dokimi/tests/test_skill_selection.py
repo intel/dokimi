@@ -228,8 +228,8 @@ def test_trigger_set_cli(tmp_path, catalog, capsys):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert [q["expected_skill"] for q in data["queries"]] == ["linux-perf", None]
     assert '"exam_framing": 1' in capsys.readouterr().out
-    with pytest.raises(SystemExit):  # --strict is a lint gate: 1, as on main
-        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--strict",
+    with pytest.raises(SystemExit):  # --fail-on warn is a lint gate: 1, as on main
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--fail-on", "warn",
                   "--questions", f"{qfile}=@metadata.skill_under_test", "--out", str(out)])
     with pytest.raises(InputError, match="PATH=LABEL"):
         _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog),
@@ -468,8 +468,8 @@ def test_trigger_set_cli_checks_each_source_and_inputs(tmp_path, catalog, capsys
         _run_cli(base + ["--questions", f"{bad}=none"])
     named = _qfile(tmp_path, "named.json", [{"id": "3", "text": "use linux-perf here"}])
     with refusal() as exc:
-        _run_cli(base + ["--strict", "--questions", f"{named}=linux-perf"])
-    assert exc.code == 1 and not out.exists()  # --strict is a lint gate: 1, as on main
+        _run_cli(base + ["--fail-on", "warn", "--questions", f"{named}=linux-perf"])
+    assert exc.code == 1 and not out.exists()  # --fail-on warn is a lint gate: 1, as on main
 
 
 def test_trigger_set_cli_writes_each_format(tmp_path, catalog, capsys):
@@ -688,8 +688,8 @@ def test_trigger_set_cli_strict_rejects_unresolved_labels(tmp_path, catalog, cap
     assert "1 questions have an unresolved" in captured.err and "(reach, 1 queries" in captured.out
     out.unlink()
     with refusal() as exc:
-        _run_cli(_ts(catalog, out, "--strict", "--questions", f"{q}=@metadata.s"))
-    assert exc.code == 1 and not out.exists()  # --strict is a lint gate: 1, as on main
+        _run_cli(_ts(catalog, out, "--fail-on", "warn", "--questions", f"{q}=@metadata.s"))
+    assert exc.code == 1 and not out.exists()  # --fail-on warn is a lint gate: 1, as on main
 
 
 def test_trigger_set_cli_rejects_questions_without_text(tmp_path, catalog):

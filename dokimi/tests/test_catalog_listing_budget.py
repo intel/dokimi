@@ -55,9 +55,9 @@ def test_the_total_is_name_description_and_when_to_use_in_characters(tmp_path, c
     assert len(ENTRY) == 27
 
 
-@pytest.mark.parametrize("scan", [[], ["--per-skill"], ["--per-skill", "--jobs", "2"]])
+@pytest.mark.parametrize("scan", [[], ["--per-skill"], ["--per-skill", "--concurrency", "2"]])
 def test_every_scan_path_reports_the_same_total(tmp_path, capsys, scan):
-    """#966: the whole-catalog scan, `--per-skill` and `--jobs` give one total."""
+    """#966: the whole-catalog scan, `--per-skill` and `--concurrency` give one total."""
     _alpha(tmp_path)
     _skill(tmp_path, "bravo", "Use when bravo runs.")
 
@@ -150,7 +150,7 @@ def test_the_budget_is_refused_for_a_tasks_scan(tmp_path, capsys):
     assert code == 2
 
 
-@pytest.mark.parametrize("scan", [[], ["--per-skill"], ["--per-skill", "--jobs", "2"]])
+@pytest.mark.parametrize("scan", [[], ["--per-skill"], ["--per-skill", "--concurrency", "2"]])
 def test_a_mirror_is_counted_once_as_the_routing_field_lists_it(tmp_path, capsys, scan):
     """#966: a byte-identical SKILL.md under another path is one card in the field (`routing.catalog_competitors`), so one entry in the total."""
     _alpha(tmp_path)

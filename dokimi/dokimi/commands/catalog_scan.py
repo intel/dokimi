@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--jobs`` and ``--resume``.
+"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--concurrency`` and ``--resume``.
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
 ``description-near-duplicate``) need every skill reviewed together. This mode gives them up
@@ -65,7 +65,8 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "listing_chars": listed_chars(review),
         "listing_name": skill.skill.name if skill.skill is not None else None,
         "ignored": sorted(ignore),
-        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
+        "findings": [{"level": f.level, "code": f.code, "message": f.message, **({"script": f.script} if f.script else {})}
+                     for f in kept],
     }
 
 
@@ -205,7 +206,7 @@ def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iter
     try:
         yield from pool.map(review, pairs, chunksize=32)
     except BrokenProcessPool as exc:
-        raise SystemExit("a --jobs worker process died; the rows written so far are kept: rerun with --resume") from exc
+        raise SystemExit("a --concurrency worker process died; the rows written so far are kept: rerun with --resume") from exc
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
@@ -412,7 +413,7 @@ def listing_total(rows: Iterable[dict]) -> int:
 def listing_failed(args, report: dict, as_json: bool) -> bool:
     """Apply ``--listing-budget`` to ``report["listing"]["chars"]``: one rule for every scan path (#966).
 
-    The whole-catalog scan, ``--per-skill``, ``--jobs`` and ``--resume`` all pass the total of their rows'
+    The whole-catalog scan, ``--per-skill``, ``--concurrency`` and ``--resume`` all pass the total of their rows'
     ``listing_chars`` here, so a kept row is checked against the cap of this run, not the one it was written under.
     Over the cap is a ``listing-over-budget`` warning, and exit 1 under ``--strict``; ``--ignore listing-over-budget``
     drops both and the line that carries the total. ``over_budget`` stays in the report either way.
