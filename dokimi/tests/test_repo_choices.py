@@ -346,3 +346,8 @@ def test_a_conda_channel_prefix_still_names_the_package(text):
 
 def test_a_missing_exit_code_gives_no_choice():
     assert _choice_of("pip install scipy", rc=None) == []
+
+
+@pytest.mark.parametrize("verb", ["add", "remove"])
+def test_uv_no_sync_gives_no_environment_choice(verb):
+    assert _choice_of(f"uv {verb} --no-sync scipy") == []

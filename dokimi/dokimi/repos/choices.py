@@ -244,6 +244,8 @@ def _manager_rest(words: list[str]) -> list[str]:
             rest = rest[2:] if rest[0] in _UV_VALUE_OPTIONS else rest[1:]
         if rest[:1] == ["pip"]:
             return rest[1:]
+        if "--no-sync" in rest:
+            return []
         return rest if rest[:1] in (["add"], ["remove"]) else []  # uv's project verbs: ``uv add`` installs a requirement
     if _PIP.fullmatch(head) or head in ("conda", "mamba", "poetry"):
         return words[1:]
