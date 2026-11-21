@@ -68,6 +68,16 @@ def test_a_user_who_is_not_root_does_not_try_to_change_the_owner(tmp_path, monke
     assert chowned == [(-1, target.stat().st_gid)]
 
 
+def test_a_system_without_fchown_still_replaces_the_report(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    monkeypatch.delattr(os, "fchown")
+    _fstat_of_another_owner(monkeypatch)
+    write_bytes_in_place_or_atomic(target, b"new")
+    assert (target.read_bytes(), target.stat().st_ino != before) == (b"new", True)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
 def test_a_failed_group_restore_closes_the_descriptor_and_keeps_the_old_report(tmp_path, monkeypatch):
     target = _report(tmp_path)
     opened, closed = [], []
