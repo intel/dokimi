@@ -342,6 +342,7 @@ def test_meaning_clashes_name_each_disagreement_with_its_registry_row():
     ("native|none", ["none", "native"], False),
     ("native|none", ["native", "none", "auto"], True),
     ("{warn,fail}", ["warn"], True),
+    ("{warn, fail}", ["warn", "fail"], False),
     ("FORMAT", ["json", "text"], False),
 ])
 def test_enumerated_choice_values_match_the_registry(value, choices, clashes):
