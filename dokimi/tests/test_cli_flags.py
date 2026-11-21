@@ -158,10 +158,10 @@ _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
     "usd": frozenset({"positive_usd", "_usd"}),
 }
 
-# Known clashes, keyed by (leaf, spelling, aspect): each waits for a later F1b migration and
-# changes no CLI behaviour now. A new clash fails unless its key is here.
+# Registry differences are keyed by (leaf, spelling, aspect). Some await an F1b migration.
+# Others document an intentional restriction, such as the levels a given gate can enforce.
 MEANING_EXCEPTIONS: dict[tuple[str, str, str], str] = {
-    ("dokimi catalog routing-compare", "--arm", "choices"): "Selects one of the built-in comparison arms.",
+    ("dokimi catalog routing-compare", "--arm", "choices"): "Selects a built-in comparison arm by name. The registry accepts [NAME=]REF.",
     ("dokimi eval triggers generate", "--fail-on", "choices"): "Only warnings can trigger this gate.",
     ("dokimi repo budget", "--fail-on", "choices"): "Only warnings can trigger this gate.",
     ("dokimi repo scan", "--fail-on", "choices"): "Only a failure can trigger this gate.",
