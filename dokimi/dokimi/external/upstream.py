@@ -311,7 +311,7 @@ def load_checkout(root: Path, order: int) -> tuple[Upstream, list[Version]]:
         raise ValueError(f"{root} is not a directory: --upstream takes the top level of a git checkout")
     top = _git(root, "rev-parse", "--show-toplevel")
     # git walks up from any directory to an enclosing repository: a plain folder inside one is not a checkout.
-    if top.returncode or Path(os.fsdecode(top.stdout_bytes.strip())).resolve() != root.resolve():
+    if top.returncode or Path(os.fsdecode(top.stdout_bytes.removesuffix(b"\n"))).resolve() != root.resolve():
         raise ValueError(f"{root} is not a git checkout: --upstream takes the top level of a git checkout")
     head = _git(root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
     if head.returncode:

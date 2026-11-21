@@ -700,3 +700,12 @@ def test_non_utf8_history_and_checkout_names_round_trip(tmp_path):
         row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
         assert (row["path"], row["removed_at_head"], row["at_head"]) == (path, False, bool(index))
         assert row["commit"] and row["date"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Windows restricts trailing whitespace in filenames")
+@pytest.mark.parametrize("suffix", [" ", "\n"])
+def test_checkout_path_preserves_trailing_whitespace(upstream_repo, tmp_path, suffix):
+    repo = upstream_repo.rename(tmp_path / ("checkout" + suffix))
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert row["match"] == "exact"
