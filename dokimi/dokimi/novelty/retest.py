@@ -152,7 +152,8 @@ def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> 
             continue
         a, b = first[ref], second[ref]
         score_a, score_b = _score(a, scoring), _score(b, scoring)
-        if (score_a is None or score_b is None or a.get("partial") or b.get("partial")
+        if (score_a is None or score_b is None or any(
+                "partial" in run or run.get("status") == "partial" for run in (a, b))
                 or _unprobed(a, scoring) or _unprobed(b, scoring)):
             unscored.append(ref)
             continue

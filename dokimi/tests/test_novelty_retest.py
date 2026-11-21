@@ -412,3 +412,15 @@ def test_confidence_correlation_is_the_pearson_r_of_confidence_and_correctness()
     result = MeasureResult.__new__(MeasureResult)
     result.runs = rows
     assert result.confidence_correlation() == pytest.approx(0.866, abs=0.001)
+
+
+@pytest.mark.parametrize("marker", [{"status": "partial"}, {"partial": {}}])
+@pytest.mark.parametrize("side", [0, 1])
+def test_partial_marker_excludes_either_member_of_a_pair(marker, side):
+    ref = "skill:/s/a"
+    runs = [{ref: _artifact(ref, 0.5, seed=seed)} for seed in (1, 2)]
+    runs[side][ref].update(marker)
+    result = pair_runs(*runs, "lenient")
+    assert result["pairs"] == []
+    assert result["unscored"] == [ref]
+    assert any("partial" in warning for warning in result["warnings"])
