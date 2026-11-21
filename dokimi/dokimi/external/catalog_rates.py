@@ -29,7 +29,7 @@ class RateTally:
 
     def __init__(self, root: Path) -> None:
         self.root = root
-        self._abs_root = Path(os.path.abspath(root))
+        self._abs_root = Path(os.path.realpath(root))
         self.skills: Counter[str] = Counter()  # repo -> skills
         self.states: dict[str, Counter[str]] = defaultdict(Counter)  # state -> repo -> skills
         self.codes: dict[str, Counter[str]] = defaultdict(Counter)  # code -> repo -> skills with the code
@@ -48,14 +48,15 @@ class RateTally:
     def _repo(self, relpath: Optional[str]) -> str:
         """The row's repo key: its nearest ``.git`` ancestor under the root, or ``.``.
 
-        The path is normalised lexically against the root first, so a ``..`` or an absolute path under a
-        relative root names its repo the same way as the plain relative path. Alternate names for the same
-        repository directory share a bucket.
+        Follow directory symlinks before walking the ancestors, so a subsequent ``..`` uses the target
+        directory and a link to the scan root stays in its root bucket.
         """
         if not relpath:
             return "."
-        rel = os.path.relpath(os.path.join(self._abs_root, relpath), self._abs_root)
-        parts = tuple(part for part in rel.split(os.sep) if part not in ("", "."))
+        directory = Path(os.path.realpath(self._abs_root / relpath))
+        if not directory.is_relative_to(self._abs_root):
+            return "."
+        parts = directory.relative_to(self._abs_root).parts
         for end in range(len(parts), 0, -1):
             prefix = parts[:end]
             if prefix not in self._repos:

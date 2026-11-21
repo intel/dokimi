@@ -217,3 +217,25 @@ def test_filesystem_without_inode_numbers_keeps_different_repos(tmp_path, monkey
         tally.add(_row("a/s", "ok"))
         tally.add(_row("b/t", "warn"))
         assert tally.summary()["repos"] == 2
+
+
+def test_symlink_then_parent_follows_the_target_repository(tmp_path):
+    _repo(tmp_path, "a")
+    _repo(tmp_path, "b")
+    (tmp_path / "b/sub").mkdir()
+    (tmp_path / "a/link").symlink_to(tmp_path / "b/sub", target_is_directory=True)
+    tally = RateTally(tmp_path)
+    for path, state in [("a/s1", "warn"), ("a/link/../s2", "ok"), ("b/s3", "ok")]:
+        tally.add(_row(path, state))
+    assert tally.summary()["states"]["warn"]["repo_rate"] == 0.5
+
+
+def test_alias_of_root_shares_its_fallback_bucket(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "alias").symlink_to(tmp_path, target_is_directory=True)
+    tally = RateTally(tmp_path)
+    for path, state in [("s1", "warn"), ("s2", "ok"), ("alias/s3", "ok")]:
+        tally.add(_row(path, state))
+    assert tally.summary()["repos"] == 1
+    assert tally.summary()["states"]["warn"]["repo_rate"] == 0.3333
+    assert text_lines(tally.summary()) == []
