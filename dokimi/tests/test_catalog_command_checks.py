@@ -858,6 +858,19 @@ def test_a_stdout_sent_to_stderr_that_no_longer_joins_the_pipe_feeds_a_shell_not
     assert _found(_review(tmp_path, _fenced(line)), "install-unpinned") == []
 
 
+@pytest.mark.parametrize("command", ["echo", "printf"])
+def test_a_stderr_duplicated_onto_itself_keeps_joining_the_pipe(tmp_path, command):
+    line = f"{command} 'pip install requests' 2>&1 2>&2 >&2 | sh"
+    assert "pip requests" in _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message
+
+
+@pytest.mark.parametrize("command", ["echo", "printf"])
+@pytest.mark.parametrize("word", ["example-2", "a.2", "x:2", "'q'2"])
+def test_a_2_ending_an_argument_is_not_a_descriptor(tmp_path, command, word):
+    line = f"{command} 'pip install requests' {word}>&1 >&2 | sh"
+    assert _found(_review(tmp_path, _fenced(line)), "install-unpinned") == []
+
+
 def test_nested_echo_not_piped_to_a_shell_is_still_printed(tmp_path):
     assert _found(_review(tmp_path, _fenced("echo \"$(echo 'pip install requests')\"")), "install-unpinned") == []
 

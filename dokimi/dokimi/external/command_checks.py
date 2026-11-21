@@ -348,11 +348,11 @@ def _other(code, i, start, echo):
             end += 1
         return False, end, echo if echo is None else echo + [(i, end, True)]  # a comment never runs, even piped
     before = code[i - 2:i - 1]
-    stderr = code[i] == ">" and code[i - 1] == "2" and not (before.isalnum() or before == "_")  # fd 2, not 12 or _2
+    stderr = code[i] == ">" and code[i - 1] == "2" and (before == "" or before in " \t\n;&|()")  # a standalone ``2>``
     if echo is not None and stderr and _dup_of(code, i, "1"):
         echo = echo + [ERR_TO_OUT] if ERR_TO_OUT not in echo else echo
-    elif echo is not None and stderr and ERR_TO_OUT in echo:
-        echo = [piece for piece in echo if piece != ERR_TO_OUT]  # stderr goes elsewhere now: ``2>&1 2>f >&2``
+    elif echo is not None and stderr and ERR_TO_OUT in echo and not _dup_of(code, i, "2"):
+        echo = [piece for piece in echo if piece != ERR_TO_OUT]  # stderr goes elsewhere now: ``2>&1 2>f >&2`` (``2>&2`` changes nothing)
     elif echo is not None and REDIRECTED not in echo and _stdout_redirected(code, i):
         if not (ERR_TO_OUT in echo and _dup_of(code, i, "2")):  # ``2>&1 >&2``: stdout is still the pipe
             echo = echo + [REDIRECTED]  # stdout goes to a file or another descriptor: nothing reaches a pipe
