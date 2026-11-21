@@ -166,16 +166,19 @@ def comparability(result: Mapping[str, Any]) -> list[str]:
     return reasons
 
 
+def _field(result: Mapping[str, Any], field: str) -> Any:
+    parent, _, child = field.partition(".")
+    value = result.get(parent)
+    if child:
+        return value.get(child) if isinstance(value, Mapping) else None
+    return value
+
+
 def _disagreements(result: Mapping[str, Any], resolved: Mapping[str, Any]) -> list[str]:
-    """Stated fields whose value is not the one the protocol resolved. An absent field is no statement:
-    its own check (a judged result without a judge, a verdict without a rule) reports it."""
-    stated = [(key, result.get(key)) for key in _AGREES]
-    rule = result.get("verdict_rule")
-    if isinstance(rule, Mapping):
-        stated += [(f"verdict_rule.{key}", rule.get(key)) for key in _RULE_AGREES]
+    """A result may omit a field, but any stated value must match its protocol input."""
     out = []
-    for field, value in stated:
-        key = field.rsplit(".", 1)[-1]
+    for field, key in _AGREES.items():
+        value = _field(result, field)
         if value is not None and key in resolved and resolved[key] != value:
             out.append(f"{field} differs from protocol.resolved.{key}")
     return out
@@ -205,15 +208,19 @@ def _verdict_reasons(result: Mapping[str, Any], spec: Mapping[str, Any]) -> list
 
 
 #: Without a protocol on both sides, the fields that must be equal instead.
-_FALLBACK_KEYS = ("harness", "judge_model", "judge_provider", "metric", "verdict_rule")
+_FALLBACK_KEYS = ("harness", "judge_model", "judge_provider", "metric", "verdict_rule",
+                  "p_correction", "ci.confidence", "ci.method")
 #: The inputs a ``dokimi.awareness`` version 2 protocol names; one it leaves out is unresolved.
 REQUIRED_INPUTS = ("alpha", "ci_confidence", "correction", "eval_set_digest", "family_tested", "judge_context",
                    "judge_model", "judge_prompt_sha256", "judge_provider", "judge_sampling", "metric",
                    "repeats", "test")
 #: Fields a result states that its protocol resolves too: a digest over the resolved inputs cannot
 #: catch a result that states another value for them.
-_AGREES = ("judge_model", "judge_provider", "metric")
-_RULE_AGREES = ("alpha", "correction", "test")
+_AGREES = {
+    "judge_model": "judge_model", "judge_provider": "judge_provider", "metric": "metric",
+    "verdict_rule.alpha": "alpha", "verdict_rule.correction": "correction", "verdict_rule.test": "test",
+    "p_correction": "correction", "ci.confidence": "ci_confidence", "ci.method": "test",
+}
 
 
 def compare(result: Mapping[str, Any], reference: Mapping[str, Any]) -> list[str]:
@@ -233,7 +240,7 @@ def compare(result: Mapping[str, Any], reference: Mapping[str, Any]) -> list[str
     elif isinstance(mine, Mapping) or isinstance(theirs, Mapping):
         reasons.append("protocol on one side only: the fallback fields cannot stand for its inputs")
     else:
-        reasons += [f"{key} differs" for key in _FALLBACK_KEYS if result.get(key) != reference.get(key)]
+        reasons += [f"{key} differs" for key in _FALLBACK_KEYS if _field(result, key) != _field(reference, key)]
     return reasons
 
 

@@ -543,3 +543,19 @@ def test_an_unknown_protocol_shared_by_both_sides_never_hides_a_judge_or_rule_ch
     assert "protocol id or version unknown: its required inputs cannot be checked" in compare(newer, older)
     assert mark_against([newer], older)[0]["comparable"] is False
     assert compare(older, older) == ["protocol id or version unknown: its required inputs cannot be checked"]
+
+
+@pytest.mark.parametrize(("field", "protocol_key", "different"), [
+    ("p_correction", "correction", "bonferroni"),
+    ("ci.confidence", "ci_confidence", 0.9),
+    ("ci.method", "test", "student_t"),
+])
+@pytest.mark.parametrize("with_protocol", [True, False])
+def test_stated_statistical_method_matches_protocol_or_reference(field, protocol_key, different, with_protocol):
+    base = _fixture("verdict_with_rule.json")
+    if not with_protocol:
+        del base["protocol"]
+    parent, _, child = field.partition(".")
+    changed = {**base, parent: {**base[parent], child: different} if child else different}
+    reason = f"result: {field} differs from protocol.resolved.{protocol_key}" if with_protocol else f"{field} differs"
+    assert compare(changed, base) == [reason]
