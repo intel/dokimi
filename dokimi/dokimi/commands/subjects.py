@@ -33,7 +33,15 @@ def cmd_subjects_list(args: argparse.Namespace) -> None:
     if not args.subjects_root:
         raise InputError("no subjects root given; pass --subjects-root <checkout>/evaluation/subjects")
     root = Path(args.subjects_root)
-    if not root.is_dir():
+    try:
+        is_dir = root.is_dir()
+    except OSError as exc:
+        from dokimi.subjects.loader import name_too_long
+
+        if not name_too_long(exc):
+            raise
+        is_dir = False
+    if not is_dir:
         raise InputError(f"--subjects-root is not a directory: {root}")
     paths = sorted([*root.glob("*.toml"), *root.glob("*.json")])
     for path in paths:

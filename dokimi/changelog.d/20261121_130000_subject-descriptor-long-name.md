@@ -1,0 +1,3 @@
+### Fixed
+
+- **`subjects show` and `subjects run` report a descriptor path longer than the file-name limit as `cannot load subject`** — a descriptor name past the limit (`subjects show xxxx…x.json` with 5000 characters) ended in an `OSError: [Errno 36] File name too long` traceback, while a missing descriptor got `cannot load subject: <path>` with exit 2. The loader now reads a name too long for the file system as a file that does not exist; a permission or I/O error on an existing path still propagates. `subjects list --subjects-root` with such a name now says `--subjects-root is not a directory` instead of the traceback. (#1022)
