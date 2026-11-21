@@ -285,6 +285,16 @@ CONCEPTS: tuple[Concept, ...] = (
              "commands do not use them.",
     ),
     Concept(
+        name="upstream",
+        help="the upstream copies a skill is matched against (catalog provenance)",
+        canonical=(
+            Flag("--upstream", "CHECKOUT", "path", repeatable=True,
+                 meaning="a local git checkout of an upstream; its history gives the versions"),
+            Flag("--upstream-manifest", "FILE", "path", repeatable=True,
+                 meaning="a dokimi.upstream.v1 JSON manifest of one upstream"),
+        ),
+    ),
+    Concept(
         name="catalog_impact",
         help="the local base revision for catalog change selection",
         canonical=(Flag("--changed-from", "REF", "text"),),
