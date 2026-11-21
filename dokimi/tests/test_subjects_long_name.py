@@ -39,6 +39,16 @@ def test_subjects_list_refuses_a_root_past_the_limit_as_not_a_directory(tmp_path
     assert str(raised.value).startswith("--subjects-root is not a directory:")
 
 
+def test_subjects_list_refuses_a_root_whose_probe_raises_enametoolong(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def too_long(self: Path) -> bool:
+        raise OSError(errno.ENAMETOOLONG, "File name too long", str(self))
+
+    monkeypatch.setattr(Path, "is_dir", too_long)
+    with pytest.raises(InputError) as raised:
+        cmd_subjects_list(argparse.Namespace(subjects_root=str(tmp_path)))
+    assert str(raised.value).startswith("--subjects-root is not a directory:")
+
+
 def test_subjects_list_lets_a_permission_error_on_the_root_propagate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     def deny(self: Path) -> bool:
         raise PermissionError(errno.EACCES, "Permission denied", str(self))
