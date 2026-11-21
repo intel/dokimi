@@ -107,11 +107,52 @@ def _link_routes(tree, paths: list[str]) -> dict[str, str]:
         try:
             target = tree.resolve(f, dirs=True)
         except (SourceError, OSError, ValueError):
-            continue
+            target = _link_target(tree, f)  # a link to a skipped file cannot be resolved: read where it points
+            if target is None:
+                continue
         if target == f:
             continue
-        routes.update({f + p[len(target):]: p for p in paths if p.startswith(target + "/")})
+        under = "" if target == "." else target + "/"  # a link to the root: its files are at the link's path
+        routes.update({f + "/" + p[len(under):]: p for p in paths if p.startswith(under)})
+        if target in paths:
+            routes[f] = target
     return routes
+
+
+def _link_target(tree, path: str) -> str | None:
+    """Where ``path`` finally points when a link on it (the file, or a directory above it) is followed
+    component by component without resolving the file, which a skipped file does not allow; the path inside
+    the tree, or None when no link is on it, there is a loop, or the target is outside the tree."""
+    root = getattr(tree, "root", None)
+    if root is None:
+        return None
+    roots = {os.path.abspath(root), os.path.realpath(root)}
+    pending, hops = path.split("/"), 0
+    done: list[str] = []
+    while pending:
+        part = pending.pop(0)
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not done:
+                return None
+            done.pop()
+            continue
+        try:
+            where = os.readlink(os.path.join(root, *done, part))
+        except (OSError, ValueError):
+            done.append(part)  # not a link, or below a directory that cannot be searched
+            continue
+        hops += 1
+        if hops > 40:
+            return None
+        if posixpath.isabs(where):
+            inside = [posixpath.relpath(where, r) for r in roots if where == r or where.startswith(r + "/")]
+            if not inside:
+                return None
+            where, done = inside[0], []
+        pending = where.split("/") + pending
+    return ("/".join(done) or ".") if hops else None
 
 
 def _skipped_guidance(tree, manifest, names: tuple[str, ...] = (), rules: bool = False,

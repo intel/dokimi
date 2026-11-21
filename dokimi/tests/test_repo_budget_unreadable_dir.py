@@ -355,6 +355,73 @@ def test_a_skipped_markdown_import_through_a_linked_directory_makes_the_scan_inc
         (tmp_path / "d").chmod(mode)
 
 
+def test_a_skipped_markdown_import_through_a_file_link_makes_the_scan_incomplete(tmp_path):
+    """#959 review of #1028: `@alias.md` with `alias.md -> d/context.md` and `d` unsearchable."""
+    _repo(tmp_path)
+    _track(tmp_path, {"CLAUDE.md": "@alias.md\n", "d/context.md": "Read `missing.py`.\n"})
+    os.symlink("d/context.md", tmp_path / "alias.md")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    mode = _lock(tmp_path / "d")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "d").chmod(mode)
+
+
+def test_a_skipped_markdown_import_through_a_link_to_the_root_makes_the_scan_incomplete(tmp_path):
+    """#959 review of #1028: `@self/d/context.md` with `self -> .` and `d` unsearchable."""
+    _repo(tmp_path)
+    _track(tmp_path, {"CLAUDE.md": "@self/d/context.md\n", "d/context.md": "Read `missing.py`.\n"})
+    os.symlink(".", tmp_path / "self")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    mode = _lock(tmp_path / "d")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "d").chmod(mode)
+
+
+def _scan_through_links(tmp_path, links):
+    _repo(tmp_path)
+    _track(tmp_path, {"CLAUDE.md": "@alias.md\n", "d/context.md": "Read `missing.py`.\n"})
+    for name, target in links.items():
+        os.symlink(target, tmp_path / name)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    mode = _lock(tmp_path / "d")
+    try:
+        return _scan_exit(tmp_path)
+    finally:
+        (tmp_path / "d").chmod(mode)
+
+
+def test_a_skipped_markdown_import_through_an_absolute_file_link_makes_the_scan_incomplete(tmp_path):
+    """Second review: `alias.md` links to the absolute path of `d/context.md`, inside the repository."""
+    assert _scan_through_links(tmp_path, {"alias.md": str(tmp_path / "d/context.md")}) == 1
+
+
+def test_a_skipped_markdown_import_through_a_chain_of_file_links_makes_the_scan_incomplete(tmp_path):
+    """Second review: `alias.md -> second.md -> d/context.md`."""
+    assert _scan_through_links(tmp_path, {"alias.md": "second.md", "second.md": "d/context.md"}) == 1
+
+
+def test_a_skipped_markdown_import_through_a_link_into_a_dot_dot_named_directory_makes_the_scan_incomplete(tmp_path):
+    """Second review: `alias.md -> ..docs/context.md`; `..docs` is a name, not a parent directory."""
+    _repo(tmp_path)
+    _track(tmp_path, {"CLAUDE.md": "@alias.md\n", "..docs/context.md": "Read `missing.py`.\n"})
+    os.symlink("..docs/context.md", tmp_path / "alias.md")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    mode = _lock(tmp_path / "..docs")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "..docs").chmod(mode)
+
+
+def test_a_skipped_markdown_import_through_a_file_link_over_a_directory_link_makes_the_scan_incomplete(tmp_path):
+    """Second review: `alias.md -> linked/context.md` with `linked -> d` and `d` unsearchable."""
+    assert _scan_through_links(tmp_path, {"alias.md": "linked/context.md", "linked": "d"}) == 1
+
+
 @pytest.mark.parametrize("written", [False, True])
 def test_a_skipped_data_file_stays_a_warning_of_the_scan_report(tmp_path, capsys, written):
     """#959 review of #1028: `d/f.txt` is not a reason to fail, but the report names it in `warnings`."""
