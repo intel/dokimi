@@ -161,11 +161,17 @@ def test_every_output_token_leaf_refuses_a_count_below_one(leaf, value):
         _leaves_with("--max-output-tokens")[leaf].type(value)
 
 
-@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
-def test_token_budgets_refuse_nonfinite_fractions(value):
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-0.1", "1.5"])
+def test_token_budgets_refuse_values_outside_the_unit_interval(value):
     for action in _leaves_with("--token-budgets").values():
         with pytest.raises(argparse.ArgumentTypeError):
             action.type(value)
+
+
+@pytest.mark.parametrize("value", ["0", "1"])
+def test_token_budget_endpoints_are_valid(value):
+    for action in _leaves_with("--token-budgets").values():
+        assert action.type(value) == float(value)
 
 
 def test_add_refuses_a_spelling_the_concept_does_not_own():
