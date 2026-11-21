@@ -11,7 +11,7 @@ from dokimi.utils import InputError
 
 
 def load_view_inputs(novelty_path: str, atoms_path: str):
-    """``(artifact, atoms, spans)`` from the two files; an unreadable or invalid one raises InputError.
+    """``(artifact, atoms, spans, atoms record)`` from the two files; an unreadable or invalid one raises InputError.
 
     An older capped atoms file that holds only its sample is said on stderr (#371).
     """
@@ -22,7 +22,7 @@ def load_view_inputs(novelty_path: str, atoms_path: str):
     artifact = load_artifact("novelty", Path(novelty_path))
     atoms, spans, saved = load_atoms_record(atoms_path)
     warn_capped_sample(saved, atoms_path)
-    return artifact, atoms, spans
+    return artifact, atoms, spans, saved
 
 
 def colour_note(atom_verdicts: str | None) -> str:
@@ -35,7 +35,8 @@ def colour_note(atom_verdicts: str | None) -> str:
             "which has the paired runs.")
 
 
-def load_atom_verdicts(path: str | None, artifact: dict, atoms: list) -> tuple[dict | None, dict | None]:
+def load_atom_verdicts(path: str | None, artifact: dict, atoms: list,
+                       saved: dict | None = None) -> tuple[dict | None, dict | None]:
     """``(outcomes, categories)`` per atom id from a ``--atom-verdicts`` file; ``(None, None)`` without one.
 
     A bad file raises InputError.
@@ -43,7 +44,9 @@ def load_atom_verdicts(path: str | None, artifact: dict, atoms: list) -> tuple[d
     The file must belong to the ``--novelty`` artifact and describe atoms of the ``--atoms`` file.
     docs/skill-novelty.md (the item analysis): "Runs of different artifacts, or of one artifact at
     different revisions (`artifact` or `ref_digest` differ), are refused." The same holds here:
-    outcomes of one run painted on the spans of another would be a made-up view.
+    outcomes of one run painted on the spans of another would be a made-up view. ``saved`` is the
+    parsed atoms record: its source digest must be the analysis's, and each verdict row must cite
+    the spans its atom has in the ``--atoms`` file.
     """
     from dokimi.artifacts import load_artifact
 
@@ -68,13 +71,27 @@ def load_atom_verdicts(path: str | None, artifact: dict, atoms: list) -> tuple[d
                 f"{path} is from another analysis of {ref!r}: its {name} is {mine!r}, but "
                 f"--novelty has {theirs!r}: pass the .atom_verdicts.json written beside that novelty.json"
             )
-    known = {atom.id for atom in atoms}
-    foreign = sorted({row["id"] for row in record["atoms"]} - known)
+    measured = ((saved or {}).get("bundle") or {}).get("measured_digest")
+    if measured and measured != artifact["artifact"].get("ref_digest"):
+        raise InputError(
+            f"--atoms was extracted from {measured!r}, but --novelty measured "
+            f"{artifact['artifact'].get('ref_digest')!r}: pass the .atoms.json written beside that novelty.json"
+        )
+    known = {atom.id: atom for atom in atoms}
+    foreign = sorted({row["id"] for row in record["atoms"]} - known.keys())
     if foreign:
         raise InputError(
             f"{path} names atoms the --atoms file does not hold ({', '.join(foreign[:5])}"
             f"{', ...' if len(foreign) > 5 else ''}): pass the .atoms.json written beside "
             f"the novelty.json of the run that wrote it"
+        )
+    moved = sorted(row["id"] for row in record["atoms"]
+                   if tuple(row["span_ids"]) != known[row["id"]].span_ids)
+    if moved:
+        raise InputError(
+            f"{path} cites other spans than the --atoms file for {', '.join(moved[:5])}"
+            f"{', ...' if len(moved) > 5 else ''}: the atoms were extracted again from another "
+            f"revision; pass the .atoms.json written beside the novelty.json of the run that wrote it"
         )
     outcomes = {row["id"]: row["outcome"]["lenient"] for row in record["atoms"]
                 if row["outcome"]["lenient"]}

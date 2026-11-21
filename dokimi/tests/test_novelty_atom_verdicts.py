@@ -176,7 +176,7 @@ def test_analyze_saves_the_atoms_it_probed_so_view_needs_no_second_extraction(
     assert record["extractor"] and record["bundle"]["artifact_name"]  # what probe and shorten read
     assert spans and all(a.span_ids for a in atoms)
     outcomes, categories = load_atom_verdicts(
-        str(out_dir / "novelty.atom_verdicts.json"), _load(out_dir / "novelty.json"), atoms)
+        str(out_dir / "novelty.atom_verdicts.json"), _load(out_dir / "novelty.json"), atoms, record)
     assert outcomes and categories
 
 
@@ -294,6 +294,31 @@ def test_view_refuses_verdicts_that_name_atoms_the_atoms_file_lacks(tmp_path, sk
     sidecar.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(InputError, match="feedfacefeed"):
         _run(*_view_args(out_dir, atoms_out, sidecar, tmp_path))
+    assert not (tmp_path / "v.html").exists()
+
+
+def test_view_refuses_atoms_extracted_from_another_revision_of_the_source(tmp_path, skill, mixed_models):
+    out_dir = _analyze(tmp_path, skill)
+    atoms_out = out_dir / "novelty.atoms.json"
+    data = _load(atoms_out)
+    assert data["bundle"]["measured_digest"]
+    data["bundle"]["measured_digest"] = "sha256:edited-source"
+    atoms_out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(InputError, match="extracted from 'sha256:edited-source'"):
+        _run(*_view_args(out_dir, atoms_out, out_dir / "novelty.atom_verdicts.json", tmp_path))
+    assert not (tmp_path / "v.html").exists()
+
+
+def test_view_refuses_atoms_whose_ids_match_but_cite_other_spans(tmp_path, skill, mixed_models):
+    out_dir = _analyze(tmp_path, skill)
+    atoms_out = out_dir / "novelty.atoms.json"
+    data = _load(atoms_out)
+    moved = data["atoms"][0]
+    moved["span_ids"] = ["s9999"]
+    atoms_out.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(InputError, match="cites other spans") as exc:
+        _run(*_view_args(out_dir, atoms_out, out_dir / "novelty.atom_verdicts.json", tmp_path))
+    assert moved["id"] in str(exc.value)
     assert not (tmp_path / "v.html").exists()
 
 

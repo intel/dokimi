@@ -593,11 +593,11 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
-    artifact, atoms, spans = load_view_inputs(args.novelty, args.atoms)
+    artifact, atoms, spans, saved = load_view_inputs(args.novelty, args.atoms)
     warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # The artifact carries aggregates only: without the atom verdicts a rebuilt view cannot
     # colour by outcome. Say so instead of implying the colours mean more than they do.
-    outcomes, categories = load_atom_verdicts(args.atom_verdicts, artifact, atoms)
+    outcomes, categories = load_atom_verdicts(args.atom_verdicts, artifact, atoms, saved)
     attributions = attribute_spans(spans, atoms, outcomes=outcomes, categories=categories)
     render = render_annotated_html if args.format == "html" else render_annotated_markdown
     title = f"{artifact['artifact']['ref']} × {artifact['model']}"
