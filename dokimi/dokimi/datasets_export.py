@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 from dokimi.artifacts import SCHEMA_VERSIONS, load_artifact
+from dokimi.process_io import json_utf8_bytes
 
 # Which list inside each artifact carries the per-row records.
 RECORD_KEY = {
@@ -106,10 +107,10 @@ def _lift_task_run_metrics(rec: object, row: dict) -> None:
 
 def to_jsonl(rows: list[dict], path: Path) -> None:
     path = Path(path)
+    lines = [json_utf8_bytes(json.dumps(row, ensure_ascii=False) + "\n") for row in rows]
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    with open(path, "wb") as f:
+        f.writelines(lines)
 
 
 def to_parquet(rows: list[dict], path: Path) -> None:

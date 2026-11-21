@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.datasets_export import dataset_card, export_artifact, flatten
+from dokimi.datasets_export import dataset_card, export_artifact, flatten, to_jsonl
 
 from tests.cli_refusal import refusal
 
@@ -59,6 +59,62 @@ def test_export_jsonl(tmp_path):
     assert len(lines) == 2
     assert json.loads(lines[0])["library"] == "oneTBB"
     assert (out / "README.md").exists()
+
+
+@pytest.mark.parametrize(("value", "written", "loaded"), [
+    ("n\ud800", "n\\ud800", "n\ud800"),
+    (chr(0xD83D) + chr(0xDE00), "\U0001F600", "\U0001F600"),
+    ("café", "café", "café"),
+])
+def test_to_jsonl_writes_a_surrogate_as_utf8(tmp_path, value, written, loaded):
+    """One JSON object per line; a lone surrogate stays its escape, a pair is joined, ``é`` is not escaped (#990)."""
+    path = tmp_path / "out" / "rows.jsonl"
+
+    to_jsonl([{"a": value}, {"a": "x"}], path)
+
+    raw = path.read_bytes()
+    assert raw == ('{"a": "' + written + '"}\n{"a": "x"}\n').encode("utf-8")
+    assert [json.loads(line)["a"] for line in raw.decode("utf-8").splitlines()] == [loaded, "x"]
+
+
+def test_to_jsonl_keeps_a_lone_surrogate_key_apart_from_a_question_mark_key(tmp_path):
+    path = tmp_path / "rows.jsonl"
+
+    to_jsonl([{"\ud800": 1, "?": 2}], path)
+
+    assert json.loads(path.read_bytes().decode("utf-8")) == {"\ud800": 1, "?": 2}
+
+
+def test_to_jsonl_refuses_a_pair_key_beside_its_character_key(tmp_path):
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([{chr(0xD83D) + chr(0xDE00): 1, "\U0001F600": 2}], tmp_path / "rows.jsonl")
+
+
+def test_a_refused_to_jsonl_leaves_the_existing_file_and_creates_none(tmp_path):
+    """The rows are serialised before the destination is opened, so a refusal in a later row cuts nothing (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    path.write_bytes(b'{"kept": 1}\n')
+    bad = {chr(0xD83D) + chr(0xDE00): 1, "\U0001F600": 2}
+
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([{"a": 1}, bad], path)
+    with pytest.raises(TypeError):
+        to_jsonl([{"a": 1}, {"a": object()}], path)
+    fresh = tmp_path / "new" / "rows.jsonl"
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([bad], fresh)
+
+    assert path.read_bytes() == b'{"kept": 1}\n'
+    assert not fresh.exists()
+
+
+def test_to_jsonl_writes_equal_plain_keys_beside_a_surrogate_pair(tmp_path):
+    """Only keys holding a character above U+FFFF can be made equal by joining a pair: ``1`` and ``"1"`` are not refused (#1020)."""
+    path = tmp_path / "rows.jsonl"
+
+    to_jsonl([{1: "a", "1": "b", "x": chr(0xD83D) + chr(0xDE00)}], path)
+
+    assert path.read_bytes() == '{"1": "a", "1": "b", "x": "\U0001F600"}\n'.encode()
 
 
 def test_export_answers_artifact_jsonl(tmp_path):
