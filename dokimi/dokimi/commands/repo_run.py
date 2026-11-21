@@ -276,8 +276,8 @@ def cmd_eval_check(args: argparse.Namespace) -> None:
             if getattr(args, dest, default) != default:
                 raise InputError(f"{opt} is for the self-check, which --schema-only skips")
         return cmd_repo_validate(args)
-    if args.json or args.fail_on_warning:
-        raise InputError("--json and --fail-on-warning need --schema-only")
+    if args.json or args.fail_on:
+        raise InputError("--json and --fail-on need --schema-only")
     return cmd_repo_tasks_check(args)
 
 
@@ -640,11 +640,11 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     _common(check_p, source_help, cache_help, positive_int)
     check_p.add_argument("--schema-only", action="store_true", dest="schema_only",
                          help="Check the manifest and every task.json against one snapshot, with no self-check run "
-                         "(what `repo validate` did); --json and --fail-on-warning apply to it")
+                         "(what `repo validate` did); --json and --fail-on apply to it")
     cli_flags.add(check_p, "output", "--json", action="store_true",
                   help="Print cli_output.v1 on stdout (--schema-only: the full report under data)")
-    check_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
-                         help="--schema-only: exit 1 when the report has any warning (for a CI gate)")
+    cli_flags.add(check_p, "fail_on", "--fail-on", choices=("warn", "fail"),
+                         help="--schema-only: warn exits 1 on a warning or error, fail on an error")
     check_p.add_argument("--warm", action="store_true",
                          help="Run null and oracle with network to fill the caches before offline runs")
     check_p.add_argument("--arm", action="append", default=None,
@@ -658,7 +658,7 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                          "which no task is ok")
     cli_flags.add(check_p, "output", "--out-dir", dest="out", default="repo-check", help="Work directory (default: repo-check)")
     # Every option of the self-check that --schema-only does not read: passing one with --schema-only is a refusal.
-    schema_kept = {"schema_only", "json", "fail_on_warning", "help", "manifest", "manifest_file", "cache_dir"}
+    schema_kept = {"schema_only", "json", "fail_on", "help", "manifest", "manifest_file", "cache_dir"}
     schema_refused = tuple((a.option_strings[0], a.dest, a.default) for a in check_p._actions
                            if a.option_strings and a.dest not in schema_kept
                            and not isinstance(a, argparse._HelpAction))

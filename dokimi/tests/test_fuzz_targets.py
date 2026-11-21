@@ -104,10 +104,10 @@ def _outcome(name: str, text: str) -> str:
     ids=["brackets", "braces", "unclosed-fence-spaces"],
 )
 def test_extractors_scan_a_reply_without_a_closer_in_linear_time(name: str, shape) -> None:
-    # CPU time at 4n over n, not a wall-clock bound: the last-block regexes were quadratic (#883).
+    # CPU time at 16n over n, not a wall-clock bound: the last-block regexes were quadratic (#883).
     from tests.growth_timing import GROWTH_LIMIT, growth
 
-    ratio, outcome = growth(lambda k: lambda: _outcome(name, shape(k)), 4000)
+    ratio, outcome = growth(lambda k: lambda: _outcome(name, shape(k)), 1000)
     assert outcome == "ValueError"
     assert ratio < GROWTH_LIMIT
 

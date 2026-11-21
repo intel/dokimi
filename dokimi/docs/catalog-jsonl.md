@@ -47,7 +47,8 @@ The text on stdout is only the counts. A run killed midway keeps the whole lines
 
 A finding object has three keys: `level` (`note`, `warn` or `error`), `code` (one of the
 [finding codes](finding-codes.md)) and `message` (text for people; it may be reworded between
-versions, so match on `code`).
+versions, so match on `code`). A `script-crlf` or `script-syntax` finding also has `script`, the
+script's path relative to the skill directory.
 
 The field list above is the contract that `tests/test_catalog_output_docs.py` checks against
 the rows the scan writes: a key added to a row must be added here.

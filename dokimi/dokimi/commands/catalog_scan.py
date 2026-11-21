@@ -60,7 +60,8 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "dokimi_version": __version__,
         "duplicate_of": review.duplicate_of if review else None,
         "ignored": sorted(ignore),
-        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
+        "findings": [{"level": f.level, "code": f.code, "message": f.message, **({"script": f.script} if f.script else {})}
+                     for f in kept],
     }
 
 

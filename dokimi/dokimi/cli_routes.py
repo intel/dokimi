@@ -187,9 +187,9 @@ LEAVES: tuple[Leaf, ...] = (
 )
 
 _RETIRED_VALIDATE_OPTIONS: tuple[str, ...] = (
-    "--manifest", "--manifest-file", "--cache-dir", "--out", "--json", "--fail-on-warning", "--help",
+    "--manifest", "--manifest-file", "--cache-dir", "--out", "--json", "--fail-on", "--help",
 )
-_RETIRED_VALIDATE_VALUE_OPTIONS: frozenset[str] = frozenset({"--manifest", "--manifest-file", "--cache-dir", "--out"})
+_RETIRED_VALIDATE_VALUE_OPTIONS: frozenset[str] = frozenset({"--manifest", "--manifest-file", "--cache-dir", "--out", "--fail-on"})
 
 
 def _retired_validate_option(tok: str) -> str | None:
@@ -546,7 +546,8 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
         name, equals, value = token.partition("=")
         for move in FLAG_MOVES:
             if name == move.old and (not move.leaves or leaf in move.leaves):
-                rewritten[index] = f"{move.new}{equals}{value}"
+                # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
+                rewritten[index] = move.new if "=" in move.new else f"{move.new}{equals}{value}"
                 changed = True
                 break
     return rewritten if changed else None
