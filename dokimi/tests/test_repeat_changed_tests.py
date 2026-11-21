@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -68,6 +70,24 @@ def test_only_test_files_directly_under_tests_count(repo):
     _put(repo, "dokimi/docs/quickstart.md")
     _commit(repo)
     assert rct.changed_test_files("main", "HEAD", repo) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a POSIX file name may hold bytes that are not UTF-8")
+def test_a_file_name_that_is_not_utf8_round_trips_to_the_path_on_disk(repo):
+    name = os.fsdecode(b"test_caf\xe9.py")
+    _put(repo, f"dokimi/tests/{name}", "n = 3\n" * 20)
+    _commit(repo)
+    [listed] = rct.changed_test_files("main", "HEAD", repo)
+    assert listed == f"tests/{name}"
+    assert (repo / "dokimi" / listed).is_file()
+
+
+def test_a_file_name_that_is_not_utf8_is_logged_escaped(capsys):
+    name = os.fsdecode(b"tests/test_caf\xe9.py")
+    assert rct.repeat([name], 1, 10, runner=lambda _files, _seed: 1) == 1
+    captured = capsys.readouterr()
+    assert "tests/test_caf\\xe9.py" in captured.out
+    assert "randomly-seed=1 tests/test_caf\\xe9.py`" in captured.err
 
 
 def test_a_bad_base_raises_so_main_can_exit_2(repo):

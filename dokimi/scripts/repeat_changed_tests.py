@@ -20,6 +20,7 @@ in the log: ``pytest --randomly-seed=<seed> <files>`` replays it), 2 when git ca
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -37,7 +38,7 @@ def changed_test_files(base: str, head: str, repo: Path = REPO) -> list[str]:
         ["git", "diff", "-z", "--name-only", "--diff-filter=AMR", f"{base}...{head}"],
         cwd=repo, capture_output=True, check=True,
     )
-    paths = (raw.decode("utf-8", errors="replace") for raw in done.stdout.split(b"\0") if raw)
+    paths = (os.fsdecode(raw) for raw in done.stdout.split(b"\0") if raw)
     return sorted(f"tests/{m.group(1)}" for m in map(TEST_FILE.match, paths) if m)
 
 
@@ -47,6 +48,11 @@ def _pytest(files: Sequence[str], seed: int) -> int:
     return subprocess.run(cmd, cwd=PROJECT, check=False).returncode
 
 
+def _shown(names: Sequence[str]) -> str:
+    """*names* for a log line: bytes that are not UTF-8 print as ``\\xe9`` instead of raising."""
+    return " ".join(os.fsencode(n).decode("utf-8", errors="backslashreplace") for n in names)
+
+
 def repeat(files: Sequence[str], repeats: int, max_files: int,
            runner: Callable[[Sequence[str], int], int] = _pytest) -> int:
     """0 when every seed passes; 1 at the first failing seed; 0 with a log line when *files* is empty."""
@@ -54,17 +60,17 @@ def repeat(files: Sequence[str], repeats: int, max_files: int,
         print("No test file added or changed: nothing to repeat.")
         return 0
     chosen, left_out = list(files[:max_files]), list(files[max_files:])
-    print(f"Repeating {len(chosen)} test file(s) under {repeats} seeds: {' '.join(chosen)}")
+    print(f"Repeating {len(chosen)} test file(s) under {repeats} seeds: {_shown(chosen)}")
     if left_out:
         print(f"{len(left_out)} more changed test file(s) over the cap of {max_files} are not "
-              f"repeated (they run once in the full suite): {' '.join(left_out)}")
+              f"repeated (they run once in the full suite): {_shown(left_out)}")
     for seed in range(1, repeats + 1):
         print(f"::group::--randomly-seed={seed}")
         code = runner(chosen, seed)
         print("::endgroup::")
         if code:
             print(f"::error::pytest exited {code} under --randomly-seed={seed}: replay with "
-                  f"`pytest -n auto --randomly-seed={seed} {' '.join(chosen)}`", file=sys.stderr)
+                  f"`pytest -n auto --randomly-seed={seed} {_shown(chosen)}`", file=sys.stderr)
             return 1
     print(f"All {repeats} seeds passed.")
     return 0
