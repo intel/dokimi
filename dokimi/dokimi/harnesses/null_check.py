@@ -37,7 +37,7 @@ _SUMMARY = re.compile(
 )
 _COLOR = re.compile(r"\x1b\[[0-9;:]*m")
 _COUNT = re.compile(r"(\d+) (passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected)")
-_OUTCOME = re.compile(r"\b(?:passed|failed|errors?)\b")
+_OUTCOME = re.compile(r"\b(?:passed|failed|errors?|skipped|xfailed|xpassed|deselected)\b")
 
 
 def pytest_counts(output: str) -> Optional[dict[str, int]]:

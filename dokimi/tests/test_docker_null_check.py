@@ -70,6 +70,18 @@ def test_an_empty_pytest_run_is_no_verdict_even_with_an_explicit_zero():
     assert null_check.null_status(0.0, counts, explicit_reward=True) == null_check.NO_VERDICT
 
 
+@pytest.mark.parametrize("summary", [
+    "no tests ran in 0.01s", "3 deselected in 0.02s", "2 skipped in 0.01s",
+    "1 failed in 0.20s\nno tests ran in 0.01s",
+])
+def test_docker_null_requires_evidence_of_failure_from_pytest(tmp_path, summary):
+    task = load_task(_harbor(tmp_path))
+    cli = DockerCLI(reward="0.0", answer=_verifier(summary + "\n", returncode=5))
+    result = create_harness("docker-null", runner=cli).run(task, output_dir=tmp_path / "out")
+    assert result.metrics["null_check"] == null_check.NO_VERDICT
+    assert result.passed is False
+
+
 def test_pytest_counts_takes_the_last_summary_line():
     assert null_check.pytest_counts(FAILED_TWO + ALL_PASS) == {"passed": 3}
 
