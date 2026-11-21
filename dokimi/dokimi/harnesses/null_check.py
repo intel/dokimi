@@ -6,7 +6,8 @@
 A ``docker-null`` cell builds the task image, runs no solve and runs the verifier.
 Its status says what the verifier found:
 
-- ``null_fail``: the verifier graded the start as failing. The check passes.
+- ``null_fail``: a pytest test failed without fixture errors, or a verifier with no pytest summary
+  explicitly graded the start below 1. The check passes.
 - ``null_pass``: the verifier passed on the untouched start, so the tests do not check the task.
 - ``fixture_error``: pytest reported setup or collection errors. A test can error in setup
   because the expected solution is missing.
