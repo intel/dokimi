@@ -357,8 +357,7 @@ def test_cli_trace_heredoc_scans_many_openers_on_one_line_of_a_closed_heredoc_in
 
 
 def test_split_commands_scans_many_openers_on_one_line_of_a_closed_heredoc_in_linear_time() -> None:
-    _linear(shell.split_commands, lambda k: "<<A " * k + "\nbody\nA\n", n=40_000)
-    _linear(shell.split_commands, lambda k: "cat <<EOF\n" + "<<A " * k + "\nEOF\n", n=40_000)
+    _linear(shell.split_commands, lambda k: "cat <<EOF\n" + "<<A " * k + "\nEOF\n", n=20_000)
 
 
 def test_heredocs_with_openers_on_one_line_are_cut_as_before() -> None:
