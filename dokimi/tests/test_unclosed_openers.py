@@ -298,7 +298,7 @@ def _unrelated_closing_lines(k: int) -> str:
 
 
 def test_cli_trace_heredoc_scans_openers_in_linear_time_among_closing_lines_of_many_lengths() -> None:
-    _linear(_cli_heredocs, _unrelated_closing_lines, limit=6)  # k times the lengths grows 8-fold, linear work 4-fold
+    _linear(_cli_heredocs, _unrelated_closing_lines, limit=32)  # k times the lengths grows 64-fold at 16k, linear work 16-fold
 
 
 def _long_delimiters_unrelated_closing_lines(k: int) -> str:
