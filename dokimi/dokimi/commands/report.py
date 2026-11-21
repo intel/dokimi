@@ -276,3 +276,7 @@ def register(sub, positive_int) -> None:
                       help="markdown (job summary, PR comment, terminal), json, or annotations (::error/::warning lines)")
     sm_p.add_argument("--out", default=None, help="Write to this file instead of stdout")
     sm_p.set_defaults(func=cmd_report_summary)
+
+    from dokimi.commands import opportunities
+
+    opportunities.register(report_sub, positive_int)  # report opportunities

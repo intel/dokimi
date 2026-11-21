@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Lightsage-inspired features for dokimi
 
-Status: proposal + two prototypes on branch `claude/lightsage-feature-ideas-2aea58` (not pushed).
+Status: proposal + two prototypes (opportunities wired as `report opportunities`) on branch `claude/lightsage-feature-ideas-2aea58` (not pushed).
 Sources: Lightsage's public docs (`llms-full.txt`, 164 pages) and the JSON *shapes* (field names
 only) of ~57 app API endpoints from a 2026-11-20 browser capture. No customer data, tokens or
 response values are reproduced here.
@@ -88,10 +88,11 @@ positioning Lightsage reports as most predictive), every listed link described, 
 
 ## 5. Recommended next steps
 
-1. Wire `dokimi opportunities --from <artifact>... [--json] [--top N]` as a CLI leaf
-   (route registry, `cli_output` envelope, a versioned `opportunities.v1.json` schema, outcome test);
-   add adapters for `catalog check --json`, judge-validity and routing reports; drill novelty
-   down to per-atom spans so the prompt names the exact passage.
+1. Done: `dokimi report opportunities PATH... [--format markdown|json] [--top N] [--out FILE]`
+   (inputs detected by content: novelty JSON, repo_static.v1 JSON, llms.txt; `opportunities.v1`
+   schema). Still open: a `cli_output` envelope, a user-docs page and outcome test; adapters for
+   `catalog check --json`, judge-validity and routing reports; per-atom novelty spans so the
+   prompt names the exact passage.
 2. Ship `dokimi docs llms-txt <path-or-file>` (or a `repo scan` metric) and a feature card under
    "Will the agent use it?"; later, optional fetch of `/llms.txt` + `robots.txt` AI-crawler rules.
 3. Add a `/dokimi run` PR-comment trigger to the GitHub Action, gated on write permission, posting
