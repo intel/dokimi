@@ -65,6 +65,11 @@ def test_pytest_counts_reads_the_last_summary(output, expected):
     assert null_check.pytest_counts(output) == expected
 
 
+def test_an_empty_pytest_run_is_no_verdict_even_with_an_explicit_zero():
+    counts = null_check.pytest_counts("no tests ran in 0.01s\n")
+    assert null_check.null_status(0.0, counts, explicit_reward=True) == null_check.NO_VERDICT
+
+
 def test_pytest_counts_takes_the_last_summary_line():
     assert null_check.pytest_counts(FAILED_TWO + ALL_PASS) == {"passed": 3}
 
@@ -75,7 +80,7 @@ def test_pytest_counts_preserves_errors_from_prior_invocations():
     assert null_check.null_status(0.0, counts) == null_check.FIXTURE_ERROR
 
 
-@pytest.mark.parametrize("output", ["", "no tests ran in 0.01s\n", "Segmentation fault\n"])
+@pytest.mark.parametrize("output", ["", "Segmentation fault\n"])
 def test_pytest_counts_without_a_summary_is_none(output):
     assert null_check.pytest_counts(output) is None
 

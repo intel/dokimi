@@ -296,7 +296,8 @@ latency, turns):
   (exit 2). Outside `--dry-run`, the run exits 1 unless every task's oracle
   passes and its null cell is `null_fail`. A failing pytest test is enough
   when no setup or collection error occurred. A verifier without a pytest
-  summary can report a failing grade in `reward.txt`. Pytest setup or
+  summary can report a failing grade in `reward.txt`. An explicit `no tests ran` summary
+  yields `no_verdict` even with a zero reward. Pytest setup or
   collection errors are recorded separately as `fixture_error`. Read generated output or import
   the solution inside a test so a missing solution produces a test failure. The cell's
   `null_check` metric holds the status.

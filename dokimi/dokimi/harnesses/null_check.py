@@ -31,7 +31,7 @@ NO_VERDICT = "no_verdict"
 # The summary line, plain (-q) or framed by "=" rules: "2 failed, 1 passed in 0.52s".
 # Pytest may open it with any count ("2 skipped, 1 error"), so the first word is not fixed.
 _SUMMARY = re.compile(
-    r"^=* *(\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected)\b[^\n]*?) in \d+(?:\.\d+)? ?(?:s|seconds)\b",
+    r"^=* *(no tests ran|\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected)\b[^\n]*?) in \d+(?:\.\d+)? ?(?:s|seconds)\b",
     re.M,
 )
 _COLOR = re.compile(r"\x1b\[[0-9;:]*m")
@@ -43,9 +43,9 @@ def pytest_counts(output: str) -> Optional[dict[str, int]]:
     """Counts by outcome (``passed``, ``failed``, ``error``, ...) of the last pytest summary, or ``None``.
 
     A line that is not a summary (a count line the verifier prints after pytest) must not replace it: only
-    a line with a passed, failed or error count is taken. Errors from prior summaries are kept.
+    a line reporting an outcome or an empty test run is taken. Errors from prior summaries are kept.
     """
-    found = [line for line in _SUMMARY.findall(_COLOR.sub("", output)) if _OUTCOME.search(line)]
+    found = [line for line in _SUMMARY.findall(_COLOR.sub("", output)) if line == "no tests ran" or _OUTCOME.search(line)]
     if not found:
         return None
     counts: dict[str, int] = {}
