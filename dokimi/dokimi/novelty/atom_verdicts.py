@@ -14,6 +14,18 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def analysis_digest(artifact: dict) -> str:
+    """Digest of a ``novelty`` payload without its envelope, the same for the dict and the file it was saved as."""
+    import json
+
+    from dokimi.artifacts import ENVELOPE_KEYS
+    from dokimi.utils import digest_text
+
+    saved = json.loads(json.dumps(artifact))
+    body = {key: value for key, value in saved.items() if key not in ENVELOPE_KEYS and key != "schema_version"}
+    return digest_text(json.dumps(body, sort_keys=True))
+
+
 def build_atom_verdicts(result) -> dict:
     """The ``novelty_atoms`` payload: one row per atom the run probed (``result.atoms``).
 
@@ -49,6 +61,7 @@ def build_atom_verdicts(result) -> dict:
         "artifact_ref": result.artifact["artifact"]["ref"],
         "ref_digest": result.artifact["artifact"].get("ref_digest"),
         "model": result.artifact["model"],
+        "analysis_digest": analysis_digest(result.artifact),
         "with_arm": result.measure_result.with_arm,
         "conflicts": [dict(pair) for pair in result.conflicts],
         "atoms": rows,

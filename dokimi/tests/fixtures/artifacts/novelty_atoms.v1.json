@@ -3,6 +3,7 @@
   "artifact_ref": "skill:/tmp/run/accel-tuning/SKILL.md",
   "ref_digest": "sha256:0123456789abcdef",
   "model": "answerer-m",
+  "analysis_digest": "sha256:fedcba9876543210",
   "with_arm": "full",
   "conflicts": [
     {

@@ -9,6 +9,7 @@
     "artifact_ref",
     "ref_digest",
     "model",
+    "analysis_digest",
     "with_arm",
     "atoms",
     "conflicts"
@@ -39,6 +40,10 @@
     "model": {
       "type": "string",
       "description": "The answering model, as in the `novelty` artifact."
+    },
+    "analysis_digest": {
+      "type": "string",
+      "description": "`sha256:` digest of the canonical JSON of the `novelty` artifact this file was written beside, without `schema_version`, `run_id` and `dokimi_version`: names the one analysis, also when two commands share a `DOKIMI_RUN_ID`."
     },
     "with_arm": {
       "type": "string",

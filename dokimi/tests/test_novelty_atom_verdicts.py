@@ -270,6 +270,27 @@ def test_view_refuses_verdicts_of_another_run_of_the_same_artifact(
     assert not (tmp_path / "v.html").exists()
 
 
+def test_view_refuses_verdicts_of_another_analysis_that_shares_the_run_id(
+        tmp_path, skill, mixed_models, monkeypatch):
+    monkeypatch.setenv("DOKIMI_RUN_ID", "ci-job-1")
+    first = _analyze(tmp_path, skill, "classified")
+    second = _analyze(tmp_path, skill, "plain", "--no-classify")
+    sidecar = first / "novelty.atom_verdicts.json"
+    assert _load(sidecar)["run_id"] == _load(second / "novelty.json")["run_id"] == "ci-job-1"
+    with pytest.raises(InputError, match="another analysis") as exc:
+        _run(*_view_args(second, second / "novelty.atoms.json", sidecar, tmp_path))
+    assert "its analysis_digest is" in str(exc.value)
+    assert not (tmp_path / "v.html").exists()
+
+
+def test_view_takes_the_verdicts_of_its_own_analysis_under_a_shared_run_id(
+        tmp_path, skill, mixed_models, monkeypatch):
+    monkeypatch.setenv("DOKIMI_RUN_ID", "ci-job-1")
+    out_dir = _analyze(tmp_path, skill)
+    _run(*_view_args(out_dir, out_dir / "novelty.atoms.json", out_dir / "novelty.atom_verdicts.json", tmp_path))
+    assert (tmp_path / "v.html").exists()
+
+
 def test_view_refuses_verdicts_with_a_run_id_for_a_novelty_saved_without_one(tmp_path, skill, mixed_models):
     out_dir = _analyze(tmp_path, skill)
     atoms_out = out_dir / "novelty.atoms.json"

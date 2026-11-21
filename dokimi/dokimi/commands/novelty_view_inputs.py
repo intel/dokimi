@@ -49,6 +49,7 @@ def load_atom_verdicts(path: str | None, artifact: dict, atoms: list,
     the spans its atom has in the ``--atoms`` file.
     """
     from dokimi.artifacts import load_artifact
+    from dokimi.novelty.atom_verdicts import analysis_digest
 
     if not path:
         return None, None
@@ -59,12 +60,13 @@ def load_atom_verdicts(path: str | None, artifact: dict, atoms: list,
             f"{path} is the atom verdicts of {record['artifact_ref']!r}, but --novelty is the "
             f"analysis of {ref!r}: pass the .atom_verdicts.json written beside that novelty.json"
         )
-    # Atom ids hash the statement only, so they cannot tell two runs of one artifact apart;
-    # `analyze` saves both files with one run_id, so a novelty.json without one is not this run's.
+    # Atom ids hash the statement only, so they cannot tell two runs of one artifact apart; a run_id
+    # shared by two commands (DOKIMI_RUN_ID) is told apart by the digest of the novelty payload.
     for name, mine, theirs in (
         ("model", record["model"], artifact["model"]),
         ("artifact revision (ref_digest)", record["ref_digest"], artifact["artifact"].get("ref_digest")),
         ("run_id", record.get("run_id"), artifact.get("run_id")),
+        ("analysis_digest", record["analysis_digest"], analysis_digest(artifact)),
     ):
         if mine != theirs:
             raise InputError(
