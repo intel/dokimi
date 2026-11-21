@@ -357,3 +357,12 @@ def test_unchanged_edit_context_gives_no_choice():
     kept = "from sklearnex import patch_sklearn\npatch_sklearn()\n"
     events = _run(SKLEARN, _edit("a", "app.py", kept + "import numpy\n", "2026-01-01T00:00:05Z", old=kept))
     assert _choices(events) == []
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("conda install -d scipy", []), ("mamba install -d scipy", []),
+    ("uv pip install -n scipy", [("scipy", "install", None)]),
+    ("poetry add -n scipy", [("scipy", "install", None)]), ("py -m pip install scipy", [("scipy", "install", None)]),
+])
+def test_short_options_follow_the_package_manager(text, expected):
+    assert _choice_of(text) == expected

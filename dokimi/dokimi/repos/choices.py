@@ -210,9 +210,13 @@ def _package_call(words: list[str]) -> tuple[str, list[str]] | None:
     """The act and the package names of a package manager's install, add, uninstall or remove call."""
     if {"--dry-run", "--download-only"} & set(words) or _INFO_FLAGS & set(words):  # no install: a dry run, a download, a help request
         return None
+    conda = words[0] in ("conda", "mamba")
+    if conda and "-d" in words:
+        return None
+    values = _VALUE_OPTIONS if conda else _VALUE_OPTIONS - {"-n"}
     rest = _manager_rest(words)
     while rest and rest[0].startswith("-"):  # ``pip --quiet install``: the options before the verb
-        rest = rest[2:] if rest[0] in _VALUE_OPTIONS else rest[1:]
+        rest = rest[2:] if rest[0] in values else rest[1:]
     if not rest:
         return None
     verb = rest[0].casefold()
@@ -225,7 +229,7 @@ def _package_call(words: list[str]) -> tuple[str, list[str]] | None:
         if skip:
             skip = False
         elif word.startswith("-"):
-            skip = word in _VALUE_OPTIONS
+            skip = word in values
         elif _package(word):
             names.append(_package(word))
     return act, names
