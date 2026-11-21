@@ -184,3 +184,15 @@ def test_two_names_for_one_repo_directory_share_its_bucket(tmp_path):
     report = tally.summary()
     assert report["repos"] == 1
     assert report["states"]["warn"]["repo_rate"] == 0.3333
+
+
+def test_text_includes_a_code_common_across_small_repos(tmp_path):
+    _repo(tmp_path, "big")
+    tally = RateTally(tmp_path)
+    for i in range(10):
+        codes = [f"big-{n}" for n in range(5)] if i < 4 else []
+        tally.add(_row(f"big/s{i}", "warn" if codes else "ok", *codes))
+    for repo in ("small-a", "small-b", "small-c"):
+        _repo(tmp_path, repo)
+        tally.add(_row(f"{repo}/s", "warn", "widespread"))
+    assert any(line.startswith("#   widespread:") for line in text_lines(tally.summary()))

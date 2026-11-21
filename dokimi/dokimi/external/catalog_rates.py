@@ -100,7 +100,7 @@ def text_lines(summary: dict) -> list[str]:
     lines = [f"# rates per skill and per repo ({summary['repos']} repos, each repo counted once):"]
     for state in STATES:
         lines.append(_line(state, summary["states"][state]))
-    top = sorted(summary["codes"].items(), key=lambda item: (-item[1]["skills"], item[0]))[:TEXT_CODES]
+    top = sorted(summary["codes"].items(), key=lambda item: (-max(item[1]["rate"], item[1]["repo_rate"]), item[0]))[:TEXT_CODES]
     lines.extend(_line(code, entry) for code, entry in top)
     return lines
 
