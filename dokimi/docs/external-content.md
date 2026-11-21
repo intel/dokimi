@@ -520,8 +520,9 @@ to the upstream head. `--format json` adds the upstreams, one row per skill and 
 Give `catalog check` the same upstreams as `catalog provenance` and each loaded skill that matches one gets
 up to three more findings. Nothing is fetched, and none of them is an error:
 
-- `upstream-stale` (note): the copy matches an upstream version that is not the upstream head. A note does not
-  change the state or the exit code. The message says how many commits and months behind the head it is, where the
+- `upstream-stale` (note): the copy matches an older version of a path whose head is known. For manifests,
+  an entry of the same path must carry `"head": true`. The top-level `head` describes the repository. A note
+  preserves the state and exit code. The message says how many commits and months behind the head it is, where the
   history gives them.
 - `license-dropped-from-upstream` (warn): the copy is edited, its upstream version declares a `license`, and the copy
   declares none. An edited copy that changes the license to another value is not reported. An unedited copy has the
