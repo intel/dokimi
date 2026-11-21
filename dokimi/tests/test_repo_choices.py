@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from dokimi.repos.choices import choice_timeline, validate_candidates, with_choices
+from dokimi.repos.choices import validate_candidates, with_choices
 from dokimi.repos.events import convert
 
 WS = "/ws"
@@ -112,7 +112,8 @@ def test_the_timeline_lists_each_choice_in_trace_order():
     events = _run(SKLEARN,
                   _bash("a", "pip install scikit-learn-intelex", "2026-01-01T00:00:05Z"),
                   _edit("b", "app.py", "patch_sklearn()\n", "2026-01-01T00:00:09Z"))
-    assert choice_timeline(events) == [(5.0, "sklearn", "install"), (9.0, "sklearn", "use")]
+    assert [(e["t"], e["candidate"], e["act"]) for e in events if e["kind"] == "choice"] == [
+        (5.0, "sklearn", "install"), (9.0, "sklearn", "use")]
 
 
 def test_a_name_listed_only_for_removal_is_no_install():

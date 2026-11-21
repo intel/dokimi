@@ -107,11 +107,6 @@ def _ran(event: dict[str, Any]) -> bool:
     return not event.get("denied") and event.get("rc") == 0 and event.get("rc_from") != "success"
 
 
-def choice_timeline(events: Sequence[dict[str, Any]]) -> list[tuple[float | None, str, str]]:
-    """The ``(t, candidate, act)`` of each choice event, in the order the trace gives them."""
-    return [(e.get("t"), str(e["candidate"]), str(e["act"])) for e in events if e.get("kind") == "choice"]
-
-
 def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str, Sequence[str]]]) -> list[dict]:
     """An install or removal counts only where the command's exit code is its own: every part joined to the next by
     ``&&`` (rc 0 then means each ran), and not in a pipeline (the last stage's code). A ``;``, ``||`` or ``&`` part may
