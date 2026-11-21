@@ -2449,8 +2449,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
   `bridge`, `trace` (unless `claude-stream-json`), `answer_format`, the SHA-256 of the harness executable (`--bin`),
   the SHA-256 of each `bin_companions` file and harness version. A `repo run` with `--candidates` or `--probes` adds the
-  digest of each parsed file (the same mapping, not its bytes), so another file with other content is a different `id`.
-  A rerun whose `id` differs (another `--tools`, another `--candidates` or `--probes` file, a `--delegation` that changes the tool arguments, profile,
+  digest of each parsed mapping. A task manifest’s `probes` mapping also contributes to the `id`.
+  A rerun whose `id` differs (another `--tools`, another `--candidates` or `--probes` mapping, changed manifest probes, a `--delegation` that changes the tool arguments, profile,
   harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`, `bridge`, `trace` or `answer_format`) is refused before any agent starts, and
   `--force` or another `--batch` runs it. `--force` replaces the cells of the
   run's plan only: if the batch dir holds finished cells outside that plan

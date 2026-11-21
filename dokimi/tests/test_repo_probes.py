@@ -586,7 +586,7 @@ def test_a_command_that_runs_nothing_probed_gives_no_probe(text, event):
     assert not [p for p in _probed(text, **event) if p[0] == "cpu" or p[1] in ("pip list",)]
 
 
-@pytest.mark.parametrize("text", ["exec -l && nproc", "env FOO=1 nproc", "echo \"<<EOF\"\nnproc\nEOF",
+@pytest.mark.parametrize("text", ["exec -l && nproc", "exec </dev/null; nproc", "exec <&-; nproc", "env FOO=1 nproc", "echo \"<<EOF\"\nnproc\nEOF",
                                   "cat <<EOF\n$(nproc)\nEOF", "cd repo || exit 1; nproc", "(exit 0); nproc",
                                   "cd repo || { echo missing; exit 1; }; nproc", "if [ ! -d x ]; then\n  exit 1\nfi\nnproc"])
 def test_a_command_that_runs_the_probe_gives_the_probe(text):
@@ -628,6 +628,8 @@ def test_a_shell_with_its_own_script_treats_stdin_as_data(invocation):
     ("cat <<<EOF\nnproc", ["nproc"]), ("# later: cat <<EOF\nnproc", ["nproc"]),
     ("echo $((1 << n))\nnproc", ["nproc"]), ("cat <<\\EOF\nnproc\nEOF", []),
     ("cat <<'my-eof'\nnproc\nmy-eof", []),
+    ("python -c '\nprint(1 << 2)\n'\nnproc", ["nproc"]),
+    ("cat <<2\nnproc\n2", []),
 ])
 def test_only_a_real_heredoc_masks_its_body(script, expected):
     assert _probes(script) == expected

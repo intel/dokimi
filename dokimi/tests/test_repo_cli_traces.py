@@ -719,7 +719,7 @@ def test_copilot_json_to_events():
                                           ({"success": True}, 0), ({"success": False}, 1), ({}, None)],
                          ids=["exit-0", "exit-code-wins-over-success", "success-without-code", "failure-without-code",
                               "unknown"])
-def test_copilot_command_rc_prefers_exit_code_and_records_a_success_fallback(done, rc):
+def test_copilot_command_exit_code_falls_back_to_success(done, rc):
     raw = _jsonl(
         {"type": "tool.execution_start",
          "data": {"toolCallId": "a", "toolName": "bash", "arguments": {"command": "make"}}},

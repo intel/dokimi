@@ -243,13 +243,13 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
                 if script_arg is not None:
                     yield from _pipelines(script_arg)
 
-
-        if flat and not conditional and not in_subshell and len(stages) == 1 and _ends_shell(stages[0]):
+        if flat and not conditional and not in_subshell and len(stages) == 1 and _ends_shell(rest):
             return
 
 
-def _ends_shell(words: list[str]) -> bool:
-    stages = list(_views(words))
+def _ends_shell(part: str) -> bool:
+    words = _stages(part, include_reads=False)
+    stages = list(_views(words[0])) if words else []
     return any(program == "exit" for program, _ in stages) or any(program == "exec" for program, _ in stages[:-1])
 
 
@@ -259,15 +259,16 @@ def _without_heredocs(script: str) -> str:
         return script
     out: list[str] = []
     lines = iter(script.split("\n"))
+    quote = ""
     for line in lines:
         opening = len(out)
         out.append(line)
         expansions = []
-        openers = list(_openers(line))
+        openers, quote = _openers(line, quote)
         for match in openers:
             tag = match.group("tag")
             quoted = tag.startswith(("'", '"', "\\"))
-            delimiter = tag.strip("'\"").removeprefix("\\")
+            delimiter = tag[1:-1] if tag.startswith(("'", '"')) else tag.removeprefix("\\")
             body = []
             for data in lines:
                 if (data.lstrip("\t") if match.group(0).startswith("<<-") else data) == delimiter:
@@ -292,9 +293,10 @@ def _reads_script_from_stdin(words: list[str]) -> bool:
     return False
 
 
-def _openers(line: str) -> Iterator[re.Match[str]]:
-    """Read unquoted heredoc operators, outside comments, arithmetic and here-strings."""
-    i, quote = 0, ""
+def _openers(line: str, quote: str) -> tuple[list[re.Match[str]], str]:
+    """Read unquoted heredoc operators and carry an open shell quote to the next line."""
+    matches = []
+    i = 0
     while i < len(line):
         char = line[i]
         if char == "\\" and quote != "'":
@@ -315,10 +317,11 @@ def _openers(line: str) -> Iterator[re.Match[str]]:
             i += 3
             continue
         elif match := _HEREDOC.match(line, i):
-            yield match
+            matches.append(match)
             i = match.end()
             continue
         i += 1
+    return matches, quote
 
 
 def _expansions(body: str) -> list[str]:
@@ -482,7 +485,7 @@ def _stages(part: str, *, include_reads: bool = True) -> list[list[str]]:
             _close(stages[-1], reads)
             reads = []
             stages.append([])
-        elif token.lstrip("&").startswith(">") or token in ("<", "<<<"):
+        elif token.lstrip("&").startswith(">") or token in ("<", "<&", "<<<"):
             target = token.lstrip("&")[:3]  # ``<<<`` is a string, not a file: only a lone ``<`` reads its target
         elif token not in _SEPARATORS and token not in _LEX_SKIP:
             stages[-1].append(_restore(token))

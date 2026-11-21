@@ -222,6 +222,22 @@ def _workspace_args(task: Task, opts: AgentOptions, rd: Path, meta: dict[str, An
     return present
 
 
+def _write_trace_events(rd: Path, transcript: Transcript, ctx: EvalContext, opts: AgentOptions,
+                        errors: list[str]) -> None:
+    """Write probe and choice events while keeping grading independent of either matcher."""
+    try:
+        probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes), errors)
+    except Exception as exc:  # noqa: BLE001  # the events go on without probes: the grade must not depend on them
+        probed = transcript.events
+        errors.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
+    try:
+        shown = with_choices(probed, opts.candidates or {}, transcript.added_text)
+    except Exception as exc:  # noqa: BLE001  # optional choice evidence must not cost a cell its grade
+        shown = probed
+        errors.append(f"choice matching failed ({type(exc).__name__}): {str(exc)[:200]}")
+    (rd / "events.jsonl").write_text(transcript.events_jsonl(shown), encoding="utf-8")
+
+
 def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, opts: AgentOptions,
              force: bool = False, host: dict[str, Any] | None = None) -> dict[str, Any]:
     """Prepare, run the agent, grade. Returns the cell's ``result.json`` (``skipped`` when it existed).
@@ -286,18 +302,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
-        # Probe events go to events.jsonl only: the counters, first_useful and skill usage score the trace's events
-        try:
-            probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes), probe_errors)
-        except Exception as exc:  # noqa: BLE001  # the events go on without probes: the grade must not depend on them
-            probed = transcript.events
-            probe_errors.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
-        try:
-            shown = with_choices(probed, opts.candidates or {}, transcript.added_text)
-        except Exception as exc:  # noqa: BLE001  # optional choice evidence must not cost a cell its grade
-            shown = probed
-            probe_errors.append(f"choice matching failed ({type(exc).__name__}): {str(exc)[:200]}")
-        (rd / "events.jsonl").write_text(transcript.events_jsonl(shown), encoding="utf-8")
+        _write_trace_events(rd, transcript, ctx, opts, probe_errors)
         failed = transcript.is_error or not result.ok  # a crashed review is missing, not clean
         answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE, failed=failed,
                                 messages=transcript.agent_messages)

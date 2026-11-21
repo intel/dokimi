@@ -11,3 +11,5 @@ SPDX-License-Identifier: Apache-2.0
   its `candidate`, `act` and, for an edit, its `path`. Only added text counts: an edit's new side, a write's content.
   Copilot's edit tools and Codex's `file_change` carry no added text, so they give install and remove events only. Existing event kinds are
   unchanged.
+
+- `repo run` includes manifest probe patterns in the execution ID. Resuming a batch with different probe inputs requires a new batch or `--force`. Probe matching now respects command exits, short circuits, shell heredocs and wrapper commands.

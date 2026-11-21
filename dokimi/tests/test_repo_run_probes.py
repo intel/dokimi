@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+import yaml
+
 from dokimi.repos import security as sec
 from test_repo_run import _run, setup  # noqa: F401  # the run fixture, with its helpers
 
@@ -59,3 +62,15 @@ def test_choice_matching_failure_keeps_the_grade_and_trace(setup, monkeypatch): 
     assert result["grade"]["success"] is True
     assert (cell / "events.jsonl").read_text() and (cell / "answer.txt").read_text()
     assert any("choice matching failed" in reason for reason in result["agent"]["trace_errors"])
+
+
+def test_changed_probes_in_an_external_manifest_refuse_resume(setup, tmp_path, capsys):  # noqa: F811
+    manifest = tmp_path / "manifest.yaml"
+    raw = yaml.safe_load((setup["root"] / ".agent-eval/repo-eval.yaml").read_text())
+    manifest.write_text(yaml.safe_dump({**raw, "probes": {"cpu": ["nproc"]}}))
+    args = ("--arm", "guidance:raw", "--task", "fix_add", "--manifest-file", str(manifest))
+    _run(setup, *args)
+    manifest.write_text(yaml.safe_dump({**raw, "probes": {"cpu": []}}))
+    with pytest.raises(SystemExit):
+        _run(setup, *args)
+    assert "holds cells of another execution" in capsys.readouterr().err
