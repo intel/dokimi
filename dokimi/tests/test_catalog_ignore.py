@@ -204,7 +204,8 @@ def _emitted_codes() -> set[str]:
     for path in package.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Finding"
-                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)):
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
                 codes.add(node.args[1].value)
             if path.name in ("content_checks.py", "command_checks.py") and isinstance(node, ast.Constant) \
                     and isinstance(node.value, str):

@@ -196,7 +196,20 @@ def test_text_includes_a_code_common_across_small_repos(tmp_path):
     for repo in ("small-a", "small-b", "small-c"):
         _repo(tmp_path, repo)
         tally.add(_row(f"{repo}/s", "warn", "widespread"))
-    assert any(line.startswith("#   widespread:") for line in text_lines(tally.summary()))
+    lines = text_lines(tally.summary())
+    assert any(line.startswith("#   widespread:") for line in lines)
+    assert len(lines) == 11  # the header, the five states, and the five codes
+
+
+def test_the_text_ranks_a_code_by_its_larger_share(tmp_path):
+    _repo(tmp_path, "big")
+    tally = RateTally(tmp_path)
+    for i in range(30):
+        tally.add(_row(f"big/s{i}", "warn", "p"))
+    for repo in ("w-a", "w-b", "w-c", "w-d"):
+        _repo(tmp_path, repo)
+        tally.add(_row(f"{repo}/s", "warn", "w1", "w2", "w3", "w4", "w5"))
+    assert any(line.startswith("#   p:") for line in text_lines(tally.summary()))
 
 
 def test_filesystem_without_inode_numbers_keeps_different_repos(tmp_path, monkeypatch):
@@ -238,4 +251,43 @@ def test_alias_of_root_shares_its_fallback_bucket(tmp_path):
         tally.add(_row(path, state))
     assert tally.summary()["repos"] == 1
     assert tally.summary()["states"]["warn"]["repo_rate"] == 0.3333
+    assert text_lines(tally.summary()) == []
+
+
+def test_an_unreadable_skill_directory_is_counted_not_raised(tmp_path, monkeypatch):
+    import errno
+
+    (tmp_path / "locked").mkdir()
+    real_stat = Path.stat
+
+    def denied(path, **kwargs):
+        if path.name == ".git" and path.parent.name == "locked":
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return real_stat(path, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", denied)
+    tally = RateTally(tmp_path)
+    tally.add(_row("locked", "error", "load-error"))
+    assert tally.summary()["skills"] == 1
+
+
+def test_two_spellings_of_one_inode_are_one_repo(tmp_path, monkeypatch):
+    import os
+
+    _repo(tmp_path, "Repo/a")
+    _repo(tmp_path, "repo/b")
+    real_stat = Path.stat
+
+    def shared_inode(path, **kwargs):
+        fields = list(real_stat(path, **kwargs))
+        if path.name in ("a", "b"):
+            fields[1] = 7
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(Path, "stat", shared_inode)
+    tally = RateTally(tmp_path)
+    tally.add(_row("Repo/a/s", "ok"))
+    tally.add(_row("repo/b/t", "warn"))
+    assert tally.summary()["repos"] == 1
+    assert tally.summary()["states"]["warn"]["repo_rate"] == 0.5
     assert text_lines(tally.summary()) == []

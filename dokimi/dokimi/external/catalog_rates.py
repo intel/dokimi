@@ -62,7 +62,11 @@ class RateTally:
             if prefix not in self._repos:
                 directory = self._abs_root.joinpath(*prefix)
                 key = ""
-                if (directory / ".git").exists():
+                try:
+                    is_repo = (directory / ".git").exists()
+                except PermissionError:
+                    is_repo = False
+                if is_repo:
                     stat = directory.stat()
                     key = "/".join(prefix)
                     if stat.st_ino:
