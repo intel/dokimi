@@ -30,7 +30,7 @@ import os
 import re
 import shlex
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Sequence
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
@@ -106,7 +106,7 @@ ECHO_COMMAND = re.compile(
     r"[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{|command|builtin|exec)[ \t]+"
     r"|[A-Za-z_]\w*=(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|()'\"`]*)[ \t]+)*(?:echo|printf)(?![\w.-])")
 # ``|`` at the end of a command that feeds a shell: what the command printed is run
-PIPED_SHELL = re.compile(_PIPE_TO + r"(?:ba|z|da|k)?sh(?![\w.-])")
+PIPED_SHELL = re.compile(_PIPE_TO + r"(?:(?:ba|z|da|k)?sh|fish)(?![\w.-])")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
 
@@ -216,11 +216,11 @@ def _unpinned_npm(rest: str, value_options: frozenset[str] = NPM_VALUE_OPTIONS) 
     return names
 
 
-def _unpinned_npx(rest: str) -> list[str]:
+def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) -> list[str]:
     """npx runs the packages it is given: each ``--package``/``-p`` selection before the program, or else the program
     itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
     it. Words after the program are its own arguments: its ``-p`` is not npx's selection."""
-    words = _words(rest, NPX_VALUE_OPTIONS)
+    words = _words(rest, value_options)
     selected: list[str] = []
     executable = None
     i = 0
@@ -265,33 +265,38 @@ def _unpinned_dlx(head: str | None, rest: str) -> list[str]:
             i += 1
         elif word.startswith("-p") and not word.startswith("--") and len(word) > 2:
             selected.append(word[2:])
-    return _unpinned_npx(" ".join(f"--package {spec}" for spec in selected) + " " + rest)
+    return _unpinned_npx(" ".join(f"--package {spec}" for spec in selected) + " " + rest, PNPM_VALUE_OPTIONS)
 
 
-def _blank(mask: list[str], pieces: list[tuple[int, int]]) -> None:
-    for start, end in pieces:
+def _blank(mask: list[str], pieces: Sequence[tuple[int, ...]]) -> None:
+    for start, end, *_ in pieces:
         for k in range(start, end):
             if mask[k] not in ("\n", BLOCK_END):
                 mask[k] = " "
 
 
-def _quoted(code: str, mask: list[str], i: int, memo: dict[int, int], level: int) -> tuple[int, list[tuple[int, int]]]:
-    """The index of the quote that closes the string opened at ``i`` and the ``(start, end)`` of its text, less any
-    command substitution in it (that runs); ``-1`` when it never closes in its own block or span: not a string."""
-    quote, j, seg, pieces = code[i], i + 1, i + 1, []
+def _quoted(code: str, i: int, memo: dict, level: int) -> tuple[int, list[tuple[int, int]], list[tuple[int, int]]]:
+    """The index of the quote that closes the string opened at ``i``, the ``(start, end)`` of its text, less any
+    command substitution in it (that runs), and the pieces that substitution's own echoes print; ``-1`` when it
+    never closes in its own block or span: not a string."""
+    quote, j, seg, pieces, inner = code[i], i + 1, i + 1, [], []
     while j < len(code) and code[j] not in (quote, BLOCK_END):
         if quote == '"' and (code[j] == "`" or code.startswith("$(", j)):
             pieces.append((seg, j))
-            j = seg = _substitution(code, mask, j, memo, level)
+            j, printed = _substitution(code, j, memo, level)
+            seg = j
+            inner += printed
         else:
             j += 2 if quote == '"' and code[j] == "\\" else 1
     if j >= len(code) or code[j] == BLOCK_END:
-        return -1, []
-    return j, pieces + [(seg, j)]
+        return -1, [], []
+    return j, pieces + [(seg, j)], inner
 
 
-def _substitution(code: str, mask: list[str], i: int, memo: dict[int, int], level: int) -> int:
-    """The index after the ``$(...)`` or backtick substitution opened at ``i``; its commands are scanned too.
+def _substitution(code: str, i: int, memo: dict, level: int) -> tuple[int, list[tuple[int, int]]]:
+    """The index after the ``$(...)`` or backtick substitution opened at ``i``, and the text its ``echo`` and
+    ``printf`` commands print; its commands are scanned too. The text is returned, not blanked: it is the output
+    of the command around the substitution, which a pipe to a shell may run.
 
     ``memo`` holds where each substitution ended, so one that a string failing to close makes the scan meet again is
     not scanned again. Past :data:`MAX_NESTING` levels an opener is stepped over, not entered."""
@@ -299,10 +304,31 @@ def _substitution(code: str, mask: list[str], i: int, memo: dict[int, int], leve
     if i in memo:
         return memo[i]
     if level >= MAX_NESTING:
-        return i + skip
-    end = _commands(code, mask, i + skip, stop, memo, level + 1)
-    memo[i] = end + 1 if end < len(code) and code[end] == stop else end
+        return i + skip, []
+    printed: list[tuple[int, int]] = []
+    end = _commands(code, printed, i + skip, stop, memo, level + 1)
+    memo[i] = (end + 1 if end < len(code) and code[end] == stop else end), printed
     return memo[i]
+
+
+# marks an echo whose stdout is redirected; a piece with a third item is blanked even when the command feeds a shell
+REDIRECTED = (-1, -1)
+
+
+def _flush(out, echo: list, piped: bool) -> None:
+    """Add the text of a finished echo to ``out``. Piped to a shell, its text is kept (it runs), unless its stdout
+    is redirected or it is already marked as printed by a command inside it."""
+    pieces = [piece for piece in echo if piece != REDIRECTED]
+    if REDIRECTED in echo:
+        out += [(start, end, True) for start, end, *_ in pieces]
+    else:
+        out += [piece for piece in pieces if len(piece) == 3] if piped else pieces
+
+
+def _stdout_redirected(code: str, i: int) -> bool:
+    """Whether the ``>`` at ``i`` opens a redirection of stdout to something other than stdout: not the second ``>`` of
+    ``>>``, not ``2>``/``2>>`` (a descriptor other than 1), not ``>&1``."""
+    return code[i] == ">" and code[i - 1] not in ">023456789" and not code.startswith("&1", i + 1)
 
 
 def _other(code, i, start, echo):
@@ -314,6 +340,8 @@ def _other(code, i, start, echo):
         while end < len(code) and code[end] not in ("\n", BLOCK_END):
             end += 1
         return False, end, echo if echo is None else echo + [(i, end)]
+    if echo is not None and REDIRECTED not in echo and _stdout_redirected(code, i):
+        echo = echo + [REDIRECTED]  # stdout goes to a file or another descriptor: nothing reaches a pipe
     return start and code[i] in " \t", i + (2 if code[i] == "\\" else 1), echo
 
 
@@ -325,8 +353,17 @@ def _paren_depth(depth: int, c: str) -> int:
     return depth + 1 if c == "(" else max(depth - 1, 0) if c == ")" else depth
 
 
-def _commands(code: str, mask: list[str], i: int, stop: str, memo: dict[int, int], level: int) -> int:
-    """Blank in ``mask`` the quoted text of each ``echo`` or ``printf`` from ``i`` to the ``stop`` that ends the list
+def _collect(echo, out, text, printed) -> None:
+    """The ``text`` of a string belongs to the echo being read, if any; what a substitution in it printed does too,
+    and otherwise is printed outright."""
+    if echo is not None:
+        echo += text + printed
+    else:
+        out += printed
+
+
+def _commands(code: str, out: list[tuple[int, int]], i: int, stop: str, memo: dict, level: int) -> int:
+    """Add to ``out`` the quoted text of each ``echo`` or ``printf`` from ``i`` to the ``stop`` that ends the list
     (or a block end): the text is printed, not run, unless the command feeds a shell. A substitution in it runs.
     Returns the index where it stopped."""
     depth, start = 0, True
@@ -336,31 +373,35 @@ def _commands(code: str, mask: list[str], i: int, stop: str, memo: dict[int, int
         match = ECHO_COMMAND.match(code, i) if start and echo is None else None
         if match:
             echo, start, i = [], False, match.end()
-        elif c in "'\"" and (quoted := _quoted(code, mask, i, memo, level))[0] >= 0:
-            echo = echo + quoted[1] if echo is not None else echo
+        elif c in "'\"" and (quoted := _quoted(code, i, memo, level))[0] >= 0:
+            _collect(echo, out, quoted[1], quoted[2])
             start, i = False, quoted[0] + 1
         elif c == "`" or code.startswith("$(", i):
-            start, i = False, _substitution(code, mask, i, memo, level)
+            i, printed = _substitution(code, i, memo, level)
+            _collect(echo, out, [], printed)
+            start = False
         elif c == "&" and _in_redirection(code, i):
             i += 1  # a redirection (``>&2``, ``&>f``), not a separator
         elif c in ";&|\n()":
-            if echo and not (c == "|" and PIPED_SHELL.match(code, i)):
-                _blank(mask, echo)
+            if echo:
+                _flush(out, echo, c == "|" and PIPED_SHELL.match(code, i) is not None)
             echo, start, i = None, True, i + 1
             depth = _paren_depth(depth, c)
         else:
             start, i, echo = _other(code, i, start, echo)
     if echo:
-        _blank(mask, echo)
+        _flush(out, echo, False)
     return i
 
 
 def _without_printed(code: str) -> str:
     """``code`` with the text ``echo`` and ``printf`` print blanked, so an install in it is not read."""
     mask, i = list(code), 0
-    memo: dict[int, int] = {}
+    memo: dict = {}
+    printed: list[tuple[int, int]] = []
     while i < len(code):
-        i = _commands(code, mask, i, "", memo, 0) + 1
+        i = _commands(code, printed, i, "", memo, 0) + 1
+    _blank(mask, printed)
     return "".join(mask)
 
 

@@ -755,6 +755,10 @@ def test_echo_inside_a_quoted_argument_does_not_open_a_command(tmp_path, line):
     ('echo "pip install requests" | sh', "pip requests"),
     ("printf '%s\\n' 'pnpm add lodash' | bash", "pnpm lodash"),
     ('echo "npm install left-pad" | sudo bash', "npm left-pad"),
+    ('echo "pip install requests" | fish', "pip requests"),
+    ("printf '%s\\n' 'pip install requests' | fish", "pip requests"),
+    ("echo \"$(echo 'pip install requests')\" | sh", "pip requests"),
+    ("echo \"$(printf '%s' 'pip install requests')\" | sh", "pip requests"),
 ])
 def test_echo_piped_to_a_shell_is_run(tmp_path, line, name):
     assert name in _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message
@@ -810,6 +814,37 @@ def test_pnpm_dlx_and_pnpx_run_a_package_as_npx_does(tmp_path, line):
 
 def test_pnpm_dlx_with_a_pinned_package_is_not_flagged(tmp_path):
     assert _found(_review(tmp_path, _fenced("pnpm dlx create-vite@5.0.0")), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("line", [
+    "echo \"$(echo 'pip install requests' >/dev/null)\" | sh",
+    "echo \"$(echo 'pip install requests' >&2)\" | sh",
+    "echo 'pip install requests' > /dev/null | sh",
+    "echo \"$(printf '%s' 'pip install requests' >>log)\" | sh",
+])
+def test_echo_with_redirected_output_feeds_a_shell_nothing(tmp_path, line):
+    assert _found(_review(tmp_path, _fenced(line)), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("redirect", ["2>/dev/null", "2>>/dev/null", ">&1", "1>&1", "2>&1"])
+def test_echo_with_stderr_or_self_redirection_still_feeds_a_shell(tmp_path, redirect):
+    found = _found(_review(tmp_path, _fenced(f"echo 'pip install requests' {redirect} | sh")), "install-unpinned")
+    assert "pip requests" in found[0].message
+
+
+def test_nested_echo_not_piped_to_a_shell_is_still_printed(tmp_path):
+    assert _found(_review(tmp_path, _fenced("echo \"$(echo 'pip install requests')\"")), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("line, names", [
+    ("pnpm dlx --reporter silent create-vite@5.0.0", None),
+    ("pnpm dlx --reporter silent create-vite", "pnpm create-vite"),
+    ("pnpx --dir app create-vite", "pnpm create-vite"),
+    ("pnpm dlx --dir app create-vite@5.0.0", None),
+])
+def test_pnpm_dlx_value_options_after_dlx_are_pnpms(tmp_path, line, names):
+    found = _found(_review(tmp_path, _fenced(line)), "install-unpinned")
+    assert (found[0].message.startswith("1 install name no version (" + names + ")") if names else found == [])
 
 
 @pytest.mark.parametrize("command", [
