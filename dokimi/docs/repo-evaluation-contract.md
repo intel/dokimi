@@ -382,7 +382,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `gate` | no | framework | what counts as success; default `["pass"]`. Each entry is a boolean metric name, which must be `true`, or `{"metric": <name>, "min": <number>}` for a numeric metric |
 | `score` | for score-only tasks | framework | `{"metric": <name>, "max": <number>}`: the metric that is the result when `pass` is `null`, and the value the oracle must reach (§4.3) |
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
-| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
+| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), unless `repo run --label-host` runs it and records the miss, and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. On a `guidance:as-skill` catalog arm the generated `<repo>-guidance` skill is refused too (its usage is `guidance_skill_loaded`). `result.json` `skills` records whether the agent used it and whether it used it first |
 | `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
@@ -781,6 +781,29 @@ cells is left unrun; a cell that already has a `result.json` keeps it. A harness
 before its first trace line is not a verdict on the cell: the cell is a crash, the batch exits 5, and it writes
 no `result.json`, so the next run runs it again. A harness the cap killed before its first trace line is a fail
 cell, as before.
+
+The probe also fingerprints the host (`dokimi/repos/host_fingerprint.py`, `collectors_version` 1).
+Its collectors are `os`, `cpu`, `memory`, `gpu`, `python`, `tools`, `network` and `virt`; each is a
+flat dict of JSON scalars under `collectors` in the probe's facts, beside the container's own keys
+(`cpus`, `cpu_vendor`, ...), which are unchanged. A collector that fails reports `{"error": ...}`
+and the others still run. Linux reads `/proc`, `/sys` and `/etc/os-release`; macOS reads `sysctl`;
+Windows reads the kernel's memory status, takes the CPU model and vendor from the registry (not from
+`platform.processor()`, which reads `PROCESSOR_IDENTIFIER`) and spawns only `git --version`, `nvidia-smi` and the other
+tools' `--version` calls when they are on the path. `gpu` is NVIDIA only. `virt` reads a container
+from `/.dockerenv`, podman's `/run/.containerenv` or the cgroup, and a VM from DMI or the `hypervisor`
+CPU flag. Nothing identifying is recorded: no host or user name, IP address, environment value,
+interface name or absolute path; an error text is cut to 300 characters with its paths replaced.
+`fingerprint_id` hashes the CPU and identity collectors but not `network`, so a bridge that appears
+between runs does not split a batch. `tools` count by presence only (a version change or a timed-out
+`--version` does not split a host), and a collector that still fails after one retry is left out.
+
+`repo run --label-host` runs a task that the host misses, instead of marking it unsupported. Each
+cell's `result.json` and `meta.json` hold `host_match`: the `fingerprint`, the report's `met`, and one
+field per declared requirement with `met` true, false, or null where the probe could not tell. The
+report's `met` is false if any field is, else null if any is undecided, else true. The requirements
+are checked against the grading container's CPU view, as in §3, not against the host's collectors,
+which only enter the fingerprint. `repo report` groups rows by `host_fingerprint` and notes a
+labelled miss ("labelled, unmet: cpu_flags.avx512f"). Without the flag, cells are not run on a host that misses the requirements, but results still carry `host_fingerprint` and `repo report` still splits rows by it.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
 directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` (or, without the flag, a `$DOKIMI_REPO_CACHE`) that is not a usable directory and on a `--cache-root` or `--cache NAME=PATH` that is not one; a

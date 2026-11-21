@@ -51,20 +51,20 @@ pair of the ``dokimi:review_replay`` cells, from ``grade.json``
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import math
-
 from dokimi.measure import as_float, is_number
 from dokimi.provenance import STATUSES, UNKNOWN
 from dokimi.utils import same_model
 
-from .grading import SCORE_BOUND, read_grade_json
 from .batch_ledger import recorded_execution
+from .grading import SCORE_BOUND, read_grade_json
+from .host import fingerprint_id
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
 from .useful import useful_line, useful_summary
@@ -159,6 +159,24 @@ def reading_cells(files: list[str]) -> Iterator[None]:
                             f"({type(exc).__name__}: {exc})") from exc
 
 
+def _match_usable(match: Any) -> bool:
+    """True when ``match`` is a ``host_match`` the report can read: ``met`` and each field's ``met`` a bool or null."""
+    if not isinstance(match, dict) or "met" not in match or not isinstance(match["met"], (bool, type(None))):
+        return False
+    fields = match.get("fields")
+    return isinstance(fields, list) and all(
+        isinstance(f, dict) and isinstance(f.get("field"), str) and isinstance(f.get("met"), (bool, type(None)))
+        for f in fields)
+
+
+def _check_host_fields(path: Path, rec: dict[str, Any]) -> None:
+    """Raise a :class:`CellFileError` unless ``host_fingerprint`` is a string or null and ``host_match`` is usable."""
+    if not isinstance(rec.get("host_fingerprint"), (str, type(None))):
+        raise CellFileError(f"{path} has no usable `host_fingerprint`")
+    if "host_match" in rec and not _match_usable(rec["host_match"]):
+        raise CellFileError(f"{path} has no usable `host_match`")
+
+
 def _check_cell(path: Path, rec: dict[str, Any]) -> None:
     """Raise a :class:`CellFileError` unless ``rec`` has the fields the report and compare read."""
     if not _grade_usable(rec) or not _optional_number(rec["grade"].get("score")):
@@ -177,6 +195,7 @@ def _check_cell(path: Path, rec: dict[str, Any]) -> None:
     for key in ("task", "arm", "model"):
         if not isinstance(rec.get(key), str):
             raise CellFileError(f"{path} has no usable `{key}`")
+    _check_host_fields(path, rec)
     if "batch" in rec and not isinstance(rec["batch"], str):
         raise CellFileError(f"{path} has no usable `batch`")
 
@@ -241,20 +260,90 @@ def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
     return out
 
 
+def _labelled_match(recs: list[dict[str, Any]]) -> dict[str, Any]:
+    """``{"host_match": ...}`` for a labelled row: which of the task's host requirements its host missed."""
+    labelled = [r["host_match"] for r in recs if isinstance(r.get("host_match"), dict)]
+    if not labelled:
+        return {}
+    return {"host_match": {"met": labelled[0]["met"],
+                           "unmet": [f["field"] for f in labelled[0]["fields"] if f["met"] is False]}}
+
+
+def _skill_counts(recs: list[dict[str, Any]]) -> dict[str, Any]:
+    used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
+    if not used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
+        return {}
+    out: dict[str, Any] = {"skill_measured": len(used), "skill_invoked": sum(bool(u["skill_invoked"]) for u in used)}
+    expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
+    if expecting:
+        out["skill_expected"] = len(expecting)
+        out["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
+    return out
+
+
+_UNKNOWN: Any = object()  # a cell with no meta.json (never started) or an unreadable one: no host to name
+
+
+def _started_host(meta_path: Path) -> Any:
+    """The fingerprint of the host recorded in a started cell's ``meta.json`` (``None``: none was probed)."""
+    if not meta_path.is_file():
+        return _UNKNOWN
+    try:
+        meta = _read_object(meta_path)
+    except CellFileError:
+        return _UNKNOWN
+    host = meta.get("host")
+    if host is not None and not (isinstance(host, dict) and isinstance(host.get("collectors") or {}, dict)):
+        return _UNKNOWN  # a host that fingerprint_id cannot read names no row
+    if host is None or not host.get("collectors"):
+        return None  # facts from before the collectors: the cell's result.json carries no fingerprint either
+    return fingerprint_id(host)
+
+
+def _unplace_rowless(missing_by: dict[tuple[str, str, str, str | None], int],
+                     unplaced: dict[tuple[str, str, str], int], groups: dict[Any, list[dict[str, Any]]]) -> None:
+    """A started missing cell whose host has no finished cell has no row: it is unplaced, so the single-row rule applies."""
+    row_keys = {(g[0], _cell_arm(g[1]), _cell_model(g[2]), g[3]) for g in groups}
+    for k in [k for k in missing_by if k not in row_keys]:
+        unplaced[(k[0], k[1], k[2])] += missing_by.pop(k)
+
+
+def _row_missing(missing_by: dict[tuple[str, str, str, str | None], int], unplaced: dict[tuple[str, str, str], int],
+                 hosts_of: dict[tuple[str, str, str], int], key: tuple[str, str, str, str | None]) -> int:
+    """Missing cells of one host row: those that ran on its host, and the unplaced ones when it is the only row."""
+    slug_key = (key[0], _cell_arm(key[1]), _cell_model(key[2]))
+    count = missing_by.get((*slug_key, key[3]), 0)
+    if hosts_of[slug_key] == 1:
+        count += unplaced.get(slug_key, 0)
+    return count
+
+
 def summarize(batch_dir: Path) -> dict[str, Any]:
     cells, missing = load_cells(batch_dir)
     # one directory is one batch: the rows below pool by task, arm and model, so the batch name cannot split them
     refuse_mixed_executions([{**c, "batch": ""} for c in cells], str(batch_dir))
-    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    # One row per (task, arm, model) and host fingerprint: cells run on different hosts never pool in a row.
+    groups: dict[tuple[str, str, str, str | None], list[dict[str, Any]]] = defaultdict(list)
     for rec in cells:
-        groups[(rec["task"], rec["arm"], rec["model"])].append(rec)
-    missing_by: dict[tuple[str, str, str], int] = defaultdict(int)
+        groups[(rec["task"], rec["arm"], rec["model"], rec.get("host_fingerprint"))].append(rec)
+    # A missing cell that started has its host in meta.json and counts on that host's row. One that never
+    # started has none: it counts on a row only when its (task, arm, model) has a single host row.
+    missing_by: dict[tuple[str, str, str, str | None], int] = defaultdict(int)
+    unplaced: dict[tuple[str, str, str], int] = defaultdict(int)
     for name in missing:
         parts = name.split("__")
         if len(parts) == 4:
-            missing_by[(parts[0], parts[1], parts[2])] += 1
+            host = _started_host(batch_dir / name / "meta.json")
+            if host is _UNKNOWN:
+                unplaced[(parts[0], parts[1], parts[2])] += 1
+            else:
+                missing_by[(parts[0], parts[1], parts[2], host)] += 1
+    hosts_of: dict[tuple[str, str, str], int] = defaultdict(int)
+    for g in groups:
+        hosts_of[(g[0], _cell_arm(g[1]), _cell_model(g[2]))] += 1
+    _unplace_rowless(missing_by, unplaced, groups)
     rows = []
-    for key in sorted(groups):
+    for key in sorted(groups, key=lambda k: (k[0], k[1], k[2], k[3] or "")):
         recs = groups[key]
         with reading_cells([str(batch_dir / r["cell"] / "result.json") for r in recs]):
             n = len(recs)
@@ -267,7 +356,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                    "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
                                    "over_budget": sum(bool(r["agent"]["over_budget"]) for r in recs),
                                    "cost_unknown": sum(r["agent"]["cost_usd"] is None for r in recs),
-                                   "missing": missing_by.get((key[0], _cell_arm(key[1]), _cell_model(key[2])), 0),
+                                   "missing": _row_missing(missing_by, unplaced, hosts_of, key),
                                    "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
                                    "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
                                    "turns": _mean([r["agent"]["num_turns"] for r in recs]),
@@ -275,6 +364,8 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                    **{k: _mean([r["agent"].get(k) for r in recs]) for k in _TOKENS},
                                    "networks": sorted({str(r["agent"].get("network")) for r in recs}),
                                    "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
+            row["host_fingerprint"] = key[3]
+            row.update(_labelled_match(recs))
             uptake = uptake_counts(recs)
             if uptake is not None:
                 row["uptake"] = uptake
@@ -287,14 +378,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
             else:
                 wins = sum(bool(r["grade"]["success"]) for r in recs)
                 row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
-            used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
-            if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
-                row["skill_measured"] = len(used)
-                row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
-                expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
-                if expecting:
-                    row["skill_expected"] = len(expecting)
-                    row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
+            row.update(_skill_counts(recs))
             row["parse_errors"] = sum(r["grade"]["status"] != "grader_failure"  # counted in grader_failures
                                       and _metrics(batch_dir / r["cell"]).get("parse_error") is True for r in recs)
             rows.append(row)
@@ -354,6 +438,13 @@ def _row_notes(r: dict[str, Any]) -> list[str]:
     if "uptake" in r:
         notes.append(f"arm's additions used in {r['uptake']['used']}/{r['uptake']['cells']} cell(s)"
                      + unmeasured_note(r["uptake"]))
+    if "host_match" in r:
+        match = r["host_match"]
+        what = "met" if match["met"] is True else f"unmet: {', '.join(match['unmet'])}" if match["met"] is False \
+            else "undecided"
+        notes.append(f"host {r['host_fingerprint']} (labelled, {what})")
+    elif r.get("host_fingerprint"):
+        notes.append(f"host {r['host_fingerprint']}")
     return notes
 
 
