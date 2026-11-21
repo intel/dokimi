@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Lightsage-inspired features for dokimi
 
-Status: proposal + two prototypes (opportunities wired as `report opportunities`) on branch `claude/lightsage-feature-ideas-2aea58` (not pushed).
+Status: proposal + two prototypes (opportunities wired as `report opportunities`) on branch `claude/lightsage-feature-ideas-2aea58`.
 Sources: Lightsage's public docs (`llms-full.txt`, 164 pages) and the JSON *shapes* (field names
 only) of ~57 app API endpoints from a 2026-11-20 browser capture. No customer data, tokens or
 response values are reproduced here.
