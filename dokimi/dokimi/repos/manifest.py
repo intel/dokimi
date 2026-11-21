@@ -525,7 +525,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         return
     try:
         raw = json.loads(tree.read_text(where))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
         report.errors.append(f"{where}: not valid JSON: {exc}")
         return
     if not isinstance(raw, dict):

@@ -353,10 +353,22 @@ def _load_manifest(tree, args: argparse.Namespace, *, guidance_default: bool = F
             }, "<default>")
         return load_manifest(tree, path)
     try:
-        raw = yaml.safe_load(Path(args.manifest_file).read_text(encoding="utf-8"))
+        named = Path(args.manifest_file)
+        if named.exists() and not named.is_file() and not _is_fd_pipe(named):  # a named FIFO blocks until a writer opens it (#975)
+            raise OSError("not a regular file")
+        raw = yaml.safe_load(named.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:  # ValueError: not UTF-8
         raise ManifestError(args.manifest_file, [str(exc)]) from exc
     return parse_manifest(raw, path)
+
+
+def _is_fd_pipe(path: Path) -> bool:
+    """True for ``/dev/fd/N`` or ``/proc/<pid>/fd/N`` naming a pipe: process substitution (``<(cat m.yaml)``) has a writer."""
+    import stat
+
+    parts = path.parts
+    via_fd = parts[:3] == ("/", "dev", "fd") or (len(parts) > 3 and parts[:2] == ("/", "proc") and parts[3] == "fd")
+    return via_fd and stat.S_ISFIFO(path.stat().st_mode)
 
 
 def _manifest_id(label: str) -> str:
