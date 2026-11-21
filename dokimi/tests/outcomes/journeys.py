@@ -161,7 +161,7 @@ def resolve(root: argparse.ArgumentParser, tokens: list[str]) -> tuple[argparse.
     """The parser ``tokens`` lead to, the command path taken, and the options passed.
 
     Each option is resolved by the parser it was passed to, and nothing after
-    ``--`` is an option: there argparse reads ``--fail-on-fail`` as a positional.
+    ``--`` is an option: there argparse reads ``--fail-on`` as a positional.
     """
     parser, path, flags = root, [], []
     walking = True

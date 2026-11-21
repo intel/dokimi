@@ -522,7 +522,7 @@ def test_a_flood_of_unclosed_field_specs_is_scanned_in_linear_time(tmp_path):
         path = _write(tmp_path / f"t{k}.py","from inspect_ai import Task, task\n@task\ndef t():\n" + flood(k) + spec)
         return partial(inspect_path, path)
 
-    ratio, [report] = growth(inspect, 2500)  # quadratic with an unbounded [^)]*
+    ratio, [report] = growth(inspect, 625)  # quadratic with an unbounded [^)]*
     assert ratio < GROWTH_LIMIT
     fields = {Path(r["path"]).name: r.get("fields") for r in report.details["references"]}
     assert fields == {"a.jsonl": None, "d.jsonl": {"input": "question", "target": "answer", "id": "qid"}}

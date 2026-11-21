@@ -21,8 +21,36 @@ from dokimi.utils import InputError
 #: A C identifier prefix: a C identifier that ends in an underscore (``cblas_``, ``LAPACKE_``).
 _PREFIX = re.compile(r"[A-Za-z_]\w*_")
 #: Comments and string or character literals of C code: no declaration is named in them.
-_C_SKIP = re.compile(r'/\*.*?\*/|//(?:\\\n|[^\n])*|"(?:\\.|[^"\\\n])*"|\'(?:\\(?:x[0-9A-Fa-f]+|[0-7]{1,3}|.)|[^\'\\\n])\'', re.DOTALL)
+_C_SKIP = re.compile(r'//(?:\\\n|[^\n])*|"(?:\\.|[^"\\\n])*"|\'(?:\\(?:x[0-9A-Fa-f]+|[0-7]{1,3}|.)|[^\'\\\n])\'', re.DOTALL)
+_C_START = re.compile(r"/\*|[/\"']")
 _CHUNK = 1 << 20
+
+
+def _blank_skipped(text: str) -> str:
+    """``text`` with each comment and literal replaced by a space, found left to right.
+
+    A ``/*`` with no ``*/`` after it stays in the text, and no later ``/*`` has a closer either, so the
+    search for ``*/`` runs once (https://github.com/intel/dokimi/issues/928).
+    """
+    out: list[str] = []
+    last = 0
+    closable = True
+    for start in _C_START.finditer(text):
+        at = start.start()
+        if at < last:
+            continue
+        if start.group() == "/*":
+            end = text.find("*/", at + 2) if closable else -1
+            closable = end >= 0
+            skipped = end + 2 if end >= 0 else at
+        else:
+            literal = _C_SKIP.match(text, at)
+            skipped = literal.end() if literal else at
+        if skipped > at:
+            out += (text[last:at], " ")
+            last = skipped
+    out.append(text[last:])
+    return "".join(out)
 
 
 def check_prefixes(prefixes: Sequence[str]) -> tuple[str, ...]:
@@ -65,7 +93,7 @@ def header_names(text: str, prefixes: Sequence[str]) -> set[str]:
     superset of the declared API: the check then misses an invented name only if the header
     itself spells it.
     """
-    code = _C_SKIP.sub(" ", text)
+    code = _blank_skipped(text)
     return set(re.findall(symbol_pattern(prefixes), code))
 
 

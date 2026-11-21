@@ -444,7 +444,7 @@ def test_a_long_answer_with_many_mentions_is_scanned_in_linear_time():
     from dokimi.eval.reference_checks import scope_pairs
     unit = "Then call cblas_dgemm(a, b) on the block. "
     pattern = symbol_pattern(("cblas_",))
-    ratio, pairs = growth(lambda k: partial(scope_pairs, pattern, unit * k, timeout=30), 750)  # 126 KB at 4n
+    ratio, pairs = growth(lambda k: partial(scope_pairs, pattern, unit * k, timeout=30), 188)  # 126 KB at 16n
     assert ratio < GROWTH_LIMIT
     assert len(pairs) > 2000
 

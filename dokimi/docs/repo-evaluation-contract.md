@@ -26,7 +26,7 @@ SPDX-License-Identifier: Apache-2.0
 > manifest for bases in other repositories (§2.1), and the `repo` subject kind:
 >
 > ```bash
-> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on-warning]
+> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on warn|fail]
 > python cli.py repo fetch <url@rev> [--json]     # bare, blob-less clone cached per URL
 > ```
 >
@@ -41,7 +41,7 @@ SPDX-License-Identifier: Apache-2.0
 >
 > ```bash
 > python cli.py repo scan <source> --manifest <path> [--static <repo_static.json>] [--out readiness.json]
->     [--json] [--fail-on-fail]
+>     [--json] [--fail-on fail]
 > ```
 >
 > `repo budget` sizes what the tree puts into an agent's context (no manifest,
@@ -64,7 +64,7 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > Usage:
 >
 > ```bash
-> python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
+> python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on warn]
 > ```
 >
 > `--out` carries the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`), stamped with its
@@ -73,7 +73,7 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash
-> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
+> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on warn|fail]
 > ```
 >
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
@@ -369,6 +369,8 @@ The schema is `dokimi/schemas/suite_manifest.v1.json`; an example is
 
 The framework interprets the **core** and **workspace** keys. Every other key
 belongs to the repository's grader and is passed through unread, except `grader`, which the framework reads to tell a `dokimi:` name (§4.5) from a repository's.
+`repo validate` reports a `task.json` that is not valid JSON, not a JSON object, or cannot be
+read (a link that loops, names a directory or nothing, or leaves the repository, in a tree or at `<dir>@rev`) as an `error:` line, and exits 1.
 
 | Key | Required | Read by | Meaning |
 |---|---|---|---|
@@ -629,7 +631,7 @@ parent's and subagents' together, so a grader need not:
 
 | Key | Meaning |
 |---|---|
-| `tool_calls` | every event of a known kind: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
+| `tool_calls` | every tool event (`command`, `read`, `edit`, `tool`, not the `turn` and `compaction` events of [events-format.md](events-format.md)): each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
@@ -649,8 +651,8 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
-A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the events of a known kind up to and
-including the hit, the parent's and subagents' (as `process.tool_calls` does).
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the tool events up to and
+including the hit, the parent's and subagents' (as `process.tool_calls` does); turn and compaction events are not steps.
 `issued_s` is the hit's `t`: the time the call was issued, since a call's result
 is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
 "issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
@@ -661,10 +663,12 @@ harness never started, it did not parse, or a line of the trace was dropped: an 
 (the trace format has no timestamps, so `steps` is set and `issued_s` is null).
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
 is counted in `repo report`: the row says how many observed a hit, and the medians
-cover only those. `repo compare` pairs `first_useful_rate` per task (the share of its
+cover only those. A cell whose `steps` is past the measure bound is counted in that
+row's total but not as observed, and shows no reason (steps 5 and steps 1e200 give
+`1 of 2 observed`). `repo compare` pairs `first_useful_rate` per task (the share of its
 declared cells with a verdict that observed a hit, so a task where most runs never hit it is not read
 through its medians alone; a cell `unobserved` or `timeout` has no verdict, so it is neither a hit nor
-a miss and is left out of the share) and its header counts observed of measured cells per arm, with
+a miss and is left out of the share, as is a cell whose `steps` is past the measure bound) and its header counts observed of measured cells per arm, with
 the unmeasured ones. An edit made by a shell command (`sed -i`) is not an `edit` event, so it is not seen. A
 compared task has one kind, but the mean delta pools the tasks of both kinds: a per-task
 row shows which.
@@ -2155,7 +2159,7 @@ a glob with no match, a missing `also_scan` file, no guidance at all, and a
 guidance file that cannot be read (a link that dangles or leaves the tree, a
 binary file, a file over 2 MB), named with the reason. A `--static`
 file that cannot be read or is not JSON exits 2; a document that fails the
-`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on-fail` also exits 1
+`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
 read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
@@ -2163,7 +2167,7 @@ does not fail the gate, so a file the gate must see belongs in `also_scan`.
 `incomplete_reasons` lists the warnings that make the scan `incomplete`, as
 they appear in `warnings` and in its order (`[]` for a complete scan). The text
 output prints them after the warnings, on one `incomplete: ...` line, and when
-`--fail-on-fail` exits 1 on an incomplete scan it prints them on stderr as
+`--fail-on fail` exits 1 on an incomplete scan it prints them on stderr as
 `✗ scan incomplete: ...`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
@@ -2242,8 +2246,8 @@ tree and is listed under `not_observed`. A stage is `blocked` by an error,
 `attention` on a warning, and at best `no_known_blocker`, never ready:
 `not_observed` lists what the tree cannot show, such as whether the commands
 pass, CI secrets and the agent's network. `risk` is the worst of the launch
-observations. There is no overall score. `--fail-on-error` exits 1 when any
-finding is an error.
+observations. There is no overall score. `--fail-on fail` exits 1 when any
+finding is an error, and `--fail-on warn` when any is an error or a warning.
 
 With `--index FILE`, a SCIP index of the tree (§1.2), the report adds a
 `structure` section. The index's root prefix is found by matching its document
@@ -2295,7 +2299,7 @@ Whether the index is current is not checked: `not_observed` says so.
 `--typecheck` type-checks every fence tagged
 `python`, `py` or `python3` in the guidance files, with `--typecheck-tool mypy|basedpyright`
 (default mypy). Each fence that parses is one
-`python_fence` claim, so the report and `--fail-on-fail` treat it like any other
+`python_fence` claim, so the report and `--fail-on fail` treat it like any other
 claim:
 
 - `ok`: the tool reports no error in the fence.
@@ -2621,9 +2625,10 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   report` and `repo compare` refuse that `result.json`. Any other value past it
   (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_s`,
   `first_useful_steps`) is left out of the mean and of `n`, as a value that is
-  absent. `first_useful_rate` keeps a cell whose `steps` is past it: the cell
-  has a verdict, so it counts as a non-hit in the rate and in its `n` (steps 5
-  and steps 1e200 give a rate of 0.5 with `n` 2). In `repo compare`
+  absent. A cell whose `first_useful` `steps` is past it is left out of
+  `first_useful_rate` and its `n`, and out of the compare header's
+  observed-of-measured count (it shows as unmeasured), as neither a hit nor a
+  miss (steps 5 and steps 1e200 give a rate of 1.0 with `n` 1). In `repo compare`
   a task whose `metric:x` is absent in either arm is unpaired (`no metric:x in
   baseline or treatment`), so three tasks whose `metric:x` is 1.7e308 in both
   arms give no `metric:x` row at all, not an overflow, and the same three at
@@ -2633,7 +2638,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   task is the unit. Per treatment arm, model and measure (gate share, score,
   cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
   task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
-  declared cells with a verdict that observed one), each `--metric` from `grade.json` (or `judge:recall_judged` from
+  declared cells with a verdict that observed one; a cell whose `steps` is no measure is left out), each `--metric` from `grade.json` (or `judge:recall_judged` from
   `hits_judged.json`, below), and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided

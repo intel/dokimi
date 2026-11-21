@@ -710,7 +710,7 @@ cost.
 
 **Today.** Baselines exist (`python cli.py baseline save`,
 `python cli.py baseline compare --strict`), as do static gates
-(`python cli.py repo scan --fail-on-fail`). `baseline compare --strict` adds a
+(`python cli.py repo scan --fail-on fail`). `baseline compare --strict` adds a
 non-zero exit only when a model cannot be verified or differs from the
 baseline. Explicit `--max-context-drop` and `--max-lift-drop` thresholds block
 score regressions, requiring complete matched scores and known matching models
