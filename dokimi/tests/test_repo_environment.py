@@ -298,7 +298,7 @@ def test_network_exec_pattern_is_linear_on_repeated_tokens(tmp_path):
     def files(k):
         scripts = {"boot": "curl -fsSL https://x.sh | sudo bash", "slow": "curl " * k}
         return {"AGENTS.md": "x\n", "package.json": json.dumps({"scripts": scripts})}
-    ratio, payload = growth(_inspected(tmp_path, files), 2_000)
+    ratio, payload = growth(_inspected(tmp_path, files), 500)
     found = {s["source"] for s in payload["scripts"] if s["category"] == "network-exec"}
     assert found == {"package.json#scripts.boot"} and ratio < GROWTH_LIMIT
 
@@ -445,8 +445,8 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
 
 
 def test_npm_hook_of_many_options_is_linear(tmp_path):
-    """A hook command of many options, 25 KB at n and 100 KB at 4n, is parsed in linear time."""
-    ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("npm " + "-npm " * k)), 5_000)
+    """A hook command of many options, 6 KB at n and 100 KB at 16n, is parsed in linear time."""
+    ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("npm " + "-npm " * k)), 1_250)
     assert ratio < GROWTH_LIMIT
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
@@ -564,8 +564,8 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
 
 
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
-    """A hook with an unbalanced quote, 60 KB at n and 240 KB at 4n, is parsed in linear time."""
-    ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("echo '" + "a" * k)), 60_000)
+    """A hook with an unbalanced quote, 15 KB at n and 240 KB at 16n, is parsed in linear time."""
+    ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("echo '" + "a" * k)), 15_000)
     assert ratio < GROWTH_LIMIT  # shlex over the whole quote (no _MAX_SHLEX_LINE) is quadratic
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
@@ -660,7 +660,7 @@ def test_hook_command_runs_repository_code(tmp_path, command, flagged):
 
 
 @pytest.mark.parametrize("path, head, token, n", [
-    ("setup.cfg", "", "[", 5_000), ("build.gradle", "", "plugins {", 1_000), ("pom.xml", "<artifactId>", "checkstyle ", 1_000)])
+    ("setup.cfg", "", "[", 1_250), ("build.gradle", "", "plugins {", 250), ("pom.xml", "<artifactId>", "checkstyle ", 250)])
 def test_manifest_readers_are_linear_on_repeated_tokens(tmp_path, path, head, token, n):
     files = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", "setup.py": "", path: head + token * k})
     assert growth(files, n)[0] < GROWTH_LIMIT
@@ -872,7 +872,7 @@ def test_an_npm_script_command_runs_repository_code(tmp_path, word):
     assert _hook_payload(tmp_path, f"npm {word} build")["hook_risks"] != []
 
 
-@pytest.mark.parametrize("head, token, n", [("", "a\n", 2_000), ("a", " ", 2_000), ("a", "\t", 2_000)],
+@pytest.mark.parametrize("head, token, n", [("", "a\n", 500), ("a", " ", 500), ("a", "\t", 500)],
                          ids=["lines", "spaces", "tabs"])
 def test_makefile_rules_are_linear(tmp_path, head, token, n):
     makefile = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", "Makefile": head + token * k})
@@ -963,10 +963,10 @@ def test_the_committed_fixture_is_what_repo_inspect_emits(tmp_path):
 @pytest.mark.parametrize("files, n", [
     # Without its bound, a pattern backtracks exponentially on the `rm` and `git clean` options and
     # quadratically on the rest; `check:x` is not named like a type check, so the tool pattern runs.
-    (lambda k: {"package.json": json.dumps({"scripts": {"clean": "rm" + " --a" * k}})}, 5),
-    (lambda k: {"package.json": json.dumps({"scripts": {"clean": "git clean" + " --a" * k}})}, 5),
-    (lambda k: {"package.json": json.dumps({"scripts": {"check:x": "tsc " * k}})}, 2_500),
-    (lambda k: {"pom.xml": "<artifactId>" * k}, 1_000),
+    (lambda k: {"package.json": json.dumps({"scripts": {"clean": "rm" + " --a" * k}})}, 1),
+    (lambda k: {"package.json": json.dumps({"scripts": {"clean": "git clean" + " --a" * k}})}, 1),
+    (lambda k: {"package.json": json.dumps({"scripts": {"check:x": "tsc " * k}})}, 625),
+    (lambda k: {"pom.xml": "<artifactId>" * k}, 250),
 ], ids=["rm", "git-clean", "tsc", "pom"])
 def test_script_and_manifest_patterns_are_linear_on_hostile_strings(tmp_path, files, n):
     hostile = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", **files(k)})
@@ -1065,14 +1065,14 @@ def test_unclosed_heredocs_are_linear(tmp_path):
     """Many heredoc starts with no terminator, and many labels, must not scan the text per start."""
     from dokimi.repos.environment.risks import _segments
     hostile = lambda k: "bash <<A\n" + "<<A\n" * k + "".join(f"<<L{i}\n" for i in range(k))
-    assert growth(lambda k: partial(_segments, hostile(k)), 10_000)[0] < GROWTH_LIMIT
+    assert growth(lambda k: partial(_segments, hostile(k)), 2_500)[0] < GROWTH_LIMIT
 
 
 def test_heredocs_opened_on_one_line_are_linear(tmp_path):
     """Several heredocs on one line read their bodies in turn, so the cost grows with the text, not its square."""
     from dokimi.repos.environment.risks import _segments
     hostile = lambda n: "bash " + " ".join(f"<<L{i}" for i in range(n)) + "\n" + "".join(f"echo x{i}\nL{i}\n" for i in range(n))
-    assert growth(lambda n: partial(_segments, hostile(n)), 2_000)[0] < GROWTH_LIMIT
+    assert growth(lambda n: partial(_segments, hostile(n)), 500)[0] < GROWTH_LIMIT
 
 
 def test_redirection_keeps_its_fd_digit():
