@@ -158,6 +158,12 @@ def test_a_heading_after_a_colon_ended_span_is_not_added():
     assert context == "Heading: T > H"
 
 
+def test_a_repeated_sibling_heading_after_a_colon_ended_span_is_not_added():
+    spans = segment("# Intro\n\n## Setup\n\nDo the following:\n\n## Setup\n\nText.\n")
+    _, context = _check(_atom(spans, "Do the following"), spans)
+    assert context == "Heading: Intro > Setup"
+
+
 def test_a_cited_span_without_a_colon_gets_no_following_span():
     spans = segment(FENCE_DOC.replace(LEAD, LEAD[:-1] + "."))
     _, context = _check(_atom(spans, "Three commands"), spans)

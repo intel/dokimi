@@ -50,7 +50,7 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
 
     When the last cited span in document order ends in a colon, the very next span is added
     as ``Following:`` (the code block or first item the lead-in points at), unless it is a
-    heading or in another section (a heading's own path differs, so one test covers both). The
+    heading (also one that repeats the section's own title) or in another section. The
     next span comes after the last cited one, so it is never cited. Only that one span is taken.
     """
     order = {span.id: i for i, span in enumerate(spans)}
@@ -75,7 +75,7 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
     after = order[last] + 1
     if by_id[last].text.rstrip().endswith(":") and after < len(spans):
         following = spans[after]
-        if following.heading_path == by_id[last].heading_path:
+        if following.kind != "heading" and following.heading_path == by_id[last].heading_path:
             parts.append("Following: " + following.text)
     return "\n".join(parts) or "(none)"
 
