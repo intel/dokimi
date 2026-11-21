@@ -573,6 +573,7 @@ def _probed(text: str, **event: object) -> list[tuple[str, str]]:
     ("nproc", {"denied": True}),  # a denied command ran nothing
     ("true || echo skipped || nproc", {}),
     ("command -v nproc", {}),  # ``command -v`` only looks the program up
+    ("sudo -V nproc", {}),
     ("sudo --help nproc", {}),  # ``--help`` prints text and runs nothing
     ("false && nproc", {}),
     ("exit 0; nproc", {}),
