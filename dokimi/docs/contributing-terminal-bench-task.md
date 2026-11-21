@@ -153,10 +153,14 @@ The contract:
 - Write the outcome to `/logs/verifier/reward.txt` — `1` (or `1.0`) for pass,
   `0` (or `0.0`) for fail. A fraction such as `0.75` (partial credit) is kept
   as the cell's reward and counts as a fail. The harness copies that file out.
-  Without it the exit code is no pass: exit 0 errors the cell and a non-zero
+  Without a reward file (this one or `reward.json`) the exit code is no pass: exit 0 errors the cell and a non-zero
   exit scores 0. This is the rule for this format; a terminal-bench v1 task
   (`task.yaml`) is still graded by its pytest summary. A file with no number
   between 0 and 1 in it (`PASS`, empty, `75`) errors the cell.
+- Or write `/logs/verifier/reward.json`, as Harbor reads it: a JSON object of
+  numbers such as `{"reward": 0.58, "correctness": 0.67}`, whose `reward` key
+  (or only key) is the reward. When both files exist, `reward.json` is the one
+  read; one that is not such an object errors the cell.
 - Do not let a failure abort before the reward file is written (capture the
   pytest exit code, write the file, then exit with it).
 
