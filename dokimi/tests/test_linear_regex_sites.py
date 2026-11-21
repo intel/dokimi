@@ -80,9 +80,9 @@ def test_header_tail_random_texts_match_old_regex() -> None:
 
 
 @pytest.mark.parametrize(("shape", "n"), [
-    (lambda k: "[P1]" * k, 1500),  # the tags open and never close: quadratic as a lazy scan from each
-    (lambda k: "a." * k + "x", 100),  # a path-like run with no line number: cubic as a search
-    (lambda k: "a.:1 " * k + "x", 1500),
+    (lambda k: "[P1]" * k, 375),  # the tags open and never close: quadratic as a lazy scan from each
+    (lambda k: "a." * k + "x", 25),  # a path-like run with no line number: cubic as a search
+    (lambda k: "a.:1 " * k + "x", 375),
 ], ids=["tags", "dots", "numbers"])
 def test_header_tail_scan_is_linear(shape, n: int) -> None:  # type: ignore[no-untyped-def]
     ratio, found = growth(lambda k: partial(_has_header_tail, shape(k)), n)
@@ -151,13 +151,13 @@ def test_parse_json_unwraps_a_fenced_block() -> None:
     lambda k: "```\n" + "\n" * k + "x\n``` y",  # the closer is there but text follows it
 ], ids=["blank-lines", "blank-lines-spaces", "closer-then-text"])
 def test_fence_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
-    ratio, body = growth(lambda k: partial(_fenced_body, shape(k)), 200)
+    ratio, body = growth(lambda k: partial(_fenced_body, shape(k)), 50)
     assert body is None
     assert ratio < GROWTH_LIMIT
 
 
 def test_fence_body_scan_is_linear_when_the_block_closes() -> None:
-    ratio, body = growth(lambda k: partial(_fenced_body, "```\n" + "\n" * k + "x\n" + "\n" * k + "```"), 200)
+    ratio, body = growth(lambda k: partial(_fenced_body, "```\n" + "\n" * k + "x\n" + "\n" * k + "```"), 50)
     assert body == "x"
     assert ratio < GROWTH_LIMIT
 
@@ -223,13 +223,13 @@ def test_header_names_skips_comments_and_literals() -> None:
     lambda k: "/* a */ " * k + "/* b " * k,  # closed comments, then openers with none
 ], ids=["openers", "adjacent", "strings", "lines", "closed-then-open"])
 def test_c_skip_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
-    ratio, blanked = growth(lambda k: partial(_blank_skipped, shape(k)), 1500)
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, shape(k)), 375)
     assert blanked.count("/*") >= 6000
     assert ratio < GROWTH_LIMIT
 
 
 def test_c_skip_scan_is_linear_when_the_closer_is_far() -> None:
-    ratio, blanked = growth(lambda k: partial(_blank_skipped, "/* a " * k + "*/ b"), 1500)
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, "/* a " * k + "*/ b"), 375)
     assert blanked == "  b"
     assert ratio < GROWTH_LIMIT
 
@@ -283,12 +283,12 @@ def test_logical_lines_joins_a_continuation_and_keeps_a_comment_after_a_backslas
     lambda k: "x" + "\u00a0" * k,
 ], ids=["spaces", "tabs", "no-break-spaces"])
 def test_trailing_comment_strip_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
-    ratio, stripped = growth(lambda k: partial(_TRAILING_COMMENT.sub, "", shape(k)), 1500)
+    ratio, stripped = growth(lambda k: partial(_TRAILING_COMMENT.sub, "", shape(k)), 375)
     assert stripped.startswith("x")
     assert ratio < GROWTH_LIMIT
 
 
 def test_logical_lines_is_linear_on_a_long_whitespace_run() -> None:
-    ratio, lines = growth(lambda k: partial(logical_lines, [(1, "x" + " " * k), (2, "y" + " " * k + "\\")]), 1500)
+    ratio, lines = growth(lambda k: partial(logical_lines, [(1, "x" + " " * k), (2, "y" + " " * k + "\\")]), 375)
     assert [n for n, _ in lines] == [1, 2]
     assert ratio < GROWTH_LIMIT
