@@ -11,6 +11,9 @@
     "agent": {"type": "string", "description": "The id of the parent's Agent/Task call that started this event; absent on the parent's events."},
     "denied": {"type": "boolean", "description": "The call was refused and never ran."},
     "target": {"type": "string", "description": "A probe event's target: what the command asked the host for (cpu, gpu, os, memory, packages, env, network)."},
+    "candidate": {"description": "The candidate named by a choice event."},
+    "act": {"description": "On a choice event, install, import, use or remove."},
+    "rc_from": {"description": "On a command, success when rc was inferred from a Copilot completion status."},
     "pattern": {"type": "string", "description": "A probe event's configured pattern that the command matched."}
   },
   "required": ["kind", "t"],
