@@ -53,7 +53,8 @@ class RateTally:
         """
         if not relpath:
             return "."
-        directory = Path(os.path.realpath(self._abs_root / relpath))
+        path = self._skill_dir(self._abs_root / relpath)
+        directory = Path(os.path.realpath(path))
         if not directory.is_relative_to(self._abs_root):
             return "."
         parts = directory.relative_to(self._abs_root).parts
@@ -77,6 +78,15 @@ class RateTally:
             if self._repos[prefix]:
                 return self._repos[prefix]
         return "."
+
+    @staticmethod
+    def _skill_dir(path: Path) -> Path:
+        """``path`` itself when it is a directory, else its parent (a SKILL.md path), without following a file link."""
+        try:
+            is_dir = path.is_dir()
+        except PermissionError:  # Python 3.11-3.13 raise it for an unsearchable ancestor
+            is_dir = True
+        return path if is_dir else path.parent
 
     def summary(self) -> dict:
         """``{"repos", "skills", "states", "codes"}``: each state and code with ``skills``, ``rate`` and ``repo_rate``.

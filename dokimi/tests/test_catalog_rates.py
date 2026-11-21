@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -291,3 +292,29 @@ def test_two_spellings_of_one_inode_are_one_repo(tmp_path, monkeypatch):
     assert tally.summary()["repos"] == 1
     assert tally.summary()["states"]["warn"]["repo_rate"] == 0.5
     assert text_lines(tally.summary()) == []
+
+
+def test_symlinked_skill_md_counts_in_its_own_directory_repo(tmp_path):
+    for repo in ("a", "b"):
+        (tmp_path / repo / ".git").mkdir(parents=True)
+    (tmp_path / "b" / "s").mkdir()
+    (tmp_path / "b" / "s" / "SKILL.md").write_text("---\nname: s\n---\n", encoding="utf-8")
+    (tmp_path / "a" / "s").mkdir()
+    os.symlink(tmp_path / "b" / "s" / "SKILL.md", tmp_path / "a" / "s" / "SKILL.md")
+    tally = RateTally(tmp_path)
+    tally.add({"relpath": "a/s/SKILL.md", "state": "ok", "findings": []})
+    assert set(tally.skills) == {"a"}
+
+
+def test_an_unsearchable_ancestor_of_the_skill_path_is_counted_not_raised(tmp_path, monkeypatch):
+    import errno
+
+    (tmp_path / "locked" / "skill").mkdir(parents=True)
+
+    def denied(path, **kwargs):  # Python 3.11-3.13 let this escape from Path.is_dir
+        raise PermissionError(errno.EACCES, "Permission denied", str(path))
+
+    monkeypatch.setattr(Path, "is_dir", denied)
+    tally = RateTally(tmp_path)
+    tally.add({"relpath": "locked/skill", "state": "error", "findings": []})
+    assert tally.summary()["skills"] == 1
