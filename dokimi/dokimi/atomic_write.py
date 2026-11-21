@@ -9,7 +9,7 @@ import contextlib
 import os
 import secrets
 import stat
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import IO
 
@@ -31,7 +31,15 @@ def write_bytes_atomic(path: Path | str, data: bytes) -> None:
     _publish(Path(path), lambda fd: os.fdopen(fd, "wb"), data)
 
 
-def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> None:
+def write_chunks_atomic(path: Path | str, chunks: Iterable[bytes]) -> None:
+    """:func:`write_bytes_atomic` for an iterable of byte chunks, taken one at a time and never held together.
+
+    An exception from the iterable removes the tmp file and leaves the file at ``path`` as it was.
+    """
+    _publish(Path(path), lambda fd: os.fdopen(fd, "wb"), chunks)
+
+
+def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iterable[bytes]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
     mode = _existing_mode(path)
@@ -47,7 +55,10 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
                 os.close(fd)
                 raise
         with open_tmp(fd) as handle:
-            handle.write(data)
+            if isinstance(data, (str, bytes)):
+                handle.write(data)
+            else:
+                handle.writelines(data)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):

@@ -108,6 +108,25 @@ def test_a_refused_to_jsonl_leaves_the_existing_file_and_creates_none(tmp_path):
     assert not fresh.exists()
 
 
+def test_to_jsonl_holds_one_row_of_output_at_a_time(tmp_path):
+    """The output is encoded row by row into a tmp file, so memory is bounded by a row, not the export (#1020)."""
+    import tracemalloc
+
+    rows = [{"a": "x" * 4096, "i": i} for i in range(2048)]
+    path = tmp_path / "rows.jsonl"
+
+    tracemalloc.start()
+    try:
+        to_jsonl(rows, path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert path.stat().st_size > 8_000_000
+    assert peak < 1_000_000
+    assert [p.name for p in tmp_path.iterdir()] == ["rows.jsonl"]
+
+
 def test_to_jsonl_writes_equal_plain_keys_beside_a_surrogate_pair(tmp_path):
     """Only keys holding a character above U+FFFF can be made equal by joining a pair: ``1`` and ``"1"`` are not refused (#1020)."""
     path = tmp_path / "rows.jsonl"
