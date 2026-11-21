@@ -832,6 +832,32 @@ def test_echo_with_stderr_or_self_redirection_still_feeds_a_shell(tmp_path, redi
     assert "pip requests" in found[0].message
 
 
+@pytest.mark.parametrize("command", ["echo", "printf"])
+def test_a_comment_in_a_substitution_piped_to_a_shell_is_not_an_install(tmp_path, command):
+    line = f"echo \"$({command} ':' # pip install requests\n)\" | sh"
+    assert _found(_review(tmp_path, _fenced(line)), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("command", ["echo", "printf"])
+@pytest.mark.parametrize("redirect", ["2>&1 >&2", "2>&1 1>&2"])
+def test_a_stdout_duplicated_onto_stderr_after_stderr_onto_stdout_still_feeds_a_shell(tmp_path, command, redirect):
+    found = _found(_review(tmp_path, _fenced(f"{command} 'pip install requests' {redirect} | sh")), "install-unpinned")
+    assert "pip requests" in found[0].message
+
+
+@pytest.mark.parametrize("redirect", [">&2", ">&2 2>&1", "2>&1 >/dev/null"])
+def test_a_stdout_sent_away_before_or_without_stderr_joining_it_feeds_a_shell_nothing(tmp_path, redirect):
+    line = f"echo 'pip install requests' {redirect} | sh"
+    assert _found(_review(tmp_path, _fenced(line)), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("redirect", ["2>&1 2>/dev/null >&2", "2>&1 2>>log >&2", "12>&1 >&2",
+                                      "10>/dev/null 2>&10 >&2", "_2>&1 >&2"])
+def test_a_stdout_sent_to_stderr_that_no_longer_joins_the_pipe_feeds_a_shell_nothing(tmp_path, redirect):
+    line = f"echo 'pip install requests' {redirect} | sh"
+    assert _found(_review(tmp_path, _fenced(line)), "install-unpinned") == []
+
+
 def test_nested_echo_not_piped_to_a_shell_is_still_printed(tmp_path):
     assert _found(_review(tmp_path, _fenced("echo \"$(echo 'pip install requests')\"")), "install-unpinned") == []
 

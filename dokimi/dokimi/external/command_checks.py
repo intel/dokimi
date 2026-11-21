@@ -313,22 +313,29 @@ def _substitution(code: str, i: int, memo: dict, level: int) -> tuple[int, list[
 
 # marks an echo whose stdout is redirected; a piece with a third item is blanked even when the command feeds a shell
 REDIRECTED = (-1, -1)
+# marks an echo whose stderr already goes where its stdout goes (``2>&1``): a later ``>&2`` leaves stdout where it was
+ERR_TO_OUT = (-2, -2)
 
 
 def _flush(out, echo: list, piped: bool) -> None:
     """Add the text of a finished echo to ``out``. Piped to a shell, its text is kept (it runs), unless its stdout
     is redirected or it is already marked as printed by a command inside it."""
-    pieces = [piece for piece in echo if piece != REDIRECTED]
+    pieces = [piece for piece in echo if piece not in (REDIRECTED, ERR_TO_OUT)]
     if REDIRECTED in echo:
         out += [(start, end, True) for start, end, *_ in pieces]
     else:
         out += [piece for piece in pieces if len(piece) == 3] if piped else pieces
 
 
+def _dup_of(code: str, i: int, fd: str) -> bool:
+    """Whether the ``>`` at ``i`` is ``>&<fd>`` for exactly that descriptor (``>&10`` is descriptor 10)."""
+    return code.startswith("&" + fd, i + 1) and not code[i + 3:i + 4].isdigit()
+
+
 def _stdout_redirected(code: str, i: int) -> bool:
     """Whether the ``>`` at ``i`` opens a redirection of stdout to something other than stdout: not the second ``>`` of
     ``>>``, not ``2>``/``2>>`` (a descriptor other than 1), not ``>&1``."""
-    return code[i] == ">" and code[i - 1] not in ">023456789" and not code.startswith("&1", i + 1)
+    return code[i] == ">" and code[i - 1] not in ">023456789" and not _dup_of(code, i, "1")
 
 
 def _other(code, i, start, echo):
@@ -339,9 +346,16 @@ def _other(code, i, start, echo):
         end = i
         while end < len(code) and code[end] not in ("\n", BLOCK_END):
             end += 1
-        return False, end, echo if echo is None else echo + [(i, end)]
-    if echo is not None and REDIRECTED not in echo and _stdout_redirected(code, i):
-        echo = echo + [REDIRECTED]  # stdout goes to a file or another descriptor: nothing reaches a pipe
+        return False, end, echo if echo is None else echo + [(i, end, True)]  # a comment never runs, even piped
+    before = code[i - 2:i - 1]
+    stderr = code[i] == ">" and code[i - 1] == "2" and not (before.isalnum() or before == "_")  # fd 2, not 12 or _2
+    if echo is not None and stderr and _dup_of(code, i, "1"):
+        echo = echo + [ERR_TO_OUT] if ERR_TO_OUT not in echo else echo
+    elif echo is not None and stderr and ERR_TO_OUT in echo:
+        echo = [piece for piece in echo if piece != ERR_TO_OUT]  # stderr goes elsewhere now: ``2>&1 2>f >&2``
+    elif echo is not None and REDIRECTED not in echo and _stdout_redirected(code, i):
+        if not (ERR_TO_OUT in echo and _dup_of(code, i, "2")):  # ``2>&1 >&2``: stdout is still the pipe
+            echo = echo + [REDIRECTED]  # stdout goes to a file or another descriptor: nothing reaches a pipe
     return start and code[i] in " \t", i + (2 if code[i] == "\\" else 1), echo
 
 
