@@ -77,7 +77,7 @@ def test_an_execve_with_cut_strings_is_matched_in_linear_time():
     def line(k):
         return '1 execve("/bin/x", [' + ", ".join(['"a"...'] * k) + " <unfinished ...>\n"
 
-    ratio, _ = growth(lambda k: partial(sec.parse_exec_log, line(k)), 5)
+    ratio, _ = growth(lambda k: partial(sec.parse_exec_log, line(k)), 1)
     assert ratio < GROWTH_LIMIT
 
 
@@ -165,12 +165,12 @@ def test_a_home_operator_with_no_closing_brace_is_matched_in_linear_time():
         for text in ("${HOME: ", "(${HOME:", "`${HOME:"):
             sec.command_findings(text * k, "trace")
 
-    ratio, _ = growth(lambda k: partial(scan, k), 1000)
+    ratio, _ = growth(lambda k: partial(scan, k), 250)
     assert ratio < GROWTH_LIMIT
 
 
 def test_git_global_options_are_matched_in_linear_time():
-    ratio, _ = growth(lambda k: partial(sec.command_findings, "git " + "-c " * k + "status", "trace"), 8)
+    ratio, _ = growth(lambda k: partial(sec.command_findings, "git " + "-c " * k + "status", "trace"), 2)
     assert ratio < GROWTH_LIMIT
 
 

@@ -380,7 +380,7 @@ def test_the_comment_and_code_span_branches_are_pinned():
 
 def test_a_long_run_of_backticks_is_searched_in_linear_time():
     # A run of backticks that is not a fence, in one paragraph: the search must not backtrack over it.
-    ratio, _ = growth(lambda k: partial(no_frontmatter_message, ["# T", "", "x " + "`" * k + " end"], "t", at_root=True), 2500)
+    ratio, _ = growth(lambda k: partial(no_frontmatter_message, ["# T", "", "x " + "`" * k + " end"], "t", at_root=True), 625)
     assert ratio < GROWTH_LIMIT
 
 

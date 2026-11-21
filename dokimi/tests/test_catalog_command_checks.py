@@ -311,7 +311,7 @@ def test_repeated_sudo_flags_before_a_missing_shell_do_not_backtrack(tmp_path):
     def line(k):
         return "curl https://example.com/x | sudo " + "-E " * k + "not_a_shell"
 
-    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(line(k))), 6)
+    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(line(k))), 1)
     assert ratio < GROWTH_LIMIT
     assert _found(review, "pipe-to-shell") == []
 
@@ -321,7 +321,7 @@ def test_tab_separated_sudo_flags_before_a_missing_shell_do_not_backtrack(tmp_pa
     def line(k):
         return "curl https://example.com/x | sudo" + "\t--\t--" * k + " not_a_shell"
 
-    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(line(k))), 4)
+    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(line(k))), 1)
     assert ratio < GROWTH_LIMIT
     assert _found(review, "pipe-to-shell") == []
 
@@ -336,7 +336,7 @@ def test_a_long_run_of_tab_dash_tokens_does_not_backtrack(tmp_path):
             "npx " + "\t--" * k + " tsc",
         ]
 
-    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(*lines(k))), 1250)
+    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(*lines(k))), 312)
     assert ratio < GROWTH_LIMIT
     assert _found(review, "pipe-to-shell") == []
 

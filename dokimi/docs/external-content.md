@@ -116,7 +116,9 @@ Two checks, both `warn`:
   checked against and the date. Update it by editing that file, with no code change. An entry
   lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
   `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
-  `replacement` are the vendor's, verbatim, or empty when it gives none.
+  `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
+  the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
+  the same status and date.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
   tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
   a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
@@ -311,7 +313,8 @@ At most 200 files of a bundle are walked: every file counts, `SKILL.md` and non-
 order (a directory's files sorted by name, then its subdirectories). Files past the cap are not checked and give
 no finding; a subdirectory with its own `SKILL.md` is another skill and is skipped.
 A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
-Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
+Nothing is run or imported. In `catalog check --json` and `catalog eval --json` a `script-crlf` or `script-syntax` finding carries `script`, the
+script's path relative to the skill directory, while `file` stays the skill's `SKILL.md`. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
 `ast.parse` rejects is a `warn` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
 goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
