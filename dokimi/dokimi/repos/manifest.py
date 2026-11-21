@@ -37,7 +37,7 @@ from .graders.hidden_tests import HIDDEN_DIR, hidden_files
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
 from .probes import validate_config
-from .source import RepoTree, SourceError
+from .source import RepoTree, SourceArgumentError, SourceError, _NoSuchPath
 from .useful_spec import UsefulSpecError, parse_useful
 
 SCHEMA_VERSION = "repo_manifest.v1"
@@ -514,6 +514,16 @@ def _expected_skill_problems(raw: dict) -> list[str]:
     return []
 
 
+def _read_task_json(tree: RepoTree, where: str) -> tuple[Any, str]:
+    """The parsed task.json and "", or None and what is wrong with it."""
+    try:
+        return json.loads(tree.read_text(tree.resolve(where))), ""
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return None, f"not valid JSON: {exc}"
+    except (OSError, SourceArgumentError, _NoSuchPath) as exc:  # a link that loops, names a directory or nothing (also past an absent directory), or leaves the tree; a failed git show is raised
+        return None, f"cannot read task.json: {exc}"
+
+
 def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     name = PurePosixPath(task_dir).name
     where = f"{task_dir}/task.json"
@@ -523,10 +533,9 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         report.errors.append(f"{where}: task id {name!r} contains whitespace or a comma; task ids are "
                              "split on whitespace and commas in the workflow's tasks, smoke-tasks and exclude-tasks inputs")
         return
-    try:
-        raw = json.loads(tree.read_text(where))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        report.errors.append(f"{where}: not valid JSON: {exc}")
+    raw, unreadable = _read_task_json(tree, where)
+    if unreadable:
+        report.errors.append(f"{where}: {unreadable}")
         return
     if not isinstance(raw, dict):
         report.errors.append(f"{where}: must be a JSON object")
