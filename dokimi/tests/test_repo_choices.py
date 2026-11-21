@@ -351,3 +351,9 @@ def test_a_missing_exit_code_gives_no_choice():
 @pytest.mark.parametrize("verb", ["add", "remove"])
 def test_uv_no_sync_gives_no_environment_choice(verb):
     assert _choice_of(f"uv {verb} --no-sync scipy") == []
+
+
+def test_unchanged_edit_context_gives_no_choice():
+    kept = "from sklearnex import patch_sklearn\npatch_sklearn()\n"
+    events = _run(SKLEARN, _edit("a", "app.py", kept + "import numpy\n", "2026-01-01T00:00:05Z", old=kept))
+    assert _choices(events) == []

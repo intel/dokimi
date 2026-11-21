@@ -42,6 +42,7 @@ Token counts cover the same scope as ``cost_usd``: summed over ``modelUsage``
 
 from __future__ import annotations
 
+from collections import Counter
 import json
 import re
 from dataclasses import dataclass, field
@@ -249,8 +250,17 @@ def _added_text(args: Any) -> str:
     if not isinstance(args, dict):
         return ""
     if isinstance(args.get("edits"), list):  # MultiEdit
-        return "\n".join(str(e.get("new_string", "")) for e in args["edits"] if isinstance(e, dict))
-    return str(args.get("new_string") or args.get("content") or args.get("new_source") or "")
+        return "\n".join(_added_text(edit) for edit in args["edits"] if isinstance(edit, dict))
+    if isinstance(args.get("new_string"), str):
+        old = Counter(str(args.get("old_string", "")).splitlines())
+        added = []
+        for line in args["new_string"].splitlines():
+            if old[line]:
+                old[line] -= 1
+            else:
+                added.append(line)
+        return "\n".join(added)
+    return str(args.get("content") or args.get("new_source") or "")
 
 
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
