@@ -230,13 +230,14 @@ def _git_error(done: process.Completed) -> str:
 
 
 def _read_blobs(root: Path, shas: Sequence[str]) -> dict[str, bytes]:
-    """The bytes of each blob sha that is present in the object store (a partial clone may lack some)."""
+    """Read locally available blobs. Git may refuse the batch if a promisor clone needs a fetch."""
     unique = sorted(set(shas))
     if not unique:
         return {}
     done = _git(root, "cat-file", "--batch", input=("\n".join(unique) + "\n").encode())
     if done.returncode:
-        raise ValueError(f"{root}: cannot read blobs: {_git_error(done)}")
+        raise ValueError(f"{root}: cannot read blobs: {_git_error(done)}. "
+                         "Use a checkout with all skill blobs available locally.")
     data, pos, out = done.stdout_bytes, 0, {}
     for sha in unique:
         end = data.index(b"\n", pos)

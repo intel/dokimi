@@ -339,3 +339,12 @@ def test_upstreams_with_the_same_bytes_tie_to_the_first_one_listed_not_the_newer
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     row = _row(_run(root, "--upstream-manifest", str(first), "--upstream-manifest", str(second)), "skills/pdf")
     assert (row["match"], row["upstream"]) == ("exact", "acme")
+
+
+def test_blobless_promisor_checkout_names_the_missing_local_history(upstream_repo, tmp_path) -> None:
+    _git(upstream_repo, "config", "uploadpack.allowFilter", "true")
+    clone = tmp_path / "blobless"
+    _git(tmp_path, "clone", "-q", "--filter=blob:none", "--no-checkout", upstream_repo.as_uri(), str(clone))
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    with pytest.raises(InputError, match="checkout with all skill blobs available locally"):
+        _run(root, "--upstream", str(clone))

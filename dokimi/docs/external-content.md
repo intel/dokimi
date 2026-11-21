@@ -484,7 +484,7 @@ copy is not, or the copy is edited and drops the licence. `catalog provenance` m
 loaded skill under `--root` to a version of an upstream you name, offline. Dokimi ships no
 upstream list: give it the upstreams yourself.
 
-- `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. Clone it yourself; a full clone
+- `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. For a blobless clone, fetch the skill history before running Dokimi. A full clone
   gives the exact count of commits behind, a shallow one says it sees only its own history.
 - `--upstream-manifest FILE` (repeatable) is a JSON file of one upstream, for an upstream that
   is not a git checkout. Its `schema` field is the version-1 upstream schema string shown here:
