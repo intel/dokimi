@@ -84,6 +84,56 @@ def test_a_bare_deep_reply_is_a_parse_error_not_a_crash(extract_name: str, text:
         getattr(llm_json, extract_name)(text)
 
 
+def _outcome(name: str, text: str) -> str:
+    from dokimi import llm_json
+
+    try:
+        return repr(getattr(llm_json, name)(text))
+    except ValueError:
+        return "ValueError"
+
+
+@pytest.mark.parametrize("name", ["extract_json_object", "extract_json_array"])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        lambda k: "[" * k,
+        lambda k: "{" * k,
+        lambda k: "```json" + " " * k + "x",
+    ],
+    ids=["brackets", "braces", "unclosed-fence-spaces"],
+)
+def test_extractors_scan_a_reply_without_a_closer_in_linear_time(name: str, shape) -> None:
+    # CPU time at 16n over n, not a wall-clock bound: the last-block regexes were quadratic (#883).
+    from tests.growth_timing import GROWTH_LIMIT, growth
+
+    ratio, outcome = growth(lambda k: lambda: _outcome(name, shape(k)), 1000)
+    assert outcome == "ValueError"
+    assert ratio < GROWTH_LIMIT
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "want"),
+    [
+        ("extract_json_array", "x [1, [2]] y", "[1, [2]]"),
+        ("extract_json_array", "a ] [1] b", "[1]"),
+        ("extract_json_array", "x [1]z", "[1]"),
+        ("extract_json_object", '[{"a": 1}]', "{'a': 1}"),
+        ("extract_json_object", 'x {"a": {"b": 2}} y', "{'a': {'b': 2}}"),
+        ("extract_json_object", '{"a": 1} then }', "ValueError"),
+    ],
+)
+def test_the_last_fallback_still_takes_the_outermost_block(name: str, text: str, want: str) -> None:
+    assert _outcome(name, text) == want
+
+
+def test_a_reply_with_a_closer_and_no_opener_keeps_the_head_message() -> None:
+    from dokimi.llm_json import extract_json_array
+
+    with pytest.raises(ValueError, match="No JSON array found"):
+        extract_json_array("a]")
+
+
 def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
     # PyYAML raises a plain ValueError for 2026-02-30: the lenient reader reads no metadata,
     # and the strict one raises the YAML error its docstring names.

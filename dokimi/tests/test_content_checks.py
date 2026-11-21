@@ -68,6 +68,37 @@ def test_legacy_id_in_bundled_script_names_the_file_and_line(tmp_path):
     assert message.startswith("scripts/call.py line 1:")
 
 
+@pytest.mark.parametrize(
+    ("alias", "state", "replacement"),
+    [
+        ("claude-opus-4-0", "retired by anthropic on 2026-06-15", "use claude-opus-4-8"),
+        ("claude-sonnet-4-0", "retired by anthropic on 2026-06-15", "use claude-sonnet-5-5"),
+        ("claude-opus-4-1", "retired by anthropic on 2026-08-05", "use claude-opus-4-8"),
+        ("claude-3-7-sonnet-latest", "retired by anthropic on 2026-02-19", "use claude-sonnet-5-5"),
+        ("claude-3-5-haiku-latest", "retired by anthropic on 2026-02-19", "use claude-haiku-4-5-20251001"),
+        ("claude-3-5-sonnet-latest", "retired by anthropic on 2025-10-28", "use claude-sonnet-5-5"),
+        ("claude-3-opus-latest", "retired by anthropic on 2026-01-05", "use claude-opus-4-8"),
+    ],
+)
+def test_alias_of_a_retired_dated_id_is_a_warning(tmp_path, alias, state, replacement):
+    # #945: an alias beside a retired dated ID in legacy_models.toml is read as the same retired model.
+    _skill(tmp_path / "skills", "alias-only", body=f'\nCall the API with `model="{alias}"`.\n')
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert f"'{alias}'" in message
+    assert state in message
+    assert replacement in message
+
+
+def test_alias_does_not_match_inside_a_dated_id_or_a_longer_name(tmp_path):
+    # #945, and docs/external-content.md: IDs match whole tokens, so adding an alias adds no second match.
+    # The alias claude-opus-4-1 is a prefix of the dated ID: one finding; "claude-opus-4-0-beta" is another name.
+    _skill(tmp_path / "skills", "dated", body="Use claude-opus-4-1-20250805 and claude-opus-4-0-beta.\n")
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert "'claude-opus-4-1-20250805'" in message
+
+
 def test_model_id_inside_a_longer_name_or_a_version_step_is_not_matched(tmp_path):
     # "gpt-4" is listed, but "gpt-4.1" is a different model; "-notes" makes the opus ID part of a longer name.
     _skill(
@@ -236,7 +267,7 @@ def test_standalone_review_checks_the_bundled_files(tmp_path):
     skill_dir = _skill(tmp_path, "demo", files={"scripts/call.py": 'MODEL = "claude-2.1"\nx = "\u202e"\n'})
 
     codes = sorted(f.code for f in review_skill_dir(skill_dir).findings)
-    assert codes == ["hidden-unicode", "legacy-model-id"]
+    assert codes == ["bundle-file-unreferenced", "hidden-unicode", "legacy-model-id"]  # SKILL.md never names it
 
 
 # ---- scope of the content scan: what is read, not what is reported ------------------------------

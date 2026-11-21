@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """`repo scan` helpers kept out of commands/repo.py, which is at its size cap: the `--typecheck` check, the text
-report, and the reason and gate of a failed --json or --fail-on-fail run."""
+report, and the reason and gate of a failed --json or --fail-on fail run."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
     for warning in payload["warnings"]:
         print(f"  warning: {warning}")
     if payload["incomplete"]:
-        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on-fail exits 1)")
+        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on fail exits 1)")
     tc = payload["typecheck"]
     if tc is not None:
         where = tc["python"] or "no --python-env: unknown"
@@ -131,25 +131,45 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
         print(f"wrote {out}")
 
 
-def _scan_reason(payload: dict, static_errors: list, fail_on_fail: bool) -> str:
+def _scan_reason(payload: dict, static_errors: list, gate: bool) -> str:
     """Why a --json scan failed: every cause the gate tripped on, joined by ``; `` (a scan can fail on more than
     one). The --static problems always fail the run; the failed claims and the incomplete scan only under
-    --fail-on-fail."""
+    --fail-on fail."""
     parts = []
     if static_errors:
         parts.append(f"{len(static_errors)} --static problem(s) not merged")
-    if fail_on_fail and payload["counts"]["fail"]:
+    if gate and payload["counts"]["fail"]:
         parts.append(f"{payload['counts']['fail']} claim(s) failed")
-    if fail_on_fail and payload["incomplete"]:
+    if gate and payload["incomplete"]:
         reasons = "; ".join(payload.get("incomplete_reasons") or [])
         parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
     return "; ".join(parts)
 
 
-def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
-    """--fail-on-fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
-    if not fail_on_fail or not (payload["counts"]["fail"] or payload["incomplete"]):
+def _scan_gate(payload: dict, gate: bool) -> None:
+    """--fail-on fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
+    if not gate or not (payload["counts"]["fail"] or payload["incomplete"]):
         return
     if payload["incomplete"]:
         print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)
     sys.exit(1)
+
+
+def scan_subjects(payload: dict) -> list[dict]:
+    """One report-only subject per guidance file; each failing claim is a finding at its file and line."""
+    from dokimi.cli_output import finding
+
+    by_file: dict[str, list[dict]] = {}
+    for claim in payload.get("claims") or []:
+        if str(claim.get("status", "")).split("_", 1)[0] != "fail":
+            continue
+        file = str(claim.get("file"))
+        line = claim.get("line") if isinstance(claim.get("line"), int) and claim["line"] >= 1 else None
+        message = f"{claim.get('kind')}: `{str(claim.get('claim'))[:80]}`: {claim.get('why')}"
+        by_file.setdefault(file, []).append(finding("warn", str(claim.get("status")), message, file, line))
+    files = [str(f.get("path", f)) if isinstance(f, dict) else str(f) for f in payload.get("files") or []]
+    names = sorted(set(files) | set(by_file))
+    if names:
+        by_file.setdefault(names[0], []).extend(
+            finding("warn", "scan-warning", str(w)) for w in payload.get("warnings") or [])
+    return [{"subject": f, "verdict": None, "findings": by_file.get(f, [])} for f in names]

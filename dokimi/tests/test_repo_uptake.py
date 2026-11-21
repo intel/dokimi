@@ -231,10 +231,10 @@ def test_an_agent_that_left_no_trace_is_unmeasured_one_that_called_no_tool_is_me
     patch = setup["tmp"] / "kit.diff"
     patch.write_text(KIT_PATCH)
     arm = str(parse_arm(f"patch:{patch}"))
-    for action in ("silent", "idle"):
+    for action in ("quiet", "idle"):  # exit 0 with no trace: a nonzero exit with no trace is a crash (exit 5)
         monkeypatch.setenv("FAKE_ACTION", action)
         _run(setup, action, "guidance:raw", f"patch:{patch}")
-    silent, idle = setup["out"] / "silent", setup["out"] / "idle"
+    silent, idle = setup["out"] / "quiet", setup["out"] / "idle"
     assert json.loads(next(silent.glob("*patch*__r1/result.json")).read_text())["uptake"]["measured"] is False
     # an agent that left no trace has no process counts; a run that started and made no call has zeros
     assert json.loads(next(silent.glob("*patch*__r1/result.json")).read_text())["process"] is None

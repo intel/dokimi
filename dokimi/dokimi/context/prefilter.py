@@ -59,8 +59,6 @@ _HEREDOC_OPEN = re.compile(r"(?<!<)<<(?!<)")
 _HEREDOC_WORD = re.compile(r"(-?)[ \t]*((?:\\[\s\S]|'[^'\n]*'|\"(?:\\[\s\S]|[^\"\\\n])*\"|[^\s;&|<>()'\"\\])+)")
 # a ``#`` starts a comment at the start of a word: the start of a line, after blank space or a control operator
 _COMMENT = re.compile(r"(?m)(?:^|(?<=[\s;&|()]))#.*$")
-# ``$((1<<2))`` is arithmetic, not a heredoc
-_ARITHMETIC = re.compile(r"\$\(\([\s\S]*?\)\)")
 # a comment, or a quoted piece of shell text (group 1), scanned left to right: an apostrophe in a comment opens no quote
 # and a ``#`` in quotes is text
 _COMMENT_OR_QUOTED = re.compile(r"(?m)(\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")|(?:^|(?<=[\s;&|()]))#.*$")
@@ -233,6 +231,16 @@ _LINE_TEXT = re.compile(r"\\[\s\S]?|'[^']*(?P<sq>')?|\"(?:\\[\s\S]?|[^\"\\])*(?P
 _QUOTE_REST = {"'": re.compile(r"[^']*(')?"), '"': re.compile(r"(?:\\[\s\S]?|[^\"\\])*(\")?")}
 
 
+def _blank_arithmetic(text: str) -> str:
+    """``text`` with each ``$((...))`` blanked like a quoted piece, so ``$((1<<2))`` opens no heredoc. An opener with no
+    ``))`` after it ends the scan: no later opener has one either (#887)."""
+    pieces, pos = [], 0
+    while (start := text.find("$((", pos)) >= 0 and (close := text.find("))", start + 3)) >= 0:
+        pieces += [text[pos:start], "_" * (close + 2 - start)]
+        pos = close + 2
+    return "".join(pieces) + text[pos:]
+
+
 def _masked_line(line: str, quote: str) -> tuple[str, str]:
     """``line`` with its quoted text, escapes and comment blanked, given the quote (``'``, ``"`` or none) open at its
     start; and the quote still open at its end. Carrying the quote from line to line reads each line once."""
@@ -258,7 +266,7 @@ def _heredoc_words(line: str, quote: str) -> tuple[list[tuple[str, bool]], str]:
     arithmetic is text and opens none."""
     masked, quote = _masked_line(line, quote)
     opened_words = []
-    for opened in _HEREDOC_OPEN.finditer(_ARITHMETIC.sub(_blank, masked)):
+    for opened in _HEREDOC_OPEN.finditer(_blank_arithmetic(masked)):
         word = _HEREDOC_WORD.match(line, opened.end())
         if word:
             opened_words.append((_dequote(word.group(2)), word.group(1) == "-"))
@@ -712,13 +720,15 @@ def build_report(guidance_name: str, guidance_text: str, sessions: list[Session]
 
 
 def render_table(report: dict[str, Any]) -> str:
-    head = f"{'rank':>4}  {'status':<20} {'trig.sess':>10} {'episodes':>8} {'acted':>7} {'corr.':>6}  claim"
+    width = max(map(len, STATUSES))
+    head = f"{'rank':>4}  {'status':<{width}} {'trig.sess':>10} {'acted.sess':>10} {'episodes':>8} {'acted':>7} {'corr.':>6}  claim"
     lines = [head]
     for row in report["claims"]:
         acted = "n/a" if row["acted"] is None else f"{row['acted']}/{row['episodes']}"
         rank = "-" if row["rank"] is None else str(row["rank"])
         trig = f"{row['sessions_triggered']}/{report['sessions']}"
-        lines.append(f"{rank:>4}  {row['status']:<20} {trig:>10} {row['episodes']:>8} {acted:>7} "
+        sess_acted = "n/a" if row["sessions_acted"] is None else f"{row['sessions_acted']}/{report['sessions']}"
+        lines.append(f"{rank:>4}  {row['status']:<{width}} {trig:>10} {sess_acted:>10} {row['episodes']:>8} {acted:>7} "
                      f"{row['corrected']:>6}  {' '.join(row['text'].split())[:70]}")
     counts = {s: sum(1 for r in report["claims"] if r["status"] == s) for s in STATUSES}
     lines.append("")

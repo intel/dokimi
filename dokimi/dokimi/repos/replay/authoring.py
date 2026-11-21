@@ -14,7 +14,6 @@ adds or changes as ``target`` has it, and ``reference_deleted`` the ones it dele
 
 from __future__ import annotations
 
-import json
 import posixpath
 import re
 import shutil
@@ -22,7 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dokimi.atomic_write import write_text_atomic
+from dokimi.atomic_write import write_json_atomic
+from ...provenance import generated_by
 from ..graders.hidden_tests import HIDDEN_DIR
 from ..graders.typecheck import REFERENCE_DIR
 from ..manifest import RepoManifest
@@ -137,6 +137,7 @@ def _make(h: History, manifest: RepoManifest, change: Change,
         "hidden_tests": tests, "hidden_files": hidden, **change.fields,
         "patch_files": sorted({p for _, p in rest}),  # the paths the change makes, tests too; as replay's
         "oracle_lines": n_lines, "prompt_dropped": prompt.dropped,
+        "provenance": generated_by("tasks-generate"),
     }
     deleted = [p for s, p in code if s == "D"]
     if deleted:
@@ -191,4 +192,4 @@ def _write(dest: Path, task: dict[str, Any], files: dict[str, tuple[str, bytes]]
         path.write_bytes(data)
         path.chmod(_MODES[mode])
     dest.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(dest / "task.json", json.dumps(task, indent=2, ensure_ascii=False) + "\n")
+    write_json_atomic(dest / "task.json", task)

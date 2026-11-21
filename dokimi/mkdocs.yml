@@ -1,10 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Documentation site, published to GitHub Pages by .github/workflows/docs.yml.
-# Local preview, from this directory (`make dev` already installs both locks):
-#   pip install -r requirements.lock.txt -r requirements-docs.lock.txt
-#   mkdocs serve            # or: mkdocs build --strict (what CI runs)
+# Documentation site, published to GitHub Pages by .github/workflows/docs.yml, which runs `mkdocs build --strict`.
+# Local preview from this directory: `make dev`, then `mkdocs serve`; CONTRIBUTING.md ("Docs build") installs by hand.
 site_name: Dokimi
 site_description: Measure whether a skill, MCP doc source, documentation set or agent profile actually improves AI-agent answers and task outcomes
 site_url: https://intel.github.io/dokimi/
@@ -122,6 +120,8 @@ nav:
       - what-it-measures.md
       - reviewing.md
       - external-content.md
+      - finding-codes.md
+      - catalog-jsonl.md
       - Q&A pipeline tutorial: quickstart.md
       - runs.md
       - user-flow.md
@@ -145,6 +145,7 @@ nav:
       - grading-tiers.md
   - Repository evaluation:
       - repo-evaluation-contract.md
+      - events-format.md
       - behavioural-security.md
       - repo-evaluation-mergeability.md
       - repo-evaluation-agent-modes.md

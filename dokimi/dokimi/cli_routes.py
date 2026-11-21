@@ -97,6 +97,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("report", "eval"), FREE),
     Leaf(("report", "generate"), FREE),
     Leaf(("report", "model-compare"), FREE),
+    Leaf(("report", "summary"), FREE),
     Leaf(("answers", "generate"), PAID),
     Leaf(("benchmark", "run"), PAID),
     Leaf(("benchmark", "preflight"), FREE),
@@ -131,6 +132,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("skill", "check"), FREE),
     Leaf(("skill", "routing"), PAID),
     Leaf(("catalog", "routing"), PAID),
+    Leaf(("catalog", "routing-compare"), FREE),
     Leaf(("repo", "validate"), FREE),
     Leaf(("repo", "scan"), FREE),
     Leaf(("repo", "inspect"), FREE),
@@ -493,7 +495,8 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
         name, equals, value = token.partition("=")
         for move in FLAG_MOVES:
             if name == move.old and (not move.leaves or leaf in move.leaves):
-                rewritten[index] = f"{move.new}{equals}{value}"
+                # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
+                rewritten[index] = move.new if "=" in move.new else f"{move.new}{equals}{value}"
                 changed = True
                 break
     return rewritten if changed else None

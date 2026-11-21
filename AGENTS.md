@@ -135,8 +135,8 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
 - Commit with `git commit -s`: the repo is public and takes DCO sign-off
   (`CONTRIBUTING.md` at the root).
-- A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` /
-  `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
+- A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` (bar
+  `project.version`) / `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
   `dokimi/changelog.d/` (`scriv create`), never an edit to `CHANGELOG.md`; the
   `Fragment for package changes` step in `ci.yml`'s `static` job enforces it. Versioning and releases:
   `dokimi/docs/releasing.md`.
@@ -156,6 +156,14 @@ finds little:
 
 - For each test of changed behaviour, break the code it covers (flip a
   condition, drop a branch), confirm the test fails, then revert the break.
+  CI's `Mutation of changed lines` job (`dokimi/scripts/mutate_changed.py`)
+  does this for the package lines a PR changes, up to 40 mutants, and lists
+  each surviving mutant in its step summary. A survivor whose module has a
+  candidate test file that did not run is `inconclusive`, not a gap. It warns,
+  it does not fail: kill
+  a survivor with an assertion, or say in the description why it is
+  equivalent. Run it locally with
+  `python scripts/mutate_changed.py --base origin/main` from `dokimi/`.
 - For a bug fix, find every other site with the same bug class. Fix the ones
   within this PR's scope; list the rest in the description or an issue.
 - Where it applies, run the changed command on a bad input: missing file,

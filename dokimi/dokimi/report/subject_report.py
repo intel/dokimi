@@ -5,10 +5,9 @@
 
 from __future__ import annotations
 
+from dokimi.report import fmt
 
-def _fmt(value: object, digits: int = 3) -> str:
-    """Render a rate, or ``n/a`` — a missing measurement is never printed as a zero."""
-    return "n/a" if value is None else (f"{value:.{digits}f}" if isinstance(value, float) else str(value))
+_MISSING = "n/a"  # this report's mark for a missing value
 
 
 def _gate_status(gate: dict) -> str:
@@ -45,7 +44,7 @@ def _novelty_section(novelty: dict) -> list[str]:
         k0 = cell.get("k0", {}) or {}
         spans = cell.get("spans", {}) or {}
         dead = spans.get("frac_carrying_nothing")
-        dead_s = _fmt(dead) + (" (capped)" if spans.get("capped_atom_set") else "")
+        dead_s = fmt.plain(dead, 3, missing=_MISSING) + (" (capped)" if spans.get("capped_atom_set") else "")
         unread, tokens = spans.get("tokens_unread") or 0, spans.get("tokens") or 0
         if unread and tokens:
             # Over the read text only: a 0.000 on 2% of the text is not a clean artifact.
@@ -53,8 +52,8 @@ def _novelty_section(novelty: dict) -> list[str]:
             dead_s += f" ({share:.0%} unread)" if share >= 0.01 else " (<1% unread)"
         lines.append(
             f"| `{(cell.get('artifact') or {}).get('ref', '?')}` | `{cell.get('model', '?')}` | "
-            f"{_fmt(lenient.get('added'))} / {_fmt(strict.get('added'))} | "
-            f"{_fmt(k0.get('lenient'))} / {_fmt(k0.get('strict'))} | "
+            f"{fmt.plain(lenient.get('added'), 3, missing=_MISSING)} / {fmt.plain(strict.get('added'), 3, missing=_MISSING)} | "
+            f"{fmt.plain(k0.get('lenient'), 3, missing=_MISSING)} / {fmt.plain(k0.get('strict'), 3, missing=_MISSING)} | "
             f"{lenient.get('n_paired', 'n/a')} | {dead_s} | "
             f"{_gate_status(cell.get('gate') or {})} |"
         )
@@ -145,10 +144,8 @@ def render_subject_scorecard(scorecard: dict) -> str:
         lines.append("| Harness | Pass rate | Passed | Scored | Errored |")
         lines.append("| --- | ---: | ---: | ---: | ---: |")
         for harness, stats in per_harness.items():
-            rate = stats.get("pass_rate")
-            rate_s = "n/a" if rate is None else f"{rate:.2%}"
             lines.append(
-                f"| `{harness}` | {rate_s} | {stats.get('passed', 0)} | "
+                f"| `{harness}` | {fmt.percent(stats.get('pass_rate'), 2, missing=_MISSING)} | {stats.get('passed', 0)} | "
                 f"{stats.get('scored', stats.get('n', 0))} | {stats.get('errored', 0)} |"
             )
 

@@ -119,4 +119,5 @@ def test_a_label_no_step_reads_neither_cancels_the_run_nor_runs_the_jobs(action)
 def test_a_push_to_a_pr_supersedes_its_run_and_a_main_push_keeps_its_own():
     assert (_group(_pr("synchronize")), _ran(_pr("synchronize"))) == ("ci-512", _PR_JOBS)
     push = {"github.event_name": "push"}
-    assert (_group(push), _ran(push)) == ("ci-9001", _PR_JOBS)
+    # mutation-diff mutates the lines a PR changes against its base: there is no base on a push.
+    assert (_group(push), _ran(push)) == ("ci-9001", _PR_JOBS - {"mutation-diff"})

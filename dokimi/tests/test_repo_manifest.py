@@ -190,6 +190,8 @@ def test_missing_and_non_yaml_manifest(tmp_path):
         ({"expected_skill": 3}, "expected_skill must be a skill name"),
         ({"useful": {"command": "("}}, "useful command is not a valid regex"),
         ({"useful": {"edit": []}}, "useful must be"),  # a definition names one kind and at least one target
+        ({"version": 2.0}, "version must be"),
+        ({"provenance": {"status": "done"}}, "provenance.status"),
     ],
 )
 def test_bad_task_is_reported(tmp_path, task_extra, needle):
@@ -199,6 +201,81 @@ def test_bad_task_is_reported(tmp_path, task_extra, needle):
     assert not report.ok
     assert any("tasks/bad/task.json" in e and needle in e for e in report.errors), report.errors
     assert "bad" not in [t.id for t in report.tasks]
+
+
+@pytest.mark.parametrize("rev", [False, True], ids=["tree", "at-head"])
+@pytest.mark.parametrize("target", ["task.json", "../../../../src", "missing.json", "../../../../../../../etc/hostname", "missing/../missing.json"],
+                         ids=["loop", "directory", "dangling", "outside", "dangling-past-absent-dir"])
+def test_task_json_that_is_an_unreadable_link_is_reported_not_raised(tmp_path, target, rev):
+    # #910: a task.json linked to itself, to a directory, to nothing or out of the repository raised OSError (tree) or SourceError (@rev)
+    root = _repo(tmp_path)
+    link = root / "dev/evals/tasks/bad/task.json"
+    link.parent.mkdir()
+    link.symlink_to(target)
+    if rev:
+        _git_commit(root)
+    tree = GitTree(root, "HEAD") if rev else WorkTree(root)
+    report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+    assert not report.ok
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+    assert not any(str(tmp_path) in e or "Errno" in e for e in report.errors), report.errors  # repo-relative in both trees
+    assert "bad" not in [t.id for t in report.tasks]
+
+
+def test_task_json_failed_git_show_is_raised_not_reported(tmp_path, monkeypatch):
+    # a failed or timed-out git show is not a task.json problem: it is raised, as load_manifest does
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    _git_commit(root)
+    tree = GitTree(root, "HEAD")
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = GitTree.read_text
+
+    def read_text(self, path):
+        if path.endswith("bad/task.json"):
+            raise SourceError("git show failed")
+        return real(self, path)
+
+    monkeypatch.setattr(GitTree, "read_text", read_text)
+    with pytest.raises(SourceError, match="git show failed"):
+        check_repo(tree, manifest)
+
+
+def test_task_json_that_cannot_be_opened_is_reported_not_raised(tmp_path, monkeypatch):
+    # #910: a task.json the process may not read (EACCES, EIO) is a validation error, not a traceback and exit 5
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    tree = WorkTree(root)
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = WorkTree.read_text
+
+    def read_text(self, path):
+        if path.endswith("bad/task.json"):
+            raise PermissionError(13, "Permission denied", path)
+        return real(self, path)
+
+    monkeypatch.setattr(WorkTree, "read_text", read_text)
+    report = check_repo(tree, manifest)
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+    assert "bad" not in [t.id for t in report.tasks]
+
+
+def test_task_json_link_loop_that_raises_runtime_error_is_reported(tmp_path, monkeypatch):
+    # Path.resolve raises RuntimeError for a link loop before Python 3.13 (#910)
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    tree = WorkTree(root)
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = WorkTree._resolve
+
+    def resolve(self, path):
+        if path.endswith("bad/task.json"):
+            raise RuntimeError(f"Symlink loop from {path!r}")
+        return real(self, path)
+
+    monkeypatch.setattr(WorkTree, "_resolve", resolve)
+    report = check_repo(tree, manifest)
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
 
 
 @pytest.mark.parametrize("task_id", ["my task", "tab\tid", "a,b"])
@@ -453,8 +530,10 @@ def test_repo_validate_fail_on_warning(tmp_path, capsys):
     argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
     _run_cli(argv)  # a warning alone still passes by default
     assert "warning: guidance/also_scan matches no file" in capsys.readouterr().out
+    _run_cli([*argv, "--fail-on", "fail"])
+    assert "warning: guidance/also_scan matches no file" in capsys.readouterr().out
     with refusal() as exc:
-        _run_cli([*argv, "--fail-on-warning"])
+        _run_cli([*argv, "--fail-on", "warn"])
     assert exc.code == 1
     assert "warning:" in capsys.readouterr().out
 

@@ -65,6 +65,7 @@ class Session:
     name: str
     events: list[Event] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    errors_dropped: int = 0  # problems past the limit on ``errors``: counted, not listed
     sidechain_only: bool = False  # every prompt and tool record is a subagent's: a transcript without its session
 
 
@@ -123,7 +124,8 @@ def merge_repeats(sessions: list[Session]) -> tuple[list[Session], list[str]]:
             events += [e for e in session.events if not e.uuid or e.uuid not in seen]
             seen |= {e.uuid for e in session.events}
             notes.append(f"{session.name}: repeats records of {first.name} (a resumed or forked session); read as one")
-        merged.append(Session(first.name, in_time_order(events)) if rest else first)
+        errors = [e for s in (first, *rest) for e in s.errors]  # #938: a merged log's skipped records still count
+        merged.append(Session(first.name, in_time_order(events), errors) if rest else first)
     return merged, notes
 
 
@@ -169,6 +171,8 @@ def prompt_text(raw: str) -> str:
 def add_error(session: Session, message: str) -> None:
     if len(session.errors) < _ERROR_LIMIT:
         session.errors.append(message)
+    else:
+        session.errors_dropped += 1
 
 
 def _shape_problem(rec: dict[str, Any]) -> str | None:
