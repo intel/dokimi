@@ -370,10 +370,11 @@ def test_a_run_whose_baseline_grades_all_errored_is_unscored_not_a_zero():
     assert paired["unscored"] == ["skill:/s/a"]
 
 
-def test_scores_near_the_float_maximum_give_no_nan_floor():
+def test_summary_refuses_scores_outside_the_k0_domain():
     pairs = [{"ref": "skill:/s/a", "first": 1.7e308, "second": -1.7e308},
              {"ref": "skill:/s/b", "first": 0.1, "second": 0.2}]
-    assert retest_summary(pairs)["floor"] is None
+    with pytest.raises(InputError, match="between 0 and 1"):
+        retest_summary(pairs)
 
 
 def test_a_novelty_file_that_is_not_utf8_is_refused_as_bad_input(tmp_path):
@@ -424,3 +425,16 @@ def test_partial_marker_excludes_either_member_of_a_pair(marker, side):
     assert result["pairs"] == []
     assert result["unscored"] == [ref]
     assert any("partial" in warning for warning in result["warnings"])
+
+
+@pytest.mark.parametrize("score", [1.7e308, -(10**400), float("inf")])
+def test_unusable_k0_is_excluded_from_the_persisted_summary(tmp_path, score):
+    first = {ref: _artifact(ref, 0.1) for ref in ("valid", "invalid")}
+    first["invalid"]["k0"]["lenient"] = score
+    second = {ref: _artifact(ref, 0.2, seed=1) for ref in first}
+    _run_retest(tmp_path, _write_runs(tmp_path / "a", first), _write_runs(tmp_path / "b", second),
+                "--out-dir", str(tmp_path / "out"))
+    report = json.loads((tmp_path / "out" / "retest.json").read_text())
+    json.dumps(report, allow_nan=False)
+    assert report["unscored"] == ["invalid"]
+    assert [row["ref"] for row in report["items"]] == ["valid"]

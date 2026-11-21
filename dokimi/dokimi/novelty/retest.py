@@ -14,9 +14,9 @@ both carry one run's noise each.
 from __future__ import annotations
 
 import json
-import math
 import statistics
 from pathlib import Path
+from typing import TypeGuard
 
 from dokimi.eval.correlation import pearson
 from dokimi.novelty.measure import BASELINE_ARM
@@ -37,9 +37,13 @@ def _dict(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _usable_score(value: object) -> TypeGuard[int | float]:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1
+
+
 def _score(artifact: dict, scoring: str) -> float | None:
     value = _dict(artifact.get("k0")).get(scoring)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if not _usable_score(value):
         return None
     return float(value)
 
@@ -192,9 +196,11 @@ def retest_summary(pairs: list[dict], scoring: str = "lenient") -> dict:
         raise InputError(f"unknown scoring {scoring!r}; known: {list(SCORINGS)}")
     first = [p["first"] for p in pairs]
     second = [p["second"] for p in pairs]
+    if not all(_usable_score(value) for scores in (first, second) for value in scores):
+        raise InputError("retest pairs need numeric K0 scores between 0 and 1")
     diffs = [b - a for a, b in zip(first, second, strict=True)]
     n = len(pairs)
-    sd = round(statistics.stdev(diffs), 4) if n >= 2 and all(map(math.isfinite, diffs)) else None
+    sd = round(statistics.stdev(diffs), 4) if n >= 2 else None
     floor = round(NOISE_Z * sd, 4) if sd is not None else None
     below = []
     if floor is not None:
