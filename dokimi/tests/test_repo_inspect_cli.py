@@ -20,7 +20,7 @@ def test_cli_writes_the_artifact(tmp_path, capsys):
     root = tmp_path / "toy"
     _repo(root, {"src/a.py": "x = 1\n"})
     out = tmp_path / "env.json"
-    args = build_parser().parse_args(["repo", "inspect", str(root), "--out", str(out), "--fail-on-error"])
+    args = build_parser().parse_args(["repo", "inspect", str(root), "--out", str(out), "--fail-on", "fail"])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 1

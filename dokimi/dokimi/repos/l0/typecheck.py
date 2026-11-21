@@ -134,7 +134,9 @@ def _claims(scan: Scan, tool: str, runnable: list[tuple[str, Fence, str]],
         line, message = _real(errors, found)[0]
         more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
         where = f"line {line}: " if line else ""  # 0: the tool gave no line, so the claim is the fence itself
-        scan.add(f, fence.line + line, "python_fence", _label(code), "fail",
+        # code line -> the file line it came from: a U+2028 in the fence splits the code, not the file
+        at = fence.lines[line - 1][0] if 0 < line <= len(fence.lines) else fence.line + line
+        scan.add(f, at, "python_fence", _label(code), "fail",
                  f"{tool}: {where}{message}{more}"[:MAX_WHY])
     return fails, unchecked
 
