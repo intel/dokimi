@@ -19,7 +19,6 @@ import json
 import sys
 from pathlib import Path
 
-from dokimi import cli_flags
 from dokimi.commands.catalog_scan import (
     ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
     unrestricted_and_risky,
