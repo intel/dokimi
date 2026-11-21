@@ -603,3 +603,8 @@ def test_env_runs_its_program_not_an_env_probe():
 @pytest.mark.parametrize("program", ["exit 0", "exec true"])
 def test_pipeline_termination_leaves_the_parent_running(program):
     assert _probes(f"{program} | cat; nproc") == ["nproc"]
+
+
+@pytest.mark.parametrize("conditional", ["false || exit 1", "true && exit 0"])
+def test_a_known_condition_runs_its_shell_exit(conditional):
+    assert _probes(f"{conditional}; nproc") == []

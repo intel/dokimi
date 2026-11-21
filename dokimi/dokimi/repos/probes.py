@@ -225,7 +225,7 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
     text = _without_heredocs(script)
     flat = not _GROUPED.search(text)  # a group or a block may hold an exit that does not run: then nothing ends the scan
     for part, after, in_subshell, _outer in split_script(text):
-        conditional = before in ("||", "&&")  # the part runs only if the one before it did, or did not, succeed
+        conditional = before in ("||", "&&") and status is None  # the part runs only if the one before it did, or did not, succeed
         skipped, before = (before == "||" and status is True) or (before == "&&" and status is False), after
         if skipped:  # a part after ``||`` that succeeded, or after ``&&`` that failed, never runs
             continue
