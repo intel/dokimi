@@ -144,3 +144,11 @@ def not_a_failed_load(codes: Sequence[str]) -> bool:
     """Whether an unloaded skill's review makes it a warning or a note, not a failed load: an OpenCode skill
     loaded as plain text but not advertised, or a host with no known spec (one ``unsupported`` note)."""
     return OPENCODE_NO_DESCRIPTION_CODE in codes or UNSUPPORTED_CODE in codes
+
+
+NOT_CHECKED_CODES = ("description-when-not-checked", UNSUPPORTED_CODE)  # the notes that say a skill was not read
+
+
+def not_checked(row: dict) -> bool:
+    """Whether an ``ok`` row is only ok because the check did not read it (a ``NOT_CHECKED_CODES`` note)."""
+    return row["state"] == "ok" and any(f["code"] in NOT_CHECKED_CODES for f in row["findings"])

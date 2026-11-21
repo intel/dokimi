@@ -22,7 +22,7 @@ from typing import Callable, Iterable, Iterator, Optional
 
 from dokimi import __version__
 from dokimi.external.catalog_rates import RateTally, text_lines
-from dokimi.external.skill_format import UNSUPPORTED_CODE
+from dokimi.external.skill_format import NOT_CHECKED_CODES, not_checked
 from dokimi.utils import InputError
 
 
@@ -109,14 +109,6 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
 def _continued(message: str) -> str:
     """``message`` with its continuation lines indented under the row, so a multi-line message stays in it."""
     return message.replace("\n", "\n    ")
-
-
-NOT_CHECKED_CODES = ("description-when-not-checked", UNSUPPORTED_CODE)  # the notes that say a skill was not read
-
-
-def not_checked(row: dict) -> bool:
-    """Whether an ``ok`` row is only ok because the check did not read it (a ``NOT_CHECKED_CODES`` note)."""
-    return row["state"] == "ok" and any(f["code"] in NOT_CHECKED_CODES for f in row["findings"])
 
 
 def skipped_note(skipped: int) -> str:

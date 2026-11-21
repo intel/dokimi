@@ -78,13 +78,15 @@ def test_the_text_names_the_shares_only_with_several_repos(repos):
         "ok": {"skills": 1, "rate": 0.5, "repo_rate": 0.5},
         "warn": {"skills": 1, "rate": 0.5, "repo_rate": 0.5},
         "error": {"skills": 0, "rate": 0.0, "repo_rate": 0.0},
+        "skipped": {"skills": 0, "rate": 0.0, "repo_rate": 0.0},
+        "not_checked": {"skills": 0, "rate": 0.0, "repo_rate": 0.0},
     }, "codes": {}}
     out = text_lines(summary)
     if repos == 1:
         assert out == []
     else:
         assert out[0] == "# rates per skill and per repo (2 repos, each repo counted once):"
-        assert len(out) == 4  # the header and the three states
+        assert len(out) == 6  # the header and the five states
 
 
 def test_whole_catalog_json_gives_the_shares_per_skill_and_per_repo(tmp_path, capsys):
@@ -154,3 +156,13 @@ def test_an_absolute_relpath_under_a_relative_root_names_its_repo(tmp_path, monk
 
     assert sorted(tally.skills) == ["a", "b"]
 
+
+
+def test_unchecked_and_skipped_rows_have_their_own_rates(tmp_path):
+    tally = RateTally(tmp_path)
+    tally.add(_row('a', 'ok', 'description-when-not-checked'))
+    tally.add(_row('b', 'ok'))
+    tally.add(_row('c', 'skipped'))
+    states = tally.summary()['states']
+    for state in ('ok', 'not_checked', 'skipped'):
+        assert states[state] == {'skills': 1, 'rate': 0.3333, 'repo_rate': 0.3333}

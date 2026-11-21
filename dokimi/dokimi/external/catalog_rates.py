@@ -18,7 +18,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Optional
 
-STATES = ("ok", "warn", "error")
+from dokimi.external.skill_format import not_checked
+
+STATES = ("ok", "warn", "error", "skipped", "not_checked")
 TEXT_CODES = 5  # the codes the text report names: the most common ones
 
 
@@ -37,7 +39,8 @@ class RateTally:
         """Count one skill row: its state, and each finding code it carries once."""
         repo = self._repo(row.get("relpath"))
         self.skills[repo] += 1
-        self.states[row["state"]][repo] += 1
+        state = "not_checked" if not_checked(row) else row["state"]
+        self.states[state][repo] += 1
         for code in {finding["code"] for finding in row["findings"]}:
             self.codes[code][repo] += 1
 
