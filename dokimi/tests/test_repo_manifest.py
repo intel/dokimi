@@ -241,6 +241,25 @@ def test_task_json_failed_git_show_is_raised_not_reported(tmp_path, monkeypatch)
         check_repo(tree, manifest)
 
 
+def test_task_json_that_cannot_be_opened_is_reported_not_raised(tmp_path, monkeypatch):
+    # #910: a task.json the process may not read (EACCES, EIO) is a validation error, not a traceback and exit 5
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    tree = WorkTree(root)
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = WorkTree.read_text
+
+    def read_text(self, path):
+        if path.endswith("bad/task.json"):
+            raise PermissionError(13, "Permission denied", path)
+        return real(self, path)
+
+    monkeypatch.setattr(WorkTree, "read_text", read_text)
+    report = check_repo(tree, manifest)
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+    assert "bad" not in [t.id for t in report.tasks]
+
+
 def test_task_json_link_loop_that_raises_runtime_error_is_reported(tmp_path, monkeypatch):
     # Path.resolve raises RuntimeError for a link loop before Python 3.13 (#910)
     root = _repo(tmp_path)
