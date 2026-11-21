@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from dokimi.cli import build_parser
@@ -159,18 +161,16 @@ def test_a_missing_manifest_file_still_says_it_is_missing(repo, tmp_path, capsys
     assert str(missing) in err and "No such file" in err and "not a regular file" not in err
 
 
-def test_a_manifest_file_read_through_a_pipe_with_a_writer_validates(repo, tmp_path, capsys):
+@pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="needs /dev/fd")
+def test_a_manifest_file_read_through_a_pipe_with_a_writer_validates(repo, capsys):
     """#975 review of #1044: process substitution (/dev/fd/N) reads as on main; a named FIFO is still refused."""
-    import subprocess
-
-    manifest = tmp_path / "m.yaml"
-    manifest.write_text("schema: repo_manifest.v1\nid: toy\nguidance:\n  globs: ['AGENTS.md']\n", encoding="utf-8")
-    proc = subprocess.Popen(["cat", str(manifest)], stdout=subprocess.PIPE)
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"schema: repo_manifest.v1\nid: toy\nguidance:\n  globs: ['AGENTS.md']\n")
+    os.close(write_fd)
     try:
-        _run("validate", str(repo), "--manifest-file", f"/dev/fd/{proc.stdout.fileno()}")
+        _run("validate", str(repo), "--manifest-file", f"/dev/fd/{read_fd}")
     finally:
-        proc.stdout.close()
-        proc.wait()
+        os.close(read_fd)
     assert "✓ toy" in capsys.readouterr().out
 
 
