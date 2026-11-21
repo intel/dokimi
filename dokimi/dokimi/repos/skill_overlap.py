@@ -4,9 +4,9 @@
 """Candidate pairs for the repo budget's near-duplicate pass (``budget._near_duplicates``).
 
 A pair is reported when the two word sets are equal and non-empty, or when their Jaccard overlap is at
-least ``DUPLICATE_JACCARD`` and each has 3+ words. ``candidate_pairs`` returns a superset of those
-pairs without looking at every pair: equal sets are grouped, and the rest are found by a prefix filter
-(rarest words first) and a size bound. https://github.com/intel/dokimi/issues/995
+least ``DUPLICATE_JACCARD`` and each has 3+ words. ``candidate_pairs`` returns those pairs without
+looking at every pair: equal sets are grouped, and the rest are found by a prefix filter (rarest words
+first), each candidate checked on the spot. https://github.com/intel/dokimi/issues/995
 """
 
 from __future__ import annotations
@@ -25,6 +25,10 @@ def _prefix_length(size: int, jaccard: float) -> int:
     return size - math.ceil(jaccard * size - _EPS) + 1
 
 
+def _reaches(a: set[str], b: set[str], jaccard: float) -> bool:
+    return len(a & b) / len(a | b) >= jaccard
+
+
 def _exact_pairs(words: list[set[str]]) -> set[tuple[int, int]]:
     groups: dict[frozenset[str], list[int]] = {}
     for k, w in enumerate(words):
@@ -41,14 +45,14 @@ def _partial_pairs(words: list[set[str]], jaccard: float) -> set[tuple[int, int]
     for k in order:
         size = len(words[k])
         prefix = sorted(words[k], key=lambda w: (freq[w], w))[: _prefix_length(size, jaccard)]
-        # Earlier ids are no larger than k; a pair more than 1/J apart in size cannot reach J.
-        near = {o for w in prefix for o in index.get(w, ()) if size * jaccard - _EPS <= len(words[o]) <= size}
-        found.update((min(k, o), max(k, o)) for o in near)
+        near = {o for w in prefix for o in index.get(w, ())}
+        # Only a pair that reaches J is kept, so a catalog of shared boilerplate keeps no false candidates.
+        found.update((min(k, o), max(k, o)) for o in near if _reaches(words[k], words[o], jaccard))
         for w in prefix:
             index.setdefault(w, []).append(k)
     return found
 
 
 def candidate_pairs(words: list[set[str]], jaccard: float) -> set[tuple[int, int]]:
-    """Index pairs (smaller first) that may be reported; every reported pair is among them."""
+    """Index pairs (smaller first) that the rule reports; only those are kept, never a pair that fails it."""
     return _exact_pairs(words) | _partial_pairs(words, jaccard)
