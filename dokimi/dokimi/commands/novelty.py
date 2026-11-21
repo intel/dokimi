@@ -46,6 +46,7 @@ from dokimi.commands.novelty_routing_report import (
     stop_if_partial,
     warn_blind_skills,
 )
+from dokimi.cli_types import unit_interval
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -665,7 +666,7 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
     parser.add_argument("--all-atoms", action="store_true", dest="all_atoms",
                         help="Probe every extracted atom (opt-in: the expensive sweep); with "
                              "--atoms, every atom in the file, not only the cap's sample")
-    cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=float, nargs="+", default=[0.75, 0.5],
+    cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=unit_interval, nargs="+", default=[0.75, 0.5],
                   dest="budgets", help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
                         help="Disk cache for retention adjudications")

@@ -161,6 +161,13 @@ def test_every_output_token_leaf_refuses_a_count_below_one(leaf, value):
         _leaves_with("--max-output-tokens")[leaf].type(value)
 
 
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_token_budgets_refuse_nonfinite_fractions(value):
+    for action in _leaves_with("--token-budgets").values():
+        with pytest.raises(argparse.ArgumentTypeError):
+            action.type(value)
+
+
 def test_add_refuses_a_spelling_the_concept_does_not_own():
     parser = argparse.ArgumentParser()
     cli_flags.add(parser, "output", "--out", default=None)
