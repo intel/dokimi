@@ -78,8 +78,7 @@ _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
 _PS_ASSIGN = re.compile(r"\$\w+=")
 _DOTTED = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
 _INFO_OPTIONS = frozenset({"--help", "--version", "-V"})  # a wrapper given one prints text and runs nothing
-_HEREDOC = re.compile(r"<<-?[ \t]*(?P<quote>['\"\\]?)([\w.-]+)(?(quote)(?:['\"]|))")
-_SHELL_LINE = re.compile(r"\s*(?:(?:sudo|exec|command|time)\s+)*(?:bash|sh|zsh|dash)\b")  # a heredoc fed to a shell runs
+_HEREDOC = re.compile(r"<<-?[ \t]*(?P<tag>'[^']*'|\"[^\"]*\"|\\?[\w.-]+)")
 _GROUPED = re.compile(r"[{}()]|\b(?:if|then|else|elif|fi|do|done|while|until|case|esac)\b")  # a group or a block
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 _SHELL_C = re.compile(r"-[a-z]*c[a-z]*")  # ``-c``, ``-lc``: the next word is a script
@@ -263,26 +262,33 @@ def _without_heredocs(script: str) -> str:
     for line in lines:
         opening = len(out)
         out.append(line)
-        for match in _openers(line):
+        expansions = []
+        openers = list(_openers(line))
+        for match in openers:
+            tag = match.group("tag")
+            quoted = tag.startswith(("'", '"', "\\"))
+            delimiter = tag.strip("'\"").removeprefix("\\")
             body = []
             for data in lines:
-                if (data.lstrip("\t") if match.group(0).startswith("<<-") else data) == match.group(2):
+                if (data.lstrip("\t") if match.group(0).startswith("<<-") else data) == delimiter:
                     break
                 body.append(data)
             prefix = line[:match.start()]
             words = command_stages(prefix)
-            if words and _reads_script_from_stdin(words[-1]):
+            if match is openers[-1] and words and _reads_script_from_stdin(words[-1]):
                 out.extend(body)
-            elif not match.group(1):
-                additions = " ".join(_expansions("\n".join(body)))
-                out[opening] = out[opening][:match.start()] + additions + " " + out[opening][match.start():]
+            elif not quoted:
+                expansions.extend(_expansions("\n".join(body)))
+        if expansions:
+            at = openers[0].start()
+            out[opening] = line[:at] + " ".join(expansions) + " " + line[at:]
     return "\n".join(out)
 
 
 def _reads_script_from_stdin(words: list[str]) -> bool:
     for program, args in _views(words):
         if program in _SHELLS:
-            return not args or all(word in ("-s", "-e", "-u", "-x") for word in args)
+            return all(re.fullmatch(r"-[seux]+", word) for word in args)
     return False
 
 
@@ -524,7 +530,7 @@ def _past_wrapper_args(words: list[str], i: int, wrapper: str) -> int | None:
     """The index of the program a wrapper runs: past its options (``sudo -E``, ``nice -n 5``) and, for ``timeout``, its
     duration; None when the wrapper only looks a program up (``command -v``)."""
     while i < len(words) and words[i].startswith("-"):
-        if words[i] in _INFO_OPTIONS or (wrapper == "command" and words[i] == "-v"):
+        if words[i] in _INFO_OPTIONS or (wrapper, words[i]) in (("command", "-v"), ("doas", "-C")):
             return None
         i += 2 if (wrapper, words[i]) in _OPTION_OPERANDS else 1
     if wrapper == "timeout" and i < len(words):  # ``timeout 5 nproc``: the duration is no program

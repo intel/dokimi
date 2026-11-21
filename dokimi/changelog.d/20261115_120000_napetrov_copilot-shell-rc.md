@@ -5,7 +5,6 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Changed
 
-- **`repo run`: a Copilot shell command's `rc` is its `shellExecution.exitCode` only.** A result that carries only
-  `success` no longer gets `rc` `0` or `1` from it, so it is `null`. `failed_commands` and `first_useful` read this `rc`,
-  so for such a command they now count neither a failure nor a useful result where they counted one before. Results
-  that carry `shellExecution.exitCode` are unchanged. Refs #807.
+- A Copilot command completion with only a `success` flag keeps its inferred `rc` of 0 or 1 and records
+  `rc_from: "success"`. Failed-command counts and first-useful measurements retain the completion outcome.
+  An install or removal choice requires the actual shell exit code. Refs #807.
