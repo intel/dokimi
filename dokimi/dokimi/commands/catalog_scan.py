@@ -243,7 +243,7 @@ class _Tally:
         self.counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
         self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.not_checked = 0
-        self.listed: list[dict] = []  # the rows with a listing_chars, for listing_total
+        self.listing = ListingTotal()  # the compact count of the rows with a listing_chars; no row is kept for it
         self.failed = False
         self.reasons: list[str] = []
 
@@ -251,8 +251,7 @@ class _Tally:
         self.counts[row["state"]] += 1
         self.plain += is_plain_markdown(row)
         self.not_checked += not_checked(row)
-        if row.get("listing_chars") is not None:
-            self.listed.append(row)
+        self.listing.add(row)
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
@@ -275,6 +274,7 @@ def _is_row(row: object) -> bool:
         and "error" in row
         and isinstance(row.get("findings"), list)
         and _count_ok(row.get("listing_chars"))
+        and isinstance(row.get("content_sha256"), (str, type(None)))
         and isinstance(row.get("listing_name"), (str, type(None)))
     )
 
@@ -386,28 +386,48 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     print()
 
 
-def listing_total(rows: Iterable[dict]) -> int:
-    """The characters the routing field lists for ``rows``: a byte-identical ``SKILL.md`` under another path
-    (a mirror) is one entry, as ``routing.catalog_competitors`` keeps one card for it (#966).
+class ListingTotal:
+    """The listing characters of the rows added so far, kept as counts so a streamed row can be freed (#966).
 
-    A skill is a copy of another when the loaded name (``listing_name``, not the manifest name) and ``content_sha256`` match; the row nearest the root stands for the
-    group. A name whose copies differ is left out whole, as ``routing.catalog_competitors`` drops a conflicting name.
+    A byte-identical ``SKILL.md`` under another path (a mirror) is one entry, as ``routing.catalog_competitors``
+    keeps one card for it. A skill is a copy of another when the loaded name (``listing_name``, not the manifest
+    name) and ``content_sha256`` match; the first row added stands for the group. A name whose copies differ is
+    left out whole, as ``routing.catalog_competitors`` drops a conflicting name.
     """
-    kept: dict[tuple, int] = {}
-    digests: dict[str, set] = {}
-    total = 0
-    for row in rows:
+
+    def __init__(self) -> None:
+        self.kept: dict[tuple, int] = {}
+        self.digests: dict[str, set] = {}
+        self.unkeyed = 0  # rows with no digest or no loaded name: each counts on its own
+
+    def add(self, row: dict) -> None:
         chars = row.get("listing_chars")
         if chars is None:
-            continue
+            return
         sha = row.get("content_sha256")
         name = row.get("listing_name")
         if sha is None or name is None:
-            total += chars
-            continue
-        digests.setdefault(name, set()).add(sha)
-        kept.setdefault((name, sha), chars)
-    return total + sum(chars for (name, _), chars in kept.items() if len(digests[name]) == 1)
+            self.unkeyed += chars
+            return
+        self.digests.setdefault(name, set()).add(sha)
+        self.kept.setdefault((name, sha), chars)
+
+    def total(self) -> int:
+        return self.unkeyed + sum(chars for (name, _), chars in self.kept.items() if len(self.digests[name]) == 1)
+
+
+def listing_total(rows: Iterable[dict]) -> int:
+    """The characters the routing field lists for ``rows`` (see :class:`ListingTotal`)."""
+    listing = ListingTotal()
+    for row in rows:
+        listing.add(row)
+    return listing.total()
+
+
+def row_ignore(args) -> frozenset:
+    """The ``--ignore`` codes a row can carry: ``listing-over-budget`` is the scan's, no row has it, so it is not
+    in ``ignored`` and adding or dropping it does not make ``--resume`` review a skill again."""
+    return frozenset(args.ignore or ()) - {"listing-over-budget"}
 
 
 def listing_failed(args, report: dict, as_json: bool) -> bool:
@@ -452,7 +472,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
     outputs = _outputs(jsonl)
     selected = {key: skill_dir_digest(entry, outputs) if args.resume else None
                 for key, (entry, _) in zip(keys, pairs, strict=True)}
-    ignore = frozenset(args.ignore or ())
+    ignore = row_ignore(args)
     sink = _Jsonl(jsonl, args.resume, selected, ignore) if jsonl is not None else None
     tally = _Tally(args.strict)
     prior = sink.prior if sink is not None else []
@@ -474,5 +494,5 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
         _print_text(root, declared, tally, len(prior), jsonl, report["skills"])
         for line in tally.reasons:
             print(line)
-    report["listing"] = {"chars": listing_total(tally.listed)}
-    return tally.failed, declared
+    report["listing"] = {"chars": tally.listing.total()}
+    return listing_failed(args, report, as_json) or tally.failed, declared

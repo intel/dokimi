@@ -202,7 +202,7 @@ def test_json_reports_the_budget_finding_without_strict(tmp_path, capsys):
 
     doc = json.loads(out)
     assert code == 0
-    listing = [s for s in doc["subjects"] if s["subject"] == "listing"]
+    listing = [s for s in doc["subjects"] if s["subject"] == "catalog:listing"]
     assert [f["code"] for s in listing for f in s["findings"]] == ["listing-over-budget"]
     assert [s["verdict"] for s in listing] == ["pass"]
 
@@ -263,3 +263,83 @@ def test_resume_refuses_a_listing_count_that_is_not_a_nonnegative_integer(tmp_pa
     out, code = _run([*base, "--resume", "--listing-budget", "26"], capsys)
 
     assert code == 2
+
+
+def test_a_description_over_the_harness_cut_counts_at_the_cut(tmp_path, capsys):
+    """#966: Claude Code cuts `description - when_to_use` at 1,536 characters (`skill_treatment.LISTING_MAX_DESC_CHARS`), so `a` counts 1 + 2 + 1536."""
+    from dokimi.harnesses.skill_treatment import LISTING_MAX_DESC_CHARS
+
+    _skill(tmp_path, "a", "x" * 3000)
+    _skill(tmp_path, "b", "short")
+
+    for scan in ([], ["--per-skill"]):
+        total = _listing(tmp_path, capsys, "--listing-budget", "2000", *scan)
+        assert total["chars"] == len("a: ") + LISTING_MAX_DESC_CHARS + len("b: short")
+        assert total["over_budget"] is False
+
+
+def test_an_empty_when_to_use_adds_no_separator(tmp_path, capsys):
+    """#966: `when_to_use: ""` is no text, so `b: short` is 8 characters, not 11 (`repos/budget.py` counts it as 0)."""
+    _skill(tmp_path, "b", "short", 'when_to_use: ""\n')
+
+    assert _listing(tmp_path, capsys)["chars"] == len("b: short")
+
+
+def test_the_listing_total_comes_before_the_granularity_section(tmp_path, capsys):
+    """#966: docs/finding-codes.md puts the `listing-over-budget` line after the counts, before `# granularity`."""
+    _alpha(tmp_path)
+
+    out, _ = _run(["--root", str(tmp_path), "--listing-budget", "26"], capsys)
+
+    assert out.index("warn listing-over-budget") < out.index("# granularity")
+
+
+def test_a_skill_named_listing_does_not_share_the_total_subject(tmp_path, capsys):
+    """#966: a skill can be named `listing`, so the total's subject is `catalog:listing`, which no skill name can be."""
+    _skill(tmp_path, "listing", "Use when listing runs.")
+
+    out, _ = _run(["--root", str(tmp_path), "--listing-budget", "5", "--json"], capsys)
+
+    names = [s["subject"] for s in json.loads(out)["subjects"]]
+    assert sorted(names) == ["catalog:listing", "listing"]
+
+
+def test_ignoring_the_listing_code_does_not_redo_resumed_rows(tmp_path, capsys):
+    """#966: `listing-over-budget` is the scan's code, in no row, so `--resume --ignore listing-over-budget` keeps every row."""
+    _alpha(tmp_path)
+    receipt = tmp_path / "receipt.jsonl"
+    base = ["--root", str(tmp_path), "--per-skill", "--jsonl", str(receipt)]
+    assert _run(base, capsys)[1] == 0
+
+    out, _ = _run([*base, "--resume", "--ignore", "listing-over-budget"], capsys)
+
+    assert "1 resumed" in out
+    assert json.loads(receipt.read_text(encoding="utf-8"))["ignored"] == []
+
+
+@pytest.mark.parametrize("bad", ["[]", "{}", "5"])
+def test_resume_refuses_a_content_digest_that_is_not_a_string(tmp_path, capsys, bad):
+    """#966: the total keys a set on `content_sha256`; a list would raise TypeError, so the row is refused with the input error."""
+    _alpha(tmp_path)
+    receipt = tmp_path / "receipt.jsonl"
+    base = ["--root", str(tmp_path), "--per-skill", "--jsonl", str(receipt)]
+    assert _run(base, capsys)[1] == 0
+    row = json.loads(receipt.read_text(encoding="utf-8"))
+    row["content_sha256"] = json.loads(bad)
+    receipt.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    _, code = _run([*base, "--resume"], capsys)
+
+    assert code == 2
+
+
+def test_the_tally_keeps_no_row_for_the_listing_total():
+    """#966: a streamed per-skill row is freed once written; the tally holds counts, not the rows and their findings."""
+    from dokimi.commands.catalog_scan import _Tally
+
+    tally = _Tally(False)
+    tally.add({"state": "ok", "error": None, "findings": [], "listing_chars": 27, "listing_name": "a",
+               "content_sha256": "d", "name": "a", "relpath": None})
+
+    assert tally.listing.total() == 27
+    assert not any(isinstance(v, list) and v and isinstance(v[0], dict) for v in vars(tally).values())

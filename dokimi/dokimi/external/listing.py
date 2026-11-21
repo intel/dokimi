@@ -22,13 +22,17 @@ def entry_chars(skill: Skill) -> int:
     """The characters of the skill's listing entry: ``name: description``, then `` - when_to_use`` when set (#966).
 
     Read from the ``SKILL.md`` frontmatter, so the whole-catalog scan, ``--per-skill``, ``--jobs`` workers and the
-    row a ``--resume`` keeps all count one skill the same way. A line break between entries is not counted.
+    row a ``--resume`` keeps all count one skill the same way. A line break between entries is not counted. Claude Code
+    cuts ``description - when_to_use`` at ``LISTING_MAX_DESC_CHARS`` per entry, so the entry counts no more than that
+    after the name; an empty ``when_to_use`` adds nothing.
     """
+    from dokimi.harnesses.skill_treatment import LISTING_MAX_DESC_CHARS
+
     meta, _ = parse_frontmatter(skill.path.read_text(encoding="utf-8"))
-    text = f"{skill.name}{ENTRY_SEP}{skill.description}"
-    if meta.get("when_to_use") is not None:
+    text = str(skill.description)
+    if meta.get("when_to_use"):
         text += f"{WHEN_SEP}{meta['when_to_use']}"
-    return len(text)
+    return len(skill.name) + len(ENTRY_SEP) + min(len(text), LISTING_MAX_DESC_CHARS)
 
 
 def listed_chars(review: Optional[SkillReview]) -> Optional[int]:
