@@ -379,7 +379,7 @@ def build(checkouts: Sequence[str | Path] = (), manifests: Sequence[str | Path] 
     return Index(upstreams, versions)
 
 
-def to_row(match: Optional[Match]) -> dict:
+def to_row(match: Optional[Match], *, head_known: bool = True) -> dict:
     """The report fields of one skill's match; ``match`` None gives ``match: null`` and nothing else."""
     if match is None:
         return {"match": None, "upstream": None, "path": None, "commit": None, "date": None, "version": None,
@@ -392,9 +392,9 @@ def to_row(match: Optional[Match]) -> dict:
         "commit": v.commit[:12] if v.commit else None,
         "date": v.date.date().isoformat() if v.date else None,
         "version": v.version,
-        "at_head": v.head,
+        "at_head": v.head if head_known else None,
         "behind_commits": 0 if v.head else v.behind,
-        "behind_months": v.months_behind,
+        "behind_months": v.months_behind if head_known else None,
         "edited": match.edited,
         "jaccard": match.jaccard,
     }

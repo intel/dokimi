@@ -264,7 +264,8 @@ def test_a_manifest_mixing_naive_and_zoned_dates_still_gives_the_months(tmp_path
         "schema": "dokimi.upstream.v1",
         "name": "acme",
         "head": {"commit": "abc123", "date": "2026-04-01T00:00:00+00:00"},
-        "skills": [{"path": "skills/pdf/SKILL.md", "content": V1, "commit": "c1", "date": "2026-01-01"}],
+        "skills": [{"path": "skills/pdf/SKILL.md", "content": V1, "commit": "c1", "date": "2026-01-01"},
+                   {"path": "skills/pdf/SKILL.md", "content": V2, "head": True}],
     }), encoding="utf-8")
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     row = _row(_run(root, "--upstream-manifest", str(manifest)), "skills/pdf")
@@ -315,6 +316,7 @@ def test_duplicate_manifest_bytes_match_the_newest_version(tmp_path) -> None:
         "skills": [
             {"path": "skills/pdf/SKILL.md", "content": V1, "commit": "old", "date": "2025-01-01T00:00:00+00:00"},
             {"path": "skills/pdf/SKILL.md", "content": V1, "commit": "new", "date": "2026-01-01T00:00:00+00:00"},
+            {"path": "skills/pdf/SKILL.md", "content": V2, "head": True},
         ],
     }), encoding="utf-8")
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
@@ -348,3 +350,18 @@ def test_blobless_promisor_checkout_names_the_missing_local_history(upstream_rep
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     with pytest.raises(InputError, match="checkout with all skill blobs available locally"):
         _run(root, "--upstream", str(clone))
+
+
+def test_manifest_without_a_head_for_this_path_reports_unknown_drift(tmp_path) -> None:
+    path = tmp_path / "upstream.json"
+    path.write_text(json.dumps({
+        "schema": "dokimi.upstream.v1", "name": "acme", "head": {"date": "2026-04-01"},
+        "skills": [{"path": "pdf/SKILL.md", "content": V1, "date": "2026-01-01"},
+                   {"path": "other/SKILL.md", "content": UNRELATED, "head": True}],
+    }), encoding="utf-8")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    report = _run(root, "--upstream-manifest", str(path))
+    row = _row(report, "skills/pdf")
+    assert row["match"] == "exact"
+    assert (row["at_head"], row["behind_commits"], row["behind_months"]) == (None, None, None)
+    assert report["summary"]["median_months_behind"] is None

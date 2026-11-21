@@ -513,7 +513,8 @@ history is `exact` (not edited), and the newest such version is the one reported
 an upstream version with the same frontmatter `name` and a word Jaccard similarity of at least
 0.8 is `similar` (edited). Anything else is `unmatched`. `behind` counts the commits that
 touched the file after the matched version, and the months run from that version's commit date
-to the upstream head. `--format json` adds the upstreams, one row per skill and a `summary`.
+to the upstream head. When a manifest leaves the head of the matched path unspecified, the behind column reads
+`unknown`. Its JSON fields `at_head`, `behind_commits`, and `behind_months` are null. `--format json` adds the upstreams, one row per skill and a `summary`.
 
 ### Upstream findings in `catalog check` (`--upstream`, `--upstream-manifest`)
 

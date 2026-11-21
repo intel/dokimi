@@ -82,7 +82,8 @@ def cmd_catalog_provenance(args: argparse.Namespace) -> None:
             continue  # a skill that does not load has no bytes to match: `catalog check` reports it
         skill = entry.skill
         match = index.match(skill.path.read_bytes(), skill.name)
-        rows.append({"skill": _rel(skill.path.parent, root), "name": skill.name, **upstream.to_row(match)})
+        head_known = match is not None and index.head_known(match.version)
+        rows.append({"skill": _rel(skill.path.parent, root), "name": skill.name, **upstream.to_row(match, head_known=head_known)})
     report = {
         "root": str(root),
         "upstreams": upstream.upstream_rows(index),
