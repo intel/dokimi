@@ -612,3 +612,7 @@ def test_a_known_condition_runs_its_shell_exit(conditional):
 
 def test_a_later_substitution_does_not_cancel_an_earlier_exit():
     assert _probes("exit 0; echo $(date); nproc") == []
+
+
+def test_multiple_heredocs_are_consumed_in_order():
+    assert _probes("cat <<A <<B\nignored\nA\nnproc\nB") == []

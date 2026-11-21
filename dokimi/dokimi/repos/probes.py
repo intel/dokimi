@@ -254,41 +254,34 @@ def _ends_shell(words: list[str]) -> bool:
 
 
 def _without_heredocs(script: str) -> str:
-    """The script without the bodies of its heredocs, which are data (``cat <<EOF > run.sh``) unless a shell reads them;
-    the ``$( )`` and backtick substitutions of an unquoted body ran, so they stay."""
+    """Keep command text and expansions, skipping each delimiter's data in shell order."""
     if "<<" not in script:
         return script
     out: list[str] = []
-    end: str | None = None
-    body: list[str] = []
-    expands = False
-    head, at = 0, 0  # the line that opens the heredoc, and where its operator starts on it
-    strip_tabs = False  # ``<<-``: the terminator may be indented with tabs, and only those
-    for line in script.split("\n"):
-        if end is not None:
-            if (line.lstrip("\t") if strip_tabs else line) == end:
-                if expands:  # before the operator: a comment after it on the opening line would hide them
-                    found = "".join(f"{text} " for text in _expansions("\n".join(body)))
-                    out[head] = out[head][:at] + found + out[head][at:]
-                end, body = None, []
-            else:
-                body.append(line)
-            continue
+    lines = iter(script.split("\n"))
+    for line in lines:
+        opening = len(out)
         out.append(line)
-        m = _opener(line)
-        if m and not _SHELL_LINE.match(line):
-            end, expands, head, at = m.group(2), not m.group(1), len(out) - 1, m.start()
-            strip_tabs = m.group(0).startswith("<<-")
+        for match in _openers(line):
+            body = []
+            for data in lines:
+                if (data.lstrip("\t") if match.group(0).startswith("<<-") else data) == match.group(2):
+                    break
+                body.append(data)
+            if _SHELL_LINE.match(line):
+                out.extend(body)
+            elif not match.group(1):
+                additions = " ".join(_expansions("\n".join(body)))
+                out[opening] = out[opening][:match.start()] + additions + " " + out[opening][match.start():]
     return "\n".join(out)
 
 
-def _opener(line: str) -> re.Match[str] | None:
+def _openers(line: str) -> Iterator[re.Match[str]]:
     """The first heredoc operator of a line that is not inside quotes (``echo "<<EOF"`` opens none)."""
     for m in _HEREDOC.finditer(line):
         before = line[:m.start()]
         if before.count('"') % 2 == 0 and before.count("'") % 2 == 0:
-            return m
-    return None
+            yield m
 
 
 def _expansions(body: str) -> list[str]:
