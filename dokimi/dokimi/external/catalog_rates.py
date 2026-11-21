@@ -49,7 +49,8 @@ class RateTally:
         """The row's repo key: its nearest ``.git`` ancestor under the root, or ``.``.
 
         The path is normalised lexically against the root first, so a ``..`` or an absolute path under a
-        relative root names its repo the same way as the plain relative path. Symlinks are not resolved.
+        relative root names its repo the same way as the plain relative path. Alternate names for the same
+        repository directory share a bucket.
         """
         if not relpath:
             return "."
@@ -62,7 +63,11 @@ class RateTally:
                 key = ""
                 if (directory / ".git").exists():
                     stat = directory.stat()
-                    key = self._repo_names.setdefault((stat.st_dev, stat.st_ino), "/".join(prefix))
+                    key = "/".join(prefix)
+                    if stat.st_ino:
+                        key = self._repo_names.setdefault((stat.st_dev, stat.st_ino), key)
+                    else:
+                        key = os.path.normcase(os.path.realpath(directory))
                 self._repos[prefix] = key
             if self._repos[prefix]:
                 return self._repos[prefix]

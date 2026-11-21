@@ -197,3 +197,23 @@ def test_text_includes_a_code_common_across_small_repos(tmp_path):
         _repo(tmp_path, repo)
         tally.add(_row(f"{repo}/s", "warn", "widespread"))
     assert any(line.startswith("#   widespread:") for line in text_lines(tally.summary()))
+
+
+def test_filesystem_without_inode_numbers_keeps_different_repos(tmp_path, monkeypatch):
+    import os
+
+    for repo in ("a", "b"):
+        _repo(tmp_path, repo)
+    real_stat = Path.stat
+
+    def zero_inode(path, **kwargs):
+        fields = list(real_stat(path, **kwargs))
+        fields[1] = 0  # os.stat_result's st_ino field
+        return os.stat_result(fields)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "stat", zero_inode)
+        tally = RateTally(tmp_path)
+        tally.add(_row("a/s", "ok"))
+        tally.add(_row("b/t", "warn"))
+        assert tally.summary()["repos"] == 2
