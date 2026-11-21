@@ -48,7 +48,8 @@ _COMMENT_OPEN = re.compile(r"^\s*<!--")
 _QUOTE = re.compile(r"^ {0,3}>")
 # A thematic break made of `*` or `_` (`---` is read as a Setext underline or a rule by `_SETEXT`).
 _BREAK = re.compile(r"^ {0,3}([*_])(?:[ \t]*\1){2,}\s*$")
-_CODE = r"(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)"  # a backtick run closed by a run of the same length
+# a backtick run closed by a run of the same length, over soft line breaks but not over a blank line
+_CODE = r"(?<!`)(`+)(?!`)(?:(?!\n[ \t\r]*\n)[\s\S])+?(?<!`)\1(?!`)"
 _CODE_SPAN = re.compile(_CODE)
 # A closed comment, or an inline code span (matched first when it starts first, so a literal `<!--` in it opens nothing).
 _COMMENT = re.compile(rf"{_CODE}|<!--.*?-->", re.S)
@@ -216,26 +217,74 @@ def _comment_end(lines: list[str], i: int) -> int:
 
 
 def _close_comment(lines: list[str], i: int, j: int) -> int:
-    """``j``, or the index after the first later line holding ``-->`` when ``lines[i:j]`` leaves a ``<!--`` open.
+    """``j``, or the index after the line closing the last comment ``lines[i:j]`` leaves open.
 
-    A comment opened inside a paragraph or list item runs over blank and structural lines to its ``-->``.
+    A comment opened inside a paragraph or list item runs over blank and structural lines to its ``-->``;
+    a later ``<!--`` on the line that closes it opens the next one, and the range grows until none is left open.
     """
-    if "<!--" not in _CODE_SPAN.sub("", _blank_comments("".join(lines[i:j]), "")):
-        return j
-    for n in range(j, len(lines)):
-        if "-->" in lines[n]:
-            return n + 1
+    while "<!--" in _CODE_SPAN.sub("", _blank_comments("".join(lines[i:j]), "")):
+        n = next((n for n in range(j, len(lines)) if "-->" in lines[n]), -1)
+        if n < 0:
+            break
+        j = n + 1
     return j
 
 
-def _list_item_end(lines: list[str], i: int) -> int:
+def _mask(text: str) -> str:
+    """``text`` with each closed comment and the inside of each code span blanked to ``_`` (same length).
+
+    A sentence cut never falls in either; the first character of a code span stays, so a cut before it holds.
+    """
+    return _COMMENT.sub(lambda m: m.group()[0] + "_" * (len(m.group()) - 1) if m.group().startswith("`")
+                        else "_" * len(m.group()), text)
+
+
+def _list_item_end(lines: list[str], i: int, close: bool = True) -> int:
     """Index after the list item that starts on line ``i``: it continues over indented follow-on lines."""
     j = i + 1
     while j < len(lines) and lines[j].strip() and not _LIST_ITEM.match(lines[j]) \
             and not _HEADING.match(lines[j]) and not _FENCE.match(lines[j]) \
             and lines[j].startswith((" ", "\t")):
         j += 1
-    return _close_comment(lines, i, j)
+    return _close_comment(lines, i, j) if close else j
+
+
+def _emit_pieces(kind: str, chunk: str, start: int, hidden_from: int, emit) -> None:
+    """Emit ``chunk`` as ``kind`` spans, each comment that runs past ``hidden_from`` as its own ``comment`` span.
+
+    ``hidden_from`` is where the block ended before a comment carried it on. Such a comment is no part of the
+    sentence or list item that opened it, so its text takes no part in measuring that rule. Prose is split into
+    sentences, and a cut falls in no comment or code span.
+    """
+    pos = 0
+    pieces: list[tuple[str, str, int]] = []
+    for m in _COMMENT.finditer(chunk):
+        if m.group().startswith("`") or m.end() <= hidden_from:
+            continue
+        pieces += [(kind, chunk[pos:m.start()], pos), ("comment", m.group(), m.start())]
+        pos = m.end()
+    pieces.append((kind, chunk[pos:], pos))
+    items: list[tuple[str, str, int]] = []  # (kind, text, offset) in document order
+    for n, (piece_kind, piece, at) in enumerate(pieces):
+        piece_kind = piece_kind if n == 0 or piece_kind == "comment" else "sentence"
+        if piece_kind != "sentence":
+            items.append((piece_kind, piece, at))
+            continue
+        cut = 0
+        for boundary in [*_SENTENCE.finditer(_mask(piece)), None]:
+            stop = boundary.start() if boundary else len(piece)
+            items.append(("sentence", piece[cut:stop], at + cut))
+            if boundary:
+                cut = boundary.end()
+    for n, (item_kind, text, at) in enumerate(items):
+        # A sentence cut by comments is one rule: every part is read as the whole (``Never <!-- c --> ever <!-- d --> do``).
+        lo = hi = n
+        while lo >= 2 and items[lo - 1][0] == "comment" and items[lo - 2][0] != "comment":
+            lo -= 2
+        while hi + 2 < len(items) and items[hi + 1][0] == "comment" and items[hi + 2][0] != "comment":
+            hi += 2
+        whole = " ".join(it[1] for it in items[lo:hi + 1] if it[0] != "comment") if item_kind != "comment" else text
+        emit(item_kind, text, start + at, whole)
 
 
 def _scaffold(lines: list[str], i: int, spans: list[Span]) -> tuple[str, int, int] | None:
@@ -272,7 +321,7 @@ def segment(text: str) -> list[Span]:
     i = 0
     after_comment = -1  # the line holding the text that followed a closing ``-->``: prose, whatever it starts with
 
-    def emit(kind: str, chunk: str, start: int) -> None:
+    def emit(kind: str, chunk: str, start: int, read: str | None = None) -> None:
         stripped = chunk.strip()
         if not stripped:
             return
@@ -287,7 +336,7 @@ def segment(text: str) -> list[Span]:
             end=begin + len(stripped),
             heading_path=tuple(heading_path),
             # a comment, or one inside a sentence or list item, is not read as a rule
-            protection=() if kind == "comment" else protection_tags(_blank_comments(stripped, " ")),
+            protection=() if kind == "comment" else protection_tags(_blank_comments(read or stripped, " ")),
         ))
 
     while i < len(lines):
@@ -339,7 +388,7 @@ def segment(text: str) -> list[Span]:
             # A list item continues over indented follow-on lines.
             end = _list_item_end(lines, i)
             chunk = "".join(lines[i:end])
-            emit("list_item", chunk, start)
+            _emit_pieces("list_item", chunk, start, len("".join(lines[i:_list_item_end(lines, i, False)])), emit)
             offset += len(chunk)
             i = end
             continue
@@ -356,18 +405,13 @@ def segment(text: str) -> list[Span]:
             offset += len(lines[i])
             i += 1
         end = _close_comment(lines, i - len(block), i)
+        hidden_from = len("".join(block))
         block.extend(lines[i:end])
         offset += sum(len(x) for x in lines[i:end])
         i = end
         paragraph = "".join(block)
         # Split on the paragraph with each closed comment blanked (same length), so no cut falls inside one.
-        masked = _blank_comments(paragraph, "_")
-        cut = 0
-        for boundary in [*_SENTENCE.finditer(masked), None]:
-            stop = boundary.start() if boundary else len(paragraph)
-            emit("sentence", paragraph[cut:stop], start + cut)
-            if boundary:
-                cut = boundary.end()
+        _emit_pieces("sentence", paragraph, start, hidden_from, emit)
 
     return spans
 

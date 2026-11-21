@@ -272,11 +272,15 @@ def test_a_comment_holding_a_sentence_boundary_is_not_split_or_read_as_a_rule():
 
 
 def test_an_inline_comment_closing_after_a_blank_line_stays_one_span_without_protection():
-    """#973: `Apache-2.0` in a comment opened mid-paragraph or mid-list-item is not a `version_gate`, blank line or not."""
+    """#973: `Apache-2.0` in a comment opened mid-paragraph or mid-list-item is not a `version_gate`, blank line or not.
+
+    The comment is a span of its own, so the rule before it does not carry its text.
+    """
     for text in ("Keep it. <!-- note\nApache-2.0\n\n-->\n", "- Keep it. <!-- note\nApache-2.0\n\n-->\n"):
         spans = segment(text)
-        assert [s.protection for s in spans] == [()], text
-        assert spans[0].text == text.strip()
+        assert [s.protection for s in spans] == [(), ()], text
+        assert [s.kind for s in spans][1] == "comment"
+        assert spans[1].text == "<!-- note\nApache-2.0\n\n-->"
         assert all(text[s.start:s.end] == s.text for s in spans)
 
 
@@ -296,3 +300,50 @@ def test_a_literal_comment_marker_in_double_backtick_code_opens_no_comment():
     spans = segment(text)
     assert [s.protection for s in spans if "Never" in s.text] == [("negation",)]
     assert any(s.protection == ("negation",) for s in segment("Use ``<!--`` and ``-->``. Never delete production data.\n"))
+
+
+def test_a_code_span_wrapped_over_a_line_break_opens_no_comment():
+    """#973: `` `<!--\nexample` `` is one code span, so the rule after it keeps its `ordering` tag, in a paragraph and a list item."""
+    for text in ("Use `<!--\nexample` before starting and `-->` here.\n",
+                 "- Use `<!--\n  example` before starting and `-->` here.\n"):
+        spans = segment(text)
+        assert [t for s in spans for t in s.protection] == ["ordering"], text
+        assert [s.kind for s in spans].count("comment") == 0
+        assert all(text[s.start:s.end] == s.text for s in spans)
+
+
+def test_a_comment_opened_after_the_closer_of_another_runs_to_its_own_closer():
+    """#973: `Apache-2.0` between `<!-- second` and its `-->` gets no `version_gate`, in a paragraph and a list item."""
+    for text in ("Keep it. <!-- first\n\n--> <!-- second\nApache-2.0\n\n-->\n",
+                 "- Keep it. <!-- first\n\n--> <!-- second\nApache-2.0\n\n-->\n"):
+        spans = segment(text)
+        assert not [s for s in spans if s.kind != "comment" and "Apache-2.0" in s.text], text
+        assert not [s for s in spans if s.protection], text
+        assert all(text[s.start:s.end] == s.text for s in spans)
+
+
+def test_a_sentence_cut_falls_in_no_code_span():
+    """#973: `` `example. A <!--` `` is one code span, so `before starting` after it keeps its `ordering` tag."""
+    text = "Use `example. A <!--` before starting and `-->` here.\n"
+    spans = segment(text)
+    assert [t for s in spans for t in s.protection] == ["ordering"]
+    assert [s.text for s in spans] == [text.strip()]
+
+
+def test_a_rule_cut_in_two_by_a_comment_keeps_its_protection_on_both_halves():
+    """#973: `Never <!-- note\\n\\n--> delete production data.` is one prohibition: `delete production data.` keeps `negation`."""
+    for prefix in ("", "- "):
+        text = f"{prefix}Never <!-- note\n\n--> delete production data.\n"
+        spans = [s for s in segment(text) if s.kind != "comment"]
+        assert [s.text for s in spans] == [f"{prefix}Never", "delete production data."]
+        assert [s.protection for s in spans] == [("negation",), ("negation",)]
+        assert all(text[s.start:s.end] == s.text for s in segment(text))
+
+
+def test_a_rule_cut_by_two_comments_keeps_its_protection_on_every_part():
+    """#973: `Never <!-- first --> ever <!-- second --> delete production data.` is one prohibition, in all three parts."""
+    for prefix in ("", "- "):
+        text = f"{prefix}Never <!-- first\n\n--> ever <!-- second --> delete production data.\n"
+        spans = [s for s in segment(text) if s.kind != "comment"]
+        assert [s.text for s in spans] == [f"{prefix}Never", "ever", "delete production data."]
+        assert [s.protection for s in spans] == [("negation",)] * 3
