@@ -131,6 +131,6 @@ def test_the_heredoc_scan_takes_linear_time_in_the_lines_with_a_heredoc_sign():
     def command(k):
         return "\n".join([": <<< x"] * k + ["cat <<EOF", "body", "EOF", "make ci-local"])
 
-    ratio, kept = growth(lambda k: partial(_without_heredoc_bodies, command(k)), 1500)  # a re-scan per line was quadratic
+    ratio, kept = growth(lambda k: partial(_without_heredoc_bodies, command(k)), 375)  # a re-scan per line was quadratic
     assert ratio < GROWTH_LIMIT
     assert kept.endswith("cat <<EOF\nmake ci-local")

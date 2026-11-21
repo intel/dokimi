@@ -5,9 +5,10 @@
 
 The first event of the run that hits the task's definition (:mod:`.useful_spec`): a ``command`` event whose text
 matches and whose ``rc`` is 0, or an ``edit`` event whose path matches a glob. A refused event (``denied``) never
-hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts the events
-of a known kind up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the hit's ``t``: the time
-the call was issued, since its result is not timed, so a test run's pass is not timed.
+hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts the tool
+events up to and including the hit, as ``process.tool_calls`` does; turn and compaction events are not steps.
+``issued_s`` is the hit's ``t``: the time the call was issued, since its result
+is not timed, so a test run's pass is not timed.
 """
 
 from __future__ import annotations
@@ -18,9 +19,9 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from .event_format import TOOL_KINDS
 from .manifest import match_glob
 from .process_counts import as_measure
-from .event_format import KNOWN_KINDS
 from .process_metrics import _workspace_path
 from .useful_spec import Useful
 
@@ -68,8 +69,11 @@ def first_useful(
         return _record(None, "not_declared")
     if events is None:
         return _record(useful.kind, "unobserved")
-    known = (e for e in events if e.get("kind") in KNOWN_KINDS)  # steps count known kinds, as tool_calls does
-    for steps, event in enumerate(known, 1):
+    steps = 0
+    for event in events:
+        if event.get("kind") not in TOOL_KINDS:  # a turn or compaction is accounting, not a step
+            continue
+        steps += 1
         try:
             found = hits(useful, event)
         except TimeoutError:  # the pattern ran past its budget on this event: no verdict

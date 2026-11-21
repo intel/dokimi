@@ -25,6 +25,18 @@ collect_ignore_glob = ["fixtures/task_formats/*"]
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
+@pytest.fixture(scope="session", autouse=True)
+def _git_config_of_the_session(tmp_path_factory):
+    """Tests commit to scratch repositories with the identity of a config of their own, not of the machine they run on:
+    a runner whose user has no name makes ``git commit`` fail, and a developer's global config can change the outcome."""
+    config = tmp_path_factory.mktemp("gitconfig") / "gitconfig"
+    config.write_text("[user]\n\tname = dokimi-tests\n\temail = dokimi-tests@example.com\n", encoding="utf-8")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("GIT_CONFIG_GLOBAL", str(config))
+        yield
+
+
 # A body token no other fixture or source file contains, so an assertion that the skill text
 # reached a prompt cannot pass on some incidental substring.
 DEMO_SKILL_MARKER = "demo_marker()"
