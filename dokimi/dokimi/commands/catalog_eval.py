@@ -190,9 +190,57 @@ def cmd_catalog_eval(args: argparse.Namespace) -> None:
         if input_error:
             raise InputError(f"catalog eval: {exc}") from exc
         raise
-    print(f"Static catalog checks: {report['status']}; receipts: {out}")
+    _finish(args, report, out)
+
+
+def _finish(args: argparse.Namespace, report: dict[str, Any], out: Path) -> None:
+    """The one line, or with --json the document; exit 1 unless the checks pass."""
+    if getattr(args, "json", False):
+        _emit(report, out, args.catalog_root)
+    else:
+        print(f"Static catalog checks: {report['status']}; receipts: {out}")
     if report["status"] != "pass":
         raise SystemExit(1)
+
+
+def _emit(report: dict[str, Any], out: Path, root: Path) -> None:
+    """The cli_output.v1 document of `catalog eval --json`: one subject per skill with its static findings.
+
+    ``data`` holds the per-skill evaluation state (``no_tasks``, ``not_measured``, ``checks_only``) and the
+    findings that belong to no skill; the full report stays in the receipts under ``--out-dir``. A finding's file is
+    under ``root`` as given, and a skill or task directory becomes its ``SKILL.md`` or task definition. With
+    ``--changed-from``, a skill outside the selection was not evaluated: its verdict is null and it is left out of
+    ``reason``.
+    """
+    from dokimi import cli_output
+    from dokimi.external.catalog_eval import shared_problems
+
+    def finding(item: dict[str, Any]) -> dict[str, Any]:
+        path = root / item["path"] if item.get("path") else None
+        if path is not None and path.is_dir():
+            path = next((path / name for name in ("SKILL.md", "task.toml", "task.yaml", "task.md")
+                         if (path / name).is_file()), path)
+        return cli_output.finding(item["level"], item["code"], item["message"], path and path.as_posix(),
+                                  script=item.get("script"))
+
+    selected = set(report["selection"]["selected"])
+    subjects = [{"subject": row["name"], "verdict": row["checks"]["status"] if row["name"] in selected else None,
+                 "findings": [finding(item) for item in row["checks"]["findings"]] if row["name"] in selected else []}
+                for row in report["skills"]]
+    shared = shared_problems(report["problems"], report["skills"])
+    evaluation = {row["name"]: row["evaluation"] for row in report["skills"]}
+    states: dict[str, int] = {}
+    for state in evaluation.values():
+        states[state] = states.get(state, 0) + 1
+    failed = report["status"] != "pass"
+    reason = None
+    if failed:
+        reason = f"{sum(s['verdict'] == 'fail' for s in subjects)} skill(s) fail, {len(shared)} shared finding(s)"
+    cli_output.emit_leaf(
+        "catalog eval", {"evaluation": evaluation, "shared_findings": shared, "plan_digest": report.get("plan_digest")},
+        verdict=report["status"], reason=reason, subjects=subjects,
+        summary={"tier": report["tier"], "skills": len(subjects), "evaluation": states},
+        artifacts={"out_dir": str(out), "files": [str(out / name) for name in _OUTPUTS]})
 
 
 def register(sub: Any) -> None:
@@ -201,4 +249,6 @@ def register(sub: Any) -> None:
     parser.add_argument("--tier", choices=["static"], default="static", help="static: deterministic checks only")
     parser.add_argument("--out-dir", type=Path, required=True, help="Dedicated directory for plan, result and report")
     parser.add_argument("--changed-from", help="Local base commit; an unavailable base conservatively checks every skill")
-    parser.set_defaults(func=cmd_catalog_eval)
+    parser.add_argument("--json", action="store_true",
+                        help="Print cli_output.v1 on stdout: one subject per skill with its findings; receipts are written as before")
+    parser.set_defaults(func=cmd_catalog_eval, emits_cli_output=True, cli_kind="catalog eval")

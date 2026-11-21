@@ -26,7 +26,7 @@ jobs:
   validate:
     name: Renovate config
     # Runners: see the header of ci.yml.
-    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -38,4 +38,4 @@ jobs:
           strict: 'true'
           # The action installs the latest validator from npm unless pinned;
           # the custom manager in renovate.json5 bumps this line.
-          validator_version: '44.199.2'
+          validator_version: '44.222.5'

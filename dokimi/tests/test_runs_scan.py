@@ -52,6 +52,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "effective_instructions.v1": ({}, "toy", "m", "2026-10-31T00:00:00+00:00"),
     "task_inspect.v1": ({}, "tests/fixtures/task_formats", None, None),
     "cli_routes.v1": ({}, None, None, None),
+    "report_summary.v1": ({}, None, None, None),
     "repo_ledger.v1": ({}, None, None, None),
     "dokimi_config.v1": ({}, "skill/onetbb, repo", None, None),
     "headroom.v1": ({}, None, None, None),
@@ -76,6 +77,10 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "question_panel.v1": ({}, "demo", None, "2026-11-01T00:00:00+00:00"),
     "question_quality.v1": ({}, "demo", None, None),
     "report_qa.v1": ({}, None, None, "2026-11-01T00:00:00+00:00"),
+    "docling_sources.v1": ({}, None, None, None),
+    "docs_run.v1": ({}, None, None, "2026-11-01T00:00:00+00:00"),
+    "dashboard.v1": ({}, "demo", "demo-judge", "2026-11-01T00:00:00+00:00"),
+    "baseline_manifest.v1": ({}, "demo", None, None),
 }
 
 

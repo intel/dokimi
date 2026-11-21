@@ -175,27 +175,104 @@ def _require_valid_gradings(atoms: list[dict]) -> None:
             raise InputError(f"atom {atom.get('id')}: invalid grading: {'; '.join(problems)}")
 
 
-def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
-    """Attach each tool's check to the atoms that name the tool; how many atoms changed.
+def _mention_of(check: dict) -> str:
+    """What an atom must name for ``check`` to attach: a tool's command line, or a symbol prefix."""
+    source = check.get("source") or {}
+    if source.get("kind") == "symbols":
+        return str(check["within"])
+    return _mention(source["tool"])
 
-    An atom that does not name the tool gets no check: its answers would rarely carry the
-    tool's command line, and a check that never fires is noise in the report. A check for
-    the same tool already on the atom is replaced, so re-running refreshes the snapshot.
+
+def _source_of(check: dict) -> tuple[str, str]:
+    """The source a check replaces on re-run: ``("symbols", <its prefixes>)`` for a symbol check,
+    else ``("tool", <its name>)``. The tuple keeps a tool named ``symbols`` apart from the symbol
+    check, and a run with other prefixes from the one before it."""
+    source = check.get("source") or {}
+    if source.get("kind") == "symbols":
+        return ("symbols", " ".join(source.get("prefixes") or []))
+    return ("tool", str(source.get("tool")))
+
+
+def _replaced_by(old: dict, mine: list[dict]) -> bool:
+    """Whether a check ``old`` on an atom is replaced by one of ``mine``.
+
+    A tool's check is replaced by the same tool's. A symbol check is replaced by a symbol check
+    whose prefixes include all of its own: its scope lies inside the new one, so nothing is lost.
+    A symbol check with a prefix the new one does not cover is kept, and :func:`_merged` carries the
+    new names into it; a disjoint one is kept as it is.
+    """
+    if old.get("type") != "identifiers":
+        return False
+    if _source_of(old)[0] == "tool":
+        return any(_source_of(m) == _source_of(old) for m in mine)
+    old_prefixes = (old.get("source") or {}).get("prefixes") or []
+    return bool(old_prefixes) and any(
+        _source_of(m)[0] == "symbols" and all(
+            any(a.startswith(b) for b in m["source"].get("prefixes") or []) for a in old_prefixes)
+        for m in mine)
+
+
+def _merged(old: dict, mine: list[dict]) -> dict | None:
+    """``old`` with the names of ``mine``'s symbol checks merged in, as a new dict (``old`` is not changed).
+
+    Only for a symbol check that overlaps one of ``mine``; None when no name is left. The names with
+    the new prefixes are replaced by what the new checks read now, so a name no header declares any
+    more drops out; the names with ``old``'s prefixes that the new checks read are added; the other
+    names stay. The inputs of the new checks are added to ``old``'s; a path overwritten since keeps both
+    snapshots: every snapshot is kept, so the list grows by one per overwrite of the path (no pruning).
+    """
+    symbol = [m for m in mine if _source_of(m)[0] == "symbols"]
+    if old.get("type") != "identifiers" or _source_of(old)[0] != "symbols" or not symbol:
+        return old
+    old_prefixes = tuple((old.get("source") or {}).get("prefixes") or [])
+    new_prefixes = tuple(p for m in symbol for p in m["source"].get("prefixes") or [])
+    if not any(a.startswith(b) or b.startswith(a) for a in old_prefixes for b in new_prefixes):
+        return old
+    fresh = {n for m in symbol for n in m.get("known") or [] if n.startswith(old_prefixes)}
+    kept = {n for n in old.get("known") or [] if not n.startswith(new_prefixes)}
+    if not kept | fresh:  # a check with no name would veto every mention of its prefixes
+        return None
+    source = dict(old.get("source") or {})
+    inputs = {(i["kind"], i["path"], i.get("sha256")): i for i in source.get("inputs") or []}
+    for m in symbol:
+        inputs.update({(i["kind"], i["path"], i.get("sha256")): i for i in m["source"].get("inputs") or []})
+    source["inputs"] = list(inputs.values())
+    return dict(old, known=sorted(kept | fresh), source=source,
+                link_context=any(m.get("link_context") for m in symbol))
+
+
+def _absorbed(new: dict, kept: list[dict]) -> bool:
+    """Whether a kept symbol check already holds every name of ``new`` (a subset-prefix refresh merged it in)."""
+    if _source_of(new)[0] != "symbols":
+        return False
+    new_prefixes = set(new["source"].get("prefixes") or [])
+    return any(_source_of(k)[0] == "symbols" and set(k["source"].get("prefixes") or []) >= new_prefixes
+               and set(new.get("known") or []) <= set(k.get("known") or []) for k in kept)
+
+
+def add_checks(atoms: list[dict], checks: list[dict]) -> int:
+    """Attach each check to the atoms that name its tool or prefix; how many atoms changed.
+
+    An atom that names none gets no check: its answers would rarely carry the tool's command
+    line, and a check that never fires is noise in the report. A check replaced by a new one
+    (see :func:`_replaced_by`) is dropped, so re-running refreshes the snapshot; a kept one has
+    the new names merged in (see :func:`_merged`).
     """
     _require_valid_gradings(atoms)
     changed = 0
     for atom in atoms:
         text = " ".join(str(atom.get(k, "")) for k in ("statement", "question", "answer"))
-        mine = [c for c, tool in zip(checks, tools, strict=True)
-                if re.search(_mention(tool), text)]
+        mine = [c for c in checks if re.search(_mention_of(c), text)]
         if not mine:
             continue
         meta = atom["meta"] = atom.get("meta") or {}
         grading = meta["grading"] = meta.get("grading") or {"checks": []}
-        kept = [c for c in grading.get("checks", [])
-                if not (c.get("type") == "identifiers"
-                        and (c.get("source") or {}).get("tool") in {m["source"]["tool"] for m in mine})]
-        grading["checks"] = kept + mine
+        kept = []
+        for old in grading.get("checks", []):
+            merged = None if _replaced_by(old, mine) else _merged(old, mine)
+            if merged is not None:
+                kept.append(merged)
+        grading["checks"] = kept + [m for m in mine if not _absorbed(m, kept)]
         changed += 1
     return changed
 
@@ -222,7 +299,8 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
 
     Writes ``meta["key_status"]``: ``verified`` (the key names an option on a checked command
     line, and every such option is in the help), ``not_found`` (with the ``missing`` names), or
-    ``unverifiable`` (the key names no checked option, or one of its checks could not finish).
+    ``unverifiable`` (the key names no checked option, names one only a link context exempts, or one
+    of its checks could not finish).
     This checks the skill's claim, not a model's answer. A ``not_found`` is a review flag, not an
     error: a claim names an option the help lacks, as a version-bound one rightly does. A negative
     claim ("there is no ``--device xpu``") is ``unverifiable``: the clause negates the mention.
@@ -243,7 +321,11 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
             elif result.passed is False:  # every unknown name, not the ten the detail shows
                 missing += [n for n in identifier_names(check, key)[0] or [] if n not in missing]
             elif _key_names(check, key):
-                named = True  # an option the key names on a checked line, and the help lists it
+                # a name only a link context let through is in no source: it confirms nothing
+                if identifier_names(dict(check, link_context=False), key)[0] == []:
+                    named = True  # an option the key names on a checked line, and the help lists it
+                else:
+                    unfinished = True
         status = ("not_found" if missing
                   else "verified" if named and not unfinished else "unverifiable")
         atom["meta"]["key_status"] = {"status": status, **({"missing": missing} if missing else {})}

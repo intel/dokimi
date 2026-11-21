@@ -827,6 +827,7 @@ def test_a_harness_error_in_trace_errors_is_not_a_lost_trace_line():
     harness = ["turn.failed: rate limit reached", "error: stream closed", "result num_turns 'x' is not an integer; "
                "recorded as null", "process metrics failed (ValueError): bad"]
     assert sec._conversion_errors({"trace_errors": harness}) == []
+    assert sec._conversion_errors({"trace_errors": ["probe matching failed (RecursionError): deep"]}) == []
     lost = ["line 3: not JSON", "a message whose content is not a list"]
     assert sec._conversion_errors({"trace_errors": harness + lost}) == lost
 

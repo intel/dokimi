@@ -11,6 +11,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.context import TraceError, read_trace
+from dokimi.utils import InputError
 from dokimi.context.trace import parse_trace
 
 
@@ -94,7 +95,7 @@ def test_tool_results_failures_and_repeats():
     assert s["repeated_tool_calls"] == 1
     assert s["tool_result_chars"] == 300 + 300 + len("File does not exist.") + 50 + 4
     assert s["largest_tool_results"][0] == {"tool": "Bash", "calls": 3, "chars": 650, "max_chars": 300}
-    assert trace.compactions == [{"trigger": "auto", "pre_tokens": 20815, "post_tokens": 9000, "after_call": 2}]
+    assert trace.compactions == [{"trigger": "auto", "pre_tokens": 20815, "post_tokens": 9000, "after_call": 2, "at": None}]
 
 
 def test_without_a_window_there_is_no_fill():
@@ -162,21 +163,25 @@ def test_cli_json_single_trace(tmp_path, capsys):
 
 
 @pytest.mark.outcome("cjm-context-trace")
-def test_cli_missing_trace_exits_1(tmp_path, capsys):
-    with pytest.raises(SystemExit) as exc:
+def test_cli_missing_trace_is_an_input_error(tmp_path, capsys):
+    # Test-narrowed: renamed from test_cli_missing_trace_exits_1; the exit it pins is 2 (input), not 1 (A2b)
+    """Nothing read is a bad input (exit 2), not a partial result (exit 1)."""
+    with pytest.raises(InputError, match="no trace could be read"):
         _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl")], capsys)
-    assert exc.value.code == 1
 
 
 @pytest.mark.outcome("cjm-context-trace")
-def test_cli_json_with_no_trace_read_is_failed_with_no_data(tmp_path, capsys):
-    """Nothing read is `failed`, not `partial`: a consumer that reads only `status` must see total failure."""
+def test_cli_json_with_no_trace_read_is_an_input_error_document(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._is_failed_with_no_data; --json prints the input error document (A2b)
+    """Nothing read exits 2 with an `input` error document; a consumer that reads `error.code` sees a refusal."""
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "trace", "inspect", str(tmp_path / "missing.jsonl"), "--json"])
     with pytest.raises(SystemExit) as exc:
-        _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl"), "--json"], capsys)
-    got = capsys.readouterr()
-    doc = json.loads(got.out)
-    assert exc.value.code == 1
-    assert doc["kind"] == "trace inspect" and doc["status"] == "failed" and doc["data"] == []
+        cli.main()
+    doc = json.loads(capsys.readouterr().out)
+    assert exc.value.code == 2
+    assert doc["kind"] == "trace inspect" and doc["data"] is None and doc["error"]["code"] == "input"
 
 
 def test_a_bad_invocation_exits_2_with_an_input_error_document(monkeypatch, capsys):
@@ -342,8 +347,8 @@ def test_camel_case_and_bare_compactions():
         {"type": "system", "subtype": "compact_boundary"},
     ))
     assert got.compactions == [
-        {"trigger": "manual", "pre_tokens": 7, "post_tokens": None, "after_call": 0},
-        {"trigger": None, "pre_tokens": None, "post_tokens": None, "after_call": 0},
+        {"trigger": "manual", "pre_tokens": 7, "post_tokens": None, "after_call": 0, "at": None},
+        {"trigger": None, "pre_tokens": None, "post_tokens": None, "after_call": 0, "at": None},
     ]
 
 
@@ -388,3 +393,36 @@ def test_one_unreadable_trace_does_not_lose_the_others(tmp_path, capsys):
 def test_json_that_python_cannot_load_is_a_line_warning(line):
     got = parse_trace(line + chr(10) + json.dumps(_assistant("m1", _usage(1, 0, 0))))
     assert got.errors == ["line 1: not JSON"] and len(got.calls) == 1
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_cli_fill_is_rounded_once_from_the_token_counts(tmp_path, capsys):
+    """#962: docs/context-window.md: **fill** is peak over `--window` as a whole percent,
+    rounded once from the token counts."""
+    # 198,999 / 200,000 = 99.4995%: rounding to 4 places first gave 99.5% and showed 100%
+    t = tmp_path / "fill.jsonl"
+    t.write_text(_jsonl(_assistant("m1", _usage(198999, 0, 0))), encoding="utf-8")
+    out = _run_cli(["trace", "inspect", str(t), "--window", "200000"], capsys).out
+    assert f"| {t} | 1 | 198,999 | 198,999 | 99% | 0 |" in out
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_cli_fill_of_a_full_window_is_100_percent(tmp_path, capsys):
+    """#962: docs/context-window.md: **fill** is peak over `--window`; a peak equal to it is 100%."""
+    t = tmp_path / "full.jsonl"
+    t.write_text(_jsonl(_assistant("m1", _usage(200000, 0, 0))), encoding="utf-8")
+    out = _run_cli(["trace", "inspect", str(t), "--window", "200000"], capsys).out
+    assert f"| {t} | 1 | 200,000 | 200,000 | 100% | 0 |" in out
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_result_chars_skips_an_image_block():
+    """#962: docs/context-window.md: **result chars** is the text in tool results, in characters;
+    a non-text block, such as an image a `Read` returns, adds nothing."""
+    trace = parse_trace(_jsonl(
+        _assistant("m1", _usage(1, 0, 0), _tool_use("t1", "Read", file_path="/a.png"), _tool_use("t2", "Bash", command="x")),
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "image", "source": {"data": "AAAA"}}]},
+            {"type": "tool_result", "tool_use_id": "t2", "content": [{"type": "text", "text": "é🙂"}]}]}},
+    ))
+    assert trace.summary()["tool_result_chars"] == 2

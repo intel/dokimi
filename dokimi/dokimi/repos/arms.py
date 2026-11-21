@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -191,7 +192,8 @@ def _base_skill_files(git_dir: Path, base: str) -> tuple[list[str], list[str]]:
 
 
 def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Path | None = None,
-               guidance_globs: tuple[str, ...] | list[str] = (), repo_id: str | None = None) -> None:
+               guidance_globs: tuple[str, ...] | list[str] = (), repo_id: str | None = None,
+               base_dirs: Mapping[str, Path | None] = {}) -> None:
     """Find the skills of every parsed arm before anything runs; a catalog must hold each task's
     ``expected_skill``. Two arms that would share a name or a result directory are refused, and so is a skill
     the base of a task (in ``git_dir``) already ships, which preparing the workspace would refuse cell by cell.
@@ -201,9 +203,11 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
     arm writes its own skill, ``.claude/skills/<repo_id>-guidance``: a skill of the arm with that name, or a file the
     base tracks under it, is refused here (``repo_id`` given). The files of a ``patch:``
     arm's patch and of a task's ``setup_patches`` are not read: a skill directory they add is refused only in
-    preparation."""
+    preparation. ``base_dirs`` maps a suite task to the git dir of its base: that base is read there, and a task
+    mapped to None (its repository is missing) is not read."""
+    own = [(t, base_dirs[t.id] if t.id in base_dirs else git_dir) for t in tasks]  # (task, git dir of its base)
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
-    shipped: dict[str, tuple[list[str], list[str]]] = {}  # base -> (tracked files under .claude/skills, its links)
+    shipped: dict[tuple[Path, str], tuple[list[str], list[str]]] = {}  # (git dir, commit) -> (tracked files under .claude/skills, its links)
     for arm in arms:
         cell = slug(str(arm).replace(":", "-"))
         if cells.setdefault(cell, arm.spec) != arm.spec:
@@ -212,19 +216,20 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
         names = {s.name for s in skills}
         generated = None  # the skill preparation installs beside the catalog's; its usage is scored apart
         if repo_id is not None and arm.patch is None and arm.base == "guidance:as-skill":
-            _check_generated_skill(arm, skills, repo_id, tasks, git_dir, shipped)
+            _check_generated_skill(arm, skills, repo_id, own, git_dir, shipped)
             generated = guidance_skill_name(repo_id)
         drops = arm.patch is None and (arm.base in ("guidance:none", "guidance:as-skill") or arm.rev is not None)
         rev = (arm.rev_sha or arm.rev) if arm.patch is None else None
         if skills and git_dir is not None:
-            for task in tasks:
-                _check_shipped(arm, skills, task, git_dir, shipped, (drops, rev, guidance_globs))
+            for task, base_dir in own:
+                if base_dir is not None:
+                    _check_shipped(arm, skills, task, (git_dir, base_dir), shipped, (drops, rev, guidance_globs))
         if any(kind == "skill-catalog" for kind, _ in arm.skills):
             _check_expected_skills(arm, tasks, names, generated)
 
 
-def _check_generated_skill(arm: Any, skills: list[Skill], repo_id: str, tasks: list[Any], git_dir: Path | None,
-                           shipped: dict[str, tuple[list[str], list[str]]]) -> None:
+def _check_generated_skill(arm: Any, skills: list[Skill], repo_id: str, tasks: list[tuple[Any, Path | None]],
+                           git_dir: Path | None, shipped: dict[tuple[Path, str], tuple[list[str], list[str]]]) -> None:
     """Refuse a ``guidance:as-skill`` arm whose generated skill directory is a skill of the arm, or is tracked by the
     base of a task, or whose base links ``.claude`` or ``.claude/skills`` (preparation installs through both): it
     would fail cell by cell, not here. A ``shipped`` cache entry holds the base's files and links."""
@@ -234,8 +239,10 @@ def _check_generated_skill(arm: Any, skills: list[Skill], repo_id: str, tasks: l
             raise ArmError(f"arm {arm.spec!r}: its generated guidance skill {target} is also one of its skills")
     if git_dir is None:
         return
-    for task in tasks:
-        files, links = _cached_shipped(git_dir, task.base, shipped)
+    for task, base_dir in tasks:
+        if base_dir is None:
+            continue
+        files, links = _cached_shipped(base_dir, task.base, shipped)
         for path in files:
             if path == target or path.startswith(target + "/"):
                 raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} already has {target}")
@@ -244,15 +251,17 @@ def _check_generated_skill(arm: Any, skills: list[Skill], repo_id: str, tasks: l
                            f"refusing to install {target} through it")
 
 
-def _check_shipped(arm: Any, skills: list[Skill], task: Any, git_dir: Path,
-                   shipped: dict[str, tuple[list[str], list[str]]],
+def _check_shipped(arm: Any, skills: list[Skill], task: Any, git_dirs: tuple[Path, Path],
+                   shipped: dict[tuple[Path, str], tuple[list[str], list[str]]],
                    dropping: tuple[bool, str | None, tuple[str, ...] | list[str]]) -> None:
     """Refuse ``skills`` that the base of ``task`` (or the arm's guidance revision) already ships, or a link that
-    preparation would refuse to install through; ``shipped`` caches ``_base_skill_files`` per commit."""
+    preparation would refuse to install through; ``git_dirs`` is the git dir of the guidance revision and that of
+    the task's base; ``shipped`` caches ``_base_skill_files`` per git dir and commit."""
     from dokimi.repos.manifest import match_glob
 
     drops, rev, guidance_globs = dropping
-    base_files, base_links = _cached_shipped(git_dir, task.base, shipped)
+    git_dir, base_dir = git_dirs
+    base_files, base_links = _cached_shipped(base_dir, task.base, shipped)
     if rev is not None:
         rev_files = _cached_shipped(git_dir, rev, shipped)[0]
     left = [p for p in base_files if not (drops and any(match_glob(g, p) for g in guidance_globs))]
@@ -267,11 +276,11 @@ def _check_shipped(arm: Any, skills: list[Skill], task: Any, git_dir: Path,
 
 
 def _cached_shipped(git_dir: Path, commit: str,
-                    shipped: dict[str, tuple[list[str], list[str]]]) -> tuple[list[str], list[str]]:
-    """``_base_skill_files`` of a commit, one ``git ls-tree`` per commit for the whole check."""
-    if commit not in shipped:
-        shipped[commit] = _base_skill_files(git_dir, commit)
-    return shipped[commit]
+                    shipped: dict[tuple[Path, str], tuple[list[str], list[str]]]) -> tuple[list[str], list[str]]:
+    """``_base_skill_files`` of a commit, one ``git ls-tree`` per git dir and commit for the whole check."""
+    if (git_dir, commit) not in shipped:
+        shipped[git_dir, commit] = _base_skill_files(git_dir, commit)
+    return shipped[git_dir, commit]
 
 
 def _check_expected_skills(arm: Any, tasks: list[Any], names: set[str], generated: str | None = None) -> None:

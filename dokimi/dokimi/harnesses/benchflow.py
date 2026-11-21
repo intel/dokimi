@@ -407,11 +407,8 @@ class BenchflowHarness:
             "--sandbox", self.sandbox,
             "--skill-mode", self.skill_mode,
             "--jobs-dir", str(jobs_dir),
-            # BenchFlow's default max_retries=2 reruns the whole rollout (agent
-            # included) after idle timeouts, ACP and verifier-infra errors, even
-            # when the attempt has a reward. One cell must be one attempt, like
-            # a docker-*/Harbor cell; --repeats is the only repetition.
-            # (Help text says "Reserved", but cli/main.py maps it to max_retries.)
+            # BenchFlow's default max_retries=2 reruns a rollout; one cell is one attempt (--reps).
+            # Its help says "Reserved", but cli/main.py maps --retry-attempts to max_retries.
             "--retry-attempts", "0",
             # BenchFlow's default idle watchdog ends a prompt after 600 s without
             # a tool call, message or thought, long before a larger task budget;

@@ -22,9 +22,10 @@ import pytest
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
 from dokimi.eval import stats
 from dokimi.eval.interactions import interaction_significance
-from dokimi.report.arms_report import _fmt_ci, _fmt_estimate, render_arms_report
+from dokimi.report import fmt
+from dokimi.report.arms_report import render_arms_report
 from dokimi.report.eval_report import generate_report
-from dokimi.report.model_compare import _fmt_delta, generate_section_report
+from dokimi.report.model_compare import generate_section_report
 
 OLD_ARMS = Path(__file__).parent / "fixtures" / "artifacts" / "arms.v1.json"
 
@@ -209,8 +210,8 @@ def test_arms_report_prints_p_from_a_new_record_and_p_ttest_from_an_old_one():
 def test_arms_report_prints_an_open_end_as_open():
     rows = _rows(render_arms_report(_arms_data({"p": 0.0625, "ci_lo": None, "ci_hi": None})))
     assert "| [-inf, +inf] |" in rows[0] and "| [-inf, +inf] |" in rows[1]
-    assert _fmt_ci(None, 0.25) == "[-inf, +0.2]" and _fmt_ci(-0.25, None) == "[-0.2, +inf]"
-    assert _fmt_ci(1e-4, 0.3) == "[+0.0001, +0.3]"  # an end off 0 keeps its side of 0 at one decimal
+    assert fmt.ci(None, 0.25) == "[-inf, +0.2]" and fmt.ci(-0.25, None) == "[-0.2, +inf]"
+    assert fmt.ci(1e-4, 0.3) == "[+0.0001, +0.3]"  # an end off 0 keeps its side of 0 at one decimal
 
 
 def test_arms_report_prints_a_small_estimate_inside_its_interval():
@@ -229,8 +230,8 @@ def test_arms_report_prints_a_small_estimate_inside_its_interval():
 
 
 def test_a_sub_hundredth_delta_prints_in_fixed_point_never_scientific():
-    assert _fmt_ci(1e-5, -2.5e-5) == "[+0.00001, -0.000025]" and _fmt_estimate(0.0035) == "+0.0035"
-    assert [_fmt_delta(d) for d in (1e-5, -3.5e-3, 0.04, 0.0, 0.5)] == ["+0.00001", "-0.0035", "+0.04", "0.0", "+0.5"]
+    assert fmt.ci(1e-5, -2.5e-5) == "[+0.00001, -0.000025]" and fmt.ci_end(0.0035) == "+0.0035"
+    assert [fmt.delta(d) for d in (1e-5, -3.5e-3, 0.04, 0.0, 0.5)] == ["+0.00001", "-0.0035", "+0.04", "0.0", "+0.5"]
 
 
 def test_an_arm_delta_reads_the_same_in_the_arm_and_the_interaction_table():
@@ -242,7 +243,7 @@ def test_an_arm_delta_reads_the_same_in_the_arm_and_the_interaction_table():
     assert cell["delta_a"] == arm_row["delta_mean"] == pytest.approx(0.0035)
     assert cell["delta_b"] == pytest.approx(0.0012) and cell["delta_combined"] == pytest.approx(0.0049)
     assert cell["additive_expectation"] == pytest.approx(0.0047)
-    assert _fmt_estimate(cell["delta_a"]) == _fmt_estimate(arm_row["delta_mean"]) == "+0.0035"
+    assert fmt.ci_end(cell["delta_a"]) == fmt.ci_end(arm_row["delta_mean"]) == "+0.0035"
 
 
 @pytest.mark.parametrize("docs, skill, both", [(0.049, 0.0, 0.049), (0.014, 0.014, 0.014), (-0.014, 0.014, 0.0)])
@@ -255,9 +256,9 @@ def test_an_estimate_at_a_rounding_boundary_prints_alike_in_both_tables_and_the_
     assert cell["delta_a"] == table["docs"]["delta_mean"] and cell["delta_b"] == table["skill:x"]["delta_mean"]
     assert cell["delta_combined"] == table["docs+skill:x"]["delta_mean"]
     assert cell["additive_expectation"] == pytest.approx(cell["delta_a"] + cell["delta_b"], abs=1e-12)
-    assert _fmt_estimate(cell["delta_a"]) == _fmt_estimate(table["docs"]["delta_mean"])
+    assert fmt.ci_end(cell["delta_a"]) == fmt.ci_end(table["docs"]["delta_mean"])
     if docs == 0.049:
-        assert _fmt_estimate(cell["delta_a"]) == "+0.049" and _fmt_estimate(cell["additive_expectation"]) == "+0.049"
+        assert fmt.ci_end(cell["delta_a"]) == "+0.049" and fmt.ci_end(cell["additive_expectation"]) == "+0.049"
 
 
 def test_eval_report_prints_the_sign_flip_p_and_no_t_or_wilcoxon_row(tmp_path):

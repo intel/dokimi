@@ -10,6 +10,10 @@ Graders and probes read only these events, never a harness-specific trace:
     {"t": 5.0,  "kind": "edit",    "path": "src/foo.cpp"}
     {"t": 20.2, "kind": "tool",    "name": "WebFetch", "denied": true}
     {"t": 2.0,  "kind": "tool",    "name": "Skill", "skill": "lint-fix"}
+    {"t": 4.0,  "kind": "probe",   "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}
+
+A ``probe`` event follows the ``command`` event of a command that asks the host for its facts, one per
+pattern it matches (:mod:`dokimi.repos.probes`, contract §4.1).
 
 ``t`` is seconds since the first timestamped trace line, or ``null`` when the
 format has no timestamps. Paths inside the workspace are made relative to it.
@@ -47,6 +51,7 @@ from typing import Any
 from dokimi.context.trace import parse_trace
 
 from .cli_traces import _failed_read, codex_json, copilot_json, shell_walk
+from .turn_events import claude_events
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
@@ -126,8 +131,10 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     _walk_bash(out, stream)
     _settle_bash(out, stream.bash.values())
-    main = parse_trace(raw).main_calls()
+    trace = parse_trace(raw)
+    main = trace.main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
+    out.events.extend(claude_events(trace, start))
     return out
 
 

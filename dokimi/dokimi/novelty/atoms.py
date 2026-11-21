@@ -14,7 +14,8 @@ Two properties are enforced here rather than hoped for:
   is dropped — it cannot be attributed, coloured, or protected, so it would only
   inflate counts.
 * **Faithfulness, separately from recall.** :func:`verify_atoms` re-reads each atom
-  against its own spans and labels it ``supported`` / ``distorted`` / ``unsupported``.
+  against its own spans (plus their heading and lead-in, to resolve references only)
+  and labels it ``supported`` / ``distorted`` / ``unsupported``.
   That check says nothing about what the extractor *missed*; extractor recall is
   measured across extractors in skill-novelty-evidence.md §10.7, not by this module.
 """
@@ -30,9 +31,11 @@ from dataclasses import dataclass, field
 from dokimi.atomic_write import write_text_atomic
 from dokimi.utils import InputError, read_json_input
 
+from .atoms_refusal import partial_atoms_refusal
 from .batching import or_stop, retry_wording
 from .client import LLMClient, OutputTruncated, SpendCapReached, accepting
 from .spans import Span
+from .verify_context import VERIFY_PROMPT, context_for
 
 ATOM_KINDS = ("proposition", "edge", "motif", "contract", "example")
 ATOM_TAGS = (
@@ -72,23 +75,6 @@ SPANS:
 {spans}
 """
 
-_VERIFY_PROMPT = """\
-Does the source text below support the statement, exactly as stated?
-
-STATEMENT: {statement}
-
-SOURCE:
-{source}
-
-Answer with JSON only:
-{{"verdict": "supported" | "distorted" | "unsupported", "why": "<one clause>"}}
-
-- "supported": the source asserts it, with the same qualifiers, numbers and polarity.
-- "distorted": the source says something close but the statement changes a qualifier,
-  a number, a version, or the polarity.
-- "unsupported": the source does not assert it at all.
-"""
-
 
 @dataclass
 class Atom:
@@ -118,7 +104,7 @@ class Atom:
 
     def __post_init__(self) -> None:
         if not self.id:
-            digest = hashlib.sha256(self.statement.strip().encode("utf-8")).hexdigest()[:10]
+            digest = hashlib.sha256(self.statement.strip().encode("utf-8", "surrogatepass")).hexdigest()[:10]
             self.id = f"a{digest}"
 
     @property
@@ -571,9 +557,12 @@ def verify_atoms(
             tally["unchecked"] += 1
             continue
         source = "\n".join(by_id[s].text for s in atom.span_ids if s in by_id)
+        prompt = VERIFY_PROMPT.format(
+            statement=atom.statement, source=source, context=context_for(atom.span_ids, spans, by_id),
+        )
         try:
             verdict = str(or_stop(
-                client.json_object, _VERIFY_PROMPT.format(statement=atom.statement, source=source),
+                client.json_object, prompt,
                 usable=_names_a_faithfulness_verdict,
             ).get("verdict", "")).strip()
         except Exception:  # noqa: BLE001 - an unverified atom is counted as unchecked
@@ -786,12 +775,7 @@ def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     if isinstance(data, dict) and ("partial" in data or data.get("status") == "partial"):
         if not isinstance(partial := data.get("partial"), dict) or not partial:  # no run writes this
             raise InputError(f"{path} is marked partial with no `partial` block: truncated or hand-edited")
-        if (reason := partial.get("reason")) in ("no_price", "permanent_error"):  # a higher cap will not help
-            raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so it is not a finished atom set. "
-                             + ("Drop --max-usd to run unmetered" if reason == "no_price" else "Fix the error and rerun"))
-        raise InputError(f"{path} is a partial atoms file: --max-usd stopped the run before it "
-                         "finished, so it is not a finished atom set. Rerun with a higher "
-                         "--max-usd, or without the cap")
+        raise InputError(partial_atoms_refusal(path, partial))
     try:
         atoms, spans = _atoms_from_record(data)
         _check_bundle_shape(data.get("bundle"))

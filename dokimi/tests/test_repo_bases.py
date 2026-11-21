@@ -385,6 +385,18 @@ def test_the_preflight_checks_every_task_base_not_only_the_first(tmp_path):
     check_mcp_configs(root / ".git", tasks[:1], profile, "all")
 
 
+def test_a_config_the_cli_rejects_is_a_config_refusal_and_a_value_error(tmp_path):
+    from types import SimpleNamespace
+
+    from dokimi.repos.bases import ConfigRefused, check_mcp_configs
+
+    root = tmp_path / "r"
+    bad = _mcp_base(root, b"{")
+    with pytest.raises(ConfigRefused, match="not valid JSON"):
+        check_mcp_configs(root / ".git", [SimpleNamespace(base=bad)], _claude_code_profile(), "all")
+    assert issubclass(ConfigRefused, ValueError)
+
+
 def test_the_preflight_leaves_an_unresolvable_base_and_a_base_without_the_file_to_the_other_checks(tmp_path):
     from types import SimpleNamespace
 
