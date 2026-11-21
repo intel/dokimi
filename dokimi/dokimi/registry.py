@@ -47,13 +47,8 @@ class ProductRegistry:
                 logger.warning(f"Registry not found: {self._path}")
                 return
             text = self._path.read_text(encoding="utf-8")
-        data = yaml.safe_load(text) or {}
-        if not isinstance(data, dict) or not ("products" in data or "libraries" in data):
-            logger.warning(f"Registry {self._path} has no 'products' key — skipping.")
-            return
-        products = data.get("products", data.get("libraries"))
-        if not isinstance(products, dict):
-            logger.warning("Registry 'products' must be a mapping — skipping.")
+        products = self._products(yaml.safe_load(text) or {})
+        if products is None:
             return
         for raw_key, cfg in products.items():
             if not isinstance(raw_key, str):
@@ -82,6 +77,25 @@ class ProductRegistry:
                 doc_sources=doc_sources,
             )
         logger.info(f"Loaded {len(self._entries)} products from {self._path}")
+
+    def _products(self, data: object) -> Optional[dict]:
+        """The products mapping of the loaded file, or ``None`` (logged, naming the file) when it has none."""
+        if not isinstance(data, dict) or not ("products" in data or "libraries" in data):
+            logger.warning(f"Registry {self._path} has no 'products' key — skipping.")
+            return None
+        # a null `products:` must not hide the legacy key (#687)
+        legacy = "products" not in data or (data["products"] is None and data.get("libraries") is not None)
+        key = "libraries" if legacy else "products"
+        products = data[key]
+        if key == "products" and data.get("libraries") is not None:
+            logger.warning(f"Registry {self._path} has both 'products' and 'libraries': 'libraries' is ignored.")
+        elif key == "libraries" and "products" in data:
+            logger.warning(f"Registry {self._path}: 'products' is null; reading the legacy 'libraries'.")
+        if not isinstance(products, dict):
+            logger.warning(f"Registry {self._path}: '{key}' must be a mapping, got "
+                           f"{type(products).__name__} — skipping.")
+            return None
+        return products
 
     def get(self, key: str) -> ProductEntry:
         """Return entry by key (case-insensitive). Raises KeyError if not found."""
