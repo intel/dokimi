@@ -59,8 +59,11 @@ reads the tool path of a run keeps to those kinds too.
 `searched` is the list the `process` count `guidance_searched` is built from
 (contract [§4.1](repo-evaluation-contract.md#41-eventsjsonl)). It is on the event
 of the call that searched, not a `read` event, so `tool_calls` is the same with
-or without it. It names files as the command gave them (made workspace-relative,
-the `cd` before the part applied), whether or not they exist or are guidance; a
+or without it; `repo_event.v2.json` declares it as a list of strings.
+It names files as the command gave them (made workspace-relative,
+the `cd` before the part applied), whether or not they exist or are guidance, and
+every file a multi-file search named when the command showed a line, not only the
+files that supplied one; a
 call that was refused, a search that failed as one search of one file, a `Bash`
 call, Codex command or Copilot `bash` command whose result is the empty text (a
 `grep` into `head` exits 0 when nothing matched), a `Grep`

@@ -570,7 +570,32 @@ def test_a_glob_attached_to_rg_g_that_ends_in_a_value_letter_keeps_the_file(comm
 
 
 def test_the_schema_takes_a_list_of_paths_in_searched():
-    event = {"v": 1, "kind": "command", "t": None, "text": "grep x AGENTS.md", "rc": 0}
-    assert schema_errors("repo_event.v1", {**event, "searched": ["AGENTS.md"]}) == []
-    assert schema_errors("repo_event.v1", {**event, "searched": "AGENTS.md"}) != []
-    assert schema_errors("repo_event.v1", {**event, "searched": [1]}) != []
+    event = {"v": 2, "kind": "command", "t": None, "text": "grep x AGENTS.md", "rc": 0}
+    assert schema_errors("repo_event.v2", {**event, "searched": ["AGENTS.md"]}) == []
+    assert schema_errors("repo_event.v2", {**event, "searched": "AGENTS.md"}) != []
+    assert schema_errors("repo_event.v2", {**event, "searched": [1]}) != []
+    tool = {"v": 2, "kind": "tool", "t": None, "name": "Grep"}
+    assert schema_errors("repo_event.v2", {**tool, "searched": ["AGENTS.md"]}) == []
+    assert schema_errors("repo_event.v2", {**tool, "searched": "AGENTS.md"}) != []
+
+
+def test_the_retired_version_1_schema_is_unchanged_by_searched():
+    event = {"kind": "command", "t": None, "text": "grep x AGENTS.md", "rc": 0}
+    assert schema_errors("repo_event.v1", {**event, "searched": "AGENTS.md"}) == []
+
+
+@pytest.mark.parametrize("lines", [
+    (_call("a", "grep warn AGENTS.md"), _result("a", "AGENTS.md:1:warn")),
+    (_grep_tool("a", path="/ws/AGENTS.md", output_mode="content"), _result("a", "1:warn")),
+])
+def test_the_searched_events_the_converter_writes_validate_under_the_version_it_writes(lines):
+    first = {"type": "system", "subtype": "init", "timestamp": "2026-01-01T00:00:00Z"}
+    written = convert("claude-stream-json", _jsonl(first, *lines), WS, "").events_jsonl()
+    events = [e for e in map(json.loads, written.splitlines()) if "searched" in e]
+    assert events and all(e["v"] == 2 and schema_errors("repo_event.v2", e) == [] for e in events)
+
+
+def test_a_multi_file_grep_lists_every_file_it_named_when_only_one_showed_a_line():
+    command = "grep -n visible AGENTS.md docs/AGENTS.md"
+    got = _process(_call("a", command), _result("a", "AGENTS.md:1:visible"))
+    assert got["guidance_searched"] == ["AGENTS.md", "docs/AGENTS.md"]

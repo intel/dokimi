@@ -211,7 +211,10 @@ these, in order, before writing what it showed (the fields:
   not show that the whole file reached the agent: read `agent.stdout` for
   that; `process:guidance_searched` counts the
   guidance files a `grep`, `rg` or `git grep` (or Claude Code's `Grep` in
-  `content` mode) showed lines of: an agent that only searched a nested
+  `content` mode) named in a search that showed lines: a search of several
+  files lists all of them when it showed a line of any (`grep visible
+  AGENTS.md docs/AGENTS.md` with `visible` only in `AGENTS.md` lists both), so
+  a listed file is not proof that it supplied a line; an agent that only searched a nested
   `AGENTS.md` has it there and not in `guidance_read` (a file printed and searched
   is in both), but a search of a directory or a glob names no file
   (`grep -rn x .`, `rg x docs`, a `Grep` call with no `path` or with a `glob`),
