@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dokimi.utils import InputError
+
 
 def load_view_inputs(novelty_path: str, atoms_path: str):
     """``(artifact, atoms, spans)`` from the two files; an unreadable or invalid one raises InputError.
@@ -21,3 +23,60 @@ def load_view_inputs(novelty_path: str, atoms_path: str):
     atoms, spans, saved = load_atoms_record(atoms_path)
     warn_capped_sample(saved, atoms_path)
     return artifact, atoms, spans
+
+
+def colour_note(atom_verdicts: str | None) -> str:
+    """What the colours of the re-rendered view rest on (the NOTE `skill novelty view` prints)."""
+    if atom_verdicts:
+        return (f"NOTE outcome and category colours come from {atom_verdicts}, the verdicts "
+                "`skill novelty analyze` measured; atoms outside the run's sample stay uncoloured.")
+    return ("NOTE colours here come from spans and categories only. For outcome colouring "
+            "(added / degraded), pass --atom-verdicts, or render during `skill novelty analyze`, "
+            "which has the paired runs.")
+
+
+def load_atom_verdicts(path: str | None, artifact: dict, atoms: list) -> tuple[dict | None, dict | None]:
+    """``(outcomes, categories)`` per atom id from a ``--atom-verdicts`` file; ``(None, None)`` without one.
+
+    A bad file raises InputError.
+
+    The file must belong to the ``--novelty`` artifact and describe atoms of the ``--atoms`` file.
+    docs/skill-novelty.md (the item analysis): "Runs of different artifacts, or of one artifact at
+    different revisions (`artifact` or `ref_digest` differ), are refused." The same holds here:
+    outcomes of one run painted on the spans of another would be a made-up view.
+    """
+    from dokimi.artifacts import load_artifact
+
+    if not path:
+        return None, None
+    record = load_artifact("novelty_atoms", Path(path))
+    ref = artifact["artifact"]["ref"]
+    if record["artifact_ref"] != ref:
+        raise InputError(
+            f"{path} is the atom verdicts of {record['artifact_ref']!r}, but --novelty is the "
+            f"analysis of {ref!r}: pass the .atom_verdicts.json written beside that novelty.json"
+        )
+    # Atom ids hash the statement only, so they cannot tell two runs of one artifact apart;
+    # `analyze` saves both files with one run_id, so a novelty.json without one is not this run's.
+    for name, mine, theirs in (
+        ("model", record["model"], artifact["model"]),
+        ("artifact revision (ref_digest)", record["ref_digest"], artifact["artifact"].get("ref_digest")),
+        ("run_id", record.get("run_id"), artifact.get("run_id")),
+    ):
+        if mine != theirs:
+            raise InputError(
+                f"{path} is from another analysis of {ref!r}: its {name} is {mine!r}, but "
+                f"--novelty has {theirs!r}: pass the .atom_verdicts.json written beside that novelty.json"
+            )
+    known = {atom.id for atom in atoms}
+    foreign = sorted({row["id"] for row in record["atoms"]} - known)
+    if foreign:
+        raise InputError(
+            f"{path} names atoms the --atoms file does not hold ({', '.join(foreign[:5])}"
+            f"{', ...' if len(foreign) > 5 else ''}): pass the .atoms.json written beside "
+            f"the novelty.json of the run that wrote it"
+        )
+    outcomes = {row["id"]: row["outcome"]["lenient"] for row in record["atoms"]
+                if row["outcome"]["lenient"]}
+    categories = {row["id"]: row["category"] for row in record["atoms"] if row["category"]}
+    return outcomes, categories
