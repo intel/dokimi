@@ -347,6 +347,7 @@
             }
           },
           "comparable": {
+            "description": "For an emitted result, whether the checks on that result alone pass. Use compare() for two results, including their unresolved protocol inputs.",
             "type": "boolean"
           },
           "non_comparable": {
@@ -354,7 +355,7 @@
             "items": {
               "type": "string"
             },
-            "description": "why this result cannot be compared or shown with its verdict"
+            "description": "Reasons the checks on this result alone failed. Pairwise comparison also checks both protocols and their unresolved inputs."
           }
         }
       }
