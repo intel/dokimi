@@ -559,3 +559,9 @@ def test_stated_statistical_method_matches_protocol_or_reference(field, protocol
     changed = {**base, parent: {**base[parent], child: different} if child else different}
     reason = f"result: {field} differs from protocol.resolved.{protocol_key}" if with_protocol else f"{field} differs"
     assert compare(changed, base) == [reason]
+
+
+def test_a_stated_rule_test_must_match_its_protocol():
+    base = _fixture("verdict_with_rule.json")
+    changed = _with(base, verdict_rule={**base["verdict_rule"], "test": "student_t"})
+    assert compare(changed, base) == ["result: verdict_rule.test differs from protocol.resolved.test"]
