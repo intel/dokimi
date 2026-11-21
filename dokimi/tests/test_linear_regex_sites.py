@@ -19,6 +19,7 @@ from dokimi.eval.reference_checks import _BOLD_LETTERS, _MATH_LETTERS, _fenced_b
 from dokimi.novelty.symbols import _blank_skipped, header_names
 from dokimi.repos.answers import _has_header_tail
 from dokimi.repos.l0.core import _TRAILING_COMMENT, logical_lines
+from dokimi.repos.l0.identifiers import is_identifier
 from tests.growth_timing import GROWTH_LIMIT, growth
 
 CASES = 3000
@@ -399,4 +400,104 @@ def test_chosen_letters_unwrapping_is_linear(shape) -> None:  # type: ignore[no-
 def test_chosen_letters_unwrapping_is_linear_when_the_wrapper_closes() -> None:
     ratio, letters = growth(lambda k: partial(chosen_letters, "ANSWER: **A" + " b" * k + " **"), 375)
     assert letters == frozenset("AB")
+    assert ratio < GROWTH_LIMIT
+
+
+# --- repos/l0/core.py: the identifier shapes of a code span --------------------------------------
+
+_OLD_IDENT = re.compile(r"^[A-Za-z_]\w*(::\w+)+$|^[A-Z][A-Z0-9_]{3,}$|^[a-z]+_[a-z_]+$|^[A-Z]\w*[a-z]\w*[A-Z]\w*$")
+
+_IDENT_TABLE = [
+    ("", False),
+    ("std::vector", True),
+    ("a::b::c", True),
+    ("_x::y", True),
+    ("::x", False),
+    ("a::", False),
+    ("a:b", False),
+    ("1a::b", False),
+    ("a::b!", False),
+    ("SCREAMING_CASE", True),
+    ("ABCD", True),
+    ("ABC", False),
+    ("A_BC", True),
+    ("A-BCD", False),
+    ("snake_case", True),
+    ("snake", False),
+    ("a_", False),
+    ("a__", True),
+    ("Snake_case", False),
+    ("snake_Case", False),
+    ("CamelCase", True),
+    ("McCabe", True),
+    ("AbC", True),
+    ("AbCd", True),
+    ("AAbC", True),
+    ("A1bC", True),
+    ("A_bC", True),
+    ("Mc", False),
+    ("ABc", False),
+    ("aBc", False),
+    ("Ab", False),
+    ("Abc", False),
+    ("AbcDEF", True),
+    ("A", False),
+    ("AbC!", False),
+    ("AbC ", False),
+    ("Ab C", False),
+    ("AbC\n", True),
+    ("AbC\n\n", False),
+    ("AbC\nD", False),
+    ("\nAbC", False),
+    ("AaB\n", True),
+    ("ÀbC", False),  # the first letter and the pair are ASCII letters; the rest is any word character
+    ("AbÇ", False),
+    ("AéÉ", False),
+    ("AébC", True),
+    ("A٣bC", True),
+    ("AbC٣", True),
+    ("Ab C", False),
+    ("Ab.C", False),
+]
+
+
+@pytest.mark.parametrize(("span", "ident"), _IDENT_TABLE)
+def test_identifier_table_matches_old_regex(span: str, ident: bool) -> None:
+    assert bool(_OLD_IDENT.match(span)) is ident
+    assert is_identifier(span) is ident
+
+
+def test_identifier_random_spans_match_old_regex() -> None:
+    pieces = ["A", "a", "B", "b", "Z", "z", "_", "1", "é", "É", "٣", "::", ":", "!", "\n", " ", "AB", "ab"]
+    spans = _random_texts(pieces, 999, longest=10) + _random_texts(["A", "a", "b", "C", "é", "É", "_", "1"], 9990, longest=8)
+    matched = [bool(_OLD_IDENT.match(s)) for s in spans]
+    assert sum(matched) > CASES // 10
+    assert sum(1 for s in spans if _OLD_IDENT.match(s) and not re.match(r"^[A-Z]\w*[a-z]\w*[A-Z]\w*$", s)) > CASES // 50
+    assert sum(1 for s in spans if re.match(r"^[A-Z]\w*[a-z]\w*[A-Z]\w*$", s)) > CASES // 50
+    assert [s for s, m in zip(spans, matched, strict=True) if is_identifier(s) != m] == []
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "A" + "a" * k + "A" * k + "!",  # a capital, lowercase letters, capitals, then a character outside \w: cubic
+    lambda k: "A" + "a" * k + "!",
+    lambda k: "A" + "aA" * k + "!",
+    lambda k: "A" * k + "!",
+    lambda k: "a" * k + "::" + "b" * k + "!",
+    lambda k: "a_" * k + "!",
+    lambda k: "a" * k + "_" + "b" * k + "!",
+], ids=["camel", "lower-run", "alternating", "capitals", "scope", "snake-repeat", "snake"])
+def test_identifier_check_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, ident = growth(lambda k: partial(is_identifier, shape(k)), 375)
+    assert ident is False
+    assert ratio < GROWTH_LIMIT
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "A" + "a" * k + "A" * k,  # the same without the `!`: a name, and it stays one
+    lambda k: "A" + "a" * k + "A" * k + "\n",
+    lambda k: "A" * k + "a" * k + "A",
+], ids=["camel", "camel-line-end", "capitals-first"])
+def test_identifier_check_is_linear_when_the_span_is_a_name(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, ident = growth(lambda k: partial(is_identifier, shape(k)), 375)
+    assert ident is True
     assert ratio < GROWTH_LIMIT
