@@ -16,7 +16,7 @@ from functools import partial
 import pytest
 
 from dokimi.eval.reference_checks import _BOLD_LETTERS, _MATH_LETTERS, _fenced_body, chosen_letters, parse_json
-from dokimi.novelty.symbols import _blank_skipped, header_names
+from dokimi.novelty.symbols import _blank_skipped, _string_end, header_names
 from dokimi.repos.answers import _has_header_tail
 from dokimi.repos.l0.core import _TRAILING_COMMENT, logical_lines
 from dokimi.repos.l0.identifiers import is_identifier
@@ -194,6 +194,35 @@ _C_TABLE = [
     ("//*/ a /* b */", " "),
     ("/*/*/ x", "  x"),
     ("*/ /* x", "*/ /* x"),
+    ('a "x\\" b', 'a "x\\" b'),  # the escapes of a string: an escaped quote does not close it
+    ('a "x\\\\" b', 'a   b'),
+    ('a "x\\\\\\" b"', 'a  '),
+    ('a "x\\\\\\\\" b', 'a   b'),
+    ('a "x\\\ny" b', 'a   b'),  # a backslash takes the line end after it
+    ('a "x\\\n', 'a "x\\\n'),
+    ('a "x\\', 'a "x\\'),
+    ('a "x\\\\', 'a "x\\\\'),
+    ('a "', 'a "'),
+    ('"', '"'),
+    ('""', ' '),
+    ('"\\"', '"\\"'),
+    ('"\\""', ' '),
+    ('a "x\\\n" b', 'a   b'),
+    ('a "x\\\ny\nz" b', 'a "x\\\ny\nz" b'),
+    ('a "x\ny" b "z" c', 'a "x\ny z" c'),
+    ('a "x\\"y\\"z" b', 'a   b'),
+    ('a "x\\" "y" b', 'a  y" b'),
+    ('a "x\\" \'c\' "y" b', 'a  y" b'),
+    ('"a\\"b\\"c\nd" "e" f', '"a\\"b\\"c\nd e" f'),  # no closing quote on the first line: the later quotes of it fail too
+    ('"a\\\\"\\"b" c', ' \\  c'),
+    ('"\\\\\n" "x"', '"\\\\\n x"'),
+    ('x "a\\" y\n"b" z', 'x "a\\" y\n  z'),
+    ('"\\\n\\\n\\\n"', ' '),
+    ('a "\\\\\\\n" b', 'a   b'),
+    ("'\"' \"x\" '\"'", '     '),
+    ('// "x\n"y" z', ' \n  z'),
+    ('/* " */ "y" z', '    z'),
+    ('a "x\\" /* c */ "y" z', 'a  y" z'),
 ]
 
 
@@ -211,6 +240,20 @@ def test_c_skip_random_texts_match_old_regex() -> None:
     assert [t for t, b in zip(texts, blanked, strict=True) if _blank_skipped(t) != b] == []
 
 
+def test_c_skip_random_strings_with_escapes_match_old_regex() -> None:
+    texts = _random_texts(['"', "\\", '\\"', "\\\\", "\n", "\\\n", "a", " ", "'", "//", "/*", "*/"], 1000, longest=16)
+    texts += _random_texts(['"', "\\", '\\"', "\n", "a"], 10000, longest=24)
+    blanked = [_OLD_C_SKIP.sub(" ", t) for t in texts]
+    assert sum(1 for t, b in zip(texts, blanked, strict=True) if '"' in t and t != b) > CASES // 2
+    assert sum(1 for t, b in zip(texts, blanked, strict=True) if t.count('"') > 2 and t == b) > CASES // 50
+    assert [t for t, b in zip(texts, blanked, strict=True) if _blank_skipped(t) != b] == []
+
+
+def test_header_names_skips_a_string_with_an_escaped_quote_and_reads_after_an_unclosed_one() -> None:
+    text = 'char *s = "mkl_a \\" mkl_b"; int mkl_c;\nchar *t = "mkl_d \\" mkl_e\nint mkl_f;'
+    assert header_names(text, ["mkl_"]) == {"mkl_c", "mkl_d", "mkl_e", "mkl_f"}
+
+
 def test_header_names_skips_comments_and_literals() -> None:
     text = '/* mkl_a /* mkl_b */ mkl_c "mkl_d" /* mkl_e\n// mkl_f\nint mkl_g;'
     assert header_names(text, ["mkl_"]) == {"mkl_c", "mkl_e", "mkl_g"}  # the unclosed `/*` hides nothing
@@ -226,6 +269,54 @@ def test_header_names_skips_comments_and_literals() -> None:
 def test_c_skip_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
     ratio, blanked = growth(lambda k: partial(_blank_skipped, shape(k)), 375)
     assert blanked.count("/*") >= 6000
+    assert ratio < GROWTH_LIMIT
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: '"a\\' * k,  # a quote, a letter and a backslash: each quote was escaped by the one before and rescanned the line
+    lambda k: '"' + '\\"' * k,
+    lambda k: '"a\\' * k + "\n",
+    lambda k: '"' + '\\\n' * k,  # escaped line ends, no closing quote
+    lambda k: '"\\\\\\' * k,
+    lambda k: ('"a\\" ' * 6 + "\n") * k,  # many lines, each with a string that stays open
+], ids=["letters", "escaped-quotes", "line-end", "escaped-line-ends", "backslash-runs", "lines"])
+def test_c_skip_string_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, shape(k)), 375)
+    assert blanked.count('"') >= 1 and len(blanked) >= 6000  # no string closes: the text stays as it is
+    assert ratio < GROWTH_LIMIT
+
+
+class _QuoteSearches(str):
+    """A text that counts the searches for a quote: one for a quote that is not there runs to the end of the text."""
+
+    searches = 0
+
+    def find(self, sub, *args):  # type: ignore[no-untyped-def]
+        self.searches += sub == '"'
+        return super().find(sub, *args)
+
+
+@pytest.mark.parametrize(("text", "result"), [
+    ('"ab" c', (4, 0)),
+    ('"a\\"b"', (6, 0)),
+    ('"ab\ncd"', (-1, 3)),  # a line end stops the string: the scan stopped there
+    ('"a\\\nb\nc"', (-1, 5)),
+    ('"ab', (-1, 3)),
+    ('"a\\"', (-1, 4)),
+])
+def test_string_end_is_the_closing_quote_or_where_the_scan_stopped(text: str, result: tuple[int, int]) -> None:
+    assert _string_end(text, 0) == result
+
+
+def test_c_skip_string_scan_searches_a_missing_quote_once_across_escaped_line_ends() -> None:
+    text = _QuoteSearches('"' + "\\\n" * 1000)
+    assert _string_end(text, 0) == (-1, len(text))
+    assert text.searches == 1
+
+
+def test_c_skip_string_scan_is_linear_when_the_string_closes() -> None:
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, 'x "' + '\\"' * k + '" y'), 375)
+    assert blanked == "x   y"
     assert ratio < GROWTH_LIMIT
 
 
