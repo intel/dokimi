@@ -19,7 +19,7 @@ from dokimi.process_io import utf8_bytes
 
 
 class _OwnerRefused(PermissionError):
-    """Root could not give a new inode the owner of the file it replaces, so the file is left as it was."""
+    """Root could not give a new inode the owner, group or mode of the file it replaces, so the file is left as it was."""
 
 
 def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -> None:
@@ -27,7 +27,7 @@ def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -
 
     The tmp name keeps at most 32 characters of the file name, so it stays under 170 bytes
     however long the file name is. The tmp file is created new (``O_EXCL``), so a link planted
-    at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group (root also keeps the owner, and raises ``PermissionError`` with the old file kept when it may not chown the owner or the group). Concurrent writers to one
+    at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group (root also keeps the owner, and raises ``PermissionError`` with the old file kept when it may not chown the owner or the group, or set the mode afterwards). Concurrent writers to one
     path each publish a whole file; the last one wins. A failed write removes its tmp file and
     leaves the file at ``path`` as it was. Missing parent directories are created.
     """
@@ -136,7 +136,10 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
             handle.write(data)
         if old is not None:
             # os.open's mode is cut by the umask, and a change of owner or a write by a user without CAP_FSETID clears set-user-ID and set-group-ID: the mode is restored last.
-            os.chmod(tmp, mode)
+            try:
+                os.chmod(tmp, mode)
+            except PermissionError as exc:
+                raise _OwnerRefused(exc.errno, "root may not set the mode of the new file it gave the owner of the file it replaces") from exc
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):

@@ -200,9 +200,39 @@ def test_a_user_who_is_not_root_denied_a_group_change_still_replaces_the_file(tm
     target = _report(tmp_path)
     before = target.stat().st_ino
     _root_denied_group_only(monkeypatch)
-    monkeypatch.setattr(os, "geteuid", lambda: target.stat().st_uid)
+    monkeypatch.setattr(os, "geteuid", lambda: 1)
     write_bytes_atomic(target, b"new")
     assert (target.read_bytes(), target.stat().st_ino != before) == (b"new", True)
+
+
+def _root_chowned_but_denied_chmod(monkeypatch):
+    """Root without CAP_FOWNER: ``fchown`` succeeds, then ``chmod`` of the file it now owns is refused."""
+
+    def denied(path, mode):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(os, "fchown", lambda fd, uid, gid: None)
+    monkeypatch.setattr(os, "chmod", denied)
+    _fstat_of_another_owner(monkeypatch)
+
+
+def test_root_denied_the_mode_of_the_new_file_writes_the_report_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_chowned_but_denied_chmod(monkeypatch)
+    write_bytes_in_place_or_atomic(target, b"new")
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_root_denied_the_mode_of_the_new_file_does_not_replace_a_file_atomically(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    _root_chowned_but_denied_chmod(monkeypatch)
+    with pytest.raises(PermissionError):
+        write_bytes_atomic(target, b"new")
+    assert target.read_bytes() == b"old"
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
 
 def _replace_busy(monkeypatch):
