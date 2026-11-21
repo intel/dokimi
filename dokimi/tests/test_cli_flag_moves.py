@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import argparse
 
+import shlex
+
 import pytest
 
 from dokimi import cli, cli_flags, cli_routes
@@ -62,6 +64,19 @@ def test_an_old_spelling_tombstones_with_the_new_argv(old, new, capsys):
     assert " ".join(new) in text
     assert text == "moved: dokimi " + " ".join(new) + "\n"  # exact: a stray token after the hint fails too
     assert cli_flags.registry_problems() == []
+
+
+@pytest.mark.parametrize(("token", "kept"), [
+    ("-report file.json", []),
+    ("--unknown=report file.json", []),
+    ("--manifest-f=repo file.yaml", ["--manifest-file=repo file.yaml"]),
+    ("--man=repo file.yaml", ["--man=repo file.yaml"]),  # ambiguous on the old parser
+    ("-h file", ["-h file"]),
+    ("-report\tfile.json", ["-report\tfile.json"]),  # argparse recognizes a literal space only
+])
+def test_retired_out_distinguishes_quoted_paths_from_options(token, kept, capsys):
+    text = _tombstone(["repo", "validate", "src", "--out", token], capsys)
+    assert shlex.split(text.removeprefix("moved: ")) == ["dokimi", "eval", "check", "--schema-only", "src", *kept]
 
 
 @pytest.mark.parametrize("argv", [

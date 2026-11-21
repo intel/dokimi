@@ -204,6 +204,16 @@ def _retired_validate_option(tok: str) -> str | None:
     return hits[0] if len(hits) == 1 else None
 
 
+def _retired_validate_value(token: str) -> bool:
+    """Argparse also takes a token containing a space as a value after ruling out options."""
+    if _is_plain(token):
+        return True
+    if " " not in token or token.startswith("-h"):  # -h was the only short option
+        return False
+    name = token.partition("=")[0]
+    return not (name.startswith("--") and any(opt.startswith(name) for opt in _RETIRED_VALIDATE_OPTIONS))
+
+
 def _repo_validate_argv(rest: list[str]) -> list[str]:
     """The argv `repo validate` moved to (#94 M1). Its ``--out FILE`` wrote the report; the printed argv drops the
     file, since the report is ``--json`` on stdout now (the user redirects stdout to the file).
@@ -224,7 +234,7 @@ def _repo_validate_argv(rest: list[str]) -> list[str]:
             continue
         _, eq, value = rest[i].partition("=")
         nxt = rest[i + 1] if i + 1 < len(rest) else None
-        if nxt is not None and opt in _RETIRED_VALIDATE_VALUE_OPTIONS and not eq and _is_plain(nxt):  # --opt VALUE
+        if nxt is not None and opt in _RETIRED_VALIDATE_VALUE_OPTIONS and not eq and _retired_validate_value(nxt):
             args, i = [opt, nxt], i + 2  # argparse: an option is no value; `-` and -1 are
         else:
             args, i = [f"{opt}{eq}{value}"], i + 1
