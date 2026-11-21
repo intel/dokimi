@@ -565,3 +565,9 @@ def test_a_stated_rule_test_must_match_its_protocol():
     base = _fixture("verdict_with_rule.json")
     changed = _with(base, verdict_rule={**base["verdict_rule"], "test": "student_t"})
     assert compare(changed, base) == ["result: verdict_rule.test differs from protocol.resolved.test"]
+
+
+def test_a_stated_judge_provider_must_match_its_protocol():
+    base = _fixture("verdict_with_rule.json")
+    changed = _with(base, judge_provider="anthropic")
+    assert compare(changed, base) == ["result: judge_provider differs from protocol.resolved.judge_provider"]
