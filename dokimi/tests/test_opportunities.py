@@ -82,3 +82,9 @@ def test_markdown_escapes_pipes():
     item = opp.Opportunity("k", "a|b", "w", "n", "t", 0.5, "low")
     ranked = opp.rank([item])
     assert r"a\|b" in opp.render_markdown(ranked)
+
+
+def test_llms_txt_key_survives_a_change_in_h1_count():
+    keys = [opp.from_llms_txt(llms_txt.check(f"# A\n{extra}\n> s\n"))[0].source_key
+            for extra in ("# B", "# B\n# C")]
+    assert keys[0] == keys[1]

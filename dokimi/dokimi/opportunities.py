@@ -120,7 +120,7 @@ def from_llms_txt(findings: list[Finding], *, target: str = "llms.txt") -> list[
         kind="discovery", title=f.message, why="agents read llms.txt before choosing a tool.",
         next_action=f.fix, target=target, impact=0.4 if f.severity == "fail" else 0.2,
         effort="low", evidence={"check": f.check, "line": f.line},
-        identity=f.check if f.check == "size" else "",
+        identity=f.message if f.check == "links" else f.check,
     ) for f in findings]
 
 

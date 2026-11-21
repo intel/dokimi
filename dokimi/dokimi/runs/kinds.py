@@ -106,6 +106,7 @@ FIELDS: dict[str, KindFields] = {
     "dashboard": KindFields(subject=("products[].product",), model=("products[].judge_model",),
                             time=("generated_at",), counts=("products",)),
     "baseline_manifest": KindFields(subject=("baselines[].product",), counts=("baselines",)),
+    "opportunities": KindFields(subject=("items[].target",), counts=("inputs", "items")),
 }
 
 #: Every schema_version an artifact may carry (current and superseded) -> its kind.
