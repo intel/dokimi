@@ -37,8 +37,8 @@ def _client(args: argparse.Namespace):
     provider, model = args.model
     cap = SpendCap(limit_usd=args.max_usd) if args.max_usd is not None else None
     # The client's default output ceiling: a reasoning model spends part of it on hidden reasoning, so a smaller
-    # one can return no text, and the cut-off hint names --max-output-tokens, which this command does not take.
-    return LLMClient(model=model, provider=provider, role="coverage", cap=cap)
+    # one can return no text. This command always uses that default.
+    return LLMClient(model=model, provider=provider, role="coverage", cap=cap, output_limit_configurable=False)
 
 
 def _refuse_out_over_input(out: str, inputs: list[Path]) -> None:

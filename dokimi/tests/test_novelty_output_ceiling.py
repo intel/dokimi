@@ -58,6 +58,16 @@ def test_a_client_call_cut_at_the_ceiling_raises_and_still_records_its_cost(monk
     assert client.calls == 1 and len(client.usage) == 1
 
 
+def test_coverage_truncation_omits_the_unavailable_output_flag(monkeypatch):
+    from dokimi.commands.skill_coverage import _client
+
+    _provider(monkeypatch, "length", [])
+    client = _client(SimpleNamespace(model=("openai", "m"), max_usd=None))
+    with pytest.raises(OutputTruncated, match="output ceiling") as error:
+        client.text("p")
+    assert "--max-output-tokens" not in str(error.value)
+
+
 def test_a_cached_cut_reply_still_raises_on_replay(monkeypatch, tmp_path):
     calls = _provider(monkeypatch, "length", [])
     monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path))
