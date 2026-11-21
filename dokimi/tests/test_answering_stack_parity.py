@@ -9,8 +9,9 @@ observation, labelled with the #228 difference it belongs to (D1-D9), or
 "shared"/"only" for the parts that match or exist on one side only.
 
 A later PR that changes one difference flips the rows for that difference, and
-only the rows whose comment names it (the D9 delta also moves with D3, see the
-table), so the diff of that PR shows the change in numbers. Each row is
+only the rows whose comment names it (the D9 delta moved with D3 in step 3, see
+the table), so the diff of that PR shows the change in numbers. A difference that is
+gone has no row left and is listed in :data:`RESOLVED`. Each row is
 ``(difference, key, p_value, a_value)``: P is Stack P (``EvaluationPipeline``
 plus ``Answerer``), A is Stack A (``ArmRunner``).
 """
@@ -50,6 +51,11 @@ from tests.answering_stack_parity import (
 
 QTEXT = {q["id"]: q["question"] for q in QUESTIONS}
 DIFFERENCES = {f"D{i}" for i in range(1, 10)}
+# Differences no stack has any more, with the #228 step that removed them.
+RESOLVED = {
+    "D1": "step 3: Stack P retrieves through DocTreatment",
+    "D3": "step 3: the shared retrieval keeps the raw docs when the reranker raises",
+}
 
 # (difference, key, value on Stack P, value on Stack A). Pinned at main b69b15f8.
 PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
@@ -59,17 +65,19 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("shared", "answer.roles", ("user",), ("user",)),
     ("shared", "answer.system", None, None),
     ("shared", "answer.cache_blocks", False, False),
-    # D1 retrieval request
-    ("D1", "retrieval.passed", ("max_results", "max_tokens"), ("max_results",)),
-    # what each side asked for, not what came back: both get 4 docs; both ask for top_k=3
-    ("D1", "retrieval.max_results", 3, 3),
-    ("D1", "retrieval.max_tokens", 4000, 8000),
+    # retrieval request (D1 until step 3), A's docs arm given P's retrieval budget of 4000: one request.
+    # What each side asked for, not what came back: both get 4 docs; both ask for top_k=3.
+    ("shared", "retrieval.passed", ("max_results", "max_tokens"), ("max_results", "max_tokens")),
+    ("shared", "retrieval.max_results", 3, 3),
+    ("shared", "retrieval.max_tokens", 4000, 4000),
+    # D7: the arms commands have no retrieval budget flag (step 5), so the client default 8000 applies.
+    ("D7", "retrieval.max_tokens.unset_on_a", 4000, 8000),
     # D2 no docs found
     ("D2", "empty.answer_kinds", ("plain",), ("plain", "plain")),
     ("D2", "empty.with_docs_answer", "placeholder", "model_reply"),
-    # D3 rerank raises
-    ("D3", "rerank.answer_kinds", ("plain",), ("plain", "docs")),
-    ("D3", "rerank.with_docs_answer", "placeholder", "model_reply"),
+    # reranker raises (D3 until step 3): both answer from the raw docs
+    ("shared", "rerank.answer_kinds", ("docs", "plain"), ("docs", "plain")),
+    ("shared", "rerank.with_docs_answer", "model_reply", "model_reply"),
     # D4 answer call and prompts
     ("D4", "answer.max_tokens", None, 4000),
     ("D4", "answer.temperature", None, 0.0),
@@ -109,17 +117,17 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     # D8 library id: EvaluationPipeline with no context7_id (the `orchestrate` path without
     # --context7-id). `benchmark run` passes the registry's context7_id, so it is not this row.
     ("D8", "library_id", "registry/lib", "registry/lib"),
-    # D2 judge calls: P no longer judges the placeholder with-docs answers of q-empty and
-    # q-rerank (D2, D3), so 2 of the 12 calls are gone. A still judges all 12.
-    ("D2", "judge.calls", 10, 12),
-    # D9 statistics. P's paired deltas are q-docs, q-docs-2, q-docs-3, q-gt: 4 pairs; A has 6. Both get
-    # a sign-flip p, and neither a verdict: at most 5 changed pairs, where p cannot go below 0.05.
+    # D2 judge calls: P no longer judges the placeholder with-docs answer of q-empty (D2),
+    # so 1 of the 12 calls is gone. A still judges all 12.
+    ("D2", "judge.calls", 11, 12),
+    # D9 statistics. P's paired deltas are q-docs, q-docs-2, q-docs-3, q-gt, q-rerank: 5 pairs; A has 6.
+    # Both get a sign-flip p, and neither a verdict: at most 5 changed pairs, where p cannot go below 0.05.
     ("D9", "stats.delta_mean", 20.0, 16.67),
-    ("D9", "stats.pairs", 4, 6),
-    ("D9", "significance.n", 4, 6),
+    ("D9", "stats.pairs", 5, 6),
+    ("D9", "significance.n", 5, 6),
     ("D9", "significance.correction", None, "holm"),
     ("D9", "significance.significant", None, None),
-    # what the judge sees per case: no docs (D2), reranker raises (D3), ground-truth chunk (D5)
+    # what the judge sees per case: no docs (D2), reranker raises and ground-truth chunk (D5)
     (
         "D2",
         "judge.contexts.q-empty",
@@ -127,9 +135,9 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
         ("(No documentation retrieved)",),
     ),
     (
-        "D3",
+        "D5",
         "judge.contexts.q-rerank",
-        ("(No documentation provided)",),
+        ("(No documentation provided)", ("docs", "Doc 1: ", 3, False)),
         ("(No documentation retrieved)", ("docs", "Passage", 3, True)),
     ),
     (
@@ -141,8 +149,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     # what the judge is handed as ground truth: the q-gt chunk on both stacks, None on the rest
     ("shared", "judge.ground_truth.q-gt", (GROUND_TRUTH_CHUNK,), (GROUND_TRUTH_CHUNK,)),
     ("shared", "judge.ground_truth.others", (None,), (None,)),
-    # Per-question deltas feeding D9's statistics. q-empty and q-rerank have no P delta (no with-docs judgement, D2/D3);
-    # A's q-empty is 0 and its q-rerank falls back to the raw docs (20).
+    # Per-question deltas feeding D9's statistics. q-empty has no P delta (no with-docs judgement, D2);
+    # A's q-empty is 0. q-rerank falls back to the raw docs on both (20).
     (
         "D9",
         "delta.per_question",
@@ -152,7 +160,7 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
             ("q-docs-3", 20.0),
             ("q-empty", None),
             ("q-gt", 20.0),
-            ("q-rerank", None),
+            ("q-rerank", 20.0),
         ),
         (
             ("q-docs", 20.0),
@@ -167,8 +175,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("only", "record.shape", "with_docs/without_docs", "arms"),
     ("only", "answer.token_usage.context_chars", True, False),
     ("only", "artifact.cost_summary", False, True),
-    # #228 step 2 stamp: the answers artifact carries method_version; the arms artifact does not
-    ("only", "artifact.method_version", 2, None),
+    # #228 step 2 stamp (v3 since step 3): the answers artifact carries method_version; the arms artifact does not
+    ("only", "artifact.method_version", 3, None),
 )
 
 
@@ -201,7 +209,8 @@ def _all_answer_requests(obs: Observed):
 
 
 def _kinds(obs: Observed, qid: str) -> Tuple[str, ...]:
-    return tuple(kind for kind, _ in answer_calls(obs, QTEXT[qid]))
+    """The kinds of the answer calls for one question, sorted: P asks the docs arm first, A the baseline."""
+    return tuple(sorted(kind for kind, _ in answer_calls(obs, QTEXT[qid])))
 
 
 def _docs_context(obs: Observed, question: str) -> Dict[str, Any]:
@@ -275,6 +284,11 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
     with pytest.MonkeyPatch.context() as mp:
         a = run_stack_a(mp, tmp_path / "a", provider_calls)
     with pytest.MonkeyPatch.context() as mp:
+        # Stack A's docs arm with Stack P's retrieval budget, for the retrieval request rows
+        a_budget = run_stack_a(
+            mp, tmp_path / "a-budget", provider_calls, retrieval_tokens=4000, questions=QUESTIONS[:1]
+        )
+    with pytest.MonkeyPatch.context() as mp:
         p_noid = run_stack_p(
             mp,
             tmp_path / "p-noid",
@@ -328,13 +342,17 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         "stats.pairs": (len(paired_p), sig_a["n"]),
         "retrieval.passed": (
             distinct([c["passed"] for c in p.client.calls]),
-            distinct([c["passed"] for c in a.client.calls]),
+            distinct([c["passed"] for c in a_budget.client.calls]),
         ),
         "retrieval.max_results": (
             distinct([c["max_results"] for c in p.client.calls]),
-            distinct([c["max_results"] for c in a.client.calls]),
+            distinct([c["max_results"] for c in a_budget.client.calls]),
         ),
         "retrieval.max_tokens": (
+            distinct([c["max_tokens"] for c in p.client.calls]),
+            distinct([c["max_tokens"] for c in a_budget.client.calls]),
+        ),
+        "retrieval.max_tokens.unset_on_a": (
             distinct([c["max_tokens"] for c in p.client.calls]),
             distinct([c["max_tokens"] for c in a.client.calls]),
         ),
@@ -459,4 +477,5 @@ def test_both_stacks_match_pinned_values(tmp_path, provider_calls):
 
 def test_table_covers_every_difference():
     labels = {diff for diff, *_ in PINNED}
-    assert DIFFERENCES <= labels, DIFFERENCES - labels
+    assert DIFFERENCES - set(RESOLVED) <= labels, DIFFERENCES - set(RESOLVED) - labels
+    assert not labels & set(RESOLVED), labels & set(RESOLVED)
