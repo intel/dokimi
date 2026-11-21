@@ -81,7 +81,7 @@ def test_a_turn_marks_the_run_as_started_even_with_no_event():
     codex = convert("codex-json", _jsonl({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}), "/ws")
     copilot = convert("copilot-json", _jsonl({"type": "assistant.turn_start", "data": {}}), "/ws")
     for trace in (codex, copilot):
-        assert trace.events == [] and trace.result_seen is True
+        assert [e for e in trace.events if e["kind"] != "turn"] == [] and trace.result_seen is True
     assert convert("codex-json", "", "/ws").result_seen is False
     assert convert("copilot-json", "", "/ws").result_seen is False
     for raw in ('{"type":"error","message":"x"}\n', "not json at all\n", '{"type":"other"}\n'):

@@ -116,7 +116,9 @@ Two checks, both `warn`:
   checked against and the date. Update it by editing that file, with no code change. An entry
   lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
   `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
-  `replacement` are the vendor's, verbatim, or empty when it gives none.
+  `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
+  the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
+  the same status and date.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
   tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
   a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
@@ -311,7 +313,8 @@ At most 200 files of a bundle are walked: every file counts, `SKILL.md` and non-
 order (a directory's files sorted by name, then its subdirectories). Files past the cap are not checked and give
 no finding; a subdirectory with its own `SKILL.md` is another skill and is skipped.
 A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
-Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
+Nothing is run or imported. In `catalog check --json` and `catalog eval --json` a `script-crlf` or `script-syntax` finding carries `script`, the
+script's path relative to the skill directory, while `file` stays the skill's `SKILL.md`. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
 `ast.parse` rejects is a `warn` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
 goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
@@ -454,7 +457,7 @@ A large catalog is easier to scan one skill at a time:
   fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
-  the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
+  the counts. `--concurrency N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
   line from a killed run is dropped). Each row carries `skill_sha256`, the
   digest of every file in the skill's directory, and `ignored`, the sorted
@@ -464,12 +467,12 @@ A large catalog is easier to scan one skill at a time:
   a row written under other codes or by another dokimi version, or a row without
   `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
   Every `SKILL.md` is loaded before the first row, so memory still grows with
-  the catalog. A `--jobs` worker that dies ends the scan with exit 1.
+  the catalog. A `--concurrency` worker that dies ends the scan with exit 1.
 
 The finding codes are listed in [finding codes](finding-codes.md), and the fields of the
 JSON report and of each JSONL row in [catalog check output](catalog-jsonl.md).
 
-`--jsonl`, `--jobs` and `--resume` need `--per-skill`, and `--jsonl` does not
+`--jsonl`, `--concurrency` and `--resume` need `--per-skill`, and `--jsonl` does not
 combine with `--format json`; any other misuse exits 2. From Python,
 `dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
 skill in `path`.

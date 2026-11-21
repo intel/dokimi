@@ -1,0 +1,3 @@
+### Fixed
+
+- **`legacy-model-id` now flags `claude-opus-4-0`, `claude-sonnet-4-0`, `claude-opus-4-1` and the `-latest` aliases of the retired Claude 3.x models** (`claude-3-7-sonnet-latest`, `claude-3-5-haiku-latest`, `claude-3-5-sonnet-latest`, `claude-3-opus-latest`) — `legacy_models.toml` listed their dated IDs (`claude-opus-4-20250514`, `claude-3-7-sonnet-20250219` and the rest) as retired but not their aliases, so a skill that called a retired model by its alias passed `catalog check` with no finding. Each alias now sits beside its dated ID and gets the same retirement date and replacement. (#945)
