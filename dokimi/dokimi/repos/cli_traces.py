@@ -786,9 +786,11 @@ def _copilot_result(out: Transcript, call: _Derived, data: dict[str, Any]) -> No
             continue
         shell = data.get("shellExecution") or {}
         code = shell.get("exitCode") if isinstance(shell, dict) else None
-        event["rc"] = code if isinstance(code, int) else None  # the code the command returned, or none: no success fallback
-        failed = _failed_read(str(event["text"]), event["rc"] if event["rc"] is not None or data.get("success") is not False
-                              else 1)  # a read still counts a result reported as failed, as before
+        event["rc"] = code if type(code) is int else None
+        if event["rc"] is None and isinstance(data.get("success"), bool):
+            event["rc"] = 0 if data["success"] else 1
+            event["rc_from"] = "success"
+        failed = _failed_read(str(event["text"]), event["rc"])
         result = data.get("result") or {}
         output = result.get("content") if isinstance(result, dict) else None
         if isinstance(output, str) and output:

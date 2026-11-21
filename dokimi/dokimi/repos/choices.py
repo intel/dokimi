@@ -104,7 +104,7 @@ def with_choices(events: list[dict[str, Any]], candidates: Mapping[str, Mapping[
 def _ran(event: dict[str, Any]) -> bool:
     """Whether the call took effect: a denied one, one that failed, or one with no exit code (rc None: a cut-off call,
     or a shell command whose result carries none) did not install, import, use or remove anything."""
-    return not event.get("denied") and event.get("rc") == 0
+    return not event.get("denied") and event.get("rc") == 0 and event.get("rc_from") != "success"
 
 
 def choice_timeline(events: Sequence[dict[str, Any]]) -> list[tuple[float | None, str, str]]:

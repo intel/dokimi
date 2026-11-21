@@ -579,9 +579,9 @@ The line format, its version and the promise that comes with it: [events-format.
 - `rc` is what the harness reports. Where it reports only success or failure
   (Claude Code), `rc` is `0` or `1`; a Claude Code `Skill` tool event carries it
   too (`1`: the skill was not loaded). A Copilot shell command takes its `rc` from
-  `shellExecution.exitCode` only, so a result that carries only `success` gives `null`
-  (no choice rests on it). `failed_commands` and `first_useful` read this `rc` too, so
-  such a command counts as neither failed nor useful. It is `null` when no result came back,
+  `shellExecution.exitCode` when present. A completion that reports only `success` retains its
+  0/1 outcome and records `rc_from: "success"`. The counters and `first_useful` retain that outcome.
+  An install or removal choice requires the command’s own exit code. It is `null` when no result came back,
   for example when the run stopped at its turn or budget limit; a grader
   must not count `null` as a failure.
 - `agent` is present on an event a subagent made: the id of the parent's

@@ -366,3 +366,14 @@ def test_unchanged_edit_context_gives_no_choice():
 ])
 def test_short_options_follow_the_package_manager(text, expected):
     assert _choice_of(text) == expected
+
+
+def test_a_success_only_copilot_completion_preserves_the_status_without_a_choice():
+    raw = "\n".join(json.dumps(record) for record in [
+        {"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "bash",
+                                                 "arguments": {"command": "pip install scipy"}}},
+        {"type": "tool.execution_complete", "data": {"toolCallId": "a", "success": True}},
+    ])
+    events = convert("copilot-json", raw).events
+    assert events[0]["rc"] == 0 and events[0]["rc_from"] == "success"
+    assert _choices(with_choices(events, SCIPY_INSTALL, [])) == []
