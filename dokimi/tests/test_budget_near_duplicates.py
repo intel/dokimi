@@ -108,6 +108,30 @@ def test_pairs_at_the_edge_of_the_jaccard_and_size_bounds(size, other, shared, r
     assert bool(_near_duplicates(skills)) is reported
 
 
+def _sets_sharing_their_rarest_words(size, other):
+    shared = {"c0", "c1", "c2"}
+    extra = {f"b{n}" for n in range(other - 3)}
+    # Two fillers make the larger set's extra words more common than the shared ones, so the shared
+    # words come first in both prefixes and only the size bound can separate the pair.
+    own = {f"a{n}" for n in range(size - 3)} | shared
+    return [own, shared | extra, extra | {"x", "y"}, extra | {"z", "w"}]
+
+
+@pytest.mark.parametrize(
+    ("size", "other", "candidate"),
+    [
+        (4, 4, True),  # equal sizes, 3 of 5 words
+        (3, 6, True),  # exactly 2x apart
+        (3, 7, False),  # more than 2x apart: Jaccard 3/7 < 0.5
+    ],
+)
+def test_the_size_bound_separates_candidate_pairs(size, other, candidate):
+    from dokimi.repos.skill_overlap import candidate_pairs
+
+    words = _sets_sharing_their_rarest_words(size, other)
+    assert ((0, 1) in candidate_pairs(words, DUPLICATE_JACCARD)) is candidate
+
+
 def test_the_pass_compares_few_of_the_pairs_of_a_catalog_like_corpus(monkeypatch):
     rng = random.Random(5)
     tail = [f"t{n}" for n in range(4000)]
