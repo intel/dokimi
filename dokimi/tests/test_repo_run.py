@@ -998,3 +998,15 @@ def test_a_grader_score_that_is_no_measurement_is_a_grader_failure_and_the_batch
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", "guidance:none"])
     args.func(args)
     assert "review_add" in capsys.readouterr().out
+
+
+def test_changed_probes_in_an_external_manifest_refuse_resume(setup, tmp_path, capsys):
+    manifest = tmp_path / "manifest.yaml"
+    raw = yaml.safe_load((setup["root"] / ".agent-eval/repo-eval.yaml").read_text())
+    manifest.write_text(yaml.safe_dump({**raw, "probes": {"cpu": ["nproc"]}}))
+    args = ("--arm", "guidance:raw", "--task", "fix_add", "--manifest-file", str(manifest))
+    _run(setup, *args)
+    manifest.write_text(yaml.safe_dump({**raw, "probes": {"cpu": []}}))
+    with pytest.raises(SystemExit):
+        _run(setup, *args)
+    assert "holds cells of another execution" in capsys.readouterr().err
