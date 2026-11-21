@@ -46,3 +46,15 @@ def test_both_commands_cut_at_the_same_length(tmp_path, when_chars, truncated):
     charged = next(e["chars"] for e in entries if e["kind"] == "skill listing")
     assert got["truncated"] is truncated
     assert charged == 1 + min(got["description_chars"], got["max_desc_chars"])
+
+
+def test_a_skill_without_description_is_counted_alike_from_its_first_body_line(tmp_path):
+    """#943: with no `description`, both commands count the body's first non-empty line."""
+    d = tmp_path / ".claude/skills/a"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text("---\nname: a\n---\nHello there.\n", encoding="utf-8")
+    got = skill_listing(d)
+    entries = budget(WorkTree(tmp_path), NAMES, claude_displaces_agents=True)["entries"]
+    charged = next(e["chars"] for e in entries if e["kind"] == "skill listing")
+    assert got["description_chars"] == len("Hello there.")
+    assert charged == 1 + got["description_chars"]

@@ -19,3 +19,12 @@ def listing_text_chars(description: str, when_to_use: Any) -> int:
     """
     when = "" if when_to_use is None else str(when_to_use)
     return len(description) + (len(WHEN_SEPARATOR) + len(when) if when else 0)
+
+
+def listing_description(meta: dict[str, Any], body: str) -> str:
+    """The description the listing shows: the frontmatter one, else the body's first non-empty line.
+
+    Claude Code falls back to the body when ``description`` is omitted (#943).
+    """
+    return str(meta.get("description") or "") or next(
+        (line.strip() for line in body.splitlines() if line.strip()), "")

@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from dokimi.skills import load_skill
-from dokimi.skills.listing import listing_text_chars
+from dokimi.skills.listing import listing_description, listing_text_chars
 from dokimi.utils import parse_frontmatter
 
 TREATMENT_NOTICE = (
@@ -234,8 +234,8 @@ def skill_listing(skill_dir: Path) -> dict[str, Any]:
     ' - ' separator, none for an empty when_to_use).
     """
     path = skill_dir / "SKILL.md"
-    meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
-    chars = listing_text_chars(str(meta.get("description") or ""), meta.get("when_to_use"))
+    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    chars = listing_text_chars(listing_description(meta, body), meta.get("when_to_use"))
     return {"description_chars": chars, "max_desc_chars": LISTING_MAX_DESC_CHARS,
             "budget_chars": LISTING_BUDGET_CHARS,
             "truncated": chars > LISTING_MAX_DESC_CHARS}
