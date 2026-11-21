@@ -220,6 +220,52 @@ def test_benchmark_run_bedrock_iam_credentials_need_no_bearer_token(tmp_path, mo
     assert len(built) == 1
 
 
+def test_benchmark_run_unreadable_bedrock_token_file_exits_2(tmp_path, monkeypatch, capsys):
+    """#967: a configured `AWS_BEARER_TOKEN_BEDROCK` file that cannot be read is refused, as the call reads it."""
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", f"file:{tmp_path / 'missing'}")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    built, out = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "openai", "--model", "gpt-4o",
+         "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.claude-haiku-4-5"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "Cannot read API key from file" in capsys.readouterr().err
+    assert not built and not out.exists()
+
+
+def test_benchmark_run_unreadable_bedrock_token_file_on_bedrock_route_exits_2(tmp_path, monkeypatch, capsys):
+    """#967: the same refusal for a `bedrock/` model route on a provider with no key of its own."""
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", f"file:{tmp_path / 'missing'}")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    built, _ = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "openai", "--model", "gpt-4o",
+         "--judge-provider", "anthropic", "--judge-model", "bedrock/us.anthropic.claude-haiku-4-5"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert not built
+
+
+def test_benchmark_run_bedrock_route_with_configured_key_ignores_unreadable_aws_token(tmp_path, monkeypatch):
+    """#967: the configured provider's key is sent as the token, so an unused AWS token file is no refusal."""
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", f"file:{tmp_path / 'missing'}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "bedrock-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    built, _ = _run_with_fake_pipeline(
+        monkeypatch, tmp_path,
+        ["--provider", "anthropic", "--model", "bedrock/us.anthropic.claude-sonnet-4-6",
+         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+    )
+    cli.main()
+    assert len(built) == 1
+
+
 def test_benchmark_run_gemini_route_without_a_gemini_key_exits_2(tmp_path, monkeypatch, capsys):
     """#967: a `gemini/` model takes the Gemini API key, not Vertex ADC, so a missing key is refused."""
     for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):

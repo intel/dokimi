@@ -146,11 +146,30 @@ def _provider_checks(providers: list[str], notes: list[str] | None = None,
     return errors, warnings
 
 
+def _keyless_route(canonical: str, route: str) -> list[str] | None:
+    """``None`` unless the call needs no key of *canonical*: then the providers it still checks.
+
+    Vertex ADC and AWS keys need none; an unreadable ``file:`` Bedrock token is still refused.
+    """
+    if route == "vertex_ai":
+        return []
+    if canonical != "amazon-bedrock" and route != "bedrock":
+        return None
+    try:
+        if canonical != "amazon-bedrock" and resolve_api_key(canonical):
+            return []  # the configured provider's key is sent as the token; the AWS variable is unused
+        resolve_api_key("amazon-bedrock")  # an absent token is IAM
+    except ValueError:
+        return ["amazon-bedrock"]
+    return []
+
+
 def _credential_providers(args: argparse.Namespace) -> list[str]:
     """The providers whose key or login a run of *args* needs, by the route each call takes (#967).
 
     A CLI backend takes its login whatever the model name says. `vertex_ai/` (ADC) and `bedrock/`
-    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider; a `gemini/`
+    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider, but a
+    `file:` AWS_BEARER_TOKEN_BEDROCK that cannot be read is refused; a `gemini/`
     route needs GEMINI_API_KEY or GOOGLE_API_KEY; another provider's route needs that provider's key;
     a route off the table (`azure/`, `ollama/`) needs none when the configured key is unset.
     """
@@ -168,7 +187,9 @@ def _credential_providers(args: argparse.Namespace) -> list[str]:
             continue
         resolved = resolve_model(str(model), provider)
         route = resolved.split("/", 1)[0]
-        if canonical == "amazon-bedrock" or route in ("vertex_ai", "bedrock"):
+        keyless = _keyless_route(canonical, route)
+        if keyless is not None:
+            providers.extend(keyless)
             continue
         off_table = "/" in resolved and route not in ("gemini", *PROVIDERS)
         if route != canonical and canonical != "openai-codex" and (off_table or route in ("gemini", *PROVIDERS)):
