@@ -342,6 +342,12 @@ def test_a_capitalised_noun_after_beim_is_checked_without_copying_the_text_befor
     assert work_ratio(_CountedSentence.tally, run, 500) < WORK_LIMIT
 
 
+@pytest.mark.parametrize("abbreviation", ["Nr", "Abs", "Art", "Kap", "Tel", "Bd", "Hrsg", "zzgl", "exkl", "Mio", "Mrd"])
+def test_a_german_abbreviation_does_not_end_the_sentence_with_beim(abbreviation):
+    assert when_clause_found(f"Verwende diesen Skill laut {abbreviation}. 3 beim Deployen.") is True
+    assert when_clause_found(f"Hilft beim Schreiben. Verwende diesen Skill laut {abbreviation}. 3.") is False
+
+
 def test_an_english_when_clause_still_passes_in_a_cjk_description():
     assert when_clause_found("发布说明生成器。Use when a release is cut.") is True
 
