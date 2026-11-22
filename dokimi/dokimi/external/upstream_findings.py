@@ -103,7 +103,11 @@ def add_upstream_findings(index: Index, skills: Sequence, reviews: Sequence, ign
             continue
         if any(f.code == "unreadable" for f in review.findings):
             continue  # the review already says the SKILL.md cannot be read: there are no bytes to match
-        raw = entry.skill.path.read_bytes()
+        try:
+            raw = entry.skill.path.read_bytes()
+        except OSError as exc:  # the file changed or vanished after the first read
+            review.findings.append(Finding("error", "unreadable", f"SKILL.md cannot be read: {exc}"))
+            continue
         copy_risks = frozenset(f.code for f in review.findings) & (RISK_CODES - ignore)
         match = index.match(raw, frontmatter_name(raw))
         head_known = match is None or index.head_known(match.version)

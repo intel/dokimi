@@ -244,3 +244,20 @@ def test_non_ascii_bodies_with_no_shared_words_are_not_similar(tmp_path):
         "skills": [{"path": "skills/x/SKILL.md", "content": head, "head": True, "commit": "bbbb"}],
     }), encoding="utf-8")
     assert upstream.build((), [manifest]).match(copy.encode("utf-8"), "x") is None
+
+
+def test_a_skill_unreadable_on_the_second_read_is_an_unreadable_finding(tmp_path, capsys, monkeypatch):
+    import sys
+
+    manifest = _manifest(tmp_path, {"content": HEAD_TEXT, "head": True})
+    root = _copy(tmp_path, HEAD_TEXT)
+    real_read_bytes = type(tmp_path).read_bytes
+
+    def vanishes_before_the_second_read(self):
+        if self.name == "SKILL.md" and sys._getframe(1).f_code.co_name == "add_upstream_findings":
+            raise PermissionError(13, "Permission denied")
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(type(tmp_path), "read_bytes", vanishes_before_the_second_read)
+    _, report = _check(root, capsys, "--upstream-manifest", manifest)
+    assert len(_found(_row(report), "unreadable")) == 1
