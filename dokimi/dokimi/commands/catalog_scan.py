@@ -268,6 +268,7 @@ def _is_row(row: object) -> bool:
         and row.get("state") in ROW_STATES
         and "error" in row
         and isinstance(row.get("findings"), list)
+        and all(isinstance(f, dict) and isinstance(f.get("code"), str) for f in row["findings"])
         and _count_ok(row.get("listing_chars"))
         and isinstance(row.get("content_sha256"), (str, type(None)))
         and isinstance(row.get("listing_name"), (str, type(None)))

@@ -226,6 +226,15 @@ def test_git_grep_reads_an_abbreviated_max_depth_as_git_does(command):
     assert _process(_call("a", command), _result("a", "other.txt:1:see AGENTS.md"))["guidance_searched"] == []
 
 
+def test_git_grep_of_an_older_revision_searches_no_workspace_file():
+    # HEAD~1:AGENTS.md is the old commit's file; the workspace AGENTS.md was not searched
+    command = "git grep old_instruction HEAD~1 -- AGENTS.md"
+    assert shell_walked(command).searched == []
+    result = _result("a", "HEAD~1:AGENTS.md:old_instruction")
+    assert _process(_call("a", command), result)["guidance_searched"] == []
+    assert shell_walked("git grep old_instruction -- AGENTS.md").searched == ["AGENTS.md"]
+
+
 def test_rg_hostname_bin_takes_the_next_word_as_its_value():
     command = "rg --hostname-bin /bin/hostname AGENTS.md other.txt"
     assert shell_walked(command).searched == ["other.txt"]

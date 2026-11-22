@@ -156,7 +156,8 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
 
     None for a run that prints no line of a file: ``-q``, ``-l``, ``-L`` (not rg's), ``-c``, ``--files`` and the long
     forms, ``--help`` and ``--version`` as options (``grep -e --help f`` searches for the text), a match limit of zero
-    (``-m0``, ``-m +0``). A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
+    (``-m0``, ``-m +0``). A directory operand (``rg x docs``) is returned as it is: it matches no guidance path.
+    ``git grep PATTERN HEAD~1 -- AGENTS.md`` searches the old commit's file: a revision before ``--`` leaves no file."""
     operands, _, flags, limit = search_words(program, args)
     short = _SHORT_NO_LINE.get(program, _SHORT_NO_LINE_DEFAULT)
     if any(f in _SHOWS_NO_LINE or (len(f) == 2 and f[1] in short) for f in flags):
@@ -164,4 +165,7 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
     digits = limit[1:] if limit is not None and limit.startswith("+") else limit  # strtoimax and Rust's parse take a leading +
     if "--help" in flags or "--version" in flags or (digits is not None and digits.isdecimal() and not any(int(c) for c in digits)):
         return []
+    if program == "git grep" and "--" in args:  # words before ``--`` are revisions: it searches their trees, not the workspace
+        if len(operands) > len(args) - list(args).index("--") - 1:
+            return []
     return [o for o in operands if o != "-"]

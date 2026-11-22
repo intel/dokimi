@@ -42,7 +42,7 @@ class RateTally:
         self.skills[repo] += 1
         state = "not_checked" if not_checked(row) else row["state"]
         self.states[state][repo] += 1
-        for code in {finding["code"] for finding in row["findings"]}:
+        for code in {finding["code"] for finding in row["findings"] if "code" in finding}:
             self.codes[code][repo] += 1
 
     def _repo(self, relpath: Optional[str]) -> str:

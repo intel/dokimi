@@ -191,12 +191,13 @@ def test_two_names_for_one_repo_directory_share_its_bucket(tmp_path):
 def test_text_includes_a_code_common_across_small_repos(tmp_path):
     _repo(tmp_path, "big")
     tally = RateTally(tmp_path)
+    big = [f"big-{n}" for n in range(5)]
     for i in range(10):
-        codes = [f"big-{n}" for n in range(5)] if i < 4 else []
+        codes = big if i < 6 else []
         tally.add(_row(f"big/s{i}", "warn" if codes else "ok", *codes))
     for repo in ("small-a", "small-b", "small-c"):
         _repo(tmp_path, repo)
-        tally.add(_row(f"{repo}/s", "warn", "widespread"))
+        tally.add(_row(f"{repo}/s", "warn", "widespread", *(big if repo == "small-a" else [])))
     lines = text_lines(tally.summary())
     assert any(line.startswith("#   widespread:") for line in lines)
     assert len(lines) == 11  # the header, the five states, and the five codes
@@ -206,7 +207,7 @@ def test_the_text_ranks_a_code_by_its_larger_share(tmp_path):
     _repo(tmp_path, "big")
     tally = RateTally(tmp_path)
     for i in range(30):
-        tally.add(_row(f"big/s{i}", "warn", "p"))
+        tally.add(_row(f"big/s{i}", "warn", "p", *(["w1", "w2", "w3", "w4", "w5"] if i < 10 else [])))
     for repo in ("w-a", "w-b", "w-c", "w-d"):
         _repo(tmp_path, repo)
         tally.add(_row(f"{repo}/s", "warn", "w1", "w2", "w3", "w4", "w5"))
