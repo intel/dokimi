@@ -537,11 +537,14 @@ def test_a_failed_save_exits_2_when_another_worker_is_between_arms(monkeypatch):
     import concurrent.futures
     import threading
 
-    saved = threading.Event()
+    saved, q2_in = threading.Event(), threading.Event()
 
     def fake(prompt, model, provider="openai", **kw):
         if "second" in prompt:
+            q2_in.set()
             assert saved.wait(10)
+        else:  # q1 finishes only once q2 is in its first arm, so q2 is between its arms at the failed save
+            assert q2_in.wait(10)
         return "answer", {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
 
     def save(records):
@@ -552,8 +555,18 @@ def test_a_failed_save_exits_2_when_another_worker_is_between_arms(monkeypatch):
         concurrent.futures.wait(futures)
         return iter(list(reversed(futures)))
 
+    from dokimi.eval import arm_stop
+
+    real_halt = arm_stop.halt_if_stopped
+
+    def halt(stop):  # past the failed save, q2's next arm check sees the stop, so it reads the cause
+        if saved.is_set():
+            stop.wait(10)
+        real_halt(stop)
+
     monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", fake)
     monkeypatch.setattr(arm_runner_mod, "as_completed", done_first)
+    monkeypatch.setattr(arm_runner_mod, "halt_if_stopped", halt)
     runner = arm_runner_mod.ArmRunner([BaselineTreatment(), BaselineTreatment(name="other")],
                                       model="gpt-4o-mini", provider="openai")
     questions = [{"id": "q1", "question": "the first"}, {"id": "q2", "question": "the second"}]
