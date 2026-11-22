@@ -73,11 +73,24 @@ def _names(where: str, cid: str, act: str, names: Any) -> tuple[str, ...]:
     return tuple(n.strip() for n in names)
 
 
+class _UniqueKeys(yaml.SafeLoader):
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        keys: list[Any] = []
+        for key_node, _ in node.value:
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue
+            key = self.construct_object(key_node, deep=deep)
+            if key in keys:
+                raise yaml.constructor.ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
+            keys.append(key)
+        return super().construct_mapping(node, deep=deep)
+
+
 def load_candidate_file(path: str) -> dict[str, dict[str, tuple[str, ...]]]:
     """A run's ``--candidates`` file (YAML, or JSON, which is YAML) through :func:`validate_candidates`."""
     try:
-        raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raw = yaml.load(Path(path).read_text(encoding="utf-8"), Loader=_UniqueKeys)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError, RecursionError) as exc:
         raise ValueError(f"--candidates {path}: {exc}") from exc
     return validate_candidates(raw, f"--candidates {path}")
 
@@ -109,7 +122,7 @@ def _ran(event: dict[str, Any]) -> bool:
 
 def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str, Sequence[str]]]) -> list[dict]:
     """An install or removal counts only where the command's exit code is its own: every part joined to the next by
-    ``&&`` (rc 0 then means each ran), and not in a pipeline (the last stage's code). A ``;``, ``||`` or ``&`` part may
+        views = [] if _INFO_FLAGS & set(words) else list(command_words(words))  # a help or version request runs nothing, even after ``env``
     have failed or never run, so its install gives no choice."""
     parts = split_script(str(event.get("text", "")))
     if any(p.after not in ("", "&&") for p in parts[:-1]) or any(p.after not in ("", "&&", ";") for p in parts[-1:]):

@@ -243,7 +243,7 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
                 if script_arg is not None:
                     yield from _pipelines(script_arg)
 
-        if flat and not conditional and not in_subshell and len(stages) == 1 and _ends_shell(rest):
+        if flat and not conditional and not in_subshell and after != "&" and len(stages) == 1 and _ends_shell(rest):
             return
 
 
@@ -289,7 +289,7 @@ def _without_heredocs(script: str) -> str:
 def _reads_script_from_stdin(words: list[str]) -> bool:
     for program, args in _views(words):
         if program in _SHELLS:
-            return all(re.fullmatch(r"-[seux]+", word) for word in args)
+            return all(re.fullmatch(r"-[seuxl]+|--norc|--noprofile", word) for word in args)
     return False
 
 
