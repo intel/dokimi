@@ -26,10 +26,12 @@ def test_sentences_skip_the_confidence_line_and_keep_offsets():
 
 def test_lexical_pass_flags_version_flag_and_polarity_conflicts():
     report = find_false_claims(ANSWER, ATOMS)
-    got = {(c.atom_id, c.how) for c in report.claims}
-    assert ("a_driver", "lexical:value") in got
-    assert ("a_flag", "lexical:value") in got
-    assert ("a_windows", "lexical:polarity") in got
+    got = {(c.atom_id, c.how, c.sentence) for c in report.claims}
+    assert got == {
+        ("a_driver", "lexical:value", "To use the accelerator you need driver version 3.0."),
+        ("a_flag", "lexical:value", "Turn it on with --use-accel."),
+        ("a_windows", "lexical:polarity", "The accelerator is supported on Windows and Linux."),
+    }  # the driver sentence shares only "accelerator" with the Windows atom: not paired
     driver = next(c for c in report.claims if c.atom_id == "a_driver")
     assert driver.quote == "3.0" and driver.span_ids == ("s0001",)
 

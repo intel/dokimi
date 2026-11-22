@@ -26,7 +26,8 @@ Steps:
    (`3.0`) and dotted names do not end a sentence.
 2. **Pair** each sentence with the atoms it is plausibly about, lexically: a shared
    distinctive token (flag, `snake_case`, `CamelCase`, dotted identifier), or at least 30%
-   of the atom's content words. Flags and identifiers are split into parts, so
+   of the atom's content words and at least two of them (so a short atom does not pair with
+   every sentence that names the product). Flags and identifiers are split into parts, so
    `--use-accel` still pairs with an atom about `--enable-accel`; numbers are not used to
    pair, because they are what a contradiction changes. Atoms whose faithfulness check
    came back `distorted` or `unsupported` are not ground truth and are skipped.

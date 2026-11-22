@@ -142,8 +142,9 @@ def _distinctive(text: str) -> set[str]:
 def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) -> list[Atom]:
     """Atoms the sentence is plausibly *about*: a shared distinctive token, or word overlap.
 
-    Overlap is the share of the atom's content words the sentence
-    contains, so a long answer sentence is not penalised for saying more.
+    Overlap is the share of the atom's content words the sentence contains, so a long
+    answer sentence is not penalised for saying more; it must also be at least two words
+    (one for a one-word atom), or a short atom pairs with every sentence naming the product.
     """
     words, ident = _content(sentence), _distinctive(sentence)
     paired = []
@@ -151,8 +152,9 @@ def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) ->
         anchor = _content(atom.statement)
         if not anchor:
             continue
-        shared = len(anchor & words) / len(anchor)
-        if (_distinctive(atom.statement) - _values(atom.statement)) & ident or shared >= min_overlap:
+        common = len(anchor & words)
+        if ((_distinctive(atom.statement) - _values(atom.statement)) & ident
+                or (common >= min(2, len(anchor)) and common / len(anchor) >= min_overlap)):
             paired.append(atom)
     return paired
 
@@ -173,6 +175,8 @@ def lexical_conflict(statement: str, sentence: str) -> tuple[str, str] | None:
             return "lexical:value", quote
     neg_a, neg_b = _NEGATION.search(statement), _NEGATION.search(sentence)
     if bool(neg_a) != bool(neg_b):
+        # When the sentence drops the atom's negation there is no word to quote: the
+        # whole sentence is the quote.
         return "lexical:polarity", (neg_b.group(0) if neg_b else sentence)
     return None
 
