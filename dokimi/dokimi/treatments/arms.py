@@ -35,6 +35,10 @@ class DocTreatment(Treatment):
     survivors as context. Works for any doc source — local files, a URL, the
     Context7 HTTP API, or a real MCP server — since they all implement the same
     ``MCPClient`` retrieval contract.
+
+    ``retrieval_tokens`` is the doc budget sent as ``max_tokens``; ``None`` sends
+    none, so the client's default applies. The arms commands leave it unset; the
+    ``Answerer`` passes its retrieval budget (#228 step 3).
     """
 
     def __init__(
@@ -46,12 +50,14 @@ class DocTreatment(Treatment):
         keep: int = 3,
         reranker=None,
         arm_kind: str = "docs",
+        retrieval_tokens: Optional[int] = None,
     ):
         self.name = name
         self.mcp_client = mcp_client
         # Set by resolve_doc_library_id: this arm's own id, ahead of the run-wide one.
         self.library_id = None
         self.top_k = top_k
+        self.retrieval_tokens = retrieval_tokens
         self.keep = keep
         self.arm_kind = arm_kind
         self.reranker = reranker or self._default_reranker(rerank_threshold)
@@ -80,9 +86,10 @@ class DocTreatment(Treatment):
             "after_rerank": 0,
             "top_score": None,
         }
+        budget = {} if self.retrieval_tokens is None else {"max_tokens": self.retrieval_tokens}
         try:
             raw_docs = self.mcp_client.get_library_docs(
-                library_id=lib_id, query=question_text, max_results=self.top_k
+                library_id=lib_id, query=question_text, max_results=self.top_k, **budget
             )
         except Exception:
             logger.exception("Context retrieval failed for arm %s", self.name)
@@ -103,7 +110,8 @@ class DocTreatment(Treatment):
         if not reranked:
             return AgentConfig(metadata=metadata)
 
-        scores = [d.get("relevance_score", 0) for d in reranked]
+        # Raw docs kept after a rerank failure may carry no score: none is not 0 (PR #997 review).
+        scores = [d["relevance_score"] for d in reranked if d.get("relevance_score") is not None]
         metadata["top_score"] = round(max(scores), 3) if scores else None
         return AgentConfig(injected_context=reranked[: self.keep], metadata=metadata)
 

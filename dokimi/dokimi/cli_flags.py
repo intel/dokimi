@@ -189,12 +189,14 @@ CONCEPTS: tuple[Concept, ...] = (
         name="tokens",
         help="token caps and token budget fractions",
         canonical=(
-            Flag("--max-output-tokens", "N", "int"),
-            Flag("--retrieval-tokens", "N", "int"),
-            Flag("--token-budgets", "F,F", "text"),
+            Flag("--max-output-tokens", "N", "int", meaning="the output ceiling of each model call"),
+            Flag("--retrieval-tokens", "N", "int", meaning="the tokens of docs retrieved per question"),
+            Flag("--token-budgets", "F [F ...]", "float",
+                 meaning="target token fractions for shortening candidates"),
         ),
         banned=("--max-tokens", "--budgets"),
-        note="--max-tokens meant retrieval in six leaves and output in seven.",
+        note="--max-tokens meant retrieval in four leaves and output in ten; FLAG_MOVES moves each leaf "
+             "by what its code does.",
     ),
     Concept(
         name="output",
@@ -416,6 +418,20 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
     )),
+    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on ten.
+    FlagMove("--max-tokens", "--retrieval-tokens", leaves=(
+        ("answers", "generate"), ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
+    )),
+    FlagMove("--max-tokens", "--max-output-tokens", leaves=(
+        ("arms", "run"), ("arms", "matrix-run"), ("subjects", "run"), ("tools", "preference"),
+        ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"),
+        ("skill", "routing"), ("catalog", "routing"),
+    )),
+    FlagMove("--budgets", "--token-budgets", leaves=(
+        ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"),
+    )),
     # Reps concept (F1b): each old spelling counted the same thing on its one leaf, so the move
     # is limited to that leaf (elsewhere the hint would name a flag the command does not take).
     FlagMove("--repeats", "--reps", leaves=(("tasks", "run"),)),
@@ -427,7 +443,7 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--jobs", "--concurrency", leaves=(("catalog", "check"), ("eval", "check"), ("repo", "run"))),
     # Fail-on concept (F1b): a gate on warnings or failures is `--fail-on {warn,fail}`. The moved
     # leaves gate on the level their old flag gated on; `--strict` keeps its other meanings.
-    FlagMove("--fail-on-warning", "--fail-on=warn", leaves=(("repo", "validate"), ("repo", "budget"))),
+    FlagMove("--fail-on-warning", "--fail-on=warn", leaves=(("eval", "check"), ("repo", "budget"))),
     FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
     FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
     FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),

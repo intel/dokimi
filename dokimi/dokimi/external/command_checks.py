@@ -41,13 +41,29 @@ EXAMPLES_SHOWN = 3
 # Prose files: their installs are read from code (fences and spans), as in Markdown.
 PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
 
+# A word that runs what it reads (exec, eval, a shell, a child process); a word that ends a string
+# literal ("eval") is data. A command substitution (``$(``, a backtick) hands the program to the shell.
+_EXEC = (r"(?:(?<!\w)(?:exec|eval|system|popen|spawn|subprocess|child_process|__import__|Function|runpy"
+         r"|instance_eval|instance_exec|class_eval|module_eval|qx)(?!\w*['\"])|\$\(|`)")
+# The inline program after ``-c``/``-e``: one quoted string (it may span lines; a double-quoted one holds ``\"``) or one
+# word, none of it running anything, and ended there: a quoted segment glued to it is part of the program.
+_CLEAN_PROGRAM = (
+    rf"(?:'(?:(?!{_EXEC})[^'])*'|\"(?:\\[\s\S]|(?!{_EXEC})[^\"\\])*\"|(?:(?!{_EXEC})[^\s;&|'\"])+)(?![^\s;&|])"
+)
 # Bounded (500 pieces) so a long line of curl words stays linear; ``||`` is not a pipe, ``|&`` is.
 # A quoted string is taken whole, so a ``&`` or ``;`` in a quoted URL does not end the command.
 PIPE_TO_SHELL = re.compile(
     r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
-    r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
-    r"(?:(?:ba|z|da|k)?sh|fish|python(?:3(?:\.\d+)?)?|node|perl|ruby)\b"
+    r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?(?:"
+    # An inline program (`python -c`, `node -e`, `ruby -e`) or `python -m json.tool` takes the download as data,
+    # unless the program execs or evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
+    r"(?:(?:ba|z|da|k)?sh|fish)\b"
+    rf"|python(?:3(?:\.\d+)?)?(?![\w.])(?![ \t]+-c(?![\w-])[ \t]+{_CLEAN_PROGRAM})(?![ \t]+-m[ \t]+json\.tool(?![\w.-]))"
+    rf"|node\b(?![ \t]+-[ep](?![\w-])[ \t]+{_CLEAN_PROGRAM})"
+    rf"|perl\b(?![ \t]+-[eE](?![\w-])[ \t]+{_CLEAN_PROGRAM})"
+    rf"|ruby\b(?![ \t]+-e(?![\w-])[ \t]+{_CLEAN_PROGRAM})"
+    r")"
 )
 PERMISSION_BYPASS = re.compile(
     r"(?<![\w-])--dangerously-skip-permissions(?![\w-])|(?<![\w-])--yolo(?![\w-])|\bbypassPermissions\b"

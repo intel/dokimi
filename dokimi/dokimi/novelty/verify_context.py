@@ -21,8 +21,9 @@ STATEMENT: {statement}
 SOURCE:
 {source}
 
-CONTEXT (the heading and the lead-in around the source, only for resolving what "this",
-"both" or a list's lead-in refer to; it never supplies the claim, so judge the SOURCE alone):
+CONTEXT (the heading, the lead-in around the source and the span after a lead-in that ends in
+a colon, only for resolving what "this", "both" or a list's lead-in refer to; it never supplies
+the claim, so judge the SOURCE alone):
 {context}
 
 Answer with JSON only:
@@ -46,6 +47,11 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
     (the heading path already says it) or sits in another section. A table row also gets the header
     row of its own table (the row before its delimiter row), which says what its cells mean. The first cited span in document order has no
     cited span before it, so a cited span is never repeated as context.
+
+    When the last cited span in document order ends in a colon, the very next span is added
+    as ``Following:`` (the code block or first item the lead-in points at), unless it is a
+    heading (also one that repeats the section's own title) or in another section. The
+    next span comes after the last cited one, so it is never cited. Only that one span is taken.
     """
     order = {span.id: i for i, span in enumerate(spans)}
     cited = [s for s in span_ids if s in by_id and s in order]
@@ -65,6 +71,12 @@ def context_for(span_ids: Iterable[str], spans: list[Span], by_id: dict[str, Spa
     header = _table_header(order[first], spans)
     if header is not None:
         parts.append("Table header: " + spans[header].text)
+    last = max(cited, key=order.__getitem__)
+    after = order[last] + 1
+    if by_id[last].text.rstrip().endswith(":") and after < len(spans):
+        following = spans[after]
+        if following.kind != "heading" and following.heading_path == by_id[last].heading_path:
+            parts.append("Following: " + following.text)
     return "\n".join(parts) or "(none)"
 
 

@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Optional
 
+from dokimi.llm_json import _outer_block
 from dokimi.metrics.usage import UsageRecord
 
 
@@ -111,10 +111,10 @@ def _last_json_object(text: str) -> Optional[dict]:
             except json.JSONDecodeError:
                 continue
     # Fall back to the last {...} span anywhere in the output.
-    matches = re.findall(r"\{.*\}", text, re.DOTALL)
-    if matches:
+    block = _outer_block(text, "{", "}")
+    if block is not None:
         try:
-            return json.loads(matches[-1])
+            return json.loads(block)
         except json.JSONDecodeError:
             return None
     return None

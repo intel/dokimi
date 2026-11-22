@@ -513,13 +513,13 @@ def _run_cli(argv: list[str]) -> None:
 
 def test_repo_validate_cli(tmp_path, capsys):
     root = _repo(tmp_path)
-    _run_cli(["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+    _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True and out["tasks"]["count"] == 2
 
     _task(root, "bad", id="other")
     with refusal() as exc:
-        _run_cli(["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
+        _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
     assert exc.code == 1
     assert "does not equal the directory name" in capsys.readouterr().err
 
@@ -527,7 +527,7 @@ def test_repo_validate_cli(tmp_path, capsys):
 def test_repo_validate_fail_on_warning(tmp_path, capsys):
     guidance = {**MANIFEST["guidance"], "also_scan": ["no-such-file-*.md"]}
     root = _repo(tmp_path, {**MANIFEST, "guidance": guidance})
-    argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
+    argv = ["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
     _run_cli(argv)  # a warning alone still passes by default
     assert "warning: guidance/also_scan matches no file" in capsys.readouterr().out
     _run_cli([*argv, "--fail-on", "fail"])
@@ -538,22 +538,31 @@ def test_repo_validate_fail_on_warning(tmp_path, capsys):
     assert "warning:" in capsys.readouterr().out
 
 
-def test_repo_validate_out_writes_the_report(tmp_path, capsys):
+def test_repo_validate_json_is_the_report(tmp_path, capsys):
     root = _repo(tmp_path)
-    dest = tmp_path / "validate.json"
-    argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--out", str(dest)]
-    _run_cli(argv)
-    written = json.loads(dest.read_text(encoding="utf-8"))
-    assert written["ok"] is True and written["tasks"]["count"] == 2
-    assert "tasks:" in capsys.readouterr().out  # the summary still prints
-
+    argv = ["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
     _run_cli([*argv, "--json"])
-    assert json.loads(capsys.readouterr().out)["data"] == written
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["data"]["ok"] is True and doc["data"]["tasks"]["count"] == 2
 
-    with refusal() as exc:
-        _run_cli([*argv[:-1], str(tmp_path / "no" / "dir" / "v.json")])
+    _run_cli(argv)  # the summary prints without --json
+    assert "tasks:" in capsys.readouterr().out
+
+    with refusal() as exc:  # a self-check work directory has no meaning for --schema-only
+        _run_cli([*argv, "--out-dir", str(tmp_path / "x")])
     assert exc.code == 2
-    assert "cannot write" in capsys.readouterr().err
+    assert "--schema-only" in capsys.readouterr().err
+    _run_cli([*argv, "--out-dir", "repo-check"])  # the documented default value is accepted, as before
+
+
+def test_schema_only_refuses_the_self_check_options(tmp_path, capsys):
+    root = _repo(tmp_path)
+    argv = ["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
+    for extra in (["--task", "t1"], ["--suite", "s.yaml"], ["--concurrency", "2"], ["--image", "img"]):
+        with refusal() as exc:
+            _run_cli([*argv, *extra])
+        assert exc.code == 2, extra
+        assert "is for the self-check" in capsys.readouterr().err, extra
 
 
 def test_repo_fetch_cli(tmp_path, capsys):
@@ -711,7 +720,7 @@ def test_scan_without_a_manifest_checks_the_default_guidance(tmp_path, capsys):
 
 
 def test_validate_still_needs_a_manifest(tmp_path):
-    args = build_parser().parse_args(["repo", "validate", str(_repo(tmp_path))])
+    args = build_parser().parse_args(["eval", "check", "--schema-only", str(_repo(tmp_path))])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2
