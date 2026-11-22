@@ -70,7 +70,7 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, Iterator, List, Optional, Protocol, Tuple, TypeVar, cast
 
-from dokimi import caching, llm_cli
+from dokimi import caching, llm_cli, llm_sampling
 from dokimi.defaults import bedrock_profile
 from dokimi.llm_json import extract_json_array as extract_json_array
 from dokimi.llm_json import extract_json_object as extract_json_object
@@ -221,18 +221,18 @@ def unsupported_sampling_params(
     Returns an empty list when the check cannot be performed, so an unknown
     model never blocks a run on this account.
     """
-    requested = list(_sampling_kwargs(temperature=temperature, seed=seed))
+    requested = _sampling_kwargs(temperature=temperature, seed=seed)
     if not requested:
         return []
     if (cli := llm_cli.backend(_canonical(provider))) is not None:
         return [n for n in requested if n not in cli.supports]
+    litellm, resolved = _litellm(), resolve_model(model, provider)
     try:
-        supported = _litellm().get_supported_openai_params(model=resolve_model(model, provider)) or []
+        supported = litellm.get_supported_openai_params(model=resolved) or []
     except Exception:  # noqa: BLE001 - litellm raises many types for an unknown model; [] drops nothing
         return []
-    if not supported:
-        return []
-    return [n for n in requested if n not in supported]
+    return [n for n, v in requested.items() if (supported and n not in supported)
+            or llm_sampling.value_refused(litellm, resolved, provider, n, v)]
 
 
 # ── Retry ─────────────────────────────────────────────────────────────────────

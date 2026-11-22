@@ -969,12 +969,12 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
     monkeypatch.setattr(ArmRunner, "run", lambda self, *a, **kw: [])
     arms_run.probe_sampling.cache_clear()
     args = _parse_arms_run(["--judge", "--judge-provider", "amazon-bedrock",
-                            "--judge-model", "claude-sonnet-5-5", "--judge-temperature", "0"])
+                            "--judge-model", "claude-sonnet-5-5", "--judge-temperature", "1"])
     arms_run.run_arms(run_config_from_args(args), ["baseline"], QUESTIONS[:1])
-    Judge(model="claude-sonnet-5-5", provider="amazon-bedrock", temperature=0.0).llm.invoke("p")
+    Judge(model="claude-sonnet-5-5", provider="amazon-bedrock", temperature=1.0).llm.invoke("p")
 
-    assert [m for m in checked if m.startswith("bedrock/")] == [route]
-    assert sent == [(route, 0.0), (route, 0.0)]
+    assert {m for m in checked if m.startswith("bedrock/")} == {route}
+    assert sent == [(route, 1.0), (route, 1.0)]
 
 
 # ── The stamp follows what the judge actually saw ─────────────────────────

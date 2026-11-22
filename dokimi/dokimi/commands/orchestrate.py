@@ -10,8 +10,9 @@ import sys
 from pathlib import Path
 
 from dokimi import cli_flags
+from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import CALLER_CHOICES
-from dokimi.llm_cli import SamplingError, check_sampling
+from dokimi.llm_cli import SamplingError
 from dokimi.utils import check_bedrock_model
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -32,7 +33,8 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     if not getattr(args, "repo", None) and not getattr(args, "description", None):
         raise InputError("either --repo or --description must be provided.")
     try:  # before any persona, question or answer is paid for; the judge would refuse later
-        check_sampling(args.judge_provider, getattr(args, "judge_temperature", None), None)
+        check_judge_sampling(args.judge_provider, getattr(args, "judge_model", None),
+                             getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:  # the same exit as the other judge commands' sampling refusal
         raise InputError(str(exc)) from exc
     check_bedrock_model(args.judge_provider, args.judge_model)  # InputError: exit 2, as above

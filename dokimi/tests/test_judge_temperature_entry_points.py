@@ -278,3 +278,38 @@ def test_arms_run_sampling_litellm_refuses_before_any_call_exits_2(tmp_path, cli
                        "--out-md", str(tmp_path / "a.md"), *flags]) == 2
     assert client_refused == []
     assert "Error: cannot build arms/plugins" in capsys.readouterr().err
+
+
+# A judge temperature the route refuses (Haiku 5.5 on Bedrock takes only the default) is refused
+# before any answer is paid for, by every entry point that runs a judge, not only the reliability commands.
+
+_HAIKU_JUDGE = dict(judge_provider="amazon-bedrock", judge_model="us.anthropic.claude-haiku-5-5",
+                    judge_temperature=0.0)
+
+
+def test_benchmark_refuses_a_judge_temperature_the_route_refuses_before_any_call(requests):
+    from dokimi.commands.benchmark import _refuse_judge_sampling
+    from dokimi.utils import InputError
+
+    with pytest.raises(InputError, match="temperature"):
+        _refuse_judge_sampling(SimpleNamespace(**_HAIKU_JUDGE))
+    assert requests == []
+
+
+def test_evaluate_refuses_a_judge_temperature_the_route_refuses_before_any_call(requests):
+    from dokimi.commands.orchestrate import cmd_evaluate
+    from dokimi.utils import InputError
+
+    with pytest.raises(InputError, match="temperature"):
+        cmd_evaluate(SimpleNamespace(repo="owner/repo", description=None, product="p",
+                                     **_HAIKU_JUDGE))
+    assert requests == []
+
+
+def test_a_judge_constructed_with_a_refused_temperature_fails_before_any_call(requests):
+    from dokimi.eval.judge import Judge
+    from dokimi.llm_cli import SamplingError
+
+    with pytest.raises(SamplingError, match="temperature"):
+        Judge(model="us.anthropic.claude-haiku-5-5", provider="amazon-bedrock", temperature=0.0)
+    assert requests == []

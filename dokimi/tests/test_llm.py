@@ -251,8 +251,9 @@ def test_unsupported_sampling_params_check_the_resolved_route(monkeypatch):
         return ["temperature"]
 
     monkeypatch.setattr(litellm, "get_supported_openai_params", supported)
+    # temperature=1.0: Bedrock refuses any other temperature on Sonnet 5.5 (checked against the service).
     assert unsupported_sampling_params("claude-sonnet-5-5", "amazon-bedrock",
-                                       temperature=0.0, seed=1) == ["seed"]
+                                       temperature=1.0, seed=1) == ["seed"]
     assert seen == [f"bedrock/{bedrock_profile('claude-sonnet-5-5')}"]
     assert unsupported_sampling_params("m", "openai") == []  # nothing requested, nothing checked
 
@@ -267,6 +268,18 @@ def test_unsupported_sampling_params_never_block_when_the_check_fails(monkeypatc
     assert unsupported_sampling_params("m", "openai", seed=1) == []
     monkeypatch.setattr(litellm, "get_supported_openai_params", lambda model: [])
     assert unsupported_sampling_params("m", "openai", seed=1) == []
+
+
+def test_unsupported_sampling_params_catches_a_value_the_route_refuses():
+    # The name check passes temperature on Haiku 5.5, but the route accepts only
+    # temperature=1 (vendor docs: "Omit temperature, top_p, and top_k"). The value
+    # is what litellm refuses, so the check has to look at the value too.
+    assert unsupported_sampling_params("us.anthropic.claude-haiku-5-5", "amazon-bedrock",
+                                       temperature=0.0) == ["temperature"]
+    assert unsupported_sampling_params("us.anthropic.claude-haiku-5-5", "amazon-bedrock",
+                                       temperature=1.0) == []
+    assert unsupported_sampling_params("gpt-6.1-sol", "openai", temperature=0.0) == ["temperature"]
+    assert unsupported_sampling_params("gpt-6.1-sol", "openai", temperature=1.0) == []
 
 
 # ── the response cache ──────────────────────────────────────────────────────

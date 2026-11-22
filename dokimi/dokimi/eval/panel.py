@@ -27,8 +27,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from dokimi.artifacts import save_artifact
 from dokimi.judged import judged_reply
+from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import llm_call
-from dokimi.llm_cli import check_sampling
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import MAX_GROUND_TRUTH_CHARS, _clip_ground_truth
 from dokimi.eval.question_text import require_question_texts
@@ -238,7 +238,7 @@ class JudgePanel:
             for role in DEFAULT_PANEL
         ]
         for j in self.judges:
-            check_sampling(j.provider, j.temperature, j.seed)
+            check_judge_sampling(j.provider, j.model, j.temperature, j.seed)
         self.concurrency = concurrency
 
     @property
