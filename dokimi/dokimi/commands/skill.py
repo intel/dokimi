@@ -122,7 +122,7 @@ def register_skill(skill_sub, positive_int) -> None:
                               f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)")
     atoms_p.add_argument("--extract-model", default=None, dest="extract_model")
     atoms_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=PROVIDERS)
-    atoms_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
+    cli_flags.add(atoms_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     atoms_p.add_argument("--no-verify", action="store_true", dest="no_verify")
     atoms_p.add_argument("--out", default=None)
     add_spend_cap(atoms_p)
@@ -193,7 +193,7 @@ def register_skill(skill_sub, positive_int) -> None:
                                 f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)")
     shorten_p.add_argument("--extract-model", default=None, dest="extract_model")
     shorten_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=PROVIDERS)
-    shorten_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
+    cli_flags.add(shorten_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     shorten_p.add_argument("--lexical-only", action="store_true", dest="lexical_only",
                            help="Run the retention oracle without an LLM adjudicator. Cheap and "
                                 "reproducible, but blind to contradictions")

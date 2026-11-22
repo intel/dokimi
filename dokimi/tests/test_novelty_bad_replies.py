@@ -6,7 +6,7 @@
 intel/dokimi#219. A value-judge reply whose rows are all malformed used to be cached and
 counted as skipped; a conflict reply whose rows could not be used read as "checked, no
 conflicts", and its dropped rows were not counted; and a retry for unusable rows got the
-``--max-tokens`` hint that only a cut-off reply needs.
+``--max-output-tokens`` hint that only a cut-off reply needs.
 """
 
 from __future__ import annotations
@@ -195,7 +195,7 @@ def test_a_judge_retry_for_unusable_rows_does_not_blame_max_tokens():
     assert report.retried_batches > 0
     [retry] = [w for w in report.warnings(len(atoms)) if "re-asked" in w]
     assert "re-asked 3 unusable batches as halves" in retry
-    assert "--max-tokens" not in retry
+    assert "--max-output-tokens" not in retry
 
 
 def test_a_judge_retry_for_a_cut_off_reply_still_advises_max_tokens():
@@ -212,7 +212,7 @@ def test_a_judge_retry_for_a_cut_off_reply_still_advises_max_tokens():
     assert report.unjudged == [] and report.retried_batches == 3
     [retry] = [w for w in report.warnings(len(atoms)) if "re-asked" in w]
     assert "re-asked 3 unparseable batches as halves" in retry
-    assert retry.endswith("a higher --max-tokens avoids the extra calls")
+    assert retry.endswith("a higher --max-output-tokens avoids the extra calls")
 
 
 def test_a_judge_row_with_an_overlong_number_does_not_discard_the_usable_rows(monkeypatch):

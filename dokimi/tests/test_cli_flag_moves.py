@@ -1,7 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The output concept's moves (issue #94 §2.4, F1b): old spellings tombstone, new ones parse the same."""
+"""The output and tokens concepts' moves (issue #94 §2.4, F1b).
+
+Old spellings tombstone, new ones parse the same.
+"""
 
 from __future__ import annotations
 
@@ -71,6 +74,104 @@ def test_old_and_new_spellings_parse_to_the_same_value():
     arms_new = cli.build_parser().parse_args(
         ["arms", "run", "--product", "p", "--questions", "q", "--arms", "baseline", "--out", "a.json"])
     assert arms_new.out_json == "a.json"
+
+
+@pytest.mark.parametrize(("old", "new"), [
+    # `--max-tokens` was retrieval on four leaves and the output ceiling on ten (the tokens concept, F1b)
+    (["answers", "generate", "--product", "p", "--max-tokens", "8"],
+     ["answers", "generate", "--product", "p", "--retrieval-tokens", "8"]),
+    (["benchmark", "preflight", "--library", "x", "--max-tokens", "8"],
+     ["benchmark", "preflight", "--library", "x", "--retrieval-tokens", "8"]),
+    (["skill", "novelty", "atoms", "--max-tokens", "8"], ["skill", "novelty", "atoms", "--max-output-tokens", "8"]),
+    (["tools", "preference", "--max-tokens", "8"], ["tools", "preference", "--max-output-tokens", "8"]),
+    (["skill", "shorten", "--max-tokens", "8"], ["skill", "shorten", "--max-output-tokens", "8"]),
+    # a retired command and a moved flag in one argv: the printed line is the final command
+    (["novelty", "routing", "--max-tokens", "9"], ["skill", "routing", "--max-output-tokens", "9"]),
+    (["skill", "shorten", "--budgets", "0.5"], ["skill", "shorten", "--token-budgets", "0.5"]),
+])
+def test_an_old_token_spelling_tombstones_with_the_new_argv(old, new, capsys):
+    text = _tombstone(old, capsys)
+    assert " ".join(new) in text
+
+
+@pytest.mark.parametrize(("argv", "dest", "value"), [
+    (["answers", "generate", "--product", "p", "--questions", "q", "--retrieval-tokens", "8"], "max_tokens", 8),
+    (["skill", "novelty", "atoms", "--artifact", "skill:s", "--max-output-tokens", "8"],
+     "max_tokens", 8),
+    (["skill", "shorten", "--artifact", "skill:s", "--atoms", "a.json", "--token-budgets", "0.5", "0.25"],
+     "budgets", [0.5, 0.25]),
+])
+def test_the_token_spellings_parse_to_the_same_value(argv, dest, value):
+    assert getattr(cli.build_parser().parse_args(argv), dest) == value
+
+
+def _leaves_with(spelling: str) -> dict[tuple[str, ...], argparse.Action]:
+    """Each leaf of the CLI tree (its argv path) that has ``spelling``, with the action behind it."""
+    found: dict[tuple[str, ...], argparse.Action] = {}
+
+    def walk(node: argparse.ArgumentParser, path: tuple[str, ...]) -> None:
+        for action in node._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, sub in action.choices.items():
+                    walk(sub, (*path, name))
+            elif spelling in action.option_strings:
+                found[path] = action
+
+    walk(cli.build_parser(), ())
+    return found
+
+
+@pytest.mark.parametrize("flag", [f for c in cli_flags.CONCEPTS if c.name == "tokens" for f in c.canonical])
+def test_help_shows_the_registry_metavar_for_each_token_spelling(flag):
+    # without a metavar argparse prints the dest, the old `MAX_TOKENS` / `BUDGETS`
+    leaves = _leaves_with(flag.spelling)
+    assert leaves
+    assert {path: action.metavar for path, action in leaves.items()} == {
+        path: flag.value.split()[0] for path in leaves}
+
+
+_TOKEN_MOVES = [m for m in cli_flags.FLAG_MOVES if m.old in ("--max-tokens", "--budgets")]
+
+
+@pytest.mark.parametrize("move", _TOKEN_MOVES, ids=lambda m: f"{m.old}->{m.new}")
+def test_a_token_move_lists_exactly_the_leaves_that_have_the_new_spelling(move):
+    # a leaf missing here fails with a bare `unrecognized arguments` instead of a `moved:` line
+    assert sorted(move.leaves) == sorted(_leaves_with(move.new))
+
+
+@pytest.mark.parametrize(("old", "new", "leaf"), [
+    (m.old, m.new, leaf) for m in _TOKEN_MOVES for leaf in m.leaves])
+def test_every_token_move_tombstones_on_each_of_its_leaves(old, new, leaf, capsys):
+    text = _tombstone([*leaf, old, "8"], capsys)
+    assert text.startswith("moved: dokimi ")
+    assert " ".join([*leaf, new, "8"]) in text
+
+
+@pytest.mark.parametrize("leaf", sorted(_leaves_with("--retrieval-tokens")))
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_every_retrieval_leaf_refuses_a_count_below_one(leaf, value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        _leaves_with("--retrieval-tokens")[leaf].type(value)
+
+
+@pytest.mark.parametrize("leaf", sorted(_leaves_with("--max-output-tokens")))
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_every_output_token_leaf_refuses_a_count_below_one(leaf, value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        _leaves_with("--max-output-tokens")[leaf].type(value)
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-0.1", "1.5"])
+def test_token_budgets_refuse_values_outside_the_unit_interval(value):
+    for action in _leaves_with("--token-budgets").values():
+        with pytest.raises(argparse.ArgumentTypeError):
+            action.type(value)
+
+
+@pytest.mark.parametrize("value", ["0", "1"])
+def test_token_budget_endpoints_are_valid(value):
+    for action in _leaves_with("--token-budgets").values():
+        assert action.type(value) == float(value)
 
 
 def test_add_refuses_a_spelling_the_concept_does_not_own():

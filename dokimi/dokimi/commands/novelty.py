@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from dokimi import cli_flags
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_run import (add_judge2_args, add_panel_args, add_spend_cap,
                                          attach_panel, exit_if_analyze_partial,
@@ -45,6 +46,7 @@ from dokimi.commands.novelty_routing_report import (
     stop_if_partial,
     warn_blind_skills,
 )
+from dokimi.cli_types import unit_interval
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -664,8 +666,8 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
     parser.add_argument("--all-atoms", action="store_true", dest="all_atoms",
                         help="Probe every extracted atom (opt-in: the expensive sweep); with "
                              "--atoms, every atom in the file, not only the cap's sample")
-    parser.add_argument("--budgets", type=float, nargs="+", default=[0.75, 0.5],
-                        help="Target token fractions for shortening candidates")
+    cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=unit_interval, nargs="+", default=[0.75, 0.5],
+                  dest="budgets", help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
                         help="Disk cache for retention adjudications")
     parser.add_argument("--seed", type=int, default=0,
@@ -694,9 +696,9 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                              "answering model never writes its own answer key)")
     parser.add_argument("--extract-provider", default=None, dest="extract_provider",
                         choices=PROVIDERS)
-    parser.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens",
-                        help="Output-token ceiling. Raise for reasoning models, which can "
-                             "spend the provider default on reasoning and return empty text")
+    cli_flags.add(parser, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None,
+                  dest="max_tokens", help="Output-token ceiling. Raise for reasoning models, which can "
+                  "spend the provider default on reasoning and return empty text")
     parser.add_argument("--arms", default="no_artifact,full",
                         help="Arms to run: no_artifact,full[,placebo][,shuffled]"
                              "[,no_artifact_repeat] (the last is the noise floor)")

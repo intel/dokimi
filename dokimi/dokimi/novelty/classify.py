@@ -134,7 +134,7 @@ class ClassifyReport:
         retried_batches: Calls whose reply failed to parse, or had no usable row, and were
             split and re-asked.
         unusable_retries: The subset of ``retried_batches`` whose reply parsed, with no
-            usable row. Only the rest are cured by a higher ``--max-tokens``.
+            usable row. Only the rest are cured by a higher ``--max-output-tokens``.
         calls: Calls both stages made, splits included.
         value_error: The last value-judge call failure that lost atoms (an unusable reply is
             counted apart).
