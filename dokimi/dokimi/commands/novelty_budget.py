@@ -235,3 +235,29 @@ def print_run_estimate(args: argparse.Namespace, settings, text: str, estimate_u
     low = " (a low projection for this size)" if n_tokens > FITTED_TOKENS_MAX else ""
     print(f"Expected ~${usd:.2f}{low} for this run at list prices ({label}); {cap}",
           file=sys.stderr)
+
+
+def print_estimate_only(args: argparse.Namespace, settings, text: str, estimate_usd) -> None:
+    """The ``--estimate-only`` output of ``analyze``: the projection as JSON, and what it rests on."""
+    from dokimi.novelty.tiers import FITTED_TOKENS_MAX
+
+    estimate, n_tokens = run_estimate(args, settings, text, estimate_usd)
+    # Every arm but the baseline is priced as carrying the artifact; a placebo of another
+    # length is not read.
+    if n_tokens > FITTED_TOKENS_MAX:
+        estimate["usd_extrapolated"] = True
+        print(f"expected_usd extrapolates: the artifact has {n_tokens} tokens and the "
+              f"profiles were fitted on artifacts up to {FITTED_TOKENS_MAX}; the projection "
+              "ran low as the artifact grew", file=sys.stderr)
+    print(json.dumps(estimate, indent=2))
+    print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
+          "measured shape; batch sizes and retries move the real figure.",
+          file=sys.stderr)
+    if args.max_usd is None:
+        print(
+            "expected_usd prices the calls by role at list prices, from a token profile "
+            "fitted on measured runs: a longer artifact or longer answers cost more, and "
+            "a model with no price gives null. Pass --max-usd to stop the run at a "
+            "dollar figure.",
+            file=sys.stderr,
+        )

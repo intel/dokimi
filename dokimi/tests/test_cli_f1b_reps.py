@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from dokimi import cli, cli_routes
@@ -82,12 +84,13 @@ def test_an_old_spelling_is_not_moved_on_a_leaf_that_never_had_it(argv):
     (["subjects", "run"], "--reps N"),
     (["benchmark", "run"], "--reps N"),
     (["catalog", "trigger-probe"], "--reps N"),
-    (["repo", "run"], "--concurrency, -j N"),
-    (["eval", "check"], "--concurrency, -j N"),
+    (["repo", "run"], "--concurrency(?: N)?, -j N"),
+    (["eval", "check"], "--concurrency(?: N)?, -j N"),
     (["catalog", "check"], "--concurrency N"),
 ])
 def test_help_shows_the_registry_metavar_not_the_old_name(argv, usage, capsys):
+    """``usage`` is a pattern: before Python 3.13 argparse repeats the metavar after each option string."""
     with pytest.raises(SystemExit) as exc:
         cli.parse_args([*argv, "--help"])
     assert exc.value.code == 0
-    assert usage in capsys.readouterr().out
+    assert re.search(usage, capsys.readouterr().out)

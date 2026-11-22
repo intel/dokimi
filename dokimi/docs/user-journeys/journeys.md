@@ -194,7 +194,7 @@ whether Docker is available; the budget for agent runs.
 
 1. Find obstacles statically: broken links, missing paths, stale commands and
    ids in the guidance (`python cli.py repo scan`).
-2. Check the evaluation manifest is valid (`python cli.py repo validate --manifest`).
+2. Check the evaluation manifest is valid (`python cli.py eval check --schema-only --manifest`).
 3. Check the guidance reaches the agent at all (`python cli.py repo reach`),
    see J4.
 4. Prepare evals: representative tasks with graders, in the repository's own
@@ -433,7 +433,7 @@ Questions: what users do with the subject; which failures matter most.
 
 **Flow.**
 
-1. Validate what exists (`python cli.py repo validate --manifest`).
+1. Validate what exists (`python cli.py eval check --schema-only --manifest`).
 2. Self-check graders with no model: null, oracle, isolation
    (`python cli.py eval check`).
 3. For judged evals, check the judge: does it tell good answers from
@@ -710,7 +710,7 @@ cost.
 
 **Today.** Baselines exist (`python cli.py baseline save`,
 `python cli.py baseline compare --strict`), as do static gates
-(`python cli.py repo scan --fail-on-fail`). `baseline compare --strict` adds a
+(`python cli.py repo scan --fail-on fail`). `baseline compare --strict` adds a
 non-zero exit only when a model cannot be verified or differs from the
 baseline. Explicit `--max-context-drop` and `--max-lift-drop` thresholds block
 score regressions, requiring complete matched scores and known matching models

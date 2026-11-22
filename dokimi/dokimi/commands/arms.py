@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -341,9 +340,9 @@ def register(sub, positive_int) -> None:
     arms_run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
     arms_run_p.add_argument("--max-iterations", type=positive_int, default=6, dest="max_iterations",
                             help="Max tool-call rounds for agentic arms (agent:/skill-agent:, default: 6)")
-    arms_run_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens",
-                            help="Output-token ceiling per answer. Raise for reasoning models, which "
-                                 "can spend the provider default entirely on reasoning and return empty text")
+    cli_flags.add(arms_run_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens",
+                  help="Output-token ceiling per answer. Raise for reasoning models, which "
+                  "can spend the provider default entirely on reasoning and return empty text")
     arms_run_p.add_argument("--grounded-from-topics", action="store_true", dest="grounded_from_topics",
                             help="Let the judge use a question's expected_topics as ground truth when they "
                                  "are substantive answer statements, enabling the factual_grounding "
@@ -375,7 +374,7 @@ def register(sub, positive_int) -> None:
                                  "text appended to every user turn in a <system-reminder> block")
     arms_run_p.add_argument("--concurrency", type=positive_int, default=5)
     cli_flags.add(arms_run_p, "output", "--out", default=None, dest="out_json",
-                            help="Output JSON path (default: results/arms/{product}.json)")
+                  help="Output JSON path (default: results/arms/{product}.json)")
     arms_run_p.add_argument("--out-md", default=None, dest="out_md",
                             help="Output Markdown report path (default: results/arms/{product}.md)")
     arms_run_p.set_defaults(func=cmd_arms_run)
@@ -388,7 +387,7 @@ def register(sub, positive_int) -> None:
     matrix_run_p.add_argument("--out-dir", default=None, dest="out_dir",
                               help="Directory for per-cell artifacts (default: results/arms/{product}-matrix)")
     cli_flags.add(matrix_run_p, "output", "--out", default=None, dest="out_json",
-                              help="Matrix rollup JSON path")
+                  help="Matrix rollup JSON path")
     matrix_run_p.add_argument("--out-md", default=None, dest="out_md",
                               help="Matrix rollup Markdown path")
     matrix_run_p.add_argument("--no-plugin-deltas", action="store_false", dest="plugin_deltas",
@@ -458,9 +457,9 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
     parser.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
     parser.add_argument("--max-iterations", type=positive_int, default=6, dest="max_iterations",
                         help="Max tool-call rounds for agentic arms (agent:/skill-agent:, default: 6)")
-    parser.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens",
-                        help="Output-token ceiling per answer. Raise for reasoning models, which "
-                             "can spend the provider default entirely on reasoning and return empty text")
+    cli_flags.add(parser, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens",
+                  help="Output-token ceiling per answer. Raise for reasoning models, which "
+                  "can spend the provider default entirely on reasoning and return empty text")
     parser.add_argument("--grounded-from-topics", action="store_true", dest="grounded_from_topics",
                         help="Let the judge use a question's expected_topics as ground truth when they "
                              "are substantive answer statements, enabling the factual_grounding "
@@ -498,7 +497,7 @@ def _load_questions(path: str) -> list[dict]:
     positional ``q0000`` (``_``-prefixed past any id already in the set). Every question needs
     its own id: the judge's context is keyed by it, and the arm runner falls back to
     ``"unknown_q"``; with a shared key the judge cannot tell which question's treatment
-    material belongs to which answer. Duplicated ids are refused, since there is no right
+    material belongs to which answer. The reader refuses duplicated ids, since there is no right
     answer to which question they mean.
     """
     from dokimi.questions.artifact import load_questions
@@ -510,7 +509,6 @@ def _load_questions(path: str) -> list[dict]:
         # The records reader refuses any other id, so a run with one would be paid for and lost.
         if qid is not None and (isinstance(qid, bool) or not isinstance(qid, (str, int))):
             raise ValueError(f"{path}: questions[{i}]: id must be a string or an integer, got {qid!r}")
-    _refuse_duplicate_ids(ids, path)
     print(f"Loaded {len(questions)} questions from {path}")
     return questions
 
@@ -539,14 +537,6 @@ def _refuse_external_trigger_set(path: str) -> None:
             f"--format questions --out q.json`, then run the skill-catalog: arm on q.json")
 
 
-def _refuse_duplicate_ids(ids: list, path: str) -> None:
-    """Raise on a repeated id."""
-    counts = Counter(qid for qid in ids if qid is not None)
-    dupes = sorted(qid for qid, n in counts.items() if n > 1)
-    if dupes:
-        raise ValueError(f"duplicate question ids in {path}: {', '.join(map(repr, dupes[:5]))}")
-
-
 def _with_named_cell(config: ArmsRunConfig, matrix_cells: str | None,
                      matrix_cell: str | None) -> ArmsRunConfig:
     """*config* as the cell named by ``--matrix-cell`` in ``--matrix-cells`` runs it, if one is."""
@@ -567,9 +557,10 @@ def _with_named_cell(config: ArmsRunConfig, matrix_cells: str | None,
 
 def _write_report(path: Path, text: str) -> None:
     """Write a Markdown report, or exit 1 naming ``path`` when it cannot be written."""
+    from dokimi.commands._output import write_report_text
+
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        write_report_text(path, text)
     except OSError as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)

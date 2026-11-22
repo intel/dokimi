@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""How much a call's CPU time grows from size n to 4n: the bound of the linear-scan tests (#505).
+"""How much a call's CPU time grows from size n to 16n: the bound of the linear-scan tests (#505).
 
 A ratio at or above :data:`GROWTH_LIMIT` is measured again, up to :data:`ATTEMPTS` times, keeping the best sample of each size over the attempts (#1007).
 """
@@ -13,7 +13,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-GROWTH_LIMIT = 8  # CPU time at 4n over that at n: about 4 for linear work, 16 for quadratic
+FACTOR = 16  # the larger size over the smaller: a 4x margin each side of the limit
+GROWTH_LIMIT = 64  # CPU time at 16n over that at n: about 16 for linear work, 256 for quadratic
 ATTEMPTS = 3  # a ratio at or above GROWTH_LIMIT is measured again, this many times in all (#1007)
 STEPS = 20  # a sample spans at least this many clock steps, so one step is at most 5% of it
 
@@ -42,19 +43,19 @@ def _sample(clock: Callable[[], float], call: Callable[[], Any], loops: int) -> 
 
 def growth(timed: Callable[[int], Callable[[], Any]], n: int, reps: int = 5,
            clock: Callable[[], float] = time.process_time) -> tuple[float, Any]:
-    """CPU time of the call ``timed(4 * n)`` returns over that of ``timed(n)``'s, and the call's result.
+    """CPU time of the call ``timed(FACTOR * n)`` returns over that of ``timed(n)``'s, and the call's result.
 
     A sample runs a call ``loops`` times, ``loops`` doubled until the call at n spans :data:`STEPS`
     steps of ``clock``: a coarse clock (Windows) times a short call as 0. Both sizes run as many
     loops; the best of ``reps`` interleaved samples each: a slow or busy runner slows both sizes,
-    not the ratio (#505). A burst of load on the 4n samples can still lift the ratio to
+    not the ratio (#505). A burst of load on the 16n samples can still lift the ratio to
     :data:`GROWTH_LIMIT` or more: then the measurement runs again, up to :data:`ATTEMPTS` in all,
     and the best sample of each size over all attempts so far gives the ratio (#1007). A burst
     never lowers a best sample, so one on the n samples of a later attempt cannot hide quadratic
-    work; it stays near 16. Linear work that passes the first time is measured once. The result
+    work; it stays near 256. Linear work that passes the first time is measured once. The result
     is the last call's.
     """
-    calls = [timed(n), timed(4 * n)]
+    calls = [timed(n), timed(FACTOR * n)]
     floor, loops = STEPS * clock_step(clock), 1
     while _sample(clock, calls[0], loops)[0] < floor:
         loops *= 2

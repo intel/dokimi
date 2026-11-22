@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.metrics.example_runner import ExecutionPolicy, run_example
+from tests.waiting import poll_until
 
 
 # Trusted snippets opt out only on macOS; default-cap refusal has dedicated tests.
@@ -46,8 +47,7 @@ def test_subprocess_failure_reports_stderr():
 
 def _gone_soon(pid: int) -> bool:
     """True once ``pid`` no longer runs. A killed process nobody has reaped yet is a zombie."""
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
+    def gone() -> bool:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -57,13 +57,10 @@ def _gone_soon(pid: int) -> bool:
         try:
             state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
         except (FileNotFoundError, ProcessLookupError):
-            if sys.platform == "linux":
-                return True
-            state = ""  # macOS has no /proc; keep checking kill(0).
-        if state == "Z":
-            return True
-        time.sleep(0.05)
-    return False
+            return sys.platform == "linux"  # macOS has no /proc; keep checking kill(0).
+        return state == "Z"
+
+    return poll_until(gone, 5, interval=0.05)
 
 
 @_POSIX_ONLY

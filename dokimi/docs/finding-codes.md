@@ -47,12 +47,13 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `duplicate` | warn | the SKILL.md is identical to another copy; the copy is counted twice | yes |
 | `frontmatter-parse` | error | the frontmatter is not valid YAML | no |
 | `frontmatter-unknown-key` | warn | the frontmatter has a key the spec does not define | yes |
-| `hidden-unicode` | warn | a bidi control, Unicode tag or stray zero-width character in SKILL.md or a bundled text file | yes |
+| `hidden-unicode` | warn | a bidi control or mark, Unicode tag, soft hyphen, invisible format character, variation selector, blank filler or stray zero-width character in SKILL.md or a bundled text file | yes |
 | `install-unpinned` | warn | a bundled script installs a package without a pinned version | yes |
 | `legacy-model-id` | warn | a model ID its vendor has retired or deprecated | yes |
 | `link-dead` | warn | `--online`: a URL in SKILL.md answers 404 or 410; a host that does not resolve counts too (not when an environment proxy carries the URL), once any other probe of the run got an answer (a PyPI or npm lookup counts too, including one that answers 404) | yes |
 | `link-escapes-skill` | warn | a relative link points to a file outside the skill directory | yes |
 | `link-missing` | warn | a relative Markdown link names no file | yes |
+| `listing-over-budget` | warn | `--listing-budget CHARS`: the skills the routing field lists total more than CHARS characters. It is one finding for the scan, not for a skill: it is printed right after the counts, is not in a row, and with `--strict` it exits 1 | yes |
 | `mirror-drift` | warn | a copy of the same directory name in another path has different SKILL.md text | yes |
 | `name-conflict` | warn | the name is also used by a listed skill with different content | yes |
 | `name-format` | error | the name is not a valid skill name (characters or length) | yes |
