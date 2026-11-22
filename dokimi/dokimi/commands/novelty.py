@@ -66,6 +66,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     """Run the full pipeline over one artifact and write the novelty artifact + views."""
     from dokimi.novelty import cost
     from dokimi.artifacts import save_artifact
+    from dokimi.commands._output import write_report_text
     # Import the symbols, not the module: the package re-exports `analyze` as the
     # function, which shadows the submodule of the same name.
     from dokimi.novelty.analyze import AnalyzeConfig, analyze
@@ -153,12 +154,11 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     save_artifact("novelty", result.artifact, out_json)
     verdicts_path = save_panel_verdicts(result, out_json)
     out_md = out_json.with_suffix(".md")
-    out_md.write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
+    write_report_text(out_md, render_novelty_markdown(result.artifact))
     title = f"{artifact_bundle.name or args.artifact} × {answerer.model}"
     view_path = out_dir / ("annotated.html" if args.view_format == "html" else "annotated.md")
     render = render_annotated_html if args.view_format == "html" else render_annotated_markdown
-    view_path.parent.mkdir(parents=True, exist_ok=True)
-    view_path.write_text(render(result.attributions, title=title), encoding="utf-8")
+    write_report_text(view_path, render(result.attributions, title=title))
 
     print(f"OK Saved novelty artifact: {out_json}")
     print(f"OK Saved novelty report:   {out_md}")
@@ -583,6 +583,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
 
 def cmd_novelty_view(args: argparse.Namespace) -> None:
     """Re-render the annotated view from a saved novelty artifact plus its atoms."""
+    from dokimi.commands._output import write_report_text
     from dokimi.commands.novelty_atoms_file import warn_unread
     from dokimi.commands.novelty_view_inputs import load_view_inputs
     from dokimi.novelty.attribute import attribute_spans
@@ -597,8 +598,7 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     render = render_annotated_html if args.format == "html" else render_annotated_markdown
     title = f"{artifact['artifact']['ref']} × {artifact['model']}"
     out = Path(args.out) if args.out else Path(f"annotated.{args.format}")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(attributions, title=title), encoding="utf-8")
+    write_report_text(out, render(attributions, title=title))
     print(f"OK Saved annotated view: {out}")
     print(
         "NOTE colours here come from spans and categories only. For outcome colouring "
