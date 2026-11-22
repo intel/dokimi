@@ -50,12 +50,19 @@ _COVERED_LETTER_RE = re.compile(r"[A-Za-zÀ-ɏḀ-ỿЀ-ӿ぀-ヿ㐀-䶿一-鿿�
 _LETTER_RE = re.compile(r"[^\W\d_]")
 
 
+def _char_before(text: str, pos: int) -> str:
+    """The last non-space character of ``text[:pos]``, found without copying the prefix; empty at the start."""
+    while pos and text[pos - 1].isspace():
+        pos -= 1
+    return text[pos - 1] if pos else ""
+
+
 def _de_verb_in(pattern: "re.Pattern[str]", sentence: str) -> bool:
     """Whether `pattern` matches a verb: lowercase, or capitalised at the sentence start or after a label, bullet or
     opening quote (a capital elsewhere is a noun: `Ruf`)."""
     for m in pattern.finditer(sentence):
-        before = sentence[: m.start()].rstrip()
-        if m.group()[0].islower() or not before or before[-1] in _DE_CLAUSE_OPENERS:
+        before = _char_before(sentence, m.start())
+        if m.group()[0].islower() or not before or before in _DE_CLAUSE_OPENERS:
             return True
     return False
 

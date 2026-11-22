@@ -9,8 +9,9 @@ import time
 
 import pytest
 
-from dokimi.external import read_skill_manifest, review_skills
+from dokimi.external import read_skill_manifest, review_skills, when_cues
 from dokimi.external.validate import when_clause_found
+from tests.work_count import WORK_LIMIT, Tally, work_ratio
 
 # Real-looking descriptions: a native "when" clause, the way a skill author writes it in that language.
 HAS_WHEN = [
@@ -318,6 +319,27 @@ def test_a_long_german_description_without_a_terminator_is_read_in_linear_time()
     for text in ("rufe beim " * 500, "beim nutze " * 500, "Hilft beim Bauen " * 300):
         when_clause_found(text)
     assert time.perf_counter() - started < 0.5
+
+
+class _CountedSentence(str):
+    """A sentence that adds the length of everything read from it, by slice or by index, to ``tally``."""
+
+    tally = Tally()
+
+    def __getitem__(self, key):
+        part = super().__getitem__(key)
+        self.tally.size += len(part)
+        return part
+
+
+def test_a_capitalised_noun_after_beim_is_checked_without_copying_the_text_before_it():
+    # each rejected `Ruf` once copied the text before it: quadratic, 200000 of them took seconds
+    pattern = when_cues._DE_USE_PARTICLE_RES[0][0]
+
+    def run(k):
+        return when_cues._de_verb_in(pattern, _CountedSentence("Hilft beim Schreiben " + "Ruf " * k))
+
+    assert work_ratio(_CountedSentence.tally, run, 500) < WORK_LIMIT
 
 
 def test_an_english_when_clause_still_passes_in_a_cjk_description():
