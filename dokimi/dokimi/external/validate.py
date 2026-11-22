@@ -551,7 +551,7 @@ def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) ->
 def _name_key(name: str) -> str:
     """The name as the corpus analyses compare names: lower case, every run of other characters one hyphen.
 
-    A name with no letter or digit at all (``インシデント``) would key to ``""``
+    A name with no letter, digit or combining mark at all (``★``) would key to ``""``
     and equal every other such name, so it keys to its case-folded self.
     """
     kept = "".join(c if c.isalnum() or unicodedata.category(c).startswith("M") else "-" for c in name.lower())
