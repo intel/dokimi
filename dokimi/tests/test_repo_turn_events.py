@@ -167,7 +167,7 @@ def test_a_turn_without_its_counts_does_not_validate():
     assert schema_errors("repo_event.v1", {**turn, "v": 1}) != []
 
 
-def test_a_v2_turn_without_its_counts_does_not_validate():
+def test_a_turn_without_its_counts_does_not_validate_against_v2():
     turn = {"kind": "turn", "t": None, "turn": 0, "input": 1, "output": 1}  # an integer output is valid; the counts are missing
     errors = schema_errors("repo_event.v2", {**turn, "v": 2})
     assert errors != []

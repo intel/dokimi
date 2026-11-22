@@ -53,6 +53,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `link-dead` | warn | `--online`: a URL in SKILL.md answers 404 or 410; a host that does not resolve counts too (not when an environment proxy carries the URL), once any other probe of the run got an answer (a PyPI or npm lookup counts too, including one that answers 404) | yes |
 | `link-escapes-skill` | warn | a relative link points to a file outside the skill directory | yes |
 | `link-missing` | warn | a relative Markdown link names no file | yes |
+| `listing-over-budget` | warn | `--listing-budget CHARS`: the skills the routing field lists total more than CHARS characters. It is one finding for the scan, not for a skill: it is printed right after the counts, is not in a row, and with `--strict` it exits 1 | yes |
 | `mirror-drift` | warn | a copy of the same directory name in another path has different SKILL.md text | yes |
 | `name-conflict` | warn | the name is also used by a listed skill with different content | yes |
 | `name-format` | error | the name is not a valid skill name (characters or length) | yes |

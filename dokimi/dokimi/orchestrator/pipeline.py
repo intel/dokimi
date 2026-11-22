@@ -61,6 +61,15 @@ def load_questions_payload(path: Path, flag: Optional[str] = None) -> List[Dict[
     return load_questions(path, flag=flag).questions
 
 
+def _read_input_set(path: Path, what: str, fix: str = "") -> List[Dict[str, Any]]:
+    """The records at ``path``, a set the run reads by itself; a set it cannot use is an ``InputError`` (exit 2)."""
+    try:
+        return load_questions_payload(path)
+    except (ValueError, RecursionError, OSError) as exc:  # refused by the schema, not JSON or UTF-8, unreadable
+        named = "" if str(path) in str(exc) else f" {path}"  # a schema refusal already names the file
+        raise InputError(f"{what}{named} cannot be used: {exc}" + (f"\n({fix})" if fix else "")) from exc
+
+
 def _check_custom_questions(path: Path, parse: bool = True) -> None:
     """``--custom-questions`` must be a readable file: missing is ``FileNotFoundError``, a device or directory ``InputError``.
 
@@ -565,7 +574,8 @@ class EvaluationPipeline:
             reused = load_questions_payload(path, "--questions-from")
         elif (not self.force_regen) and self.questions_path.exists():
             path = self.questions_path
-            reused = load_questions_payload(path)
+            reused = _read_input_set(path, "the cached question set of an earlier run",
+                                        "fix or delete it to generate a new set; benchmark run: --force-regen")
         else:
             self._custom_questions = self._load_custom_questions()
             return None
@@ -584,8 +594,10 @@ class EvaluationPipeline:
         if not (path and path.exists()):
             return []
         refuse_device(path, "--custom-questions")
-        flag = None if getattr(self, "golden_pinned", False) else "--custom-questions"  # a golden set's read is lenient
-        custom_questions = load_questions_payload(path, flag)
+        if getattr(self, "golden_pinned", False):  # the golden set of --questions-root: no flag to name
+            custom_questions = _read_input_set(path, "the golden set")
+        else:
+            custom_questions = load_questions_payload(path, "--custom-questions")
         output = getattr(self, "questions_path", None)
         own_output = output is not None and Path(path).resolve() == Path(output).resolve()
         for q in custom_questions:  # records read from the file, not the file
@@ -602,8 +614,7 @@ class EvaluationPipeline:
     def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Merge generated + custom questions, deduplicate."""
         from dokimi.questions import QuestionValidator
-
-        all_questions = generated_questions.copy()
+        from dokimi.questions.normalizer import renumber_taken
 
         # Custom questions: read before the run's first model call by _read_question_inputs.
         custom_questions = getattr(self, "_custom_questions", None)
@@ -611,7 +622,7 @@ class EvaluationPipeline:
         if custom_questions is None:
             custom_questions = self._load_custom_questions()
 
-        all_questions.extend(custom_questions)
+        all_questions = [*renumber_taken(generated_questions, custom_questions), *custom_questions]
 
         # Deduplicate. Curated questions are never the ones dropped: a merge
         # keeps the longest text, which would otherwise let a generated

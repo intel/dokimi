@@ -10,7 +10,9 @@ import sys
 from pathlib import Path
 
 from dokimi.artifacts import ArtifactValidationError
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+from dokimi.process_io import text_file_bytes
 
 
 @contextlib.contextmanager
@@ -56,8 +58,18 @@ def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:
     A command helper: library code that cannot write raises, and the command decides the exit.
     """
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        write_report_text(path, text)
     except OSError as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
         sys.exit(code)
+
+
+def write_report_text(path: Path, text: str) -> None:
+    """Publish a Markdown or HTML report at ``path`` (creating parents); raises ``OSError`` when it cannot.
+
+    A plain file is replaced whole and keeps its group; a symlink, a hard-linked, special or read-only file, or one in a group the user is not in, is written in place as ``write_text`` did, which is not atomic.
+
+    A lone surrogate in ``text`` (a name from JSON, YAML or argv) is written as ``?`` and a pair is joined,
+    where ``Path.write_text`` raises ``UnicodeEncodeError``; other text is written byte for byte as it does.
+    """
+    write_bytes_in_place_or_atomic(path, text_file_bytes(text))

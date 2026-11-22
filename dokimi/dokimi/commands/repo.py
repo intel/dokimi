@@ -31,15 +31,6 @@ def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
     return printable[:max_len]
 
 
-def _write_json(path: str, payload: dict) -> None:
-    """Write a --out report as JSON, or exit 2 with `cannot write`."""
-    try:
-        Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    except OSError as exc:
-        print(f"✗ cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
-
-
 def _parse_source(args: argparse.Namespace) -> RepoSource:
     """The source as typed: a malformed string, an unpinned remote, a local path that is not a directory or a ``--cache-dir`` that is not a usable directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
     from dokimi.repos import RepoSource, SourceError
@@ -93,7 +84,7 @@ def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool 
 
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
-    """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
+    """Validate a repository's repo-eval.yaml and its tasks against one snapshot (`eval check --schema-only`, #94 M1)."""
     from dokimi.repos import check_repo
     from dokimi.repos.source import base_opener
 
@@ -104,15 +95,13 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
     if open_base is None:
         report.notes.append("task bases were not checked: the source has no git history")
 
-    if args.out:
-        _write_json(args.out, report.to_dict())
     failed = not report.ok or bool(args.fail_on == "warn" and report.warnings)
     if args.json:
         reason = None if not failed else (f"{len(report.errors)} error(s)" if not report.ok
                                           else f"{len(report.warnings)} warning(s) under --fail-on warn")
         findings = [cli_output.finding("error", "validate-error", str(e), manifest.path) for e in report.errors]
         findings += [cli_output.finding("warn", "validate-warning", str(w), manifest.path) for w in report.warnings]
-        cli_output.emit_leaf("repo validate", report.to_dict(), status="failed" if failed else "complete",
+        cli_output.emit_leaf("eval check", report.to_dict(), status="failed" if failed else "complete",
                              reason=reason, subjects=[{"subject": manifest.id, "verdict": None, "findings": findings}])
     else:
         mark = "✓" if report.ok else "✗"
@@ -146,7 +135,8 @@ def _read_static(path: str) -> Any:
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
-    from dokimi.commands.repo_scan import scan_subjects
+    from dokimi.commands.repo_scan import baseline_from, scan_subjects
+    from dokimi.repos.l0.config import new_failures
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.l0 import scan_repo
     from dokimi.repos.l0.typecheck import TypecheckError
@@ -161,6 +151,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     except TypecheckError as exc:
         print(f"✗ repo scan --typecheck: {exc}", file=sys.stderr)  # the error says whether the tool or the interpreter
         sys.exit(EXIT_USAGE)
+    baseline_from(args, payload)  # before --out is written: the report holds the annotations, --out may be the baseline
     if args.out:
         try:
             save_artifact("repo_readiness", payload, Path(args.out))
@@ -173,7 +164,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         print(f"✗ --static output not merged: {problem}", file=sys.stderr)
     gate = args.fail_on == "fail"
     if args.json:
-        failed = bool(gate and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
+        failed = bool(gate and (new_failures(payload) or payload["incomplete"]) or static_errors)
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
                              status="failed" if failed else "complete",
                              reason=_scan_reason(payload, static_errors, gate) if failed else None,
@@ -411,25 +402,6 @@ def register(sub, positive_int, eval_sub) -> None:
     )
     cache_help = "Clone cache directory (default: $DOKIMI_REPO_CACHE or ~/.cache/dokimi/repos)"
 
-    validate_p = repo_sub.add_parser(
-        "validate", help="Validate the manifest and every task.json against one snapshot"
-    )
-    validate_p.add_argument("source", help=source_help)
-    validate_p.add_argument(
-        "--manifest",
-        default=".agent-eval/repo-eval.yaml",
-        help="Manifest path relative to the repository root (default: .agent-eval/repo-eval.yaml)",
-    )
-    validate_p.add_argument("--manifest-file", default=None, dest="manifest_file",
-                            help="Read the manifest from this local file instead of from the tree, as if it were "
-                            "at --manifest (for a repository that has not added it yet)")
-    validate_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    validate_p.add_argument("--out", default=None, help="Write the full report as JSON to this file")
-    validate_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
-    cli_flags.add(validate_p, "fail_on", "--fail-on", choices=("warn", "fail"), default=None,
-                  help="warn: exit 1 when the report has any warning or error; fail: exit 1 on an error, as "
-                  "without the flag (for a CI gate)")
-    validate_p.set_defaults(func=cmd_repo_validate, emits_cli_output=True, cli_kind="repo validate")
 
     scan_p = repo_sub.add_parser(
         "scan",
@@ -463,6 +435,9 @@ def register(sub, positive_int, eval_sub) -> None:
                         "are checked against its site-packages. Needs --typecheck")
     scan_p.add_argument("--out", default=None, help="Write the repo_readiness.v1 report to this file")
     scan_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
+    scan_p.add_argument("--baseline", default=None, metavar="FILE",
+                        help="An earlier repo_readiness.v1 report (--out): --fail-on fail then fails only on a "
+                        "claim that report does not also fail")
     cli_flags.add(scan_p, "fail_on", "--fail-on", choices=("fail",), default=None,
                   help="fail: exit 1 when any claim fails, an also_scan file is missing, a guidance file "
                   "or Bazel build input cannot be read, or no guidance file matched (for a CI gate)")
