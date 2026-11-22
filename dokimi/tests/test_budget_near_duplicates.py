@@ -10,6 +10,7 @@ return the same list in the same order (https://github.com/intel/dokimi/issues/9
 from __future__ import annotations
 
 import random
+import tracemalloc
 from itertools import combinations
 
 import pytest
@@ -114,7 +115,29 @@ def test_shared_boilerplate_with_unique_tails_keeps_no_candidate_pair():
     # Every prefix holds "common" and the two unique words, so the prefix filter alone pairs all 60
     # skills; each overlap is 2 of 6 words, below 0.5, and none may be kept.
     words = [{"common", "shared", f"a{n}", f"b{n}"} for n in range(60)]
-    assert candidate_pairs(words, DUPLICATE_JACCARD) == set()
+    assert list(candidate_pairs(words, DUPLICATE_JACCARD)) == []
+
+
+def test_dense_exact_duplicates_are_streamed_not_stored():
+    from dokimi.repos.skill_overlap import candidate_pairs
+
+    count = 1000  # 499,500 qualifying pairs; one tuple each would take about 40 MB
+    words = [{"alpha", "beta", "gamma"} for _ in range(count)]
+    tracemalloc.start()
+    try:
+        seen = sum(1 for _ in candidate_pairs(words, DUPLICATE_JACCARD))
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert seen == count * (count - 1) // 2
+    assert peak < 1_000_000
+
+
+def test_a_pair_is_yielded_once_when_it_is_both_exact_and_partial():
+    from dokimi.repos.skill_overlap import candidate_pairs
+
+    words = [{"a", "b", "c"}, {"a", "b", "c"}, {"a", "b", "c", "d"}]
+    assert sorted(candidate_pairs(words, DUPLICATE_JACCARD)) == [(0, 1), (0, 2), (1, 2)]
 
 
 def test_the_pass_compares_few_of_the_pairs_of_a_catalog_like_corpus(monkeypatch):

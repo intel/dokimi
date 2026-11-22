@@ -4,7 +4,7 @@
 """Candidate pairs for the repo budget's near-duplicate pass (``budget._near_duplicates``).
 
 A pair is reported when the two word sets are equal and non-empty, or when their Jaccard overlap is at
-least ``DUPLICATE_JACCARD`` and each has 3+ words. ``candidate_pairs`` returns those pairs without
+least ``DUPLICATE_JACCARD`` and each has 3+ words. ``candidate_pairs`` yields those pairs one by one without
 looking at every pair: equal sets are grouped, and the rest are found by a prefix filter (rarest words
 first), each candidate checked on the spot. https://github.com/intel/dokimi/issues/995
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Iterator
 from itertools import combinations
 
 MIN_PARTIAL_WORDS = 3
@@ -29,30 +30,33 @@ def _reaches(a: set[str], b: set[str], jaccard: float) -> bool:
     return len(a & b) / len(a | b) >= jaccard
 
 
-def _exact_pairs(words: list[set[str]]) -> set[tuple[int, int]]:
+def _exact_pairs(words: list[set[str]]) -> Iterator[tuple[int, int]]:
     groups: dict[frozenset[str], list[int]] = {}
     for k, w in enumerate(words):
         if w:
             groups.setdefault(frozenset(w), []).append(k)
-    return {pair for group in groups.values() for pair in combinations(group, 2)}
+    for group in groups.values():
+        yield from combinations(group, 2)
 
 
-def _partial_pairs(words: list[set[str]], jaccard: float) -> set[tuple[int, int]]:
+def _partial_pairs(words: list[set[str]], jaccard: float) -> Iterator[tuple[int, int]]:
+    """Pairs of unequal sets that reach ``jaccard``; equal sets are ``_exact_pairs``'s."""
     freq = Counter(w for ws in words if len(ws) >= MIN_PARTIAL_WORDS for w in ws)
     order = sorted((k for k, ws in enumerate(words) if len(ws) >= MIN_PARTIAL_WORDS), key=lambda k: (len(words[k]), k))
     index: dict[str, list[int]] = {}
-    found: set[tuple[int, int]] = set()
     for k in order:
         size = len(words[k])
         prefix = sorted(words[k], key=lambda w: (freq[w], w))[: _prefix_length(size, jaccard)]
         near = {o for w in prefix for o in index.get(w, ())}
-        # Only a pair that reaches J is kept, so a catalog of shared boilerplate keeps no false candidates.
-        found.update((min(k, o), max(k, o)) for o in near if _reaches(words[k], words[o], jaccard))
+        # Only a pair that reaches J is yielded, so a catalog of shared boilerplate yields no false candidates.
+        for o in near:
+            if words[k] != words[o] and _reaches(words[k], words[o], jaccard):
+                yield min(k, o), max(k, o)
         for w in prefix:
             index.setdefault(w, []).append(k)
-    return found
 
 
-def candidate_pairs(words: list[set[str]], jaccard: float) -> set[tuple[int, int]]:
-    """Index pairs (smaller first) that the rule reports; only those are kept, never a pair that fails it."""
-    return _exact_pairs(words) | _partial_pairs(words, jaccard)
+def candidate_pairs(words: list[set[str]], jaccard: float) -> Iterator[tuple[int, int]]:
+    """Index pairs (smaller first) that the rule reports, each once, streamed: none is held here."""
+    yield from _exact_pairs(words)
+    yield from _partial_pairs(words, jaccard)

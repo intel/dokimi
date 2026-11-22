@@ -678,11 +678,13 @@ def _near_duplicates(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
     taken = Counter(s["name"] for s in skills)
     label = [s["path"] if taken[s["name"]] > 1 else s["name"] for s in skills]
     words = [set(_WORD.findall(s["description"].lower())) - _STOP for s in skills]
-    rank = {k: r for r, k in enumerate(sorted(range(len(skills)), key=lambda k: (label[k], k)))}
-    pairs = sorted((tuple(sorted(p, key=rank.__getitem__)) for p in candidate_pairs(words, DUPLICATE_JACCARD)),
-                   key=lambda p: (rank[p[0]], rank[p[1]]))
+    order = sorted(range(len(skills)), key=lambda k: (label[k], k))
+    rank = {k: r for r, k in enumerate(order)}
+    # The one list of pairs, as label ranks: candidate_pairs streams, so nothing else holds them all.
+    ranked = sorted((min(rank[i], rank[j]), max(rank[i], rank[j])) for i, j in candidate_pairs(words, DUPLICATE_JACCARD))
     out = []
-    for i, j in pairs:
+    for ri, rj in ranked:
+        i, j = order[ri], order[rj]
         union = words[i] | words[j]
         if not union:
             continue
