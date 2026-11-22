@@ -149,7 +149,7 @@ class _Splitter:
         script, c = self.script, self.script[i]
         two = script[i:i + 2]
         op = two if two in ("&&", "||") else c if c in ";\n" else ""
-        if c == "&" and not op and script[i - 1:i] not in (">", "<") and script[i + 1:i + 2] != ">":
+        if c == "&" and not op and script[i - 1:i] not in (">", "<", "|") and script[i + 1:i + 2] != ">":
             op = "&"
         if not op and (word := self._case_word(i)):
             self.add(word)
