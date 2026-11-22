@@ -572,6 +572,16 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
+    if args.atom_labels and not args.atom_verdicts:
+        raise InputError("--atom-labels needs --atom-verdicts: the labels are joined to its atoms")
+    shares_text = None
+    if args.atom_labels:
+        from dokimi.artifacts import load_artifact
+        from dokimi.novelty.atom_labels import format_shares, label_shares, load_atom_labels
+
+        record = load_artifact("novelty_atoms", Path(args.atom_verdicts))
+        labels = load_atom_labels(args.atom_labels)
+        shares_text = format_shares(label_shares(record["atoms"], record["artifact_ref"], labels))
     artifact, atoms, spans, saved = load_view_inputs(args.novelty, args.atoms)
     warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # The artifact carries aggregates only: without the atom verdicts a rebuilt view cannot
@@ -584,6 +594,8 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     write_report_text(out, render(attributions, title=title))
     print(f"OK Saved annotated view: {out}")
     print(colour_note(args.atom_verdicts))
+    if shares_text:
+        print(shares_text)
 
 
 def _bundle_from_args(args: argparse.Namespace):
