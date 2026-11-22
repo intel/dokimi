@@ -1293,7 +1293,7 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   `--model`) is refused: one interval would pool two models' shares. The summary leads with
   the already-known share, then lists the skills by **new share per 1k tokens** (the new share
   divided by the skill's size in thousands of tokens; the top ten in text, all in the JSON
-  `ranking`). The ranking has one entry per skill, from its latest `ok` row, so a skill measured by
+  `ranking`; a skill with no or zero token count is not ranked). The ranking has one entry per skill, from its latest `ok` row, so a skill measured by
   two sweeps into one JSONL is listed once; the overall figures still sum every `ok` row.
 - **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
   byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)

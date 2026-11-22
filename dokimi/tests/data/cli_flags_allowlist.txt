@@ -78,7 +78,6 @@
 --input
 --intents
 --items-out
---jobs  # catalog novelty: skills of a sweep run in parallel; --concurrency is taken there by the calls inside one skill
 --jsonl  # catalog check --jsonl (#413 A7): one row per skill to a file; no registry concept yet; a F1b migration names it
 --judge-configs
 --judge-model

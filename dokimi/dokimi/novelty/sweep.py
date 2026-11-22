@@ -113,7 +113,9 @@ def stratum_of(row: Mapping[str, Any], strata: Optional[Mapping[str, str]]) -> s
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return not isinstance(value, float) or math.isfinite(value)
 
 
 def _row_problem(row: Any) -> Optional[str]:
