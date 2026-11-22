@@ -293,7 +293,7 @@ def test_loop_bodies_and_errexit_set_which_status_is_masked(command, masked):
 
 # the case header (#932) ------------------------------------------------------------------------------------------
 
-_OLD_CASE_HEADER = re.compile(r"^(?:(?:\(+|(?:if|then|else|elif|do|while|until|!|\{)(?=\s))\s*)*case\b.*?\bin\b\s*")
+_OLD_CASE_HEADER = re.compile(r"^(?:(?:\(++|(?:if|then|else|elif|do|while|until|!|\{)(?=\s))\s*)*case\b.*?\bin\b\s*")
 
 
 @pytest.mark.parametrize("line", [
