@@ -285,3 +285,40 @@ def test_a_key_file_that_is_not_utf8_is_named_in_the_refusal(tmp_path, monkeypat
     code, err = _preflight(tmp_path, monkeypatch, capsys)
     assert f"Cannot read API key from file '{key}'" in err
     assert code == 2
+
+
+def test_preflight_refuses_an_unreadable_key_file_on_a_vertex_route(tmp_path, monkeypatch, capsys):
+    """`LLM.complete` resolves the configured provider's key on every route, so a vertex route does not excuse an unreadable `file:` key."""
+    missing = tmp_path / "no-such-key"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{missing}")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "anthropic",
+         "--model", "vertex_ai/gemini-2.5-pro", "--judge-provider", "openai", "--judge-model", "gpt-4o",
+         "--out-dir", str(tmp_path / "out")],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    err = capsys.readouterr().err
+    assert f"Cannot read API key from file '{missing}'" in err
+    assert exc.value.code == 2
+
+
+def test_preflight_refuses_an_unreadable_key_file_on_a_bedrock_route(tmp_path, monkeypatch, capsys):
+    """A set `AWS_BEARER_TOKEN_BEDROCK` does not excuse an unreadable `file:` key of the configured provider."""
+    missing = tmp_path / "no-such-key"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{missing}")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "token")
+    monkeypatch.setenv("OPENAI_API_KEY", "key")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "anthropic",
+         "--model", "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0", "--judge-provider", "openai",
+         "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    err = capsys.readouterr().err
+    assert f"Cannot read API key from file '{missing}'" in err
+    assert exc.value.code == 2
