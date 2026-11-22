@@ -7,7 +7,9 @@ description: >-
   dokimi command (`/dokimi run` by default) from someone with write or admin permission
   on the repository, read from the collaborator permission API. Anyone else gets one
   reply and `run` is false. Outputs the pull request number and the head commit at the
-  time of the comment, so the checks run on the commit the commenter saw. Never checks
+  time the gate runs. `/dokimi run <sha>` (7 to 40 hex digits) runs only when that is
+  still the head, so a push after the comment cannot slip in; `require-sha` makes the
+  commit mandatory. Never checks
   out or runs pull request code. Needs `pull-requests: write` (the reply and the
   reaction) and nothing else.
 
@@ -16,6 +18,10 @@ inputs:
     description: The comment's first line must be exactly this (surrounding spaces ignored)
     required: false
     default: /dokimi run
+  require-sha:
+    description: "'true': only `<command> <sha>` runs, and only while <sha> is the pull request's head"
+    required: false
+    default: 'false'
   github-token:
     description: Token for the permission lookup, the reaction and the reply
     required: false
@@ -29,7 +35,7 @@ outputs:
     description: Pull request number (when run is true)
     value: ${{ steps.gate.outputs.pr }}
   head-sha:
-    description: The pull request's head commit when the comment was read (when run is true)
+    description: The pull request's head commit when the gate ran (when run is true); the checks run on it
     value: ${{ steps.gate.outputs.head-sha }}
 
 runs:
@@ -41,6 +47,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         COMMAND: ${{ inputs.command }}
+        REQUIRE_SHA: ${{ inputs.require-sha }}
         EVENT: ${{ github.event_name }}
         REPO: ${{ github.repository }}
         PR: ${{ github.event.issue.number }}
@@ -58,7 +65,17 @@ runs:
         first=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r')
         first="${first#"${first%%[![:space:]]*}"}"
         first="${first%"${first##*[![:space:]]}"}"
-        if [ "$first" != "$COMMAND" ]; then
+        # The command alone, or the command, one space-separated commit and nothing else.
+        want=""
+        if [ "$first" = "$COMMAND" ]; then :
+        elif [ "${first#"$COMMAND "}" != "$first" ]; then
+          want="${first#"$COMMAND "}"; want="${want#"${want%%[![:space:]]*}"}"
+          if ! [[ "$want" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            echo "Comment is not the command; nothing to do."
+            exit 0
+          fi
+          want=${want,,}
+        else
           echo "Comment is not the command; nothing to do."
           exit 0
         fi
@@ -68,15 +85,17 @@ runs:
         fi
         # `.permission` is admin, write, read or none (maintain reads as write, triage as read).
         # A failed lookup is a refusal, never a pass.
+        reply() {
+          printf '%s\n' "$1" > "$RUNNER_TEMP/dokimi-pr-command-reply.md"
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$RUNNER_TEMP/dokimi-pr-command-reply.md" >/dev/null ||
+            echo "::warning title=dokimi pr-command::the reply could not be posted"
+        }
         perm=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null) || perm=none
         case "$perm" in
           admin|write) ;;
           *)
             echo "::notice title=dokimi pr-command::$ACTOR has '$perm' permission; the command needs write or admin"
-            printf '%s\n' "\`$COMMAND\` needs write or admin permission on this repository; it was not run." \
-              > "$RUNNER_TEMP/dokimi-pr-command-reply.md"
-            gh api -X POST "repos/$REPO/issues/$PR/comments" -F "body=@$RUNNER_TEMP/dokimi-pr-command-reply.md" >/dev/null ||
-              echo "::warning title=dokimi pr-command::the reply could not be posted"
+            reply "\`$COMMAND\` needs write or admin permission on this repository; it was not run."
             exit 0
             ;;
         esac
@@ -84,6 +103,14 @@ runs:
         if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
           echo "::error title=dokimi pr-command::could not read the pull request's head commit"
           exit 1
+        fi
+        if [ -z "$want" ] && [ "$REQUIRE_SHA" = true ]; then
+          reply "This repository runs \`$COMMAND <sha>\` only: name the head commit (\`$sha\`) to run it."
+          exit 0
+        fi
+        if [ -n "$want" ] && [ "${sha#"$want"}" = "$sha" ]; then
+          reply "\`$want\` is not the head of this pull request (\`$sha\`); nothing was run."
+          exit 0
         fi
         # A reaction tells the commenter it was picked up; failing to add it does not stop the run.
         gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=rocket >/dev/null 2>&1 || true

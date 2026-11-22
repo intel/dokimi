@@ -23,8 +23,8 @@ Only someone with `write` or `admin` permission on the repository (`maintain` co
 `GET /repos/{owner}/{repo}/collaborators/{login}/permission`; a failed lookup counts as no
 permission. Anyone else gets one reply saying the command needs write permission, and no
 check runs. The command must be the comment's whole first line (spaces around it are
-ignored): a comment quoting it later, or `/dokimi runs`, does nothing. A comment on an
-issue, not a pull request, does nothing. A picked-up command gets a 🚀 reaction.
+ignored), optionally followed by one commit: a comment quoting it later, or `/dokimi runs`, does nothing. A comment on an
+issue, not a pull request, does nothing. A bot account has no collaborator permission, so it is refused like a reader. A picked-up command gets a 🚀 reaction.
 
 ## How the jobs are split
 
@@ -37,7 +37,11 @@ example keeps the write token away from pull request code:
 | `checks` | `contents: read` | yes, the head commit read by `gate`, checked out with `persist-credentials: false` |
 | `comment` (`actions/opportunities-comment`) | `pull-requests: write` | no: it reads the uploaded findings as data |
 
-The checks run on the head commit at the time of the comment, not on a later push. The
+The checks run on the head commit `gate` reads, which can be a commit pushed after the
+comment while the run was queued. To pin what runs, comment `/dokimi run <sha>` (7 to 40
+hex digits of the head commit): the gate refuses it with a reply when the head has moved.
+Set `require-sha: 'true'` on `actions/pr-command` to accept only that form, for a
+repository where a push between the comment and the run is a concern. The
 comment text is built from the findings, which quote the pull request's files: `@`
 mentions and `<!--` are broken with a zero-width space, so the table cannot ping anyone
 or forge the comment's marker. No step interpolates `${{ }}` into a `run:` script; every
@@ -45,7 +49,7 @@ value reaches the shell through `env:`.
 
 ## Inputs
 
-`actions/pr-command`: `command` (`/dokimi run`), `github-token` (the job token). Outputs
+`actions/pr-command`: `command` (`/dokimi run`), `require-sha` (`false`), `github-token` (the job token). Outputs
 `run` (`true`/`false`), `pr`, `head-sha`.
 
 `actions/opportunities-comment`: `inputs-dir` (required), `pr` (required), `head-sha`
