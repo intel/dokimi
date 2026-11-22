@@ -400,7 +400,7 @@
             {"key": "--summary-only", "action": "_StoreTrueAction", "choices": null, "const": true, "default": false, "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null},
             {"key": "--summary-out", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
             {"key": "--tier", "action": "_StoreAction", "choices": ["'standard'", "'study'", "'triage'"], "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
-            {"key": "--token-budgets", "action": "_StoreAction", "choices": null, "const": null, "default": [0.75, 0.5], "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": "+", "position": null, "required": false, "type": "float"}
+            {"key": "--token-budgets", "action": "_StoreAction", "choices": null, "const": null, "default": [0.75, 0.5], "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": "+", "position": null, "required": false, "type": "dokimi.cli_types.unit_interval#3988979284cb"}
           ],
           "path": "dokimi catalog novelty",
           "subcommand_required": null,
