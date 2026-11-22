@@ -15,6 +15,9 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 # threads took test_the_interval_excludes_zero_exactly_when_p_is_below_005 to 27 s under xdist, one thread 3 s.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
+# Imported here, where the warning filter is active, so a third-party import-time warning fails the session
+# once under its own name instead of the first test that imports litellm (#1035).
+import litellm  # noqa: E402
 import pytest
 
 pytest_plugins = ["tests.outcomes.plugin"]
@@ -24,6 +27,18 @@ collect_ignore_glob = ["fixtures/task_formats/*"]
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _git_config_of_the_session(tmp_path_factory):
+    """Tests commit to scratch repositories with the identity of a config of their own, not of the machine they run on:
+    a runner whose user has no name makes ``git commit`` fail, and a developer's global config can change the outcome."""
+    config = tmp_path_factory.mktemp("gitconfig") / "gitconfig"
+    config.write_text("[user]\n\tname = dokimi-tests\n\temail = dokimi-tests@example.com\n", encoding="utf-8")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("GIT_CONFIG_GLOBAL", str(config))
+        yield
+
 
 # A body token no other fixture or source file contains, so an assertion that the skill text
 # reached a prompt cannot pass on some incidental substring.
@@ -79,8 +94,6 @@ def provider_calls(monkeypatch):
     """
     import time
     from types import SimpleNamespace
-
-    import litellm
 
     from dokimi import caching, llm
     from tests.provider_calls import FakeOpenAI, ProviderCalls

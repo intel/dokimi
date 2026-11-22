@@ -24,6 +24,7 @@ from dokimi.cli import build_parser
 from dokimi.datasets_export import export_artifact
 from dokimi.questions.artifact import load_questions, save_questions_artifact, upgrade_questions
 from dokimi.questions.normalizer import canonical_question, normalize_question
+from dokimi.utils import InputError
 from tests.artifact_fixtures import artifact_fixture
 from tests.cli_refusal import refusal
 
@@ -509,9 +510,11 @@ def test_a_set_invalid_after_reading_fails_before_any_model_call(mode, tmp_path,
     kwargs: dict = {"cached": {}, "questions_from": {"questions_from": src},
                     "custom": {"custom_questions_path": src}}[mode]
     pipeline = _pipeline(tmp_path, monkeypatch, **kwargs)
-    with pytest.raises(ArtifactValidationError) as exc:
+    # the run's own cache is an input error, exit 2, naming --force-regen (#687)
+    with pytest.raises(InputError if mode == "cached" else ArtifactValidationError) as exc:
         pipeline.run(concurrency=1)
     msg = str(exc.value)
+    assert ("benchmark run: --force-regen)" in msg) == (mode == "cached")
     assert f"{src} is not a usable question set" in msg
     assert "record 1 (id 'g2'), `question`: '' should be non-empty" in msg
     assert f"Fix in {src}: give each record above a non-empty question" in msg

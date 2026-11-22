@@ -239,6 +239,38 @@ def test_matrix_run_refuses_a_dangling_cells_symlink_before_any_cell_is_answered
     assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err
 
 
+def _arms_markdown(data):
+    from dokimi.report.arms_report import render_arms_report
+
+    return render_arms_report(data)
+
+
+def _plugin_delta_markdown(data):
+    from dokimi.report.plugin_delta_report import render_plugin_delta_report
+
+    return render_plugin_delta_report(data)
+
+
+def _matrix_rollup_markdown(data):
+    from dokimi.report.matrix_rollup_report import render_matrix_rollup_report
+
+    return render_matrix_rollup_report(data)
+
+
+@pytest.mark.parametrize(("render", "data"), [
+    (_arms_markdown, {"library_name": "n\ud800", "arms": ["baseline"]}),
+    (_arms_markdown, {"library_name": "L", "arms": ["n\ud800"]}),
+    (_plugin_delta_markdown, {"library_name": "n\ud800"}),
+    (_matrix_rollup_markdown, {"cells": [{"matrix_cell": "n\ud800"}]}),
+], ids=["arms-library", "arms-arm-name", "plugin-delta", "matrix-rollup"])
+def test_write_report_writes_a_lone_surrogate_as_a_question_mark(tmp_path, render, data):
+    from dokimi.commands.arms import _write_report
+
+    out = tmp_path / "nested" / "r.md"
+    _write_report(out, render(data))
+    assert "n?" in out.read_text(encoding="utf-8")
+
+
 def test_matrix_run_refuses_an_out_dir_through_dotdot_before_any_cell_is_answered(tmp_path, monkeypatch, capsys):
     # nx/.. does not exist until mkdir makes nx, so the lexical walk reaches tmp_path and passes;
     # the dir is made before the first answer, so the blocker is still found before any is paid for.
