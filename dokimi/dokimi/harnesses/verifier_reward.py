@@ -29,9 +29,9 @@ from dokimi.utils import retry_writable
 REWARD_FILES = ("reward.json", "reward.txt")
 
 _REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D+([01](?:\.\d+)?)", re.IGNORECASE)
-# In a reward file the whole number after the label: `reward: 10` or `pass rate: 12/20` is no reward.
+# In a reward file the whole number after a label (`reward: 10`, `pass rate: 12/20` are none); a period may end it.
 _FILE_REWARD_RE = re.compile(
-    r"(?:reward|score|pass[_ -]?rate)\D*?([-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?)(?![\d./%])", re.IGNORECASE)
+    r"(?:reward|score|pass[_ -]?rate)\D*?([-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?)(?![\d/%]|\.\d)", re.IGNORECASE)
 
 
 def reward_in_file(name: str, data: bytes) -> float:
@@ -179,7 +179,8 @@ def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
             value = None
         if value is not None and 0.0 <= value <= 1.0:
             return value
-    match = (_FILE_REWARD_RE if reward_file else _REWARD_RE).search(text)
-    if match and (not reward_file or 0.0 <= float(match.group(1)) <= 1.0):
-        return float(match.group(1))
-    return None
+    if reward_file:  # the first labelled number in [0, 1], as the old pattern skipped `score: 75`
+        labelled = (float(m.group(1)) for m in _FILE_REWARD_RE.finditer(text))
+        return next((v for v in labelled if 0.0 <= v <= 1.0), None)
+    match = _REWARD_RE.search(text)
+    return float(match.group(1)) if match else None
