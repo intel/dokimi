@@ -340,3 +340,16 @@ def test_fail_on_json_reason_names_the_gate(tmp_path, capsys):
     base = ["--root", str(tmp_path), "--kind", "skills", "--json", "--fail-on-code", "description-no-when"]
     assert json.loads(_run(base, capsys)[0])["reason"] == "1 subject(s) fail under --fail-on-code"
     assert json.loads(_run([*base, "--strict"], capsys)[0])["reason"] == "1 subject(s) fail under --strict and --fail-on-code"
+
+
+def test_fail_on_code_and_listing_budget_combine_and_tasks_refuses_both(tmp_path, capsys):
+    """#942, #966: both gates apply to skills; ``--kind tasks`` refuses ``--fail-on-code`` and ``--listing-budget``."""
+    _fail_on_catalog(tmp_path)
+    base = ["--root", str(tmp_path), "--kind", "skills", "--format", "json", "--listing-budget", "5"]
+    out, code = _run([*base, "--fail-on-code", "description-no-when"], capsys)
+    assert code == 1
+    assert json.loads(out)["listing"]["over_budget"] is True
+    assert _run(base, capsys)[1] == 0
+
+    assert _run(["--root", str(tmp_path), "--kind", "tasks", "--fail-on-code", "link-missing"], capsys)[1] == 2
+    assert _run(["--root", str(tmp_path), "--kind", "tasks", "--listing-budget", "5"], capsys)[1] == 2
