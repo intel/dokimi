@@ -14,7 +14,7 @@ from itertools import combinations
 
 import pytest
 
-from dokimi.repos import budget
+from dokimi.repos import budget, skill_overlap
 from dokimi.repos.budget import DUPLICATE_JACCARD, _near_duplicates
 
 
@@ -121,7 +121,7 @@ def test_the_pass_compares_few_of_the_pairs_of_a_catalog_like_corpus(monkeypatch
     rng = random.Random(5)
     tail = [f"t{n}" for n in range(4000)]
     weights = [1.0 / (n + 1) for n in range(len(tail))]
-    skills = []
+    skills: list[dict[str, str]] = []
     for n in range(3000):
         if skills and rng.random() < 0.02:  # a near-copy: one word of an earlier description dropped
             words = rng.choice(skills)["description"].split()
@@ -130,9 +130,15 @@ def test_the_pass_compares_few_of_the_pairs_of_a_catalog_like_corpus(monkeypatch
         else:
             description = " ".join(rng.choices(tail, weights=weights, k=rng.randint(3, 22)))
         skills.append(_skill(n, f"s{n}", description))
-    compared = []
-    real = budget.candidate_pairs
-    monkeypatch.setattr(budget, "candidate_pairs", lambda w, j: compared.append(real(w, j)) or compared[-1])
+    checks = []
+    real = skill_overlap._reaches
+
+    def counting(a, b, jaccard):
+        checks.append(1)
+        return real(a, b, jaccard)
+
+    monkeypatch.setattr(skill_overlap, "_reaches", counting)
     reported = _near_duplicates(skills)
-    assert len(compared) == 1  # the pass takes its pairs from the candidate generator
-    assert len(compared[0]) == len(reported)  # the generator keeps only pairs the rule reports
+    assert reported  # the corpus holds near-copies, so the pass found something
+    all_pairs = len(skills) * (len(skills) - 1) // 2
+    assert len(checks) < all_pairs // 20
