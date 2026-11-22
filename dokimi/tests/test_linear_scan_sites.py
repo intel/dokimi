@@ -1,10 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The loose citation scan took quadratic time on one long token and now takes one pass, with the old result.
+"""Three scans that took quadratic time on one long token or line now take one pass, with the old result.
 
 Each section keeps the old regex as the reference and compares the new code with it on a hand table and
-on seeded random texts from a small alphabet (https://github.com/intel/dokimi/issues/924).
+on seeded random texts from a small alphabet (https://github.com/intel/dokimi/issues/924 and /927).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from dokimi.harnesses import swebench, swebench_grade
 from dokimi.metrics import exploration
 from tests.growth_timing import GROWTH_LIMIT, growth
 
@@ -131,3 +132,129 @@ def test_a_long_token_without_a_citation_is_scanned_in_linear_time() -> None:
 
 def test_unclosed_final_answer_openers_fall_back_in_linear_time() -> None:
     _linear(exploration.parse_final_answer, lambda k: "<final_answer>" * k)
+
+
+# --- swebench_grade.parse_sympy (#927) -----------------------------------------------------------
+
+
+def _old_parse_sympy(log: str) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for match in re.findall(r"(_*) (.*)\.py:(.*) (_*)", log):
+        found[f"{match[1]}.py:{match[2]}"] = "FAILED"
+    endings = {" E": "ERROR", " F": "FAILED", " ok": "PASSED"}
+    for line in log.split("\n"):
+        line = line.strip()
+        if line.startswith("test_"):
+            for suffix, status in endings.items():
+                if line.endswith(suffix):
+                    found[line.split()[0]] = status
+    return found
+
+
+SYMPY_TABLE = [
+    "",
+    "test_one ok\ntest_two F\ntest_three E\n",
+    "_____ sympy/core/tests/test_a.py:12: test_x _____",
+    "________________ sympy/core/tests/test_a.py:12: test_x ________________\nother",
+    "_ a.py:1 _",
+    " a.py:1 ",
+    "a.py:1 ",
+    " a.py:1",
+    " .py:1 ",
+    " .py: ",
+    " x.py:",
+    " x.py: y",
+    "x.py:1 y",
+    " a.py:1 b.py:2 c",
+    " a.py:1 b.py:2 c.py:3 d_",
+    "p a.py:1 q a.py:2 r",
+    "__ a b.py:c d.py:e f __ g",
+    "  a.py:1  ",
+    "a b\nc.py:1 d\n e.py:2 f",
+    " a.py:1 b\r\n c.py:2 d\r\n",
+    " a.py:1 b\rc.py:2 d",
+    " a.py:1 b\x0cc.py:2 d\u2028 e.py:3 f",
+    "\n\n a.py:1 b\n\n",
+    "no closer .py:1",
+    "no opener.py:1 x",
+    "_.py:1 x_",
+    "x __ .py: __ y",
+    "test_a.py:1 F\n x.py:1 y\ntest_b ok",
+]
+
+
+@pytest.mark.parametrize("log", SYMPY_TABLE)
+def test_parse_sympy_reads_as_the_old_regex_did(log: str) -> None:
+    assert swebench_grade.parse_sympy(log) == _old_parse_sympy(log)
+
+
+def test_parse_sympy_matches_the_old_regex_on_random_logs() -> None:
+    logs = _random_texts(["_", ".", "p", "y", ":", " ", "a", "b", "/", "\n", ".py:", "__"], 927, longest=24)
+    assert sum(bool(_old_parse_sympy(t)) for t in logs) > 30
+    for log in logs:
+        assert swebench_grade.parse_sympy(log) == _old_parse_sympy(log), repr(log)
+
+
+def test_parse_sympy_scans_a_long_line_in_linear_time() -> None:
+    _linear(swebench_grade.parse_sympy, lambda k: "a " * k)
+
+
+# --- swebench.test_directives (#927) -------------------------------------------------------------
+
+_OLD_DIFF_HEADER = re.compile(r"diff --git a/.* b/(.*)")
+
+
+def _old_test_directives(repo: str, test_patch: str) -> list[str]:
+    found = _OLD_DIFF_HEADER.findall(test_patch)
+    found = [d for d in found if not d.endswith(swebench._NON_TEST_EXTS)]
+    if repo != "django/django":
+        return found
+    out = []
+    for d in found:
+        d = d[: -len(".py")] if d.endswith(".py") else d
+        d = d[len("tests/"):] if d.startswith("tests/") else d
+        out.append(d.replace("/", "."))
+    return out
+
+
+DIRECTIVES_TABLE = [
+    "",
+    "diff --git a/tests/test_a.py b/tests/test_a.py\n--- a/tests/test_a.py\n+++ b/tests/test_a.py\n",
+    "diff --git a/x.py b/x.py\ndiff --git a/y.py b/y.py\n",
+    "diff --git a/docs/a.rst b/docs/a.rst\ndiff --git a/t.py b/t.py",
+    "diff --git a/a b/b b/c",
+    "diff --git a/a b/b b/",
+    "diff --git a/ b/",
+    "diff --git a/b/",
+    "diff --git a/ b/x",
+    "diff --git a/x b/",
+    "diff --git a/x b/y\r\ndiff --git a/z b/w\r\n",
+    "diff --git a/x b/y\rdiff --git a/z b/w",
+    "diff --git a/x b/y\x0cdiff --git a/z b/w\u2028diff --git a/q b/r",
+    "diff --git a/x diff --git a/y b/z",
+    "diff --git a/x b/y diff --git a/z b/w",
+    "b/x diff --git a/y",
+    " b/x\ndiff --git a/y",
+    "diff --git a/x\n b/y",
+    "xdiff --git a/x b/y",
+    "diff --git a/tests/t/test_q.py b/tests/t/test_q.py\n",
+]
+
+
+@pytest.mark.parametrize("repo", ["x/y", "django/django"])
+@pytest.mark.parametrize("patch", DIRECTIVES_TABLE)
+def test_test_directives_read_as_the_old_regex_did(repo: str, patch: str) -> None:
+    assert swebench.test_directives(repo, patch) == _old_test_directives(repo, patch)
+
+
+def test_test_directives_match_the_old_regex_on_random_patches() -> None:
+    pieces = ["diff --git a/", " b/", "a", "b", "/", " ", "\n", "\r", ".py", "diff --git a/x b/y"]
+    patches = _random_texts(pieces, 928, longest=14)
+    assert sum(bool(_old_test_directives("x/y", t)) for t in patches) > 100
+    for patch in patches:
+        for repo in ("x/y", "django/django"):
+            assert swebench.test_directives(repo, patch) == _old_test_directives(repo, patch), repr(patch)
+
+
+def test_test_directives_scan_a_long_header_line_in_linear_time() -> None:
+    _linear(partial(swebench.test_directives, "x/y"), lambda k: "diff --git a/" * k)
