@@ -354,7 +354,7 @@ def test_the_counts_line_does_not_read_a_not_checked_skill_as_a_plain_ok(tmp_pat
         ),
         pytest.param("Use to find the dominant op under real concurrent traffic.", id="use-to-find"),
         pytest.param("Formats SQL. Use to **format SQL queries**.", id="use-to-markdown"),
-        pytest.param("Formats SQL. Use it to `format` queries.", id="use-it-to-backtick"),
+        pytest.param("Formats SQL. Use this skill to `format` queries.", id="use-this-skill-to-backtick"),
         pytest.param("Use after model-can-it-fit to validate predicted memory.", id="after-name-then-purpose"),
         pytest.param("Use before a release is cut.", id="before-plain-words"),
         pytest.param("Use it after pre-commit hooks run.", id="after-hyphen-then-more"),
@@ -366,8 +366,6 @@ def test_the_counts_line_does_not_read_a_not_checked_skill_as_a_plain_ok(tmp_pat
         pytest.param("Formats SQL. Use when needed to tidy a migration file.", id="needed-then-purpose"),
         pytest.param("Formats SQL. Use when needed, e.g. before a review.", id="needed-comma"),
         pytest.param("Formats SQL. Use when the user asks for formatting, or when needed.", id="needed-after-real-clause"),
-        pytest.param("Use it to find the dominant op.", id="use-it-to"),
-        pytest.param("Use this to tidy a migration file.", id="use-this-to"),
         pytest.param("Formats SQL. Use this skill when needed to tidy a migration file.", id="use-this-skill-needed-purpose"),
     ],
 )

@@ -14,7 +14,7 @@ from typing import Optional
 # A "when" clause or use phrase per language: the model chooses a skill from its description alone.
 # Latin cues take word boundaries, CJK cues are substrings; bare 使用 (use) or 用于 (for) are too broad.
 WHEN_CUES = {
-    "en": r"\b(?:when\s+\w|use for\b|use (?:it |this |these )?to\s+(?![.;!?)])\S|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|"
+    "en": r"\b(?:when\s+\w|use for\b|use (?:this skill )?to\s+(?![.;!?)])\S|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|"
           r"activate\b|invoke this\b|use (?:it |this |these )?(?:when|if|whenever|proactively|anytime)\b|"
           # "Use after sglang-xpu-run." names a skill, not a situation: 2+ hyphens, no of/the/and/or/to/in/on/for part.
           # A dot ends the name only before a space or the end, so "pre-commit-hooks.sh" stays a cue (#969).
