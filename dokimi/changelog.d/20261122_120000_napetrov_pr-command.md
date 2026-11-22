@@ -1,0 +1,3 @@
+### Added
+
+- **`/dokimi run` on a pull request runs your dokimi checks and keeps one opportunities comment.** Two new composite actions: `actions/pr-command` gates an `issue_comment` trigger (the comment's first line must be the command, and the commenter must have `write` or `admin` permission, read from the collaborator permission API; anyone else gets one reply and nothing runs) and outputs the pull request number and its head commit; `actions/opportunities-comment` runs `dokimi report opportunities --format markdown --top-n N` over the findings your checks wrote and creates or updates one comment with the table. Copy `docs/examples/dokimi-pr-command.yml` and replace its check step; see `docs/pr-command.md`.
