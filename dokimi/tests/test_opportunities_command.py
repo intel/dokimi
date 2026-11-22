@@ -55,7 +55,7 @@ def test_json_output_is_a_valid_opportunities_v1_file(inputs, tmp_path):
 
 
 def test_markdown_honours_top(inputs):
-    proc = subprocess.run([sys.executable, "cli.py", "report", "opportunities", *inputs, "--top", "2"],
+    proc = subprocess.run([sys.executable, "cli.py", "report", "opportunities", *inputs, "--top-n", "2"],
                           check=True, capture_output=True, text=True)
     rows = [line for line in proc.stdout.splitlines() if line.startswith("| ") and line[2].isdigit()]
     assert [r.split("|")[1].strip() for r in rows] == ["1", "2"]

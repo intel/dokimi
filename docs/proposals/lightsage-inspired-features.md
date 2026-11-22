@@ -88,7 +88,7 @@ positioning Lightsage reports as most predictive), every listed link described, 
 
 ## 5. Recommended next steps
 
-1. Done: `dokimi report opportunities PATH... [--format markdown|json] [--top N] [--out FILE]`
+1. Done: `dokimi report opportunities PATH... [--format markdown|json] [--top-n N] [--out FILE]`
    (inputs detected by content: novelty JSON, repo_static.v1 JSON, llms.txt; `opportunities.v1`
    schema). Still open: a `cli_output` envelope, a user-docs page and outcome test; adapters for
    `catalog check --json`, judge-validity and routing reports; per-atom novelty spans so the

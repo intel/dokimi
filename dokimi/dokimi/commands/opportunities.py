@@ -55,7 +55,7 @@ def cmd_report_opportunities(args: argparse.Namespace) -> None:
         validate_artifact("opportunities", doc)
         text = json.dumps(doc, indent=2) + "\n"
     else:
-        text = opportunities.render_markdown(doc["items"], top=args.top)
+        text = opportunities.render_markdown(doc["items"], top=args.top_n)
     if args.out and args.format == "json":
         save_artifact("opportunities", doc, args.out)
     elif args.out:
@@ -72,6 +72,6 @@ def register(report_sub, positive_int) -> None:
                    help="novelty artifact JSON, repo_static.v1 JSON, or an llms.txt file")
     p.add_argument("--format", default="markdown", choices=["markdown", "json"],
                    help="markdown table (PR comment, terminal) or an opportunities.v1 document")
-    p.add_argument("--top", type=positive_int, default=10, help="Rows in the markdown table (default 10)")
+    p.add_argument("--top-n", type=positive_int, default=10, help="Rows in the markdown table (default 10)")
     p.add_argument("--out", default=None, help="Write to this file instead of stdout")
     p.set_defaults(func=cmd_report_opportunities)
