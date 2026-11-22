@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """`repo scan --baseline FILE` with a deeply nested file is an input error, not a traceback."""
 from __future__ import annotations
 

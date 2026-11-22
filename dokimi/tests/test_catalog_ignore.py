@@ -353,3 +353,18 @@ def test_fail_on_code_and_listing_budget_combine_and_tasks_refuses_both(tmp_path
 
     assert _run(["--root", str(tmp_path), "--kind", "tasks", "--fail-on-code", "link-missing"], capsys)[1] == 2
     assert _run(["--root", str(tmp_path), "--kind", "tasks", "--listing-budget", "5"], capsys)[1] == 2
+
+
+@pytest.mark.parametrize("mode", [[], ["--per-skill"]])
+def test_fail_on_listing_over_budget_gates_the_scan_level_finding(tmp_path, capsys, mode):
+    """#942, #966: ``--fail-on-code listing-over-budget`` exits 1 over the cap without ``--strict``; ``--ignore`` wins."""
+    _skill(tmp_path / "skills", "good", name="good", description="Use when sorting invoices.")
+    base = ["--root", str(tmp_path), "--kind", "skills", "--listing-budget", "1", *mode]
+    assert _run(base, capsys)[1] == 0
+    gate = [*base, "--fail-on-code", "listing-over-budget"]
+    assert _run(gate, capsys)[1] == 1
+    assert _run([*gate, "--ignore", "listing-over-budget"], capsys)[1] == 0
+
+    doc = json.loads(_run([*gate, "--json"], capsys)[0])
+    assert doc["verdict"] == "fail"
+    assert {s["subject"]: s["verdict"] for s in doc["subjects"]}["catalog:listing"] == "fail"

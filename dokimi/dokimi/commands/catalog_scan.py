@@ -453,7 +453,7 @@ def listing_failed(args, report: dict, as_json: bool) -> bool:
 
     The whole-catalog scan, ``--per-skill``, ``--concurrency`` and ``--resume`` all pass the total of their rows'
     ``listing_chars`` here, so a kept row is checked against the cap of this run, not the one it was written under.
-    Over the cap is a ``listing-over-budget`` warning, and exit 1 under ``--strict``; ``--ignore listing-over-budget``
+    Over the cap is a ``listing-over-budget`` warning, and exit 1 under ``--strict`` or ``--fail-on-code listing-over-budget``; ``--ignore listing-over-budget``
     drops both and the line that carries the total. ``over_budget`` stays in the report either way.
     Returns True when the scan must exit 1.
     """
@@ -468,7 +468,7 @@ def listing_failed(args, report: dict, as_json: bool) -> bool:
     if not as_json:
         print(f"warn listing-over-budget: the skill listing is {listing['chars']} characters, over the "
               f"--listing-budget of {cap}")
-    return bool(args.strict)
+    return bool(args.strict) or "listing-over-budget" in (getattr(args, "fail_on", None) or ())
 
 
 def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -> tuple[bool, int]:

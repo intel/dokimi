@@ -319,7 +319,7 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
         # The cap is on the whole listing, not on one skill: its own subject, so the warning and, with --strict, the
         # failure have a name (#966).
         message = f"the skill listing is {listing['chars']} characters, over the --listing-budget of {listing['budget']}"
-        subjects.append({"subject": "catalog:listing", "verdict": "fail" if args.strict else "pass",
+        subjects.append({"subject": "catalog:listing", "verdict": "fail" if args.strict or "listing-over-budget" in (args.fail_on or ()) else "pass",
                          "findings": [cli_output.finding("warn", "listing-over-budget", message, None)]})
     counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ROW_STATES}
     reason = None
