@@ -10,6 +10,7 @@
     "t": {"type": ["number", "null"], "description": "Seconds since the first timestamped trace line; null when the harness has no timestamps."},
     "agent": {"type": "string", "description": "The id of the parent's Agent/Task call that started this event; absent on the parent's events."},
     "denied": {"type": "boolean", "description": "The call was refused and never ran."},
+    "searched": {"type": "array", "items": {"type": "string"}, "description": "On a command event, the workspace paths its grep, egrep, fgrep, rg or git grep parts named as files, in a search that showed lines; on a Claude Code Grep tool event, its path when output_mode was content. Absent when it searched none."},
     "target": {"type": "string", "description": "A probe event's target: what the command asked the host for (cpu, gpu, os, memory, packages, env, network)."},
     "pattern": {"type": "string", "description": "A probe event's configured pattern that the command matched."}
   },
