@@ -76,6 +76,7 @@ def test_an_empty_pytest_run_is_no_verdict_even_with_an_explicit_zero():
 
 @pytest.mark.parametrize("summary", [
     "no tests ran in 0.01s", "3 deselected in 0.02s", "2 skipped in 0.01s",
+    "1 failed in 0.20s\n2 skipped in 0.01s",
     "1 failed in 0.20s\nno tests ran in 0.01s", "1 warning in 0.01s",
 ])
 def test_docker_null_requires_evidence_of_failure_from_pytest(tmp_path, summary):
@@ -348,3 +349,12 @@ def test_tasks_run_help_lists_docker_oracle(capsys):
     text = capsys.readouterr().out
     assert "docker-oracle" in text
     assert "docker-null" in text
+
+
+def test_null_check_docstring_names_the_final_summary_exceptions():
+    from dokimi.harnesses import null_check
+
+    doc = " ".join((null_check.__doc__ or "").split())
+    assert "no tests ran" in doc
+    assert "skip-only" in doc
+    assert "deselect-only" in doc
