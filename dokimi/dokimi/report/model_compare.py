@@ -37,7 +37,8 @@ from typing import Any
 
 from dokimi.records import Record, arm_answers, arm_names, arm_scores, read
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
-from dokimi.eval import sign_flip, stats as arm_stats
+from dokimi.eval import finite_delta, stats as arm_stats
+from dokimi.report import fmt
 from dokimi.utils import InputError, read_json_input
 
 try:
@@ -264,7 +265,7 @@ def pool_replicate_scores(
         merged = dict(rows[0])
         for field in ("with_docs", "without_docs", "delta"):
             vals = [r[field] for r in rows if r.get(field) is not None]
-            merged[field] = (sum(vals) / len(vals)) if vals else None
+            merged[field] = finite_delta.checked_mean(vals, InputError, f"question '{qid}'") if vals else None
         merged["n_replicates"] = len(rows)
         pooled.append(merged)
     return pooled
@@ -434,7 +435,7 @@ def check_run_consistency(
 
 def extract_scores(
     run_data: dict,
-    force_treatment_arm: str | None = None,
+    force_treatment_arm: str | None = None, where: str = "",
 ) -> list[dict]:
     """Extract question-level scores from an arms artifact.
 
@@ -494,11 +495,8 @@ def extract_scores(
             # taken over question ids further down — a run whose scores were
             # dropped here would empty the intersection for every other run too.
             # Downstream aggregation filters None per metric.
-            paired_delta = (
-                treatment_score - baseline_score
-                if treatment_score is not None and baseline_score is not None
-                else None
-            )
+            paired_delta = (finite_delta.checked_delta(treatment_score, baseline_score, InputError, f"{where}question '{qid}'")
+                            if treatment_score is not None and baseline_score is not None else None)
             scores.append(_score_row(evaluation, baseline_score, treatment_score, paired_delta,
                                      treatment_arm))
 
@@ -536,8 +534,8 @@ def extract_scores(
             treatment_score = answer.score(treatment_arm) if treatment_arm else None
 
             if baseline_score is not None and treatment_score is not None:
-                scores.append(_score_row(answer, baseline_score, treatment_score,
-                                         treatment_score - baseline_score, treatment_arm))
+                delta = finite_delta.checked_delta(treatment_score, baseline_score, InputError, f"{where}question '{qid}'")
+                scores.append(_score_row(answer, baseline_score, treatment_score, delta, treatment_arm))
 
     return scores
 
@@ -572,11 +570,6 @@ def _avg(lst: list[float]) -> float:
     return round(sum(lst) / len(lst), 1) if lst else 0.0
 
 
-def _num_or_dash(v: float | None) -> str:
-    """Render a metric, or an em dash when no usable score backs it."""
-    return "—" if v is None else str(v)
-
-
 def _rank_key(field: str):
     """Sort key that ranks runs with no usable value for *field* last."""
     def key(item):
@@ -584,12 +577,6 @@ def _rank_key(field: str):
         return (v is not None, v if v is not None else 0.0)
 
     return key
-
-
-def _fmt_delta(d: float | None) -> str:
-    if d is None:
-        return "N/A"
-    return sign_flip.fmt_delta(d)
 
 
 def significance_test(
@@ -715,7 +702,7 @@ def generate_section_report(
     question into a single labelled row, so the report ranks configurations
     rather than individual samples of one configuration.
     """
-    raw_scores = {run_id: extract_scores(data, force_treatment_arm=treatment_arm) for run_id, data in runs}
+    raw_scores = {run_id: extract_scores(data, force_treatment_arm=treatment_arm, where=f"run '{run_id}', ") for run_id, data in runs}
     replicate_note: list[str] = []
     if pool_replicates:
         runs, run_ids, raw_scores, replicate_note = _pool_section(runs, run_ids, raw_scores)
@@ -866,8 +853,8 @@ def _cost_cell(cs: dict) -> str:
         return "—"
     cost_known, total_calls = cs.get("cost_known_n"), cs.get("total_llm_calls", cs.get("n"))
     if cost_known is not None and total_calls is not None and cost_known < total_calls:
-        return f"${cost_usd:.4f} ({cost_known}/{total_calls})"
-    return f"${cost_usd:.4f}"
+        return f"{fmt.usd(cost_usd)} ({cost_known}/{total_calls})"
+    return fmt.usd(cost_usd)
 
 
 def _resource_usage_lines(runs: list[tuple[str, dict]], pooled: bool) -> list[str]:
@@ -927,12 +914,12 @@ def _overall_summary_lines(run_ids: list[str], summary_stats: dict[str, dict], a
         st = summary_stats[run_id]
         # An arm with no usable score prints as "—" rather than a numeric zero,
         # which would read as a legitimate score of 0/100.
-        delta_str = "—" if st["delta_avg"] is None else f"**{_fmt_delta(st['delta_avg'])}**"
+        delta_str = "—" if st["delta_avg"] is None else f"**{fmt.delta(st['delta_avg'])}**"
         # Make partial coverage visible: a delta over fewer pairs than questions
         # is weaker evidence than the question count alone suggests.
         scored_str = f"{st['n_paired']} ({st['unpaired']} unscored)" if st["unpaired"] else str(st["n_paired"])
-        cells = [str(st["n"]), scored_str, _num_or_dash(st["with_avg"]), _num_or_dash(st["without_avg"]),
-                 delta_str, _num_or_dash(st["improved"]), _num_or_dash(st["degraded"])]
+        cells = [str(st["n"]), scored_str, fmt.plain(st["with_avg"]), fmt.plain(st["without_avg"]),
+                 delta_str, fmt.plain(st["improved"]), fmt.plain(st["degraded"])]
         lines.append(f"| **{run_id}** | " + " | ".join(cells) + " |")
     return lines + [""]
 
@@ -953,10 +940,13 @@ def _adjusted_significance(
                   if s["with_docs"] is not None and s["without_docs"] is not None]
         if paired:
             with_paired, without_paired = zip(*paired, strict=True)
-            sigs[run_id] = significance_test(list(with_paired), list(without_paired), rounded=False)
+            try:
+                finite_delta.check_sum_range([w - wo for w, wo in paired])  # the section's averages are float sums: +inf
+                sigs[run_id] = significance_test(list(with_paired), list(without_paired), rounded=False)
+            except OverflowError as exc:  # finite deltas whose sum leaves the float range
+                raise InputError(f"run '{run_id}': {exc}") from exc
         else:
             sigs[run_id] = None
-
     # The arms' own correction, so the two verdicts cannot drift; a run with no p, or under the floor rule, stays out.
     family = [sig for rid in run_ids if (sig := sigs[rid])]
     arm_stats._apply_correction(family, correction=correction, label="runs")
@@ -977,8 +967,8 @@ def _significance_row(run_id: str, sig: dict) -> str:
     p_adj = sig.get("p_adjusted")
     p_adj_str = p_adj if p_adj is not None else "N/A"
     return (
-        f"| **{run_id}** | {_fmt_delta(sig['delta_mean'])} | {p} | "
-        f"{p_adj_str} | {sig['n_changed']} of {sig['n']} | {_fmt_delta(sig['cohens_d'])} "
+        f"| **{run_id}** | {fmt.delta(sig['delta_mean'], missing='N/A')} | {p} | "
+        f"{p_adj_str} | {sig['n_changed']} of {sig['n']} | {fmt.delta(sig['cohens_d'], missing='N/A')} "
         f"| {sig['effect']} | {sig_mark} |"
     )
 
@@ -1022,8 +1012,7 @@ def _difficulty_cells(sc: list[dict], has_treatment: bool) -> str:
         # Same pairs and one-arm rule as the overall summary: the context mean
         # covers the questions the delta does.
         st = _run_summary(sc)
-        delta_cell = "—" if st["delta_avg"] is None else _fmt_delta(st["delta_avg"])
-        return f" {_num_or_dash(st['with_avg'])} | {delta_cell} |"
+        return f" {fmt.plain(st['with_avg'])} | {fmt.delta(st['delta_avg'])} |"
     # No treatment score in this bucket: report the baseline.
     without_scores = [s["without_docs"] for s in sc if s["without_docs"] is not None]
     wo = _avg(without_scores) if without_scores else None
@@ -1127,17 +1116,17 @@ def _benefit_lines(
         helped_pct = round(100 * st["improved"] / n_paired)
         hurt_pct = round(100 * st["degraded"] / n_paired)
         lines.append(
-            f"| **{run_id}** | **{_fmt_delta(st['delta_avg'])}** | "
+            f"| **{run_id}** | **{fmt.delta(st['delta_avg'], missing='N/A')}** | "
             f"{st['improved']} ({helped_pct}%) | {st['degraded']} ({hurt_pct}%) |"
         )
     return lines + [""]
 
 
-def _rank_table(summary_stats: dict[str, dict], field: str, column: str, fmt) -> list[str]:
+def _rank_table(summary_stats: dict[str, dict], field: str, column: str, cell) -> list[str]:
     """Runs ranked by *field*, those without a value last."""
     ranked = sorted(summary_stats.items(), key=_rank_key(field), reverse=True)
     return [f"| Rank | Run | {column} |", "|---:|---|---:|",
-            *(f"| {rank} | **{run_id}** | {fmt(st[field])} |" for rank, (run_id, st) in enumerate(ranked, 1))]
+            *(f"| {rank} | **{run_id}** | {cell(st[field])} |" for rank, (run_id, st) in enumerate(ranked, 1))]
 
 
 def _ranking_lines(summary_stats: dict[str, dict], has_treatment: bool, arm_label: str) -> list[str]:
@@ -1145,7 +1134,7 @@ def _ranking_lines(summary_stats: dict[str, dict], has_treatment: bool, arm_labe
     if not has_treatment:
         return lines + [
             "### By absolute quality (baseline)",
-            *_rank_table(summary_stats, "without_avg", "Baseline avg", _num_or_dash),
+            *_rank_table(summary_stats, "without_avg", "Baseline avg", fmt.plain),
             "",
             "> **Note:** Treatment utilization ranking requires treatment arm.",
             "",
@@ -1153,9 +1142,9 @@ def _ranking_lines(summary_stats: dict[str, dict], has_treatment: bool, arm_labe
         ]
     return lines + [
         f"### By absolute quality ({arm_label})",
-        *_rank_table(summary_stats, "with_avg", f"{arm_label} avg", _num_or_dash),
+        *_rank_table(summary_stats, "with_avg", f"{arm_label} avg", fmt.plain),
         "",
         "### By treatment utilisation (Delta)",
-        *_rank_table(summary_stats, "delta_avg", "Delta", _fmt_delta),
+        *_rank_table(summary_stats, "delta_avg", "Delta", lambda d: fmt.delta(d, missing="N/A")),
         "",
     ]

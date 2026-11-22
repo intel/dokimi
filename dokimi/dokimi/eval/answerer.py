@@ -24,8 +24,6 @@ from dokimi.defaults import (
 from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE, check_caller_provider
 from dokimi.metrics.usage import UsageRecord, to_record
 
-from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
-
 
 ANSWER_PROMPT_WITH_DOCS = """You are a technical documentation expert answering a user question.
 
@@ -59,6 +57,22 @@ ANSWER_PROMPT_WITH_DOCS_VERBATIM = """Relevant documentation:
 {question}"""
 
 
+def _ground_truth_fields(question: Dict[str, Any]) -> Dict[str, Any]:
+    """The ground truth of a chunk-grounded question, for the answer record (none for other questions)."""
+    if not question.get("ground_truth_chunk"):
+        return {}
+    return {"ground_truth_chunk": question["ground_truth_chunk"],
+            "question_source": question.get("question_source", "chunk")}
+
+
+def _terminated_block(stop_error: Optional[Exception], requested: Optional[int], recorded: int) -> Dict[str, Any]:
+    """The ``terminated`` block of a run that a run-wide error stopped: the file says it is not the whole run."""
+    if stop_error is None:
+        return {}
+    return {"terminated": {"reason": str(stop_error), "questions_requested": requested,
+                           "questions_recorded": recorded}}
+
+
 class Answerer:
     """
     Generate answers to questions using LLM.
@@ -68,6 +82,9 @@ class Answerer:
     - Baseline: answer from LLM knowledge only.
     """
     
+    #: The run's intent, stamped on the answers file (``knowledge`` or ``paired``); ``None`` is a legacy file.
+    run_intent: Optional[str] = None
+
     def __init__(
         self,
         mcp_client=None,
@@ -105,19 +122,11 @@ class Answerer:
         self.top_k = DEFAULT_RETRIEVAL_TOP_K if top_k is None else top_k
         self.debug_retrieval = debug_retrieval
         
-        # Initialize reranker (prefer semantic, fallback to lexical)
-        self.reranker: SentenceTransformerReranker | SimpleReranker
-        if SENTENCE_TRANSFORMERS_AVAILABLE:
-            try:
-                self.reranker = SentenceTransformerReranker(threshold=rerank_threshold)
-                logger.info(f"Semantic reranker initialized with threshold={rerank_threshold:.2f}")
-            except Exception as e:
-                logger.warning(f"Semantic reranker failed ({e}); fallback to lexical reranker")
-                self.reranker = SimpleReranker(threshold=rerank_threshold)
-        else:
-            self.reranker = SimpleReranker(threshold=rerank_threshold)
-            logger.info(f"Lexical reranker initialized with threshold={rerank_threshold:.2f}")
-        
+        # The arms stack's choice (semantic, else lexical), so both stacks rank alike (#228 step 3).
+        from dokimi.treatments.arms import DocTreatment
+
+        self.reranker = DocTreatment._default_reranker(rerank_threshold)
+
         logger.info(f"Answerer initialized: {provider}/{model}, MCP={'yes' if mcp_client else 'no'}")
     
     def generate_answers(
@@ -148,7 +157,9 @@ class Answerer:
         lock = threading.Lock()
         completed = [0]
 
-        stop = threading.Event()  # set by a failed save: queued questions are skipped, not paid for
+        stop = threading.Event()  # set by a failed save or a run-wide error: queued questions are skipped
+        self.stop_error = None
+        self.questions_requested = n
 
         def _process(idx: int, q: Dict) -> None:
             if stop.is_set():
@@ -164,8 +175,12 @@ class Answerer:
                     question=q,
                     max_tokens=max_tokens_per_question
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - the failure is stored on the pair and reported
                 failure = e
+                if getattr(e, "run_wide", False) is True:  # a CLI usage limit or login: queued questions are not paid for
+                    stop.set()
+                    self.stop_error = e  # the command exits nonzero after it saves what was answered
+                done_conditions = getattr(e, "partial_conditions", None) or {}
                 pair = {
                     "question_id": q_id,
                     "question_text": q.get("question") or q.get("text", ""),
@@ -175,7 +190,9 @@ class Answerer:
                     "persona": q.get("persona"),
                     "error": str(e),
                     "with_docs": None,
-                    "without_docs": None
+                    "without_docs": None,
+                    **done_conditions,
+                    **_ground_truth_fields(q),  # a kept context answer is graded with its question's rubric
                 }
             elapsed = time.time() - t0
             with lock:
@@ -202,17 +219,23 @@ class Answerer:
             for f in as_completed(futures):
                 f.result()  # wait for completion
 
-        answers = [results[i] for i in range(n)]
+        answers = [results[i] for i in sorted(results)]
+        self._print_summary(answers, n)
+        return answers
+
+    def _print_summary(self, answers: List[Dict[str, Any]], n: int) -> None:
+        if len(answers) < n:
+            print(f"  Stopped: {n - len(answers)} of {n} questions not asked (run-wide error)", flush=True)
         ok_with = sum(1 for a in answers if a.get("with_docs"))
         ok_without = sum(1 for a in answers if a.get("without_docs"))
         errors = sum(1 for a in answers if a.get("error"))
 
         print("\n✓ Generated answers:", flush=True)
-        print(f"  Context arm:  {ok_with}/{n}", flush=True)
+        if self.mcp_client is not None:  # a knowledge run (--doc-source none) has no context arm to count
+            print(f"  Context arm:  {ok_with}/{n}", flush=True)
         print(f"  Baseline:     {ok_without}/{n}", flush=True)
         if errors:
             print(f"  Errors:       {errors}", flush=True)
-        return answers
     
     def _generate_answer_pair(
         self,
@@ -268,9 +291,14 @@ class Answerer:
         else:
             logger.warning(f"No MCP client - skipping context arm for {qid}")
         
-        # Baseline
-        without_docs_answer = self._generate_without_docs(question_text, verbatim=verbatim)
-        
+        # Baseline. A failure here keeps the context answer already paid for (with its telemetry).
+        try:
+            without_docs_answer = self._generate_without_docs(question_text, verbatim=verbatim)
+        except Exception as exc:
+            carrier: Any = exc  # the pair's completed condition rides on the error for the caller
+            carrier.partial_conditions = {"with_docs": with_docs_answer, "without_docs": None}
+            raise
+
         result = {
             "question_id": qid,
             "question_text": question_text,
@@ -281,10 +309,7 @@ class Answerer:
             "with_docs": with_docs_answer,
             "without_docs": without_docs_answer,
         }
-        # Preserve ground truth chunk for chunk-grounded questions
-        if question.get("ground_truth_chunk"):
-            result["ground_truth_chunk"] = question["ground_truth_chunk"]
-            result["question_source"] = question.get("question_source", "chunk")
+        result.update(_ground_truth_fields(question))
         return result
     
     def _retrieve_docs(
@@ -295,55 +320,27 @@ class Answerer:
         return_metadata: bool = False,
     ) -> Any:
         """
-        Retrieve relevant docs via MCP client with reranking.
-        
+        Retrieve relevant docs through ``DocTreatment``, the arms stack's path (#228 step 3).
+
+        The same request (``max_results=top_k``, ``max_tokens``) and the same docs kept: the top 3
+        after rerank, or the first 3 raw docs when the reranker raises.
+
         Returns:
             (docs, metadata): Reranked docs and retrieval metadata dict
         """
-        metadata = {
-            "raw_count": 0,
-            "after_rerank": 0,
-            "top_score": None,
-            "avg_score": None,
-            "fallback_triggered": False
-        }
-        
-        try:
-            # Retrieve top-k docs, the same request the arms stack sends (max_results=top_k)
-            raw_docs = self.mcp_client.get_library_docs(
-                library_id=library_id,
-                query=question,
-                max_results=self.top_k,
-                max_tokens=max_tokens
-            )
-            metadata["raw_count"] = len(raw_docs)
-            logger.info(f"Retrieved {len(raw_docs)} raw doc chunks")
-            
-            if not raw_docs:
-                return ([], metadata) if return_metadata else []
-            
-            # Rerank docs by relevance
-            reranked_docs = self.reranker.rerank(question, raw_docs)
-            metadata["after_rerank"] = len(reranked_docs)
-            
-            if reranked_docs:
-                scores = [d.get('relevance_score', 0) for d in reranked_docs]
-                metadata["top_score"] = round(max(scores), 3)
-                metadata["avg_score"] = round(sum(scores) / len(scores), 3)
-                
-                # Keep top 3 after reranking
-                docs_out = reranked_docs[:3]
-                return (docs_out, metadata) if return_metadata else docs_out
-            else:
-                # No docs passed threshold
-                metadata["fallback_triggered"] = True
-                logger.warning("No docs passed rerank threshold for question")
-                return ([], metadata) if return_metadata else []
-                
-        except Exception:
-            logger.exception("Context retrieval failed")
-            return ([], metadata) if return_metadata else []
-    
+        from dokimi.treatments.arms import DocTreatment
+
+        arm = DocTreatment(self.mcp_client, name="with_docs", top_k=self.top_k, keep=3,
+                           reranker=self.reranker, retrieval_tokens=max_tokens)
+        config = arm.prepare(question, library_id, library_id=library_id)
+        docs_out = config.injected_context
+        metadata = dict(config.metadata)
+        # Docs came back but none passed the rerank threshold.
+        metadata["fallback_triggered"] = metadata["raw_count"] > 0 and metadata["after_rerank"] == 0
+        if metadata["fallback_triggered"]:
+            logger.warning("No docs passed rerank threshold for question")
+        return (docs_out, metadata) if return_metadata else docs_out
+
     def _generate_with_docs(
         self,
         question: str,
@@ -435,9 +432,12 @@ class Answerer:
         return {
             "generated_at": self._get_timestamp(),
             "method_version": ANSWERING_METHOD_VERSION,
+            **({"run_intent": self.run_intent} if self.run_intent else {}),
             "model": self.model,
             "provider": self.provider,
             "total_questions": len(answers),
+            **_terminated_block(getattr(self, "stop_error", None), getattr(self, "questions_requested", None),
+                                len(answers)),
             "token_usage_summary": total_usage,
             "answers": answers,
         }

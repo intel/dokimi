@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--jobs`` and ``--resume``.
+"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--concurrency`` and ``--resume``.
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
 ``description-near-duplicate``) need every skill reviewed together. This mode gives them up
@@ -9,7 +9,8 @@ and reviews one skill per row. Every SKILL.md body the scan finds is loaded befo
 memory grows with the catalog; lazy per-skill loading is #434). Rows are written in
 catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
 killed midway keeps the rows it wrote, and ``--resume`` reviews only the skills that have no
-row yet or whose directory changed since their row was written (its ``skill_sha256``).
+row yet, whose directory changed since their row was written (its ``skill_sha256``), or whose row
+another dokimi version wrote (``dokimi_version``).
 """
 
 from __future__ import annotations
@@ -19,22 +20,35 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
+from dokimi import __version__
+from dokimi.external.listing import listed_chars
+from dokimi.external.skill_format import UNSUPPORTED_CODE
 from dokimi.utils import InputError
 
 
 def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[Path] = (),
               ignore: frozenset = frozenset()) -> dict:
     """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
-    ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
-    when its frontmatter is broken YAML, and that review's finding is its only finding.
+    ``warn`` for a warning finding only, ``skipped`` for an unloaded skill that no format rule read (its
+    findings left no warning or error, whether or not ``--ignore`` dropped its note), else ``ok``. A skill
+    that did not load has a review only when its SKILL.md is plain Markdown or its frontmatter is broken YAML,
+    and that review's finding is its only finding.
     ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
-    findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
+    findings with those codes before the state is taken; ``ignored`` records the codes in effect.
+    ``listing_chars`` is the skill's entry in the routing field's listing, None when it is not listed;
+    ``listing_name`` is the name the routing field knows the skill by (the loaded name, not the manifest ``name``)."""
     from dokimi.external.catalog_review import entry_relpath
-    from dokimi.external.validate import name_risky_commands, state_of
+    from dokimi.external.skill_format import not_a_failed_load
+    from dokimi.external.findings import state_of
+    from dokimi.external.validate import name_risky_commands
 
     kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
-    state = "error" if not skill.loaded else state_of(kept)
+    # An unloaded SKILL.md that is plain Markdown under OpenCode or an unsupported host is a warning or a note here, not a failed load (skill_format).
+    exempt = not skill.loaded and not_a_failed_load([f.code for f in review.findings] if review else [])  # before --ignore
+    state = "error" if not skill.loaded and not exempt else state_of(kept)
+    if not skill.loaded and exempt and state == "ok":
+        state = "skipped"  # not read by any format rule: not a pass, even when --ignore dropped its note
     return {
         "name": skill.name,
         "manifest_status": None if skill.status is None else str(skill.status),
@@ -42,14 +56,30 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "relpath": entry_relpath(skill),
         "nested_in": nested_in,
         "state": state,
-        "error": skill.error,
+        "error": None if exempt else skill.error,
         "disable_model_invocation": bool(review and review.disable_model_invocation),
         "content_sha256": review.content_sha256 if review else None,
         "skill_sha256": skill_dir_digest(skill, outputs),
+        "dokimi_version": __version__,
         "duplicate_of": review.duplicate_of if review else None,
+        "listing_chars": listed_chars(review),
+        "listing_name": skill.skill.name if skill.skill is not None else None,
         "ignored": sorted(ignore),
-        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
+        "findings": [{"level": f.level, "code": f.code, "message": f.message, **({"script": f.script} if f.script else {})}
+                     for f in kept],
     }
+
+
+def is_plain_markdown(row: dict) -> bool:
+    """Whether the row is a ``SKILL.md`` with no frontmatter: plain Markdown, not a broken skill."""
+    from dokimi.external.no_frontmatter import NO_FRONTMATTER
+
+    return any(f.get("code") == NO_FRONTMATTER for f in row["findings"])
+
+
+def plain_note(plain: int) -> str:
+    """The summary's note on the errors that are plain Markdown with no frontmatter; empty for none."""
+    return f", of them {plain} plain Markdown with no frontmatter" if plain else ""
 
 
 def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
@@ -80,9 +110,22 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
     return (out, out.with_name(out.name + ".part"))
 
 
+def _continued(message: str) -> str:
+    """``message`` with its continuation lines indented under the row, so a multi-line message stays in it."""
+    return message.replace("\n", "\n    ")
+
+
+NOT_CHECKED_CODES = ("description-when-not-checked", UNSUPPORTED_CODE)  # the notes that say a skill was not read
+
+
 def not_checked(row: dict) -> bool:
-    """Whether an ``ok`` row is only ok because the check did not read it (a ``description-when-not-checked`` note)."""
-    return row["state"] == "ok" and any(f["code"] == "description-when-not-checked" for f in row["findings"])
+    """Whether an ``ok`` row is only ok because the check did not read it (a ``NOT_CHECKED_CODES`` note)."""
+    return row["state"] == "ok" and any(f["code"] in NOT_CHECKED_CODES for f in row["findings"])
+
+
+def skipped_note(skipped: int) -> str:
+    """The summary's ``N skipped`` for the unloaded skills no format rule read; empty for none, as ``plain_note``."""
+    return f", {skipped} skipped" if skipped else ""
 
 
 def ok_text(ok: int, unchecked: int) -> str:
@@ -92,21 +135,26 @@ def ok_text(ok: int, unchecked: int) -> str:
 
 def print_skill_row(row: dict) -> None:
     if row["error"] is not None:
-        state = f"ERROR: {row['error']}"
+        state = f"ERROR: {_continued(row['error'])}"
     elif row["state"] == "ok" and not not_checked(row):
         state = "ok"
+    elif row["state"] == "skipped":
+        # An unloaded skill no format rule read: its note says why, and the state does not say ok.
+        note = row["findings"][0] if row["findings"] else None
+        state = "skipped" if note is None else f"skipped: {note['message']}"
     elif row["state"] == "ok":
         # A "not checked" note: the skill was not read, so it is not a pass and the state does not say ok.
-        note = next(f for f in row["findings"] if f["code"] == "description-when-not-checked")
+        note = next(f for f in row["findings"] if f["code"] in NOT_CHECKED_CODES)
         state = f"note: {note['message']}"
     else:
         worst = next(f for f in row["findings"] if f["level"] == row["state"])
-        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
+        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {_continued(worst['message'])}"
     print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
     for f in row["findings"]:
-        print(f"  {f['level']} {f['code']}: {f['message']}")
+        print(f"  {f['level']} {f['code']}: {_continued(f['message'])}")
     if row["disable_model_invocation"]:
-        print("  note disable-model-invocation: true (the model is never offered this skill)")
+        print("  note the model is never offered this skill"
+              " (disable-model-invocation, or opencode/autoinvoke: false under OpenCode)")
     if row["nested_in"] is not None:
         print(f"  note nested in {row['nested_in']}: a SKILL.md inside another skill's directory")
 
@@ -158,7 +206,7 @@ def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iter
     try:
         yield from pool.map(review, pairs, chunksize=32)
     except BrokenProcessPool as exc:
-        raise SystemExit("a --jobs worker process died; the rows written so far are kept: rerun with --resume") from exc
+        raise SystemExit("a --concurrency worker process died; the rows written so far are kept: rerun with --resume") from exc
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
@@ -192,25 +240,29 @@ class _Tally:
 
     def __init__(self, strict: bool) -> None:
         self.strict = strict
-        self.counts = {"ok": 0, "warn": 0, "error": 0}
+        self.counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
+        self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.not_checked = 0
+        self.listing = ListingTotal()  # the compact count of the rows with a listing_chars; no row is kept for it
         self.failed = False
         self.reasons: list[str] = []
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
+        self.plain += is_plain_markdown(row)
         self.not_checked += not_checked(row)
+        self.listing.add(row)
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
-        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
+        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):  # row error: None for a skill_format exemption
             self.failed = True
         reason = strict_reason(row) if self.strict else None
         if reason is not None:
             self.reasons.append(reason)
 
 
-_ROW_STATES = ("ok", "warn", "error")
+ROW_STATES = ("ok", "warn", "error", "skipped")
 
 
 def _is_row(row: object) -> bool:
@@ -218,10 +270,18 @@ def _is_row(row: object) -> bool:
         isinstance(row, dict)
         and isinstance(row.get("name"), str)
         and isinstance(row.get("relpath"), (str, type(None)))
-        and row.get("state") in _ROW_STATES
+        and row.get("state") in ROW_STATES
         and "error" in row
         and isinstance(row.get("findings"), list)
+        and _count_ok(row.get("listing_chars"))
+        and isinstance(row.get("content_sha256"), (str, type(None)))
+        and isinstance(row.get("listing_name"), (str, type(None)))
     )
+
+
+def _count_ok(value: object) -> bool:
+    """A ``listing_chars`` that is null or a nonnegative integer (a bool is not one); absent reads as null."""
+    return value is None or (isinstance(value, int) and not isinstance(value, bool) and value >= 0)
 
 
 def _parse_row(raw: bytes, path: Path, lineno: int) -> Optional[dict]:
@@ -248,8 +308,9 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
     *selected* maps each skill's key to its ``skill_sha256`` now. The file is read line by line and only
     the kept rows are held. A rewrite is due when a line is half-written, when the last line has no
     newline (the next row would be glued onto it), or when a row is for a skill this run does not
-    select, whose directory changed, or was written under other ``--ignore`` codes (the file must
-    match the counts printed).
+    select, whose directory changed, was written under other ``--ignore`` codes (the file must
+    match the counts printed), was written by another dokimi version (or before the version was
+    recorded): a finding a newer version adds is not in the old row, or has no ``listing_chars`` or ``listing_name``.
     """
     rows: list[dict] = []
     dirty = False
@@ -262,8 +323,8 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                 if row is None:
                     continue
                 key = _row_key(row)
-                if (key in selected and "skill_sha256" in row and row["skill_sha256"] == selected[key]
-                        and row.get("ignored", []) == sorted(ignore)):
+                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing_name" in row and row["skill_sha256"] == selected[key]
+                        and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:
                     dirty = True
@@ -315,7 +376,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     counts = tally.counts
     where = f"; {resumed} resumed from {jsonl}" if jsonl is not None and resumed else ""
     print(f"# skills ({declared} declared under {root}; {ok_text(counts['ok'], tally.not_checked)}, {counts['warn']} warn, "
-          f"{counts['error']} error{where})")
+          f"{counts['error']} error{plain_note(tally.plain)}{skipped_note(counts['skipped'])}{where})")
     if jsonl is not None:
         print(f"rows written to {jsonl}")
     else:
@@ -323,6 +384,73 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
             print_skill_row(row)
     print("# granularity: not run with --per-skill (run without it for the merge and split hints)")
     print()
+
+
+class ListingTotal:
+    """The listing characters of the rows added so far, kept as counts so a streamed row can be freed (#966).
+
+    A byte-identical ``SKILL.md`` under another path (a mirror) is one entry, as ``routing.catalog_competitors``
+    keeps one card for it. A skill is a copy of another when the loaded name (``listing_name``, not the manifest
+    name) and ``content_sha256`` match; the first row added stands for the group. A name whose copies differ is
+    left out whole, as ``routing.catalog_competitors`` drops a conflicting name.
+    """
+
+    def __init__(self) -> None:
+        self.kept: dict[tuple, int] = {}
+        self.digests: dict[str, set] = {}
+        self.unkeyed = 0  # rows with no digest or no loaded name: each counts on its own
+
+    def add(self, row: dict) -> None:
+        chars = row.get("listing_chars")
+        if chars is None:
+            return
+        sha = row.get("content_sha256")
+        name = row.get("listing_name")
+        if sha is None or name is None:
+            self.unkeyed += chars
+            return
+        self.digests.setdefault(name, set()).add(sha)
+        self.kept.setdefault((name, sha), chars)
+
+    def total(self) -> int:
+        return self.unkeyed + sum(chars for (name, _), chars in self.kept.items() if len(self.digests[name]) == 1)
+
+
+def listing_total(rows: Iterable[dict]) -> int:
+    """The characters the routing field lists for ``rows`` (see :class:`ListingTotal`)."""
+    listing = ListingTotal()
+    for row in rows:
+        listing.add(row)
+    return listing.total()
+
+
+def row_ignore(args) -> frozenset:
+    """The ``--ignore`` codes a row can carry: ``listing-over-budget`` is the scan's, no row has it, so it is not
+    in ``ignored`` and adding or dropping it does not make ``--resume`` review a skill again."""
+    return frozenset(args.ignore or ()) - {"listing-over-budget"}
+
+
+def listing_failed(args, report: dict, as_json: bool) -> bool:
+    """Apply ``--listing-budget`` to ``report["listing"]["chars"]``: one rule for every scan path (#966).
+
+    The whole-catalog scan, ``--per-skill``, ``--concurrency`` and ``--resume`` all pass the total of their rows'
+    ``listing_chars`` here, so a kept row is checked against the cap of this run, not the one it was written under.
+    Over the cap is a ``listing-over-budget`` warning, and exit 1 under ``--strict``; ``--ignore listing-over-budget``
+    drops both and the line that carries the total. ``over_budget`` stays in the report either way.
+    Returns True when the scan must exit 1.
+    """
+    cap = getattr(args, "listing_budget", None)
+    listing = report.get("listing")
+    if cap is None or listing is None:
+        return False
+    listing["budget"] = cap
+    listing["over_budget"] = listing["chars"] > cap
+    if not listing["over_budget"] or "listing-over-budget" in (args.ignore or ()):
+        return False
+    if not as_json:
+        print(f"warn listing-over-budget: the skill listing is {listing['chars']} characters, over the "
+              f"--listing-budget of {cap}")
+    return bool(args.strict)
 
 
 def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -> tuple[bool, int]:
@@ -344,7 +472,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
     outputs = _outputs(jsonl)
     selected = {key: skill_dir_digest(entry, outputs) if args.resume else None
                 for key, (entry, _) in zip(keys, pairs, strict=True)}
-    ignore = frozenset(args.ignore or ())
+    ignore = row_ignore(args)
     sink = _Jsonl(jsonl, args.resume, selected, ignore) if jsonl is not None else None
     tally = _Tally(args.strict)
     prior = sink.prior if sink is not None else []
@@ -366,4 +494,5 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
         _print_text(root, declared, tally, len(prior), jsonl, report["skills"])
         for line in tally.reasons:
             print(line)
-    return tally.failed, declared
+    report["listing"] = {"chars": tally.listing.total()}
+    return listing_failed(args, report, as_json) or tally.failed, declared

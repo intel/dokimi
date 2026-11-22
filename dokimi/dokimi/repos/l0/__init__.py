@@ -18,16 +18,18 @@ from ..manifest import RepoManifest, match_glob
 from ..source import RepoTree, SourceError
 from ..static import STATUS_CLASSES, check_static, status_class
 from .adapters import ADAPTERS, detect
+from .config import apply_config, load_config
 from .core import Claim, Scan
 from .typecheck import Check, check_fences
 
 __all__ = ["ADAPTERS", "Check", "Claim", "Scan", "guidance_files", "scan_repo"]
 
 
-def guidance_files(tree: RepoTree, manifest: RepoManifest) -> list[str]:
-    """Files the manifest's guidance globs and ``also_scan`` match, in tree order."""
+def guidance_files(tree: RepoTree, manifest: RepoManifest, also: tuple[str, ...] = ()) -> list[str]:
+    """Files the manifest's guidance globs and ``also_scan`` match, and the paths ``also`` names, in tree order."""
     patterns = (*manifest.guidance_globs, *manifest.also_scan)
-    return [f for f in tree.files() if any(match_glob(p, f) for p in patterns)]
+    named = set(also)
+    return [f for f in tree.files() if f in named or any(match_glob(p, f) for p in patterns)]
 
 
 def _coverage_warnings(tree: RepoTree, manifest: RepoManifest, files: list[str]) -> tuple[list[str], list[str]]:
@@ -54,28 +56,34 @@ def _is_build_input(path: str) -> bool:
 
 
 def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | None = None,
-              typecheck: Check | None = None) -> dict[str, Any]:
+              typecheck: Check | None = None, also: tuple[str, ...] = (),
+              not_counted: tuple[str, ...] = ()) -> dict[str, Any]:
     """The ``repo_readiness.v1`` payload (without ``schema_version``) for ``tree``.
+
+    ``also`` names more files to scan as guidance, by path rather than glob: a file named so that matches nothing
+    is no coverage warning.
+    ``not_counted`` are the warnings of the rules the tree cannot list (a link to a directory): the scan is incomplete.
 
     ``static`` is the document the repository's ``static`` entry point wrote.
     Its claims replace the framework's claim on the same file, line and text,
     because the repository knows its own rules better. ``typecheck`` adds the
     ``python_fence`` claims (§8.2); None leaves the Python fences unchecked.
     """
-    files = guidance_files(tree, manifest)
-    scan = Scan(tree, frozenset(manifest.build_systems), repo_url=manifest.source_url, guidance=tuple(files))
+    files = guidance_files(tree, manifest, also)
+    scan = Scan(tree, frozenset(manifest.build_systems), repo_url=manifest.source_url, guidance=tuple(files),
+                guidance_globs=manifest.guidance_globs)
     detected = not manifest.build_systems
     if detected:
         scan.adapters = frozenset(detect(scan))
     adapters = [a for a in ADAPTERS if a in scan.adapters]
     skipped: dict[str, str] = {}
     scan.preload(files, skipped)
-    aliases = _aliases(tree, files)
+    aliases = _aliases(tree, files, manifest.guidance_globs)
     checked = [f for f in files if f not in skipped and f not in aliases]
     for f in checked:
         scan.check_file(f)
     typecheck_block = None if typecheck is None else check_fences(scan, checked, typecheck)
-    framework = [dict(c.to_dict(), source="framework") for c in scan.claims]
+    framework = [dict(c.to_dict(), source="framework") for c in scan.claims]  # a rule's frontmatter is blanked (Scan)
 
     static_info: dict[str, Any] | None = None
     repository: list[dict[str, Any]] = []
@@ -85,12 +93,15 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         static_info = {"errors": problems, "claims": 0, "superseded": 0, "extra": extra}
         if not problems:
             repository = [dict(c, source="repository") for c in static["claims"]]
+            for c in repository:
+                c.pop("baselined", None)  # only a baseline given to this scan marks a claim known
             static_info["claims"] = len(repository)
     keys = {_key(c, scan) for c in repository if c.get("claim") is not None}
     kept = [c for c in framework if _key(c, scan) not in keys]
     if static_info is not None:
         static_info["superseded"] = len(framework) - len(kept)
     claims = sorted(repository + kept, key=lambda c: (c["file"], c["line"], c["source"]))
+    scan_config = apply_config(claims, load_config(tree), scan.files)  # the ignores cover the repository's claims too
 
     warnings, reasons = _coverage_warnings(tree, manifest, files)
     rc_files = scan.cached("bazel", dict).get("unread", {})  # `.bazelrc` imports, whatever their names
@@ -100,6 +111,10 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     unscanned += [f"build file not scanned: {f}: {why}" for f, why in unread.items()]
     warnings += unscanned
     reasons += unscanned  # every warning that makes the scan incomplete, in the order of `warnings`
+    warnings += not_counted
+    warnings += scan_config["errors"]
+    reasons += not_counted
+    reasons += scan_config["errors"]  # a broken scan.toml drops the repository's settings: the scan is incomplete
     sha = getattr(tree, "sha", None)
     return {
         "repo": {"id": manifest.id, "tree": tree.label, "sha": sha, "manifest": manifest.path},
@@ -116,12 +131,16 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         "warnings": warnings,
         "incomplete": bool(reasons),
         "incomplete_reasons": reasons,
+        "scan_config": scan_config,
         "claims": claims,
     }
 
 
-def _aliases(tree: RepoTree, files: list[str]) -> set[str]:
-    """Guidance files that are links to another guidance file: that file is scanned once, as itself."""
+def _aliases(tree: RepoTree, files: list[str], guidance_globs: tuple[str, ...] = ()) -> set[str]:
+    """Guidance files that are links to another guidance file: that file is scanned once, as itself.
+    A rule linking to a file the guidance globs match is not one: Claude Code loads it without its frontmatter."""
+    from dokimi.repos.budget import RULE_GLOB
+
     out = set()
     for f in files:
         try:
@@ -129,6 +148,8 @@ def _aliases(tree: RepoTree, files: list[str]) -> set[str]:
         except SourceError:
             continue
         if target != f and target in files:
+            if RULE_GLOB.match(f) and any(match_glob(g, target) for g in guidance_globs):
+                continue
             out.add(f)
     return out
 

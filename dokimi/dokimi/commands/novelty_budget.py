@@ -48,23 +48,29 @@ def exit_partial(summary: str, path: Path, note: str = "") -> NoReturn:
     raise SystemExit(f"{summary}; the partial result is in {path}{note}")
 
 
+def response_cache_active() -> bool:
+    """Whether the calls this run paid for are in the response cache (``DOKIMI_RESPONSE_CACHE``)."""
+    from dokimi.caching import response_cache_dir, response_store_failed
+
+    try:
+        cache = response_cache_dir()
+    except ValueError:  # the variable names a file: no call was cached
+        return False
+    # Every paid call has gone through the cache by now: a dir missing or read-only kept none,
+    # and one whose write failed (a full disk) may have lost some.
+    return cache is not None and os.access(cache, os.W_OK) and not response_store_failed(cache)
+
+
 def replay_hint(reason: str = "spend_cap") -> str:
     """How a rerun gets the calls this run paid for back at $0: the response cache, which must
     have been set on the run that paid (every novelty call goes through it). A higher
     ``--max-usd`` is advised only for a ``spend_cap`` stop: a call with no price is refused
     whatever the cap, so that stop is cured by a price or by dropping the cap."""
-    from dokimi.caching import RESPONSE_CACHE_ENV, response_cache_dir, response_store_failed
+    from dokimi.caching import RESPONSE_CACHE_ENV
 
-    try:
-        cache = response_cache_dir()
-    except ValueError:  # the variable names a file: no call was cached
-        cache = None
-    # Every paid call has gone through the cache by now: a dir missing or read-only kept none,
-    # and one whose write failed (a full disk) may have lost some.
-    active = (cache is not None and os.access(cache, os.W_OK)
-              and not response_store_failed(cache))
-    if active:
+    if response_cache_active():
         rerun = ("a higher --max-usd" if reason == "spend_cap"
+                 else "the error fixed," if reason == "permanent_error"
                  else "the model priced, or without --max-usd,")
         return (f". Rerun with {rerun} and the same {RESPONSE_CACHE_ENV}: the calls "
                 "already paid for replay at $0 (a cut-off or unusable reply is asked again)")
@@ -103,7 +109,7 @@ def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
 #: shared cap refuses the second judge, so its block is a stop record or empty.
 PARTIAL_SUMMARIES = ("paired", "arms", "abstentions", "reversal_resisted",
                      "reversal_resisted_by_arm", "reversal_paired", "confidence_correlation",
-                     "judge2")
+                     "judge2", "judge_panel")
 
 
 def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
@@ -125,9 +131,12 @@ def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
                "message": message}
     # The jobs run arm by arm, so a cut leaves the arms uneven: the summaries over the answers
     # kept would read as results next to status "partial". The runs stay; the summaries go.
+    panel = payload.get("judge_panel")
     for block in PARTIAL_SUMMARIES:
         if block in payload:
             payload[block] = None
+    if panel:
+        payload["judge_panel"] = {k: panel[k] for k in ("judges", "rule") if k in panel}
     exit_partial(message, write_run(payload, out, partial))
 
 
@@ -176,6 +185,7 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
     ``estimate_usd`` is the command's pricing (``dokimi.novelty.cost.estimate_usd``), looked up
     by the caller at call time, so a test that patches ``cost.estimate_usd`` takes effect.
     """
+    from dokimi.novelty import cost
     from dokimi.novelty.measure import parse_arms
     from dokimi.novelty.spans import segment
     from dokimi.utils import InputError
@@ -194,6 +204,7 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
         args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
         context_share=(n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms,
     )
+    cost.add_panel_calls(args, estimate["estimate"])  # after the price, which counts each judge itself
     return estimate, n_tokens
 
 

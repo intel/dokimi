@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
+import sys
 import tomllib
 from pathlib import Path
 
@@ -23,6 +25,7 @@ RENOVATE_LOCKS = (
     "requirements-docs.lock.txt",
     "requirements-mutation.lock.txt",
     "requirements-fuzz.lock.txt",
+    "requirements-conda-lock.lock.txt",
 )
 # Installed together with --require-hashes (ci.yml, docs.yml, .agent-eval/Dockerfile,
 # make dev), so a pin both carry has to be the same version.
@@ -42,6 +45,7 @@ HASHED_LOCKS = (
     "requirements-docs.lock.txt",
     "requirements-mutation.lock.txt",
     "requirements-fuzz.lock.txt",
+    "requirements-conda-lock.lock.txt",
 )
 # Where the stacked locks are installed: CI's Pythons, and make dev on any OS.
 ENVIRONMENTS = [
@@ -193,6 +197,81 @@ def test_tools_lock_has_every_requested_pin() -> None:
             )
 
 
+def test_conda_lock_tool_lock_is_the_compile_of_its_input() -> None:
+    """conda-lock.yml's job holds a write token: the lock holds exactly the input's pins, nothing transitive and unhashed."""
+    requested = pins("requirements-conda-lock.txt")
+    assert set(requested) == {"py-rattler", "pyyaml"}, requested
+    assert pins("requirements-conda-lock.lock.txt") == requested
+    assert header_command("requirements-conda-lock.lock.txt")[3] == "requirements-conda-lock.txt"
+
+
+def _conda_lock_install_step() -> str:
+    workflow = yaml.safe_load((ROOT.parent / ".github/workflows/conda-lock.yml").read_text(encoding="utf-8"))
+    (run,) = [s["run"] for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Install py-rattler"]
+    return run
+
+
+def test_conda_lock_job_installs_its_tools_from_the_hashed_lock() -> None:
+    """The job runs from the repo root, so the path is repo-relative; --no-deps keeps pip from resolving past the lock."""
+    args = _conda_lock_install_step().split()
+    assert "--require-hashes" in args and "--no-deps" in args, args
+    lock = args[args.index("-r") + 1]
+    assert lock == "dokimi/requirements-conda-lock.lock.txt"
+    assert (ROOT.parent / lock).is_file()
+
+
+CONDA_LOCK_INSTALL = re.compile(r"\bpip3?\s+install\b.*(?:rattler|requirements-conda-lock)")
+
+
+def _unhashed_conda_lock_installs(text: str) -> list[str]:
+    """Lines that `pip install` py-rattler or the conda-lock tool input (not only its lock) without --require-hashes."""
+    lines = text.replace("\\\n", " ").splitlines()
+    return [line.strip() for line in lines if CONDA_LOCK_INSTALL.search(line) and "--require-hashes" not in line]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "pip install py-rattler",
+        "pip3 install py-rattler==0.9",
+        "pip install -r dokimi/requirements-conda-lock.txt",
+        "python -m pip3 install -r dokimi/requirements-conda-lock.txt",
+    ],
+)
+def test_unhashed_conda_lock_install_is_found(line: str) -> None:
+    assert _unhashed_conda_lock_installs(f"run: {line}\n") == [f"run: {line}"]
+
+
+def test_hashed_conda_lock_install_is_not_flagged() -> None:
+    hashed = "run: pip3 install --require-hashes --no-deps -r dokimi/requirements-conda-lock.lock.txt"
+    assert _unhashed_conda_lock_installs(hashed) == []
+
+
+def test_no_workflow_installs_py_rattler_without_hashes() -> None:
+    """A `pip install` of py-rattler or its input file, in conda-lock.yml or a later workflow, must carry --require-hashes."""
+    unhashed = []
+    for path in sorted((ROOT.parent / ".github/workflows").glob("*.y*ml")):
+        unhashed += [(path.name, line) for line in _unhashed_conda_lock_installs(path.read_text(encoding="utf-8"))]
+    assert not unhashed, unhashed
+
+
+def _renovate_file_patterns() -> list[str]:
+    text = (ROOT.parent / ".github" / "renovate.json5").read_text(encoding="utf-8")
+    return re.findall(r"managerFilePatterns:\s*\[([^\]]*)\]", text)
+
+
+def test_renovate_recompiles_the_conda_lock_tool_lock() -> None:
+    """The pip-compile manager reads the lock (and re-runs its header); no regex manager reads the pins out of conda-lock.yml."""
+    patterns = _renovate_file_patterns()
+    (pip_compile,) = [p for p in patterns if "lock" in p and "requirements" in p]
+    regex = re.search(r'"/(.*)/"', pip_compile)
+    assert regex, pip_compile
+    pattern = re.compile(regex[1].replace("\\\\", "\\"))
+    assert pattern.search("dokimi/requirements-conda-lock.lock.txt")
+    assert not pattern.search("dokimi/requirements-conda-lock.txt")
+    assert not [p for p in patterns if "conda-lock" in p and "requirements" not in p], patterns
+
+
 @pytest.mark.parametrize(("base", "name"), STACKED_LOCKS)
 def test_stacked_lock_pins_agree(base: str, name: str) -> None:
     """A refresh of one lock alone makes `pip install -r <base> -r <name>` unresolvable."""
@@ -284,3 +363,304 @@ def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
     assert len(exempt) == 1, exempt
     assert 'matchManagers: ["github-actions"]' in exempt[0]
     assert 'matchUpdateTypes: ["replacement"]' in exempt[0]
+
+
+_MAIN_LOCK = "requirements.lock.txt"
+_QUOTED = str.maketrans(";&|<>()`", "\ue000\ue001\ue002\ue003\ue004\ue005\ue006\ue008")
+_IN_DOUBLE = str.maketrans("()`", "\ue009\ue00a\ue00b")  # a substitution still runs inside double quotes
+_UNQUOTED = {letter: operator for table in (_QUOTED, _IN_DOUBLE) for operator, letter in table.items()}
+_SUBSTITUTION = re.compile("\\$\\(((?:[^()]|\\([^()]*\\))*)\\)|\\$\ue009((?:[^\ue009\ue00a]|\ue009[^\ue009\ue00a]*\ue00a)*)\ue00a"
+                           "|`([^`]*)`|\ue00b([^\ue00b]*)\ue00b")
+_SHELLS = {"sh", "bash", "dash", "zsh", "ash"}
+# The options of pip and of uv pip that take the next word as their value, from pip 26.2's and uv 0.13's own parsers
+_VALUE_OPTIONS = frozenset("""
+--abi --all-releases --allow-insecure-host --build-constraint --build-constraints --cache-dir --cert
+--client-cert --color --config-file --config-setting --config-settings --config-settings-package
+--constraint --constraints --default-index --default-timeout --directory --editable --exclude-newer
+--exclude-newer-package --excludes --exists-action --extra --extra-index-url --find-links
+--fork-strategy --group --implementation --index --index-strategy --index-url --keyring-provider
+--link-mode --local-log --log --log-file --no-binary --no-build-isolation-package --no-editable-package
+--no-sources-package --only-binary --only-final --output-format --overrides --platform --prefix
+--prerelease --prerelease-package --progress-bar --project --proxy --pypi-url --python --python-platform
+--python-version --refresh-package --reinstall-package --report --requirement --requirements
+--requirements-from-script --resolution --resume-retries --retries --root --root-user-action --source
+--source-dir --source-directory --src --target --timeout --torch-backend --trusted-host --upgrade-group
+--upgrade-package --upgrade-strategy --uploaded-prior-to --use-deprecated --use-feature -b -C -c -e -f
+-i -P -p -r -t
+""".split())
+
+
+def _requirement_files(tokens: list[str]) -> list[str]:
+    """The files of pip's requirement options, as scripts/ci_local.py reads them (-r f, -rf, --requirement f|=f),
+    plus a clustered short flag (-qr f) and an abbreviated long one (--requirem f)."""
+    files, args = [], iter(tokens)
+    for token in args:
+        if token == "-r" or re.fullmatch(r"-[A-Za-z]*r", token) or (
+                token.startswith("--requirem") and "--requirement".startswith(token)):
+            files.append(next(args, ""))
+        elif token.partition("=")[0].startswith("--requirem") and "=" in token and "--requirement".startswith(
+                token.partition("=")[0]):
+            files.append(token.partition("=")[2])
+        elif re.fullmatch(r"-[A-Za-z]*?r.+", token):
+            files.append(token[token.index("r") + 1:])
+    return [re.split(r"[/\\]", name)[-1] for name in files]
+
+
+def _exec_form(match: re.Match[str]) -> str:
+    """A Dockerfile ``RUN ["pip", "install", ...]`` line as the shell line it runs; other text is kept."""
+    try:
+        words = json.loads(match.group(1))
+    except ValueError:
+        return match.group(0)
+    return shlex.join(words) if isinstance(words, list) and all(isinstance(w, str) for w in words) else match.group(0)
+
+
+def _substitutions(script: str) -> tuple[str, list[str]]:
+    """``script`` with each ``$(...)`` or backtick substitution, bare or in double quotes, cut to one word, and the
+    scripts inside them, which the shell runs too."""
+    inner: list[str] = []
+
+    def cut(match: re.Match[str]) -> str:
+        inner.append(next(group for group in match.groups() if group is not None))
+        return "\ue00c"
+    return _SUBSTITUTION.sub(cut, script), [
+        text.translate(_UNQUOTED).replace("\0", '\\"').replace("\ue007", "\\'") for text in inner]
+
+
+def _nested(commands: list[list[str]], inner: list[str]) -> list[list[str]]:
+    """``commands`` plus the commands of the scripts they run: substitutions and the script of ``sh -c``/``bash -lc``."""
+    scripts = inner + [command[j + 1] for command in commands for i, word in enumerate(command[:-2])
+                       if re.split(r"[/\\]", word)[-1].removesuffix(".exe") in _SHELLS
+                       for j in range(i + 1, len(command) - 1) if re.fullmatch(r"-[a-z]*c[a-z]*", command[j])]
+    return commands + [command for script in scripts for command in _commands(script)]
+
+
+def _quoted(word: str) -> str:
+    """A quoted ``word`` with its operators as letters; in double quotes a substitution keeps its own letters."""
+    return (word.translate(_IN_DOUBLE) if word.startswith('"') else word).translate(_QUOTED)
+
+
+def _commands(script: str) -> list[list[str]]:
+    """The commands of a shell ``script`` as word lists: POSIX quoting (a quoted word may span lines), ``#``
+    comments, a backslash continuation joined, ``;``/``&``/``|``/newline separating commands, ``(`` and ``)``
+    dropped from the words, the word after a redirection (``>``, ``<``) left out; a quoted operator is a letter.
+    The scripts a command runs (``$(...)``, backticks, ``sh -c``) add their own commands."""
+    commands: list[list[str]] = []
+    command: list[str] = []
+    script = re.sub(r"^\s*RUN\s+(\[.*\])\s*$", _exec_form, script, flags=re.MULTILINE)
+    script = re.sub(r"""('[^']*')|("(?:[^"\\]|\\.)*")|\\(["'])""",  # an escaped quote is a letter; '...\' is a whole word
+                    lambda m: m.group(1) or (m.group(2) or "").replace('\\"', "\0") or {'"': "\0", "'": "\ue007"}[m.group(3)],
+                    script)
+    script = re.sub(r"""('[^']*'|"[^"]*")|(?<![^\s;&|()])#[^\n]*""",
+                    lambda m: _quoted(m.group(1)) if m.group(1) else "", script)
+    # after the comments: a comment's backslash or backtick continues nothing
+    script = re.sub(r"\\\r?\n|(?<=\s)`\r?\n", " ", script)
+    script, inner = _substitutions(script)
+    lexer = shlex.shlex(script, posix=True, punctuation_chars=";&|<>\n")
+    lexer.whitespace, lexer.whitespace_split, lexer.escape, lexer.commenters = " \t\r", True, "", ""
+    redirected = False
+    while True:
+        token = lexer.get_token()
+        if token is None:
+            break
+        if not token.strip(";&|\n"):
+            commands.append(command)
+            command = []
+        elif token.strip("<>&") != token and not token.strip("<>&"):
+            redirected = True
+        elif redirected:
+            redirected = False
+        elif token.strip("()"):
+            command.append(token.strip("()").translate(_UNQUOTED).replace("\0", '"').replace("\ue007", "'"))
+    return _nested([*commands, command], inner)
+
+
+def _without_option_values(words: list[str]) -> list[str]:
+    """``words`` minus the word after each option that takes a value: in ``--log install`` and ``--log --no-deps`` that
+    word names a file, so it is neither pip's subcommand nor a flag. An option is matched by its full name."""
+    kept, value = [], False
+    for word in words:
+        if not value:
+            kept.append(word)
+        value = not value and word in _VALUE_OPTIONS
+    return kept
+
+
+def _is_pip_install(command: list[str]) -> bool:
+    """Whether ``command`` runs ``pip install``: after a word that names pip, the first word that is neither an option
+    nor an option's value is ``install``."""
+    return any(
+        re.fullmatch(r"pip[\d.]*(\.exe)?", re.split(r"[/\\]", word.lstrip("@+-"))[-1])
+        and next((w for w in _without_option_values(command[i + 1:]) if not w.startswith("-")), None) == "install"
+        for i, word in enumerate(command))
+
+
+def _installs_of_the_main_lock(script: str) -> list[list[str]]:
+    """The words of each pip command in a shell ``script`` that installs the main lock: ``pip``, ``pip3.11``,
+    ``python -m pip``, ``uv pip``, with global options before ``install`` and a Makefile ``@``/``-``/``+`` prefix."""
+    if _MAIN_LOCK not in script:
+        return []
+    return [
+        command for command in _commands(script) if _is_pip_install(command) and _MAIN_LOCK in _requirement_files(command)
+    ]
+
+
+def _install_scripts() -> dict[str, str]:
+    """The scripts that run: each workflow and action ``run:`` step (YAML-decoded), the eval image's Dockerfile
+    and the Makefiles. Markdown examples are prose for a reader, not run, so they are not here."""
+    scripts = {}
+    paths = [path for ext in ("yml", "yaml") for path in sorted((ROOT.parent / ".github").glob(f"**/*.{ext}"))]
+    paths += [path for ext in ("yml", "yaml") for path in sorted((ROOT.parent / "actions").glob(f"**/action.{ext}"))]
+    for path in paths:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict):
+            continue
+        steps = list((doc.get("runs") or {}).get("steps", []))  # a composite action
+        for job in (doc.get("jobs") or {}).values():
+            steps += job.get("steps", [])
+        for i, step in enumerate(steps):
+            if isinstance(step.get("run"), str):
+                scripts[f"{path.relative_to(ROOT.parent).as_posix()} step {i}"] = step["run"]
+    for name in (".agent-eval/Dockerfile", "Makefile", "dokimi/Makefile"):
+        scripts[name] = (ROOT.parent / name).read_text(encoding="utf-8")
+    return scripts
+
+
+@pytest.mark.parametrize(("script", "unguarded"), [
+    ("pip install -r requirements.lock.txt", True),
+    ("pip install -rrequirements.lock.txt", True),
+    ("pip install -qr requirements.lock.txt", True),
+    ("pip install -qrrequirements.lock.txt", True),
+    ("# setup `\npip install -r requirements.lock.txt", True),
+    ("pip install --no-deps -r requirements.lock.txt --log 'build\\'", False),
+    ("pip install --requirem requirements.lock.txt", True),
+    ("pip install --requirem=requirements.lock.txt", True),
+    ("pip.exe install --require-hashes -r requirements.lock.txt", True),
+    ('RUN ["pip", "install", "--require-hashes", "-r", "/opt/dokimi-req/requirements.lock.txt"]', True),
+    ("python -m pip install `\n  --require-hashes -r requirements.lock.txt", True),
+    ("echo don\\'t\npip install --require-hashes -r requirements.lock.txt", True),
+    ("pip install --requirement requirements.lock.txt", True),
+    ("pip install --requirement=dokimi/requirements.lock.txt", True),
+    ('pip install --require-hashes -r "requirements.lock.txt"', True),
+    ("pip install --requirement='requirements.lock.txt'", True),
+    ("pip install --require-hashes -r requirements.lock.txt  # --no-deps", True),
+    ("pip  install\t--require-hashes -r requirements.lock.txt", True),
+    ("pip install --no-deps wheel && pip install --require-hashes -r requirements.lock.txt", True),
+    ("(pip install -r requirements.lock.txt); pip install --no-deps wheel", True),
+    ("uv pip install --python x \\\n    -r requirements.lock.txt", True),
+    ("pip --disable-pip-version-check install -r requirements.lock.txt", True),
+    ("python -m pip -q install -r requirements.lock.txt", True),
+    ("pip3.11 install -r requirements.lock.txt", True),
+    ("all:\n\t@pip install -r requirements.lock.txt", True),
+    ("pip install -r requirements.lock.txt > --no-deps", True),
+    ("pip install -r dokimi\\requirements.lock.txt", True),
+    ("pip install -r requirements.lock.txt # --no-deps\npip install --no-deps wheel", True),
+    ('pip install --log ";" -r requirements.lock.txt', True),
+    ("# note \\\npip install --require-hashes -r requirements.lock.txt", True),
+    ('pip install -r requirements.lock.txt --log "(--no-deps)"', True),
+    ("pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt", False),
+    ('python -m pip install --no-deps --requirement="/opt/req/requirements.lock.txt"', False),
+    ("uv pip install --python $(VPY) --no-deps \\\n    -r requirements.lock.txt", False),
+    ("(pip install -r requirements.lock.txt --no-deps)", False),
+    ('pip install --no-deps -r requirements.lock.txt --log "install\nlog.txt"', False),
+    ('pip install --no-deps -r requirements.lock.txt --log "build\\"log.txt"', False),
+    ("pip install --log '>' --no-deps -r requirements.lock.txt", False),
+    ("pip install -r requirements.lock.txt --log --no-deps", True),
+    ("pip install --cache-dir --no-deps -r requirements.lock.txt", True),
+    ("pip install --proxy --no-deps -r requirements.lock.txt", True),
+    ("uv pip install --index-strategy --no-deps -r requirements.lock.txt", True),
+    ("pip install --log pip.log --no-deps -r requirements.lock.txt", False),
+    ("pip install --pre --no-deps -r requirements.lock.txt", False),
+], ids=["short", "joined", "clustered", "clustered-joined", "comment-backtick", "guarded-single-quoted-backslash", "abbreviated", "abbreviated-equals", "exe", "exec-form", "powershell-backtick",
+        "escaped-apostrophe", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "spacing", "chained",
+        "subshell", "continued", "global-option", "python-m-pip", "versioned", "recipe-prefix", "redirected",
+        "backslash-path", "comment-line", "quoted-separator", "comment-backslash", "quoted-parentheses", "guarded", "guarded-quoted",
+        "guarded-continued", "guarded-subshell", "guarded-multiline", "guarded-escaped-quote",
+        "guarded-quoted-redirection", "flag-as-log-value", "flag-as-cache-dir-value", "flag-as-proxy-value",
+        "flag-as-uv-option-value", "guarded-after-log-value", "guarded-after-pre-flag"])
+def test_an_install_of_the_main_lock_without_no_deps_is_found(script: str, unguarded: bool) -> None:
+    installs = _installs_of_the_main_lock(script)
+    assert len(installs) == 1, installs
+    assert ("--no-deps" not in _without_option_values(installs[0])) is unguarded
+
+
+@pytest.mark.parametrize(("script", "unguarded"), [
+    ("echo $(pip install -r requirements.lock.txt)", True),
+    ("echo `pip install -r requirements.lock.txt`", True),
+    ('echo "$(pip install -r requirements.lock.txt)"', True),
+    ("echo $(pip install --no-deps -r requirements.lock.txt)", False),
+    ('bash -lc "pip install -r requirements.lock.txt"', True),
+    ("bash -e -c 'pip install -r requirements.lock.txt'", True),
+    ('bash -eo pipefail -c "pip install -r requirements.lock.txt"', True),
+    ('RUN ["/bin/sh", "-c", "pip install -r requirements.lock.txt"]', True),
+    (".\\.venv\\Scripts\\pip.exe install -r requirements.lock.txt", True),
+    ('echo "it\'s" ; echo \\"x ; pip install -r requirements.lock.txt ; echo "z" ; echo \'w\'', True),
+], ids=["substitution", "backtick-substitution", "quoted-substitution", "guarded-substitution", "shell-c", "shell-option-c", "shell-option-value-c", "exec-form-shell-c",
+        "windows-path", "apostrophe-in-double-quotes"])
+def test_an_install_the_shell_runs_from_a_word_or_a_windows_path_is_found(script: str, unguarded: bool) -> None:
+    installs = _installs_of_the_main_lock(script)
+    assert len(installs) == 1, installs
+    assert ("--no-deps" not in _without_option_values(installs[0])) is unguarded
+
+
+@pytest.mark.parametrize("script", ["pip install --require-hashes -r requirements-ci.lock.txt",
+                                    "echo '$(pip install -r requirements.lock.txt)'",
+                                    "COPY dokimi/requirements.lock.txt /opt/dokimi-req/",
+                                    "pip --log install freeze -r requirements.lock.txt",
+                                    "pip install --no-deps-x -r requirements-docs.lock.txt"])
+def test_other_locks_and_mentions_of_the_main_lock_are_not_installs_of_it(script: str) -> None:
+    assert _installs_of_the_main_lock(script) == []
+
+
+def test_a_quoted_run_value_is_read_as_the_command_it_decodes_to() -> None:
+    """A workflow may quote its run: value; YAML decodes it before the shell sees it."""
+    step = yaml.safe_load('run: "pip install --no-deps -r requirements.lock.txt"')["run"]
+    assert _installs_of_the_main_lock(step) == [["pip", "install", "--no-deps", "-r", "requirements.lock.txt"]]
+
+
+@pytest.mark.parametrize(("workflow", "action"), [("example.yaml", "action.yml"), ("example.yml", "action.yaml")])
+def test_yaml_and_yml_workflows_and_actions_are_scanned(tmp_path: Path, monkeypatch, workflow: str, action: str) -> None:
+    step = "run: pip install --require-hashes -r requirements.lock.txt"
+    (tmp_path / "dokimi").mkdir()
+    for name in (".agent-eval/Dockerfile", "Makefile", "dokimi/Makefile"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("all:\n\ttrue\n", encoding="utf-8")
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / ".github" / "workflows" / workflow).write_text(
+        f"jobs:\n  j:\n    steps:\n      - {step}\n", encoding="utf-8")
+    (tmp_path / "actions" / "setup").mkdir(parents=True)
+    (tmp_path / "actions" / "setup" / action).write_text(
+        f"runs:\n  using: composite\n  steps:\n    - {step}\n      shell: bash\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path / "dokimi")
+    scripts = _install_scripts()
+    assert f".github/workflows/{workflow} step 0" in scripts and f"actions/setup/{action} step 0" in scripts, scripts
+
+
+def _unguarded(found: dict[str, list[list[str]]]) -> list[tuple[str, str]]:
+    """The installs of the main lock, by script name, that lack ``--no-deps``."""
+    return [(name, shlex.join(install)) for name, installs in found.items() for install in installs
+            if "--no-deps" not in _without_option_values(install)]
+
+
+def test_an_install_without_no_deps_is_reported_and_one_with_it_is_not() -> None:
+    install = ["pip", "install", "-r", "requirements.lock.txt"]
+    assert _unguarded({"x": [install]}) == [("x", "pip install -r requirements.lock.txt")]
+    assert _unguarded({"x": [[*install, "--no-deps"]], "y": []}) == []
+    assert _unguarded({"x": [[*install, "--log", "--no-deps"]]}) == [("x", "pip install -r requirements.lock.txt --log --no-deps")]
+
+
+def test_every_install_of_the_main_lock_passes_no_deps() -> None:
+    """SECURITY.md: the main lock overrides litellm's filelock cap, so an install without --no-deps cannot resolve.
+    Not covered: a command built at run time (a variable holding the file name or the pip command, eval)
+    and Markdown examples."""
+    found = {name: _installs_of_the_main_lock(script) for name, script in _install_scripts().items()}
+    sources = {name.split(" step ")[0] for name, installs in found.items() if installs}
+    assert {".github/workflows/reach-matrix.yml", "actions/setup/action.yml", ".agent-eval/Dockerfile",
+            "dokimi/Makefile"} <= sources, sources
+    assert _unguarded(found) == []
+
+
+def test_security_md_names_every_audited_lock() -> None:
+    """SECURITY.md says which locks pip-audit covers: every renovated lock is listed."""
+    text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    assert [lock for lock in RENOVATE_LOCKS if f"`{lock}`" not in text] == []

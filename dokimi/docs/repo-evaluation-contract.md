@@ -2,6 +2,7 @@
 depends_on:
   - dokimi/dokimi/repos/**
   - dokimi/dokimi/commands/repo.py
+  - dokimi/dokimi/commands/repo_reach.py
   - dokimi/dokimi/commands/repo_run.py
   - dokimi/dokimi/schemas/repo_*.json
   - dokimi/dokimi/schemas/guidance_reach.v1.json
@@ -14,17 +15,18 @@ SPDX-License-Identifier: Apache-2.0
 
 # Repository evaluation contract
 
-> **Status: PROPOSED.** This is the interface proposed for evaluating a whole
-> code repository as a subject; the rationale behind it is recorded in the pull
-> requests that build it out.
+> **Status: implemented core with scoped extensions.** Validation, static scanning,
+> reach, task execution, reporting and arm comparison are available. Individual
+> sections describe their limits and proposed extensions. The rationale is recorded
+> in the pull requests that build it out. See the [feature cards](features/repositories.md).
 > Implemented so far (slice S1): the `repo_manifest.v1` schema, validation of
 > the manifest and of every `task.json` against one repository snapshot
 > (with git history, every task base must resolve and the guidance globs are
-> evaluated at each base), the `repo_static.v1` schema (§4.4), and the `repo`
-> subject kind:
+> evaluated at each base), the `repo_static.v1` schema (§4.4), the suite
+> manifest for bases in other repositories (§2.1), and the `repo` subject kind:
 >
 > ```bash
-> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on-warning]
+> python cli.py eval check --schema-only <dir | dir@rev | url@rev> --manifest <path> [--json] [--fail-on warn|fail]
 > python cli.py repo fetch <url@rev> [--json]     # bare, blob-less clone cached per URL
 > ```
 >
@@ -39,7 +41,7 @@ SPDX-License-Identifier: Apache-2.0
 >
 > ```bash
 > python cli.py repo scan <source> --manifest <path> [--static <repo_static.json>] [--out readiness.json]
->     [--json] [--fail-on-fail]
+>     [--json] [--fail-on fail] [--baseline <earlier readiness.json>]
 > ```
 >
 > `repo budget` sizes what the tree puts into an agent's context (no manifest,
@@ -62,7 +64,7 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > Usage:
 >
 > ```bash
-> python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
+> python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on warn]
 > ```
 >
 > `--out` carries the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`), stamped with its
@@ -71,14 +73,21 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash
-> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
+> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on warn|fail]
 > ```
 >
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
 > from outside the tree, for a repository that has not added it yet. `scan` and `reach`
 > need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
 > check the default globs `**/AGENTS.md`, `**/CLAUDE.md`, `.github/copilot-instructions.md`
-> and `.github/instructions/*.md`, and say so on stderr.
+> and `.github/instructions/*.md`, and say so on stderr. There `scan` also checks the
+> Markdown files Claude Code loads with them, which `repo budget` lists as `rule` and
+> `import` for the `claude-code` profile: `.claude/rules/**/*.md` and the files a CLAUDE.md
+> `@` import chain reaches. It also checks a committed `CLAUDE.local.md` that nothing imports (a gitignored one is not
+> in the tree), because Claude Code loads it with the project's guidance. Every rule file is checked, loaded or not:
+> a rule whose `paths` pattern is invalid is counted lazy by `repo budget`, and a stale path in it is still stale.
+> A rule the tree cannot list (a link to the rules directory, a root `.claude` link, a submodule at `.claude` or under
+> `.claude/rules`, a dangling link) makes the scan `incomplete`. They are named by path, so a tree without them gets no warning.
 >
 > Slice S5 adds the repository-mode runner: workspace preparation (§3), the
 > containers of §1.1, the `repo_grade.v1` schema (§4.2), the self-check (§4.3)
@@ -237,6 +246,9 @@ build_systems: [bazel, make]              # selects L0 claim-check adapters
 process_metrics:                          # optional repository counters, result.json `process.counters` (§4.1)
   bazel_cmds: '\bbazel(?:isk)?\b'          # a plain regex searches the command text
   icpx_missing: {regex: "icpx is not found", match: output}   # match: text (default), output or any
+
+probes:                                   # optional: target -> patterns of `probe` events (§4.1)
+  cpu: [nproc, "py:os.cpu_count"]         # a listed target replaces its defaults; [] turns it off
 ```
 
 Rules:
@@ -247,7 +259,7 @@ Rules:
   globs, while `eval check` and `run` refuse it. `image` and `explore_tasks` need
   `eval_dir`, and so does `process_metrics`.
 - `entry_points.grade` is required only when some task's `grader` does not
-  start with `dokimi:` (a grader built into the framework); `repo validate`
+  start with `dokimi:` (a grader built into the framework); `eval check --schema-only`
   names the tasks that need it.
 - `process_metrics` maps a name (letters, digits, `_`; not
   starting with a digit) to a Python regex,
@@ -255,7 +267,7 @@ Rules:
   name the framework counts the `command` events of the run whose `text`
   (default), `output` or either contains a match (`re.search`); denied commands
   count too, since the agent asked for them, but a denied command is searched in
-  its `text` only (its `output` is the hook's refusal message). `repo validate` refuses a regex
+  its `text` only (its `output` is the hook's refusal message). `eval check --schema-only` refuses a regex
   that does not compile.
 - `eval_dir` is a proper subdirectory, and `tasks` and `explore_tasks` sit inside it: it is the
   one directory deleted from every workspace (§3).
@@ -267,7 +279,7 @@ Rules:
   refused in any other entry point. A word that is `{tests}` becomes one argument per hidden
   test (workspace-relative paths); inside a longer word it is the paths joined by spaces. `{out}`
   is the JUnit XML report the command writes (`{run_dir}/hidden-tests.xml`). It is required
-  when some task's `grader` is `dokimi:hidden_tests` (`repo validate` and `eval check` say
+  when some task's `grader` is `dokimi:hidden_tests` (`eval check --schema-only` and `eval check` say
   which). It may not use `{source_dir}`, which is only for `grade` and `oracle`.
 - `{source_dir}` is a read-only, full-history clone of `source.url` with
   blobs, for graders that read hidden tests or mined fix commits (oneDAL's
@@ -305,14 +317,64 @@ Rules:
   harness short-lived credentials scoped to the model endpoint. Every
   connection through the proxy is logged with the run.
 
+### 2.1 Suite manifest (`suite_manifest.v1`)
+
+A task's `base` is normally a commit of the eval tree's source (§1.1). A task
+whose base is in another repository, such as a scaffold that a benchmark shares
+or a library at a fixed revision, is listed in a suite file kept in the eval
+tree:
+
+```yaml
+schema: suite_manifest.v1
+id: linreg-cpu-solver
+repos:
+  sklearn-scaffold: https://github.com/example/scikit-learn-scaffold@<40-hex sha>
+  numpy-scaffold: /path/to/numpy-scaffold@<40-hex sha>
+tasks:
+  - id: solver-pick-cholesky
+    repo: sklearn-scaffold
+```
+
+- `repo run --suite <path>` reads the file from the eval tree; the path is
+  relative to its root and may not leave it. Each listed task takes its base
+  checkout from the repository it names; its `task.json` keeps the rest of the
+  task. A task the suite does not list keeps its eval-tree base. Every listed
+  task must be a task of `tasks` (§2), or the run stops before any cell.
+- Each repository is `<url>@<rev>` or a local `<path>@<rev>`, as in §1.1. The
+  revision must be a full commit SHA. A branch, tag or other ref is refused
+  unless the run passes `--allow-floating-suite-revs`; it is resolved again
+  when each run starts, and the batch pin (`_eval/batch.json`, key `suite`)
+  records the commits. A resume is refused with `use another --batch` when the
+  revision now resolves to another commit: the batch does not follow a
+  moved branch or tag, and it does not reuse a later commit. The pin also
+  records the suite file's path, the task-to-repository mapping and the
+  repository locations (key `suite_plan`): a resume with another suite file, or
+  without `--suite`, is refused.
+- A repository that cannot be opened, or a base that is not a commit of it,
+  leaves that task's cells unsupported (§9): `unsupported.json` gives the reason,
+  and `repo report` counts the cells neither as failed nor as missing. A cell
+  that runs records `base_repo` (`{"repo", "source"}`) in `meta.json`. A base that
+  the cached clone of a remote lacks is fetched once before it counts as missing.
+- `eval check` reports these tasks as not checked when their repository is
+  missing and fails only on the other bad tasks; when every selected task is
+  not checked it exits 1 (incomplete), as `repo run` does, since nothing was checked.
+- Not covered yet: `eval check --schema-only` checks the bases of the eval tree only; a suite
+  task's `{source_dir}` is still the eval-tree source; and a `guidance:rev:<sha>`
+  arm is pinned against the eval-tree source.
+
+The schema is `dokimi/schemas/suite_manifest.v1.json`; an example is
+`data/suites/example-suite.yaml`.
+
 ## 3. `task.json`
 
 The framework interprets the **core** and **workspace** keys. Every other key
 belongs to the repository's grader and is passed through unread, except `grader`, which the framework reads to tell a `dokimi:` name (§4.5) from a repository's.
+`eval check --schema-only` reports a `task.json` that is not valid JSON, not a JSON object, or cannot be
+read (a link that loops, names a directory or nothing, or leaves the repository, in a tree or at `<dir>@rev`) as an `error:` line, and exits 1.
 
 | Key | Required | Read by | Meaning |
 |---|---|---|---|
-| `id` | yes | framework | equals the directory name, and contains no whitespace or comma: the workflow's `tasks`, `smoke-tasks` and `exclude-tasks` inputs are lists of ids split on whitespace and commas, so `repo validate` refuses an id containing either |
+| `id` | yes | framework | equals the directory name, and contains no whitespace or comma: the workflow's `tasks`, `smoke-tasks` and `exclude-tasks` inputs are lists of ids split on whitespace and commas, so `eval check --schema-only` refuses an id containing either |
 | `family` | yes | framework (reporting) | free string; common values: `build`, `fix`, `feature`, `test`, `review`, `navigate` (§4.7) |
 | `base` | yes | framework | commit to snapshot: a hex SHA, optionally followed by `^` (the parent, the usual form for a mined fix). Branch names, tags and `HEAD` are refused, because repetitions of one task must get one snapshot. Use the full 40-character SHA; a shorter one is accepted with a warning. It must resolve in the source. `meta.json` records it as `base_rev` and the resolved full SHA as `base_sha` |
 | `prompt` | yes | framework | what the agent is told |
@@ -322,10 +384,12 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `gate` | no | framework | what counts as success; default `["pass"]`. Each entry is a boolean metric name, which must be `true`, or `{"metric": <name>, "min": <number>}` for a numeric metric |
 | `score` | for score-only tasks | framework | `{"metric": <name>, "max": <number>}`: the metric that is the result when `pass` is `null`, and the value the oracle must reach (§4.3) |
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
-| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
+| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`eval check --schema-only` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. On a `guidance:as-skill` catalog arm the generated `<repo>-guidance` skill is refused too (its usage is `guidance_skill_loaded`). `result.json` `skills` records whether the agent used it and whether it used it first |
-| `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
+| `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `eval check --schema-only`, `tasks check` and `repo run` |
+| `version` | no | framework (reporting) | the task's revision, a non-empty string or an integer; absent is unknown. The grader does not read it, except `dokimi:typecheck`, which reads `version` as the image's mypy version (its row in the grader table) and so must not carry a revision there |
+| `provenance` | no | framework (reporting) | `source` (`hand-written`, `generated:<tool>@<version>` or `imported:<format>`; `eval tasks generate` writes `generated:dokimi-tasks-generate@<dokimi version>`), `reviewed_by` (a non-empty string) and `status` (`candidate`, `validated` or `frozen`); every key optional. `repo report` shows each task's `status` in a column, `unknown` when absent. A malformed block fails `eval check --schema-only` (`dokimi/provenance.py`) |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -497,6 +561,8 @@ reads the upstream base (`base_sha`) and the workspace start commit
 
 ### 4.1 `events.jsonl`
 
+The line format, its version and the promise that comes with it: [events-format.md](events-format.md).
+
 ```json
 {"t": 12.4, "kind": "command", "text": "bazel test //cpp/...:x_host", "rc": 0}
 {"t": 3.1,  "kind": "read",    "path": "AGENTS.md"}
@@ -508,8 +574,12 @@ reads the upstream base (`base_sha`) and the workspace start commit
 - `output` is optional: the command's output as the harness returned it.
   Whether stdout and stderr are merged depends on the harness (Claude Code
   merges them), so graders must not rely on telling them apart. Output over
-  8 KB keeps its first and last 4 KB around a `[... N bytes omitted ...]`
-  line, and `output_truncated` is `true`; build errors are usually at the end.
+  8 KB (8,192 bytes) keeps up to 4,096 bytes at each end around a
+  `[... N bytes omitted ...]` line, and `output_truncated` is `true`; build
+  errors are usually at the end. A UTF-8 character that a cut splits is dropped
+  whole, so an end can keep fewer than 4,096 bytes, and `N` counts every byte
+  not kept, the dropped partial characters included. Output of exactly 8,192
+  bytes is kept whole.
 - `rc` is what the harness reports. Where it reports only success or failure
   (Claude Code), `rc` is `0` or `1`; a Claude Code `Skill` tool event carries it
   too (`1`: the skill was not loaded). It is `null` when no result came back,
@@ -520,6 +590,29 @@ reads the upstream base (`base_sha`) and the workspace start commit
 - A `read` event may have no `path`: a refused Claude Code Bash read of a
   relative path after an earlier call moved the shell, whose file is not
   known (`{"kind": "read", "denied": true}`).
+- A `probe` event follows the `command` event of a command that asks the host
+  for its facts, one per pattern it matches (a command may give several):
+  `{"t": 4.0, "kind": "probe", "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}`.
+  `target` is one of `cpu`, `gpu`, `os`, `memory`, `packages`, `env`, `network`;
+  `pattern` is the configured pattern it matched; `text`, `rc` and `agent` are the
+  command's. The defaults (`dokimi/repos/probes.py`, `DEFAULT_PROBES`): `cpu` `lscpu`,
+  `/proc/cpuinfo`, `nproc`, `sysctl`, `Get-CimInstance Win32_Processor`,
+  `py:os.cpu_count`, `py:platform.processor`; `gpu` `nvidia-smi`, `rocm-smi`,
+  `py:torch.cuda.is_available`; `os` `uname`, `/etc/os-release`, `sw_vers`, `systeminfo`;
+  `memory` `free`, `/proc/meminfo`; `packages` `pip list`, `pip show`, `pip freeze`,
+  `conda list`; `env` `env`, `printenv`. A pattern is matched on the program the shell or
+  PowerShell runs, with the words it names in any order and case (`grep nproc README` runs
+  `grep`: no probe), on a file a reading command (`cat`, `head`, `grep`, ...) names for a
+  path pattern, and on the call in the code of a `python -c` one-liner for `py:NAME`. A
+  `$( )` substitution or a `bash -c` script counts as a command the agent ran. Not matched:
+  a Python heredoc, a script the agent runs from a file, a pattern with a `|` that is
+  not a pipeline of the same commands, and a launcher the wrapper lists do not know
+  (`docker exec`, `nix develop -c`). `env`, `timeout`, `xargs`, `conda run` and `uv run`
+  run the program after them; `env` with no program after its options is its own probe (`env -S` is not read). Each cell's `meta.json`
+  records the patterns per target (`probes`) that it ran with.
+  A manifest's `probes` (§2) replaces a target's defaults, and `repo run --probes FILE`
+  (YAML or JSON, the same mapping) replaces them again; nothing else changes the events,
+  and the `process_metrics` counters do not count probes.
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
@@ -542,7 +635,7 @@ parent's and subagents' together, so a grader need not:
 
 | Key | Meaning |
 |---|---|
-| `tool_calls` | every event: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
+| `tool_calls` | every tool event (`command`, `read`, `edit`, `tool`, not the `turn` and `compaction` events of [events-format.md](events-format.md)): each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
@@ -562,8 +655,8 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
-A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts every event up to and
-including the hit, the parent's and subagents' (as `process.tool_calls` does).
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts the tool events up to and
+including the hit, the parent's and subagents' (as `process.tool_calls` does); turn and compaction events are not steps.
 `issued_s` is the hit's `t`: the time the call was issued, since a call's result
 is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
 "issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
@@ -574,10 +667,12 @@ harness never started, it did not parse, or a line of the trace was dropped: an 
 (the trace format has no timestamps, so `steps` is set and `issued_s` is null).
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
 is counted in `repo report`: the row says how many observed a hit, and the medians
-cover only those. `repo compare` pairs `first_useful_rate` per task (the share of its
+cover only those. A cell whose `steps` is past the measure bound is counted in that
+row's total but not as observed, and shows no reason (steps 5 and steps 1e200 give
+`1 of 2 observed`). `repo compare` pairs `first_useful_rate` per task (the share of its
 declared cells with a verdict that observed a hit, so a task where most runs never hit it is not read
 through its medians alone; a cell `unobserved` or `timeout` has no verdict, so it is neither a hit nor
-a miss and is left out of the share) and its header counts observed of measured cells per arm, with
+a miss and is left out of the share, as is a cell whose `steps` is past the measure bound) and its header counts observed of measured cells per arm, with
 the unmeasured ones. An edit made by a shell command (`sed -i`) is not an `edit` event, so it is not seen. A
 compared task has one kind, but the mean delta pools the tasks of both kinds: a per-task
 row shows which.
@@ -688,10 +783,13 @@ failed still do. The probed facts are recorded in `check.json` `host`, and for
 each holds an `unsupported.json` with the reason, and `repo report` lists them
 apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its
-cells is left unrun; a cell that already has a `result.json` keeps it.
+cells is left unrun; a cell that already has a `result.json` keeps it. A harness that exits nonzero
+before its first trace line is not a verdict on the cell: the cell is a crash, the batch exits 5, and it writes
+no `result.json`, so the next run runs it again. A harness the cap killed before its first trace line is a fail
+cell, as before.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
-directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a
+directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` (or, without the flag, a `$DOKIMI_REPO_CACHE`) that is not a usable directory and on a `--cache-root` or `--cache NAME=PATH` that is not one; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
 source and exits 2, for an unpinned local directory and for a pinned source (`<repo>@<sha>`) alike; a link in the tree that leads out of it, the default
@@ -823,7 +921,7 @@ until the grade. Before the grader runs, the framework copies each `hidden_files
 task's `hidden/` into the workspace, with its file mode, replacing a file (or a link) the workspace has there; a
 directory on the way that is a symbolic link or not a directory, or a directory at the path,
 stops the copy and the grade is a grader error; so does a hidden file that is a symbolic link
-(`repo validate` reports it) or cannot be copied. It then runs `entry_points.test` (§2) in a
+(`eval check --schema-only` reports it) or cannot be copied. It then runs `entry_points.test` (§2) in a
 container like the grading one (same mounts, network and environment, no grader code), with
 its output in `test.log` and `test.err`, records its exit in `hidden-tests.json`, and runs
 the grader, which reads that record and the JUnit report at `{out}`
@@ -1035,8 +1133,8 @@ as it is, so fetch those refs first, for example
 whose revision is still missing is listed and left out.
 
 The command exits 2, before it reads the threads file, on a malformed source,
-an unpinned remote, a local source that is not a directory, or a pinned local path inside a repository
-that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the threads file cannot be read or holds no pull
+an unpinned remote, a local source that is not a directory, a pinned local path inside a repository
+that is not its root (`<repo>/sub@<sha>`: give the root), or a `--cache-dir` that is not a usable directory. It exits 1 when the threads file cannot be read or holds no pull
 request, when no pull request gave a task (written, or kept from before), and
 on an error that is not one pull request's own: a malformed pull request, a
 source it cannot open, a manifest that is missing or malformed, the prompt file, or a task it cannot write. Each prints
@@ -1132,7 +1230,7 @@ is F1 against `gold`. A gold file with an unknown `answer_key`, an empty
 error.
 
 The command exits 2 without `--index`, with `--references 0 --derives 0`, on
-an unpinned source, an index that does not read, or one that maps to no file
+an unpinned source, a `--cache-dir` that is not a usable directory, an index that does not read, or one that maps to no file
 of the tree; 1 when no target gave a task, a task cannot be written, or the source cannot be resolved at the revision.
 
 ### 4.8 Authoring tasks from merged pull requests
@@ -1241,13 +1339,53 @@ and `headRefOid` it lacks from `origin`; a local repository is read as it is, so
 
 The command prints one line per pull request (`written`, `kept` or `skipped`, with the
 reason or the counts) and a summary. It exits 2, before it reads the pull request file, on a
-malformed source, an unpinned remote, a local source that is not a directory, or a pinned local path inside
-a repository that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the pull request file cannot be read or
+malformed source, an unpinned remote, a local source that is not a directory, a pinned local path inside
+a repository that is not its root (`<repo>/sub@<sha>`: give the root), or a `--cache-dir` that is not a usable directory. It exits 1 when the pull request file cannot be read or
 holds no pull request, when no pull request gave a task (written, or kept from before), and on
 an error that is not one pull request's own: a malformed pull request (a `number` that is not
 an integer), a source it cannot open, a manifest that is missing or malformed, the prompt file (unreadable or empty), or a task it
 cannot write. Each prints `✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead, pinned or not. Grading a task needs the manifest's
 `entry_points.test` (§2).
+
+### 4.9 `run_context.v1` (written by `repo run` to `{run_dir}/run_context.json`)
+
+Beside `events.jsonl`, one record per cell: what the agent CLI printed about the run it made.
+Every field comes from the CLI's own start-up record (`system/init`, or Copilot's `session.start`),
+its closing record (`result`, `turn.completed`, `turn.failed`), or the command line dokimi started
+it with. A field the CLI did not print is `null`; nothing is taken from a default, so a sparse
+trace gives nulls. The schema is `dokimi/schemas/run_context.v1.json`.
+
+```json
+{"schema_version": "run_context.v1", "harness": "claude-code", "harness_version": "2.1.400",
+ "model_requested": "m-1", "model_served": {"init": "claude-sonnet-x", "usage": ["claude-sonnet-x"]},
+ "effort": "high", "thinking": null, "credential_kind": "ANTHROPIC_API_KEY",
+ "permission_mode": {"mode": "bypassPermissions", "sandbox": null, "approval": null},
+ "tools": {"allowed": ["Read", "Bash"], "disallowed": ["WebFetch", "WebSearch"]},
+ "extensions": {"plugins": [], "skills": null, "mcp_servers": ["docs"], "agents": null, "output_style": "default"},
+ "outcome": {"stop_reason": "end_turn", "terminal_reason": "completed", "num_turns": 3,
+             "permission_denials": 0, "safety_stops": 0},
+ "config_sha256": {"settings.json": "<64 hex>"}}
+```
+
+- `harness` is the profile's name (`claude-code`, `codex`, `copilot`), which dokimi started; the CLI does not print it.
+  `harness_version` is the CLI's own version (`claude_code_version`), else the version dokimi probed (`version_cmd`).
+- `model_requested` is the model the evaluator asked for (`repo run --model`), whether or not the profile passes it to the CLI. `model_served.init` is the model the start-up record names;
+  `model_served.usage` lists the keys of the closing record's `modelUsage`, which include helper models.
+  Codex prints no model, so both are null there.
+- `effort` is the start-up record's `per_turn_effort_active`, else `--effort`, else Codex's `-c model_reasoning_effort=`.
+  `thinking` is the `--thinking` value.
+- `permission_mode` and `tools` are what the CLI printed, else the flags dokimi passed. For Codex the sandbox
+  and approval values stand in for tool lists, which are null there.
+- `extensions` lists names only (plugins, skills, MCP servers, agents) and the output style.
+- `outcome.permission_denials` is the number of refused tool calls. `outcome.safety_stops` is the number of
+  main-thread replies whose `stop_reason` was `refusal`; it is null when no reply carried a stop reason. A reply split over several records (one `message.id`) counts once, by its last `stop_reason`.
+- `config_sha256` holds the SHA-256 of each config file dokimi wrote for the run, and of each workspace file the
+  profile's `args_if_present` named, taken before the agent starts. Keys are file names, never paths, with any character
+  outside `A-Za-z0-9._-` written as `_`: a nested
+  workspace file is keyed by its base name, or by `workspace.` and its dotted path when that name is already a key.
+  Contents are never recorded. A link, or a file under a linked directory, is not read, and a file that cannot be read is left out.
+
+A record that cannot be written is a note in the cell's `trace_errors`, not a failed cell.
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
@@ -1353,9 +1491,9 @@ args_if_present:                     # argv added after the "{tools}" element wh
   in the `all` tool mode, and the CLI exits 1 before its first turn on a file
   that is not valid MCP configuration (`{` for one). So a `.mcp.json` that is
   not a JSON object, or whose `mcpServers` is not an object, is caught up
-  front: `repo validate` warns about the one at each task base (at
+  front: `eval check --schema-only` warns about the one at each task base (at
   the eval tree when the source has no git history) and still succeeds, `repo run --tools all`
-  exits 1 before any cell, and a cell whose arm wrote
+  exits 2 before any cell (a config the CLI rejects is a usage error; the cell is not run, so it is not rerun), and a cell whose arm wrote
   such a file (a `patch:` arm) is a cell error, not a graded run. The check
   reads the task base, so a `patch:` arm that repairs the file does not help.
   Fix or remove the file in the task base; `--tools read` or `none` do not
@@ -1641,7 +1779,7 @@ it is at conversion time, so a receipt with `--from` also needs the profile's
 compared, and its receipt is the same only for an unchanged profile. The receipt is written
 beside the saved file; a name that resolves to the saved probe is a usage error
 (exit 2), and a write that fails is a runtime failure (exit 1). The probe-only flags (`--model`,
-`--budget`, `--scenarios`, `--only` and the rest) cannot be combined with
+`--max-usd-per-cell`, `--scenarios`, `--only` and the rest) cannot be combined with
 `--from`. The schema is `schemas/effective_instructions.v1.json`; the code is
 `repos/receipt.py`.
 
@@ -1881,7 +2019,9 @@ directories and `**/` matches zero or more. A trailing slash on a file
 (`src/mod.py/`) is `fail`, and a glob ending in `/` (`src/m*/`) matches only a directory. A GitHub Action reference (`actions/checkout@v6`) is not a
 path claim. An Action named without its ref (`actions/checkout`, `owner/repo/path`)
 that the tree does not hold at the file's directory or an ancestor is `ok` when a
-job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow
+job or step uses it as `uses: <name>@<ref>` (or, for a local reference, `uses: ./<name>`
+with no ref, which a claim `./<name>` finds, as does `<name>`, while a `./<name>` claim finds no remote use: `./source/.github/actions/setup`
+used by a step is `ok`, a typo of it stays `unresolved`), in a `.yml` or `.yaml` workflow
 directly in `.github/workflows/` (not a nested one, which GitHub does not run) or
 a local composite action under `.github/` (`action.yml`, `action.yaml`); the
 reason names the first such file, workflows first (`used by
@@ -1955,7 +2095,7 @@ pattern. Other slow shapes pass and can still take long on
 a long claim, such as `maintenance/.*a.*a.*a.*b`. When `.pre-commit-config.yaml` or one of those
 workflows was not read, the reason of a claim that stays `unresolved` here also
 names it, as `<file> was not read (<why>)` after the rest, in tree order and once
-even when the Action note above names it too. A link or path into a submodule is `unresolved`. A
+even when the Action note above names it too. A link or path into a submodule is `unresolved`, and so is a bare name that matches only a submodule (`mod/` for `third_party/mod`). A pinned snapshot's submodules are its `.gitmodules` paths and every gitlink it holds, declared or not. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other
 ref is tried at each slash, shortest first, and the link is `ok` if some
@@ -2023,7 +2163,7 @@ a glob with no match, a missing `also_scan` file, no guidance at all, and a
 guidance file that cannot be read (a link that dangles or leaves the tree, a
 binary file, a file over 2 MB), named with the reason. A `--static`
 file that cannot be read or is not JSON exits 2; a document that fails the
-`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on-fail` also exits 1
+`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
 read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
@@ -2031,11 +2171,32 @@ does not fail the gate, so a file the gate must see belongs in `also_scan`.
 `incomplete_reasons` lists the warnings that make the scan `incomplete`, as
 they appear in `warnings` and in its order (`[]` for a complete scan). The text
 output prints them after the warnings, on one `incomplete: ...` line, and when
-`--fail-on-fail` exits 1 on an incomplete scan it prints them on stderr as
+`--fail-on fail` exits 1 on an incomplete scan it prints them on stderr as
 `✗ scan incomplete: ...`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
-`unresolved` needs a human look. Not implemented yet: the pre-commit↔CI
+`unresolved` needs a human look.
+
+**A gate any repository can adopt (#851).** Three things keep `--fail-on fail` from failing on noise
+the repository cannot fix:
+
+- A bare identifier (`` `mkl_random` ``, `` `PyArray_Resize` ``) the tracked non-doc files lack is
+  `unresolved_identifier`, not `fail`: it may be an external API, a sibling package or a builtin. A
+  name that is the stem of a tracked file (`` `bench_fftnd` `` for `bench_fftnd.py`) is `ok_stem`.
+  Paths, links, scripts and labels still fail when the tree lacks them.
+- `.dokimi/scan.toml` in the tree is the repository's own setting. `identifiers = "fail"` restores
+  failing on a missing identifier. Each `[[ignore]]` entry (`pattern`, an fnmatch on the claim text;
+  optional `kind`; a required `reason`) turns a matching claim that is not `ok` into
+  `unresolved_ignored`. The report's `scan_config` block lists each entry with its hit count, and a
+  file with any error (bad TOML, an unknown key, also inside an `[[ignore]]`, an `[[ignore]]` without a
+  `reason`, a non-list `ignore`) is a warning that discards every setting in it and keeps the defaults, and
+  makes the scan `incomplete`, so `--fail-on fail` exits 1 until the file is fixed. An ignore applies to the claims of
+  `--static` too, after they are merged; the identifier setting applies to the scan's own claims.
+- `--baseline FILE` reads an earlier report (`--out`, or the `--json` document). A `fail` claim that
+  report also fails, matched by file, kind and text and not by line, is `baselined` (once per claim the baseline holds), and the gate
+  counts only the rest. A key the baseline fails n times covers n claims; a repeat beyond that is new. The `baseline` block gives `known`, `new` and `fixed`. A repository commits
+  one report as its baseline, so adoption needs no cleanup first and a PR fails only on drift it
+  adds. Not implemented yet: the pre-commit↔CI
 file-set parity check.
 
 Measured on oneDAL and scikit-learn-intelex, claim by claim against their own
@@ -2110,8 +2271,8 @@ tree and is listed under `not_observed`. A stage is `blocked` by an error,
 `attention` on a warning, and at best `no_known_blocker`, never ready:
 `not_observed` lists what the tree cannot show, such as whether the commands
 pass, CI secrets and the agent's network. `risk` is the worst of the launch
-observations. There is no overall score. `--fail-on-error` exits 1 when any
-finding is an error.
+observations. There is no overall score. `--fail-on fail` exits 1 when any
+finding is an error, and `--fail-on warn` when any is an error or a warning.
 
 With `--index FILE`, a SCIP index of the tree (§1.2), the report adds a
 `structure` section. The index's root prefix is found by matching its document
@@ -2163,7 +2324,7 @@ Whether the index is current is not checked: `not_observed` says so.
 `--typecheck` type-checks every fence tagged
 `python`, `py` or `python3` in the guidance files, with `--typecheck-tool mypy|basedpyright`
 (default mypy). Each fence that parses is one
-`python_fence` claim, so the report and `--fail-on-fail` treat it like any other
+`python_fence` claim, so the report and `--fail-on fail` treat it like any other
 claim:
 
 - `ok`: the tool reports no error in the fence.
@@ -2189,8 +2350,8 @@ standard-library one the repository's Python lacks (`import imp` on 3.13; the na
 those the pinned mypy's typeshed lists), and with mypy a submodule of a package the repository interpreter finds as a regular package (`json.nosuch`, `yaml.nosuch`; not a relative import, nor a namespace package such as `google`). A module the environment has without types
 (no `py.typed` or stubs) is `unresolved` too: mypy reads it as `Any`. A real error in the same fence still
 fails it. `pip install
-dokimi` does not install mypy: the tested pin is `requirements-test.txt`
-(`mypy==2.4.0`), and a missing mypy exits 2. basedpyright must be on `PATH` and
+dokimi` does not install mypy: the tested pin is the one in
+`requirements-test.txt`, and a missing mypy exits 2. basedpyright must be on `PATH` and
 is recorded with the version it reports, not pinned by dokimi. The report's
 `typecheck` block names the tool, its version, the interpreter (`null`: unknown) and the counts
 (`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the
@@ -2216,8 +2377,15 @@ the `dokimi:typecheck` grader above.
 eval tree to `<out>/_eval/content`, and build the image from the eval tree
 without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 `--image` names one. Cache directories default to
-`~/.cache/dokimi/caches/<id>/<name>`; `--cache NAME=PATH` points one
-elsewhere. `{source_dir}` is the source's own git directory, or
+`~/.cache/dokimi/caches/<id>/<name>`; `--cache-root` moves them all and
+`--cache NAME=PATH` points one elsewhere. A `--cache-root` or `--cache NAME=PATH` that is a regular file or
+below one (checked before a remote source is cloned), or a `--cache-root` that holds a regular file named after a
+cache, is refused before the image build with exit 2, naming the flag and the path; so is one that cannot be resolved (a symbolic link loop), and a
+`--cache-root` that is a regular file is refused also when every cache has its own `--cache` and when the
+manifest declares no cache. Without `--cache-root`, the default root (`caches/<id>` next to `$DOKIMI_REPO_CACHE`
+when it is set) is checked the same way for each cache with no `--cache`, and a `--cache` naming no cache of the
+manifest is refused there too. An existing
+read-only directory is accepted. `{source_dir}` is the source's own git directory, or
 `--source-dir`.
 
 Cloning and fetching a remote source (`url@rev`, in every `repo` command) is
@@ -2245,7 +2413,7 @@ python cli.py eval check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yam
 python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --arm guidance:none,guidance:raw \
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --batch pilot \
-    --bin /opt/claude-2.1.286/claude --agent-network host --budget 1 --max-batch-usd 20
+    --bin /opt/claude-2.1.286/claude --agent-network host --max-usd-per-cell 1 --max-usd 20
 python cli.py repo report repo-runs/pilot
 python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
 ```
@@ -2302,7 +2470,19 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   still run; the file is left in place, and removing it or `--force` runs the
   cell again. The same holds for a finished cell of a task this host cannot
   run, except that `--force` keeps it: once its file is removed, the cell runs
-  on a host that meets the task's requirements. A batch stays on the eval tree it
+  on a host that meets the task's requirements. A `--force` run that stops part
+  way (Ctrl-C, a crash, a failed cell), or a harness binary replaced while the
+  batch runs, can leave finished cells of two `id`s in one arm and model; `repo
+  report` refuses such a batch and `repo compare` such a compared row, naming
+  both `id`s, until a `--force` run over every arm and model of the batch (the same `--task` and `--reps`) reruns them. A plan naming one cell twice (a
+  repeated `--task` or `--model`, or two `--model` strings with one directory
+  name, `a/b` and `a:b`, or names that differ only in case) is refused before any agent starts.
+  Ctrl-C starts no queued cell: it sets the halt first, and a cell a worker takes after that is dropped before it
+  reserves budget or prepares a workspace (a cell a worker took before the main thread ran the handler is not
+  stopped by that). It kills, by name, the agent containers the running cells started; a cell whose
+  agent was killed is not recorded and runs again on the next invocation (what a killed agent spent without
+  reporting a cost is open: #834). A cell past its agent is not killed: its grading container finishes (Ctrl-C
+  waits for it), the cell is recorded, and its agent is not run again on resume. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
@@ -2314,12 +2494,13 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   the harness must report its version inside the image, and a probe container
   with the same mounts must see neither `/eval/content` nor `/eval/source`, no
   entry named like a task, and no guidance file above the workspace.
-- `--timeout`, `--max-turns` and `--budget` apply unless `task.json` sets
+- `--timeout`, `--max-turns` and `--max-usd-per-cell` apply unless `task.json` sets
   `timeout_s`, `max_turns` or `budget_usd`. On a timeout the `docker run`
   CLI gets SIGTERM, which it passes to the container, and 10 s to stop it;
   then the CLI's process group is killed, the container is killed by name,
-  and the cell is still graded. `--max-batch-usd` starts no new cell
-  once that much has been spent.
+  and the cell is still graded. `--max-usd` starts no new cell
+  once the batch has spent that much, earlier invocations included (kept in
+  `_eval/spend.json`), counting the budget of each cell in flight.
 - Every container runs with `--security-opt no-new-privileges`, `--cap-drop
   ALL` and a `--pids-limit`, as the caller's uid and gid.
 - `--agent-network` is required while the egress proxy is missing: it gives the
@@ -2457,12 +2638,32 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   cannot be read (no read permission, a directory, not UTF-8 text) or parsed
   as JSON (a trailing comma, a BOM) is refused the same way, exit 2 before
   writing and naming the path, since whether it holds labels is not known.
+- **The measure bound.** `repo report` reads a score, cost, turn count, token count
+  or `process` count, and `repo compare` also reads a `--metric` value, as a measurement only
+  when it is finite and its magnitude is at most 1e150 (`SCORE_BOUND` in
+  `dokimi/measure.py`), so that sums and squared deltas stay finite; a value past
+  it is no measurement. A `score` metric past it makes the grade a grader failure
+  (`grade.json has no numeric metrics.<name> that is finite and within +-1e+150`;
+  a stored `result.json` whose `grade.score` is past it is read as one too), and
+  `repo compare` counts that grader failure as a score of 0 in its mean, and
+  a `cost_usd`, `num_turns`, token count or `score_max` past it makes `repo
+  report` and `repo compare` refuse that `result.json`. Any other value past it
+  (a `--metric`, a `process` count, `first_prompt_tokens`, `first_useful_s`,
+  `first_useful_steps`) is left out of the mean and of `n`, as a value that is
+  absent. A cell whose `first_useful` `steps` is past it is left out of
+  `first_useful_rate` and its `n`, and out of the compare header's
+  observed-of-measured count (it shows as unmeasured), as neither a hit nor a
+  miss (steps 5 and steps 1e200 give a rate of 1.0 with `n` 1). In `repo compare`
+  a task whose `metric:x` is absent in either arm is unpaired (`no metric:x in
+  baseline or treatment`), so three tasks whose `metric:x` is 1.7e308 in both
+  arms give no `metric:x` row at all, not an overflow, and the same three at
+  1e150 give a row with means of 1e150.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
   cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
   task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
-  declared cells with a verdict that observed one), each `--metric` from `grade.json` (or `judge:recall_judged` from
+  declared cells with a verdict that observed one; a cell whose `steps` is no measure is left out), each `--metric` from `grade.json` (or `judge:recall_judged` from
   `hits_judged.json`, below), and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided
@@ -2495,8 +2696,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
   the mean delta a one-sample t test at the uncorrected two-sided 5% level
   detects with 80% power at that spread, the t quantiles at `n-1` degrees of
-  freedom (every row has `mde` under `data` in `--json`; `null` for one task or deltas with
-  no spread, and then no note). It is not the power of the sign-flip test nor
+  freedom (every row has `mde` under `data` in `--json`; `null` for one task, for deltas with
+  no spread (then no note), or for a figure that leaves the float range (the note then names the changed-task or Holm floor where one keeps p above 0.05, and says nothing otherwise). It is not the power of the sign-flip test nor
   of the Holm-corrected decision; a Holm-calibrated figure would depend on the
   other rows' observed p, which a figure for planning the next run's task count
   cannot know. The sign-flip p over k changed (non-tied)
@@ -2670,7 +2871,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
 CI for a repository: `.github/workflows/repo-eval.yml` is a reusable workflow
 that runs the no-LLM checks on the caller's checkout and needs no secret.
 
-- `validate` runs `repo validate` and gates the other two jobs; `scan` runs `repo scan`
+- `validate` runs `eval check --schema-only` and gates the other two jobs; `scan` runs `repo scan`
   (report only: the claim counts and failing claims go to the job summary, the
   `repo_readiness.v1` report to an artifact); `tasks-check` runs `eval check`
   for each selected task in a job of its own (docker; the image is built from the

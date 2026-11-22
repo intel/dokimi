@@ -22,7 +22,7 @@ needs `--judge-provider` (it does not fall back to `--provider` for the judge);
 `tasks run` and `repo` take `--model` only. The provider is one of `openai`,
 `anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter`, `openai-codex` or
 `claude-cli` (a logged-in Claude Code CLI, no key; see
-[subscription backends](subscription-backends.md));
+[subscription backends](subscription-backends.md)), `codex-cli` or `copilot-cli` (a logged-in Codex or Copilot CLI);
 `arms run --judge-provider` takes `google`, an alias of `google-vertex`, but not
 `openai-codex`.
 Credentials are read from the environment: `OPENAI_API_KEY`,
@@ -42,24 +42,27 @@ litellm has no price for such a model, so cost is reported as unknown and
 `novelty --max-usd` stops the run after its first call.
 
 The judge must be a different model from the one under measurement, because a
-model that grades its own answers inflates the scores. `novelty` refuses a
-self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so name
+model that grades its own answers inflates the scores. `novelty`, `arms run` and
+`subjects run` refuse a judged run whose default judge is the model under measurement:
+the command exits 2 with `pass --judge-model as well`, so name
 `--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
+For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answerer only warns on stderr.
+`novelty` does not: it refuses that judge unless you also pass `--allow-self-judge`.
 
 ## A skill
 
 | Step | Command | Cost |
 |---|---|---|
 | 1. Does it load? | `dokimi catalog check --root <catalog> --kind skills [--strict]` | free |
-| 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
-| 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
-| 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
+| 2. Is it ever picked? | `dokimi skill routing skill:<dir> --against <catalog> --queries queries.json [--model …]` | free without `--model` |
+| 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --dry-run` | free |
+| 4. What does it add? | the same command without `--dry-run`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
 | 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <model> --provider <provider> --judge --judge-model <judge-model> --judge-provider <judge-provider>` | one answer and one grade per question and arm |
 | 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](coding-harnesses.md)) | one agent run per task and harness; needs Docker and Claude credentials (`AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), not the provider keys above; run with `--dry-run` first |
 
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
-  same catalog: `--catalog <dir>` takes every other skill the catalog lists: a root
+  same catalog: `--against <dir>` takes every other skill the catalog lists: a root
   `skills.yaml` decides what it lists; without one, every `SKILL.md` under it
   counts except a `template/` copy (vendored and VCS directories such as `.git`,
   `node_modules`, `site-packages` and virtualenvs are not walked). A
@@ -77,13 +80,14 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
   tiers cost 5–20 times more, so run them only when whoever asked agrees to
   the bill. Pass `--max-usd` to `novelty` steps: the run stops once it has
   spent that much (calls in flight can overshoot), writes no artifact when the
-  cap trips (except `novelty routing --model`, `atoms` and `probe`, which save
-  the calls they made as a `partial` result), and stops at the first call to a
-  model with no known price. Set the cap above the expected dollar spend: the
-  triage example below was about $1.80. `arms run` and `tasks run` have no cap,
-  so size them first: questions times arms, or tasks times harnesses. One
-  measured example: triage on a 19k-token skill with a mid-size model was 103
-  calls, about $1.80; `study` on the same skill was 1,900 calls, about $14.50.
+  cap trips (except `skill routing --model`, `catalog routing --model`, `atoms` and `probe`, which save the calls they made as
+  a `partial` result), and stops at the first call to a model with no known
+  price. Set
+  the cap above the expected dollar spend: the triage example below was about
+  $1.80. `arms run` and `tasks run` have no cap, so size them first: questions
+  times arms, or tasks times harnesses. One measured example: triage on a
+  19k-token skill with a mid-size model was 103 calls, about $1.80; `study` on
+  the same skill was 1,900 calls, about $14.50.
 - **At triage** with `--include-resources`, the 25-atom cap strides over the
   concatenated atom list of the files the budgets selected, in file order, so
   `references/` can be probed, but a file with few atoms may get no probe: with
@@ -92,7 +96,7 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
   file, so a large bundle costs more extraction calls than its 25 probes suggest.
   `--tier standard` (60 atoms) spreads more probes without promising each file
   one; add `--all-atoms` to the tier command to probe every extracted atom, and
-  run `--estimate-only` first, it costs more.
+  run `--dry-run` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable
   tasks for 5b. `arms run` takes no tasks. That content lives outside this repository
   ([external-content.md](external-content.md)). Without it, the
@@ -105,14 +109,15 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 | Step | Command | Cost |
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget`; to see whether a Bash read of a nested file loads its directory's guidance (agents that read with `cat`), `--scenarios bash` (or `--scenarios bash --only bash=<dir>`) | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--max-usd-per-cell`; to see whether a Bash read of a nested file loads its directory's guidance (agents that read with `cat`), `--scenarios bash` (or `--scenarios bash --only bash=<dir>`) | capped by `--max-usd-per-cell` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi skill novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
-| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
+| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --max-usd-per-cell <usd> --max-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--max-usd-per-cell` defaults to $2.00 per agent run with no batch cap unless you pass `--max-usd` |
 
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
 `<repo>/.github/copilot-instructions.md`, `<repo>/.github/instructions/*.md`)
-and say so.
+and say so; step 1 also checks the `.claude/rules` files, `@` imports and `CLAUDE.local.md`
+that Claude Code loads with them.
 To choose the files for `scan`, write a guidance-only manifest outside the tree and pass
 it with `--manifest-file`:
 
@@ -126,7 +131,7 @@ guidance:
 A glob that matches no file is only a warning. To scan a file the globs leave out,
 add `also_scan: ["CONTRIBUTING.md"]` under `guidance`: `also_scan` names files the
 repository has and the gate must see, so a missing one makes the scan `incomplete`
-and `repo scan --fail-on-fail` exits 1.
+and `repo scan --fail-on fail` exits 1.
 
 The `id` must be lowercase: start with a letter or digit, then use only letters, digits, `.`, `_` and `-`.
 `reach` always adds the harness's own guidance file names (for example `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md`).
@@ -247,7 +252,8 @@ these, in order, before writing what it showed (the fields:
   content: the same file, within `window` lines of a thread, with no judge.
   `dokimi repo report <batch> --hits` finds the pairs but cuts each comment
   and finding to 100 characters (200 with `--json`): read each pair you cite
-  in full, the thread's `comment` in the task's `gold.json` (or at its `url`),
+  in full, the thread's `comment` in the file named by the task's `gold` field in
+  `task.json` (default `gold.json`; or at the thread's `url`),
   then the finding in the cell's `answer.txt`.
   `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
   every credited pair (`same point`, `related` or `unrelated`) and gives

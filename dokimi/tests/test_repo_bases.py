@@ -73,7 +73,7 @@ def test_globs_and_bases_are_checked_at_every_task_base(tmp_path, capsys):
         _task(root, task_id, base)
     _commit_all(root, "evals")
 
-    argv = ["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"]
+    argv = ["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"]
     _run_cli(argv)
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True, out["errors"]
@@ -125,7 +125,7 @@ def test_bases_note_leaves_out_a_base_whose_overlay_the_globs_miss(tmp_path, cap
          "setup_patches": ["setup.patch"]}))
     _commit_all(root, "evals")
 
-    _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+    _run_cli(["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True, out["errors"]
     assert out["guidance_by_base"] == {plain: 0, overlaid: 0}
@@ -190,7 +190,7 @@ def test_bases_note_keeps_a_task_whose_setup_patch_writes_no_guidance(tmp_path, 
 
     with monkeypatch.context() as m:  # a temp dir in a work tree's subdirectory: git there would skip every path
         m.setattr(tempfile, "tempdir", str(root / "src"))
-        _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+        _run_cli(["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True, out["errors"]
     assert out["guidance_by_base"] == {bare: 0}
@@ -254,7 +254,7 @@ def test_work_tree_without_git_skips_the_base_check(tmp_path, capsys):
     _write(root, "dev/evals/Dockerfile", "FROM scratch\n")
     _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(MANIFEST))
     _task(root, "fix_one", "0" * 40)
-    _run_cli(["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+    _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True and out["guidance_by_base"] is None
     assert out["notes"] == ["task bases were not checked: the source has no git history"]
@@ -276,7 +276,7 @@ def test_shallow_clone_checks_the_bases_it_has_and_names_the_cause(tmp_path, cap
     subprocess.run(["git", "clone", "-q", "--depth", "2", root.as_uri(), str(shallow)], check=True)
 
     with pytest.raises(SystemExit):
-        _run_cli(["repo", "validate", str(shallow), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+        _run_cli(["eval", "check", "--schema-only", str(shallow), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["guidance_by_base"] == {recent: 1}
     assert len(out["errors"]) == 1 and "fix_old" in out["errors"][0], out["errors"]
@@ -333,7 +333,7 @@ def test_validate_warns_about_a_malformed_mcp_json_at_a_task_base_and_at_a_tree_
     for source in (f"{root}@HEAD", str(root)):  # with git history (the task base), and a plain work tree
         if source == str(root):
             subprocess.run(["rm", "-rf", str(root / ".git")], check=True)
-        _run_cli(["repo", "validate", source, "--manifest", "dev/evals/repo-eval.yaml", "--json"])  # succeeds
+        _run_cli(["eval", "check", "--schema-only", source, "--manifest", "dev/evals/repo-eval.yaml", "--json"])  # succeeds
         out = json.loads(capsys.readouterr().out)["data"]
         assert out["ok"] is True, out["errors"]
         assert any(".mcp.json" in w and why in w for w in out["warnings"]), out["warnings"]
@@ -350,7 +350,7 @@ def test_validate_accepts_a_valid_or_absent_mcp_json(tmp_path, capsys):
         _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(MANIFEST))
         _task(root, "fix_one", base)
         _commit_all(root, "evals")
-        _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+        _run_cli(["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
         assert json.loads(capsys.readouterr().out)["data"]["ok"] is True, name
 
 
@@ -383,6 +383,18 @@ def test_the_preflight_checks_every_task_base_not_only_the_first(tmp_path):
         check_mcp_configs(root / ".git", tasks, profile, "all")
     check_mcp_configs(root / ".git", tasks, profile, "read")  # the file is not passed to the agent
     check_mcp_configs(root / ".git", tasks[:1], profile, "all")
+
+
+def test_a_config_the_cli_rejects_is_a_config_refusal_and_a_value_error(tmp_path):
+    from types import SimpleNamespace
+
+    from dokimi.repos.bases import ConfigRefused, check_mcp_configs
+
+    root = tmp_path / "r"
+    bad = _mcp_base(root, b"{")
+    with pytest.raises(ConfigRefused, match="not valid JSON"):
+        check_mcp_configs(root / ".git", [SimpleNamespace(base=bad)], _claude_code_profile(), "all")
+    assert issubclass(ConfigRefused, ValueError)
 
 
 def test_the_preflight_leaves_an_unresolvable_base_and_a_base_without_the_file_to_the_other_checks(tmp_path):

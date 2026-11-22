@@ -16,9 +16,10 @@ the section of the operation it will hold once the renames of #94 §4 land.
 
 from __future__ import annotations
 
+import re
 import shlex
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 
 from dokimi.cli_flags import FLAG_MOVES
 
@@ -59,6 +60,9 @@ class Tombstone:
     old: tuple[str, ...]
     new: tuple[str, ...]
     flags: tuple[str, ...] = ()
+    # For a move whose argv changes shape (a flag becomes a positional): the argv after ``old``
+    # becomes the whole printed argv. It replaces ``new``, ``flags`` and the rest of the argv.
+    rewrite: Callable[[list[str]], list[str]] | None = field(default=None, compare=False)
 
 
 ROOTS: tuple[Root, ...] = (
@@ -75,8 +79,8 @@ ROOTS: tuple[Root, ...] = (
     Root("catalog", "Subjects"),
     Root("docs", "Subjects"),
     Root("skill", "Subjects"),
-    Root("novelty", "Subjects"),
     Root("repo", "Subjects"),
+    Root("memory", "Subjects"),
     Root("eval", "Evals"),
     Root("tools", "Analysis and data"),
     Root("trace", "Analysis and data"),
@@ -93,6 +97,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("report", "eval"), FREE),
     Leaf(("report", "generate"), FREE),
     Leaf(("report", "model-compare"), FREE),
+    Leaf(("report", "summary"), FREE),
     Leaf(("answers", "generate"), PAID),
     Leaf(("benchmark", "run"), PAID),
     Leaf(("benchmark", "preflight"), FREE),
@@ -105,7 +110,6 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("subjects", "evidence"), FREE),
     Leaf(("tasks", "harnesses"), FREE),
     Leaf(("tasks", "run"), PAID),
-    Leaf(("explore", "list"), FREE),
     Leaf(("explore", "run"), PAID),
     Leaf(("catalog", "list"), FREE),
     Leaf(("catalog", "show"), FREE),
@@ -119,12 +123,14 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("skill", "novelty", "analyze"), PAID),
     Leaf(("skill", "novelty", "atoms"), PAID),
     Leaf(("skill", "novelty", "probe"), PAID),
+    Leaf(("skill", "novelty", "ground"), FREE),
     Leaf(("skill", "novelty", "items"), FREE),
+    Leaf(("skill", "novelty", "view"), FREE),
     Leaf(("skill", "shorten"), PAID),
     Leaf(("skill", "check"), FREE),
-    Leaf(("novelty", "routing"), PAID),
-    Leaf(("novelty", "view"), FREE),
-    Leaf(("repo", "validate"), FREE),
+    Leaf(("skill", "routing"), PAID),
+    Leaf(("catalog", "routing"), PAID),
+    Leaf(("catalog", "routing-compare"), FREE),
     Leaf(("repo", "scan"), FREE),
     Leaf(("repo", "inspect"), FREE),
     Leaf(("repo", "fetch"), FREE),
@@ -136,6 +142,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("repo", "compare"), FREE),
     Leaf(("repo", "hits", "judge"), PAID),
     Leaf(("repo", "hits", "sheet"), FREE),
+    Leaf(("repo", "security"), FREE),
     Leaf(("eval", "inspect"), FREE),
     Leaf(("eval", "check"), FREE),
     Leaf(("eval", "import"), FREE),
@@ -168,6 +175,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "export"), FREE),
     Leaf(("data", "import", "docling"), FREE),
     Leaf(("tools", "preference"), PAID),
+    Leaf(("memory", "lint"), FREE),
     Leaf(("trace", "inspect"), FREE),
     Leaf(("trace", "consistency"), FREE),
     Leaf(("trace", "prefilter"), FREE),
@@ -178,7 +186,242 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "show"), FREE),
 )
 
-# The moves of #94 M1-M3 (`eval`, `skill`, `catalog`, `trace`, `data`, replay, `docs`) and D11. Not yet: `novelty routing`.
+_RETIRED_VALIDATE_OPTIONS: tuple[str, ...] = (
+    "--manifest", "--manifest-file", "--cache-dir", "--out", "--json", "--fail-on", "--help",
+)
+_RETIRED_VALIDATE_VALUE_OPTIONS: frozenset[str] = frozenset({"--manifest", "--manifest-file", "--cache-dir", "--out", "--fail-on"})
+
+
+def _retired_validate_option(tok: str) -> str | None:
+    """The retired `repo validate` option that ``tok`` names: exact, or the one prefix of it that argparse
+    would take on that parser. A prefix the retired parser also could not tell apart (``--m``) names none."""
+    name = tok.split("=", 1)[0]
+    if not name.startswith("--"):
+        return None
+    if name in _RETIRED_VALIDATE_OPTIONS:
+        return name
+    hits = [opt for opt in _RETIRED_VALIDATE_OPTIONS if opt.startswith(name)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _retired_validate_value(token: str) -> bool:
+    """Argparse also takes a token containing a space as a value after ruling out options."""
+    if _is_plain(token):
+        return True
+    if " " not in token or token.startswith("-h"):  # -h was the only short option
+        return False
+    name = token.partition("=")[0]
+    return not (name.startswith("--") and any(opt.startswith(name) for opt in _RETIRED_VALIDATE_OPTIONS))
+
+
+def _repo_validate_argv(rest: list[str]) -> list[str]:
+    """The argv `repo validate` moved to (#94 M1). Its ``--out FILE`` wrote the report; the printed argv drops the
+    file, since the report is ``--json`` on stdout now (the user redirects stdout to the file).
+
+    Each retired option is printed under its full name, so the new leaf reads it as the retired parser did: its
+    prefixes can mean something else there (``--c`` also matches ``--cache`` and ``--cache-root``). A ``--`` ends the options, and
+    the rest of the argv is printed as it was given."""
+    kept: list[str] = []
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--":
+            kept.extend(rest[i:])
+            break
+        opt = _retired_validate_option(rest[i])
+        if opt is None:
+            kept.append(rest[i])
+            i += 1
+            continue
+        _, eq, value = rest[i].partition("=")
+        nxt = rest[i + 1] if i + 1 < len(rest) else None
+        if nxt is not None and opt in _RETIRED_VALIDATE_VALUE_OPTIONS and not eq and _retired_validate_value(nxt):
+            args, i = [opt, nxt], i + 2  # argparse: an option is no value; `-` and -1 are
+        else:
+            args, i = [f"{opt}{eq}{value}"], i + 1
+        if opt != "--out":  # --out FILE is dropped: the report is --json on stdout
+            kept.extend(args)
+    return ["eval", "check", "--schema-only", *kept]
+
+
+def _explore_list_argv(rest: list[str]) -> list[str]:
+    """The argv `explore list` moved to (#94 M1): `--json` is not a flag of `eval tasks list`, so it is not printed."""
+    return ["eval", "tasks", "list", "--format", "localization", *(t for t in rest if t != "--json")]
+
+
+def _novelty_routing_argv(rest: list[str]) -> list[str]:
+    """The argv `novelty routing` moved to, given the argv after it (#94 M3).
+
+    ``--all-vs-all`` moves to ``catalog routing ROOT`` (its ``--catalog`` value becomes ROOT), and needs a
+    ``--catalog``: a competitors-only call has no replacement. Any other call moves to ``skill routing SKILL``
+    (its ``--artifact`` value becomes SKILL, ``--catalog`` becomes ``--against``). A bare ``--competitors``
+    path was text, so it moves as ``text:``. ``--repeats`` is ``--reps`` in both. A flag the new leaf does
+    not take stays in the printed argv, so the new parser refuses it. A value flag with no value (none
+    follows, or a flag does) stays there too. A plain token the retired flags did not take as a value is
+    refused, as the retired parser refused it: it had no positionals. An ambiguous prefix raises
+    :class:`AmbiguousRetiredFlag`, as no command can refuse it.
+    """
+    rest = [_retired_spelling(tok) for tok in rest]
+    values, kept = _split_routing_argv(rest)
+    all_vs_all = "--all-vs-all" in rest
+    # argparse keeps the last of a repeated option, so the rewrite does too.
+    artifact = [_legacy_artifact(values["--artifact"][-1])] if values["--artifact"] else []
+    if all_vs_all:
+        if not values["--catalog"]:
+            raise RetiredFlagError("novelty routing --all-vs-all without --catalog has no replacement: "
+                                   "catalog routing needs a ROOT, and the skills come from it")
+        stray = ["--artifact", values["--artifact"][-1]] if values["--artifact"] else []
+        return ["catalog", "routing", *values["--catalog"][-1:], *kept, *stray]
+    against = ["--against", values["--catalog"][-1]] if values["--catalog"] else []
+    return ["skill", "routing", *artifact, *against, *kept]
+
+
+def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """The values of --artifact and --catalog, and the argv that stays (the other flags, in order).
+
+    The retired parser had no positionals, so a plain token is refused unless a retired flag took it as
+    its value (or --competitors took it). That covers a token after a no-value flag, after the `=` form,
+    after `--`, and a leading one.
+    """
+    values: dict[str, list[str]] = {"--artifact": [], "--catalog": []}
+    kept: list[str] = []
+    i = 0
+    while i < len(rest):
+        name, eq, value = rest[i].partition("=")
+        if rest[i] == "--":
+            if i + 1 < len(rest):
+                raise RetiredFlagError(f"unrecognized arguments: {rest[i + 1]}")
+            kept.append(rest[i])
+            i += 1
+        elif name == "--all-vs-all":
+            if eq:
+                raise RetiredFlagError(f"argument --all-vs-all: ignored explicit argument '{value}'")
+            i += 1
+        elif name in values:
+            i = _take_value_flag(rest, i, name, eq, value, values, kept)
+        elif name == "--competitors":
+            i = _take_competitors(rest, i, eq, value, kept)
+        elif _is_plain(rest[i]):
+            raise RetiredFlagError(f"unrecognized arguments: {rest[i]}")
+        else:
+            i = _take_kept_flag(rest, i, name, eq, value, kept)
+    return values, kept
+
+
+def _take_kept_flag(rest: list[str], i: int, name: str, eq: str, value: str, kept: list[str]) -> int:
+    """Keep a flag the new leaf takes (or refuses), and the value it took; returns the next index.
+
+    A value after a retired value flag is kept. A value after any other flag the retired parser did not know
+    is refused, as argparse refused it with its value as the extra.
+    """
+    kept.append("--reps" + eq + value if name == "--repeats" else rest[i])
+    i += 1
+    if eq or i >= len(rest) or not _is_plain(rest[i]):
+        return i
+    if name in _RETIRED_VALUE_FLAGS:
+        kept.append(rest[i])
+        return i + 1
+    if name not in _RETIRED_ROUTING_FLAGS:
+        raise RetiredFlagError(f"unrecognized arguments: {rest[i - 1]} {rest[i]}")
+    return i
+
+
+# argparse reads a negative number as a value or positional when no option looks like one (none does here).
+_NEGATIVE_NUMBER = re.compile(r"-\d+|-\d*\.\d+")
+
+
+def _is_plain(token: str) -> bool:
+    """argparse reads a bare `-`, a negative number, and any token not starting with `-` as a value or positional."""
+    return token == "-" or not token.startswith("-") or _NEGATIVE_NUMBER.fullmatch(token) is not None
+
+
+def _take_value_flag(rest: list[str], i: int, name: str, eq: str, value: str,
+                     values: dict[str, list[str]], kept: list[str]) -> int:
+    """Take one --artifact or --catalog and its value; returns the next index."""
+    if eq:
+        if not value:
+            raise RetiredFlagError(f"argument {name}: expected one argument")
+        values[name].append(value)
+        return i + 1
+    if i + 1 < len(rest) and _is_plain(rest[i + 1]):
+        if not rest[i + 1]:
+            raise RetiredFlagError(f"argument {name}: expected one argument")
+        values[name].append(rest[i + 1])
+        return i + 2
+    # No value follows: the flag stays in the printed argv, and the new leaf refuses it, since it has
+    # no such flag (its error text is not the retired parser's).
+    kept.append(rest[i])
+    return i + 1
+
+
+def _take_competitors(rest: list[str], i: int, eq: str, value: str, kept: list[str]) -> int:
+    """Take --competitors and the values that follow it (nargs="+"); a bare path was text. Returns the next index.
+
+    The `=` form takes one value only; a plain token after it is refused by the caller, as argparse refused it.
+    """
+    if eq:
+        if not value:
+            raise RetiredFlagError("argument --competitors: expected one argument")
+        kept.append(f"--competitors={_legacy_competitor(value)}")
+        return i + 1
+    kept.append(rest[i])
+    i += 1
+    while i < len(rest) and _is_plain(rest[i]):
+        if not rest[i]:
+            raise RetiredFlagError("argument --competitors: expected one argument")
+        kept.append(_legacy_competitor(rest[i]))
+        i += 1
+    return i
+
+
+# The retired flags that the new leaf keeps and that take one value: the value is kept, and a second
+# plain token after it is refused by the caller.
+_RETIRED_VALUE_FLAGS = ("--keep-copies-under", "--max-tokens", "--max-usd", "--model", "--out", "--provider",
+                        "--queries", "--queries-by-skill", "--repeats", "--seed")
+
+
+# The flags `novelty routing` took (its parser allowed any unique prefix of one).
+_RETIRED_ROUTING_FLAGS = (
+    "--all-vs-all", "--artifact", "--catalog", "--competitors", "--estimate-only",
+    "--include-disabled", "--include-invalid", "--keep-copies-under", "--max-tokens", "--max-usd",
+    "--model", "--out", "--provider", "--queries", "--queries-by-skill", "--queries-from-headings",
+    "--repeats", "--seed",
+)
+
+
+class RetiredFlagError(ValueError):
+    """A retired call the retired parser refused, or that has no replacement: no command is printed."""
+
+
+class AmbiguousRetiredFlag(RetiredFlagError):
+    """A prefix that named two retired flags: the retired parser refused it, so no command is printed."""
+
+
+def _retired_spelling(token: str) -> str:
+    """A token with a retired flag's prefix spelt in full, as argparse would have read it.
+
+    An ambiguous prefix raises: the new leaf may take it as one of its own flags (`--c` is
+    `--competitors` on `skill routing`), so it cannot be left for the printed command to refuse.
+    """
+    name, eq, value = token.partition("=")
+    if not name.startswith("--") or name in _RETIRED_ROUTING_FLAGS or name == "--":
+        return token
+    hits = [flag for flag in _RETIRED_ROUTING_FLAGS if flag.startswith(name)]
+    if len(hits) > 1:
+        raise AmbiguousRetiredFlag(f"ambiguous option: {name} could match {', '.join(hits)}")
+    return hits[0] + eq + value if hits else token
+
+
+def _legacy_artifact(ref: str) -> str:
+    """A retired `--artifact` value as the new SKILL: a bare path was always text, so it stays text."""
+    return ref if ref.startswith(("skill:", "text:")) else f"text:{ref}"
+
+
+def _legacy_competitor(ref: str) -> str:
+    """A retired `--competitors` value: a bare path was text on the retired command, and is still text."""
+    return _legacy_artifact(ref)
+
+
+# The moves of #94 M1-M3 and D11. `novelty view` waits for L5 as `report $RUN`; until then it is `skill novelty view`.
 # A bare retired root comes last: the first match wins, and a root matches every path under it.
 TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("tasks", "inspect"), ("eval", "inspect")),
@@ -191,6 +434,8 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("questions", "panel-review"), ("eval", "questions", "review")),
     Tombstone(("questions", "import"), ("eval", "import")),
     Tombstone(("tasks", "list"), ("eval", "tasks", "list")),
+    Tombstone(("explore", "list"), ("eval", "tasks", "list"), ("--format", "localization"), rewrite=_explore_list_argv),
+    Tombstone(("repo", "validate"), ("eval", "check"), ("--schema-only",), rewrite=_repo_validate_argv),
     Tombstone(("catalog", "trigger-set"), ("eval", "triggers", "generate")),
     Tombstone(("eval", "score"), ("eval", "score", "pointwise")),
     Tombstone(("eval", "pairwise"), ("eval", "score", "pairwise")),
@@ -207,6 +452,8 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("novelty", "probe"), ("skill", "novelty", "probe")),
     Tombstone(("novelty", "items"), ("skill", "novelty", "items")),
     Tombstone(("novelty", "shorten"), ("skill", "shorten")),
+    Tombstone(("novelty", "routing"), ("skill", "routing"), rewrite=_novelty_routing_argv),
+    Tombstone(("novelty", "view"), ("skill", "novelty", "view")),
     Tombstone(("catalog", "scan"), ("catalog", "check")),
     Tombstone(("library", "intents"), ("catalog", "intents")),
     Tombstone(("library", "list"), ("catalog", "list"), ("--kind", "product")),
@@ -232,6 +479,7 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("product",), ("catalog",)),
     Tombstone(("dataset",), ("data", "export")),
     Tombstone(("ingest",), ("data", "import")),
+    Tombstone(("novelty",), ("skill", "novelty")),
 )
 
 SCHEMA_VERSION = "cli_routes.v1"
@@ -289,6 +537,8 @@ def moved_argv(
             all(a in ("-h", "--help") for a in argv[n:]) or not argv[n].startswith("-")
         ):
             continue
+        if tomb.rewrite is not None:
+            return tomb.rewrite(list(argv[n:]))
         return [*tomb.new, *tomb.flags, *argv[n:]]
     return None
 
@@ -306,7 +556,8 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
         name, equals, value = token.partition("=")
         for move in FLAG_MOVES:
             if name == move.old and (not move.leaves or leaf in move.leaves):
-                rewritten[index] = f"{move.new}{equals}{value}"
+                # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
+                rewritten[index] = move.new if "=" in move.new else f"{move.new}{equals}{value}"
                 changed = True
                 break
     return rewritten if changed else None

@@ -5,14 +5,16 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
-import os
 import re
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from dokimi import __version__
+from dokimi.utils import key_bytes
 
 from .loader import awareness_arm_specs, work_arm_specs
 from .models import SubjectDescriptor
@@ -132,14 +134,50 @@ def build_subject_scorecard(
     }
 
 
+def _field(text: str) -> bytes:
+    """A fixed-width field for *text*, so a NUL or any byte in it cannot run into the next field."""
+    return hashlib.sha256(key_bytes(text)).digest()
+
+
+_ABSENT_ERRNOS = (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP, errno.ENAMETOOLONG)
+_ABSENT_WINERRORS = (123, 206, 1921)  # invalid name, name too long (ENAMETOOLONG), cannot resolve
+
+
+def _stat_mode(path: Path) -> int | None:
+    """The st_mode of *path*, None when it names nothing (missing, a name past the file-name limit, a loop); permission and I/O errors propagate.
+
+    ``Path.is_file()`` and ``is_dir()`` return False for every OSError on Python 3.14, so they would hide those errors.
+    """
+    try:
+        return path.stat().st_mode
+    except OSError as exc:
+        if exc.errno in _ABSENT_ERRNOS or getattr(exc, "winerror", None) in _ABSENT_WINERRORS:
+            return None
+        raise
+    except ValueError:  # an embedded NUL
+        return None
+
+
+def _is_file(path: Path) -> bool:
+    mode = _stat_mode(path)
+    return mode is not None and stat.S_ISREG(mode)
+
+
+def _is_dir(path: Path) -> bool:
+    mode = _stat_mode(path)
+    return mode is not None and stat.S_ISDIR(mode)
+
+
 def _digest_values(values: tuple[str, ...]) -> str:
+    """Per value: its text's digest, then a tag for file or no file, then the file's digest when it names one."""
     h = hashlib.sha256()
     for value in values:
-        h.update(os.fsencode(value))
-        h.update(b"\0")
+        h.update(_field(value))
         path = Path(value)
-        if path.is_file():
-            h.update(path.read_bytes())
+        if _is_file(path):
+            h.update(b"f" + hashlib.sha256(path.read_bytes()).digest())
+        else:
+            h.update(b"t")
     return "sha256:" + h.hexdigest()
 
 
@@ -161,49 +199,53 @@ def distribution_digest(ref: str | None, *, base: Path) -> str | None:
     path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
         path = base / path
-    if path.is_dir():
+    if _is_dir(path):
         skill_dir = path
-    elif path.name == "SKILL.md" and path.is_file():
+    elif path.name == "SKILL.md" and _is_file(path):
         skill_dir = path.parent
     else:
         return None
     skill = skill_dir / "SKILL.md"
     # Any other entry makes it an archive; one stray file is enough, so stop at the second.
-    if [p.name for _, p in zip(range(2), skill_dir.iterdir(), strict=False)] != ["SKILL.md"] or not skill.is_file():
+    if [p.name for _, p in zip(range(2), skill_dir.iterdir(), strict=False)] != ["SKILL.md"] or not _is_file(skill):
         return None
     return "sha256:" + hashlib.sha256(skill.read_bytes()).hexdigest()
 
 
 def _digest_ref(ref: str | None, *, base: Path) -> str | None:
+    return _digest_ref_kind(ref, base=base)[0]
+
+
+def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]:
+    """The digest of *ref* and a tag for what it named: ``f`` a file, ``d`` a directory, ``t`` neither."""
     if not ref:
-        return None
+        return None, b"t"
     path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
         path = base / path
+    if _is_file(path):
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(), b"f"
     h = hashlib.sha256()
-    if path.is_file():
-        h.update(path.read_bytes())
-    elif path.is_dir():
-        for child in sorted(p for p in path.rglob("*") if p.is_file()):
-            h.update(os.fsencode(str(child.relative_to(path))))
-            h.update(b"\0")
-            h.update(child.read_bytes())
-            h.update(b"\0")
+    kind = b"t"
+    if _is_dir(path):
+        kind = b"d"
+        h.update(b"d")
+        # POSIX names, ordered by their parts as utils.tree_digest does, so the same tree digests the same on Windows
+        for child in sorted((p for p in path.rglob("*") if _is_file(p)), key=lambda p: p.relative_to(path).parts):
+            h.update(_field(child.relative_to(path).as_posix()))
+            h.update(hashlib.sha256(child.read_bytes()).digest())
     else:
-        h.update(os.fsencode(ref))
-    return "sha256:" + h.hexdigest()
+        h.update(b"t" + _field(ref))
+    return "sha256:" + h.hexdigest(), kind
 
 
 def _digest_arm_spec(spec: str, *, base: Path) -> str:
     from dokimi.treatments.specs import content_refs
 
     h = hashlib.sha256()
-    h.update(os.fsencode(spec))
-    h.update(b"\0")
+    h.update(_field(spec))
     for part, content_ref in content_refs(spec):
-        h.update(os.fsencode(part))
-        h.update(b"\0")
-        digest = _digest_ref(content_ref, base=base)
-        h.update((digest or "").encode("utf-8"))
-        h.update(b"\0")
+        h.update(_field(part))
+        digest, kind = _digest_ref_kind(content_ref, base=base)
+        h.update(kind + _field(digest or ""))
     return "sha256:" + h.hexdigest()

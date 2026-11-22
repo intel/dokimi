@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from dokimi import cli_flags
+from dokimi import cli_flags, llm_cli
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -21,6 +21,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
+from dokimi.judge_rule import apply_default_judge, follow_answerer_cli, refuse_judge_model
 from dokimi.utils import InputError
 
 
@@ -32,7 +33,15 @@ def cmd_subjects_list(args: argparse.Namespace) -> None:
     if not args.subjects_root:
         raise InputError("no subjects root given; pass --subjects-root <checkout>/evaluation/subjects")
     root = Path(args.subjects_root)
-    if not root.is_dir():
+    try:
+        is_dir = root.is_dir()
+    except OSError as exc:
+        from dokimi.subjects.loader import name_too_long
+
+        if not name_too_long(exc):
+            raise
+        is_dir = False
+    if not is_dir:
         raise InputError(f"--subjects-root is not a directory: {root}")
     paths = sorted([*root.glob("*.toml"), *root.glob("*.json")])
     for path in paths:
@@ -41,7 +50,7 @@ def cmd_subjects_list(args: argparse.Namespace) -> None:
 
             descriptor = load_subject(path)
             print(f"{descriptor.id}\t{descriptor.subject.kind}\t{path}")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one bad descriptor is listed as ERROR, the rest still print
             print(f"{path}\tERROR\t{exc}")
 
 
@@ -85,6 +94,27 @@ def cmd_subjects_show(args: argparse.Namespace) -> None:
     }, indent=2))
 
 
+def resolve_judge(args, descriptor) -> None:
+    """Settle the judge of a ``subjects run`` once its descriptor is loaded (parse_args leaves it to this).
+
+    The answerer is the descriptor's cells when it has explicit ones; the top-level --model is only the implicit
+    cell, so a CLI --provider is not an answerer then. A judge model the chosen judge provider cannot take is refused
+    here, before any cell runs (parse_args checked it before the follow moved the judge).
+    """
+    matrix = descriptor.matrix_cells_explicit
+    named = getattr(args, "judge_provider_named", False)
+    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
+        try:
+            apply_default_judge(args, matrix=matrix, named=named)
+        except ValueError as exc:
+            raise InputError(str(exc)) from exc
+    follow_answerer_cli(args, matrix=matrix, named=named)
+    provider, model = args.judge_provider, args.judge_model
+    if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model):
+        raise InputError(refuse_judge_model(provider, model, named=named,
+                                            answerer_provider=None if matrix else getattr(args, "provider", None)))
+
+
 def cmd_subjects_run(args: argparse.Namespace) -> None:
     """Run awareness matrix cells for one subject and write a scorecard."""
     from dokimi.artifacts import load_artifact, save_artifact
@@ -99,7 +129,8 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
     except (ValueError, FileNotFoundError) as exc:
         raise InputError(f"cannot load subject: {exc}") from exc
     if descriptor.subject.kind == "repo":
-        raise InputError("repo subjects are not run by `subjects run` yet; check them with `repo validate`")
+        raise InputError("repo subjects are not run by `subjects run` yet; check them with `eval check --schema-only`")
+    resolve_judge(args, descriptor)
     # Attached, not produced: `skill novelty analyze` makes it, so a bad path fails here,
     # before any cell runs.
     try:
@@ -238,9 +269,9 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k")
     run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
     run_p.add_argument("--max-iterations", type=positive_int, default=6, dest="max_iterations")
-    run_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens",
-                       help="Output-token ceiling per answer. Raise for reasoning models, which "
-                            "can spend the provider default entirely on reasoning and return empty text")
+    cli_flags.add(run_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens",
+                  help="Output-token ceiling per answer. Raise for reasoning models, which "
+                  "can spend the provider default entirely on reasoning and return empty text")
     run_p.add_argument("--grounded-from-topics", action="store_true", dest="grounded_from_topics",
                        help="Let the judge use a question's expected_topics as ground truth when they "
                             "are substantive answer statements, enabling the factual_grounding "
@@ -278,7 +309,9 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--work-model", default=None, dest="work_model")
     run_p.add_argument("--work-output-dir", default=None, dest="work_output_dir")
     run_p.add_argument("--work-command-template", default=None, dest="work_command_template")
-    run_p.add_argument("--work-repeats", type=positive_int, default=1, dest="work_repeats")
+    cli_flags.add(run_p, "reps", "--reps", type=positive_int, default=1, dest="work_repeats", metavar="N",
+                  help="Repetitions of each (task, harness) cell of suite.tasks (default 1); "
+                       "the arms matrix runs once")
     run_p.add_argument(
         "--work-dry-run",
         action="store_true",
@@ -291,7 +324,7 @@ def register(sub, positive_int) -> None:
         dest="skip_work",
         help="Skip suite.tasks even when the subject descriptor declares them.",
     )
-    run_p.set_defaults(func=cmd_subjects_run)
+    run_p.set_defaults(func=cmd_subjects_run, defer_judge_default=True)
 
     evidence_p = subjects_sub.add_parser(
         "evidence",

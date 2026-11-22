@@ -115,7 +115,8 @@ def _author(name: str, description: str, args: argparse.Namespace,
     from dokimi.novelty.cost import spend_cap
     from dokimi.novelty.needs import build_need_graph
 
-    client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args))
+    client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args),
+                       output_limit_configurable=False)
     try:
         return build_need_graph(name, description, client=client, strict=True), False
     except SpendCapReached as exc:
@@ -125,7 +126,7 @@ def _author(name: str, description: str, args: argparse.Namespace,
             raise
         # The call is paid for and its reply is the graph, as measure.py keeps such a reply.
         return _graph_from_unmetered(name, description, reply), True
-    except Exception as exc:  # an unreachable or unauthenticated model: not "an empty graph"
+    except Exception as exc:  # noqa: BLE001 - an unreachable model exits non-zero, not "an empty graph"
         print(f"Error: the graph-author call failed: {exc}; nothing was written", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
 

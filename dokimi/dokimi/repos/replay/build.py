@@ -21,13 +21,15 @@ that pull request with the reason and leaves the others alone.
 from __future__ import annotations
 
 import base64
-import json
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from dokimi.atomic_write import write_bytes_atomic, write_json_atomic
+from dokimi.process_io import utf8_bytes
+from ...provenance import generated_by
 from ..manifest import RepoManifest
 from .history import History, addressed, carry
 from .merged import Skip, base_of, check_merged, left_out, need_utf8_paths
@@ -216,6 +218,7 @@ def _task(pr: PullRequest, base: str, rev: str, leave_out: list[str], opts: Opti
         "id": task_id(pr), "family": "review", "base": base, "grader": "dokimi:review_replay",
         "score": {"metric": "recall", "max": 1.0}, "review_patch": PATCH, "gold": GOLD, "window": opts.window,
         "source_pr": pr.number, "reviewed_commit": rev, "merge_commit": pr.merge, "prompt": opts.prompt,
+        "provenance": generated_by("tasks-generate"),
     }
     if pr.url:
         task["source_url"] = pr.url
@@ -239,11 +242,11 @@ def _mbox(pr: PullRequest, rev: str, diff: bytes) -> bytes:
             "Date: Thu, 1 Jan 1970 00:00:00 +0000\nMIME-Version: 1.0\n"
             f"Content-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: {encoding}\n"
             f"Subject: [PATCH] {title}\n\n")
-    return head.encode("utf-8") + body
+    return utf8_bytes(head) + body
 
 
 def _write(dest: Path, task: dict[str, Any], gold: list[dict[str, Any]], patch: bytes) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / PATCH).write_bytes(patch)
-    (dest / GOLD).write_text(json.dumps(gold, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    (dest / "task.json").write_text(json.dumps(task, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_bytes_atomic(dest / PATCH, patch)
+    write_json_atomic(dest / GOLD, gold)
+    write_json_atomic(dest / "task.json", task)

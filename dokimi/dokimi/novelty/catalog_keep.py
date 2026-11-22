@@ -26,19 +26,19 @@ def check_keep_copies_under(root: str, keep: str) -> None:
         ValueError: ``keep`` is empty, absolute, resolves outside ``root``, or is not a directory.
     """
     if not keep:
-        raise ValueError("--keep-copies-under is empty: name a directory under --catalog")
+        raise ValueError("--keep-copies-under is empty: name a directory under the catalog root")
     if Path(keep).is_absolute():
         raise ValueError("--keep-copies-under is an absolute path: give a directory relative to "
-                         f"--catalog: {keep}")
+                         f"the catalog root: {keep}")
     base = Path(root).resolve()
     try:
         target = (base / keep).resolve()
     except RuntimeError as exc:  # a symlink loop on 3.11 and 3.12; 3.13 gives "not a directory" below
         raise ValueError(f"--keep-copies-under is a symlink loop: {keep}") from exc
     if not target.is_relative_to(base):
-        raise ValueError(f"--keep-copies-under leaves --catalog: {keep} resolves outside {root}")
+        raise ValueError(f"--keep-copies-under leaves the catalog root: {keep} resolves outside {root}")
     if not target.is_dir():
-        raise ValueError(f"--keep-copies-under is not a directory under --catalog: {keep}")
+        raise ValueError(f"--keep-copies-under is not a directory under the catalog root: {keep}")
 
 
 def under(path: Path, directory: Path) -> bool:

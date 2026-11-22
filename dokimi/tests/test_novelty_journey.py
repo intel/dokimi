@@ -23,7 +23,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.novelty import client as client_mod
 from dokimi.utils import InputError
-from tests.cli_paths import novelty_argv
+from tests.cli_paths import artifact_flag, novelty_argv
 from tests.test_novelty_analyze import SKILL, _scripted
 
 
@@ -74,9 +74,9 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
 
     # 1. Can it be selected at all? Free, no model.
     routing_out = tmp_path / "routing.json"
-    _run("novelty", "routing", "--artifact", f"skill:{skill}",
-         "--competitors", f"skill:{rival}", "--queries", str(queries),
-         "--out", str(routing_out))
+    _run("skill", "routing", f"skill:{skill}", "--competitors",
+         f"skill:{rival}", "--queries", str(queries), "--out",
+         str(routing_out))
     routing = json.loads(routing_out.read_text(encoding="utf-8"))
     assert routing["lexical"]["n_queries"] == 2
     assert routing["queries_self_derived"] is False
@@ -84,7 +84,7 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
 
     # 2. What will the measurement cost? Still no model. The walkthrough's own form.
     _run("skill", "novelty", "analyze", "--artifact", f"skill:{skill}",
-         "--tier", "study", "--estimate-only")
+         "--tier", "study", "--dry-run")
     printed = capsys.readouterr().out
     estimate = json.loads(printed[printed.index("{"):])
     assert estimate["estimate"]["total_calls"] > 0
@@ -135,13 +135,15 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
     assert artifact["schema_version"] == "novelty.v1"
     assert artifact["run_config"]["tier"]["name"] == "study"
     assert (out_dir / "novelty.md").exists()
+    verdicts = json.loads((out_dir / "novelty.atom_verdicts.json").read_text(encoding="utf-8"))
+    assert verdicts["schema_version"] == "novelty_atoms.v1" and verdicts["atoms"]
     # Step 6 of the walkthrough is about this file.
     view = out_dir / "annotated.html"
     assert view.exists() and view.stat().st_size > 0
 
     # 8. Re-render the annotated view from what was saved.
     view_out = tmp_path / "view.html"
-    _run("novelty", "view", "--novelty", str(novelty_json), "--atoms", str(atoms_out),
+    _run("skill", "novelty", "view", "--novelty", str(novelty_json), "--atoms", str(atoms_out),
          "--out", str(view_out))
     assert view_out.exists() and view_out.stat().st_size > 0
 
@@ -214,7 +216,7 @@ def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp
     extra = ["--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")] if command == "probe" else \
         ["--out-dir", str(tmp_path / "out")]
     with pytest.raises(InputError) as exc:
-        _run(*novelty_argv(command), "--artifact", f"skill:{skill}", "--model", "model-a",
+        _run(*novelty_argv(command), *artifact_flag(command, f"skill:{skill}"), "--model", "model-a",
              "--judge-model", "model-a", *extra)
     assert "is the answering model" in str(exc.value)
     assert prompts == [], "a model was called before the self-judge check refused"
@@ -306,7 +308,7 @@ def test_the_estimate_prices_the_bundled_files_when_they_are_included(tmp_path, 
 
     def estimate(*extra):
         args = build_parser().parse_args(
-            ["skill", "novelty", "analyze", "--artifact", f"skill:{skill / 'SKILL.md'}", "--estimate-only", *extra])
+            ["skill", "novelty", "analyze", "--artifact", f"skill:{skill / 'SKILL.md'}", "--dry-run", *extra])
         args.func(args)
         return json.loads(capsys.readouterr().out)
 
@@ -317,7 +319,7 @@ def test_the_estimate_prices_the_bundled_files_when_they_are_included(tmp_path, 
 
 def test_documented_estimate_flags_match_the_run_it_prices():
     """The walkthrough's estimate commands carry the flags of the run they price (doc reference)."""
-    estimates = [c for c in _documented_novelty_commands() if "--estimate-only" in c]
+    estimates = [c for c in _documented_novelty_commands() if "--dry-run" in c]
     assert estimates and all("--include-resources" in c for c in estimates)
 
 

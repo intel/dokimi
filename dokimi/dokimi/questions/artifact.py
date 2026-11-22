@@ -39,10 +39,13 @@ from dokimi.artifacts import (
     SCHEMA_VERSIONS,
     SUPERSEDED_VERSIONS,
     ArtifactValidationError,
+    listed_ids,
     save_artifact,
     schema_errors,
     schema_version_for,
+    shared_question_ids,
 )
+from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
 from dokimi.questions.normalizer import canonical_question, record_id
 from dokimi.utils import question_id, read_json_input
 
@@ -70,8 +73,8 @@ def upgrade_questions(data: dict) -> dict:
 def save_questions_artifact(data: dict, path: Path | str) -> dict:
     """Write ``data`` as a current-version questions artifact; return exactly what was written.
 
-    Records may still use v1's ``text``; it is renamed to ``question``. Validation, the
-    ``.rejected`` copy on failure and the atomic write are :func:`save_artifact`'s.
+    Records may still use v1's ``text``; it is renamed to ``question``. Validation (two records
+    with one id included), the ``.rejected`` copy on failure and the atomic write are :func:`save_artifact`'s.
     """
     return save_artifact(KIND, upgrade_questions(data), path)
 
@@ -213,6 +216,29 @@ def _explain(path: Path, data: dict, errors: list[str]) -> str:
             f"dokimi/schemas/{SCHEMA_VERSIONS[KIND]}.json, or drop the record.")
 
 
+def _refuse_shared_ids(path: Path, artifact: dict) -> None:
+    """Raise when two records share an id (:func:`~dokimi.artifacts.shared_question_ids`)."""
+    dupes = shared_question_ids(artifact)
+    if dupes:
+        raise ArtifactValidationError(
+            f"duplicate question ids in {path}: {listed_ids(dupes)}; give each record "
+            f"an id of its own (or `question_id` in a v1 set), or drop the repeated record")
+
+
+def _warn_provenance(path: Path, records: list) -> None:
+    """A malformed ``version`` or ``provenance`` on a record is a WARNING, never a refusal: the schema accepts any
+    value so that files written before the key existed still load, and the value is kept as written."""
+    for i, q in enumerate(records):
+        if not isinstance(q, dict):
+            continue
+        for key, check in (("version", parse_version), ("provenance", parse_provenance)):
+            try:
+                check(q.get(key))
+            except ProvenanceError as exc:
+                qid = question_id(q)
+                logger.warning("%s: question %s: %s; kept as written", path, qid if qid is not None else i, exc)
+
+
 def load_questions(path: Path | str, *, validate: bool = True, flag: str | None = None) -> QuestionSet:
     """Read a question set in any shape this framework has read, and return it as questions.v2.
 
@@ -223,15 +249,19 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
 
     With ``validate`` the upgraded set must be a valid v2 artifact, or
     :class:`~dokimi.artifacts.ArtifactValidationError` names each failing record and the fix; so
-    must a ``schema_version`` this reader does not know. A set that is not a list of questions at
+    must a ``schema_version`` this reader does not know, and ids two records share. A set that is not a list of questions at
     all (e.g. ``{"questions": {...}}``) is refused either way.
+
+    A malformed ``version`` or ``provenance`` on a record is logged at WARNING and kept as written; it does not
+    refuse the set.
 
     With ``flag`` (the option the file was given to) the file is read by
     :func:`dokimi.utils.read_json_input`: an unreadable, non-UTF-8 or non-JSON file raises
     :class:`~dokimi.utils.InputError` ``<flag> <path>: <reason>``. Without it the read is bare.
     """
+    # the raw value goes to the reader: ``Path("")`` is ``.``, which would hide an empty path
+    raw = json.loads(Path(path).read_text(encoding="utf-8")) if flag is None else read_json_input(path, flag=flag)
     path = Path(path)
-    raw = json.loads(path.read_text(encoding="utf-8")) if flag is None else read_json_input(path, flag=flag)
     data, bare_list = _records(raw, path)
     data = _drop_v1_open_nulls(data, _v1_open_nulls()[0])
     current = SCHEMA_VERSIONS[KIND]
@@ -249,6 +279,7 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
              for qid in (question_id(q),) if isinstance(qid, (str, int))}
     read = [_read_record(q, i, seen, taken) if isinstance(q, dict) else q
             for i, q in enumerate(records)]
+    _warn_provenance(path, read)
     artifact = upgrade_questions({**data, "questions": read})
 
     source_version: str | None
@@ -256,6 +287,7 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
         errors = schema_errors(current, artifact)
         if errors:
             raise ArtifactValidationError(_explain(path, artifact, errors))
+        _refuse_shared_ids(path, artifact)
         matched = None if bare_list else schema_version_for(KIND, data)
         source_version = matched if matched and not schema_errors(matched, data) else None
         if source_version is None and not bare_list and not seen:

@@ -97,7 +97,9 @@ Runtime plugins are a separate run dimension, not arms. They modify every arm
 inside the same `(model, harness, plugin_set)` cell, and the JSON/Markdown
 outputs stamp `harness`, `plugin_set`, `plugin_set_id`, and concrete plugin
 metadata. The initial supported plugin is `plugin:caveman[:lite|full|ultra]`,
-which adds a brevity system instruction before answer generation.
+which adds a brevity system instruction before answer generation. Enable a
+plugin for every arm of a run with `arms run --plugins plugin:<name>`
+(comma-separated for several).
 
 Plugin effects are computed from paired runs, not from one artifact in
 isolation. Run the same product, questions, arms, model, provider, and harness
@@ -121,6 +123,9 @@ carry the same stamped judge model, provider and `judge_context`.
 > prompt. It is **not** a `persona` — in this repo a persona is a synthetic
 > *user* who asks questions (`dokimi/personas`).
 
+> **One arm, no docs:** `--arms baseline` alone is a knowledge run, the reference for a comparison;
+> see [knowledge-runs.md](knowledge-runs.md).
+>
 > **Which commands run treatments:** `arms run`, `arms matrix-run`, and the
 > `subjects` commands — they are the only callers of `create_treatments`. The
 > legacy answer path (`benchmark run`, `answers generate`) predates arms: it has
@@ -495,11 +500,11 @@ question — whether the agent loads it at all, and loads it rather than a rival
 it needs its own query set: the questions a skill helps with are usually not the
 messages that make an agent reach for it.
 
-**Relation to `novelty routing`.** [`novelty routing`](skill-novelty.md#can-the-artifact-be-selected-at-all)
+**Relation to `skill routing`.** [`skill routing`](skill-novelty.md#can-the-artifact-be-selected-at-all)
 asks the same question for one artifact: can its card win against named competitors?
 The two differ in unit and in what the model sees:
 
-| | `novelty routing` | `skill-catalog:` arm |
+| | `skill routing` | `skill-catalog:` arm |
 |---|---|---|
 | Unit | one artifact vs `--competitors` | a whole catalog; every skill is a target |
 | Model sees | cards (name + description) in one pick prompt, order permuted per query | one `view_skill_*` tool per skill in the agent loop; it may load none |
@@ -535,7 +540,7 @@ python cli.py eval triggers generate --catalog <skills-checkout>/skills \
   or `@field.path` read per question. A label that names no catalog skill fails the run;
   a question without the field is left unlabelled (`label_unresolved`), and a path that
   resolves for no question in its file fails the run as a typo. Unlabelled rows are
-  dropped from `reach` and `skill-creator` (stderr warns; `--strict` fails instead).
+  dropped from `reach` and `skill-creator` (stderr warns; `--fail-on warn` fails instead).
   A question with no usable text (`text`, `question`, `prompt` or `question_text`) fails
   the run rather than becoming an empty query.
 - `--rewrite` turns exam-style questions ("Scenario: … Describe how …") into the
@@ -544,7 +549,7 @@ python cli.py eval triggers generate --catalog <skills-checkout>/skills \
 - Lint per query, summarised on stdout: `names_skill` (the query tells the agent the
   answer), `echo_terms` (words only the expected skill's description uses),
   `exam_framing`, and `lexical_rank` (1 = word overlap alone picks the skill).
-  `--strict` fails on named skills, exam framing or unresolved labels.
+  `--fail-on warn` fails on named skills, exam framing or unresolved labels.
 - `--format reach` writes a [google/skill-reach](https://github.com/google/skill-reach)
   `QuerySet`. A label listing several skills keeps the first as `expected_skill` and the
   rest as `acceptable_skills`, which skill-reach treats as neutral helpers rather than
@@ -612,7 +617,7 @@ Records are kept in `<out>.partial` while the probe runs:
 
 ```bash
 python cli.py catalog trigger-probe --catalog <skills-checkout>/skills \
-  --trigger-set trigger_set.json --model <model> --trials 3 --out probe.json
+  --trigger-set trigger_set.json --model <model> --reps 3 --out probe.json
 ```
 
 Two things decide whether such a number means anything:
@@ -652,7 +657,7 @@ The same rules hold for skills, MCP tools and plain function tools.
   an effect. A change smaller than the variation between repeats of one setting
   is not an effect.
 - **Treat a proxy as an upper bound on effect size.** A one-call proxy (the
-  `skill-catalog:` arm, `tools preference`, `novelty routing`) shows every
+  `skill-catalog:` arm, `tools preference`, `skill routing`) shows every
   description in full and gives the model no reason to explore first. In one
   measured case the effect kept its direction on Claude Code but was about half
   as large (−0.42 on the proxy, −0.20 on the harness;

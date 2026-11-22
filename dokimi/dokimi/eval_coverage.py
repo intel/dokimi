@@ -47,7 +47,7 @@ class LabelledEval:
 
 
 def load_graph(path: Path) -> dict:
-    """Read and validate a ``need_graph.v1`` file (an unstamped ``save_graph`` file is valid).
+    """Read and validate a ``need_graph.v1`` file (an unstamped file is valid).
 
     Raises ``ValueError`` when two nodes share an id: ids are what the ``needs`` labels join on.
     """
@@ -69,7 +69,7 @@ def graph_digest(graph: dict) -> str:
                      "confirmed_by": n.get("confirmed_by", "hypothesis")}
                     for n in graph["nodes"]), key=lambda n: n["id"])
     blob = json.dumps(nodes, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return hashlib.sha256(blob.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 _ABSENT = object()  # no ``needs`` key at all: not the same as ``"needs": null``, which is malformed

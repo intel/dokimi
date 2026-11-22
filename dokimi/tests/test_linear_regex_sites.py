@@ -1,0 +1,594 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Regex sites that took superlinear time on one long line now scan in linear time, with the old result.
+
+Each section keeps the old regex as the reference and compares the new code with it on a hand table and
+on seeded random strings built from the pieces of the site's grammar (https://github.com/intel/dokimi/issues/888).
+"""
+
+from __future__ import annotations
+
+import random
+import re
+from functools import partial
+
+import pytest
+
+from dokimi.eval.reference_checks import _BOLD_LETTERS, _MATH_LETTERS, _fenced_body, chosen_letters, parse_json
+from dokimi.novelty.symbols import _blank_skipped, _string_end, header_names
+from dokimi.repos.answers import _has_header_tail
+from dokimi.repos.l0.core import _TRAILING_COMMENT, logical_lines
+from dokimi.repos.l0.identifiers import is_identifier
+from tests.growth_timing import GROWTH_LIMIT, growth
+
+CASES = 3000
+
+
+def _random_texts(pieces: list[str], seed: int, longest: int = 12) -> list[str]:
+    rng = random.Random(seed)
+    return ["".join(rng.choice(pieces) for _ in range(rng.randint(0, longest))) for _ in range(CASES)]
+
+
+# --- repos/answers._HEADER_TAIL ------------------------------------------------------------------
+
+_OLD_HEADER_TAIL = re.compile(r"\[P\d\].*?(?:—| [-] )|[\w./-]*[./][\w./-]*:\d+(?:-\d+)?\W*[ \t\r]*$", re.I)
+
+_HEADER_TAIL_TABLE = [
+    ("no tag here", False),
+    ("", False),
+    ("- [P1] title — src/a.py:3", True),
+    ("- [P1] title - note", True),
+    ("- [P1] title-note", False),
+    ("- [p1] title — x", True),
+    ("- [P12] title — x", False),
+    ("[P1] title", False),
+    ("[P1] [P2] — x", True),
+    ("[P1] a\nb — c", False),
+    ("[P1] a\n[P2] b — c", True),
+    ("see src/a.py:12", True),
+    ("see src/a.py:12-14", True),
+    ("see src/a.py:12   ", True),
+    ("see src/a.py:12 \t\r", True),
+    ("see src/a.py:12\n", True),
+    ("see src/a.py:12.", True),
+    ("see src/a.py:12-", True),
+    ("see src/a.py:12-x", False),
+    ("see src/a.py:12 and more", False),
+    ("a.b:3", True),
+    ("a:3", False),
+    (":3", False),
+    ("meet at 12:30", False),
+    ("src/a.py: 12", False),
+    ("src/a.py:12:30", False),
+    ("x.py:1 y.py:2", True),
+    ("x.py:1 y:2", False),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), _HEADER_TAIL_TABLE)
+def test_header_tail_table_matches_old_regex(text: str, expected: bool) -> None:
+    assert bool(_OLD_HEADER_TAIL.search(text)) is expected
+    assert _has_header_tail(text) is expected
+
+
+def test_header_tail_random_texts_match_old_regex() -> None:
+    pieces = ["[P1]", "[p2]", "—", " - ", "a", ".", "/", "-", ":", "1", "23", " ", "\t", "\r", "\n"]
+    texts = _random_texts(pieces, 925)
+    assert any(_OLD_HEADER_TAIL.search(t) for t in texts)
+    assert not all(_OLD_HEADER_TAIL.search(t) for t in texts)
+    assert [t for t in texts if _has_header_tail(t) != bool(_OLD_HEADER_TAIL.search(t))] == []
+
+
+@pytest.mark.parametrize(("shape", "n"), [
+    (lambda k: "[P1]" * k, 375),  # the tags open and never close: quadratic as a lazy scan from each
+    (lambda k: "a." * k + "x", 25),  # a path-like run with no line number: cubic as a search
+    (lambda k: "a.:1 " * k + "x", 375),
+], ids=["tags", "dots", "numbers"])
+def test_header_tail_scan_is_linear(shape, n: int) -> None:  # type: ignore[no-untyped-def]
+    ratio, found = growth(lambda k: partial(_has_header_tail, shape(k)), n)
+    assert found is False
+    assert ratio < GROWTH_LIMIT
+
+
+# --- eval/reference_checks._FENCE ----------------------------------------------------------------
+
+_OLD_FENCE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n\s*```\s*$", re.S)
+
+_FENCE_TABLE = [
+    ("", None),
+    ('{"a": 1}', None),
+    ("```\nx\n```", "x"),
+    ("```json\n{}\n```", "{}"),
+    ("```JSON\n{}\n```", None),
+    ("```json {}```", None),
+    ("```\n\n```", ""),
+    ("```\n\n\nx\n\n```", "x"),
+    ("```\nx\n\n\n```\n\n", "x"),
+    ("```\nx\n``` tail", None),
+    ("```\nx```", None),
+    ("x\n```\ny\n```", None),
+    ("```\na\n```\nb\n```", "a\n```\nb"),
+    ("```\na\n```\nb\n``` c", None),
+    ("```\nx ``` y\n```", "x ``` y"),
+    ("```\r\nx\r\n```\r\n", "x\r"),
+    ("  ```json\n  x\n  ```  ", "  x"),
+    ("```json\n\n```", ""),
+    ("``````", None),
+    ("```\n```", None),
+]
+
+
+@pytest.mark.parametrize(("text", "body"), _FENCE_TABLE)
+def test_fence_table_matches_old_regex(text: str, body: str | None) -> None:
+    old = _OLD_FENCE.match(text)
+    assert (old.group(1) if old else None) == body
+    assert _fenced_body(text) == body
+
+
+def test_fence_random_texts_match_old_regex() -> None:
+    pieces = ["```", "json", "\n", " ", "\t", "x", "{}"]
+    texts = _random_texts(pieces, 926, longest=14)
+    rng = random.Random(9260)
+    blanks = ["", "\n", " ", "\n ", "\n\n", "\t\n"]  # the opener and the closer of a block, mostly well formed
+    for _ in range(CASES):
+        body = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 6)))
+        texts.append(rng.choice(blanks) + "```" + rng.choice(["", "json"]) + rng.choice(blanks) + "\n" + body
+                     + "\n" + rng.choice(blanks) + "```" + rng.choice(blanks + ["x", "```"]))
+    old = [_OLD_FENCE.match(t) for t in texts]
+    assert sum(1 for m in old if m) > CASES // 4
+    assert sum(1 for m in old if m and m.group(1) == "") > 0
+    assert [t for t, m in zip(texts, old, strict=True) if _fenced_body(t) != (m.group(1) if m else None)] == []
+
+
+def test_parse_json_unwraps_a_fenced_block() -> None:
+    assert parse_json('\n```json\n\n{"a": [1]}\n\n```\n') == (True, {"a": [1]})
+    assert parse_json("```\n```") == (False, None)
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "```\n" + "\n" * k,  # blank lines after an opener with no closer: cubic as the lazy body retried at each
+    lambda k: "```\n" + "\n " * k,
+    lambda k: "```\n" + "\n" * k + "x\n``` y",  # the closer is there but text follows it
+], ids=["blank-lines", "blank-lines-spaces", "closer-then-text"])
+def test_fence_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, body = growth(lambda k: partial(_fenced_body, shape(k)), 50)
+    assert body is None
+    assert ratio < GROWTH_LIMIT
+
+
+def test_fence_body_scan_is_linear_when_the_block_closes() -> None:
+    ratio, body = growth(lambda k: partial(_fenced_body, "```\n" + "\n" * k + "x\n" + "\n" * k + "```"), 50)
+    assert body == "x"
+    assert ratio < GROWTH_LIMIT
+
+
+# --- novelty/symbols._C_SKIP ---------------------------------------------------------------------
+
+_OLD_C_SKIP = re.compile(
+    r'/\*.*?\*/|//(?:\\\n|[^\n])*|"(?:\\.|[^"\\\n])*"|\'(?:\\(?:x[0-9A-Fa-f]+|[0-7]{1,3}|.)|[^\'\\\n])\'', re.DOTALL)
+
+_C_TABLE = [
+    ("", ""),
+    ("int a;", "int a;"),
+    ("a /* c */ b", "a   b"),
+    ("a /**/ b", "a   b"),
+    ("a /*/ b", "a /*/ b"),
+    ("a /*/ b */ c", "a   c"),
+    ("a /* open", "a /* open"),
+    ("/* open /* open", "/* open /* open"),
+    ('a "/* s */" b', "a   b"),
+    ('a /* " */ b "s" c', "a   b   c"),
+    ("a /* // */ b", "a   b"),
+    ("a // /* x\nb */ c", "a  \nb */ c"),
+    ("a // x \\\n y\nb", "a  \nb"),
+    ("a // x \\\\\nb", "a  "),
+    ("a '\\x41' b '\\077' c 'd' e", "a   b   c   e"),
+    ("a 'ab' b", "a 'ab' b"),
+    ('a "open', 'a "open'),
+    ('a "open\nb "s" c', 'a "open\nb   c'),
+    ('/* open "s" \'c\' // l\nx', "/* open      \nx"),
+    ('x /* open "s" y', 'x /* open   y'),
+    ("/* a */ /* open", "  /* open"),
+    ("/* open */ */", "  */"),
+    ("//*/ a /* b */", " "),
+    ("/*/*/ x", "  x"),
+    ("*/ /* x", "*/ /* x"),
+    ('a "x\\" b', 'a "x\\" b'),  # the escapes of a string: an escaped quote does not close it
+    ('a "x\\\\" b', 'a   b'),
+    ('a "x\\\\\\" b"', 'a  '),
+    ('a "x\\\\\\\\" b', 'a   b'),
+    ('a "x\\\ny" b', 'a   b'),  # a backslash takes the line end after it
+    ('a "x\\\n', 'a "x\\\n'),
+    ('a "x\\', 'a "x\\'),
+    ('a "x\\\\', 'a "x\\\\'),
+    ('a "', 'a "'),
+    ('"', '"'),
+    ('""', ' '),
+    ('"\\"', '"\\"'),
+    ('"\\""', ' '),
+    ('a "x\\\n" b', 'a   b'),
+    ('a "x\\\ny\nz" b', 'a "x\\\ny\nz" b'),
+    ('a "x\ny" b "z" c', 'a "x\ny z" c'),
+    ('a "x\\"y\\"z" b', 'a   b'),
+    ('a "x\\" "y" b', 'a  y" b'),
+    ('a "x\\" \'c\' "y" b', 'a  y" b'),
+    ('"a\\"b\\"c\nd" "e" f', '"a\\"b\\"c\nd e" f'),  # no closing quote on the first line: the later quotes of it fail too
+    ('"a\\\\"\\"b" c', ' \\  c'),
+    ('"\\\\\n" "x"', '"\\\\\n x"'),
+    ('x "a\\" y\n"b" z', 'x "a\\" y\n  z'),
+    ('"\\\n\\\n\\\n"', ' '),
+    ('a "\\\\\\\n" b', 'a   b'),
+    ("'\"' \"x\" '\"'", '     '),
+    ('// "x\n"y" z', ' \n  z'),
+    ('/* " */ "y" z', '    z'),
+    ('a "x\\" /* c */ "y" z', 'a  y" z'),
+]
+
+
+@pytest.mark.parametrize(("text", "blanked"), _C_TABLE)
+def test_c_skip_table_matches_old_regex(text: str, blanked: str) -> None:
+    assert _OLD_C_SKIP.sub(" ", text) == blanked
+    assert _blank_skipped(text) == blanked
+
+
+def test_c_skip_random_texts_match_old_regex() -> None:
+    texts = _random_texts(["/*", "*/", "//", '"', "'", "\\", "\n", "a", " ", "x41", "7"], 928, longest=16)
+    blanked = [_OLD_C_SKIP.sub(" ", t) for t in texts]
+    assert sum(1 for t, b in zip(texts, blanked, strict=True) if t != b) > CASES // 2
+    assert sum(1 for t, b in zip(texts, blanked, strict=True) if t == b) > CASES // 20
+    assert [t for t, b in zip(texts, blanked, strict=True) if _blank_skipped(t) != b] == []
+
+
+def test_c_skip_random_strings_with_escapes_match_old_regex() -> None:
+    texts = _random_texts(['"', "\\", '\\"', "\\\\", "\n", "\\\n", "a", " ", "'", "//", "/*", "*/"], 1000, longest=16)
+    texts += _random_texts(['"', "\\", '\\"', "\n", "a"], 10000, longest=24)
+    blanked = [_OLD_C_SKIP.sub(" ", t) for t in texts]
+    assert sum(1 for t, b in zip(texts, blanked, strict=True) if '"' in t and t != b) > CASES // 2
+    assert sum(1 for t, b in zip(texts, blanked, strict=True) if t.count('"') > 2 and t == b) > CASES // 50
+    assert [t for t, b in zip(texts, blanked, strict=True) if _blank_skipped(t) != b] == []
+
+
+def test_header_names_skips_a_string_with_an_escaped_quote_and_reads_after_an_unclosed_one() -> None:
+    text = 'char *s = "mkl_a \\" mkl_b"; int mkl_c;\nchar *t = "mkl_d \\" mkl_e\nint mkl_f;'
+    assert header_names(text, ["mkl_"]) == {"mkl_c", "mkl_d", "mkl_e", "mkl_f"}
+
+
+def test_header_names_skips_comments_and_literals() -> None:
+    text = '/* mkl_a /* mkl_b */ mkl_c "mkl_d" /* mkl_e\n// mkl_f\nint mkl_g;'
+    assert header_names(text, ["mkl_"]) == {"mkl_c", "mkl_e", "mkl_g"}  # the unclosed `/*` hides nothing
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "/* " * k,  # openers and no closer: each rescanned the rest of the text
+    lambda k: "/*a" * k,
+    lambda k: '/* "x" ' * k,
+    lambda k: "/* a\n" * k,
+    lambda k: "/* a */ " * k + "/* b " * k,  # closed comments, then openers with none
+], ids=["openers", "adjacent", "strings", "lines", "closed-then-open"])
+def test_c_skip_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, shape(k)), 375)
+    assert blanked.count("/*") >= 6000
+    assert ratio < GROWTH_LIMIT
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: '"a\\' * k,  # a quote, a letter and a backslash: each quote was escaped by the one before and rescanned the line
+    lambda k: '"' + '\\"' * k,
+    lambda k: '"a\\' * k + "\n",
+    lambda k: '"' + '\\\n' * k,  # escaped line ends, no closing quote
+    lambda k: '"\\\\\\' * k,
+    lambda k: ('"a\\" ' * 6 + "\n") * k,  # many lines, each with a string that stays open
+], ids=["letters", "escaped-quotes", "line-end", "escaped-line-ends", "backslash-runs", "lines"])
+def test_c_skip_string_scan_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, shape(k)), 375)
+    assert blanked.count('"') >= 1 and len(blanked) >= 6000  # no string closes: the text stays as it is
+    assert ratio < GROWTH_LIMIT
+
+
+class _QuoteSearches(str):
+    """A text that counts the searches for a quote: one for a quote that is not there runs to the end of the text."""
+
+    searches = 0
+
+    def find(self, sub, *args):  # type: ignore[no-untyped-def]
+        self.searches += sub == '"'
+        return super().find(sub, *args)
+
+
+@pytest.mark.parametrize(("text", "result"), [
+    ('"ab" c', (4, 0)),
+    ('"a\\"b"', (6, 0)),
+    ('"ab\ncd"', (-1, 3)),  # a line end stops the string: the scan stopped there
+    ('"a\\\nb\nc"', (-1, 5)),
+    ('"ab', (-1, 3)),
+    ('"a\\"', (-1, 4)),
+])
+def test_string_end_is_the_closing_quote_or_where_the_scan_stopped(text: str, result: tuple[int, int]) -> None:
+    assert _string_end(text, 0) == result
+
+
+def test_c_skip_string_scan_searches_a_missing_quote_once_across_escaped_line_ends() -> None:
+    text = _QuoteSearches('"' + "\\\n" * 1000)
+    assert _string_end(text, 0) == (-1, len(text))
+    assert text.searches == 1
+
+
+def test_c_skip_string_scan_is_linear_when_the_string_closes() -> None:
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, 'x "' + '\\"' * k + '" y'), 375)
+    assert blanked == "x   y"
+    assert ratio < GROWTH_LIMIT
+
+
+def test_c_skip_scan_is_linear_when_the_closer_is_far() -> None:
+    ratio, blanked = growth(lambda k: partial(_blank_skipped, "/* a " * k + "*/ b"), 375)
+    assert blanked == "  b"
+    assert ratio < GROWTH_LIMIT
+
+
+# --- repos/l0/core.py: the trailing comment of a command line ------------------------------------
+
+_OLD_COMMENT = r"\s+#.*$"
+
+_COMMENT_TABLE = [
+    ("", ""),
+    ("cmd", "cmd"),
+    ("cmd # c", "cmd"),
+    ("cmd#c", "cmd#c"),
+    ("cmd   # c  ", "cmd"),
+    ("  # c", ""),
+    ("cmd\t# c", "cmd"),
+    ("a # b # c", "a"),
+    ("#", "#"),
+    (" #", ""),
+    ("cmd # c\n", "cmd\n"),
+    ("a\nb # c", "a\nb"),
+    ("a # b\nc", "a # b\nc"),
+    ("a # b\nc # d", "a # b\nc"),
+    ("a\r\n# c\r\n", "a\n"),
+    ("a\u00a0# c", "a"),
+    ("x  \n  # c", "x"),
+]
+
+
+@pytest.mark.parametrize(("text", "stripped"), _COMMENT_TABLE)
+def test_trailing_comment_table_matches_old_regex(text: str, stripped: str) -> None:
+    assert re.sub(_OLD_COMMENT, "", text) == stripped
+    assert _TRAILING_COMMENT.sub("", text) == stripped
+
+
+def test_trailing_comment_random_texts_match_old_regex() -> None:
+    texts = _random_texts([" ", "\t", "\n", "#", "x", "\\"], 931, longest=14)
+    stripped = [re.sub(_OLD_COMMENT, "", t) for t in texts]
+    assert sum(1 for t, s in zip(texts, stripped, strict=True) if t != s) > CASES // 4
+    assert [t for t, s in zip(texts, stripped, strict=True) if _TRAILING_COMMENT.sub("", t) != s] == []
+
+
+def test_logical_lines_joins_a_continuation_and_keeps_a_comment_after_a_backslash() -> None:
+    assert logical_lines([(1, "a \\"), (2, "b # c")]) == [(1, "a  b")]
+    assert logical_lines([(1, "a \\ # c"), (2, "# d")]) == [(1, "a \\ # c"), (2, "# d")]
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "x" + " " * k,  # a run of whitespace and no `#`: every start inside the run took the rest of it
+    lambda k: "x" + "\t" * k,
+    lambda k: "x" + "\u00a0" * k,
+], ids=["spaces", "tabs", "no-break-spaces"])
+def test_trailing_comment_strip_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, stripped = growth(lambda k: partial(_TRAILING_COMMENT.sub, "", shape(k)), 375)
+    assert stripped.startswith("x")
+    assert ratio < GROWTH_LIMIT
+
+
+def test_logical_lines_is_linear_on_a_long_whitespace_run() -> None:
+    ratio, lines = growth(lambda k: partial(logical_lines, [(1, "x" + " " * k), (2, "y" + " " * k + "\\")]), 375)
+    assert [n for n, _ in lines] == [1, 2]
+    assert ratio < GROWTH_LIMIT
+
+
+# --- eval/reference_checks.chosen_letters: the **x** and $x$ unwrapping ---------------------------
+
+_OLD_BOLD = r"\*\*\s*([A-Za-z\d][A-Za-z\d ,]*?)\s*\*\*"
+_OLD_MATH = r"\$\s*([A-Za-z\d][A-Za-z\d ,]*?)\s*\$"
+_ANSWER_STRICT = re.compile(r"(?im)^ANSWER\s*:\s*([A-Za-z\d ,]+)\s*(?:$|\.)")
+_ANSWER_LENIENT = re.compile(r"(?i)ANSWER\s*:\s*([A-Za-z\d ,]+)(?:[^\w]|$)")
+
+
+def _old_unwrap(answer: str) -> str:
+    text = re.sub(_OLD_BOLD, r"\1", answer)
+    return re.sub(_OLD_MATH, r"\1", text)
+
+
+def _new_unwrap(answer: str) -> str:
+    return _MATH_LETTERS.sub(r"\1", _BOLD_LETTERS.sub(r"\1", answer))
+
+
+def _old_chosen_letters(answer: str) -> frozenset[str] | None:
+    text = _old_unwrap(answer)
+    text = re.sub(r"(?i)(^|[:,])(\s*)\(([A-Za-z\d])\)(?=\s*(?:,|\.|\n|\Z))", r"\1\2\3", text)
+    found = _ANSWER_STRICT.findall(text) or _ANSWER_LENIENT.findall(text)
+    if not found:
+        return None
+    return frozenset(x.upper() for x in re.findall(r"[A-Za-z]", found[-1])) or None
+
+
+_LETTERS_TABLE = [
+    ("ANSWER: **A**", {"A"}),
+    ("ANSWER: ** A **", {"A"}),
+    ("ANSWER: **A, B**", {"A", "B"}),
+    ("ANSWER: **A,**", {"A"}),
+    ("ANSWER: **A ,B**", {"A", "B"}),
+    ("ANSWER: **A **", {"A"}),
+    ("ANSWER: **A\t**", {"A"}),
+    ("ANSWER: **A\n**", {"A"}),
+    ("ANSWER: ** A **", {"A"}),
+    ("ANSWER: $ A $", {"A"}),
+    ("ANSWER: $A, B$", {"A", "B"}),
+    ("ANSWER: $A ,$", {"A"}),
+    ("ANSWER: **(A)**", None),  # the wrapped text starts with a letter or digit: `(A)` is not unwrapped
+    ("ANSWER: $(A)$", None),
+    ("ANSWER: (A)", {"A"}),
+    ("ANSWER: **A** and **B**", {"A", "B", "D", "N"}),
+    ("**A** **B**\nANSWER: B", {"B"}),
+    ("ANSWER: **1**", None),
+    ("ANSWER: **٣**", None),
+    ("ANSWER: **A**B**", {"A", "B"}),
+    ("ANSWER: **A", None),
+    ("ANSWER: **A   ", None),
+    ("ANSWER: $A   ", None),
+    ("ANSWER: ****", None),
+    ("ANSWER: $$", None),
+    ("ANSWER: ** **", None),
+    ("ANSWER: **,A**", None),
+    ("ANSWER: **A*B**", None),
+    ("no answer **A**", None),
+]
+
+
+@pytest.mark.parametrize(("answer", "letters"), _LETTERS_TABLE)
+def test_chosen_letters_unwrapping_table_matches_old_regex(answer: str, letters: set[str] | None) -> None:
+    expected = frozenset(letters) if letters else None
+    assert _old_chosen_letters(answer) == expected
+    assert chosen_letters(answer) == expected
+    assert _new_unwrap(answer) == _old_unwrap(answer)
+
+
+def test_chosen_letters_random_texts_match_old_regex() -> None:
+    pieces = ["**", "$", "*", "A", "b", "1", "٣", " ", "  ", ",", "\t", "\n", " ", "(", ")", ".", "ANSWER: "]
+    texts = _random_texts(pieces, 998, longest=14)
+    rng = random.Random(9980)
+    wrappers = ["**", "$"]
+    for _ in range(CASES):  # a wrapped run of letters, spaces and commas, mostly well formed
+        wrap = rng.choice(wrappers)
+        inner = "".join(rng.choice(["A", "b", " ", ",", "  ", "\t", "\n"]) for _ in range(rng.randint(0, 6)))
+        texts.append(rng.choice(["", "ANSWER: ", "x "]) + wrap + rng.choice(["", " "]) + inner + rng.choice(["", " "])
+                     + rng.choice([wrap, wrap, "*", ""]) + rng.choice(["", "\nANSWER: B", " ."]))
+    unwrapped = [_old_unwrap(t) for t in texts]
+    assert sum(1 for t, u in zip(texts, unwrapped, strict=True) if t != u) > CASES // 10
+    assert sum(1 for t in texts if _old_chosen_letters(t)) > CASES // 10
+    assert [t for t, u in zip(texts, unwrapped, strict=True) if _new_unwrap(t) != u] == []
+    assert [t for t in texts if chosen_letters(t) != _old_chosen_letters(t)] == []
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "**a" + " " * k,  # an opener, a letter and a run of spaces with no closer: every split was tried
+    lambda k: "$a" + " " * k,
+    lambda k: "**a" + "\t" * k,
+    lambda k: "**a " * k,  # the opener repeated
+    lambda k: "$a " * k,
+    lambda k: "**a, " * k,
+    lambda k: "$a, " * k,
+    lambda k: "**a" + " b" * k,
+    lambda k: "**" + " " * k + "a" + " " * k,
+], ids=["bold-spaces", "math-spaces", "bold-tabs", "bold-repeat", "math-repeat", "bold-commas", "math-commas",
+        "bold-words", "bold-padded"])
+def test_chosen_letters_unwrapping_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, letters = growth(lambda k: partial(chosen_letters, shape(k)), 375)
+    assert letters is None
+    assert ratio < GROWTH_LIMIT
+
+
+def test_chosen_letters_unwrapping_is_linear_when_the_wrapper_closes() -> None:
+    ratio, letters = growth(lambda k: partial(chosen_letters, "ANSWER: **A" + " b" * k + " **"), 375)
+    assert letters == frozenset("AB")
+    assert ratio < GROWTH_LIMIT
+
+
+# --- repos/l0/core.py: the identifier shapes of a code span --------------------------------------
+
+_OLD_IDENT = re.compile(r"^[A-Za-z_]\w*(::\w+)+$|^[A-Z][A-Z0-9_]{3,}$|^[a-z]+_[a-z_]+$|^[A-Z]\w*[a-z]\w*[A-Z]\w*$")
+
+_IDENT_TABLE = [
+    ("", False),
+    ("std::vector", True),
+    ("a::b::c", True),
+    ("_x::y", True),
+    ("::x", False),
+    ("a::", False),
+    ("a:b", False),
+    ("1a::b", False),
+    ("a::b!", False),
+    ("SCREAMING_CASE", True),
+    ("ABCD", True),
+    ("ABC", False),
+    ("A_BC", True),
+    ("A-BCD", False),
+    ("snake_case", True),
+    ("snake", False),
+    ("a_", False),
+    ("a__", True),
+    ("Snake_case", False),
+    ("snake_Case", False),
+    ("CamelCase", True),
+    ("McCabe", True),
+    ("AbC", True),
+    ("AbCd", True),
+    ("AAbC", True),
+    ("A1bC", True),
+    ("A_bC", True),
+    ("Mc", False),
+    ("ABc", False),
+    ("aBc", False),
+    ("Ab", False),
+    ("Abc", False),
+    ("AbcDEF", True),
+    ("A", False),
+    ("AbC!", False),
+    ("AbC ", False),
+    ("Ab C", False),
+    ("AbC\n", True),
+    ("AbC\n\n", False),
+    ("AbC\nD", False),
+    ("\nAbC", False),
+    ("AaB\n", True),
+    ("ÀbC", False),  # the first letter and the pair are ASCII letters; the rest is any word character
+    ("AbÇ", False),
+    ("AéÉ", False),
+    ("AébC", True),
+    ("A٣bC", True),
+    ("AbC٣", True),
+    ("Ab C", False),
+    ("Ab.C", False),
+]
+
+
+@pytest.mark.parametrize(("span", "ident"), _IDENT_TABLE)
+def test_identifier_table_matches_old_regex(span: str, ident: bool) -> None:
+    assert bool(_OLD_IDENT.match(span)) is ident
+    assert is_identifier(span) is ident
+
+
+def test_identifier_random_spans_match_old_regex() -> None:
+    pieces = ["A", "a", "B", "b", "Z", "z", "_", "1", "é", "É", "٣", "::", ":", "!", "\n", " ", "AB", "ab"]
+    spans = _random_texts(pieces, 999, longest=10) + _random_texts(["A", "a", "b", "C", "é", "É", "_", "1"], 9990, longest=8)
+    matched = [bool(_OLD_IDENT.match(s)) for s in spans]
+    assert sum(matched) > CASES // 10
+    assert sum(1 for s in spans if _OLD_IDENT.match(s) and not re.match(r"^[A-Z]\w*[a-z]\w*[A-Z]\w*$", s)) > CASES // 50
+    assert sum(1 for s in spans if re.match(r"^[A-Z]\w*[a-z]\w*[A-Z]\w*$", s)) > CASES // 50
+    assert [s for s, m in zip(spans, matched, strict=True) if is_identifier(s) != m] == []
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "A" + "a" * k + "A" * k + "!",  # a capital, lowercase letters, capitals, then a character outside \w: cubic
+    lambda k: "A" + "a" * k + "!",
+    lambda k: "A" + "aA" * k + "!",
+    lambda k: "A" * k + "!",
+    lambda k: "a" * k + "::" + "b" * k + "!",
+    lambda k: "a_" * k + "!",
+    lambda k: "a" * k + "_" + "b" * k + "!",
+], ids=["camel", "lower-run", "alternating", "capitals", "scope", "snake-repeat", "snake"])
+def test_identifier_check_is_linear(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, ident = growth(lambda k: partial(is_identifier, shape(k)), 375)
+    assert ident is False
+    assert ratio < GROWTH_LIMIT
+
+
+@pytest.mark.parametrize("shape", [
+    lambda k: "A" + "a" * k + "A" * k,  # the same without the `!`: a name, and it stays one
+    lambda k: "A" + "a" * k + "A" * k + "\n",
+    lambda k: "A" * k + "a" * k + "A",
+], ids=["camel", "camel-line-end", "capitals-first"])
+def test_identifier_check_is_linear_when_the_span_is_a_name(shape) -> None:  # type: ignore[no-untyped-def]
+    ratio, ident = growth(lambda k: partial(is_identifier, shape(k)), 375)
+    assert ident is True
+    assert ratio < GROWTH_LIMIT

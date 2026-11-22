@@ -14,16 +14,19 @@ revision is fetched on demand. Both kinds are read through the same
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import posixpath
 import re
 import shutil
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
 
 from dokimi import process
+from dokimi.utils import key_bytes
 
 # A revision is a SHA, tag or branch (a "/" is allowed: origin/main, refs/heads/x), optionally
 # with ^ / ~N suffixes. No leading "-" (so a revision can never be read as a git option);
@@ -33,7 +36,12 @@ from dokimi import process
 _REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/^~-]*$")  # "/" for origin/main, refs/heads/x
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _REMOTE_PREFIXES = ("https://", "ssh://", "file://", "git@")
+log = logging.getLogger(__name__)
+
 _GIT_TIMEOUT_S = 1800
+_FETCH_TRIES = 3  # a fetch that lost a ref to another run's fetch into the cache is run again
+_REF_LOST = ("cannot lock ref", "incorrect old value provided", "reference already exists")  # git's texts for it
+_FETCH_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})  # untranslated: its error is matched
 READ_MANY_LIMIT = 2 * 1024 * 1024  # bytes; larger files are not text guidance or code to search
 
 
@@ -201,21 +209,44 @@ class GitTree:
         self.git_dir = Path(git_dir)
         self.sha = sha
         self.label = label or f"{self.git_dir}@{sha[:12]}"
-        self._files: list[str] | None = None
+        self._files: list[str] = []
+        self._listed = False
         self._dirs: set[str] | None = None
-        self._symlinks: set[str] | None = None
+        self._symlinks: set[str] = set()
+        self._gitlinks: set[str] = set()
 
     def files(self) -> list[str]:
-        if self._files is None:
-            self._files = sorted(_git_entries(self.git_dir, "ls-tree", "-r", "-z", "--name-only", self.sha, warn=True))
+        self._list()
         return self._files
+
+    def _list(self) -> None:
+        """One ``ls-tree -r -z`` gives the files, the symlinks and the gitlinks."""
+        if self._listed:
+            return
+        files, links, gitlinks = [], set(), set()
+        for entry in _git_entries(self.git_dir, "ls-tree", "-r", "-z", self.sha, warn=True):
+            meta, _, path = entry.partition("\t")
+            if meta.startswith("160000 "):
+                gitlinks.add(path)  # a checkout holds a directory there, not a file
+                continue
+            files.append(path)
+            if meta.startswith("120000 "):
+                links.add(path)
+        self._files, self._symlinks, self._gitlinks = sorted(files), links, gitlinks
+        self._listed = True
+
+    def gitlinks(self) -> set[str]:
+        """The paths the snapshot holds as submodules (mode 160000): directories in a checkout."""
+        self._list()
+        return set(self._gitlinks)
 
     def _dir_set(self) -> set[str]:
         if self._dirs is None:
             dirs: set[str] = set()
-            for path in self.files():
+            self._list()
+            for path in [*self._files, *self._gitlinks]:
                 dirs.update(str(parent) for parent in PurePosixPath(path).parents)
-            self._dirs = dirs
+            self._dirs = dirs | self._gitlinks  # a submodule is an empty directory in a checkout
         return self._dirs
 
     def is_file(self, path: str) -> bool:
@@ -231,9 +262,7 @@ class GitTree:
             return False
 
     def _links(self) -> set[str]:
-        if self._symlinks is None:
-            self._symlinks = {entry.split("\t", 1)[1] for entry in _git_entries(self.git_dir, "ls-tree", "-r", "-z", self.sha)
-                              if entry.startswith("120000 ")}
+        self._list()
         return self._symlinks
 
     def read_text(self, path: str) -> str:
@@ -387,7 +416,7 @@ def default_cache_dir() -> Path:
 def cache_path(url: str, cache_dir: Path) -> Path:
     """Stable per-URL clone directory: readable slug plus a hash of the full URL."""
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", url.rstrip("/").rsplit("/", 1)[-1]) or "repo"
-    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha256(key_bytes(url)).hexdigest()[:12]
     return cache_dir / f"{slug.removesuffix('.git')}-{digest}.git"
 
 
@@ -403,8 +432,8 @@ def check_pinned_root(source: RepoSource) -> None:
             raise SourceArgumentError(f"{source.location} is {prefix!r} inside a repository; give its root")
 
 
-def open_source(source: RepoSource, cache_dir: Path | None = None) -> RepoTree:
-    """Return a readable tree for ``source``, cloning or fetching as needed."""
+def open_source(source: RepoSource, cache_dir: Path | None = None, refresh: bool = False) -> RepoTree:
+    """Return a readable tree for ``source``, cloning or fetching as needed; ``refresh`` re-fetches its refs."""
     if not source.remote:
         if source.rev is None:
             return WorkTree(source.location)
@@ -413,7 +442,7 @@ def open_source(source: RepoSource, cache_dir: Path | None = None) -> RepoTree:
         return GitTree(Path(source.location), sha, label=f"{source.location}@{sha[:12]}")
     git_dir = ensure_clone(source.location, cache_dir or default_cache_dir())
     assert source.rev is not None  # parse() refuses unpinned remotes
-    sha = ensure_rev(git_dir, source.rev)
+    sha = ensure_rev(git_dir, source.rev, refresh)
     return GitTree(git_dir, sha, label=f"{source.location}@{sha[:12]}")
 
 
@@ -461,21 +490,73 @@ def isolated_git_env() -> dict[str, str]:
 def ensure_clone(url: str, cache_dir: Path) -> Path:
     """Clone ``url`` bare and blob-less into the cache once; return the git dir."""
     git_dir = cache_path(url, cache_dir)
+    return clone_once(git_dir, lambda tmp: _git(None, "clone", "--bare", "--filter=blob:none", "--", url, str(tmp)),
+                      _GIT_TIMEOUT_S)
+
+
+def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float) -> Path:
+    """``git_dir``, made by ``clone(<tmp>)`` and a rename unless it has a ``HEAD``. Another process may clone the
+    same URL meanwhile: each clones into its own directory, and the one whose rename fails uses the other's.
+    ``timeout_s``: the clone's timeout; a partial directory older than that is no live clone's."""
+    git_dir.parent.mkdir(parents=True, exist_ok=True)
+    _sweep_stale_partials(git_dir, timeout_s)
     if (git_dir / "HEAD").is_file():
         return git_dir
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    tmp = git_dir.with_name(git_dir.name + ".partial")
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    _git(None, "clone", "--bare", "--filter=blob:none", "--", url, str(tmp))
-    tmp.rename(git_dir)
+    tmp = git_dir.with_name(f"{git_dir.name}.{os.getpid()}-{os.urandom(3).hex()}.partial")
+    try:
+        clone(tmp)
+        try:
+            tmp.rename(git_dir)
+        except OSError:
+            if not (git_dir / "HEAD").is_file():
+                raise
+    finally:
+        try:
+            _remove_tree(tmp)  # gone when the rename won; after a failed clone or a lost rename, it is ours to remove
+        except OSError as exc:  # not raised over the clone's error or the winner's clone; swept once stale
+            log.warning("cannot remove the partial clone %s: %s", tmp, exc)
     return git_dir
 
 
-def ensure_rev(git_dir: Path, rev: str) -> str:
-    """Resolve ``rev`` in the cached clone; a branch or tag is re-fetched on every call."""
+def _sweep_stale_partials(git_dir: Path, timeout_s: float) -> None:
+    """Remove the partial clones of ``git_dir`` older than ``timeout_s``: no live clone's; best effort."""
+    for old in git_dir.parent.glob(f"{git_dir.name}.*partial"):
+        try:
+            if time.time() - old.stat().st_mtime > timeout_s:
+                _remove_tree(old)
+        except FileNotFoundError:  # another process removed it first
+            pass
+        except OSError as exc:  # locked or not ours: it is no reason to stop this clone
+            log.warning("cannot remove the stale partial clone %s: %s", old, exc)
+
+
+def _remove_tree(path: Path) -> None:
+    """Delete ``path``, also when it holds read-only entries (Git's object files on Windows); raise when it is
+    still there, so the caller can say which partial clone is left in the cache."""
+    if path.is_symlink():  # a link left at the name: its target is not ours to change
+        path.unlink()
+        return
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        for root, dirs, files in os.walk(path):
+            for name in [root, *(os.path.join(root, n) for n in (*dirs, *files))]:
+                if os.path.islink(name):  # chmod would follow it out of the cache; its parent's mode is what matters
+                    continue
+                try:
+                    os.chmod(name, 0o700)
+                except OSError:
+                    pass
+        shutil.rmtree(path)
+
+
+def ensure_rev(git_dir: Path, rev: str, refresh: bool = False) -> str:
+    """Resolve ``rev`` in the cached clone; a branch or tag is re-fetched on every call. ``refresh`` also
+    re-fetches a hash-shaped name, which may be a branch that moved (a floating suite pin)."""
     base = re.split(r"[\^~]", rev, maxsplit=1)[0]
-    if _SHA_RE.match(base):
+    if _SHA_RE.match(base) and not refresh:
         try:
             return resolve_rev(git_dir, rev)
         except SourceError:
@@ -489,14 +570,29 @@ def ensure_rev(git_dir: Path, rev: str) -> str:
     try:
         return resolve_rev(git_dir, rev)
     except SourceError as exc:
+        if refresh and len(base) in (40, 64) and re.fullmatch(r"[0-9a-f]+", base):  # a full commit on no branch
+            try:
+                _git(git_dir, "fetch", "--filter=blob:none", "origin", "--", base)
+                return resolve_rev(git_dir, rev)
+            except SourceError:
+                pass
         short = _SHA_RE.match(base) and len(base) < 40
         hint = "; a short SHA on no branch or tag cannot be fetched, give the full SHA" if short else ""
         raise SourceError(f"revision not found in origin: {rev}{hint}") from exc
 
 
 def _fetch_refs(git_dir: Path) -> None:
-    _git(git_dir, "fetch", "--filter=blob:none", "origin",
-         "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
+    """Fetch every branch and tag. Another run fetching into the same cache at once can take a ref's lock or move
+    it first; the fetch is run again then, and finds the refs current."""
+    for attempt in range(_FETCH_TRIES):
+        try:
+            _git(git_dir, "fetch", "--filter=blob:none", "origin",
+                 "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*", env=_FETCH_ENV)
+            return
+        except SourceError as exc:
+            if not any(text in str(exc) for text in _REF_LOST) or attempt == _FETCH_TRIES - 1:
+                raise
+        time.sleep(0.5)
 
 
 def _has_location_path(head: str) -> bool:
@@ -556,7 +652,8 @@ def _git_entries(git_dir: Path, *args: str, check: bool = True, warn: bool = Fal
             out.append(entry.decode("utf-8"))
         except UnicodeDecodeError:
             if warn:
-                print(f"warning: skipped a file name that is not UTF-8: {entry!r}", file=sys.stderr)
+                name = entry.partition(b"\t")[2] if args[0] == "ls-tree" and "--name-only" not in args else entry
+                print(f"warning: skipped a file name that is not UTF-8: {name!r}", file=sys.stderr)
     return [e for e in out if e]
 
 

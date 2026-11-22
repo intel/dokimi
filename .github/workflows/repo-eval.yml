@@ -159,29 +159,16 @@ jobs:
           dokimi-ref: ${{ inputs.dokimi-repository == inputs.dokimi-action-repository && steps.action-ref.outputs.sha || inputs.dokimi-ref }}
           dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
-      - name: repo validate
+      - name: eval check --schema-only
         env:
           MANIFEST: ${{ inputs.manifest }}
         run: |
           status=0
-          dokimi repo validate . --manifest "$MANIFEST" || status=$?
-          dokimi repo validate . --manifest "$MANIFEST" --json > "$RUNNER_TEMP/validate.json" || true
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json, os
-          path = os.path.join(os.environ["RUNNER_TEMP"], "validate.json")
-          try:
-              d = json.load(open(path, encoding="utf-8"))["data"]  # cli_output.v1: the report under data
-              d["tasks"]  # a run that failed has data null
-          except (OSError, ValueError, KeyError, TypeError):
-              print("### repo validate", "", "The manifest could not be read; see the job log.", sep="\n")
-              raise SystemExit
-          tasks = d["tasks"]
-          print("### repo validate", "", f"{'ok' if d['ok'] else 'FAILED'}: `{d['manifest']['manifest']}`, "
-                f"{tasks['count']} task(s), {len(d['guidance_files'])} guidance file(s)", sep="\n")
-          for kind in ("errors", "warnings", "notes"):
-              for line in d[kind]:
-                  print(f"- {kind[:-1]}: {line}")
-          PY
+          dokimi eval check . --schema-only --manifest "$MANIFEST" || status=$?
+          dokimi eval check . --schema-only --manifest "$MANIFEST" --json > "$RUNNER_TEMP/validate.json" || true
+          # One renderer over the cli_output.v1 document (#749): the job summary and an annotation per finding.
+          dokimi report summary "$RUNNER_TEMP/validate.json" >> "$GITHUB_STEP_SUMMARY"
+          dokimi report summary "$RUNNER_TEMP/validate.json" --format annotations
           exit "$status"
       - name: Select tasks
         id: select
@@ -335,36 +322,21 @@ jobs:
         env:
           MANIFEST: ${{ inputs.manifest }}
         run: |
-          dokimi repo scan . --manifest "$MANIFEST" --out "$RUNNER_TEMP/repo-readiness.json"
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json, os
-          d = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "repo-readiness.json"), encoding="utf-8"))
-          c = d["counts"]
-
-          def cell(text):
-              return str(text).replace("|", "\\|").replace("\n", " ")
-
-          print("### repo scan (L0, report only)", "",
-                f"{len(d['files'])} guidance file(s), adapters: {', '.join(d['adapters']) or 'none'}", "",
-                "| claims | ok | unresolved | fail |", "|---|---|---|---|",
-                f"| {c['total']} | {c['ok']} | {c['unresolved']} | {c['fail']} |", sep="\n")
-          for w in d["warnings"]:
-              print(f"- warning: {cell(w)}")
-          fails = [x for x in d["claims"] if x["status"].split("_", 1)[0] == "fail"]
-          if fails:
-              print("", "| file | line | kind | claim | why |", "|---|---|---|---|---|", sep="\n")
-              for x in fails[:100]:
-                  print(f"| {cell(x['file'])} | {x['line']} | {cell(x.get('kind'))} | "
-                        f"`{cell(str(x.get('claim'))[:80])}` | {cell(x.get('why'))} |")
-              if len(fails) > 100:
-                  print(f"\n{len(fails) - 100} more in the repo-readiness.json artifact")
-          PY
+          status=0
+          dokimi repo scan . --manifest "$MANIFEST" --out "$RUNNER_TEMP/repo-readiness.json" \
+            --json > "$RUNNER_TEMP/repo-scan.json" || status=$?
+          # The claim counts, and each failing claim at its file and line, from the one renderer (#749).
+          dokimi report summary "$RUNNER_TEMP/repo-scan.json" >> "$GITHUB_STEP_SUMMARY"
+          dokimi report summary "$RUNNER_TEMP/repo-scan.json" --format annotations
+          exit "$status"
       - name: Upload the scan report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: repo-eval-scan-${{ needs.validate.outputs.id }}
-          path: ${{ runner.temp }}/repo-readiness.json
+          path: |
+            ${{ runner.temp }}/repo-readiness.json
+            ${{ runner.temp }}/repo-scan.json
           if-no-files-found: ignore
 
   tasks-check:

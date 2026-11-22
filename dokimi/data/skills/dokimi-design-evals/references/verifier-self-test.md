@@ -8,7 +8,7 @@ judge check. Commands run from the dokimi project directory.
 Repository tasks (`repo-eval.yaml` + `task.json`):
 
 ```bash
-python cli.py repo validate <source> --manifest <path/to/repo-eval.yaml> --fail-on-warning
+python cli.py eval check --schema-only <source> --manifest <path/to/repo-eval.yaml> --fail-on warn
 ```
 
 Harbor tasks: there is no validate command. `eval tasks list` only shows that the
@@ -130,8 +130,8 @@ reference state and on the state before it, and expect pass then fail. To run a 
 `tests/test.sh` by hand, put that step's `tests/` at `/tests` and at `/verifier` in the
 task image and run
 `mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh`, as the harness does.
-Read `/logs/verifier/reward.txt`, as the harness does; the exit code counts only if the
-file is missing.
+Read `/logs/verifier/reward.txt`, as the harness does; if the file is missing, exit 0
+errors the cell and a non-zero exit is a fail.
 The task needs a top-level `instruction.md`; without it the task does not load.
 
 ## What a passing self-test does not show

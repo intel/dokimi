@@ -213,6 +213,21 @@
                 "type": "object",
                 "description": "Rejection reason tally. Mechanical reasons only; a clean result is the absence of detectable corruption, not proof of fidelity.",
                 "additionalProperties": {"type": "integer"}
+              },
+              "rejected_examples": {
+                "type": "array",
+                "description": "Up to 20 rejected wordings of this kind, with the source they rewrote and the reasons; `reasons` above counts every rejection. Absent from artifacts written before it existed.",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "required": ["atom_id", "source", "candidate", "reasons"],
+                  "properties": {
+                    "atom_id": {"type": "string"},
+                    "source": {"type": "string"},
+                    "candidate": {"type": "string"},
+                    "reasons": {"type": "array", "items": {"type": "string"}}
+                  }
+                }
               }
             }
           }
@@ -336,7 +351,7 @@
     },
     "extraction": {
       "type": "object",
-      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch, or one with no usable atom, is split in half and re-asked down to one span per call; a failed call or an empty reply is not (an empty reply is what a reasoning model returns when it spends the output ceiling, so the warning names it with the --max-tokens fix). Absent from artifacts written before it existed.",
+      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch, or one with no usable atom, is split in half and re-asked down to one span per call; a failed call or an empty reply is not (an empty reply is what a reasoning model returns when it spends the output ceiling, so the warning names it with the --max-output-tokens fix). Absent from artifacts written before it existed.",
       "properties": {
         "unread_span_ids": {
           "type": "array",
@@ -347,7 +362,7 @@
         "unparseable_span_ids": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "The unread spans whose reply arrived but did not parse even alone: an output ceiling too low for one span (raise --max-tokens). The rest were lost to a failed call or an empty reply."
+          "description": "The unread spans whose reply arrived but did not parse even alone: an output ceiling too low for one span (raise --max-output-tokens). The rest were lost to a failed call or an empty reply."
         },
         "unusable_span_ids": {
           "type": "array",
@@ -519,6 +534,10 @@
       "type": "object",
       "description": "With --judge2: a seeded --judge2-frac subset of the graded runs regraded by a second judge; lenient_agreement, kappa_lenient, exact_agreement over n_compared, and that judge's cost."
     },
+    "judge_panel": {
+      "type": "object",
+      "description": "With two or more --judge: judges, rule, shared_vendors, same_vendor_as_answerer, failed_grades, each judge's own paired 2x2 (per_judge_paired), the spread of the added share across judges (added_share_range) and judge_sensitive."
+    },
     "status": {
       "const": "partial",
       "description": "Present only on a partial record: `skill novelty analyze` stopped by --max-usd (or a call with no known price) keeps what it paid for in <out stem>.partial.json. Every reader of a finished novelty.json refuses it."
@@ -526,9 +545,9 @@
     "partial": {
       "type": "object",
       "required": ["reason", "stage", "message"],
-      "description": "Why and where the run stopped. reason: spend_cap or no_price. stage: extraction, verify, need_graph, probes, measurement, classify or attribution. extraction adds spans_read and spans_total, measurement calls_done and calls_planned (probe answers paid for, the ungraded ones included; the message says how many), spend_cap a cause (what was spent). A partial record holds no paired, arms or view summaries: the cut leaves the arms uneven.",
+      "description": "Why and where the run stopped. reason: spend_cap, no_price or permanent_error (a provider error every later call would meet). stage: extraction, verify, need_graph, probes, measurement, classify or attribution. extraction adds spans_read and spans_total, measurement calls_done and calls_planned (probe answers paid for, the ungraded ones included; the message says how many), spend_cap a cause (what was spent). A partial record holds no paired, arms or view summaries: the cut leaves the arms uneven.",
       "properties": {
-        "reason": {"enum": ["spend_cap", "no_price"]},
+        "reason": {"enum": ["spend_cap", "no_price", "permanent_error"]},
         "stage": {"enum": ["extraction", "verify", "need_graph", "probes", "measurement", "classify", "attribution"]},
         "message": {"type": "string"},
         "cause": {"type": "string"},

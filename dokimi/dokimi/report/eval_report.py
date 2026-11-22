@@ -17,13 +17,16 @@ import argparse
 import json
 import math
 import os
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from typing import Any
 
 from dokimi.artifacts import save_artifact
 # This module defines a local ``stats()`` helper, hence the ``eval_stats`` alias.
 from dokimi.eval import stats as eval_stats
 from dokimi.records import BASELINE, CONTEXT, Record, RecordError, record, records
+from dokimi.report.stop_note import stop_note, with_stop
 
 try:
     from zoneinfo import ZoneInfo
@@ -60,6 +63,14 @@ def significance_test(evals):
     return result
 
 
+def _significance_or_refusal(evals) -> tuple[dict | None, list[str]]:
+    """The significance test, or the lines that say a paired difference beyond the float range refused it."""
+    try:
+        return significance_test(evals), []
+    except OverflowError as exc:
+        return None, ["## Statistical Significance", f"_Not computed: {exc}._", ""]
+
+
 def has_scores(e: Record) -> bool:
     return e.score(CONTEXT) is not None and e.score(BASELINE) is not None
 
@@ -89,7 +100,7 @@ def stats(qs):
         "unpaired": s.unpaired,
         "with_avg": round(s.with_mean, 1),
         "without_avg": round(s.without_mean, 1),
-        "delta_avg": round(s.delta_mean, 1),
+        "delta_avg": None if s.delta_mean is None else round(s.delta_mean, 1),
         "improvements": s.improvements,
         "degradations": s.degradations,
         "neutral": s.neutral,
@@ -118,6 +129,8 @@ def _summary_cells(st: dict) -> tuple[str, str, str]:
     """The context, baseline and delta cells of a Summary row: an em dash when no question is paired."""
     if not st["valid"]:
         return "—", "—", "—"
+    if st["delta_avg"] is None:
+        return str(st["with_avg"]), str(st["without_avg"]), "—"
     return str(st["with_avg"]), str(st["without_avg"]), f'**{st["delta_avg"]:+}**'
 
 
@@ -125,6 +138,8 @@ def _overall_line(st: dict) -> str:
     """The Overall delta bullet, or a note that no question is paired."""
     if not st["valid"]:
         return "- **Overall delta:** none — no complete pairs (a question scored in both arms), so there is no delta."
+    if st["delta_avg"] is None:
+        return "- **Overall delta:** none — a paired difference leaves the float range, so there is no delta."
     verdict = "context arm is helping." if st["delta_avg"] > 2 else "context arm is neutral or slightly harmful."
     return f'- **Overall delta: {st["delta_avg"]:+}** — {verdict}'
 
@@ -133,6 +148,8 @@ def _agreement_line(dyn: dict, static: dict) -> str:
     """The Dynamic vs Static bullet; no agreement is claimed when either set has no complete pair."""
     if not (dyn["valid"] and static["valid"]):
         return "- **Dynamic vs Static agreement:** none — a set has no complete pairs, so there is no delta to compare."
+    if dyn["delta_avg"] is None or static["delta_avg"] is None:
+        return "- **Dynamic vs Static agreement:** none — a set has no delta (a paired difference leaves the float range)."
     gap = abs(dyn["delta_avg"] - static["delta_avg"])
     verdict = "good consistency, benchmark is stable." if gap < 3 else "notable gap — investigate question quality."
     return f'- **Dynamic vs Static agreement:** {dyn["delta_avg"]:+} vs {static["delta_avg"]:+} — {verdict}'
@@ -141,6 +158,8 @@ def _agreement_line(dyn: dict, static: dict) -> str:
 def _delta_summary(st: dict) -> str:
     if not st["valid"]:
         return "   Delta: none (no complete pairs)"
+    if st["delta_avg"] is None:
+        return f"   Delta: none (a paired difference leaves the float range; with={st['with_avg']}, without={st['without_avg']})"
     return f"   Delta: {st['delta_avg']:+} (with={st['with_avg']}, without={st['without_avg']})"
 
 
@@ -178,6 +197,7 @@ DIAG_MAP = {
     "low_relevance": "🟡 Low relevance",
     "below_rerank_threshold": "🟠 Below rerank threshold",
     "insufficient_data": "⚪ Insufficient data",
+    "single_condition": "⚪ One condition (no delta)",
 }
 
 DIFFICULTY_ORDER = ["easy", "beginner", "intermediate", "medium", "advanced", "hard"]
@@ -189,7 +209,6 @@ def _answers_by_id(answers_path: str) -> dict[str, Record]:
     A missing answers file means no answers in the sidecar. A record that cannot be
     read drops only itself, with a warning naming it.
     """
-    import sys
     from pathlib import Path
 
     try:
@@ -197,12 +216,19 @@ def _answers_by_id(answers_path: str) -> dict[str, Record]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
     items = data.get("answers") if isinstance(data, dict) else data
+    return answers_from_items(items, source=answers_path)
+
+
+def answers_from_items(items: Any, *, source: str) -> dict[str, Record]:
+    """Answers given in a list (an answers file's, or an arms artifact's own), by question key."""
+    import sys
+
     if not isinstance(items, list):
         return {}
     out: dict[str, Record] = {}
     for i, item in enumerate(items):
         try:
-            rec = record(item, source=f"{answers_path} answers", index=i, kind="answers")
+            rec = record(item, source=f"{source} answers", index=i, kind="answers")
         except RecordError as exc:
             print(f"⚠ {exc}; its answers are left out of the Q&A sidecar", file=sys.stderr)
             continue
@@ -242,6 +268,12 @@ def _write_qa_json(path: str, payload: dict) -> None:
         raise RecordError(f"cannot write {path}: {exc.strerror or exc}") from exc
 
 
+def _sibling_answers_path(eval_path: str) -> str:
+    """The answers file an eval file was judged from: its parent directory ``eval`` becomes ``answers``,
+    for a relative, absolute or native path (``eval/demo.json`` as well as ``/x/eval/demo.json``)."""
+    return re.sub(r"(^|[\\/])eval(?=[\\/][^\\/]*$)", r"\1answers", eval_path, count=1)
+
+
 def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = None):
     data = _load_eval(eval_path)
 
@@ -273,6 +305,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         f"# {library} Documentation Quality Report",
         f"_Generated: {datetime.now(tz=_TZ).strftime('%Y-%m-%d %H:%M %Z') if _TZ else datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_",
         "",
+        *stop_note(data),
         "## Run Configuration",
         "| | |",
         "|---|---|",
@@ -321,7 +354,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     lines += _unpaired_note(all_stats)
 
     # Statistical significance
-    sig = significance_test(evals)
+    sig, refusal = _significance_or_refusal(evals)
+    lines += refusal
     if sig:
         sig_label = ("✅ **Statistically significant** (p < 0.05)" if sig.get("significant")
                      else "❌ **Not statistically significant** (p ≥ 0.05)" if sig.get("significant") is False
@@ -516,7 +550,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     if qa_json_out is None:
         qa_json_out = os.path.splitext(out_path)[0] + ".qa.json"
 
-    answers_by_id = _answers_by_id(eval_path.replace("/eval/", "/answers/"))
+    answers_by_id = _answers_by_id(_sibling_answers_path(eval_path))
 
     def _answer_text(a: Record | None, condition: str):
         answer = a.answer(condition) if a is not None else None
@@ -541,7 +575,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "eval_path": eval_path,
         "report_path": out_path,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "run_metadata": meta,
+        "run_metadata": with_stop(meta, data),
         "count": len(qa_records),
         "records": qa_records,
     })

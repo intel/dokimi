@@ -613,3 +613,12 @@ def test_main_dump_writes_the_rendered_layout(tmp_path):
     out = tmp_path / "s.json"
     assert cs.main(["dump", str(out)]) == 0
     assert out.read_text(encoding="utf-8") == cs.render_json(cs.dump_surface()) + "\n"
+
+
+def test_a_dict_value_in_a_parameter_is_dumped_in_sorted_key_order():
+    node = {"params": [{"key": "--x", "default": {"b": 1, "a": {"d": 2, "c": 3}}},
+                       {"key": "--y", "default": [{"b": 1, "a": 2}]}],
+            "path": "x", "subcommands": {}}
+    text = cs.render_json(node)
+    assert '{"key": "--x", "default": {"a": {"c": 3, "d": 2}, "b": 1}}' in text
+    assert '{"key": "--y", "default": [{"a": 2, "b": 1}]}' in text

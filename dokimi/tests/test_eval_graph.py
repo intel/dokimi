@@ -359,6 +359,28 @@ def test_a_rejected_row_keeps_its_id_reserved_so_its_edge_is_dropped(tmp_path, m
     load_graph(out)
 
 
+def test_a_row_with_no_id_never_takes_a_later_explicit_id_or_its_edge(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, {
+        "nodes": [
+            {"text": "save", "path_class": "core"},
+            {"id": "x", "text": "recover", "path_class": "core"},
+            {"id": "n1", "text": "plot", "path_class": "core"},
+            {"text": "undo", "path_class": "core"},
+        ],
+        "edges": [{"from": "x", "to": "n1", "kind": "requires"}],
+    })
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 0, result.stderr
+    graph = load_artifact("need_graph", out)
+    assert {n["id"]: n["text"] for n in graph["nodes"]} == {
+        "n1-1": "save", "x": "recover", "n1": "plot", "n4": "undo"}
+    assert graph["edges"] == [{"from": "x", "to": "n1", "kind": "requires"}]
+    load_graph(out)
+
+
 def test_a_call_with_no_known_price_keeps_its_paid_reply_as_the_graph(tmp_path, monkeypatch, capsys):
     prompts = _stub(monkeypatch, REPLY)
     out = tmp_path / "g.json"
@@ -409,6 +431,18 @@ def test_a_reply_with_non_list_edges_keeps_its_nodes_and_drops_the_edges(tmp_pat
 
     assert result.returncode == 0 and out.exists()
     assert json.loads(out.read_text(encoding="utf-8"))["edges"] == []
+
+
+def test_priced_cut_off_reply_reports_a_ceiling_without_an_unavailable_flag(tmp_path, monkeypatch, capsys):
+    from dokimi.metrics.usage import UsageRecord
+
+    cut = UsageRecord(completion_tokens=3, cost_usd=0.01, truncated=True)
+    monkeypatch.setattr(LLMClient, "_default_transport",
+                        lambda self, prompt, system, *, accept=None, draw=0: ("partial", cut))
+    out = tmp_path / "g.json"
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+    assert result.returncode == 1 and "output ceiling" in result.stderr and not out.exists()
+    assert "--max-output-tokens" not in result.stderr
 
 
 def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeypatch, capsys):

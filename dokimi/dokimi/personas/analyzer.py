@@ -4,6 +4,7 @@
 """Analyze project to gather signals for persona generation."""
 
 import logging
+import re
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
@@ -17,6 +18,8 @@ except ImportError:
     GITHUB_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+_BULLET = re.compile(r"\s*[-*•]\s")  # a list marker and a space: "**Use cases**" is a line, not a bullet
 
 
 class PersonaAnalyzer:
@@ -110,13 +113,13 @@ class PersonaAnalyzer:
             repo = client.get_repo(repo_name)
             
             readme_content = self._get_readme(repo)
-            use_cases = self._extract_use_cases(repo)
+            use_cases = self._extract_use_cases_from_text(readme_content)
             issues_analysis = self._analyze_issues(repo)
             analysis = {
                 "readme_content": readme_content,
                 "use_cases": use_cases,
                 "issues_analysis": issues_analysis,
-                "api_patterns": self._extract_api_patterns(repo),
+                "api_patterns": self._extract_api_patterns_from_text(readme_content),
                 "description": repo.description or "",
                 "topics": repo.get_topics()
             }
@@ -126,7 +129,7 @@ class PersonaAnalyzer:
             
             return analysis
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; falls back to the gh CLI
             logger.error(f"PyGithub analysis error: {e}, falling back to gh CLI")
             return self._analyze_with_gh_cli(repo_name)
     
@@ -165,31 +168,32 @@ class PersonaAnalyzer:
                 "topics": []
             }
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; an empty analysis
             logger.error(f"gh CLI analysis failed: {e}")
             return self._empty_analysis()
     
     
     @staticmethod
     def _extract_use_cases_from_text(text: str) -> List[str]:
-        """Extract use cases from text (fallback for gh CLI)."""
+        """The list items of the use-case sections, lowercased, at most 10.
+
+        A line that is not a bullet and names "use case", "application" or "when to use" opens a
+        section; a heading without them closes it."""
         if not text:
             return []
         
         use_cases = []
-        lines = text.lower().split('\n')
         in_use_case_section = False
         
-        for line in lines:
-            if any(keyword in line for keyword in ['use case', 'application', 'when to use']):
-                in_use_case_section = True
-                continue
-            
-            if in_use_case_section:
-                if line.startswith('#'):
-                    in_use_case_section = False
-                elif line.strip().startswith(('-', '*', '•')):
+        for line in text.lower().split('\n'):
+            # A bullet is an item, never a section header, even when it names the keyword (#687).
+            if _BULLET.match(line):
+                if in_use_case_section:
                     use_cases.append(line.strip().lstrip('-*• '))
+            elif any(keyword in line for keyword in ['use case', 'application', 'when to use']):
+                in_use_case_section = True
+            elif line.startswith('#'):
+                in_use_case_section = False
         
         return use_cases[:10]
     
@@ -217,41 +221,8 @@ class PersonaAnalyzer:
         try:
             readme = repo.get_readme()
             return readme.decoded_content.decode('utf-8')
-        except Exception:
+        except Exception:  # noqa: BLE001 - a repo without a readable README has no README text
             return ""
-    
-    def _extract_use_cases(self, repo) -> List[str]:
-        """
-        Extract use cases from README and docs.
-        
-        Looks for sections like:
-        - Use Cases
-        - When to Use
-        - Applications
-        - Examples
-        """
-        use_cases: List[str] = []
-        readme = self._get_readme(repo)
-        
-        if not readme:
-            return use_cases
-        
-        # Simple heuristic: look for list items after "use case" headers
-        lines = readme.lower().split('\n')
-        in_use_case_section = False
-        
-        for line in lines:
-            if any(keyword in line for keyword in ['use case', 'application', 'when to use']):
-                in_use_case_section = True
-                continue
-            
-            if in_use_case_section:
-                if line.startswith('#'):  # New section
-                    in_use_case_section = False
-                elif line.strip().startswith(('-', '*', '•')):
-                    use_cases.append(line.strip().lstrip('-*• '))
-        
-        return use_cases[:10]  # Limit to top 10
     
     def _analyze_issues(self, repo, limit: int = 50) -> Dict[str, Any]:
         """
@@ -272,6 +243,7 @@ class PersonaAnalyzer:
                     issues = repo.get_issues(state='all', labels=[label])
                     issues_to_analyze.extend(list(issues[:limit // len(question_labels)]))
                 except Exception:
+                    logger.warning("Issues for label %r not fetched", label, exc_info=True)
                     continue
             
             # Extract patterns
@@ -302,38 +274,9 @@ class PersonaAnalyzer:
                 "sample_issues": sample_issues[:10]
             }
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; an empty issue sample
             logger.error(f"Issue analysis error: {e}")
             return {"common_questions": [], "common_labels": [], "sample_issues": []}
-    
-    def _extract_api_patterns(self, repo) -> List[str]:
-        """
-        Extract common API patterns from code examples.
-        
-        Looks for:
-        - Frequently used class/function names
-        - Import patterns
-        - Code snippets in docs
-        """
-        # Simplified version: extract from README code blocks
-        readme = self._get_readme(repo)
-        if not readme:
-            return []
-        
-        patterns = []
-        in_code_block = False
-        
-        for line in readme.split('\n'):
-            if line.strip().startswith('```'):
-                in_code_block = not in_code_block
-                continue
-            
-            if in_code_block:
-                # Extract likely API calls (simplified heuristic)
-                if '::' in line or '.' in line:
-                    patterns.append(line.strip())
-        
-        return patterns[:20]
     
     def _empty_analysis(self) -> Dict[str, Any]:
         """Return empty analysis structure."""

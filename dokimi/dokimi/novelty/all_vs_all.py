@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from .client import LLMClient
+from .query_overlap import shared_query_counts
 from .routing import (
     BM25,
     Candidate,
@@ -43,15 +44,62 @@ def _no_repeated_key(path: str):
     return build
 
 
+#: Acceptable alternatives: skill name to query text to the other skill names that also answer it.
+Acceptable = dict[str, dict[str, list[str]]]
+
+_QUERY_KEYS = {"query", "acceptable"}
+
+
 def load_queries_by_skill(path: str) -> dict[str, list[str]]:
     """Queries per skill, from a JSON object ``{"<skill name>": ["request", ...]}``.
 
     Each request is one the named skill should be selected for, written independently of
-    it. Blank requests are dropped, and a skill left with none is dropped with them.
+    it. Blank requests are dropped, and a skill left with none is dropped with them. A
+    request may also be an object with acceptable alternatives (see
+    :func:`load_queries_with_acceptable`); this returns its ``query`` only.
 
     Raises:
         RoutingInputError: The file is not JSON, is nested too deeply, is not an object,
-            names a skill twice, or a value is not a list of strings.
+            names a skill twice, or a value is not a list of strings or query objects.
+    """
+    return load_queries_with_acceptable(path)[0]
+
+
+def _query_item(path: str, skill: str, item: object) -> tuple[str, list[str]]:
+    """The request and the acceptable names of one list item: a string or a query object."""
+    if isinstance(item, str):
+        return item, []
+    where = f"{path}: the queries for {skill!r}"
+    if not isinstance(item, dict):
+        raise RoutingInputError(f"{where} must be a list of strings or query objects")
+    query = item.get("query")
+    if not isinstance(query, str):
+        raise RoutingInputError(f"{where}: an object needs a string `query`: {item!r}")
+    extra = sorted(set(item) - _QUERY_KEYS)
+    if extra:
+        raise RoutingInputError(f"{where}, query {query!r}: unknown key "
+                                + ", ".join(repr(k) for k in extra))
+    acceptable = item.get("acceptable", [])
+    if not isinstance(acceptable, list) or not all(isinstance(a, str) for a in acceptable):
+        raise RoutingInputError(f"{where}, query {query!r}: `acceptable` must be a list of "
+                                "skill names")
+    return query, [a for a in dict.fromkeys(acceptable) if a != skill]
+
+
+def load_queries_with_acceptable(path: str) -> tuple[dict[str, list[str]], Acceptable]:
+    """Queries per skill and, per query, the other skills that are an acceptable pick.
+
+    The file is ``{"<skill name>": [item, ...]}`` where an item is a request string or an object
+    ``{"query": "<request>", "acceptable": ["<other skill name>", ...]}``. A file of strings only
+    gives an empty second result. An acceptable name equal to the gold is dropped as redundant;
+    a query listed twice for a skill keeps the names of both. A blank request is dropped with its
+    object, whatever it names.
+
+    Raises:
+        RoutingInputError: The file is not JSON, is nested too deeply, is not an object,
+            names a skill twice, a value is not a list, an item is neither a string nor an object
+            with a string ``query``, an object has a key other than ``query`` and ``acceptable``,
+            or ``acceptable`` is not a list of strings.
     """
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8-sig"),
@@ -63,17 +111,24 @@ def load_queries_by_skill(path: str) -> dict[str, list[str]]:
     if not isinstance(data, dict):
         raise RoutingInputError(f"{path}: expected an object of skill name to query list")
     by_skill: dict[str, list[str]] = {}
+    acceptable: Acceptable = {}
     for name, listed in data.items():
-        if not isinstance(listed, list) or not all(isinstance(q, str) for q in listed):
+        if not isinstance(listed, list):
             raise RoutingInputError(f"{path}: the queries for {name!r} must be a list of strings")
-        queries = [q for q in listed if q.strip()]
+        items = [_query_item(path, name, item) for item in listed]
+        queries = [q for q, _ in items if q.strip()]
         if queries:
             by_skill[name] = queries
-    return by_skill
+        for query, alternatives in items:
+            if alternatives and query.strip():
+                known = acceptable.setdefault(name, {}).setdefault(query, [])
+                known += [a for a in alternatives if a not in known]
+    return by_skill, acceptable
 
 
 def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str]], *,
-               client: LLMClient | None = None, seed: int = 0, repeats: int = 1) -> dict:
+               client: LLMClient | None = None, seed: int = 0, repeats: int = 1,
+               acceptable: Acceptable | None = None) -> dict:
     """Each skill's queries, routed against the whole field: a confusion matrix and attractors.
 
     Every skill that has queries is the gold in turn. Its queries go to the whole field, and
@@ -88,14 +143,28 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     attractor, and their queries are no sibling queries of each other.
 
     Returns:
-        ``n_skills``, ``n_queries``, ``tied_groups``, and per arm (``lexical``, ``model``):
+        ``n_skills``, ``n_queries``, ``shared_queries`` (``shared``: how many queries, of the
+        ``total`` that have a content word, are listed for two or more skills; when most are, the
+        result reflects the queries, not the descriptions), ``tied_groups``, and per arm (``lexical``, ``model``):
         ``confusion`` (gold skill to picked skill to count, ``(none)`` and ``(tie)`` included),
         ``own_rate`` per gold skill (``None`` when none of its queries was scored), ``n_scored``
         and ``n_unscored`` per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The
+        lexical arm also holds ``per_query``: one row per query, whatever ``repeats`` is, with
+        ``query``, ``gold``, ``rank`` of the gold card and ``picked`` (``rank`` ``None`` and a
+        ``reason`` for a query with no content word). ``picked`` follows the confusion matrix:
+        ``(none)`` when no card shares a word with the query and ``(tie)`` when two or more other
+        cards tie at the top, where ``lexical_routing`` names the first card in the field. ``rank`` and
+        ``picked`` hold for the row's ``gold`` only; each row also keeps ``scores`` (card name to
+        BM25 score), from which :func:`rescore_lexical_row` gives them for a corrected gold. The
         model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (always an object: as
         :func:`dokimi.novelty.routing.repeat_noise` reports it, pooled over every skill's queries,
         with ``n_repeats`` 1 and null agreement for one repeat), ``n_failed``, ``n_abstained`` and
         ``first_error``. With repeats the model arm's counts are calls, one per query per repeat.
+        When ``acceptable`` names at least one alternative for a query, each arm also holds
+        ``acceptable_rate`` per gold skill (a pick that is the gold or one of the query's
+        alternatives, over the same scored queries as ``own_rate``), and the rows of such a query
+        (lexical ``per_query``, model ``noise.per_query``) keep ``acceptable``. ``attractors`` and
+        ``confusion`` do not change. Without alternatives none of these keys is written.
         When the client's ``--max-usd`` cap stops the arm before every planned call is made, it
         also holds ``partial`` (``reason``, ``calls_done``, ``calls_planned``, ``message``): the
         calls made are scored, the calls never made are in
@@ -103,20 +172,62 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
 
     Raises:
         RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
-            query file that names a skill outside the field; no skill with any queries.
+            query file that names a skill outside the field; no skill with any queries; an
+            acceptable name of a query in ``queries_by_skill`` that is not in the field.
     """
     names = [c.name for c in candidates]
     _check_all_vs_all_input(names, queries_by_skill)
+    alternatives = kept_alternatives(queries_by_skill, acceptable)
+    check_acceptable(names, queries_by_skill, acceptable)
+    picks, unscored, rows, hits = _lexical_picks(candidates, queries_by_skill, names, alternatives)
+    shared, scored = shared_query_counts(queries_by_skill)
     result: dict = {
         "n_skills": len(candidates),
         "n_queries": sum(len(q) for q in queries_by_skill.values()),
+        "shared_queries": {"shared": shared, "total": scored},
         "tied_groups": _tied_groups(candidates),
-        "lexical": _attractor_table(*_lexical_picks(candidates, queries_by_skill, names),
-                                    names, _tied_groups(candidates)),
+        "lexical": dict(_attractor_table(picks, unscored, names, _tied_groups(candidates), hits),
+                        per_query=rows),
     }
     if client is not None:
-        result["model"] = _model_arm(candidates, queries_by_skill, names, client, seed, repeats)
+        result["model"] = _model_arm(candidates, queries_by_skill, names, client, seed, repeats,
+                                     alternatives)
     return result
+
+
+def kept_alternatives(queries_by_skill: dict[str, list[str]],
+                      acceptable: Acceptable | None) -> Acceptable:
+    """The acceptable names of the queries that are in ``queries_by_skill``, empty entries left out.
+
+    A skill the field left out has no queries here, so its alternatives are moot. The gold itself
+    is dropped from its own list, and a query left with no name is omitted.
+    """
+    kept: Acceptable = {}
+    for skill, by_query in (acceptable or {}).items():
+        for query, names in by_query.items():
+            others = [n for n in names if n != skill]
+            if others and query in queries_by_skill.get(skill, ()):
+                kept.setdefault(skill, {})[query] = others
+    return kept
+
+
+def check_acceptable(field_names: list[str], queries_by_skill: dict[str, list[str]],
+                     acceptable: Acceptable | None) -> None:
+    """Refuse an acceptable name that is not in the field, naming the skill, the query and the name.
+
+    Only the kept queries (``queries_by_skill``) count: a gold skill dropped from the field takes
+    its queries, and their acceptable names, with it.
+
+    Raises:
+        RoutingInputError: A kept query names an acceptable skill the field does not have.
+    """
+    for skill, by_query in kept_alternatives(queries_by_skill, acceptable).items():
+        for query, names in by_query.items():
+            missing = [n for n in names if n not in field_names]
+            if missing:
+                raise RoutingInputError(
+                    f"the queries file: skill `{skill}`, query {query!r}: acceptable "
+                    + ", ".join(f"`{n}`" for n in missing) + " is not in the field")
 
 
 def _tied_groups(candidates: list[Candidate]) -> list[list[str]]:
@@ -162,49 +273,93 @@ def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[s
         raise RoutingInputError("no skill in the field has queries to route")
 
 
-def _lexical_pick(bm25: BM25, tokens: list[str], gold: int, candidates: list[Candidate]) -> str:
-    """The card the lexical arm picks for one query written for ``candidates[gold]``.
+def rescore_lexical_row(row: dict, gold: str) -> dict:
+    """``rank`` and ``picked`` of a saved lexical row as if the query were written for ``gold``.
+
+    ``row`` is an item of ``lexical.per_query`` with its ``scores`` (card name to BM25 score, in
+    the order of the field); the result is what a fresh run gives for that query under the
+    corrected gold label, ties included. A row with no content word stays unscored under any
+    gold (``rank`` ``None`` and its ``reason``). ``KeyError`` when ``gold`` is not a card in the row.
+    """
+    if "scores" not in row:
+        return {"rank": None, "reason": row["reason"]}
+    names = list(row["scores"])
+    if gold not in names:
+        raise KeyError(gold)
+    scores = list(row["scores"].values())
+    index = names.index(gold)
+    return {"rank": _gold_rank(scores, index), "picked": _lexical_pick(scores, index, names)}
+
+
+def _gold_rank(scores: list[float], gold: int) -> int:
+    """1 plus the number of other cards scoring at or above the gold, with the pick's tie rule."""
+    return 1 + sum(i != gold and (score > scores[gold]
+                                  or math.isclose(score, scores[gold], rel_tol=1e-12))
+                   for i, score in enumerate(scores))
+
+
+def _lexical_pick(scores: list[float], gold: int, names: list[str]) -> str:
+    """The card the lexical arm picks for one query written for ``names[gold]``.
 
     The gold is a pick only when it scores strictly above every other card. Two or more other
     cards tied at the top are ``(tie)``, not whichever comes first in the field, so the result
     does not depend on the order of the field. One other card tied with the gold is that card:
     the gold sorts after what it ties with, as in ``lexical_routing``.
     """
-    scores = [bm25.score(tokens, i) for i in range(len(candidates))]
     top = max(scores)
     if top <= 0:
         return NO_PICK
     at_top = [i for i, score in enumerate(scores) if math.isclose(score, top, rel_tol=1e-12)]
     others = [i for i in at_top if i != gold]
     if not others:
-        return candidates[gold].name
-    return candidates[others[0]].name if len(others) == 1 else TIE
+        return names[gold]
+    return names[others[0]] if len(others) == 1 else TIE
 
 
 def _lexical_picks(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
-                   names: list[str]) -> tuple[dict[str, Counter], dict[str, int]]:
-    """The lexical arm of :func:`all_vs_all`: picks per gold skill, and the unscored counts.
+                   names: list[str], alternatives: Acceptable,
+                   ) -> tuple[dict[str, Counter], dict[str, int], list[dict], dict[str, int] | None]:
+    """The lexical arm of :func:`all_vs_all`: picks per gold skill, unscored counts, rows, hits.
+
+    The fourth item counts, per gold skill, the picks that are one of the query's acceptable
+    names; it is ``None`` when no query has any.
 
     A query with no content word cannot be scored; it is counted in the second dict and left
-    out of the picks, as ``lexical_routing`` leaves it out of its rates.
+    out of the picks, as ``lexical_routing`` leaves it out of its rates. The third item is one
+    row per query in the shape of ``lexical_routing``'s ``per_query`` plus the ``gold`` skill:
+    ``query``, ``gold``, ``rank`` of the gold card (``None`` with a ``reason`` when unscored)
+    and ``picked``, plus ``scores`` (every card's BM25 score, which do not depend on the gold).
     """
     bm25 = BM25([tokenize(c.card) for c in candidates])
     lexical: dict[str, Counter] = {}
     unscored: dict[str, int] = {}
+    rows: list[dict] = []
+    hits: dict[str, int] = {}
     for name, queries in queries_by_skill.items():
         picks: Counter = Counter()
+        gold = names.index(name)
         for query in queries:
+            others = alternatives.get(name, {}).get(query)
+            extra = {"acceptable": others} if others else {}
             tokens = tokenize(query)
             if not tokens:
                 unscored[name] = unscored.get(name, 0) + 1
+                rows.append({"query": query, "gold": name, "rank": None,
+                             "reason": "no content words", **extra})
                 continue
-            picks[_lexical_pick(bm25, tokens, names.index(name), candidates)] += 1
+            scores = [bm25.score(tokens, i) for i in range(len(candidates))]
+            pick = _lexical_pick(scores, gold, names)
+            picks[pick] += 1
+            hits[name] = hits.get(name, 0) + (pick in (others or ()))
+            rows.append({"query": query, "gold": name, "rank": _gold_rank(scores, gold),
+                         "picked": pick, "scores": dict(zip(names, scores, strict=True)), **extra})
         lexical[name] = picks
-    return lexical, unscored
+    return lexical, unscored, rows, (hits if alternatives else None)
 
 
 def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
-               names: list[str], client: LLMClient, seed: int, repeats: int) -> dict:
+               names: list[str], client: LLMClient, seed: int, repeats: int,
+               alternatives: Acceptable) -> dict:
     """The model arm of :func:`all_vs_all`: attractor table plus failure counts.
 
     A query with no content word is not sent: it is unscored here as in the lexical arm, so
@@ -214,10 +369,12 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     unscored: dict[str, int] = {}
     groups: list[list[dict]] = []  # one per query, its repeats in order, for the noise block
     golds: list[str] = []  # the gold of each group, so a noise row says which skill it is for
+    hits: dict[str, int] = {}  # calls that picked an acceptable name, per gold
     n_failed = n_abstained = 0
     first_error = None
     planned = done = 0
     capped: str | None = None
+    stop_reason = "spend_cap"
     for index, name in enumerate(names):
         if name not in queries_by_skill:
             continue
@@ -246,7 +403,10 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         first_error = first_error or next((r["error"] for r in rows if r.get("error")), None)
         # A failed call measured nothing: it is not a pick, so it is left out of the counts.
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
+        hits[name] = sum(1 for row in rows if not row.get("error")
+                         and row.get("picked") in alternatives.get(name, {}).get(row["query"], ()))
         capped = routed.get("cap_stop")
+        stop_reason = routed.get("stop_reason", "spend_cap")
         # Failed calls, and calls the cap refused: neither measured anything.
         unscored_here = routed["n_failed"] + (len(queries) * repeats - len(rows) if capped else 0)
         if unscored_here:
@@ -254,22 +414,29 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     noise = repeat_noise(groups, repeats)
     for row, gold in zip(noise["per_query"], golds, strict=True):
         row["gold"] = gold
-    arm = dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
+        if others := alternatives.get(gold, {}).get(row["query"]):
+            row["acceptable"] = others
+    arm = dict(_attractor_table(model, unscored, names, _tied_groups(candidates),
+                                hits if alternatives else None),
                model=client.model, seed=seed, repeats=repeats, noise=noise,
                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
     if capped is not None and done < planned:  # a stop on the last planned call leaves none unmade
-        arm["partial"] = partial_record(capped, done, planned)
+        arm["partial"] = partial_record(capped, done, planned, stop_reason)
     return arm
 
 
 def _attractor_table(picks_by_gold: dict[str, Counter], unscored: dict[str, int],
-                     names: list[str], tied_groups: list[list[str]]) -> dict:
+                     names: list[str], tied_groups: list[list[str]],
+                     acceptable_hits: dict[str, int] | None = None) -> dict:
     """The confusion matrix, own rate and attractor table for one arm of :func:`all_vs_all`.
 
     Every rate is over the queries that were scored: ``n_scored`` per gold skill, with
     ``n_unscored`` beside it. A skill with none scored has an ``own_rate`` of ``None``, which
     is not the 0.0 of a skill the arm really never picked. A pick between skills of one tied
     group is no attractor, and their queries are not sibling queries of each other.
+    ``acceptable_hits`` (per gold, the picks that were an acceptable name, not the gold) adds
+    ``acceptable_rate``: the gold or an acceptable name, over the same scored queries, and
+    ``acceptable_picks``, those hits as exact counts per gold.
     """
     tied = {name: set(group) for group in tied_groups for name in group}
 
@@ -292,11 +459,18 @@ def _attractor_table(picks_by_gold: dict[str, Counter], unscored: dict[str, int]
             "from": sorted(wrong, key=lambda gold: (-wrong[gold], gold)),
         })
     attractors.sort(key=lambda row: (-row["wrongly_picked"], row["skill"]))
+    accepted = {} if acceptable_hits is None else {
+        "acceptable_rate": {
+            gold: (round((picks[gold] + acceptable_hits.get(gold, 0)) / scored[gold], 4)
+                   if scored[gold] else None)
+            for gold, picks in sorted(picks_by_gold.items())},
+        "acceptable_picks": {gold: acceptable_hits.get(gold, 0) for gold in sorted(picks_by_gold)}}
     return {
         "confusion": {gold: dict(sorted(picks.items()))
                       for gold, picks in sorted(picks_by_gold.items())},
         "own_rate": {gold: round(picks[gold] / scored[gold], 4) if scored[gold] else None
                      for gold, picks in sorted(picks_by_gold.items())},
+        **accepted,
         "n_scored": dict(sorted(scored.items())),
         "n_unscored": dict(sorted(unscored.items())),
         "attractors": attractors,

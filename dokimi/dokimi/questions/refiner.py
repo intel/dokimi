@@ -30,7 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dokimi.llm import llm_call, extract_json_array
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
-from dokimi.questions.normalizer import normalize_questions
+from dokimi.questions.normalizer import free_id, normalize_questions
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +267,7 @@ class GapFiller:
         """
         new_questions: List[Dict[str, Any]] = []
         filled: Dict[str, int] = {}
+        taken = {str(q["id"]) for q in questions if "id" in q}
 
         for level, count in gaps.items():
             if count <= 0:
@@ -290,9 +291,9 @@ class GapFiller:
                 raw = llm_call(prompt, model=self.model, provider=self.provider,
                                api_key=self.api_key)
                 texts = extract_json_array(raw)
-                for i, text in enumerate(texts[:count]):
+                for text in texts[:count]:
                     new_questions.append({
-                        "id": f"gap_{level}_{i:03d}",
+                        "id": free_id(f"gap_{level}", taken),
                         "question": text.strip(),
                         "difficulty": level,
                         "persona": "generated",
@@ -301,7 +302,7 @@ class GapFiller:
                     })
                 filled[level] = len(texts[:count])
                 logger.info(f"  Generated {filled[level]}/{count} for {level}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - logged; that level is filled with 0
                 logger.error(f"Gap fill failed for {level}: {exc}")
                 filled[level] = 0
 
@@ -309,6 +310,7 @@ class GapFiller:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _count_difficulty(questions: List[Dict[str, Any]]) -> Dict[str, int]:
     counts: Dict[str, int] = {"beginner": 0, "intermediate": 0, "advanced": 0}

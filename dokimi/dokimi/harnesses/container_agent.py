@@ -49,8 +49,8 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from dokimi import docker_cmd, process
-from dokimi.docker_cmd import TASK_CONTAINER_HARDENING, Docker  # noqa: F401  (Docker is re-exported)
-from dokimi.docker_cmd import STEP_TIMEOUT_S as DOCKER_STEP_TIMEOUT  # noqa: F401
+from dokimi.docker_cmd import Docker
+from dokimi.docker_cmd import STEP_TIMEOUT_S as DOCKER_STEP_TIMEOUT
 
 from . import egress_proxy
 from .agent_sandbox import (
@@ -199,7 +199,8 @@ class ContainerSandbox:
         try:
             side._start_proxy(docker, log)
         except BaseException:  # started, it holds the upstream proxy env and the network
-            side._stopped = not docker(["rm", "-f", side.proxy_name], log, check=False).timed_out
+            removed = docker(["rm", "-f", side.proxy_name], log, check=False)
+            side._stopped = not removed.timed_out and removed.returncode == 0
             raise
         return side
 
@@ -208,10 +209,10 @@ class ContainerSandbox:
         return f"http://egress:{PROXY_PORT}"
 
     def run_args(self) -> list[str]:
-        """``docker run`` arguments: the internal network, the label, a tmpfs HOME."""
+        """``docker run`` arguments the sandbox adds: the label and a tmpfs HOME. The internal network is
+        :attr:`network`, which the container's policy spells as ``--network``."""
         uid, gid = AGENT_UID.split(":")
-        return ["--network", self.network, "--label", self.label,
-                "--tmpfs", f"{AGENT_HOME}:rw,exec,size=1g,mode=0700,uid={uid},gid={gid}"]
+        return ["--label", self.label, "--tmpfs", f"{AGENT_HOME}:rw,exec,size=1g,mode=0700,uid={uid},gid={gid}"]
 
     def prepare(self, container: str, docker: Docker, log) -> None:
         """As root, before the agent starts: copy the CLI and files in, hand the work tree to the agent."""
@@ -358,16 +359,21 @@ class ContainerSandbox:
         removed = docker(["rm", "-f", self.proxy_name], log, check=False)
         if removed.timed_out:  # still running, with the credentials: not stopped, close() retries
             raise subprocess.TimeoutExpired(removed.argv, DOCKER_STEP_TIMEOUT)
+        if removed.returncode != 0:  # `rm -f` of a gone container exits 0: this one may still run (#687)
+            raise RuntimeError(f"docker rm {self.proxy_name} failed (exit {removed.returncode}); see run.log")
         self._stopped = True
 
     def stop_proxy_quietly(self, docker: Docker, log) -> None:
-        """:meth:`stop_proxy` once nothing runs behind the sidecar: a removal that times out is
-        logged, not raised, and :meth:`close` retries it."""
+        """:meth:`stop_proxy` once nothing runs behind the sidecar: a removal that times out or
+        fails is logged, not raised, and :meth:`close` retries it."""
         try:
             self.stop_proxy(docker, log)
         except subprocess.TimeoutExpired as exc:  # teardown is best-effort: go on to the network
             if log is not None:
                 log.write(f"\n[sidecar removal] {self.proxy_name} timed out after {exc.timeout:g}s\n")
+        except RuntimeError as exc:
+            if log is not None:
+                log.write(f"\n[sidecar removal] {exc}\n")
 
     def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
         """Stop the sidecars, save the solve's decisions as ``egress.jsonl``, drop the network.

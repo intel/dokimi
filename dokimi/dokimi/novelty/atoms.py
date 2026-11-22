@@ -14,7 +14,9 @@ Two properties are enforced here rather than hoped for:
   is dropped — it cannot be attributed, coloured, or protected, so it would only
   inflate counts.
 * **Faithfulness, separately from recall.** :func:`verify_atoms` re-reads each atom
-  against its own spans and labels it ``supported`` / ``distorted`` / ``unsupported``.
+  against its own spans (plus their heading, lead-in and the span after a colon-ended lead-in, to resolve
+  references only)
+  and labels it ``supported`` / ``distorted`` / ``unsupported``.
   That check says nothing about what the extractor *missed*; extractor recall is
   measured across extractors in skill-novelty-evidence.md §10.7, not by this module.
 """
@@ -27,11 +29,14 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi.utils import InputError, read_json_input
 
-from .batching import retry_wording
+from .atoms_refusal import partial_atoms_refusal
+from .batching import or_stop, retry_wording
 from .client import LLMClient, OutputTruncated, SpendCapReached, accepting
 from .spans import Span
+from .verify_context import VERIFY_PROMPT, context_for
 
 ATOM_KINDS = ("proposition", "edge", "motif", "contract", "example")
 ATOM_TAGS = (
@@ -71,23 +76,6 @@ SPANS:
 {spans}
 """
 
-_VERIFY_PROMPT = """\
-Does the source text below support the statement, exactly as stated?
-
-STATEMENT: {statement}
-
-SOURCE:
-{source}
-
-Answer with JSON only:
-{{"verdict": "supported" | "distorted" | "unsupported", "why": "<one clause>"}}
-
-- "supported": the source asserts it, with the same qualifiers, numbers and polarity.
-- "distorted": the source says something close but the statement changes a qualifier,
-  a number, a version, or the polarity.
-- "unsupported": the source does not assert it at all.
-"""
-
 
 @dataclass
 class Atom:
@@ -117,7 +105,7 @@ class Atom:
 
     def __post_init__(self) -> None:
         if not self.id:
-            digest = hashlib.sha256(self.statement.strip().encode("utf-8")).hexdigest()[:10]
+            digest = hashlib.sha256(self.statement.strip().encode("utf-8", "surrogatepass")).hexdigest()[:10]
             self.id = f"a{digest}"
 
     @property
@@ -189,7 +177,7 @@ class ExtractionReport:
         empty_span_ids: The subset whose call returned no content. A reasoning model that
             spends its output ceiling before answering does that (see
             :class:`~dokimi.novelty.client.LLMClient`), so these also need a higher
-            ``--max-tokens``. Not split: half a batch comes back empty too. Kept for the
+            ``--max-output-tokens``. Not split: half a batch comes back empty too. Kept for the
             warning; the artifact records only the totals.
         unusable_span_ids: The subset whose reply parsed and had rows, none of them an
             atom (wrong keys, strings, span ids that are not this document's). Not "this
@@ -198,7 +186,7 @@ class ExtractionReport:
         retried_batches: Batches whose reply did not parse, or had no usable atom, and
             were split and re-asked.
         unusable_retries: How many of those splits were for unusable rows. Only the
-            cut-off ones are cured by ``--max-tokens``. Kept for the warning.
+            cut-off ones are cured by ``--max-output-tokens``. Kept for the warning.
         calls: Extraction calls made, splits included, so the cost of re-asking is visible.
         batches: Calls the same run would make with no splitting: a batch counts once it
             is asked, and its halves count at its level. A capped run asks every batch.
@@ -249,12 +237,12 @@ class ExtractionReport:
                 causes.append(
                     f"{unparseable} replied but did not parse even one span per call; a "
                     f"reply cut off mid-JSON means the output ceiling is too low for one "
-                    f"span, so raise --max-tokens (last parse error: {self.parse_error})"
+                    f"span, so raise --max-output-tokens (last parse error: {self.parse_error})"
                 )
             if empty:
                 causes.append(
                     f"{empty} got an empty reply, which a reasoning model returns when it "
-                    f"spends the output ceiling before answering, so raise --max-tokens "
+                    f"spends the output ceiling before answering, so raise --max-output-tokens "
                     f"(empty replies are not split: half a batch comes back empty too)"
                 )
             if unusable:
@@ -311,7 +299,7 @@ def _unread_at_cap(stop: SpendCapReached, batch: list[Span], parse: Callable[[st
     kept: list[Atom] = []
     try:  # all or nothing: a reply that fails part-way keeps no atoms, and its batch is unread
         _keep_atoms(parse(stop.reply), valid_ids, set(seen), kept)
-    except Exception:  # not usable, as after any failed call
+    except Exception:  # noqa: BLE001 - not usable, as after any failed call
         return batch
     atoms.extend(kept)
     seen.update(atom.id for atom in kept)
@@ -419,12 +407,12 @@ def extract_atoms(
         unparseable = False
         try:
             report.calls += 1
-            reply = client.text(prompt, system=_EXTRACT_SYSTEM, accept=usable)
+            reply = or_stop(client.text, prompt, system=_EXTRACT_SYSTEM, accept=usable)  # a run-wide error stops (#708)
             if not reply.strip():
                 # Its own cause, not a failed call: the fix is a higher output ceiling.
                 lost = ValueError(
                     f"{_EMPTY_REPLY}; a reasoning model returns one when it spends the "
-                    "output ceiling before answering, so raise --max-tokens"
+                    "output ceiling before answering, so raise --max-output-tokens"
                 )
                 report.empty_span_ids.extend(span.id for span in batch)
                 _mark_unread(batch, report)
@@ -435,7 +423,7 @@ def extract_atoms(
             _stop_at_cap(spans, _unread_at_cap(exc, batch, parse, valid_ids, seen, atoms),
                          pending, report, exc)
             break
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - re-asked in halves or recorded as the batch's error
             cut = isinstance(exc, OutputTruncated)
             if (unparseable or cut) and len(batch) > 1:
                 # Unparseable, most often truncated: re-ask the two halves, in place,
@@ -570,12 +558,15 @@ def verify_atoms(
             tally["unchecked"] += 1
             continue
         source = "\n".join(by_id[s].text for s in atom.span_ids if s in by_id)
+        prompt = VERIFY_PROMPT.format(
+            statement=atom.statement, source=source, context=context_for(atom.span_ids, spans, by_id),
+        )
         try:
-            verdict = str(client.json_object(
-                _VERIFY_PROMPT.format(statement=atom.statement, source=source),
+            verdict = str(or_stop(
+                client.json_object, prompt,
                 usable=_names_a_faithfulness_verdict,
             ).get("verdict", "")).strip()
-        except Exception:
+        except Exception:  # noqa: BLE001 - an unverified atom is counted as unchecked
             verdict = ""
         atom.faithfulness = verdict if verdict in tally and verdict != "unchecked" else "unchecked"
         tally[atom.faithfulness] += 1
@@ -633,8 +624,7 @@ def save_atoms(
     if partial is not None:
         payload.update(status="partial", partial=partial)
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_text_atomic(path, json.dumps(payload, indent=2))
 
 
 def load_atoms(path) -> tuple[list[Atom], list[Span]]:
@@ -779,19 +769,14 @@ def _check_bundle_shape(bundle) -> None:
 def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     """The atoms, the spans and the parsed record of an atoms file: the one entry point to read it.
 
-    Raises :class:`~dokimi.utils.InputError` naming the file when it cannot be read, is not
-    JSON or UTF-8, or is not an atom set, including a ``bundle`` whose fields do not have the
-    types its readers use.
+    Raises :class:`~dokimi.utils.InputError` naming the file when it cannot be read, is not JSON,
+    UTF-8 or an atom set (a ``bundle`` with mistyped fields included), or is marked partial.
     """
     data = read_json_input(path)
-    if isinstance(data, dict) and "partial" in data:
-        partial = data["partial"] if isinstance(data["partial"], dict) else {}
-        if partial.get("reason") == "no_price":  # a call with no price: a higher cap will not help
-            raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so "
-                             "it is not a finished atom set. Drop --max-usd to run unmetered")
-        raise InputError(f"{path} is a partial atoms file: --max-usd stopped the run before it "
-                         "finished, so it is not a finished atom set. Rerun with a higher "
-                         "--max-usd, or without the cap")
+    if isinstance(data, dict) and ("partial" in data or data.get("status") == "partial"):
+        if not isinstance(partial := data.get("partial"), dict) or not partial:  # no run writes this
+            raise InputError(f"{path} is marked partial with no `partial` block: truncated or hand-edited")
+        raise InputError(partial_atoms_refusal(path, partial))
     try:
         atoms, spans = _atoms_from_record(data)
         _check_bundle_shape(data.get("bundle"))

@@ -21,10 +21,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..project_markers import MAKEFILE_NAMES, PYTHON_MANIFESTS
-from ..source import RepoTree, SourceError
+from ..source import GitTree, RepoTree, SourceError
 from . import branches, workflows
 from .gitignore import GitIgnore, Rule
+from .held import held_dirs
+from .identifiers import is_identifier
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
+from .rule_links import loaded_text, rule_link_targets
 
 # Files whose words are prose, not code: an identifier found only there is not in the code.
 # Build inputs that happen to end in .txt are code.
@@ -41,7 +44,6 @@ CONVENTION_WORDS = frozenset({"CamelCase", "camelCase", "PascalCase", "snake_cas
 _EXT = (r"h|hh|hpp|hxx|c|cc|cpp|cxx|cu|i|py|pyx|pxd|pyi|bzl|bazel|md|rst|txt|yml|yaml|json|toml|cfg|ini|"
         r"mk|cmake|in|sh|bat|ps1|ver|js|ts|go|rs|java")
 _PATHLIKE = re.compile(rf"^(?:\.{{0,2}}/)?[\w.@\-*<>{{}}]+(?:/[\w.@\-*<>{{}},]*)+$|^[\w\-*.]+\.(?:{_EXT})$")
-_IDENT = re.compile(r"^[A-Za-z_]\w*(::\w+)+$|^[A-Z][A-Z0-9_]{3,}$|^[a-z]+_[a-z_]+$|^[A-Z]\w*[a-z]\w*[A-Z]\w*$")
 _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
@@ -50,6 +52,7 @@ _PLACEHOLDER = re.compile(r"^(?:<[^>]+>|\{[^}]+\}|\$\w+|\$\{[^}]+\}|\.\.\.)$")
 # an Action a workflow step uses is `ok`. A ref ending in a file extension (`assets/icon@2x.png`) is a file name.
 _ACTION_REF = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@(?![\w.-]*\.[A-Za-z][A-Za-z0-9]{0,4}$)"
                          r"[\w.-]+?(?:\.\.\.|…)?$")
+_TRAILING_COMMENT = re.compile(r"(?<!\s)\s+#.*$")  # from the start of the whitespace run before the first `#`; no start inside a run
 _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, maybe with a comment
 # `2>&1`, `> log`, `>>log`, `&>/dev/null`, `< in`: a redirection and its target, not arguments.
 _REDIRECT = re.compile(r"(?:(?<=\s)|^)[0-9]?(?:&>>?|>>?|<)(?:&[0-9]+|\s*[^\s|;&<>]+)")
@@ -126,12 +129,18 @@ class Scan:
     adapters: frozenset[str]
     repo_url: str | None = None
     guidance: tuple[str, ...] = ()
+    guidance_globs: tuple[str, ...] = ()
     claims: list[Claim] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.files = self.tree.files()
         self.file_set = set(self.files)
-        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files}
+        self._rule_targets = rule_link_targets(self.tree, self.files, self.guidance_globs)
+        self._texts: dict[str, str] = {}
+        self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
+        # a gitlink is a submodule whether or not `.gitmodules` declares it: its content is not held
+        self.submodules = self._submodules() + (sorted(self.tree.gitlinks()) if isinstance(self.tree, GitTree) else [])
+        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files} | held_dirs(self.tree, self.submodules)
         for d in list(self.dir_set):
             while d not in (".", ""):
                 d = posixpath.dirname(d) or "."
@@ -139,11 +148,8 @@ class Scan:
         self.by_name: dict[str, list[str]] = {}  # basename -> files and directories
         for x in sorted(self.file_set | (self.dir_set - {"."})):
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
-        self._texts: dict[str, str] = {}
-        self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self._words: set[str] | None = None
         self._cache: dict[str, Any] = {}  # adapter facts
-        self.submodules = self._submodules()
         url = (self.repo_url or "").removesuffix(".git").rstrip("/")
         self._own_link = re.compile(re.escape(url) + r"/(blob|tree)/(.+)") if url else None
         self._cd: list[str] | None = None  # directories a shell fence has `cd`-ed to; [] when not in the tree
@@ -157,7 +163,8 @@ class Scan:
         missing = [p for p in paths if p not in self._texts and p not in self.unread and p in self.file_set]
         if missing:
             skip = {} if skipped is None else skipped
-            self._texts.update(self.tree.read_many(missing, skipped=skip))
+            self._texts.update({p: loaded_text(p, t, self._rule_targets)
+                                for p, t in self.tree.read_many(missing, skipped=skip).items()})
             self.unread.update(skip)
 
     def text(self, path: str) -> str:
@@ -312,7 +319,7 @@ class Scan:
         target = posixpath.normpath(rel).strip("/")
         if "/" not in target:
             hits = self._named(target, rel.endswith("/"))
-            if hits:
+            if hits and not all(self.submodule_of([h]) for h in hits):
                 return "ok_basename", f"bare name; {len(hits)} match(es), e.g. {hits[0]}"
             return "unresolved", "tried " + ", ".join(cands)
         if target.startswith(".."):
@@ -335,14 +342,18 @@ class Scan:
     def _submodule_or_action(self, name: str, cands: list[str]) -> tuple[str, str] | None:
         """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
 
-        The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref; the
+        The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref, or as a
+        local ``uses: ./<name>`` (a claim ``./<name>`` finds only a local use, ``<name>`` either, see :func:`.workflows.local_key`); the
         submodule verdict comes first, as the snapshot does not hold what the name may be there. A name
         whose directory the tree holds at the root (``tools/gone`` beside ``tools/`` or a link ``tools`` to one) is a path.
         """
         sub = self.submodule_of(cands)
         if sub:
             return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
-        used = workflows.action_users(self).get(name) if self._reads_as_action(name, cands) else None
+        used = None
+        if self._reads_as_action(name, cands):
+            users = workflows.action_users(self)
+            used = users.get(workflows.local_key(name)) if name.startswith("./") else users.get(name) or users.get(workflows.local_key(name))
         return ("ok", f"used by {used}") if used else None
 
     def _as_branch(self, name: str, verdict: tuple[str, str]) -> tuple[str, str]:
@@ -363,7 +374,7 @@ class Scan:
     def _reads_as_action(self, name: str, cands: list[str]) -> bool:
         """``name`` has an Action's shape, no candidate holds it and its directory is no root one (or link to one)."""
         return (workflows.ACTION.match(name) is not None and not any(self.exists(c) for c in cands)
-                and not self._is_dir(posixpath.dirname(name)))
+                and not self._is_dir(posixpath.dirname(workflows.local_key(name)[2:])))
 
     def _is_dir(self, path: str) -> bool:
         """``path`` is a directory of the tree or a link to one, also through a link above it (as a checkout makes it)."""
@@ -556,7 +567,7 @@ class Scan:
             r = self.resolve_path(file, span)
             if r:
                 self.add(file, line, "path", span, r[0], r[1], ctx)
-        elif _IDENT.match(span) and span not in CONVENTION_WORDS:
+        elif is_identifier(span) and span not in CONVENTION_WORDS:
             tok = span.split("::")[-1]
             if tok in self.words():
                 self.add(file, line, "identifier", span, "ok", f"`{tok}` found in tracked non-doc files", ctx)
@@ -620,7 +631,7 @@ class Scan:
     def check_fence(self, file: str, fence: Fence) -> None:
         from . import adapters
 
-        if fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS:
+        if fence.lines and (fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS):
             code = textwrap.dedent("\n".join(text for _, text in fence.lines)).split("\n")
             fence = Fence(fence.line, fence.lang, [(n, t) for (n, _), t in zip(fence.lines, code, strict=True)])  # in a list item
             if "bazel" in self.adapters and (fence.lang in STARLARK_LANGS or adapters.reads_as_build(self, fence)):
@@ -636,8 +647,7 @@ class Scan:
                          "command wrapped in backticks inside a code fence: pasted, it runs as command substitution",
                          raw)
                 s = wrapped.group(1)
-            s = _PROMPT.sub("", s)
-            s = re.sub(r"\s+#.*$", "", s)
+            s = _TRAILING_COMMENT.sub("", _PROMPT.sub("", s))
             if s and not s.startswith("#"):
                 self.check_command(file, n, s, raw)
         self._cd, self._cd_stack = None, []
@@ -699,7 +709,7 @@ def logical_lines(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
         if heredoc:
             heredoc = "" if raw.strip() == heredoc else heredoc
             continue
-        code = "" if raw.lstrip().startswith("#") else re.sub(r"\s+#.*$", "", raw)
+        code = "" if raw.lstrip().startswith("#") else _TRAILING_COMMENT.sub("", raw)
         if code.rstrip().endswith("\\") and raw.rstrip().endswith("\\"):  # not a backslash then a comment
             first = first if joined else n
             joined += code.rstrip()[:-1] + " "

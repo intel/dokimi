@@ -24,9 +24,12 @@ from . import atoms as atoms_mod
 from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, provenance, report, retention, shorten, spans
+from . import panel as panel_mod
+from . import panel_grade
+from . import panel_record as panel_record_mod
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
 from .analyze_partial import Progress, stopped_record
-from .client import LLMClient, SpendCapReached, roll_up_cost, same_client, warn_extractor_judge
+from .client import LLMClient, SpendCapReached, roll_up_cost, warn_extractor_judge
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -112,6 +115,16 @@ class AnalyzeResult:
     #: Set when ``--max-usd`` (or a call with no price) stopped the run: ``artifact`` is then the
     #: partial record (:mod:`.analyze_partial`) and this is its ``partial`` block.
     partial: dict | None = None
+    #: What :mod:`.atom_verdicts` writes out; empty on a partial result, and the last three
+    #: without classification.
+    outcomes: dict = field(default_factory=dict)
+    strict_outcomes: dict = field(default_factory=dict)
+    verdicts: dict = field(default_factory=dict)
+    categories: dict = field(default_factory=dict)
+    conflicts: list = field(default_factory=list)
+    #: Ids of the atoms the conflict check never compared with anything, and the extraction report.
+    unchecked: list = field(default_factory=list)
+    extraction: object | None = None
 
 
 def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
@@ -176,6 +189,8 @@ def analyze(
     ref_digest: str | None = None,
     artifact_bundle: "bundle_mod.Bundle | None" = None,
     tier: dict | None = None,
+    panel: tuple[LLMClient, ...] = (),
+    aggregate: str = "median",
 ) -> AnalyzeResult:
     """Run the full pipeline over one artifact's text.
 
@@ -203,23 +218,27 @@ def analyze(
             per-file provenance: every span, atom and outcome can then be traced to the
             file it came from, which is the cut an author needs to decide what belongs in
             the body. Without it the run is entry-point-only and says so.
+        panel: More judges besides ``judge`` (see :func:`measure.run_measurement`).
+        aggregate: The panel's rule for one verdict per answer.
     """
     progress = Progress()
     try:
         return _analyze(text, config, extractor=extractor, answerer=answerer, judge=judge,
                         ref_digest=ref_digest, artifact_bundle=artifact_bundle, tier=tier,
-                        progress=progress)
+                        progress=progress, panel=panel, aggregate=aggregate)
     except SpendCapReached as stop:
         if ref_digest is None and artifact_bundle is not None:
             ref_digest = artifact_bundle.measured_digest()
         record = stopped_record(
             progress, stop, artifact_kind=config.artifact_kind, artifact_ref=config.artifact_ref,
             ref_digest=ref_digest, model=answerer.model, provider=answerer.provider,
-            judge_model=judge.model, clients=[extractor, answerer, judge],
+            judge_model=judge.model, clients=[extractor, answerer, judge, *panel],
             provenance=provenance.provenance(
                 artifact_digest=ref_digest, answerer_model=answerer.model,
                 judge_model=judge.model, context_framing=config.context_framing),
-            bundle=artifact_bundle.summary() if artifact_bundle is not None else {})
+            bundle=artifact_bundle.summary() if artifact_bundle is not None else {},
+            judge_panel={"judges": [judge.model, *(m.model for m in panel)], "rule": aggregate}
+            if panel else None)
         return AnalyzeResult(
             artifact=record, atoms=progress.atoms, spans=progress.spans,
             measure_result=progress.measure_result, extracted_atoms=progress.extracted,
@@ -237,10 +256,14 @@ def _analyze(
     artifact_bundle: "bundle_mod.Bundle | None",
     tier: dict | None,
     progress: Progress,
+    panel: tuple[LLMClient, ...],
+    aggregate: str,
 ) -> AnalyzeResult:
     """The pipeline of :func:`analyze`; ``progress`` records each stage as it starts and what it
     produced, so a spend stop anywhere can be saved."""
-    measure.check_self_judge(judge, answerer, config.allow_self_judge)
+    panel_grade.check_judges(
+        (judge, *panel), aggregate,
+        lambda member: measure.check_self_judge(member, answerer, config.allow_self_judge))
     relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
     warnings: list[str] = progress.warnings
     span_list = progress.spans = spans.segment(text)
@@ -319,7 +342,8 @@ def _analyze(
                 f"{row['rejected']} of {row['generated']} generated {kind} wordings failed "
                 f"the fidelity check and were dropped "
                 f"({', '.join(sorted(row['reasons']))}); {kind} probes cover "
-                f"{row['kept']} of {len(atom_list)} atoms"
+                f"{row['kept']} of {len(atom_list)} atoms; the first rejected wordings are in "
+                f"probes.by_kind.{kind}.rejected_examples"
             )
     progress.stage = "measurement"
     measure_result = progress.measure_result = measure.run_measurement(
@@ -327,14 +351,19 @@ def _analyze(
         answerer=answerer, judge=judge, arms=config.arms,
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
         placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
+        panel=panel, aggregate=aggregate,
     )
     _refuse_cut_short(measure_result)
+    judge_panel = panel_record_mod.panel_record(measure_result, aggregate, answerer.model)
+    warnings.extend(panel_mod.panel_warnings(judge_panel))
     progress.stage = "classify"
-    if config.allow_self_judge and same_client(judge, answerer):
+    if config.allow_self_judge and panel_mod.same_as_answerer((judge, *panel), answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
         )
     outcomes = measure.atom_outcomes(measure_result.runs, with_arm=measure_result.with_arm)
+    strict_outcomes = measure.atom_outcomes(
+        measure_result.runs, with_arm=measure_result.with_arm, scoring="strict")
     # What *kind* of knowledge the model lacked, not just how much (skill-novelty-evidence.md
     # §10.1). The slices are the actionable cut for an author; the caveats ride along in the report.
     by_knowledge_kind = {
@@ -346,8 +375,10 @@ def _analyze(
     }
 
     categories: dict[str, str] = {}
+    verdicts: dict[str, classify.AtomVerdict] = {}
     conflicts: list[dict] = []
     conflict_coverage = None
+    unchecked: list[str] = []
     if config.classify_content and atom_list:
         judged = classify.ClassifyReport()
         verdicts = classify.judge_value(
@@ -363,6 +394,7 @@ def _analyze(
         classify.apply_conflicts(verdicts, conflicts)
         categories = classify.categorize(atom_list, verdicts, outcomes)
         warnings.extend(judged.warnings(len(atom_list)))
+        unchecked = list(judged.unchecked)
         conflict_coverage = {
             "pairs_compared": judged.pairs_compared,
             "pairs_total": judged.pairs_total,
@@ -471,7 +503,7 @@ def _analyze(
         conflicts=conflicts,
         conflict_coverage=conflict_coverage,
         extraction=extraction.as_dict(),
-        cost=roll_up_cost([extractor, answerer, judge]),
+        cost=roll_up_cost([extractor, answerer, judge, *panel]),
         warnings=warnings,
     )
     payload["run_config"] = _run_config(config)
@@ -482,6 +514,7 @@ def _analyze(
         provenance.same_vendor_warning(payload["provenance"])])})
     payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
     payload["run_config"]["extractor_judge"] = relation
+    payload.update(panel_mod.panel_block(judge_panel))
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,
@@ -490,6 +523,13 @@ def _analyze(
         spans=span_list,
         measure_result=measure_result,
         extracted_atoms=extracted,
+        outcomes=outcomes,
+        strict_outcomes=strict_outcomes,
+        verdicts=verdicts,
+        categories=categories,
+        conflicts=conflicts,
+        unchecked=unchecked,
+        extraction=extraction,
     )
 
 

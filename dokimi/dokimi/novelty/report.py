@@ -194,6 +194,9 @@ def build_probe_record(
         "reversal_paired": measure_result.reversal_paired(),
         "confidence_correlation": measure_result.confidence_correlation(),
         "runs": [row.as_dict() for row in measure_result.runs],
+        # getattr: callers may pass a stand-in that predates program checks.
+        **({"checks": checks} if (checks := getattr(measure_result, "checks_summary",
+                                                    lambda: None)()) else {}),
     }
 
 
@@ -493,6 +496,15 @@ def _render_categories(artifact: dict, uncleared: str | None) -> list[str]:
     return [*lines, ""]
 
 
+def _judged_by(artifact: dict) -> str:
+    """The judge line: the one judge, or a panel's judges and its rule."""
+    panel = artifact.get("judge_panel")
+    if not panel:
+        return f"**{artifact['judge_model']}**"
+    return (f"a panel of {len(panel['judges'])} judges (**{'**, **'.join(panel['judges'])}**; "
+            f"{panel['rule']} rule)")
+
+
 def render_novelty_markdown(artifact: dict) -> str:
     """Render the summary report, in the order an author should act on it."""
     lines: list[str] = []
@@ -501,7 +513,7 @@ def render_novelty_markdown(artifact: dict) -> str:
     lines.append("")
     lines.append(
         f"Model **{artifact['model']}** ({artifact['provider']}), judged by "
-        f"**{artifact['judge_model']}**. Artifact: {artifact['artifact']['tokens']} tokens, "
+        f"{_judged_by(artifact)}. Artifact: {artifact['artifact']['tokens']} tokens, "
         f"{artifact['atoms']['n']} atoms ({artifact['atoms']['sampling']}), "
         f"{artifact['atoms']['n_probed']} probed.{_capped_at(artifact)}"
     )

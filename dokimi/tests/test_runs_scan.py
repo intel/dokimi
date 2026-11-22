@@ -37,6 +37,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "skill_evidence.v1": ({}, "s", None, "2026-10-31T10:05:00Z"),
     "novelty.v1": ({}, "skill:/tmp/run/accel-tuning/SKILL.md", "answerer-m",
                    "2026-10-04T17:47:16.841483Z"),
+    "novelty_atoms.v1": ({}, "skill:/tmp/run/accel-tuning/SKILL.md", "answerer-m", None),
     "task_runs.v1": ({}, None, "haiku", "2026-01-01T00:00:00Z"),
     "explore_runs.v1": ({"model": "explorer-m"}, None, "explorer-m", "2026-10-04T17:47:15.816155Z"),
     "guidance_reach.v1": ({}, "toy", "m", "2026-10-06T04:30:15.383519+00:00"),
@@ -48,9 +49,11 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "plan.v1": ({}, "skill:onetbb", "claude-sonnet-4-6", "2026-10-21T00:00:00Z"),
     "result.v1": ({}, None, None, "2026-10-21T01:00:00Z"),
     "repo_budget.v1": ({}, "toy", None, None),
+    "run_context.v1": ({}, "claude-code", None, None),
     "effective_instructions.v1": ({}, "toy", "m", "2026-10-31T00:00:00+00:00"),
     "task_inspect.v1": ({}, "tests/fixtures/task_formats", None, None),
     "cli_routes.v1": ({}, None, None, None),
+    "report_summary.v1": ({}, None, None, None),
     "repo_ledger.v1": ({}, None, None, None),
     "dokimi_config.v1": ({}, "skill/onetbb, repo", None, None),
     "headroom.v1": ({}, None, None, None),
@@ -62,6 +65,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "catalog_eval.v1": ({}, "demo-catalog", None, None),
     "reach_matrix.v1": ({}, None, None, "2026-10-31T04:37:00+00:00"),
     "repo_hits_judged.v1": ({}, "review_replay_pr3098", "gpt-5.1", None),
+    "security_report.v1": ({}, "repo-runs/b1", "m", None),
     "ragas.v1": ({"ragas_model": "openai/m"}, None, "openai/m", None),
     "grounding.v1": ({}, None, None, None),
     "checklist.v1": ({}, None, "openai/m", None),
@@ -74,6 +78,10 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "question_panel.v1": ({}, "demo", None, "2026-11-01T00:00:00+00:00"),
     "question_quality.v1": ({}, "demo", None, None),
     "report_qa.v1": ({}, None, None, "2026-11-01T00:00:00+00:00"),
+    "docling_sources.v1": ({}, None, None, None),
+    "docs_run.v1": ({}, None, None, "2026-11-01T00:00:00+00:00"),
+    "dashboard.v1": ({}, "demo", "demo-judge", "2026-11-01T00:00:00+00:00"),
+    "baseline_manifest.v1": ({}, "demo", None, None),
 }
 
 

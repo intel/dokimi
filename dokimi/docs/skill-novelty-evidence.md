@@ -58,6 +58,10 @@ correct-ish binary collapse **0.852**. The largest confusion was `partially_corr
 (247 cases). Consequently the 6-way scale is not used for any conclusion, every score appears under
 both a lenient and a strict collapse, and paired comparisons are preferred over levels.
 
+A judge-panel study (eight judges) shows the judge moves one model's lenient placebo-gated added share by up to 0.23,
+but nemotron-12b stays first and opus-5 last under all eight judges on the lenient scale
+([judge panel](judge-panel-study.md)).
+
 Human review sheets were generated for a gold subset (40 atoms, 40 graded responses, plus the
 constructed equivalence pairs) but **have not yet been filled in**. Until they are, the absolute
 level of every score rests on an LLM judge.
@@ -217,7 +221,7 @@ retention oracle's estimate can be checked against behaviour:
 | performance-patterns | **value-only 0.50** | **0.21** | 0.916 | **0.158** | opus +0.05, luna −0.07, grok +0.16 |
 | mkl-extension-advisor | **value-only 0.50** | 0.50 | 0.844 | **0.625** | haiku +0.06, opus **+0.21**, nano −0.07 |
 | dpnp-quickstart | safety-pinned 0.50 | 0.59 | 0.783 | 1.000 | haiku +0.13, opus +0.05, nano **−0.19** |
-| xpu-system-setup | safety-pinned 0.75 | **0.94** | 0.967 | 1.000 | opus 0.00, haiku **+0.30**, nano +0.06 |
+| xpu-system-setup | safety-pinned 0.75 | **0.94** | 0.967 | 1.000 | opus **+0.30**, haiku 0.00, nano +0.06 |
 
 Before reading the `value`-named rows: §10.10 measures that per-model `V` was defined on only 3–14
 atoms per artifact here, so those candidates were selected by atom coverage per token far more than by

@@ -88,7 +88,7 @@ implicit default that points at a sibling checkout:
 |---|---|---|
 | `--root` | a whole content checkout to scan | `catalog check` |
 | `--questions-root` | directory holding `<product_key>_golden.json` | `benchmark preflight/run/batch`, `evaluate`, `coverage`, `config_check` |
-| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `explore list/run`, `coverage`, `config_check` |
+| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `eval tasks list --format localization`, `explore run`, `coverage`, `config_check` |
 | `--repo-root` | the source tree an exploration task is scored against | `explore run` |
 | `--registry` | a `products.yaml` describing products this repo has never heard of | `benchmark preflight/run` |
 | `--questions` | one question-set file | `arms run`, `answers generate` |
@@ -116,7 +116,9 @@ Two checks, both `warn`:
   checked against and the date. Update it by editing that file, with no code change. An entry
   lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
   `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
-  `replacement` are the vendor's, verbatim, or empty when it gives none.
+  `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
+  the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
+  the same status and date.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
   tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
   a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
@@ -207,6 +209,8 @@ Read that output as three outcomes, not two:
 - `skipped` — a declared entry the scan is *expected* to pass over: a
   `planned` task with no directory yet, or a `track` that `tasks run` does not
   drive (`answer-quality` entries are question-set material, not Docker tasks).
+  For a skill, it is an unloaded `SKILL.md` that no format rule read (see
+  [Skill formats](#skill-formats)); `--ignore` does not make it an `ok`.
 - `ERROR` — an entry that should have worked and did not.
 
 Only load errors change the exit code, so `catalog check` exiting 0 means
@@ -226,11 +230,48 @@ error and still exits 0. A `name` missing from the frontmatter, or a `SKILL.md` 
 another skill's, is a `warn`. So is a skill whose `name` another skill shares with different content
 (`name-conflict`), when both are listed: neither is `disable-model-invocation` or has a spec error
 (a description over 1024 characters, as the only error, does not unlist a skill for routing).
-The finding names the other path, and `dokimi novelty routing --catalog` skips that name rather than
+The finding names the other path, and `dokimi skill routing --against` (or `catalog routing ROOT`) skips that name rather than
 the whole catalog. Of identical copies, the one nearest the root (fewest path parts, ties to path
 order) is the original, the copy the `skill-catalog:` arm offers; each other copy is the `warn` and
 names it. Warnings never change the exit code. `disable-model-invocation: true` is printed as a
 `note`, because the model is never offered that skill.
+
+A `SKILL.md` with no frontmatter (plain Markdown, often a README under the
+wrong name) does not load. Its finding, `not-a-skill-no-frontmatter`, holds a
+frontmatter block to start from. The description is the paragraph after the
+file's H1 (the first paragraph when there is no H1). The name is the
+directory's below the scanned root, where the loader checks it against the
+directory; at the root, or when the directory name is not a valid name, it is
+the H1 in kebab-case (ASCII letters and digits, at most 64 characters), or the
+directory name when the H1 has none, or `my-skill` when neither has one. The summary line counts these apart from the other errors
+(`3 error, of them 2 plain Markdown with no frontmatter`).
+A `---` block with a `name:` or `description:` line in the first 20 lines, or that opens with a YAML key
+(any, `title:` included), keeps the loader's error and gets no hint. So does a block of blank lines between two `---` lines.
+A block that opens with a `[` or `{` that is not a Markdown link also keeps the loader's error. A `---` rule, or a block with no YAML key and no such opener, is plain Markdown and gets this finding.
+
+### Skill formats
+
+The catalog check reads the host from the path below the scanned root (`skill_format` in
+`dokimi/external/skill_format.py`). The Agent Skills spec applies to `.claude`, `.codex`, `.gemini`,
+`.github` and `.agents` skill directories, to a `skills/` directory with no host, and to any hidden
+directory that is not a listed host. Two cases have their own rules:
+
+- **OpenCode** (`.opencode/skills/`, and the singular `.opencode/skill/`, which the OpenCode docs do
+  not list): frontmatter is optional and the ID comes from the path, so a `SKILL.md` with no frontmatter
+  is not an error. It gets one `warn`, `opencode-no-description`, because OpenCode does not advertise a
+  skill without a description, and dokimi reads only a skill with one. A name that is not kebab-case is
+  a `warn` (`name-format`), and a name that differs from the directory or a description over 1024
+  characters is not a finding. Source: https://opencode.ai/docs/skills/
+- **A skills directory under a listed host dokimi holds no spec for** (`UNSUPPORTED_HOST_DIRS` in
+  `dokimi/external/skill_format.py`: `.cursor`, `.kiro`, `.windsurf`, `.trae`, and the others the corpus
+  holds): the frontmatter and description checks do not run, and one `note`, `unsupported-skill-format`,
+  says so. A loaded skill gets the safety and content checks and keeps its `ok` with that note; an unloaded
+  one is `skipped`, with the note, unless a command check warns. Any other hidden directory, such as `~/.config` above a `skills/` root,
+  is not a host, and its skills get the spec checks.
+
+Under either rule, a `SKILL.md` that did not load still gets the command checks (`pipe-to-shell` and the
+others) and `allowed-tools-unrestricted-bash`, so `--strict` fails a Bash grant with a risky command there
+as it does for a loaded skill.
 
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the
@@ -258,7 +299,14 @@ of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`de
 Japanese いつ counts only before a use verb, Chinese 耗时, 超时 and 延时 are not 时 + verb, and German `beim`
 counts only in the same sentence as a use verb (verwenden, nutzen, ...). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
-(`mirror-drift`), naming the other copies. Skills with
+(`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
+`.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
+path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
+finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+`_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
+not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no `warn`; it gives a
+`note` (`bundle-file-unchecked`) that says why, when the search cannot see every name: a bundle over 2000 files, more than 50 named
+documents to read, a named document over 1 MiB (truncated: the note names the file, and its names are not read), not UTF-8, a symlink or a FIFO, a folder that cannot be listed. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
 The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
@@ -267,7 +315,8 @@ At most 200 files of a bundle are walked: every file counts, `SKILL.md` and non-
 order (a directory's files sorted by name, then its subdirectories). Files past the cap are not checked and give
 no finding; a subdirectory with its own `SKILL.md` is another skill and is skipped.
 A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
-Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
+Nothing is run or imported. In `catalog check --json` and `catalog eval --json` a `script-crlf` or `script-syntax` finding carries `script`, the
+script's path relative to the skill directory, while `file` stays the skill's `SKILL.md`. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
 `ast.parse` rejects is a `warn` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
 goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
@@ -281,7 +330,7 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
-(`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
+(`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
 an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
 package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
 file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
@@ -399,6 +448,16 @@ A large catalog is easier to scan one skill at a time:
   catalog too, so they are not run here; the text output says so in a
   `# granularity: not run with --per-skill` line; `--format json` has no
   `granularity` key in this mode.
+- `--listing-budget CHARS` adds up each listed skill's entry (`name: description`, then
+  ` - when_to_use` when the frontmatter sets it and is not empty; characters, not bytes, and no line break between
+  entries; the description and `when_to_use` count at most 1,536 characters per entry, as Claude Code cuts them; a byte-identical `SKILL.md` under another path is one entry, as the routing field keeps one card
+  for it, while a name whose copies differ is left out, as there) and compares it with CHARS. The total is `listing.chars` in the JSON report, with
+  `budget` and `over_budget`. Over the cap is a `listing-over-budget` warning after the counts,
+  and exit 1 with `--strict`; a total equal to CHARS passes. The whole-catalog scan, `--per-skill`,
+  `--concurrency` and `--resume` count the same way: a resumed row keeps its `listing_chars`, and the cap is
+  checked against this run's value, so lowering it can fail a resumed `--strict` scan whose receipt is
+  still valid. `--ignore listing-over-budget` drops the warning, the exit and the line that carries the total
+  (the report keeps it); it is not in a row's `ignored`, so adding or dropping it does not redo a resumed row.
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
@@ -406,21 +465,26 @@ A large catalog is easier to scan one skill at a time:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
   `description-no-when`, `description-when-not-checked`, ...); an unknown code is a usage error. `frontmatter-parse`
-  is refused (a skill that does not load always fails), and so is `unreadable` (a
+  and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
+  fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
-  the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
+  the counts. `--concurrency N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
   line from a killed run is dropped). Each row carries `skill_sha256`, the
   digest of every file in the skill's directory, and `ignored`, the sorted
-  `--ignore` codes in effect (`[]` when none). `--resume` keeps a row only
-  while that is unchanged and the `--ignore` codes are the same: a skill whose
-  `SKILL.md` or bundled file changed, a row written under other codes, or a row
-  without `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
+  `--ignore` codes in effect (`[]` when none), and `dokimi_version`, the version
+  that wrote it. `--resume` keeps a row only while that is unchanged and the
+  `--ignore` codes are the same: a skill whose `SKILL.md` or bundled file changed,
+  a row written under other codes or by another dokimi version, or a row without
+  `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
   Every `SKILL.md` is loaded before the first row, so memory still grows with
-  the catalog. A `--jobs` worker that dies ends the scan with exit 1.
+  the catalog. A `--concurrency` worker that dies ends the scan with exit 1.
 
-`--jsonl`, `--jobs` and `--resume` need `--per-skill`, and `--jsonl` does not
+The finding codes are listed in [finding codes](finding-codes.md), and the fields of the
+JSON report and of each JSONL row in [catalog check output](catalog-jsonl.md).
+
+`--jsonl`, `--concurrency` and `--resume` need `--per-skill`, and `--jsonl` does not
 combine with `--format json`; any other misuse exits 2. From Python,
 `dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
 skill in `path`.
@@ -546,7 +610,7 @@ the YAML directory, `--repo-root` the tree a task is scored against when its
 own YAML omits `repo_root:`.
 
 ```console
-$ python cli.py explore list --tasks-root C:/Users/Public/content-repo/explore_tasks
+$ python cli.py eval tasks list --format localization --tasks-root C:/Users/Public/content-repo/explore_tasks
 demo-locate-widget      demo    1 ref(s)        Where is the widget width clamped?
 
 $ python cli.py explore run --all \
@@ -667,13 +731,13 @@ Worth knowing before you read a suspiciously clean result:
 | `catalog check --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
 | `tasks run --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `eval tasks list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
-| `explore list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --format localization --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
 `eval tasks list` is the trap for an existing directory: an empty listing and a correct listing
 both exit 0, so an empty checkout looks like a correct one. A missing root is refused with exit 2,
-not a silent success. `explore list` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
+not a silent success. `eval tasks list --format localization` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage

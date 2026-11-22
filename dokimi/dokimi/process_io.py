@@ -1,16 +1,56 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""A pipe is owned by its reader or caller cleanup, even during interrupted startup."""
+"""A pipe is owned by its reader or caller cleanup, even during interrupted startup.
+
+read_spool reads back a spooled capture; join_capture joins the head and tail of a capture that was cut.
+"""
 
 import os
 import sys
+from stat import S_ISFIFO
 import threading
 from collections.abc import Callable
 from contextlib import suppress
 from typing import IO, Protocol
 
 _POSIX = sys.platform != "win32"
+
+
+def joined_pairs(text: str) -> str:
+    """*text* with each high surrogate followed by a low one (a YAML double-quoted ``"\\ud83d\\ude00"`` escape, which PyYAML
+    loads as two code points; ``json`` joins the pair itself) joined into its character; a lone surrogate stays, for ``errors="replace"`` to write as ``?``."""
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+
+
+def utf8_bytes(text: str) -> bytes:
+    """*text* as UTF-8 with its surrogate pairs joined (:func:`joined_pairs`) and a lone surrogate sent as ``?``."""
+    return joined_pairs(text).encode("utf-8", "replace")
+
+
+def text_file_bytes(text: str) -> bytes:
+    """What ``Path.write_text(text, encoding="utf-8")`` writes on this platform (``\\n`` as ``os.linesep``) for text that
+    encodes; a lone surrogate is a ``?`` and a pair is joined (:func:`utf8_bytes`), where ``write_text`` raises."""
+    return utf8_bytes(text if os.linesep == "\n" else text.replace("\n", os.linesep))
+
+
+def argv_text(text: str) -> str:
+    """An argv entry as the child gets it: pairs joined (:func:`joined_pairs`), and each character ``os.fsencode`` cannot
+    encode (a lone surrogate) a ``?``. On POSIX U+DC80..U+DCFF stay: ``os.fsdecode`` makes them of a non-UTF-8 file name."""
+    joined = joined_pairs(text)
+    try:
+        os.fsencode(joined)
+    except UnicodeEncodeError:
+        return "".join("?" if 0xD800 <= ord(char) <= 0xDFFF and not _fs_encodable(char) else char for char in joined)
+    return joined
+
+
+def _fs_encodable(char: str) -> bool:
+    try:
+        os.fsencode(char)
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def path_text(raw: bytes) -> str:
@@ -91,3 +131,28 @@ class PipeReader:
 
 class PipeReaderOwner(Protocol):
     _dokimi_pipe_readers: dict[IO[bytes], PipeReader]
+
+
+TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture limit ...]\n"
+
+
+def join_capture(head: bytes, tail: bytes, total: int) -> tuple[bytes, bool]:
+    dropped = total - len(head) - len(tail)
+    if dropped <= 0:
+        return head + tail, False
+    return head + TRUNCATION_MARKER.format(dropped=dropped).encode("utf-8") + tail, True
+
+
+def read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
+    """A spooled stream's bounded head and tail, read back without loading the whole file. A FIFO is not read back:
+    its reader is at the other end, and a read here waits for every writer to close, the caller's included."""
+    if S_ISFIFO(os.stat(path).st_mode):
+        return b"", False
+    with open(path, "rb") as fh:
+        size = os.fstat(fh.fileno()).st_size
+        if limit is None or size <= limit:
+            return fh.read(), False
+        head = fh.read(limit // 2)
+        tail_len = limit - limit // 2
+        fh.seek(size - tail_len)
+        return join_capture(head, fh.read(tail_len), size)

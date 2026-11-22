@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Generic, TypeVar
 
-from .client import LLMClient, OutputTruncated, accepting
+from .client import LLMClient, OutputTruncated, SpendCapReached, accepting
+from .routing_stop import is_run_wide, permanent_stop, stop_if_run_wide
 
 T = TypeVar("T")
 
@@ -33,7 +34,7 @@ class UnusableReply(ValueError):
 def retry_wording(retried: int, unusable: int) -> tuple[str, str]:
     """The label and the advice for batches re-asked as halves, split by cause.
 
-    Only a cut-off reply is cured by a higher ``--max-tokens``; one whose rows are all
+    Only a cut-off reply is cured by a higher ``--max-output-tokens``; one whose rows are all
     unusable is not, so the advice is given only for the rest.
     """
     cut = retried - unusable
@@ -43,7 +44,19 @@ def retry_wording(retried: int, unusable: int) -> tuple[str, str]:
         label = "unparseable or unusable"
     else:
         label = "unparseable"
-    return label, ("; a higher --max-tokens avoids the extra calls" if cut else "")
+    return label, ("; a higher --max-output-tokens avoids the extra calls" if cut else "")
+
+
+def or_stop(call: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    """``call(*args, **kwargs)``; a run-wide provider error raises its :func:`permanent_stop` instead.
+
+    Any other error passes through unchanged, for the caller's per-item handling.
+    """
+    try:
+        return call(*args, **kwargs)
+    except Exception as exc:
+        stop_if_run_wide(exc)
+        raise
 
 
 @dataclass
@@ -68,6 +81,10 @@ class BatchResult(Generic[T]):
             an unusable reply is counted in ``unusable`` instead. Errors that a
             split recovered from are not recorded, so this never blames a cause that
             lost nothing.
+        stop: Set when a run-wide provider error (:func:`~dokimi.novelty.routing_stop.is_run_wide`)
+            ended the run at its first call that met it: ``reason`` ``permanent_error``. The
+            chunks answered before it stay in ``answered``; the chunk that met it and those not
+            yet asked are in ``failed``, with no ``last_error``. A caller raises it, as a cap stop is.
     """
 
     answered: list[tuple[list[T], Any]] = field(default_factory=list)
@@ -78,6 +95,7 @@ class BatchResult(Generic[T]):
     unusable_retries: int = 0
     calls: int = 0
     last_error: str = ""
+    stop: SpendCapReached | None = None
 
 
 def ask_in_batches(
@@ -127,7 +145,11 @@ def ask_in_batches(
                 raise ValueError("the model returned an empty reply")
             replied = True
             result.answered.append((chunk, read(chunk, reply)))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - re-asked in halves or recorded as the chunk's error
+            if is_run_wide(exc):  # every later call meets it too: stop, the rest is unanswered
+                result.stop = permanent_stop(exc)
+                result.failed.extend(item for rest in [chunk, *pending] for item in rest)
+                break
             half = len(chunk) // 2
             # A reply cut at the ceiling is re-asked smaller, like one that will not parse.
             if (replied or isinstance(exc, OutputTruncated)) and half >= max(min_size, 1):

@@ -14,13 +14,15 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi import cli_flags
 from dokimi import docker_cmd
+from dokimi.exit_codes import EXIT_INFRA
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.repos.source import SourceArgumentError, tree_path
 from dokimi.utils import tree_digest
@@ -40,12 +42,19 @@ def _refuse_typed(source, args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     if args.manifest and not args.manifest_file:
-        if os.path.splitdrive(args.manifest)[0]:  # `D:/x`, `D:x`, `//host/share/x`: no `/` check sees a drive
-            raise InputError(f"path escapes the repository: {args.manifest}")
-        try:  # as the host reads it: on Windows `..\x` is `../x`, also for a pinned tree, which is read with `/`
-            tree_path(os.path.normpath(args.manifest).replace(os.path.sep, "/"))
-        except SourceArgumentError as exc:
-            raise InputError(f"path escapes the repository: {args.manifest}") from exc
+        _refuse_escape(args.manifest)
+    if getattr(args, "suite", None) is not None:  # an empty path is given, not omitted: refused below, not skipped
+        _refuse_escape(args.suite)
+
+
+def _refuse_escape(path: str) -> None:
+    """Exit 2 for a path that leaves the tree, as the host reads it."""
+    if os.path.splitdrive(path)[0]:  # `D:/x`, `D:x`, `//host/share/x`: no `/` check sees a drive
+        raise InputError(f"path escapes the repository: {path}")
+    try:  # as the host reads it: on Windows `..\x` is `../x`, also for a pinned tree, which is read with `/`
+        tree_path(os.path.normpath(path).replace(os.path.sep, "/"))
+    except SourceArgumentError as exc:
+        raise InputError(f"path escapes the repository: {path}") from exc
 
 
 def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
@@ -74,11 +83,13 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     require_runnable(manifest)
     if manifest.image is None:
         raise ValueError(f"{manifest.path} declares no `image`; entry points and agents run in it")
+    _check_cache_paths(args, manifest)  # before the export and the image build (#826)
     git_dir = source_git_dir(source, tree, _cache_dir(args))
     content = out / "_eval" / "content"
     # a pinned batch keeps its content until the pin is checked
     staged = export_eval_dir(tree, manifest, content.with_name("content.next") if pin else content)
     _require_grade(staged, manifest, args.task)  # before the pin and the image build
+    suite = _suite_bases(args, tree, staged, manifest, _cache_dir(args))  # its pins go in the batch pin
     runner = DockerRunner(args.docker)
     image, ctx_dir = args.image, None
     if not image:
@@ -92,7 +103,8 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        stamp = {"tree": tree.label, "eval_dir": tree_digest(staged), "image": image}
+        stamp: dict[str, Any] = {"tree": tree.label, "eval_dir": tree_digest(staged), "image": image}
+        stamp.update(_suite_pin(suite))
         if _uses_builtin_graders(staged, manifest):  # else no score depends on them: an upgrade keeps the batch
             stamp["graders"] = graders_digest()
         _pin_batch(out, stamp)
@@ -106,9 +118,6 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     if ctx_dir is not None:
         shutil.rmtree(ctx_dir)
     overrides = dict(_pair(c) for c in args.cache or ())
-    unknown = sorted(set(overrides) - {c.name for c in manifest.image.caches})
-    if unknown:
-        raise ValueError(f"--cache names no cache of the manifest: {', '.join(unknown)}")
     cache_root = Path(args.cache_root) if args.cache_root else default_cache_dir().parent / "caches" / manifest.id
     caches = {}
     for c in manifest.image.caches:
@@ -117,8 +126,29 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     uses_source = any("{source_dir}" in v for v in manifest.entry_points.values())
     source_dir = Path(args.source_dir).resolve() if args.source_dir else (git_dir if uses_source else None)
     ctx = EvalContext(manifest=manifest, git_dir=git_dir, content_dir=content, image=image, runner=runner,
-                      caches=caches, source_dir=source_dir, entry_timeout_s=args.grade_timeout)
+                      caches=caches, source_dir=source_dir, entry_timeout_s=args.grade_timeout, suite=suite)
     return ctx, tree
+
+
+def _suite_bases(args: argparse.Namespace, tree, content: Path, manifest: RepoManifest, cache_dir: Path | None):
+    """The base checkouts of ``--suite`` (contract §2.1), or None: every base is then in the eval source."""
+    if args.suite is None:
+        return None
+    from dokimi.repos.suite import SuiteError, load_suite, resolve_suite
+    from dokimi.repos.workspace import PrepError, load_tasks
+
+    suite = load_suite(tree, args.suite, args.allow_floating_suite_revs)
+    try:  # only the listed tasks are read: an unrelated malformed task.json is not this run's
+        found = {t.id: t for t in load_tasks(content, manifest, list(suite.tasks))}
+    except PrepError as exc:
+        raise SuiteError(suite.path, [str(exc)]) from exc
+    return resolve_suite(suite, {t: str(found[t].raw.get("base", "")) for t in suite.tasks}, cache_dir)
+
+
+def _suite_pin(suite) -> dict[str, Any]:
+    """The commit each suite repository resolved to and the task-to-repository mapping, for the batch pin:
+    a resume with another suite file, or with none, is refused (``_pin_batch``)."""
+    return {} if suite is None else {"suite": suite.pins, "suite_plan": suite.plan}
 
 
 def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
@@ -148,6 +178,9 @@ def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
     return any(isinstance(t.raw, dict) and builtin_name(t.raw.get("grader")) is not None for t in tasks)
 
 
+_SUITE_KEYS = ("suite", "suite_plan")
+
+
 def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
     path = batch_dir / "_eval" / "batch.json"
     if path.exists():
@@ -158,13 +191,14 @@ def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
         if not isinstance(old, dict):
             raise ValueError(f"batch {batch_dir.name} has an unreadable pin ({path}); use another --batch")
         changed = [k for k in pin if old.get(k) != pin[k]]
+        changed += [k for k in _SUITE_KEYS if k in old and k not in pin]  # a suite batch resumed without --suite
         if changed:
             was = ", ".join(f"{k} {old.get(k)}" for k in changed)
-            now = ", ".join(f"{k} {pin[k]}" for k in changed)
+            now = ", ".join(f"{k} {pin.get(k, 'none')}" for k in changed)
             raise ValueError(f"batch {batch_dir.name} was run from {was}, not {now}; use another --batch")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(pin) + "\n", encoding="utf-8")
+    write_text_atomic(path, json.dumps(pin) + "\n")
 
 
 def _pair(text: str) -> tuple[str, str]:
@@ -172,6 +206,49 @@ def _pair(text: str) -> tuple[str, str]:
     if not sep or not name or not path:
         raise ValueError(f"--cache takes NAME=PATH, got {text!r}")
     return name, path
+
+
+def _check_cache_flags(args: argparse.Namespace) -> None:
+    """Refuse a ``--cache-root`` or a ``--cache NAME=PATH`` path no cache directory can be made in (exit 2) (#826).
+
+    They need no manifest, so they are checked before the source is opened (a remote one is cloned or fetched).
+    A ``--cache`` that is not ``NAME=PATH`` is left to ``_context``.
+    """
+    from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
+
+    if args.cache_root:
+        resolved_cache_dir(args.cache_root, CACHE_USE, label="--cache-root")
+    for name, sep, path in (c.partition("=") for c in args.cache or ()):
+        if name and sep and path:
+            resolved_cache_dir(path, CACHE_USE, label=f"--cache {name}")
+
+
+def _check_cache_paths(args: argparse.Namespace, manifest: RepoManifest) -> None:
+    """Refuse a cache under the root no cache directory can be made in (usage error, exit 2) (#826).
+
+    Each cache with no ``--cache`` is checked under ``--cache-root``, or else under the default root ``_context``
+    uses. Checked before the image build: ``_context`` makes each cache directory after it. A ``--cache`` naming
+    no cache of the manifest is a usage error too.
+    """
+    from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
+    from dokimi.repos.source import default_cache_dir
+
+    def check(path: str, label: str) -> None:  # the resolved path, as `_context` makes it
+        resolved_cache_dir(path, CACHE_USE, label=label)
+
+    overrides = dict(_pair(c) for c in args.cache or ())
+    names = [c.name for c in manifest.image.caches] if manifest.image is not None else []
+    unknown = sorted(set(overrides) - set(names))
+    if unknown:
+        raise InputError(f"--cache names no cache of the manifest: {', '.join(unknown)}")
+    for name in names:  # the root and the overrides are checked by `_check_cache_flags`
+        if name in overrides:
+            continue
+        if args.cache_root:
+            check(str(Path(args.cache_root) / name), "--cache-root")
+        else:  # the default root `_context` uses, below $DOKIMI_REPO_CACHE when it is set
+            env = " (from $DOKIMI_REPO_CACHE)" if os.environ.get("DOKIMI_REPO_CACHE") else ""
+            check(str(default_cache_dir().parent / "caches" / manifest.id / name), f"the build cache root{env}")
 
 
 def _progress(line: str) -> None:
@@ -190,6 +267,20 @@ def _errors():
     return (ArmError, SourceError, ManifestError, ContainerError, PrepError, ProfileError, ValueError, OSError)
 
 
+def cmd_eval_check(args: argparse.Namespace) -> None:
+    """`eval check`: the self-check, or with --schema-only the manifest and task checks (`repo validate`, #94 M1)."""
+    from .repo import cmd_repo_validate
+
+    if args.schema_only:
+        for opt, dest, default in args.schema_refused:  # the self-check's options, which --schema-only would ignore
+            if getattr(args, dest, default) != default:
+                raise InputError(f"{opt} is for the self-check, which --schema-only skips")
+        return cmd_repo_validate(args)
+    if args.json or args.fail_on:
+        raise InputError("--json and --fail-on need --schema-only")
+    return cmd_repo_tasks_check(args)
+
+
 def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     """Self-check (no LLM): null fails the gate, oracle passes it, the agent cannot see the tasks."""
     from dokimi.repos.arms import check_arms
@@ -201,28 +292,38 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     out = Path(args.out).resolve()
     source = _parse_source(args)
     _refuse_typed(source, args)  # before the manifest, the image build and the tasks
+    _check_cache_flags(args)  # before the source is opened
     try:
         ctx, _ = _context(args, out, source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         arms = [a for spec in args.arm or () for a in spec.split(",") if a]
-        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
+        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs,
+                   ctx.manifest.id, ctx.base_dirs())  # skill paths exist, catalogs hold each expected_skill
         if arms:
             print(f"{len(arms)} arm(s) ok: {', '.join(arms)}", file=sys.stderr)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
         results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs, log=_progress)
+    except InputError:  # a ValueError: a bad cache path is a usage error (2), not a failed run (1) (#826)
+        raise
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     bad = [r for r in results if r["verdict"] != "ok"]
     print(f"{len(results) - len(bad)}/{len(results)} ok; wrote {out / 'check' / 'check.json'}")
+    unavailable = [r["task"] for r in bad if r.get("unsupported_by") == "suite"]
+    if unavailable:  # the base's repository of --suite is missing: not checked, and not a failure
+        print(f"{len(unavailable)} not checked, the repository of their base is missing: " + ", ".join(unavailable))
+    if results and len(unavailable) == len(results):  # a gate that checked nothing is incomplete, not a pass
+        print("✗ incomplete: no task was checked, the repository of every base is missing", file=sys.stderr)
+        sys.exit(1)
     allowed = [r for r in bad if args.allow_unsupported and r.get("unsupported_by") == "host"]
     if allowed:
         print(f"{len(allowed)} unsupported on this host, allowed by --allow-unsupported: "
               + ", ".join(r["task"] for r in allowed))
-    if len(bad) > len(allowed):
+    if len(bad) > len(allowed) + len(unavailable):
         sys.exit(1)
-    if len(bad) == len(results):  # --allow-unsupported passed every task by: none was checked
+    if allowed and len(allowed) == len(results) - len(unavailable):  # every task that could be checked was passed by
         print(f"✗ incomplete: no task passed the self-check (0 ok, {len(allowed)} unsupported)", file=sys.stderr)
         sys.exit(1)
 
@@ -316,11 +417,11 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos import open_source
     from dokimi.repos.arms import check_arms
     from dokimi.repos.batch_ledger import pin_arms, pin_skills, write_skill_pin
-    from dokimi.repos.bases import check_mcp_configs
-    from dokimi.repos.container import docker_network
+    from dokimi.repos.bases import ConfigRefused, check_mcp_configs
+    from dokimi.repos.container import DockerError
     from dokimi.repos.harness_profile import load_profile
-    from dokimi.repos.runner import (
-        AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps, validate_tasks)
+    from dokimi.repos.probes import load_probe_file
+    from dokimi.repos.runner import AgentOptions, batch_lock, harness_version, run_batch, validate_tasks
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
     from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
 
@@ -328,9 +429,11 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
 
     source = _parse_source(args)  # as typed, before the build and the pin: a usage error
     _refuse_typed(source, args)  # before the arms and the harness
+    _check_cache_flags(args)  # before `pin_arms` opens the source
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
+        probes = load_probe_file(args.probes) if args.probes else None  # a bad file fails before the containers start
         profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         harness_bin = _harness_bin(args.bin or profile.bin)
         arms = pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
@@ -338,17 +441,15 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, source, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
-        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
-        check_mcp_configs(ctx.git_dir, tasks, profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
+        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id,
+                   ctx.base_dirs())  # skill paths exist, catalogs hold each expected_skill
+        check_mcp_configs(ctx.git_dir, tasks, profile, args.tools, ctx.base_dirs())  # a malformed .mcp.json fails here, not in every cell
         skill_pin = pin_skills(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
-                                max_turns=args.max_turns, budget_usd=args.budget) for m in args.model]
-        for task in tasks:  # refuse before anything runs, not cell by cell
-            task_caps(task, options[0])
-            agent_network(options[0], ctx, task)
-            docker_network(ctx.manifest.image.network, task.egress)  # grade has no egress route either
+                                max_turns=args.max_turns, budget_usd=args.budget, probes=probes) for m in args.model]
+        _refuse_before_any_cell(ctx, tasks, options[0])
         version = harness_version(ctx, options[0], batch_dir / "_eval")
         for opt in options:
             opt.harness_version = version
@@ -362,6 +463,13 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
             write_skill_pin(batch_dir, skill_pin)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
                             max_batch_usd=args.max_batch_usd, log=_progress)
+    except InputError:  # see cmd_repo_tasks_check (#826)
+        raise
+    except DockerError as exc:  # the docker CLI or daemon failed: infrastructure, not a verdict (§2.6)
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_INFRA)
+    except ConfigRefused as exc:  # a config the agent's CLI rejects: refused before any cell, not rerun (exit 2)
+        raise InputError(str(exc)) from exc  # cli.main prints it and exits 2
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -371,6 +479,28 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     if summary["probe_failed"]:
         print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
               file=sys.stderr)
+    _exit_of_batch(summary)
+
+
+def _refuse_before_any_cell(ctx, tasks, option) -> None:
+    """Refuse before anything runs, not cell by cell; a suite gap is unsupported, not run."""
+    from dokimi.repos.container import docker_network
+    from dokimi.repos.runner import agent_network, task_caps
+
+    gaps = ctx.base_gaps()
+    for task in tasks:
+        if task.id in gaps:
+            continue
+        task_caps(task, option)
+        agent_network(option, ctx, task)
+        docker_network(ctx.manifest.image.network, task.egress)  # grade has no egress route either
+
+
+def _exit_of_batch(summary: dict) -> None:
+    """A cell that crashed of the machinery is infrastructure (exit 5, §2.6), never a verdict; a refused cell, a budget
+    stop, a failed probe or a batch with no result is exit 1."""
+    if any(err.get("infra") for err in summary["errors"]):
+        sys.exit(EXIT_INFRA)
     if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
         sys.exit(1)
     if not summary["ran"] and not summary["skipped"]:  # every cell unsupported: the batch holds no result
@@ -459,6 +589,12 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
     p.add_argument("source", help=source_help)
     p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
                    help="Manifest path relative to the repository root")
+    p.add_argument("--suite", default=None,
+                   help="Suite manifest (suite_manifest.v1) path relative to the repository root: tasks whose "
+                        "base is a commit of another repository, named as <url>@<sha> (contract §2.1)")
+    p.add_argument("--allow-floating-suite-revs", action="store_true", dest="allow_floating_suite_revs",
+                   help="Let --suite name a branch or tag: it is resolved once, when the run starts, and the "
+                        "batch pins the commit it resolved to")
     p.add_argument("--manifest-file", default=None, dest="manifest_file",
                    help="Read the manifest from this local file instead of from the tree")
     p.add_argument("--task", action="append", default=None, help="Only this task id; repeatable (default: all)")
@@ -478,27 +614,37 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
                    help="Full-history clone mounted as {source_dir} (default: the source's own git dir)")
     p.add_argument("--grade-timeout", type=positive_int, default=3600, dest="grade_timeout",
                    help="Seconds per grade/oracle run (default 3600)")
-    p.add_argument("-j", "--jobs", type=positive_int, default=1, help="Parallel tasks or cells (default 1)")
+    cli_flags.add(p, "concurrency", "--concurrency", "-j", type=positive_int, default=1, dest="jobs", metavar="N",
+                  help="Parallel tasks or cells (default 1)")
     p.add_argument("--docker", default="docker", help="docker CLI (default: docker)")
     p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
 
 
 _SOURCE_EXIT = (
-    "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote) or a "
-    "pinned local path inside a repository (give its root); exit 1 for a source that cannot be opened "
+    "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote), a "
+    "pinned local path inside a repository (give its root) or a --cache-dir that is not a usable directory (so is a $DOKIMI_REPO_CACHE, without the flag), or a --cache-root or --cache that is not one; exit 1 for a source that cannot be opened "
     "(clone, fetch, revision) and "
 )
-CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check."
+CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check, or when no task was checked (every one a suite gap)."
 RUN_EXIT = _SOURCE_EXIT + "for a cell that crashed, a batch budget stop or an incomplete batch."
 
 
 def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
-    # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`
+    # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`; with --schema-only,
+    # the manifest and task checks that `repo validate` ran.
     check_p = eval_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
-        "pass it (score-only: reach score.max), and the agent's container must not see tasks or source",
+        "pass it (score-only: reach score.max), and the agent's container must not see tasks or source; "
+        "--schema-only: the manifest and task.json checks of `repo validate`",
         description=CHECK_EXIT)
     _common(check_p, source_help, cache_help, positive_int)
+    check_p.add_argument("--schema-only", action="store_true", dest="schema_only",
+                         help="Check the manifest and every task.json against one snapshot, with no self-check run "
+                         "(what `repo validate` did); --json and --fail-on apply to it")
+    cli_flags.add(check_p, "output", "--json", action="store_true",
+                  help="Print cli_output.v1 on stdout (--schema-only: the full report under data)")
+    cli_flags.add(check_p, "fail_on", "--fail-on", choices=("warn", "fail"),
+                         help="--schema-only: warn exits 1 on a warning or error, fail on an error")
     check_p.add_argument("--warm", action="store_true",
                          help="Run null and oracle with network to fill the caches before offline runs")
     check_p.add_argument("--arm", action="append", default=None,
@@ -511,7 +657,13 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                          "and tasks whose host probe failed still exit 1, and so does a check in "
                          "which no task is ok")
     cli_flags.add(check_p, "output", "--out-dir", dest="out", default="repo-check", help="Work directory (default: repo-check)")
-    check_p.set_defaults(func=cmd_repo_tasks_check)
+    # Every option of the self-check that --schema-only does not read: passing one with --schema-only is a refusal.
+    schema_kept = {"schema_only", "json", "fail_on", "help", "manifest", "manifest_file", "cache_dir"}
+    schema_refused = tuple((a.option_strings[0], a.dest, a.default) for a in check_p._actions
+                           if a.option_strings and a.dest not in schema_kept
+                           and not isinstance(a, argparse._HelpAction))
+    check_p.set_defaults(func=cmd_eval_check, emits_cli_output=True, cli_kind="eval check",
+                         schema_refused=schema_refused)
 
     run_p = repo_sub.add_parser(
         "run", help="Run an agent per (task, arm, model, rep) in the image and grade each run; one "
@@ -547,10 +699,14 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                        help="Seconds per agent run unless task.json sets timeout_s (default 2700)")
     run_p.add_argument("--max-turns", type=positive_int, default=200, dest="max_turns",
                        help="Unless task.json sets max_turns (default 200)")
-    run_p.add_argument("--budget", type=_usd, default=2.0,
-                       help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
-    run_p.add_argument("--max-batch-usd", type=_usd, default=None, dest="max_batch_usd",
-                       help="Start no new cell once this invocation has spent this much")
+    run_p.add_argument("--probes", default=None, metavar="FILE",
+                       help="YAML or JSON: target -> probe patterns, over the manifest's `probes` (default: the "
+                       "framework's list; contract §4.1)")
+    cli_flags.add(run_p, "spend", "--max-usd-per-cell", type=_usd, default=2.0, dest="budget", metavar="X",
+                  help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
+    cli_flags.add(run_p, "spend", "--max-usd", type=_usd, default=None, dest="max_batch_usd", metavar="X",
+                  help="Start no new cell once the batch has spent this much, earlier invocations included "
+                       "(and the budgets of the cells in flight)")
     run_p.add_argument("--force", action="store_true", help="Rerun cells that already have result.json")
     run_p.set_defaults(func=cmd_repo_run)
 

@@ -30,12 +30,14 @@ import yaml
 
 from dokimi.artifacts import schema_errors
 from dokimi.measure import SCORE_BOUND, as_float, is_finite
+from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
 
 from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX, TASK_PROBLEMS
 from .graders.hidden_tests import HIDDEN_DIR, hidden_files
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
-from .source import RepoTree, SourceError
+from .probes import validate_config
+from .source import RepoTree, SourceArgumentError, SourceError, _NoSuchPath
 from .useful_spec import UsefulSpecError, parse_useful
 
 SCHEMA_VERSION = "repo_manifest.v1"
@@ -64,7 +66,7 @@ _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
 # mounted ones (workspace, home, config) are not scratch and stay allowed: nothing new is mounted.
 RESERVED_RUN_ENTRIES = frozenset({
     "grade-home", "agent-git",
-    "meta.json", "task.json", "answer.txt", "events.jsonl", "result.json", "grade.json",
+    "meta.json", "task.json", "answer.txt", "events.jsonl", "run_context.json", "result.json", "grade.json",
     "agent.stdout", "agent.stderr", "grade.log", "grade.err", "oracle.log", "oracle.err",
     "isolation.log", "isolation.err", "test.log", "test.err", "hidden-tests.xml", "hidden-tests.json",
 })
@@ -137,6 +139,7 @@ class RepoManifest:
     explore_tasks: str | None = None
     build_systems: tuple[str, ...] = ()
     process_metrics: dict[str, Counter] = field(default_factory=dict)
+    probes: dict[str, tuple[str, ...]] = field(default_factory=dict)  # target -> patterns (repos/probes.py)
 
     @property
     def runnable(self) -> bool:
@@ -175,6 +178,7 @@ class RepoManifest:
             "build_systems": list(self.build_systems),
             "process_metrics": {name: {"regex": c.pattern.pattern, "match": c.field}
                                 for name, c in self.process_metrics.items()},
+            **({"probes": {t: list(p) for t, p in self.probes.items()}} if self.probes else {}),
         }
 
 
@@ -291,6 +295,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     if duplicates:
         errors.append(f"image/caches: duplicate cache name(s) {duplicates}")
     counters = _parse_counters(raw.get("process_metrics") or {}, errors)
+    probes = _parse_probes(raw.get("probes"), errors)
     if errors:
         raise ManifestError(path, errors)
 
@@ -312,7 +317,17 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         explore_tasks=_norm(raw["explore_tasks"]) if raw.get("explore_tasks") else None,
         build_systems=tuple(raw.get("build_systems") or ()),
         process_metrics=counters,
+        probes=probes,
     )
+
+
+def _parse_probes(raw: Any, errors: list[str]) -> dict[str, tuple[str, ...]]:
+    """The manifest's ``probes`` (repos/probes.py); a bad one is appended to ``errors``."""
+    try:
+        return validate_config(raw, "probes")
+    except ValueError as exc:
+        errors.append(str(exc))
+        return {}
 
 
 def _test_entry_problems(key: str, found: set[str]) -> list[str]:
@@ -499,6 +514,16 @@ def _expected_skill_problems(raw: dict) -> list[str]:
     return []
 
 
+def _read_task_json(tree: RepoTree, where: str) -> tuple[Any, str]:
+    """The parsed task.json and "", or None and what is wrong with it."""
+    try:
+        return json.loads(tree.read_text(tree.resolve(where))), ""
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return None, f"not valid JSON: {exc}"
+    except (OSError, SourceArgumentError, _NoSuchPath) as exc:  # a link that loops, names a directory or nothing (also past an absent directory), or leaves the tree; a failed git show is raised
+        return None, f"cannot read task.json: {exc}"
+
+
 def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     name = PurePosixPath(task_dir).name
     where = f"{task_dir}/task.json"
@@ -508,10 +533,9 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         report.errors.append(f"{where}: task id {name!r} contains whitespace or a comma; task ids are "
                              "split on whitespace and commas in the workflow's tasks, smoke-tasks and exclude-tasks inputs")
         return
-    try:
-        raw = json.loads(tree.read_text(where))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        report.errors.append(f"{where}: not valid JSON: {exc}")
+    raw, unreadable = _read_task_json(tree, where)
+    if unreadable:
+        report.errors.append(f"{where}: {unreadable}")
         return
     if not isinstance(raw, dict):
         report.errors.append(f"{where}: must be a JSON object")
@@ -579,6 +603,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     except HostSpecError as exc:
         problems.append(str(exc).split("task.json ", 1)[-1])
     problems += _useful_problems(raw)
+    problems += _provenance_problems(raw)
     report.errors.extend(f"{where}: {p}" for p in problems)
     if not problems:
         report.tasks.append(TaskSummary(
@@ -616,6 +641,19 @@ def _useful_problems(raw: dict[str, Any]) -> list[str]:
     try:
         parse_useful(raw.get("useful"))
     except UsefulSpecError as exc:
+        return [str(exc)]
+    return []
+
+
+def _provenance_problems(raw: dict[str, Any]) -> list[str]:
+    """The ``version`` and ``provenance`` keys' shape problems, if any; both are optional (dokimi.provenance)."""
+    for key in ("version", "provenance"):
+        if key in raw and raw[key] is None:
+            return [f"{key} is null: omit the key instead"]
+    try:
+        parse_version(raw.get("version"))
+        parse_provenance(raw.get("provenance"))
+    except ProvenanceError as exc:
         return [str(exc)]
     return []
 

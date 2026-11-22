@@ -507,6 +507,15 @@ def test_broken_or_looping_resource_link_never_looks_like_empty_package(tmp_path
     assert "unsafe-path" in codes(report)
 
 
+def test_the_eval_inventory_keeps_the_load_error_not_the_plain_markdown_hint(tmp_path):
+    skill(tmp_path)
+    (tmp_path / "skills" / "alpha" / "SKILL.md").write_text("# Alpha\n\nInspect safely.\n", encoding="utf-8")
+    report = evaluate(tmp_path)
+    found = [f["code"] for f in report["problems"]]
+    assert found.count("skill-load") == 1
+    assert "not-a-skill-no-frontmatter" not in found
+
+
 def test_dirty_loader_read_is_refused_instead_of_getting_a_stale_digest(tmp_path, monkeypatch):
     import dokimi.external.catalog_eval_inventory as inventory
 
@@ -851,6 +860,34 @@ def test_untracked_files_select_only_the_skills_whose_bundle_hashes_them(tmp_pat
     }
     for path, selected in cases.items():
         assert untracked(tmp_path, [], [path])["selection"]["selected"] == selected, path
+
+
+def test_a_tracked_file_under_a_vendored_directory_of_a_bundle_selects_nothing(tmp_path):
+    """#971: docs/external-content.md says files under `node_modules` select nothing, tracked or not."""
+    for name in ("alpha", "beta", "gamma"):
+        skill(tmp_path, name)
+    cases = {
+        ("skills/alpha/reference.md", "skills/beta/node_modules/widget/data.txt"): ["alpha"],
+        ("skills/beta/node_modules/widget/data.txt",): [],
+        ("skills/beta/node_modules/widget/data.txt", "skills/gamma/.venv/lib/x.py"): [],
+        ("skills/beta/node_modules.txt",): ["beta"],  # only a directory of that name is vendored
+        ("skills/beta/notes/node_modules",): ["beta"],  # a file named so, last on the path, is hashed
+        ("tools/node_modules/x.js",): ["alpha", "beta", "gamma"],  # a shared directory still selects all
+    }
+    for changed, selected in cases.items():
+        assert evaluate(tmp_path, list(changed))["selection"]["selected"] == selected, changed
+    assert evaluate(tmp_path, [])["selection"]["selected"] == []
+
+
+def test_a_tracked_vendored_file_in_a_task_with_a_base_owner_selects_nothing(tmp_path):
+    """#971: restoring a task's historical owner must not select it for a path under `node_modules`."""
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    owners = {"evaluation/harbor/tasks/t1": "alpha"}
+    vendored = "evaluation/harbor/tasks/t1/node_modules/widget/data.txt"
+    assert untracked(tmp_path, [vendored], [], owners)["selection"]["selected"] == []
+    moved = untracked(tmp_path, ["evaluation/harbor/tasks/t1/task.toml"], [], owners)["selection"]
+    assert moved["selected"] == ["alpha"]
 
 
 def test_an_ignored_cache_under_a_shared_directory_selects_nothing_and_a_tracked_file_there_selects_all(tmp_path):

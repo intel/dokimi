@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
-import time
+from functools import partial
 
 import pytest
 
 from dokimi.context.prefilter import _without_heredoc_bodies
+from tests.growth_timing import GROWTH_LIMIT, growth
 from tests.test_context_prefilter import CI, _prompt, _report, _row, _session, _tool
 
 
@@ -127,8 +128,18 @@ def test_a_quote_that_closes_on_a_later_line_hides_the_heredoc_sign_inside_it():
 
 
 def test_the_heredoc_scan_takes_linear_time_in_the_lines_with_a_heredoc_sign():
-    command = "\n".join([": <<< x"] * 6000 + ["cat <<EOF", "body", "EOF", "make ci-local"])
-    start = time.perf_counter()
-    kept = _without_heredoc_bodies(command)
-    assert time.perf_counter() - start < 1.0  # a re-scan of the command per line took about 5 s here
+    def command(k):
+        return "\n".join([": <<< x"] * k + ["cat <<EOF", "body", "EOF", "make ci-local"])
+
+    ratio, kept = growth(lambda k: partial(_without_heredoc_bodies, command(k)), 375)  # a re-scan per line was quadratic
+    assert ratio < GROWTH_LIMIT
     assert kept.endswith("cat <<EOF\nmake ci-local")
+
+
+def test_the_heredoc_scan_masks_each_line_once(monkeypatch):
+    """The characters masked grow with the command: no line is masked again for the quote state (#1061)."""
+    from dokimi.context import prefilter
+    from tests.work_count import WORK_LIMIT, count_calls, work_ratio
+    masked = count_calls(monkeypatch, prefilter, "_masked_line")
+    command = lambda k: "\n".join([": <<< x"] * k + ["cat <<EOF", "body", "EOF", "make ci-local"])
+    assert work_ratio(masked, lambda k: _without_heredoc_bodies(command(k)), 375) <= WORK_LIMIT

@@ -1,10 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Documentation site, published to GitHub Pages by .github/workflows/docs.yml.
-# Local preview, from this directory (`make dev` already installs both locks):
-#   pip install -r requirements.lock.txt -r requirements-docs.lock.txt
-#   mkdocs serve            # or: mkdocs build --strict (what CI runs)
+# Documentation site, published to GitHub Pages by .github/workflows/docs.yml, which runs `mkdocs build --strict`.
+# Local preview from this directory: `make dev`, then `mkdocs serve`; CONTRIBUTING.md ("Docs build") installs by hand.
 site_name: Dokimi
 site_description: Measure whether a skill, MCP doc source, documentation set or agent profile actually improves AI-agent answers and task outcomes
 site_url: https://intel.github.io/dokimi/
@@ -100,16 +98,31 @@ validation:
 
 nav:
   - Home: README.md
-  - User journeys:
-      - user-journeys/README.md
-      - user-journeys/journeys.md
-      - user-journeys/flow-map.md
-      - user-journeys/traceability.md
-  - Using Dokimi:
+  - Start here:
+      - start/README.md
+      - Skill authors and reviewers: start/skills.md
+      - Repository maintainers: start/repositories.md
+      - Evaluators and researchers: start/experiments.md
+      - Agents and CI: start/automation.md
+      - Read results: start/results.md
+      - Contributors: start/contributors.md
+  - Features:
+      - features/README.md
+      - "Does the context help?": features/experiments.md
+      - "Which parts of a skill matter?": features/skills.md
+      - "Will the agent use it?": features/discovery.md
+      - "Does repository guidance work?": features/repositories.md
+      - "Do the tests cover the work?": features/eval-design.md
+      - "Can the grades be trusted?": features/judging.md
+      - "What did the agent do?": features/traces.md
+      - "Will it keep working?": features/continuous-evaluation.md
+  - Practical guides:
       - what-it-measures.md
       - reviewing.md
       - external-content.md
-      - quickstart.md
+      - finding-codes.md
+      - catalog-jsonl.md
+      - Q&A pipeline tutorial: quickstart.md
       - runs.md
       - user-flow.md
       - benchmarking-and-comparison.md
@@ -120,14 +133,20 @@ nav:
       - coding-harnesses.md
       - subscription-backends.md
       - answer-formats.md
+      - knowledge-runs.md
       - context-window.md
+      - memory.md
       - session-prefilter.md
   - Content novelty:
       - skill-novelty.md
       - skill-novelty-walkthrough.md
       - skill-novelty-evidence.md
+      - judge-panel-study.md
+      - grading-tiers.md
   - Repository evaluation:
       - repo-evaluation-contract.md
+      - events-format.md
+      - behavioural-security.md
       - repo-evaluation-mergeability.md
       - repo-evaluation-agent-modes.md
       - reach-matrix.md
@@ -145,5 +164,17 @@ nav:
       - example-execution.md
       - ingestion-docling.md
       - research-register.md
+  - User journeys:
+      - user-journeys/README.md
+      - user-journeys/journeys.md
+      - user-journeys/flow-map.md
+      - user-journeys/traceability.md
+  - In development:
+      - development/README.md
+      - CLI and artifacts: development/interfaces.md
+      - Known limitations: development/limitations.md
+      - Open work index: development/work-index.md
+  - How the evaluation works: how-evaluation-works.md
+  - All guides: documentation-index.md
   - CLI reference: reference/cli/
   - API reference: reference/api/

@@ -40,13 +40,12 @@ a doc snippet) goes through :func:`run`, which holds these invariants:
 * **The environment is a stated policy.** There is no default ``env``: a call
   site passes :meth:`Env.inherit` (the parent's environment plus overrides) or
   :meth:`Env.only` (an allow-list plus overrides).
-* **stdin is closed** (``/dev/null``) unless ``input`` is given, so a child that
-  reads stdin gets EOF instead of the caller's terminal.
+* **stdin is closed** (``/dev/null``) unless ``input`` is given (a child gets EOF, not the caller's terminal).
+  A ``str`` input is sent as UTF-8, a lone surrogate as ``?``: pass bytes for a name from ``os.fsdecode``.
+  An ``argv`` entry likewise (:func:`argv_text`: a lone surrogate ``os.fsencode`` cannot encode is ``?``; on POSIX U+DC80..U+DCFF stay, the bytes of a non-UTF-8 file name), and ``Completed.argv`` holds the text sent.
 
-Errors: a command that cannot be started (missing binary, missing ``cwd``, no
-permission) raises :class:`OSError`; a non-zero exit never raises. After
-:func:`kill_children`, a call raises :class:`ShuttingDown` instead of starting anything. ``argv`` must
-be non-empty and ``timeout`` positive, else :class:`ValueError`.
+Errors: a command that cannot be started (missing binary, missing ``cwd``, no permission) raises :class:`OSError`; a non-zero exit never raises.
+After :func:`kill_children`, a call raises :class:`ShuttingDown` instead of starting anything. ``argv`` must be non-empty and ``timeout`` positive, else :class:`ValueError`.
 
 Two adapters satisfy :class:`Runner`: :func:`run` (real processes) and
 :class:`FakeRunner` (records calls and answers from a handler, for tests).
@@ -55,7 +54,16 @@ Code that spawns takes a ``runner`` argument defaulting to :func:`run`.
 
 from __future__ import annotations
 
-from .process_io import PipeReader, PipeReaderOwner, path_text
+from .process_io import (
+    PipeReader,
+    PipeReaderOwner,
+    TRUNCATION_MARKER as TRUNCATION_MARKER,
+    argv_text,
+    join_capture,
+    read_spool,
+    path_text,
+    utf8_bytes,
+)
 
 import dataclasses
 import os
@@ -74,7 +82,6 @@ from typing import cast, IO, Protocol
 TIMEOUT_RC = 124
 DRAIN_GRACE_SEC = 2.0
 CAPTURE_LIMIT = 1 << 20
-TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture limit ...]\n"
 _POLL_SEC = 0.1
 _CHUNK = 1 << 16
 _POSIX = sys.platform != "win32"
@@ -187,7 +194,7 @@ def run(
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
     args = _check(argv, timeout, capture_limit, term_grace)
     preexec = _limits_preexec(limits) if limits else None
-    data = input.encode("utf-8") if isinstance(input, str) else input
+    data = utf8_bytes(input) if isinstance(input, str) else input
     with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
         start = time.monotonic()
         try:
@@ -231,8 +238,8 @@ def run(
             _live.pop(proc.pid, None)
             if sys.platform == "win32" and job:
                 _kernel32.CloseHandle(job)
-    out_bytes, out_cut = _read_spool(stdout_to, capture_limit) if stdout_to else out.value()
-    err_bytes, err_cut = _read_spool(stderr_to, capture_limit) if stderr_to else err.value()
+    out_bytes, out_cut = read_spool(stdout_to, capture_limit) if stdout_to else out.value()
+    err_bytes, err_cut = read_spool(stderr_to, capture_limit) if stderr_to else err.value()
     if not capture_stdout:
         out_bytes, out_cut = b"", False
     rc = TIMEOUT_RC if timed_out else proc.returncode
@@ -371,14 +378,7 @@ class _Capture:
     def value(self) -> tuple[bytes, bool]:
         """The kept bytes, with the marker where the middle was dropped, and whether it was."""
         with self._lock:
-            return _join(bytes(self.head), bytes(self.tail), self.total)
-
-
-def _join(head: bytes, tail: bytes, total: int) -> tuple[bytes, bool]:
-    dropped = total - len(head) - len(tail)
-    if dropped <= 0:
-        return head + tail, False
-    return head + TRUNCATION_MARKER.format(dropped=dropped).encode("utf-8") + tail, True
+            return join_capture(bytes(self.head), bytes(self.tail), self.total)
 
 
 class _Spool:
@@ -393,18 +393,6 @@ class _Spool:
     def __exit__(self, *exc: object) -> None:
         if self.file:  # the child holds its own copy of the descriptor
             self.file.close()
-
-
-def _read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
-    """A spooled stream's bounded head and tail, read back without loading the whole file."""
-    with open(path, "rb") as fh:
-        size = os.fstat(fh.fileno()).st_size
-        if limit is None or size <= limit:
-            return fh.read(), False
-        head = fh.read(limit // 2)
-        tail_len = limit - limit // 2
-        fh.seek(size - tail_len)
-        return _join(head, fh.read(tail_len), size)
 
 
 def _feed(sink, data: bytes) -> None:
@@ -422,7 +410,7 @@ def _feed(sink, data: bytes) -> None:
 
 def _check(argv: Sequence[str | os.PathLike[str]], timeout: float, capture_limit: int | None,
            term_grace: float = 0.0) -> list[str]:
-    args = [os.fspath(a) for a in argv]
+    args = [argv_text(s) if isinstance(s := os.fspath(a), str) else s for a in argv]  # a bytes entry, or a path-like giving bytes, runs as on main; anything else is a TypeError
     if not args:
         raise ValueError("empty argv")
     if not timeout > 0:
@@ -743,7 +731,7 @@ class Call:
 def reply(stdout: str | bytes = "", stderr: str | bytes = "", returncode: int = 0, *,
           timed_out: bool = False) -> Completed:
     """A :class:`FakeRunner` answer (``argv`` and timing are filled in from the call)."""
-    enc = (lambda s: s.encode("utf-8") if isinstance(s, str) else s)
+    enc = (lambda s: utf8_bytes(s) if isinstance(s, str) else s)
     return Completed((), TIMEOUT_RC if timed_out else returncode, enc(stdout), enc(stderr), timed_out)
 
 
@@ -774,7 +762,7 @@ class FakeRunner:
         term_grace: float = 0.0,
     ) -> Completed:
         args = _check(argv, timeout, capture_limit, term_grace)
-        data = input.encode("utf-8") if isinstance(input, str) else input
+        data = utf8_bytes(input) if isinstance(input, str) else input
         path = (lambda p: Path(p) if p is not None else None)
         call = Call(tuple(args), path(cwd), env.resolve(), timeout, data, capture_stdout, limits,
                     capture_limit, path(stdout_to), path(stderr_to), term_grace)

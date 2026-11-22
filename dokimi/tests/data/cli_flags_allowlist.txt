@@ -15,7 +15,6 @@
 --agent-network
 --all
 --all-atoms
---all-vs-all  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
 --allow-self-judge
 --allow-unsafe
 --allow-unsupported
@@ -29,8 +28,6 @@
 --bases
 --batch
 --both
---budget
---budgets
 --build-network
 --build-timeout
 --cache-root
@@ -55,15 +52,11 @@
 --embeddings
 --escalate-provider
 --escalate-ties
---estimate-only
 --eval
 --eval-out
 --extract-provider
 --factors
 --fail-fast
---fail-on-error
---fail-on-fail
---fail-on-warning
 --file
 --fill-gaps
 --fill-provider
@@ -85,7 +78,6 @@
 --input
 --intents
 --items-out
---jobs
 --jsonl  # catalog check --jsonl (#413 A7): one row per skill to a file; no registry concept yet; a F1b migration names it
 --judge-configs
 --judge-model
@@ -106,6 +98,7 @@
 --libraries
 --library
 --limit
+--listing-budget  # catalog check (#966): a cap on the skill listing's characters; no registry concept yet
 --listing-budget-fraction  # catalog trigger-probe (#217) adds it: no registry concept yet
 --manifest
 --manifest-file
@@ -113,21 +106,17 @@
 --matrix-cells
 --max-atoms
 --max-bases
---max-batch-usd
 --max-context-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
---max-cost-usd
 --max-file-words
 --max-iterations
 --max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-lines  # eval tasks generate --from prs (#294) adds it: a size filter, not a spend cap; no registry concept yet
 --max-resource-words
---max-tokens
 --max-turns
 --metric
 --min-accuracy
 --min-matched  # baseline compare gate: no registry concept yet; moves to the gate policy (#94)
 --mode
---multi-run
 --no-classify
 --no-confirm-carriers
 --no-json
@@ -176,7 +165,6 @@
 --redraws
 --references  # eval tasks generate (#41): a task count per question kind; no registry concept yet
 --regular-runs
---repeats
 --repo
 --repo-root
 --require-validated
@@ -192,6 +180,7 @@
 --salt
 --save-analysis
 --scenarios
+--schema-only  # eval check --schema-only (#276 M1, was repo validate): the manifest checks, no registry concept yet
 --scorer
 --sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
 --sequential
@@ -205,7 +194,7 @@
 --spec
 --static
 --stats-correction
---strict
+--strict  # a verdict gate, not fail_on: baseline compare (exit 4), judge validity (inconclusive exit 1), judge agreement and cross-judge (exits 3/4), docs check (hard gate), catalog check and skill check (spec-error and unrestricted-Bash gate)
 --subject  # runs list (#278) adds it: the #94 §2.3 filter; no registry concept yet
 --subjects-root
 --swe-bench
@@ -222,13 +211,12 @@
 --top-n
 --topics
 --treatment-arm
---trials  # catalog trigger-probe (#217) adds it: a banned synonym of reps; renaming it changes the CLI, so it waits for F1b
 --trigger-set
 --turn-reminder
 --typecheck  # repo scan's Python-fence check: no registry concept yet
 --typecheck-tool  # repo scan's checker for --typecheck (mypy or basedpyright): no registry concept yet
 --typed-max-len
---typed-threads
+--typed-threads  # eval judge validate: CPU threads of one typed arm (torch intra-op), not runs at once
 --validate
 --validity
 --variants
@@ -238,11 +226,10 @@
 --wordings
 --work-baseline-harness
 --work-command-template
---work-dry-run
 --work-harnesses
 --work-model
 --work-output-dir
---work-repeats
+--work-dry-run  # gates only executable-task agents; other phases still call models, so not the dry_run concept; #94 F1b
 -o
 --min-sessions  # trace prefilter threshold: no registry concept yet
 --rare-max  # trace prefilter threshold: no registry concept yet
@@ -250,7 +237,7 @@
 --catalogue  # repo skill-reach: the skill_fixtures.v1 YAML of SKILL.md placements; no registry concept covers a fixture catalogue
 --ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
---min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--min-reps  # eval headroom (#279): a minimum of repetitions a cell needs to count, a gate threshold, not reps per cell
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
 --min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)
 --allow  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
@@ -261,3 +248,9 @@
 --relock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --verbatim-words  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --proposer  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--alpha  # repo security: the one-sided Fisher level per violation class, no registry concept yet (#360)
+--canary  # repo security: a planted fake secret to look for, repeatable (#360)
+--canaries-file  # repo security: the same canaries one per line (#360)
+--atom-verdicts  # skill novelty view (#1005): the per-atom verdicts file `analyze` writes; no registry concept yet
+--tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
+--tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet

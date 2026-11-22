@@ -153,21 +153,16 @@ class TestPersonaAnalyzer:
 
     def test_extract_use_cases(self, mock_github_repo):
         """Test use case extraction from README."""
-        analyzer = PersonaAnalyzer()
-        analyzer._get_readme = Mock(return_value=mock_github_repo.get_readme().decoded_content.decode())
+        readme = mock_github_repo.get_readme().decoded_content.decode()
         
-        use_cases = analyzer._extract_use_cases(mock_github_repo)
+        use_cases = PersonaAnalyzer._extract_use_cases_from_text(readme)
         
         assert len(use_cases) > 0
         assert any("computing" in uc.lower() for uc in use_cases)
     
     def test_extract_use_cases_empty_readme(self):
         """Test use case extraction with empty README."""
-        repo = Mock()
-        analyzer = PersonaAnalyzer()
-        analyzer._get_readme = Mock(return_value="")
-        
-        use_cases = analyzer._extract_use_cases(repo)
+        use_cases = PersonaAnalyzer._extract_use_cases_from_text("")
         assert use_cases == []
     
     def test_analyze_issues(self, mock_github_repo, mock_github_issues):
@@ -218,8 +213,7 @@ class TestPersonaAnalyzer:
 
     def test_extract_api_patterns(self, mock_github_repo):
         """Test API pattern extraction."""
-        analyzer = PersonaAnalyzer()
-        analyzer._get_readme = Mock(return_value="""
+        readme = """
 ```cpp
 tbb::parallel_for(range, [](int i) {
     // do work
@@ -228,9 +222,9 @@ tbb::parallel_for(range, [](int i) {
 tbb::task_arena arena;
 arena.initialize();
 ```
-""")
+"""
 
-        patterns = analyzer._extract_api_patterns(mock_github_repo)
+        patterns = PersonaAnalyzer._extract_api_patterns_from_text(readme)
 
         # Code-block lines with :: or . are kept; the comment and the closing brace are not.
         assert patterns == [
@@ -309,3 +303,13 @@ def test_create_minimal_analysis():
     assert analysis["issues_analysis"] == {"common_questions": [], "common_labels": [], "sample_issues": []}
     assert analysis["api_patterns"] == []
     assert analysis["topics"] == []
+
+
+def test_a_failed_label_fetch_is_logged_and_skipped(caplog):
+    analyzer = PersonaAnalyzer()
+    repo = Mock()
+    repo.get_issues.side_effect = RuntimeError("rate limited")
+    with caplog.at_level("WARNING", logger="dokimi.personas.analyzer"):
+        analyzer._analyze_issues(repo)
+    assert [r.exc_info is not None for r in caplog.records
+            if "not fetched" in r.getMessage()] == [True] * 4

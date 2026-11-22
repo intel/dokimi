@@ -155,7 +155,7 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 
 | Format | Recognised by | Kind | Consumed by |
 |---|---|---|---|
-| `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` (with `environment/Dockerfile`) |
+| `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` (with `environment/Dockerfile` or a [prebuilt `docker_image`](#prebuilt-images-environment-docker_image)) |
 | `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` (with `environment/Dockerfile`) |
 | `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export (not a `solution.yaml` task) |
 | `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | `docker-*` via `tasks run --swe-bench` (Python SWE-bench repos) |
@@ -240,6 +240,41 @@ split) rather than a converter here. An export renames `oracle/` and
 `docker-*` harnesses mount both names, so they run the exported task (as long
 as it works in `/app`, for the agent arms); the Harbor-backed harnesses refuse
 it.
+
+### Prebuilt images: `[environment] docker_image`
+
+A Harbor task whose `task.toml` sets `[environment] docker_image` runs on that
+image, as `harbor run` does, and a docker-* run starts from that image instead of
+building: Harbor 0.24 uses it whenever it is set, also beside an
+`environment/Dockerfile` (only Harbor's `--force-build` builds then;
+`should_use_prebuilt_docker_image` in `harbor/environments/definition.py`;
+`run.log` names the Dockerfile not built: remove `docker_image` to build it). A
+task without one builds `dokimi/<task>:latest` from `environment/`, as before; so
+does a staged SWE-bench task, whose Dockerfile starts `FROM` its image. Other
+formats do not read the key.
+
+- The image is pulled only when the daemon does not have it, as Harbor's
+  `docker compose up` does, within the task's `build_timeout_sec`; a pull that
+  runs out of time errors the cell, like a build. A value that is not an image
+  reference (it starts with `-`, or holds a space) is refused before any docker
+  call: docker would read it as a flag. A `docker_image` that is not a string
+  (`docker_image = 5`) fails the task's load, as Harbor's `EnvironmentConfig` refuses
+  it; an empty string is no image.
+- The pull is the daemon's, like the `FROM` image of a `docker build`:
+  `--network build=none` takes the network from a build's `RUN` steps and does
+  not stop it. To run offline, have the image on the daemon first.
+- The container runs in `environment.workdir` when the task declares one (`docker run -w`), as
+  Harbor runs every exec there, so the oracle and the verifier find relative paths; without one,
+  in the image's `WORKDIR`. A task built from its Dockerfile keeps the image's `WORKDIR` even
+  when it declares one (Harbor overrides it there too).
+- After the container starts, the files of a non-empty `environment/` without a
+  `Dockerfile` or `docker-compose.yaml` are copied into `environment.workdir`,
+  else the image's `WORKDIR`, else `/` (Harbor's
+  `should_upload_environment_dir`). A top-level
+  `environment/skills` is left out, as it is left out of a build context.
+- `metrics.image` says which image ran: `{"source": "docker_image", "ref",
+  "pulled", "id", "repo_digests"}` for a prebuilt one (the id and digests of what
+  ran, since a tag moves), `{"source": "build", "ref"}` for a built one.
 
 ## Supported Harnesses
 
@@ -344,7 +379,7 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
 - **Capabilities.** Every `docker-*` task container, `docker-oracle` included,
   starts with `--init`, `--cap-drop ALL`, `no-new-privileges` and `--pids-limit 32768`,
   and gets back only `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID` and `SETGID`
-  (`TASK_CONTAINER_HARDENING` in `docker_cmd.py`). Every other
+  (`TASK_CAP_ADD` and `task_container_policy` in `container_policy.py`). Every other
   capability Docker grants by default is dropped, so a step that needs one
   fails: signalling another user's process (`KILL`), a raw socket (`NET_RAW`),
   `mknod` (`MKNOD`), `chroot` (`SYS_CHROOT`). Without `FSETID`, `chmod g+s` on
@@ -620,7 +655,7 @@ be checked for the same network before their verdicts are compared:
 
 | Phase | Default | What runs |
 |---|---|---|
-| `build` | `public` (host network, host proxy as build args) | `docker build` |
+| `build` | `public` (host network, host proxy as build args) | `docker build` (a [prebuilt image](#prebuilt-images-environment-docker_image)'s pull ignores it) |
 | `solve` | `none` (an in-container agent still reaches its LLM through the sidecar) | the oracle, or the agent |
 | `verify` | `none` | `tests/test.sh` |
 
@@ -686,7 +721,7 @@ candidates any more; name it in the id or in `BENCHFLOW_SKILL_CREATOR_DIR`.
 **One cell is one attempt.** BenchFlow's default (`max_retries=2`) reruns the
 whole rollout, agent included, after idle timeouts, ACP errors and verifier
 infrastructure errors, even when the attempt already has a reward. The adapter
-passes `--retry-attempts 0`, so `--repeats` is the only repetition, as for
+passes `--retry-attempts 0`, so `--reps` is the only repetition, as for
 `docker-*` and Harbor cells. The row records `metrics.n_attempts`.
 
 **One agent budget.** BenchFlow's idle watchdog ends a prompt after 600 s
@@ -894,7 +929,7 @@ python cli.py subjects run my-subject.toml \
   --work-harnesses docker-claude,docker-claude-skill:<content-checkout>/skills/onetbb-quickstart \
   --work-baseline-harness docker-claude \
   --work-model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
-  --work-repeats 3
+  --reps 3
 ```
 
 The subject scorecard embeds the work status, the `task_runs.v1` artifact path,
@@ -914,11 +949,11 @@ python cli.py tasks run \
   --harnesses docker-claude,docker-claude-skill:<content-checkout>/skills/intel-performance-patterns/SKILL.md \
   --baseline-harness docker-claude \
   --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
-  --repeats 3 \
+  --reps 3 \
   --out results/skill-task-arms.json
 ```
 
-- `--repeats 3` runs every `(task, harness)` cell three times so the pass-rate
+- `--reps 3` runs every `(task, harness)` cell three times so the pass-rate
   and cost deltas carry variance (N=1 is noisy on a binary verifier).
 - `--baseline-harness docker-claude` makes the no-skill harness the reference,
   so `summary.comparisons` reports the skill arm's `pass_rate_delta` and
@@ -1015,7 +1050,7 @@ Run all three together:
 python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --tasks onetbb-transpose \
   --harnesses docker-claude,docker-claude-skill:<skill>,docker-claude-skill-discover:<skill> \
-  --baseline-harness docker-claude --model <model> --repeats 3 \
+  --baseline-harness docker-claude --model <model> --reps 3 \
   --out results/onetbb-discover.json
 ```
 
@@ -1093,14 +1128,19 @@ python cli.py tasks run --tasks <task-name> \
 `tasks run` writes a `task_runs.v1` JSON artifact. Important fields:
 
 - `results[]`: one row per `(task, harness, model, repeat)` cell. With
-  `--repeats > 1` each row carries a `repeat` index and the run lands in a
+  `--reps > 1` each row carries a `repeat` index and the run lands in a
   `run<N>/` subdirectory.
 - `results[].passed`: verifier pass/fail. If a reward file is present, its
   number is `results[].reward`: `1.0` passes, and anything lower, including
   partial credit such as `0.75`, is kept as the reward and counts as a fail. If
   no reward is found, the adapter's exit code is used as the fallback, except
   for a Harbor-backed cell, which is then errored (see the Harbor grading
-  table above).
+  table above), and a `docker-*` cell with a reward-file verifier (`task.toml`
+  or `task.md`), where exit 0 without `/logs/verifier/reward.txt` is errored
+  and a non-zero exit scores 0.0. A terminal-bench v1 verifier keeps its pytest
+  summary as the verdict. A `docker-*` reward file with no number between 0
+  and 1 in it (`PASS`, empty, `75`), or a `docker cp` of it that fails or
+  times out, errors the cell.
 - `results[].metrics`: for LLM harnesses (`docker-claude*`), the per-run
   `UsageRecord` fields — `cost_usd`, `prompt_tokens`, `completion_tokens`,
   `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `latency_sec`,
@@ -1204,7 +1244,7 @@ Four properties are worth internalising before reading the number:
 - **A small suite cannot reach significance.** Four fixes and zero regressions
   gives *p* = 0.125; six and zero gives 0.0312. That is the honest floor of a
   20-task suite, not a defect.
-- **`--repeats` does not buy the power it looks like.** Repeats are paired as
+- **`--reps` does not buy the power it looks like.** Repeats are paired as
   separate `(task, repeat)` cells, so `n` grows but the independent units do not:
   repeats of one task share its difficulty, and McNemar assumes independent
   pairs. `n_units` reports the distinct tasks, `pseudo_replicated` flags
@@ -1233,7 +1273,7 @@ numbers, so do not read the two side by side without the caveats below:
 
 | Field | Meaning |
 |---|---|
-| `per_harness.<h>.pass_rate_ci` | Wilson 95% interval on `pass_rate`, over the same scored (non-errored) cells; same independence caveat as McNemar under `--repeats`. SkillsBench does not use Wilson: its paper uses a Wald interval (v4, App. G; a percentile bootstrap in v1) and its leaderboard a task-level `1.96·stdev(per-task means)/√87`, which is wider under repeats |
+| `per_harness.<h>.pass_rate_ci` | Wilson 95% interval on `pass_rate`, over the same scored (non-errored) cells; same independence caveat as McNemar under `--reps`. SkillsBench does not use Wilson: its paper uses a Wald interval (v4, App. G; a percentile bootstrap in v1) and its leaderboard a task-level `1.96·stdev(per-task means)/√87`, which is wider under repeats |
 | `per_harness.<h>.skill_invocation_rate` | share of the rows reporting `metrics.n_skill_invocations` (errored rows excluded) where it is > 0; `null` when no row reports it. Only harnesses that write `metrics.n_skill_invocations` contribute; the key counts invocations of the treatment skill. A row marked `metrics.solver_error` is errored too and is left out |
 | `per_harness.<h>.skill_invocation_n` | the rows behind `skill_invocation_rate` |
 | `per_harness.<h>.cost.cost_per_pass_usd` | total cost / passes, only when every row, errored rows included, carries `metrics.cost_usd`. A runner-errored row (no `cost_usd`) or an agent timeout whose result was never parsed therefore nulls it for the arm |
@@ -1262,6 +1302,10 @@ DOKIMI_OP {"type":"loop","name":"turn","elapsed_sec":3.4}
 
 Unstructured stdout/stderr lines mentioning `tool`, `subagent`, or `loop` are
 also counted as low-fidelity telemetry, but structured events are preferred.
+
+A command's output in `events.jsonl` is clipped when it is over 8 KB; the rule,
+including how a split UTF-8 character is counted, is in
+[the `events.jsonl` contract](repo-evaluation-contract.md#41-eventsjsonl).
 
 ## Fair Comparisons
 

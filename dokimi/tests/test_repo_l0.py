@@ -8,8 +8,8 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import time
 import warnings
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,7 @@ from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import branches, scan_repo
 from dokimi.repos.source import READ_MANY_LIMIT, GitTree, WorkTree
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 MANIFEST = {
     "schema": "repo_manifest.v1",
@@ -138,8 +139,9 @@ def test_generic_checks_and_adapters(toy):
         ("path", "<out>/a.h"): "ok",  # a.h exists below some directory
         ("path", "{run_dir}/x.json"): "unresolved",  # the root is not in the tree
         ("identifier", "ToyWidget"): "ok",
-        ("identifier", "GhostWidget"): "fail",
-        ("identifier", "OnlyInDocs"): "fail",  # prose is not code
+        # not in the code: a bare name may be external, so unresolved unless .dokimi/scan.toml opts in (#851)
+        ("identifier", "GhostWidget"): "unresolved_identifier",
+        ("identifier", "OnlyInDocs"): "unresolved_identifier",  # prose is not code
         ("bazel_label", "//lib:core"): "ok",
         ("bazel_label", "//lib:nope"): "fail",
         ("bazel_label", "//pkg2:gen_extra"): "unresolved",  # pkg2/BUILD calls a macro
@@ -239,7 +241,7 @@ def test_scan_command_writes_a_valid_artifact(toy, tmp_path, capsys):
     data = load_artifact("repo_readiness", out)
     assert data["schema_version"] == "repo_readiness.v1" and data["repo"]["sha"] == sha
 
-    args = build_parser().parse_args(argv + ["--fail-on-fail"])
+    args = build_parser().parse_args(argv + ["--fail-on", "fail"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 1
@@ -260,7 +262,7 @@ def test_fail_on_fail_follows_the_result_not_the_flag(tmp_path, capsys, files, e
     manifest_file = tmp_path / "m.json"
     manifest_file.write_text(json.dumps(MANIFEST), encoding="utf-8")
     args = build_parser().parse_args(["repo", "scan", f"{root}@{sha}", "--manifest-file", str(manifest_file),
-                                      "--fail-on-fail"])
+                                      "--fail-on", "fail"])
     if err:
         with pytest.raises(SystemExit) as exc:
             args.func(args)
@@ -301,15 +303,15 @@ def test_a_missing_also_scan_file_is_named_as_the_cause(tmp_path, capsys):
     out = tmp_path / "readiness.json"
     assert _exit_code(argv + ["--out", str(out)]) is None
     captured = capsys.readouterr()
-    assert captured.err == ""  # without --fail-on-fail the reason is only in the summary
+    assert captured.err == ""  # without --fail-on fail the reason is only in the summary
     lines = captured.out.splitlines()
     assert lines[1:5] == ["  claims: 0 (ok 0, unresolved 0, fail 0)", f"  warning: {NO_CLAUDE}",
-                          f"  warning: {reason}", f"  incomplete: {reason} (repo scan --fail-on-fail exits 1)"]
+                          f"  warning: {reason}", f"  incomplete: {reason} (repo scan --fail-on fail exits 1)"]
     data = load_artifact("repo_readiness", out)
     assert data["warnings"] == [NO_CLAUDE, reason]
     assert data["incomplete"] is True and data["incomplete_reasons"] == [reason]
 
-    assert _exit_code(argv + ["--fail-on-fail"]) == 1
+    assert _exit_code(argv + ["--fail-on", "fail"]) == 1
     assert capsys.readouterr().err == f"✗ scan incomplete: {reason}\n"
 
 
@@ -318,7 +320,7 @@ def test_an_invalid_static_file_still_says_why_an_incomplete_scan_fails(tmp_path
     static = tmp_path / "bad.json"
     static.write_text(json.dumps({"schema": "nope"}), encoding="utf-8")
     reason = "guidance/also_scan matches no file: CONTRIBUTING.md"
-    assert _exit_code(argv + ["--static", str(static), "--fail-on-fail"]) == 1
+    assert _exit_code(argv + ["--static", str(static), "--fail-on", "fail"]) == 1
     err = capsys.readouterr().err.splitlines()
     assert any(line.startswith("✗ --static output not merged: ") for line in err)
     assert f"✗ scan incomplete: {reason}" in err
@@ -327,7 +329,7 @@ def test_an_invalid_static_file_still_says_why_an_incomplete_scan_fails(tmp_path
 def test_a_glob_that_matches_nothing_alone_keeps_the_scan_complete(tmp_path, capsys):
     argv = _scan_argv(tmp_path, {"AGENTS.md": CLEAN, "CONTRIBUTING.md": "Read first.\n"})
     out = tmp_path / "readiness.json"
-    assert _exit_code(argv + ["--out", str(out), "--fail-on-fail"]) is None
+    assert _exit_code(argv + ["--out", str(out), "--fail-on", "fail"]) is None
     captured = capsys.readouterr()
     lines = captured.out.splitlines()
     assert f"  warning: {NO_CLAUDE}" in lines
@@ -601,10 +603,10 @@ def test_stacked_quantifiers_of_a_branch_filter_fold_into_one(pattern, regex):
 def test_a_branch_filter_with_many_stars_matches_in_linear_time():
     """With `re`, `[^/]*a` per star backtracks polynomially: about 4 s here for 80 `a` and a `c`."""
     glob = branches._filter_regex("release/*a*a*a*a*a*a*b")
-    start = time.perf_counter()
-    assert not glob.match("release/" + "a" * 80 + "c")
+    ratio, matched = growth(lambda k: partial(glob.match, "release/" + "a" * k + "c"), 5)
+    assert ratio < GROWTH_LIMIT
+    assert not matched
     assert glob.match("release/" + "a" * 80 + "b")
-    assert time.perf_counter() - start < 1
 
 
 @pytest.mark.parametrize("pattern", ["release/*", "release/**", "release/v?1.x", "release/[0-9]+.x", "release/a?+b",

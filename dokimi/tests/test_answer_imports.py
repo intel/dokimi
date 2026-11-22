@@ -19,6 +19,7 @@ Fixtures are hand-written from the upstream shapes the importers cite:
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -572,6 +573,35 @@ def test_eval_reference_cli_without_judge_on_an_arms_run(tmp_path):
     assert data["evaluations"][0]["scores"]["baseline"]["passed"] is True
 
 
+@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "directory", "device"],
+                         ids=["empty", "not-json", "not-utf8", "missing", "directory", "device"])
+def test_eval_reference_cli_refuses_an_unparseable_answers_file(tmp_path, content):
+    from tests.cli_refusal import refusal
+
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps({"questions": []}))
+    a = tmp_path / "a.json"
+    if content == "directory":
+        a.mkdir()
+    elif content == "device":
+        if sys.platform == "win32":
+            pytest.skip("/dev/null is a POSIX device")
+        a = Path("/dev/null")
+    elif content is not None:
+        a.write_bytes(content)
+    out = tmp_path / "e.json"
+    args = build_parser().parse_args(["eval", "score", "reference", "--answers", str(a), "--questions", str(q),
+                                      "-o", str(out), "--no-judge"])
+    with refusal() as outcome:
+        args.func(args)
+    assert outcome.code == 2
+    assert f"Error: --answers {a}:" in outcome.err
+    assert "Traceback" not in outcome.err
+    if content == "device":
+        assert "not a file" in outcome.err
+    assert not out.exists()
+
+
 def test_arms_run_sends_a_verbatim_question_unwrapped(monkeypatch, demo_skill):
     import dokimi.eval.arm_runner as arm_runner_mod
     from dokimi.eval.arm_runner import ArmRunner
@@ -647,6 +677,32 @@ def test_each_native_grader_maps_to_its_exact_check(tmp_path):
     ]
 
 
+@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "dir", b"{}", b'{"questions": {}}'],
+                         ids=["empty", "not-json", "not-utf8", "missing", "directory", "empty-object",
+                              "questions-not-a-list"])
+def test_eval_reference_cli_refuses_an_unreadable_questions_file_with_exit_2(tmp_path, monkeypatch, capsys, content):
+    from dokimi import cli
+
+    q = tmp_path / "q.json"
+    if content == "dir":
+        q.mkdir()
+    elif content is not None:
+        q.write_bytes(content)
+    a = tmp_path / "a.json"
+    a.write_text(json.dumps({"answers": [{"question_id": "1", "question_text": "Q", "without_docs": {"answer": "yes"}}]}))
+    out = tmp_path / "e.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "score", "reference", "--answers", str(a),
+                                     "--questions", str(q), "-o", str(out), "--no-judge"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    # a read failure names the flag; a wrong shape names the record and the file
+    named = f"Error: --questions {q}:" if content not in (b"{}", b'{"questions": {}}') else "Error: "
+    assert err.startswith(named) and str(q) in err and "Traceback" not in err
+    assert not out.exists()
+
+
 def test_importable_formats_match_the_adapters_and_show_as_consumer(tmp_path):
     from dokimi.task_formats import detect
     from dokimi.task_formats.model import IMPORTABLE
@@ -662,3 +718,43 @@ def test_import_path_without_a_format_names_eval_inspect_when_none_is_detected(t
     notes.write_text("just some prose, no eval format here\n")
     with pytest.raises(ValueError, match=r"see `eval inspect .*notes\.txt`"):
         import_path(notes)
+
+
+def test_eval_reference_carries_the_answers_run_intent_into_its_run_metadata(tmp_path):
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps({"questions": [{"id": "1", "question": "Q", "grading": {"checks": [
+        {"type": "match", "values": ["yes"], "location": "any"}]}}]}))
+    a = tmp_path / "a.json"
+    a.write_text(json.dumps({"run_intent": "paired", "answers": [
+        {"question_id": "1", "question_text": "Q", "without_docs": {"answer": "yes"}}]}))
+    out = tmp_path / "e.json"
+    args = build_parser().parse_args(["eval", "score", "reference", "--answers", str(a), "--questions", str(q),
+                                      "-o", str(out), "--no-judge"])
+    args.func(args)
+    assert json.loads(out.read_text())["run_metadata"]["run_intent"] == "paired"
+
+
+
+def test_eval_score_carries_the_answers_run_intent_into_the_judge_metadata(tmp_path, monkeypatch):
+    from dokimi.cli import build_parser
+
+    seen = {}
+
+    class FakeJudge:
+        def __init__(self, **kwargs):
+            seen.update(kwargs["run_metadata"])
+
+        def evaluate_answers(self, *args, **kwargs):
+            return []
+
+        def save_evaluations(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr("dokimi.eval.Judge", FakeJudge)
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps({"run_intent": "paired", "answers": [
+        {"id": "q1", "question": "What?", "answer": "x", "with_docs": None}]}), encoding="utf-8")
+    args = build_parser().parse_args(["eval", "score", "pointwise", "--product", "oneTBB", "--answers", str(answers), "--judge-provider",
+                                      "openai", "--judge-model", "gpt-5.1", "--output", str(tmp_path / "eval.json")])
+    args.func(args)
+    assert seen["run_intent"] == "paired"

@@ -106,7 +106,7 @@ def load_expectations(path: Path) -> dict[str, Any]:
 def expectations_digest(expect: Mapping[str, Any]) -> str:
     """The sha256 of the expectations as canonical JSON: matrices built from different documented states differ in it."""
     text = json.dumps(expect, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def fixtures_digest(fixtures: Path) -> str:
@@ -260,7 +260,7 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
         return run_record(harness.name, case, "failed", f"cannot clear {out}: {exc}", UNKNOWN, model, 0), []
     argv = [sys.executable, "-m", "dokimi", "repo", "reach", str(fixture), "--manifest-file", str(guidance),
             "--harness", harness.profile_ref, "--model", model, "--out-dir", str(out), "--format", "receipt",
-            "--timeout", str(timeout), "--budget", f"{budget:g}"]
+            "--timeout", str(timeout), "--max-usd-per-cell", f"{budget:g}"]
     proc = process.run(argv, timeout=timeout * 16 + 300, env=process.Env.only((), env))
     receipt_path = out / RECEIPT_NAME
     if proc.timed_out or not receipt_path.is_file():

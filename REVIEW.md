@@ -23,6 +23,48 @@ checks.
 - A stored record is written or read with keys or a shape other than the
   schema's.
 - Behaviour differs on Windows or with a `None`, empty or missing input.
+- A new `raise`, `sys.exit` or refusal that no doc, contract or issue asks
+  for, or a test of new behaviour that cites no doc line: ask which line it
+  traces to. Code built on a guess at an unclear requirement is a defect too;
+  the question belongs in the PR's "Open questions". `python
+  dokimi/scripts/list_new_error_paths.py --base origin/main` lists the sites of
+  a `raise`, a `sys.exit` or `SystemExit` call, or a literal `exit_code=N`;
+  refusals through `parser.error` or `return N` are not listed.
+
+## Patterns that hide a defect
+
+Flag these in code the PR adds or changes. Each is must-fix when it changes
+a number, verdict or exit code, or when it matches a defect listed above.
+Otherwise it is a nit, except the last two bullets, which are style points
+raised only when they change a number, verdict or exit code.
+
+- Lost data or failure: a slice, clamp, fallback chain, `or` default, retry
+  or lenient parse that drops input or hides which path ran, with no warning,
+  error or record of it.
+- An error rewritten to a generic message, or reported as `False`, `None`,
+  `-1` or `""` that the caller cannot tell from a result.
+- A return value that matters left unused: a subprocess return code, a
+  validation result nothing acts on.
+- A missing directory or file created where a wrong path should fail.
+- A mode, kind or state passed as a bare string and compared in several
+  places, where an `Enum` or `Literal` would let mypy check it.
+- A default on a parameter that switches behaviour, so a caller gets the mode
+  without asking for it.
+- A `None` check, `or` default or defensive copy on a value that cannot be
+  `None` or is never mutated.
+- A test that sleeps a fixed time or starts a `threading.Timer` to wait for
+  another thread or process, or asserts on elapsed time or on a ratio of two
+  timings: it passes on a fast machine and fails on a busy runner. Wait on the
+  condition with `tests/waiting.py`.
+- Structure without a second user: a base class, protocol, registry, factory
+  or wrapper class with one implementation or entry, or a class that only
+  forwards calls.
+- Code nobody asked for: an option or case the issue and docs do not name, a
+  stub or placeholder return, scaffolding left half-done.
+- A loop that `pathlib`, `itertools`, `collections`, `json` or `shlex`
+  already does.
+- A docstring that repeats the function name, or a comment that narrates
+  the next line ("Now we...", "Step 1:").
 
 ## How to raise a finding
 

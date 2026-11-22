@@ -1,0 +1,307 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""A failed rename leaves the file that was there, and no tmp file behind.
+
+Each writer below publishes through a tmp sibling and ``os.replace``. The rename is made to
+fail: the old file must still be whole and no ``*.tmp`` may remain. A writer that rewrites the
+file in place fails the first check, because the new text is already there.
+"""
+
+import errno
+import json
+import logging
+import os
+import stat
+import threading
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from dokimi.atomic_write import write_bytes_atomic, write_text_atomic
+from dokimi.caching import RESPONSE_CACHE_ENV, store_response
+from dokimi.commands.catalog_probe import _write as write_probe
+from dokimi.metrics.usage import UsageRecord
+from dokimi.novelty.atoms import save_atoms
+from dokimi.repos import graph_tasks
+from dokimi.repos.batch_ledger import write_skill_pin
+from dokimi.repos.replay import authoring, build
+from dokimi.eval.leakgate import lock_split
+from dokimi.commands.repo_run import _pin_batch
+from dokimi.write_probe import can_write
+
+
+@pytest.fixture
+def failing_rename(monkeypatch):
+    def boom(src, dst, *args, **kwargs):
+        raise OSError("injected rename failure")
+    monkeypatch.setattr(os, "replace", boom)
+
+
+def _fail_rename_of(monkeypatch, name: str) -> None:
+    real = os.replace
+
+    def replace(src, dst, *args, **kwargs):
+        if Path(dst).name == name:
+            raise OSError("injected rename failure")
+        return real(src, dst, *args, **kwargs)
+    monkeypatch.setattr(os, "replace", replace)
+
+
+def _assert_failed_write_keeps(path: Path, old, call) -> None:
+    with pytest.raises(OSError, match="injected rename failure"):
+        call()
+    _assert_kept(path, old)
+
+
+def _assert_kept(path: Path, old) -> None:
+    if old is None:
+        assert not path.exists()
+    else:
+        assert path.read_text(encoding="utf-8") == old
+    assert not [p for p in path.parent.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_skill_pin_keeps_the_old_file(tmp_path, failing_rename):
+    batch = tmp_path / "batch"
+    (batch / "_eval").mkdir(parents=True)
+    path = batch / "_eval" / "skills.json"
+    path.write_text("OLD\n", encoding="utf-8")
+    _assert_failed_write_keeps(path, "OLD\n", lambda: write_skill_pin(batch, {"arm": [["s", "x"]]}))
+
+
+def test_repo_run_batch_pin_keeps_the_old_file(tmp_path, failing_rename):
+    batch = tmp_path / "batch"
+    (batch / "_eval").mkdir(parents=True)
+    path = batch / "_eval" / "batch.json"
+    _assert_failed_write_keeps(path, None, lambda: _pin_batch(batch, {"model": "m"}))
+
+
+def test_leakgate_lock_keeps_no_partial_lock(tmp_path, failing_rename):
+    path = tmp_path / "lock.json"
+    _assert_failed_write_keeps(
+        path, None,
+        lambda: lock_split({"t1": "train"}, {"t1": "body"}, path, "2026-11-13T00:00:00Z"),
+    )
+
+
+def test_atoms_file_keeps_the_old_file(tmp_path, failing_rename):
+    path = tmp_path / "atoms.json"
+    path.write_text("OLD\n", encoding="utf-8")
+    _assert_failed_write_keeps(path, "OLD\n", lambda: save_atoms([], [], path))
+
+
+def test_response_cache_entry_leaves_no_tmp_file(tmp_path, monkeypatch, caplog, failing_rename):
+    directory = tmp_path / "cache"
+    directory.mkdir()
+    monkeypatch.setenv(RESPONSE_CACHE_ENV, str(directory))
+    path = directory / "key1.json"
+    path.write_text("OLD\n", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="dokimi.caching"):
+        store_response("key1", "text", UsageRecord())
+    assert [r.getMessage() for r in caplog.records if r.name == "dokimi.caching"] == [
+        "Could not write response cache entry: injected rename failure"]
+    _assert_kept(path, "OLD\n")
+
+
+def test_catalog_probe_report_keeps_the_old_file(tmp_path, failing_rename):
+    path = tmp_path / "probe.json"
+    path.write_text("OLD\n", encoding="utf-8")
+    _assert_failed_write_keeps(path, "OLD\n", lambda: write_probe(path, {"a": 1}))
+
+
+@pytest.mark.parametrize("name", [graph_tasks.GOLD, "task.json"])
+def test_task_files_from_graph_tasks_keep_the_old_file(tmp_path, monkeypatch, name):
+    monkeypatch.setattr(graph_tasks, "_task", lambda c, g, opts, idx: ({"id": "t1"}, []))
+    plan = SimpleNamespace(granularity="files",
+                           outcomes=[SimpleNamespace(status="written", candidate=None, task="t1")])
+    dest = tmp_path / "t1"
+    dest.mkdir()
+    for old in (graph_tasks.GOLD, "task.json"):
+        (dest / old).write_text("OLD\n", encoding="utf-8")
+    _fail_rename_of(monkeypatch, name)
+    _assert_failed_write_keeps(dest / name, "OLD\n",
+                               lambda: graph_tasks.write(plan, SimpleNamespace(out=tmp_path), {}))
+
+
+@pytest.mark.parametrize("name", [build.PATCH, build.GOLD, "task.json"])
+def test_task_files_from_replay_build_keep_the_old_file(tmp_path, monkeypatch, name):
+    for old in (build.PATCH, build.GOLD, "task.json"):
+        (tmp_path / old).write_text("OLD\n", encoding="utf-8")
+    _fail_rename_of(monkeypatch, name)
+    _assert_failed_write_keeps(tmp_path / name, "OLD\n",
+                               lambda: build._write(tmp_path, {"id": "t1"}, [], b"NEW\n"))
+
+
+def test_bytes_are_published_as_they_are(tmp_path):
+    path = tmp_path / "change.patch"
+    data = bytes(range(256))
+    write_bytes_atomic(path, data)
+    assert path.read_bytes() == data
+
+
+def test_missing_parent_directories_are_created(tmp_path):
+    write_text_atomic(tmp_path / "a" / "b" / "x.json", "T")
+    write_bytes_atomic(tmp_path / "c" / "d" / "y.bin", b"B")
+    assert (tmp_path / "a" / "b" / "x.json").read_text(encoding="utf-8") == "T"
+    assert (tmp_path / "c" / "d" / "y.bin").read_bytes() == b"B"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+@pytest.mark.parametrize("publish", [
+    lambda p: write_text_atomic(p, "NEW"),
+    lambda p: write_bytes_atomic(p, b"NEW"),
+])
+# 0o620 loses its group write to the umask, so only the chmod keeps it; 0o600 is the secret case.
+@pytest.mark.parametrize("mode", [0o600, 0o620, 0o444])
+def test_publish_keeps_the_mode_of_the_file_it_replaces(tmp_path, publish, mode):
+    path = tmp_path / "secret.json"
+    path.write_text("OLD", encoding="utf-8")
+    os.chmod(path, mode)
+    publish(path)
+    assert path.read_text(encoding="utf-8") == "NEW"
+    assert stat.S_IMODE(path.stat().st_mode) == mode
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_a_new_file_gets_the_umask_default(tmp_path):
+    plain = tmp_path / "plain.json"
+    plain.write_text("x", encoding="utf-8")
+    path = tmp_path / "new.json"
+    write_text_atomic(path, "x")
+    assert stat.S_IMODE(path.stat().st_mode) == stat.S_IMODE(plain.stat().st_mode)
+
+
+def test_tmp_file_is_created_exclusively(tmp_path, monkeypatch):
+    # A predictable tmp name can be a link planted by someone else: the tmp file must be new.
+    flags = []
+    real_open = os.open
+
+    def spy(name, flag, mode=0o777, *args, **kwargs):
+        flags.append(flag)
+        return real_open(name, flag, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", spy)
+    write_text_atomic(tmp_path / "x.json", "T")
+    assert any(flag & os.O_EXCL for flag in flags)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_a_failed_chmod_closes_the_tmp_descriptor(tmp_path, monkeypatch):
+    # The mode is restored after the data is written; a chmod that raises must not leak the descriptor.
+    path = tmp_path / "x.json"
+    path.write_text("OLD", encoding="utf-8")
+    opened = []
+    real_open = os.open
+
+    def spy_open(name, flag, mode=0o777, *args, **kwargs):
+        fd = real_open(name, flag, mode, *args, **kwargs)
+        opened.append(fd)
+        return fd
+
+    def boom(*args, **kwargs):
+        raise OSError("injected chmod failure")
+
+    monkeypatch.setattr(os, "open", spy_open)
+    monkeypatch.setattr(os, "chmod", boom)
+    with pytest.raises(OSError, match="injected chmod failure"):
+        write_text_atomic(path, "NEW")
+    assert opened
+    for fd in opened:
+        with pytest.raises(OSError) as closed:
+            os.fstat(fd)
+        assert closed.value.errno == errno.EBADF
+    _assert_kept(path, "OLD")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+@pytest.mark.parametrize("target", ["replace", "chmod"])
+def test_an_interrupt_leaves_no_tmp_file_and_no_open_descriptor(tmp_path, monkeypatch, target):
+    path = tmp_path / "x.json"
+    path.write_text("OLD", encoding="utf-8")
+    opened = []
+    real_open = os.open
+
+    def spy_open(name, flag, mode=0o777, *args, **kwargs):
+        opened.append(real_open(name, flag, mode, *args, **kwargs))
+        return opened[-1]
+
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "open", spy_open)
+    monkeypatch.setattr(os, target, interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        write_text_atomic(path, "NEW")
+    for fd in opened:
+        with pytest.raises(OSError):
+            os.fstat(fd)
+    assert opened
+    _assert_kept(path, "OLD")
+
+
+def test_tmp_file_is_opened_binary_as_io_open_opens_it(tmp_path, monkeypatch):
+    # On Windows os.open gives a text-mode descriptor unless O_BINARY is set, and then \n is written twice as \r\n.
+    flags = []
+    real_open = os.open
+    binary = 0x8000
+
+    def spy(name, flag, mode=0o777, *args, **kwargs):
+        flags.append(flag)
+        return real_open(name, flag & ~binary, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "O_BINARY", binary, raising=False)
+    monkeypatch.setattr(os, "open", spy)
+    write_text_atomic(tmp_path / "x.json", "T")
+    assert any(flag & binary for flag in flags)
+
+
+def test_task_json_from_replay_authoring_keeps_the_old_file(tmp_path, failing_rename):
+    path = tmp_path / "task.json"
+    path.write_text("OLD\n", encoding="utf-8")
+    _assert_failed_write_keeps(path, "OLD\n",
+                               lambda: authoring._write(tmp_path, {"id": "t1"}, {}))
+
+
+def test_catalog_probe_writes_a_long_out_name_its_preflight_accepts(tmp_path):
+    out = tmp_path / ("a" * 226 + ".json")
+    partial = out.with_name(out.name + ".partial")
+    assert can_write(tmp_path, child=partial.name)
+    write_probe(partial, {"partial": True, "answers": []})
+    assert json.loads(partial.read_text(encoding="utf-8")) == {"partial": True, "answers": []}
+
+
+def test_concurrent_writers_of_one_path_each_publish_a_whole_file(tmp_path):
+    path = tmp_path / "k.json"
+    texts = [json.dumps({"text": chr(65 + i) * 300_000}) for i in range(4)]
+    errors, torn, stop = [], [], threading.Event()
+
+    def write(text):
+        for _ in range(15):
+            try:
+                write_text_atomic(path, text)
+            except OSError as exc:
+                errors.append(exc)
+
+    def read():
+        while not stop.is_set():
+            try:
+                seen = path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                continue
+            if seen not in texts:
+                torn.append(len(seen))
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    writers = [threading.Thread(target=write, args=(text,)) for text in texts]
+    for w in writers:
+        w.start()
+    for w in writers:
+        w.join()
+    stop.set()
+    reader.join()
+    assert not errors and not torn
+    assert path.read_text(encoding="utf-8") in texts
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]

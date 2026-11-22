@@ -26,7 +26,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
 )
 from dokimi.utils import InputError
-from tests.cli_paths import novelty_argv
+from tests.cli_paths import artifact_flag, novelty_argv
 
 
 def _parse(*argv):
@@ -136,7 +136,7 @@ def test_dropping_the_baseline_arm_is_refused(tmp_path):
     # The CLI exits with the same message.
     (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                        encoding="utf-8")
-    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--estimate-only",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--dry-run",
                   "--arms", "full")
     with pytest.raises(InputError, match="^--arms must include no_artifact: the 2x2"):
         args.func(args)
@@ -414,7 +414,7 @@ def test_view_says_its_colours_come_from_spans_only(tmp_path, capsys):
     save_artifact("novelty", _minimal_artifact(), novelty_path)
     out = tmp_path / "annotated.md"
     args = _parse(
-        "novelty", "view", "--novelty", str(novelty_path), "--atoms", str(atoms_path),
+        "skill", "novelty", "view", "--novelty", str(novelty_path), "--atoms", str(atoms_path),
         "--format", "md", "--out", str(out),
     )
     args.func(args)
@@ -735,7 +735,7 @@ def test_unread_spans_travel_from_novelty_atoms_to_shorten(tmp_path, monkeypatch
 
     out = tmp_path / "short.md"
     args = _parse("skill", "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
-                  "--budgets", "0.5", "--allow-unsafe", "--out", str(out))
+                  "--token-budgets", "0.5", "--allow-unsafe", "--out", str(out))
     args.func(args)
     captured = capsys.readouterr()
     assert "1 of" in captured.err and "were never read by extraction" in captured.err
@@ -760,7 +760,7 @@ def test_view_and_probe_repeat_the_unread_warning(tmp_path, capsys):
     novelty_path = tmp_path / "novelty.json"
     save_artifact("novelty", _minimal_artifact(), novelty_path)
     out = tmp_path / "annotated.md"
-    args = _parse("novelty", "view", "--novelty", str(novelty_path), "--atoms",
+    args = _parse("skill", "novelty", "view", "--novelty", str(novelty_path), "--atoms",
                   str(atoms_path), "--format", "md", "--out", str(out))
     args.func(args)
     assert "render as `unread`" in capsys.readouterr().err
@@ -942,7 +942,7 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
         "shorten": ["--atoms", str(atoms)],
         "routing": ["--competitors", _deep_skill(tmp_path, "other")],
     }.get(sub, [])
-    args = _parse(*novelty_argv(sub), "--artifact", _deep_skill(tmp_path), *extra)
+    args = _parse(*novelty_argv(sub), *artifact_flag(sub, _deep_skill(tmp_path)), *extra)
     with pytest.raises(InputError) as exc:
         args.func(args)
     assert "maximum recursion" in str(exc.value)
@@ -952,8 +952,10 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
 def test_all_vs_all_names_a_competitor_nested_too_deeply_and_exits_with_a_message(tmp_path):
     queries = tmp_path / "q.json"
     queries.write_text('{"deep": ["a request"]}', encoding="utf-8")
-    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", _deep_skill(tmp_path),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    (tmp_path / "none").mkdir()
+    args = _parse("catalog", "routing", str(tmp_path / "none"), "--competitors", _deep_skill(tmp_path),
+                  "--queries-by-skill",
+                  str(queries), "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="maximum recursion") as exc:
         args.func(args)
     assert "RecursionError" not in str(exc.value)
@@ -968,8 +970,10 @@ def test_all_vs_all_names_an_unreadable_competitor_and_exits_with_a_message(tmp_
     skill.chmod(0)
     queries = tmp_path / "q.json"
     queries.write_text('{"locked": ["a request"]}', encoding="utf-8")
-    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", f"skill:{root}",
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    (tmp_path / "none").mkdir()
+    args = _parse("catalog", "routing", str(tmp_path / "none"), "--competitors", f"skill:{root}",
+                  "--queries-by-skill",
+                  str(queries), "--out", str(tmp_path / "o.json"))
     try:
         with pytest.raises(InputError, match="cannot load the field"):
             args.func(args)

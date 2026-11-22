@@ -24,7 +24,7 @@ python cli.py trace prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.json
 
 The guidance file is split into rules with the span segmentation the novelty
 layer uses (`dokimi/novelty/spans.py`): each sentence, list item or table row
-that has a keyword is a claim. Headings, a table's header row and code blocks are not claims. No
+that has a keyword is a claim. Headings, a table's header row, code blocks and an opening YAML frontmatter block (`---` ... `---` at the start of the file, as in a SKILL.md) are not claims. No
 model is called; every match is lexical.
 
 ## What is measured per rule
@@ -91,7 +91,7 @@ The table prints the same counts; the `--json` document (`cli_output.v1`, the re
 keys (commands, paths, keywords), counts, rates and flags. Defaults: window 10
 events, at least 5 sessions, rare at most 3 sessions, in use at 20% of sessions.
 `status` is `partial` when a session could not be read (exit 1) or a session had skipped records
-(named on stderr; exit 0).
+(named on stderr, at most 20 per session, then a count of the rest; exit 0).
 
 The JSON is printed, not stored: dokimi writes no file in this format, so it
 has no schema under `dokimi/schemas/`. `format_version` marks its shape. A

@@ -164,7 +164,7 @@ def test_a_json_leaf_that_crashes_exits_5_and_prints_its_infra_document(monkeypa
 
     monkeypatch.setattr(repo, "cmd_repo_validate", crash)
     with pytest.raises(SystemExit) as exc:
-        _run_main(monkeypatch, ["repo", "validate", "x", "--json"])
+        _run_main(monkeypatch, ["eval", "check", "--schema-only", "x", "--json"])
     assert exc.value.code == 5
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "infra"
 
@@ -205,12 +205,12 @@ def test_a_json_leaf_that_exits_without_its_document_prints_one_with_the_same_co
 
 @pytest.mark.parametrize("argv, kind, message", [
     (["repo", "budget", "--json"], "repo budget", "the following arguments are required: source"),
-    (["repo", "validate", ".", "--json", "--no-such-flag"], "repo validate", "unrecognized arguments: --no-such-flag"),
-    (["repo", "validate", ".", "--json", "--cache-dir"], "repo validate", "argument --cache-dir: expected one argument"),
-    (["repo", "validate", ".", "--jso", "--no-such-flag"], "repo validate", "unrecognized arguments: --no-such-flag"),
-    (["repo", "validate", ".", "--json=true"], "repo validate", "argument --json: ignored explicit argument 'true'"),
-    (["--no-such-flag", "repo", "validate", ".", "--json"], "repo validate", "unrecognized arguments: --no-such-flag"),
-    (["repo", "--no-such-flag", "validate", ".", "--json"], "repo validate", "unrecognized arguments: --no-such-flag"),
+    (["eval", "check", "--schema-only", ".", "--json", "--no-such-flag"], "eval check", "unrecognized arguments: --no-such-flag"),
+    (["eval", "check", "--schema-only", ".", "--json", "--cache-dir"], "eval check", "argument --cache-dir: expected one argument"),
+    (["eval", "check", "--schema-only", ".", "--jso", "--no-such-flag"], "eval check", "unrecognized arguments: --no-such-flag"),
+    (["eval", "check", "--schema-only", ".", "--json=true"], "eval check", "argument --json: ignored explicit argument 'true'"),
+    (["--no-such-flag", "eval", "check", "--schema-only", ".", "--json"], "eval check", "unrecognized arguments: --no-such-flag"),
+    (["eval", "--no-such-flag", "check", "--schema-only", ".", "--json"], "eval check", "unrecognized arguments: --no-such-flag"),
 ])
 def test_a_json_leaf_usage_error_prints_its_failed_document_with_exit_2(monkeypatch, capsys, argv, kind, message):
     with pytest.raises(SystemExit) as exc:
@@ -219,6 +219,65 @@ def test_a_json_leaf_usage_error_prints_its_failed_document_with_exit_2(monkeypa
     doc = json.loads(capsys.readouterr().out)
     assert (doc["kind"], doc["status"], doc["error"]["code"]) == (kind, "failed", "input")
     assert doc["reason"] == message and schema_errors("cli_output.v1", doc) == []
+
+
+@pytest.mark.parametrize("path", sorted(_json_leaves()), ids=" ".join)
+def test_a_usage_error_document_names_a_help_command_that_works(monkeypatch, capsys, path):
+    # #941: the failed document's `next` is the leaf's own --help, free, and running it shows that leaf's usage
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, [*path, "--json", "--no-such-flag"])
+    assert exc.value.code == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert schema_errors("cli_output.v1", doc) == []
+    [step] = doc["next"]
+    assert step["argv"] == ["dokimi", *path, "--help"]
+    assert (step["spends"], step["est_usd"], step["kind"]) == (False, 0, "sequence")
+    with pytest.raises(SystemExit) as helped:
+        _run_main(monkeypatch, step["argv"][1:])
+    assert helped.value.code == 0
+    assert f"usage: {' '.join(step['argv'][:-1])}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv, help_argv", [
+    (["--no-such-flag", "backends", "--json"], ["dokimi", "backends", "--help"]),
+    (["--no-such-flag", "repo", "budget", ".", "--json"], ["dokimi", "repo", "budget", "--help"]),
+    (["repo", "--no-such-flag", "budget", ".", "--json"], ["dokimi", "repo", "budget", "--help"]),
+])
+def test_an_unknown_flag_before_the_leaf_carries_the_help_step(monkeypatch, capsys, argv, help_argv):
+    # the root parser reports these extras, not the leaf: its document names the help too
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert schema_errors("cli_output.v1", doc) == []
+    assert [s["argv"] for s in doc["next"]] == [help_argv]
+
+
+def test_a_missing_argument_document_carries_the_same_help_step(monkeypatch, capsys):
+    # the error() path (not the extras path): a required positional left out
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["repo", "budget", "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    assert schema_errors("cli_output.v1", doc) == []
+    assert [s["argv"] for s in doc["next"]] == [["dokimi", "repo", "budget", "--help"]]
+
+
+def test_an_empty_help_argv_adds_no_next_step(capsys):
+    cli_output.reset()
+    # an empty argv is no runnable step, and cli_output.v1 requires a non-empty `argv` in `next`
+    cli._usage_document("backends", "bad", help_argv=[])
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["next"] == []
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_root_extras_with_a_cli_kind_do_not_read_cmd(monkeypatch, capsys):
+    cli_output.reset()
+    # the kind falls back to `cmd` only when `cli_kind` is absent: a namespace without `cmd` must not raise
+    ns = argparse.Namespace(cli_kind="backends", emits_cli_output=True, json=True)
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_known_args", lambda self, args=None, namespace=None: (ns, ["--x"]))
+    cli._RoutedParser(prog="dokimi").parse_known_args([])
+    assert json.loads(capsys.readouterr().out)["kind"] == "backends"
 
 
 @pytest.mark.parametrize("argv", [["repo", "budget", "--jso"], ["repo", "budget", "--j"]])
@@ -231,7 +290,7 @@ def test_an_abbreviated_json_flag_on_a_leaf_prints_its_document(monkeypatch, cap
     assert (doc["kind"], doc["status"]) == ("repo budget", "failed")
 
 
-@pytest.mark.parametrize("argv", [["repo", "validate", ".", "--bogus"], ["repo", "validate", ".", "--", "--json"]])
+@pytest.mark.parametrize("argv", [["eval", "check", "--schema-only", ".", "--bogus"], ["eval", "check", "--schema-only", ".", "--", "--json"]])
 def test_a_usage_error_without_a_json_request_prints_no_document(monkeypatch, capsys, argv):
     # no --json token before the bare "--": the leaf's error stays on stderr
     with pytest.raises(SystemExit) as exc:
@@ -293,14 +352,12 @@ def test_trace_inspect_json_is_partial_when_a_trace_does_not_read(tmp_path, caps
     assert schema_errors("cli_output.v1", doc) == []
 
 
-def test_trace_consistency_json_is_failed_when_no_trace_reads(tmp_path, capsys):
+def test_trace_consistency_is_an_input_error_when_no_trace_reads(tmp_path, capsys):
+    # Test-narrowed: renamed from ..._json_is_failed_when_no_trace_reads; no-trace reads exit 2 (input), not 1 (A2b)
     args = cli.parse_args(["trace", "consistency", "--arm", f"base={tmp_path}/missing.jsonl", "--json"])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError, match="no trace could be read"):
         args.func(args)
-    assert exc.value.code == 1
-    doc = json.loads(capsys.readouterr().out)
-    assert doc["kind"] == "trace consistency" and doc["status"] == "failed" and doc["reason"]
-    assert schema_errors("cli_output.v1", doc) == []
+    assert capsys.readouterr().out == ""  # the input error document is cli.main's, not the leaf's
 
 
 def test_trace_consistency_json_is_partial_when_some_trace_reads(tmp_path, capsys):
@@ -428,7 +485,7 @@ def test_an_error_object_is_retryable_only_for_infra_and_an_error_document_takes
 
 
 @pytest.mark.parametrize("argv, kind", [
-    (["repo", "validate", ".", "--json", "--out-json", "f"], "repo validate"),  # a moved flag
+    (["eval", "check", "--schema-only", ".", "--json", "--out-json", "f"], "eval check"),  # a moved flag
     (["tasks", "inspect", "x", "--json"], "eval inspect"),  # a moved command (a tombstone)
 ])
 def test_a_moved_spelling_under_json_prints_its_moved_document_with_exit_2(monkeypatch, capsys, argv, kind):
@@ -440,7 +497,7 @@ def test_a_moved_spelling_under_json_prints_its_moved_document_with_exit_2(monke
     assert doc["reason"].startswith("moved: dokimi ") and schema_errors("cli_output.v1", doc) == []
 
 
-@pytest.mark.parametrize("argv", [["repo", "validate", ".", "--out-json", "f"], ["tasks", "inspect", "x"]])
+@pytest.mark.parametrize("argv", [["eval", "check", "--schema-only", ".", "--out-json", "f"], ["tasks", "inspect", "x"]])
 def test_a_moved_spelling_without_json_prints_no_document(monkeypatch, capsys, argv):
     with pytest.raises(SystemExit) as exc:
         _run_main(monkeypatch, argv)
@@ -450,15 +507,15 @@ def test_a_moved_spelling_without_json_prints_no_document(monkeypatch, capsys, a
 
 
 def test_a_failed_budget_gate_under_json_says_why(monkeypatch, capsys, tmp_path):
-    # a warning under --fail-on-warning: the status is failed, so the document carries the reason too
+    # a warning under --fail-on warn: the status is failed, so the document carries the reason too
     (tmp_path / "CLAUDE.md").write_text("c" * 20, encoding="utf-8")
     (tmp_path / "AGENTS.md").write_text("a" * 10, encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
-        _run_main(monkeypatch, ["repo", "budget", str(tmp_path), "--json", "--fail-on-warning"])
+        _run_main(monkeypatch, ["repo", "budget", str(tmp_path), "--json", "--fail-on", "warn"])
     assert exc.value.code == 1
     doc = json.loads(capsys.readouterr().out)
     assert doc["status"] == "failed"
-    assert doc["reason"] == f"{len(doc['data']['warnings'])} warning(s) under --fail-on-warning"
+    assert doc["reason"] == f"{len(doc['data']['warnings'])} warning(s) under --fail-on warn"
 
 
 def test_a_failed_inspect_gate_under_json_says_why(monkeypatch, capsys, tmp_path):
@@ -466,10 +523,26 @@ def test_a_failed_inspect_gate_under_json_says_why(monkeypatch, capsys, tmp_path
 
     _repo(tmp_path, {"src/a.py": "x = 1\n"})  # the checks.test.missing ERROR of test_repo_inspect_cli
     with pytest.raises(SystemExit) as exc:
-        _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on-error"])
+        _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "fail"])
     assert exc.value.code == 1
     doc = json.loads(capsys.readouterr().out)
-    assert doc["reason"] == f"{doc['data']['counts']['error']} error(s) under --fail-on-error"
+    assert doc["reason"] == f"{doc['data']['counts']['error']} error(s) under --fail-on fail"
+
+
+def test_inspect_fail_on_warn_gates_on_a_warning_finding(monkeypatch, capsys, tmp_path):
+    from tests.test_repo_environment import _repo
+
+    # runner-unknown is a WARNING and the tree has no ERROR: --fail-on fail passes, --fail-on warn fails
+    _repo(tmp_path, {"AGENTS.md": "x", "Gemfile": "gem 'rake'\n", "spec/a_spec.rb": "x"})
+    _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "fail"])
+    assert json.loads(capsys.readouterr().out)["status"] == "complete"
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "warn"])
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)
+    counts = doc["data"]["counts"]
+    assert counts["error"] == 0 and counts["warning"]
+    assert doc["reason"] == f"0 error(s), {counts['warning']} warning(s) under --fail-on warn"
 
 
 def test_emit_refuses_a_payload_value_that_is_not_json(capsys):
@@ -512,6 +585,47 @@ def test_a_failed_scan_with_no_incomplete_reason_still_says_what_failed():
         "2 claim(s) failed; scan incomplete: x"
     assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 0}}, ["bad"], True) == \
         "1 --static problem(s) not merged"
-    # without --fail-on-fail, failed claims and an incomplete scan are not what failed the run
+    # without --fail-on fail, failed claims and an incomplete scan are not what failed the run
     assert _scan_reason({"incomplete": True, "incomplete_reasons": ["x"], "counts": {"fail": 2}}, ["bad"], False) == \
         "1 --static problem(s) not merged"
+
+
+def _leaf_with_json_and_jsonl() -> cli._LeafParser:
+    leaf = cli._LeafParser(prog="dokimi probe")
+    leaf.add_argument("source")
+    leaf.add_argument("--json", action="store_true")
+    leaf.add_argument("--jsonl")
+    leaf.set_defaults(emits_cli_output=True)
+    return leaf
+
+
+def test_a_prefix_that_is_ambiguous_at_a_leaf_is_not_a_json_request():
+    # no shipped leaf has --json next to another --js* option (catalog check's --jsonl has no --json): a probe leaf does
+    leaf = _leaf_with_json_and_jsonl()
+    assert cli._json_requested(leaf, ["--jso"]) is False
+    assert cli._json_requested(leaf, ["--json"]) is True
+    check = cli._leaf_at(cli.build_parser(), ["catalog", "check"])
+    assert check is not None and cli._json_requested(check, ["--jso"]) is False
+
+
+def test_an_ambiguous_json_prefix_at_a_leaf_prints_no_document(capsys):
+    cli_output.reset()
+    with pytest.raises(SystemExit) as exc:
+        _leaf_with_json_and_jsonl().parse_args(["--jso"])
+    assert exc.value.code == 2
+    out = capsys.readouterr()
+    assert out.out == "" and "ambiguous option: --jso" in out.err
+
+
+@pytest.mark.parametrize("argv, message", [
+    (["eval", "check", "--schema-only"], "the following arguments are required: source"),
+    (["eval", "check", "--schema-only", ".", "--cache-dir"], "argument --cache-dir: expected one argument"),
+])
+def test_a_leaf_usage_error_without_json_prints_its_message_on_stderr_only(monkeypatch, capsys, argv, message):
+    # leaf.error runs for these (unlike an unrecognized --bogus, which the root reports): the flag gates its document
+    cli_output.reset()
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    out = capsys.readouterr()
+    assert out.out == "" and message in out.err

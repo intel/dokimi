@@ -1,0 +1,249 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+"""Known identifiers of a C library's API, from its headers and its exported symbols.
+
+``skill novelty ground --header`` and ``--shared-lib`` pin the names a C API declares, so an answer
+that names ``cblas_dgemmx`` (not in the library) is vetoed the way an invented ``--option`` is.
+Only names with a prefix from ``--prefix`` are read, so an ordinary word is never checked.
+"""
+
+from __future__ import annotations
+
+import glob
+import hashlib
+import re
+from pathlib import Path
+from typing import Sequence
+
+from dokimi.process import Env, run
+from dokimi.utils import InputError
+
+#: A C identifier prefix: a C identifier that ends in an underscore (``cblas_``, ``LAPACKE_``).
+_PREFIX = re.compile(r"[A-Za-z_]\w*_")
+#: Comments and string or character literals of C code: no declaration is named in them.
+_C_SKIP = re.compile(r"//(?:\\\n|[^\n])*|'(?:\\(?:x[0-9A-Fa-f]+|[0-7]{1,3}|.)|[^'\\\n])'", re.DOTALL)
+_C_START = re.compile(r"/\*|[/\"']")
+_CHUNK = 1 << 20
+
+
+def _escaped(text: str, pos: int, low: int) -> bool:
+    """``text[pos]`` follows an odd run of backslashes that starts at ``low`` or later: an escape takes it."""
+    start = pos
+    while start > low and text[start - 1] == "\\":
+        start -= 1
+    return (pos - start) % 2 == 1
+
+
+def _string_end(text: str, at: int) -> tuple[int, int]:
+    """For the ``"`` at ``at``: ``(end, 0)`` of the string, or ``(-1, stop)`` when it has no closing quote.
+
+    A backslash takes the next character, a line end included. A string stops at a line end or at the
+    end of the text, ``stop``. The scan goes from quote to quote with ``str.find`` and counts the
+    backslashes before each (https://github.com/intel/dokimi/issues/1000).
+    """
+    size = len(text)
+    pos, quote = at + 1, -1
+    while True:
+        if quote < pos:
+            quote = text.find('"', pos)
+            quote = size if quote < 0 else quote
+        line = text.find("\n", pos, quote)
+        if line >= 0:
+            if not _escaped(text, line, pos):
+                return -1, line
+            pos = line + 1
+        elif quote == size:
+            return -1, size
+        elif _escaped(text, quote, pos):
+            pos = quote + 1
+        else:
+            return quote + 1, 0
+
+
+def _blank_skipped(text: str) -> str:
+    """``text`` with each comment and literal replaced by a space, found left to right.
+
+    A ``/*`` with no ``*/`` after it stays in the text, and no later ``/*`` has a closer either, so the
+    search for ``*/`` runs once (https://github.com/intel/dokimi/issues/928). A string with no closing
+    quote fails at its line end, and so does each later quote before it, which an escape took: they
+    are not scanned again.
+    """
+    out: list[str] = []
+    last = 0
+    closable = True
+    dead = 0  # the end of a line on which a string found no closing quote
+    for start in _C_START.finditer(text):
+        at = start.start()
+        if at < last:
+            continue
+        if start.group() == "/*":
+            end = text.find("*/", at + 2) if closable else -1
+            closable = end >= 0
+            skipped = end + 2 if end >= 0 else at
+        elif start.group() == '"':
+            end, stop = _string_end(text, at) if at >= dead else (-1, dead)
+            dead = max(dead, stop)
+            skipped = end if end >= 0 else at
+        else:
+            literal = _C_SKIP.match(text, at)
+            skipped = literal.end() if literal else at
+        if skipped > at:
+            out += (text[last:at], " ")
+            last = skipped
+    out.append(text[last:])
+    return "".join(out)
+
+
+def check_prefixes(prefixes: Sequence[str]) -> tuple[str, ...]:
+    """The prefixes, sorted and without repeats; refused unless each is a C identifier prefix.
+
+    Raises:
+        InputError: A prefix is not a C identifier ending in ``_`` (``mkl`` is refused: it
+            would also match ordinary words).
+    """
+    if not prefixes:  # an empty alternation matches every word of the answer
+        raise InputError("give at least one --prefix: it says which names are checked")
+    bad = [p for p in prefixes if not _PREFIX.fullmatch(p)]
+    if bad:
+        raise InputError(f"--prefix {bad[0]!r} is not a C identifier prefix ending in '_' "
+                         "(for example cblas_)")
+    return tuple(sorted(set(prefixes)))
+
+
+_MEMBER_GAP = 8  # the blanks a member access may have between its `->` and the name
+
+
+def symbol_pattern(prefixes: Sequence[str]) -> str:
+    """A regex for the names with one of ``prefixes`` as C identifiers, not as parts of a word.
+
+    A name after ``.`` or after ``->`` (with up to 8 blanks) is a member, and ``mkl_types`` in ``mkl_types.h`` is a file name:
+    neither is an API name. A name after ``/`` is one only when it is called (``a/cblas_x(``), and
+    a name after ``-`` is one when it is called or follows an operand (``f(x)-cblas_x``, ``x -cblas_x``).
+    """
+    alternatives = "|".join(re.escape(p) for p in prefixes)
+    # `->` may be followed by up to _MEMBER_GAP blanks (not newlines): one fixed-width lookbehind each.
+    # a name after `. ` stays an API name: a sentence's period and a space look the same.
+    member = "".join(rf"(?<!->[ \t]{{{n}}})" for n in range(_MEMBER_GAP + 1))
+    return rf"(?<![\w.]){member}(?:(?<!/)(?<![^\w)\]\s]-)(?<!^-)|(?=(?:{alternatives})\w+\s*\())(?:{alternatives})\w+(?!\.?\w)"
+
+
+def header_names(text: str, prefixes: Sequence[str]) -> set[str]:
+    """The names with a prefix that a C header's code mentions: macros, types, declarations.
+
+    Comments and literals are skipped. A name a macro expands to counts too, so the set is a
+    superset of the declared API: the check then misses an invented name only if the header
+    itself spells it.
+    """
+    code = _blank_skipped(text)
+    return set(re.findall(symbol_pattern(prefixes), code))
+
+
+def nm_names(output: str, prefixes: Sequence[str]) -> set[str]:
+    """The names with a prefix in ``nm -D --defined-only`` output, without a ``@@VER`` tag."""
+    names: set[str] = set()
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) != 3:  # address, type, name: an undefined name has no address
+            continue
+        name = fields[2].split("@", 1)[0]
+        if re.fullmatch(r"\w+", name) and name.startswith(tuple(prefixes)):
+            names.add(name)
+    return names
+
+
+def library_stem(file_name: str) -> str:
+    """The name a library file is linked by: ``libmkl_rt.so.2`` and ``mkl_rt.2.dll`` are both ``mkl_rt``."""
+    stem = file_name.split(".", 1)[0]
+    return stem[3:] if stem.startswith("lib") else stem
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _files(patterns: Sequence[str], flag: str) -> list[Path]:
+    """The files the ``--header`` or ``--library`` patterns name: globs expanded, sorted.
+
+    Raises:
+        InputError: A pattern names no file.
+    """
+    found: set[Path] = set()
+    for pattern in patterns:
+        # A path that exists is read as it is: glob would take ``[1]`` in ``inc[1]/`` for a class.
+        if Path(pattern).is_file():
+            matches = [Path(pattern)]
+        else:
+            matches = [Path(m) for m in glob.glob(pattern, recursive=True)]
+        files = [m for m in matches if m.is_file()]
+        if not files:
+            raise InputError(f"--{flag} {pattern!r} matches no file")
+        found.update(files)
+    return sorted(found)
+
+
+def _header_text(path: Path) -> str:
+    """The text of a header; an unreadable one is an input error, not a traceback."""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise InputError(f"cannot read the header {path}: {exc.strerror or exc}") from None
+
+
+def _library_output(path: Path, *, timeout: float = 120.0) -> str:
+    """``nm -D --defined-only`` of ``path``, the whole output (a large library lists thousands)."""
+    try:
+        done = run(["nm", "-D", "--defined-only", "--", str(path)], timeout=timeout, env=Env.inherit(),
+                   capture_limit=None)
+    except FileNotFoundError:
+        raise InputError(f"nm is not installed; cannot read the symbols of {path}") from None
+    except OSError as exc:
+        raise InputError(f"nm cannot be run on {path}: {exc.strerror or exc}") from None
+    if done.timed_out or done.returncode != 0:
+        lines = done.stderr.strip().splitlines()
+        reason = lines[-1] if lines else ("timed out" if done.timed_out else f"exit {done.returncode}")
+        raise InputError(f"nm cannot read {path}: {reason}")
+    return done.stdout
+
+
+def symbols_check(prefixes: Sequence[str], headers: Sequence[str],
+                  libraries: Sequence[str]) -> dict:
+    """An ``identifiers`` veto over the prefixed names of ``headers`` and ``libraries``.
+
+    The check's ``within`` and ``pattern`` are :func:`symbol_pattern`, so each name the answer
+    mentions with a prefix is one scope: a denial or a negation before it makes no claim, as
+    for a tool's options. ``known`` is the union of every input's names; each input is recorded
+    with the sha256 of its bytes, as a tool's ``--help`` is.
+
+    Raises:
+        InputError: A prefix is not valid, a pattern names no file, nm cannot read a library,
+            or no input has a name with a prefix (a wrong header would veto every name).
+    """
+    prefixes = check_prefixes(prefixes)
+    known: set[str] = set()
+    stems: set[str] = set()
+    inputs: list[dict] = []
+    sources = [("header", _files(headers, "header")), ("library", _files(libraries, "library"))]
+    for kind, paths in sources:
+        for path in paths:
+            if kind == "header":
+                names = header_names(_header_text(path), prefixes)
+            else:
+                names = nm_names(_library_output(path), prefixes)
+                stems |= {library_stem(path.name)}
+            known |= names
+            inputs.append({"kind": kind, "path": str(path), "sha256": _sha256(path)})
+    if not known:  # a wrong header would otherwise veto every name the answer mentions
+        raise InputError(f"no name with the prefix {', '.join(prefixes)} in the given files")
+    # A library file's name is no symbol, but it is a name the answer may give (``mkl_rt`` for libmkl_rt.so).
+    known |= {s for s in stems if re.fullmatch(r"\w+", s) and s.startswith(prefixes)}
+    pattern = symbol_pattern(prefixes)
+    return {
+        "type": "identifiers", "tier": "verifiable", "role": "veto",
+        "pattern": pattern, "within": pattern, "link_context": True,
+        "known": sorted(known),
+        "source": {"kind": "symbols", "prefixes": list(prefixes), "inputs": inputs},
+    }

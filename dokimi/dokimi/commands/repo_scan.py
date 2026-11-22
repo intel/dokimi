@@ -2,15 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """`repo scan` helpers kept out of commands/repo.py, which is at its size cap: the `--typecheck` check, the text
-report, and the reason and gate of a failed --json or --fail-on-fail run."""
+report, and the reason and gate of a failed --json or --fail-on fail run."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from pathlib import Path
 import sys
 import shutil
 
+from dokimi.repos.l0.config import new_failures
 from dokimi.utils import InputError
 
 
@@ -34,6 +37,74 @@ def _typecheck_or_exit(args: argparse.Namespace):
     return Check(tool, python)
 
 
+def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The rules and the Markdown ``@`` imports Claude Code loads with the default guidance, and the warnings of the rules
+    budget does not count (a linked ``.claude/rules``); both () for a written manifest.
+
+    The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
+    imported file reaches the agent as surely as one in CLAUDE.md. They are named by path, not glob, so a repository
+    without rules gets no warning for them. A written manifest scans what it says, so a gate on it does not change.
+    """
+    if manifest.path != "<default>":
+        return (), ()
+    from dokimi.repos.budget import RULE_GLOB, budget
+    from dokimi.repos.harness_profile import load_profile
+
+    p = load_profile("claude-code")
+    inventory = budget(tree, p.guidance_names, p.import_max_depth, p.reads_claude_rules,
+                       claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)
+    entries = inventory["entries"]
+    # a rule the tree cannot list (a link to a directory, a dangling link) is not checked, so the scan is incomplete
+    not_counted = tuple(w for w in inventory["warnings"] if "are not counted" in w)
+    # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
+    listed = set(tree.files())
+    # budget lists a rule or import that is also a guidance name (CLAUDE.local.md, or a rule linked to it) as guidance,
+    # not as a rule or import: such a guidance entry that loads and that the default globs do not match is checked too
+    from dokimi.repos.manifest import match_glob
+
+    def _unmatched_guidance(e) -> bool:
+        return (e["kind"] == "guidance" and e["when"] != "off"
+                and not any(match_glob(g, e["path"]) for g in manifest.guidance_globs))
+
+    reached = ((e["kind"], _listed(tree, listed, e["path"])) for e in entries
+               if e["kind"] in ("rule", "import") or _unmatched_guidance(e))
+    # a rule or a guidance name is checked whatever it links to; an import only when it is Markdown
+    # budget folds a rule linked to a guidance name into that name, so the rule path is named here too
+    linked = (_listed(tree, listed, f) for f in sorted(listed) if p.reads_claude_rules and RULE_GLOB.match(f))
+    loaded = tuple(dict.fromkeys([p for kind, p in reached if p is not None
+                                  and (kind != "import" or _target(tree, p).endswith(".md"))]
+                                 + [t for t in linked if t is not None]))
+    # a file the default globs match is checked anyway, so the note counts only the files they do not match
+    new = [p for p in loaded if not any(match_glob(g, p) for g in manifest.guidance_globs)]
+    if new:
+        print(f"note: also checking {len(new)} files Claude Code loads beyond the default globs: rules, @ imports, "
+              "and guidance names such as CLAUDE.local.md", file=sys.stderr)
+    return loaded, not_counted
+
+
+def _target(tree, path: str) -> str:
+    """The file a listed ``path`` links to, so a ``cfg.md`` link to ``package.json`` is not taken for Markdown."""
+    from dokimi.repos import SourceError
+
+    try:
+        return tree.resolve(path)
+    except (SourceError, OSError, ValueError):
+        return path
+
+
+def _listed(tree, listed: set[str], path: str) -> str | None:
+    """``path`` as the tree lists it: an import through a linked directory (``@lnk/x.md``) is the file it reaches."""
+    from dokimi.repos import SourceError
+
+    if path in listed:
+        return path
+    try:
+        target = tree.resolve(path)
+    except (SourceError, OSError, ValueError):
+        return None
+    return target if target in listed else None
+
+
 def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
     """The text report of ``repo scan``: the counts, the warnings, the typecheck and static lines, the FAIL lines."""
     c = payload["counts"]
@@ -44,7 +115,7 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
     for warning in payload["warnings"]:
         print(f"  warning: {warning}")
     if payload["incomplete"]:
-        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on-fail exits 1)")
+        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on fail exits 1)")
     tc = payload["typecheck"]
     if tc is not None:
         where = tc["python"] or "no --python-env: unknown"
@@ -55,33 +126,79 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
         r = payload["by_source"]["repository"]
         print(f"  repository static: {r['total']} claims, {r['fail']} fail; "
               f"{static_info['superseded']} framework claims replaced")
+    base = payload.get("baseline")
+    if base:
+        print(f"  baseline {base['source']}: {base['new']} new fail, {base['known']} known, {base['fixed']} fixed")
     for claim in payload["claims"]:
         if claim["status"].split("_", 1)[0] == "fail":
-            print(f"  FAIL {claim['file']}:{claim['line']} [{claim.get('kind')}] "
+            mark = "known" if claim.get("baselined") else "FAIL"
+            print(f"  {mark} {claim['file']}:{claim['line']} [{claim.get('kind')}] "
                   f"{str(claim.get('claim'))[:90]} -- {claim.get('why')}")
     if out:
         print(f"wrote {out}")
 
 
-def _scan_reason(payload: dict, static_errors: list, fail_on_fail: bool) -> str:
+def _scan_reason(payload: dict, static_errors: list, gate: bool) -> str:
     """Why a --json scan failed: every cause the gate tripped on, joined by ``; `` (a scan can fail on more than
     one). The --static problems always fail the run; the failed claims and the incomplete scan only under
-    --fail-on-fail."""
+    --fail-on fail."""
     parts = []
     if static_errors:
         parts.append(f"{len(static_errors)} --static problem(s) not merged")
-    if fail_on_fail and payload["counts"]["fail"]:
-        parts.append(f"{payload['counts']['fail']} claim(s) failed")
-    if fail_on_fail and payload["incomplete"]:
+    if gate and new_failures(payload):
+        known = (payload.get("baseline") or {}).get("known")
+        parts.append(f"{new_failures(payload)} claim(s) failed" + (f" ({known} more known in the baseline)" if known else ""))
+    if gate and payload["incomplete"]:
         reasons = "; ".join(payload.get("incomplete_reasons") or [])
         parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
     return "; ".join(parts)
 
 
-def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
-    """--fail-on-fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
-    if not fail_on_fail or not (payload["counts"]["fail"] or payload["incomplete"]):
+def _scan_gate(payload: dict, gate: bool) -> None:
+    """--fail-on fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
+    if not gate or not (new_failures(payload) or payload["incomplete"]):
         return
     if payload["incomplete"]:
         print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)
     sys.exit(1)
+
+
+def baseline_from(args: argparse.Namespace, payload: dict) -> None:
+    """--baseline FILE: mark the fail claims that earlier report also fails; a file that cannot be read is exit 2."""
+    from dokimi.repos.l0.config import apply_baseline
+
+    if not getattr(args, "baseline", None):
+        return
+    try:
+        doc = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise InputError(f"--baseline {args.baseline}: {exc}") from None
+    doc = doc.get("data", doc) if isinstance(doc, dict) and doc.get("schema_version") == "cli_output.v1" else doc
+    if not isinstance(doc, dict) or not isinstance(doc.get("claims"), list):
+        raise InputError(f"--baseline {args.baseline}: not a repo_readiness.v1 report (no claims list)")
+    if not all(isinstance(c, dict) for c in doc["claims"]):
+        raise InputError(f"--baseline {args.baseline}: every entry of claims must be an object")
+    apply_baseline(payload, doc, args.baseline)
+
+
+def scan_subjects(payload: dict) -> list[dict]:
+    """One report-only subject per guidance file; each failing claim is a finding at its file and line."""
+    from dokimi.cli_output import finding
+
+    by_file: dict[str, list[dict]] = {}
+    for claim in payload.get("claims") or []:
+        if str(claim.get("status", "")).split("_", 1)[0] != "fail":
+            continue
+        file = str(claim.get("file"))
+        line = claim.get("line") if isinstance(claim.get("line"), int) and claim["line"] >= 1 else None
+        message = f"{claim.get('kind')}: `{str(claim.get('claim'))[:80]}`: {claim.get('why')}"
+        if claim.get("baselined"):
+            message += " (known: in the baseline)"
+        by_file.setdefault(file, []).append(
+            finding("info" if claim.get("baselined") else "warn", str(claim.get("status")), message, file, line))
+    files = [str(f.get("path", f)) if isinstance(f, dict) else str(f) for f in payload.get("files") or []]
+    names = sorted(set(files) | set(by_file))
+    if names:
+        by_file.setdefault(names[0], []).extend(
+            finding("warn", "scan-warning", str(w)) for w in payload.get("warnings") or [])
+    return [{"subject": f, "verdict": None, "findings": by_file.get(f, [])} for f in names]

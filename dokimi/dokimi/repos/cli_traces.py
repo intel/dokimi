@@ -26,11 +26,14 @@ import shlex
 from datetime import datetime
 from typing import Any
 
+from dokimi.text_spans import HeredocPattern
+
 from .shell_functions import Functions, define
 from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
-                          _run_name, _runs_dir, _time_keyword, _unquoted)
+                          _run_name, _runs_dir, _stdout_after_stderr, _time_keyword, _unquoted)
 from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
+from .turn_events import codex_turn
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
@@ -39,17 +42,16 @@ _COPILOT_READ = {"view"}
 _COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
 _PATCH_FILE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.M)
 _CONTINUATION = re.compile(r"\\\n")
-_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+_HEREDOC_DELIMITER = r"<<-?[ \t]*(['\"]?)(\w+)\1"
+_HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
+                          re.compile(r"^[ \t]*(\w+)[ \t]*$", re.M), word=2, quote=1)
 # a redirect that leaves what a printing command shows on stdout: 2>&1, >&2, 2>/dev/null. A stdout discard
 # (>/dev/null, 1>/dev/null, &>/dev/null) is not one of them: no content reaches the agent, so no read.
 _HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?>&\d+(?=\s|$|[;&|])|(?<![^\s;&|(])(?!1(?![0-9]))\d+>>?\s*/dev/null(?=\s|$|[;&|])")
 _GLOB = re.compile(r"[*?\[]|\{[^\s{}]*(?:,|\.\.)[^\s{}]*\}")  # a pathname or brace expansion, unquoted
 _PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?)?\s*p\s*")  # ``p``, ``5p``, ``1,80p``, ``$p``: prints, writes nothing
-# stderr sent to a file: stdout, what a printing command shows, is unchanged
-# (matched on the part with quoted text masked, so a quote glued to ``2`` or to the target is seen)
+# stderr sent to a file leaves stdout, what a printing command shows, unchanged (matched with quoted text masked, so a quote glued to ``2`` is seen)
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
-# redirects apply in order: after ``2>/dev/null`` or ``2>file``, a ``1>&2`` sends stdout there too, away from the agent
-_STDOUT_AFTER_STDERR = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+.*?(?<![^\s;&|(])1?>&2(?!\d)")
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
@@ -260,7 +262,7 @@ class _Walk:
 
     def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
         before, piped, (mark, unknown), (self.list_start, self.listed) = self.groups.pop()
-        if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
+        if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _stdout_after_stderr(redirects):
             del out[mark:]
             self.unknown = unknown
         if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
@@ -269,7 +271,7 @@ class _Walk:
     def words(self, part: str, after: str = "") -> list[str]:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
         and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell)."""
-        if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
+        if not _stdout_after_stderr(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
             part = _outside_quotes(part, _HARMLESS_REDIRECT)
         part = _outside_quotes(part, _STDERR_FILE)
         try:
@@ -512,6 +514,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
     if event_reads is None:
         event_reads = {}
     kind = rec.get("type")
+    _codex_keep_record(out, kind, rec)
     if kind == "turn.completed":
         _codex_usage(out, rec.get("usage") or {})
     elif kind == "turn.failed" or (kind == "error" and not str(rec.get("message", "")).startswith("Reconnecting")):
@@ -529,18 +532,28 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
         _codex_item_completed(out, rec.get("item") or {}, messages, workdir, by_id, cwd, event_reads)
 
 
+def _codex_keep_record(out: Transcript, kind: Any, rec: dict[str, Any]) -> None:
+    """The start-up and closing records as printed; run_context reads them, events do not change."""
+    if kind == "thread.started":
+        out.start_record = rec
+    elif kind in ("turn.completed", "turn.failed"):
+        out.final_record = rec  # the last turn's, as the turn's own record
+
+
 def _codex_usage(out: Transcript, usage: dict[str, Any]) -> None:
+    turn = codex_turn(out.num_turns or 0, usage)  # its turn event, and the totals: both from one reading
     out.num_turns = (out.num_turns or 0) + 1
     out.result_seen = True  # a turn ended: the agent started, whatever else it printed
-    fresh, produced = int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
-    cached = max(int(usage.get("cached_input_tokens") or 0), 0)  # a negative count is malformed, not a credit
-    if fresh or produced:  # a missing or all-zero usage is not a measured zero: the counts stay None
-        # OpenAI counts the cached part inside input_tokens; Claude cells keep cache reads out of input_tokens.
-        # A malformed record with more cached than input never goes negative
-        out.input_tokens = (out.input_tokens or 0) + max(fresh - cached, 0)
-        out.output_tokens = (out.output_tokens or 0) + produced
-        if usage.get("cached_input_tokens") is not None:  # reported, so a zero is measured; absent, it stays None
-            out.cache_read_tokens = (out.cache_read_tokens or 0) + cached
+    out.events.append(turn)
+    # A missing or all-zero usage is not a measured zero, and a count it leaves out stays None on its own.
+    # OpenAI counts the cached part inside input_tokens; Claude cells keep cache reads out of input_tokens
+    if turn["input"] is not None:
+        out.input_tokens = (out.input_tokens or 0) + turn["input"]
+    if turn["output"] is not None:
+        out.output_tokens = (out.output_tokens or 0) + turn["output"]
+    if turn["cache_read"] is not None:  # reported, so a zero is measured; absent, it stays None
+        out.cache_read_tokens = (out.cache_read_tokens or 0) + turn["cache_read"]
+    if any(turn[k] is not None for k in ("input", "output", "cache_read")):
         out.usage_scope = "main"  # the turns are the parent's; Codex reports no subagent tokens here
 
 
@@ -686,7 +699,9 @@ class _CopilotRun:
 
     def apply(self, out: Transcript, rec: dict[str, Any], t: float | None, workdir: str | None, cwd: str) -> None:
         kind, data = rec.get("type"), rec.get("data") or {}
-        if kind == "assistant.turn_start":
+        if kind == "session.start":
+            out.start_record = rec
+        elif kind == "assistant.turn_start":
             self.turns += 1
         elif kind == "assistant.message":
             self.message(data)
@@ -699,6 +714,7 @@ class _CopilotRun:
             _copilot_result(out, self.by_id.get(str(data.get("toolCallId")), ([], 0)), data)
         elif kind == "result":
             self.result = True
+            out.final_record = rec
             out.is_error = rec.get("exitCode") not in (0, None)
 
 

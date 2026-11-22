@@ -7,7 +7,7 @@ The benchmark produces long-lived JSON artifact kinds: ``questions``,
 ``answers``, ``eval`` (LLM-judge scores), ``arms`` (treatment-arm comparisons),
 ``task_runs`` (executable task results), ``explore_runs`` (ExploreBench
 localization results), ``novelty`` (what an artifact's content adds to one
-model), ``guidance_reach`` (L1 reach probes), ``skill_discovery`` (which
+model), ``novelty_atoms`` (the per-atom verdicts of one ``novelty`` run), ``guidance_reach`` (L1 reach probes), ``skill_discovery`` (which
 skills a harness lists, from where), ``repo_readiness`` (L0 claim
 checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
@@ -18,9 +18,12 @@ receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need g
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
 path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs),
 ``dokimi_config`` (a repository's subjects and where their evals are), ``reach_matrix`` (the reach
-conformance matrix), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
-signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set) and
-``report_qa`` (the Q&A sidecar of ``report eval``). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
+conformance matrix), ``security_report`` (unsafe agent behaviour per arm of a run batch), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
+signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set),
+``report_qa`` (the Q&A sidecar of ``report eval``), ``docling_sources`` (which source each file of a
+``data import docling`` output directory came from), ``docs_run`` (a ``docs check`` snapshot),
+``dashboard`` (the data of ``dashboard generate``) and ``baseline_manifest`` (the index of saved
+eval baselines). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
 
@@ -43,6 +46,7 @@ import os
 import re
 import secrets
 import threading
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -65,6 +69,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "subject_scorecard": "subject_scorecard.v2",
     "skill_evidence": "skill_evidence.v1",
     "novelty": "novelty.v1",
+    "novelty_atoms": "novelty_atoms.v1",
     "task_runs": "task_runs.v1",
     "explore_runs": "explore_runs.v1",
     "guidance_reach": "guidance_reach.v1",
@@ -75,6 +80,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "plan": "plan.v1",
     "result": "result.v1",
     "repo_budget": "repo_budget.v1",
+    "run_context": "run_context.v1",
     "effective_instructions": "effective_instructions.v1",
     "task_inspect": "task_inspect.v1",
     "headroom": "headroom.v1",
@@ -89,6 +95,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "catalog_eval": "catalog_eval.v1",
     "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
+    "security_report": "security_report.v1",
     "ragas": "ragas.v1",
     "grounding": "grounding.v1",
     "checklist": "checklist.v1",
@@ -101,6 +108,11 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "question_panel": "question_panel.v1",
     "question_quality": "question_quality.v1",
     "report_qa": "report_qa.v1",
+    "docling_sources": "docling_sources.v1",
+    "report_summary": "report_summary.v1",
+    "docs_run": "docs_run.v1",
+    "dashboard": "dashboard.v1",
+    "baseline_manifest": "baseline_manifest.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
@@ -113,10 +125,10 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
 }
 
 
-#: What a run is given (question sets, whose bytes ``question_set_hash`` digests, a config, a ledger, a need
-#: graph) and the CLI's route table: :func:`save_artifact` gives them no envelope (#277, #387).
+#: What a run is given (question sets, whose bytes ``question_set_hash`` digests, a config, a ledger, a need graph),
+#: the CLI's route table, the report summary and the baselines index: :func:`save_artifact` gives them no envelope (#277, #387).
 INPUT_KINDS: frozenset[str] = frozenset({"questions", "dokimi_config", "repo_ledger", "need_graph",
-                                         "cli_routes"})
+                                         "cli_routes", "report_summary", "baseline_manifest"})
 
 #: The envelope keys :func:`save_artifact` writes on a run kind, after ``schema_version``.
 ENVELOPE_KEYS: tuple[str, ...] = ("run_id", "dokimi_version")
@@ -219,9 +231,29 @@ def schema_errors(schema: str | Path, instance: Any) -> list[str]:
     ]
 
 
+def shared_question_ids(data: dict) -> list[str]:
+    """The ids two or more records of a ``questions`` payload share, compared as strings, as
+    :attr:`dokimi.records.Record.key` joins answers by them; questions.v2 declares an id unique (#687)."""
+    records = data.get("questions")
+    if not isinstance(records, list):
+        return []
+    counts = Counter(str(q["id"]) for q in records if isinstance(q, dict) and "id" in q)
+    return sorted(qid for qid, n in counts.items() if n > 1)
+
+
+def listed_ids(ids: list[str]) -> str:
+    """The first five of ``ids`` for a message, and how many more there are."""
+    shown = ", ".join(map(repr, ids[:5]))
+    return shown + (f" and {len(ids) - 5} more" if len(ids) > 5 else "")
+
+
 def summary_errors(kind: str, data: dict) -> list[str]:
     """What the schema file of ``kind`` leaves unchecked: a finished ``novelty`` record (one without
-    ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks."""
+    ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks;
+    a ``questions`` set may not give two records one id (:func:`shared_question_ids`)."""
+    if kind == "questions":
+        shared = shared_question_ids(data)
+        return [f"questions: duplicate question ids {listed_ids(shared)}"] if shared else []
     if kind != "novelty" or "status" in data:
         return []
     return [f"<root>: {name!r} is a required property"
@@ -355,6 +387,7 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
         raise InputError(f"{path} is a partial novelty artifact: the run was stopped before it "
                          "finished, so it is not a finished analysis. " + (
                              "Drop --max-usd to run unmetered" if reason == "no_price" else
+                             "Fix the provider error and rerun" if reason == "permanent_error" else
                              "Rerun with a higher --max-usd, or without the cap"))
     if validate:
         try:

@@ -237,6 +237,7 @@ def test_a_merged_pr_becomes_a_task_with_gold_from_the_reviewers_line_threads(hi
     assert task["window"] == 5 and task["left_out_files"] == [".agent-eval/notes.md", "AGENTS.md"]
     assert task["patch_files"] == ["src/blob.bin", "src/gone.py", "src/long.py", "src/moved.py", "src/nonl.py"]
     assert "```json" in task["prompt"]
+    assert task["provenance"]["source"].startswith("generated:dokimi-tasks-generate@")
     assert "Subject: [PATCH] Change 7\n" in patch and "+v10 pr" in patch and "+v30 pr" in patch
     assert "AGENTS.md" not in patch and "notes.md" not in patch  # without the guidance and eval_dir hunks
     assert "v10 fixed" not in patch  # as reviewed
@@ -319,7 +320,7 @@ def test_the_tasks_pass_the_self_check_and_apply_under_guidance_none(hist, tmp_p
     _commit(root, "replay tasks")
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
     out = tmp_path / "chk"
-    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out", str(out),
+    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out-dir", str(out),
                                       "--cache-root", str(out / "caches"), "--task", "review_replay_pr7"])
     args.func(args)
     res = json.loads((out / "check/check.json").read_text())["tasks"][0]

@@ -22,7 +22,7 @@ jobs:
     name: Refresh the Intel CI conda locks
     # A fork has no use for the PR.
     if: github.repository == 'intel/dokimi'
-    runs-on: ${{ vars.GH_CI_RUNNER || 'intel-ubuntu-latest' }}
+    runs-on: ${{ vars.GH_CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     permissions:
       contents: write
@@ -38,9 +38,9 @@ jobs:
         with:
           python-version: "3.14"
 
-      # Renovate bumps both pins (.github/renovate.json5).
+      # Hash-locked, so nothing this job runs is unhashed; Renovate re-compiles the lock (.github/renovate.json5).
       - name: Install py-rattler
-        run: python -m pip install --no-input "py-rattler ==0.28.1" "pyyaml ==6.0.3"
+        run: python -m pip install --no-input --no-deps --require-hashes -r dokimi/requirements-conda-lock.lock.txt
 
       - name: Solve the locks
         run: python ci/lock.py

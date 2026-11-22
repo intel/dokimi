@@ -80,6 +80,9 @@ class AtomVerdict:
     scaffolding: bool
     conflict: bool = False
     conflict_why: str = ""
+    #: False for the placeholder :func:`apply_conflicts` makes when the value judge gave the
+    #: atom no answer: ``needed`` and ``scaffolding`` are then not the judge's.
+    judged: bool = True
 
     def category(self, outcome: str | None) -> str:
         """Combine the judged axes with the measured outcome into one label.
@@ -134,7 +137,7 @@ class ClassifyReport:
         retried_batches: Calls whose reply failed to parse, or had no usable row, and were
             split and re-asked.
         unusable_retries: The subset of ``retried_batches`` whose reply parsed, with no
-            usable row. Only the rest are cured by a higher ``--max-tokens``.
+            usable row. Only the rest are cured by a higher ``--max-output-tokens``.
         calls: Calls both stages made, splits included.
         value_error: The last value-judge call failure that lost atoms (an unusable reply is
             counted apart).
@@ -283,6 +286,8 @@ def judge_value(
         prompt=lambda chunk: _VALUE_PROMPT.format(task=task, statements=_numbered(chunk)),
         parse=extract_json_array, check=_judge_check,
     )
+    if result.stop:  # a run-wide provider error ends the classification as a cap stop does (#708)
+        raise result.stop
     report.retried_batches += result.retried_batches
     report.unusable_retries += result.unusable_retries
     report.calls += result.calls
@@ -364,6 +369,8 @@ def detect_conflicts(
         prompt=lambda chunk: _CONFLICT_PROMPT.format(statements=_numbered(chunk)),
         parse=_conflict_rows, min_size=2, check=_conflict_check,
     )
+    if result.stop:
+        raise result.stop
     report.retried_batches += result.retried_batches
     report.unusable_retries += result.unusable_retries
     report.calls += result.calls
@@ -408,7 +415,7 @@ def apply_conflicts(verdicts: dict[str, AtomVerdict], conflicts: list[dict]) -> 
             if not atom_id:
                 continue
             verdict = verdicts.setdefault(
-                atom_id, AtomVerdict(atom_id=atom_id, needed=False, scaffolding=False)
+                atom_id, AtomVerdict(atom_id=atom_id, needed=False, scaffolding=False, judged=False)
             )
             verdict.conflict = True
             verdict.conflict_why = conflict.get("why", "")

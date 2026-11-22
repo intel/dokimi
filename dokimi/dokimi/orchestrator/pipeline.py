@@ -13,7 +13,7 @@ from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEF
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
-from dokimi.utils import InputError, read_json_input, refuse_device, same_evaluator
+from dokimi.utils import InputError, key_bytes, read_json_input, refuse_device, same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def compute_question_set_hash(questions: List[Dict[str, Any]]) -> str:
         f"{q.get('id', '')}:{q.get('question', q.get('question_text', q.get('text', '')))}"
         for q in questions
     )
-    raw = "\n".join(fingerprints).encode("utf-8")
+    raw = "\n".join(fingerprints).encode("utf-8", "surrogatepass")  # a `\ud800` JSON escape loads as a lone surrogate
     return hashlib.sha256(raw).hexdigest()[:12]
 
 
@@ -59,6 +59,15 @@ def load_questions_payload(path: Path, flag: Optional[str] = None) -> List[Dict[
     from dokimi.questions.artifact import load_questions
 
     return load_questions(path, flag=flag).questions
+
+
+def _read_input_set(path: Path, what: str, fix: str = "") -> List[Dict[str, Any]]:
+    """The records at ``path``, a set the run reads by itself; a set it cannot use is an ``InputError`` (exit 2)."""
+    try:
+        return load_questions_payload(path)
+    except (ValueError, RecursionError, OSError) as exc:  # refused by the schema, not JSON or UTF-8, unreadable
+        named = "" if str(path) in str(exc) else f" {path}"  # a schema refusal already names the file
+        raise InputError(f"{what}{named} cannot be used: {exc}" + (f"\n({fix})" if fix else "")) from exc
 
 
 def _check_custom_questions(path: Path, parse: bool = True) -> None:
@@ -390,6 +399,7 @@ class EvaluationPipeline:
                   f"({results['steps']['questions_merged']['generated']} generated, "
                   f"{results['steps']['questions_merged']['manual']} manual)")
 
+        self._require_questions(merged_questions)
         # Compute and record question_set_hash for reproducibility
         question_set_hash = compute_question_set_hash(merged_questions)
         results["question_set_hash"] = question_set_hash
@@ -426,12 +436,14 @@ class EvaluationPipeline:
             results["steps"]["evaluation"]["summary"] = {
                 "with_avg": round(summary.with_mean, 1),
                 "without_avg": round(summary.without_mean, 1),
-                "delta_avg": round(summary.delta_mean, 1)
+                "delta_avg": None if summary.delta_mean is None else round(summary.delta_mean, 1)
             }
+            delta_avg = results["steps"]["evaluation"]["summary"]["delta_avg"]
             print(f"✓ Evaluated {len(evaluations)} answers: "
                   f"context={results['steps']['evaluation']['summary']['with_avg']}, "
                   f"baseline={results['steps']['evaluation']['summary']['without_avg']}, "
-                  f"delta={results['steps']['evaluation']['summary']['delta_avg']:+.1f}"
+                  + ("delta=none (a paired difference leaves the float range)" if delta_avg is None
+                     else f"delta={delta_avg:+.1f}")
                   + (f" (over the {summary.paired} scored in both arms; {summary.unpaired} left out)"
                      if summary.unpaired else ""))
         else:
@@ -497,7 +509,7 @@ class EvaluationPipeline:
         library_id = self._library_id(mcp_client)
 
         # The id is the registry's for every source, so the topics cache is also keyed on the source.
-        source_key = hashlib.sha256(self.doc_source.encode("utf-8")).hexdigest()[:16]
+        source_key = hashlib.sha256(key_bytes(self.doc_source)).hexdigest()[:16]
         extractor = RagasSeedExtractor(mcp_client=mcp_client,
                                        cache_dir=Path(".cache/topics") / source_key)
         topics = extractor.extract_topics(
@@ -541,6 +553,12 @@ class EvaluationPipeline:
         
         return questions
     
+    def _require_questions(self, questions: List[Dict[str, Any]]) -> None:
+        """An empty question set measures nothing: refuse it before any answer or judge call,
+        rather than end as a success with an empty evaluation."""
+        if not questions:
+            raise ValueError(f"No questions to answer: the question set for {self.product} is empty")
+
     def _read_question_inputs(self) -> Optional[List[Dict[str, Any]]]:
         """Read the question sets this run reuses; return the set that replaces generation.
 
@@ -552,11 +570,18 @@ class EvaluationPipeline:
         """
         self._custom_questions: Optional[List[Dict[str, Any]]] = None
         if self.external_questions_path is not None:
-            return load_questions_payload(self.external_questions_path, "--questions-from")
-        if (not self.force_regen) and self.questions_path.exists():
-            return load_questions_payload(self.questions_path)
-        self._custom_questions = self._load_custom_questions()
-        return None
+            path = self.external_questions_path
+            reused = load_questions_payload(path, "--questions-from")
+        elif (not self.force_regen) and self.questions_path.exists():
+            path = self.questions_path
+            reused = _read_input_set(path, "the cached question set of an earlier run",
+                                        "fix or delete it to generate a new set; benchmark run: --force-regen")
+        else:
+            self._custom_questions = self._load_custom_questions()
+            return None
+        if not reused:  # an empty reused set is a bad input (exit 2), refused before persona discovery
+            raise InputError(f"No questions to answer: {path} has no questions")
+        return reused
 
     def _load_custom_questions(self) -> List[Dict[str, Any]]:
         """The --custom-questions (or auto-included golden) set, tagged ``source_type: manual``.
@@ -569,8 +594,10 @@ class EvaluationPipeline:
         if not (path and path.exists()):
             return []
         refuse_device(path, "--custom-questions")
-        flag = None if getattr(self, "golden_pinned", False) else "--custom-questions"  # a golden set's read is lenient
-        custom_questions = load_questions_payload(path, flag)
+        if getattr(self, "golden_pinned", False):  # the golden set of --questions-root: no flag to name
+            custom_questions = _read_input_set(path, "the golden set")
+        else:
+            custom_questions = load_questions_payload(path, "--custom-questions")
         output = getattr(self, "questions_path", None)
         own_output = output is not None and Path(path).resolve() == Path(output).resolve()
         for q in custom_questions:  # records read from the file, not the file
@@ -587,8 +614,7 @@ class EvaluationPipeline:
     def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Merge generated + custom questions, deduplicate."""
         from dokimi.questions import QuestionValidator
-
-        all_questions = generated_questions.copy()
+        from dokimi.questions.normalizer import renumber_taken
 
         # Custom questions: read before the run's first model call by _read_question_inputs.
         custom_questions = getattr(self, "_custom_questions", None)
@@ -596,7 +622,7 @@ class EvaluationPipeline:
         if custom_questions is None:
             custom_questions = self._load_custom_questions()
 
-        all_questions.extend(custom_questions)
+        all_questions = [*renumber_taken(generated_questions, custom_questions), *custom_questions]
 
         # Deduplicate. Curated questions are never the ones dropped: a merge
         # keeps the longest text, which would otherwise let a generated
@@ -690,10 +716,13 @@ class EvaluationPipeline:
         
         # Save answers
         answerer.save_answers(answers, self.answers_path, question_set_hash=question_set_hash)
+        if answerer.stop_error is not None:  # saved for what was asked; a stopped run is not judged or reported as whole
+            raise RuntimeError(f"answers stopped after {len(answers)} of {len(questions)} questions: "
+                               f"{answerer.stop_error}")
         
         return answers
     
-    def _evaluate_answers(self, answers: List[Dict[str, Any]] | Dict[str, Any],
+    def _evaluate_answers(self, answers: Optional[List[Dict[str, Any]] | Dict[str, Any]],
                           concurrency: int = 5,
                           question_set_hash: Optional[str] = None) -> List[Dict[str, Any]]:
         """Evaluate answers using LLM-as-judge."""
@@ -701,15 +730,15 @@ class EvaluationPipeline:
         
         from dokimi.records import load, read
 
-        # Use in-memory answers from the previous step (avoid stale disk read);
-        # fall back to the answers file when none were passed.
-        if answers:
+        # Use in-memory answers from the previous step; an empty list is this run's
+        # answers (none), so the answers file on disk is read only when none were passed.
+        if answers is not None:
             run = read(answers, source="answers", section="answers")
         else:
             run = load(self.answers_path, section="answers")
         answers_list = list(run.records)
         # Fresh in-memory answers are this process's method; an artifact says its own, unstamped is legacy.
-        if answers and isinstance(answers, list):
+        if isinstance(answers, list):
             answers_method_version = ANSWERING_METHOD_VERSION
         else:
             answers_method_version = answers_method_version_of(run.meta)
