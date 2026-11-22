@@ -496,6 +496,13 @@ def test_skill_listing_counts_what_the_listing_shows(tmp_path):
 
 
 @pytest.mark.outcome("cjm-skill-listing")
+def test_skill_listing_adds_no_separator_for_an_empty_when_to_use(tmp_path):
+    """#943: ' - ' is counted only when when_to_use has text."""
+    skill = _skill(tmp_path, name="e", extra="when_to_use: ''\n")
+    assert skill_listing(skill)["description_chars"] == len("Use for e things.")
+
+
+@pytest.mark.outcome("cjm-skill-listing")
 @pytest.mark.parametrize("chars, truncated", [(1536, False), (1537, True)])
 def test_skill_listing_cuts_only_past_the_cap(tmp_path, chars, truncated):
     skill = tmp_path / "s"

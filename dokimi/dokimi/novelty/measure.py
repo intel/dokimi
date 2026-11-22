@@ -539,7 +539,7 @@ def _answer(
     if not reply.strip():
         # No answer is no datum: graded, it would read as a wrong one. A reasoning model
         # that spends its output ceiling before answering returns this.
-        raise ValueError("the answerer returned an empty reply; raise --max-tokens")
+        raise ValueError("the answerer returned an empty reply; raise --max-output-tokens")
     return reply, _parse_confidence(reply)
 
 

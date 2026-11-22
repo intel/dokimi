@@ -86,6 +86,10 @@ jobs:
       - name: Duplicate code ratchet
         if: ${{ !cancelled() }}
         run: python scripts/check_duplicates.py
+      # No new time.sleep or threading.Timer in tests/ past scripts/test_timing_baseline.json.
+      - name: Test timing ratchet
+        if: ${{ !cancelled() }}
+        run: python scripts/check_test_timing.py
       - name: guidance self-scan (L0)
         if: ${{ !cancelled() }}
         run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on fail

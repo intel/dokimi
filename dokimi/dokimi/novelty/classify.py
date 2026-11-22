@@ -80,6 +80,9 @@ class AtomVerdict:
     scaffolding: bool
     conflict: bool = False
     conflict_why: str = ""
+    #: False for the placeholder :func:`apply_conflicts` makes when the value judge gave the
+    #: atom no answer: ``needed`` and ``scaffolding`` are then not the judge's.
+    judged: bool = True
 
     def category(self, outcome: str | None) -> str:
         """Combine the judged axes with the measured outcome into one label.
@@ -134,7 +137,7 @@ class ClassifyReport:
         retried_batches: Calls whose reply failed to parse, or had no usable row, and were
             split and re-asked.
         unusable_retries: The subset of ``retried_batches`` whose reply parsed, with no
-            usable row. Only the rest are cured by a higher ``--max-tokens``.
+            usable row. Only the rest are cured by a higher ``--max-output-tokens``.
         calls: Calls both stages made, splits included.
         value_error: The last value-judge call failure that lost atoms (an unusable reply is
             counted apart).
@@ -412,7 +415,7 @@ def apply_conflicts(verdicts: dict[str, AtomVerdict], conflicts: list[dict]) -> 
             if not atom_id:
                 continue
             verdict = verdicts.setdefault(
-                atom_id, AtomVerdict(atom_id=atom_id, needed=False, scaffolding=False)
+                atom_id, AtomVerdict(atom_id=atom_id, needed=False, scaffolding=False, judged=False)
             )
             verdict.conflict = True
             verdict.conflict_why = conflict.get("why", "")

@@ -30,6 +30,7 @@ CONTENTS = {
     "matrix_rollup.v1": {"cells": 2},
     "novelty_retest.v1": {"items": 1, "warnings": 0},
     "novelty.v1": {"conflicts": 0, "warnings": 2},
+    "novelty_atoms.v1": {"atoms": 2, "conflicts": 1},
     "plan.v1": {"cells": 6},
     "plugin_delta.v1": {"arms": 2},
     "questions.v2": {"questions": 3},

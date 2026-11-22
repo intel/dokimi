@@ -41,6 +41,7 @@ class SkillReview:
     duplicate_of: Optional[str] = (
         None  # the skill directory of the earlier copy, relative to the catalog root
     )
+    listing_chars: Optional[int] = None  # the skill's entry in a skill listing (listing.entry_chars); None when unread
 
     @property
     def state(self) -> str:
