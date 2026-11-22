@@ -985,8 +985,8 @@ An artifact of a registered run kind carries the run's envelope right after its
 - `run_id` is made once per process, when it is first needed (a CLI command makes it at start),
   from the UTC time and 8 random hex digits. So every artifact one process writes that carries the
   run envelope shares it: a pipeline's answers and eval, or a catalog run's `catalog.json`,
-  `plan.json` and `result.json` (`report.md` beside them is a Markdown summary and carries no
-  `run_id`). `runs list` lists the
+  `plan.json` and `result.json` (`report.md` beside them is a Markdown summary and
+  carries no `run_id`). `runs list` lists the
   artifacts of one run together, and `runs show RUN_ID` lists one run
   ([runs.md](runs.md)).
 - `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
