@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from dokimi.repos import RepoSource
 
-from dokimi import cli_output
+from dokimi import cli_flags, cli_output
 from dokimi.commands.repo_reach import add_reach_parser
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
@@ -29,15 +29,6 @@ def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
     flat = re.sub(r"\s+", " ", text).strip()
     printable = "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in flat)
     return printable[:max_len]
-
-
-def _write_json(path: str, payload: dict) -> None:
-    """Write a --out report as JSON, or exit 2 with `cannot write`."""
-    try:
-        Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    except OSError as exc:
-        print(f"✗ cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
 
 
 def _parse_source(args: argparse.Namespace) -> RepoSource:
@@ -93,7 +84,7 @@ def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool 
 
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
-    """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
+    """Validate a repository's repo-eval.yaml and its tasks against one snapshot (`eval check --schema-only`, #94 M1)."""
     from dokimi.repos import check_repo
     from dokimi.repos.source import base_opener
 
@@ -104,15 +95,13 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
     if open_base is None:
         report.notes.append("task bases were not checked: the source has no git history")
 
-    if args.out:
-        _write_json(args.out, report.to_dict())
-    failed = not report.ok or bool(args.fail_on_warning and report.warnings)
+    failed = not report.ok or bool(args.fail_on == "warn" and report.warnings)
     if args.json:
         reason = None if not failed else (f"{len(report.errors)} error(s)" if not report.ok
-                                          else f"{len(report.warnings)} warning(s) under --fail-on-warning")
+                                          else f"{len(report.warnings)} warning(s) under --fail-on warn")
         findings = [cli_output.finding("error", "validate-error", str(e), manifest.path) for e in report.errors]
         findings += [cli_output.finding("warn", "validate-warning", str(w), manifest.path) for w in report.warnings]
-        cli_output.emit_leaf("repo validate", report.to_dict(), status="failed" if failed else "complete",
+        cli_output.emit_leaf("eval check", report.to_dict(), status="failed" if failed else "complete",
                              reason=reason, subjects=[{"subject": manifest.id, "verdict": None, "findings": findings}])
     else:
         mark = "✓" if report.ok else "✗"
@@ -146,7 +135,8 @@ def _read_static(path: str) -> Any:
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
-    from dokimi.commands.repo_scan import scan_subjects
+    from dokimi.commands.repo_scan import baseline_from, scan_subjects
+    from dokimi.repos.l0.config import new_failures
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.l0 import scan_repo
     from dokimi.repos.l0.typecheck import TypecheckError
@@ -161,6 +151,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     except TypecheckError as exc:
         print(f"✗ repo scan --typecheck: {exc}", file=sys.stderr)  # the error says whether the tool or the interpreter
         sys.exit(EXIT_USAGE)
+    baseline_from(args, payload)  # before --out is written: the report holds the annotations, --out may be the baseline
     if args.out:
         try:
             save_artifact("repo_readiness", payload, Path(args.out))
@@ -171,17 +162,18 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     static_errors = static_info["errors"] if static_info is not None else []
     for problem in static_errors:  # on stderr in --json mode too
         print(f"✗ --static output not merged: {problem}", file=sys.stderr)
+    gate = args.fail_on == "fail"
     if args.json:
-        failed = bool(args.fail_on_fail and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
+        failed = bool(gate and (new_failures(payload) or payload["incomplete"]) or static_errors)
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
                              status="failed" if failed else "complete",
-                             reason=_scan_reason(payload, static_errors, args.fail_on_fail) if failed else None,
+                             reason=_scan_reason(payload, static_errors, gate) if failed else None,
                              subjects=scan_subjects(payload),
                              summary={"claims": dict(payload["counts"]), "files": len(payload["files"]),
                                       "adapters": ", ".join(payload.get("adapters") or []) or "none"})
     else:
         _print_scan_text(manifest, payload, args.out)
-    _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
+    _scan_gate(payload, gate)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
 
@@ -229,13 +221,15 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
             sys.exit(EXIT_USAGE)
-    failed = bool(args.fail_on_error and payload["counts"]["error"])
+    c = payload["counts"]
+    failed = bool(args.fail_on and (c["error"] or (args.fail_on == "warn" and c["warning"])))
     if args.json:
         cli_output.emit_leaf("repo inspect", stamp("repo_environment", dict(payload)),
                              status="failed" if failed else "complete",
-                             reason=f"{payload['counts']['error']} error(s) under --fail-on-error" if failed else None)
+                             reason=f"{c['error']} error(s)" + (f", {c['warning']} warning(s)" if args.fail_on == "warn"
+                                                                 else "") + f" under --fail-on {args.fail_on}"
+                             if failed else None)
     else:
-        c = payload["counts"]
         roots = sum(i["scope"] == "root" for i in payload["instructions"])
         print(f"{payload['repo']['tree']}: {len(payload['instructions'])} instruction files ({roots} root), "
               f"{len(payload['checks'])} check surfaces, risk {payload['risk']}")
@@ -295,11 +289,11 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
             sys.exit(EXIT_USAGE)
-    failed = bool(args.fail_on_warning and payload["warnings"])
+    failed = bool(args.fail_on == "warn" and payload["warnings"])
     if args.json:
         cli_output.emit_leaf("repo budget", stamp("repo_budget", dict(payload)),
                              status="failed" if failed else "complete",
-                             reason=f"{len(payload['warnings'])} warning(s) under --fail-on-warning" if failed else None)
+                             reason=f"{len(payload['warnings'])} warning(s) under --fail-on warn" if failed else None)
     else:
         t = payload["totals"]
         print(f"{payload['tree']}: start {t['start']:,} chars, lazy {t['lazy']:,}, "
@@ -350,10 +344,22 @@ def _load_manifest(tree, args: argparse.Namespace, *, guidance_default: bool = F
             }, "<default>")
         return load_manifest(tree, path)
     try:
-        raw = yaml.safe_load(Path(args.manifest_file).read_text(encoding="utf-8"))
+        named = Path(args.manifest_file)
+        if named.exists() and not named.is_file() and not _is_fd_pipe(named):  # a named FIFO blocks until a writer opens it (#975)
+            raise OSError("not a regular file")
+        raw = yaml.safe_load(named.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:  # ValueError: not UTF-8
         raise ManifestError(args.manifest_file, [str(exc)]) from exc
     return parse_manifest(raw, path)
+
+
+def _is_fd_pipe(path: Path) -> bool:
+    """True for ``/dev/fd/N``, ``/dev/stdin`` or ``/proc/<pid>/fd/N`` naming a pipe: process substitution (``<(cat m.yaml)``) and ``cat m.yaml | ... /dev/stdin`` have a writer."""
+    import stat
+
+    parts = path.parts
+    via_fd = parts[:3] == ("/", "dev", "fd") or parts == ("/", "dev", "stdin") or (len(parts) > 3 and parts[:2] == ("/", "proc") and parts[3] == "fd")
+    return via_fd and stat.S_ISFIFO(path.stat().st_mode)
 
 
 def _manifest_id(label: str) -> str:
@@ -396,24 +402,6 @@ def register(sub, positive_int, eval_sub) -> None:
     )
     cache_help = "Clone cache directory (default: $DOKIMI_REPO_CACHE or ~/.cache/dokimi/repos)"
 
-    validate_p = repo_sub.add_parser(
-        "validate", help="Validate the manifest and every task.json against one snapshot"
-    )
-    validate_p.add_argument("source", help=source_help)
-    validate_p.add_argument(
-        "--manifest",
-        default=".agent-eval/repo-eval.yaml",
-        help="Manifest path relative to the repository root (default: .agent-eval/repo-eval.yaml)",
-    )
-    validate_p.add_argument("--manifest-file", default=None, dest="manifest_file",
-                            help="Read the manifest from this local file instead of from the tree, as if it were "
-                            "at --manifest (for a repository that has not added it yet)")
-    validate_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    validate_p.add_argument("--out", default=None, help="Write the full report as JSON to this file")
-    validate_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
-    validate_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
-                            help="Exit 1 when the report has any warning (for a CI gate)")
-    validate_p.set_defaults(func=cmd_repo_validate, emits_cli_output=True, cli_kind="repo validate")
 
     scan_p = repo_sub.add_parser(
         "scan",
@@ -447,9 +435,12 @@ def register(sub, positive_int, eval_sub) -> None:
                         "are checked against its site-packages. Needs --typecheck")
     scan_p.add_argument("--out", default=None, help="Write the repo_readiness.v1 report to this file")
     scan_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
-    scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",
-                        help="Exit 1 when any claim fails, an also_scan file is missing, a guidance file "
-                        "or Bazel build input cannot be read, or no guidance file matched (for a CI gate)")
+    scan_p.add_argument("--baseline", default=None, metavar="FILE",
+                        help="An earlier repo_readiness.v1 report (--out): --fail-on fail then fails only on a "
+                        "claim that report does not also fail")
+    cli_flags.add(scan_p, "fail_on", "--fail-on", choices=("fail",), default=None,
+                  help="fail: exit 1 when any claim fails, an also_scan file is missing, a guidance file "
+                  "or Bazel build input cannot be read, or no guidance file matched (for a CI gate)")
     scan_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     scan_p.set_defaults(func=cmd_repo_scan, emits_cli_output=True, cli_kind="repo scan")
 
@@ -468,8 +459,9 @@ def register(sub, positive_int, eval_sub) -> None:
                            "the tree; exit 2 when it cannot be read or none of its documents is a file of the tree")
     inspect_p.add_argument("--out", default=None, help="Write the repo_environment.v1 report to this file")
     inspect_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
-    inspect_p.add_argument("--fail-on-error", action="store_true", dest="fail_on_error",
-                           help="Exit 1 when any finding has severity error (for a CI gate)")
+    cli_flags.add(inspect_p, "fail_on", "--fail-on", choices=("warn", "fail"), default=None,
+                  help="fail: exit 1 when any finding has severity error, the top severity; warn: also on "
+                  "severity warning (for a CI gate)")
     inspect_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     inspect_p.set_defaults(func=cmd_repo_inspect, emits_cli_output=True, cli_kind="repo inspect")
 
@@ -500,8 +492,8 @@ def register(sub, positive_int, eval_sub) -> None:
                           "(default: claude-code)")
     budget_p.add_argument("--out", default=None, help="Write the repo_budget.v1 inventory to this file")
     budget_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the repo_budget.v1 inventory under data)")
-    budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
-                          help="Exit 1 when any warning is printed (for a CI gate)")
+    cli_flags.add(budget_p, "fail_on", "--fail-on", choices=("warn",), default=None,
+                  help="warn: exit 1 when any warning is printed (for a CI gate)")
     budget_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     budget_p.set_defaults(func=cmd_repo_budget, emits_cli_output=True, cli_kind="repo budget")
 

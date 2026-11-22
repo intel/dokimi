@@ -141,7 +141,10 @@ no user instructions, rules, or project docs read from it.
 Errors are classed the same way on all three CLIs. A usage limit or a missing login stops the
 run, since every later call would fail too; so does a command line Codex or Copilot rejects (a
 flag a newer release removed). A rate limit, overload or timeout is retried; a
-reply with no text is not retried. The timeout is per call.
+reply with no text is not retried. The timeout is per call. A stopped run keeps its answers and a
+`terminated` block (reason, `questions_recorded` of `questions_requested`); `eval score pointwise`,
+`panel` and `reference` copy the block into the eval's `run_metadata`, and `report eval` and the
+arms .md open with a note that the numbers cover only questions answered before the stop.
 
 Codex and Copilot take no temperature or seed, so `arms run` refuses either flag on them, as it
 does for `claude-cli`. An agentic arm is refused on all three, for the same reason.

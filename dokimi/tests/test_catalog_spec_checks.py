@@ -115,7 +115,7 @@ def test_allowed_tools_quotes_that_alternate_with_parens_are_read_in_linear_time
     # Each quoted scan of this value runs to its end before it fails; the quotes are then switched off once.
     from dokimi.external.validate import _unknown_tools
 
-    ratio, _ = growth(lambda k: partial(_unknown_tools, ("A('" + ")'() ") * k), 1_000)  # 8,000 and 32,000 characters
+    ratio, _ = growth(lambda k: partial(_unknown_tools, ("A('" + ")'() ") * k), 250)  # 2,000 and 32,000 characters
     assert ratio < GROWTH_LIMIT
 
 

@@ -52,6 +52,10 @@ raised only when they change a number, verdict or exit code.
   without asking for it.
 - A `None` check, `or` default or defensive copy on a value that cannot be
   `None` or is never mutated.
+- A test that sleeps a fixed time or starts a `threading.Timer` to wait for
+  another thread or process, or asserts on elapsed time or on a ratio of two
+  timings: it passes on a fast machine and fails on a busy runner. Wait on the
+  condition with `tests/waiting.py`.
 - Structure without a second user: a base class, protocol, registry, factory
   or wrapper class with one implementation or entry, or a class that only
   forwards calls.
