@@ -5,13 +5,14 @@
 
 from __future__ import annotations
 
-import time
+from pathlib import Path
 
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills, when_cues
 from dokimi.external.validate import when_clause_found
-from tests.work_count import WORK_LIMIT, Tally, work_ratio
+from tests.growth_timing import GROWTH_LIMIT, growth
+from tests.work_count import WORK_LIMIT, Tally, count_calls, count_pattern, work_ratio
 
 # Real-looking descriptions: a native "when" clause, the way a skill author writes it in that language.
 HAS_WHEN = [
@@ -318,11 +319,33 @@ def test_a_script_no_cue_list_covers_is_not_checked(description):
     assert when_clause_found(description) is None
 
 
-def test_a_long_german_description_without_a_terminator_is_read_in_linear_time():
-    started = time.perf_counter()
-    for text in ("rufe beim " * 500, "beim nutze " * 500, "Hilft beim Bauen " * 300):
-        when_clause_found(text)
-    assert time.perf_counter() - started < 0.5
+def test_a_long_german_description_without_a_terminator_is_read_in_linear_time(monkeypatch):
+    searched = count_pattern(monkeypatch, when_cues, "_DE_BEIM_RE")
+    checked = count_calls(monkeypatch, when_cues, "_de_verb_in", size=lambda pattern, sentence: len(sentence))
+    for unit in ("rufe beim ", "beim nutze ", "Hilft beim Bauen "):
+
+        def run(k: int, unit: str = unit) -> object:
+            return when_clause_found(unit * k)
+
+        for tally in (searched, checked):
+            assert work_ratio(tally, run, 100) < WORK_LIMIT
+
+
+def test_repeated_itsu_without_a_use_verb_is_read_in_linear_time():
+    ratio, result = growth(lambda k: (lambda: when_clause_found("いつ " * k)), 200)
+    assert result is False
+    assert ratio < GROWTH_LIMIT
+
+
+def test_an_itsu_cue_has_no_distance_limit_inside_its_sentence():
+    assert when_clause_found("いつ" + "あ" * 81 + "使うか。") is True
+    assert when_clause_found("いつ" + "あ" * 5000 + "使う") is True
+    assert when_clause_found("いつ" + "あ" * 100 + "。使う") is False
+
+
+def test_the_changelog_states_no_distance_limit_for_the_itsu_cue():
+    fragment = Path(__file__).resolve().parent.parent / "changelog.d" / "20261113_120000_xaleryb_when-cue-followups.md"
+    assert "80 characters" not in fragment.read_text(encoding="utf-8")
 
 
 class _CountedSentence(str):
@@ -364,6 +387,7 @@ def test_a_cjk_skill_without_a_cue_gets_the_warning_end_to_end(tmp_path):
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert [f.code for f in review.findings] == ["description-no-when"]
 
 
@@ -375,6 +399,7 @@ def test_a_cjk_skill_with_a_native_cue_gets_no_warning_end_to_end(tmp_path):
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert "description-no-when" not in [f.code for f in review.findings]
 
 
@@ -394,6 +419,7 @@ def test_a_script_no_cue_list_covers_gets_no_warning_end_to_end(tmp_path, descri
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert "description-no-when" not in [f.code for f in review.findings]
 
 
@@ -414,6 +440,7 @@ def test_a_script_no_cue_list_covers_is_reported_as_not_checked(tmp_path, descri
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert [(f.level, f.code) for f in review.findings] == [("note", "description-when-not-checked")]
 
 
@@ -425,6 +452,7 @@ def test_a_cue_found_description_gets_no_not_checked_note(tmp_path):
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert "description-when-not-checked" not in [f.code for f in review.findings]
 
 
