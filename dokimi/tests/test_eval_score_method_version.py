@@ -54,7 +54,7 @@ def test_unstamped_answers_are_legacy_so_the_eval_says_version_1(tmp_path, judge
     assert out["method_version"] == 1
 
 
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_stamped_answers_keep_their_method_version(tmp_path, judge_calls, version):
     out = _eval_score(tmp_path, {"method_version": version, "answers": ANSWERS})
 

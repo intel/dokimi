@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from dokimi import __version__
+from dokimi import __version__, cli_flags
 from dokimi.commands.novelty_run import stops_at_cap
 from dokimi.novelty.sweep import read_rows, resumable, summarize, summary_lines
 from dokimi.utils import InputError
@@ -502,7 +502,7 @@ def register(catalog_sub, positive_int) -> None:
                    dest="bootstrap_resamples", help=f"Bootstrap resamples per interval (default {RESAMPLES})")
     p.add_argument("--tier", default=None, choices=sorted(TIERS),
                    help="Named cost tier for every skill (see skill novelty analyze --tier)")
-    p.add_argument("--budgets", type=float, nargs="+", default=[0.75, 0.5],
+    cli_flags.add(p, "tokens", "--token-budgets", dest="budgets", type=float, nargs="+", default=[0.75, 0.5],
                    help="Target token fractions for shortening candidates")
     p.add_argument("--max-atoms", type=positive_int, default=None, dest="max_atoms",
                    help="Atom cap per skill (see skill novelty analyze)")

@@ -417,7 +417,7 @@ def test_no_task_from_any_pr_exits_1(toy, tmp_path, capsys):
 
 def _check(root: Path, out: Path, monkeypatch, task_id: str) -> dict:
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
-    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out", str(out),
+    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out-dir", str(out),
                                       "--cache-root", str(out / "caches"), "--task", task_id])
     try:
         args.func(args)
@@ -510,7 +510,7 @@ def test_repo_validate_finds_a_hidden_file_the_task_lacks(toy, tmp_path, capsys)
     (root / ".agent-eval/tasks/authoring_pr1/hidden/tests/data/case.txt").unlink()
     _commit(root, "authoring tasks")
     capsys.readouterr()
-    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--cache-dir", str(tmp_path / "caches"),
+    args = build_parser().parse_args(["eval", "check", "--schema-only", f"{root}@HEAD", "--cache-dir", str(tmp_path / "caches"),
                                       "--json"])
     with pytest.raises(SystemExit):
         args.func(args)
@@ -527,7 +527,7 @@ def test_a_hidden_file_that_is_a_link_fails_validate_and_eval_check_grades_the_t
     hidden.symlink_to("does-not-exist.py")
     _commit(root, "authoring tasks")
     capsys.readouterr()
-    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--cache-dir", str(tmp_path / "caches"),
+    args = build_parser().parse_args(["eval", "check", "--schema-only", f"{root}@HEAD", "--cache-dir", str(tmp_path / "caches"),
                                       "--json"])
     with pytest.raises(SystemExit):
         args.func(args)
