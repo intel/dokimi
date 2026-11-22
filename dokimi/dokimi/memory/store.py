@@ -19,7 +19,7 @@ from urllib.parse import unquote
 
 import yaml
 
-from dokimi.code_spans import LINE_BREAK, CodeSpan, find_code_span
+from dokimi.code_spans import LINE_BREAK, CodeSpan, CodeSpanScanner
 
 INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
@@ -198,12 +198,14 @@ def _resume_comment(line: str, comment: str, opener: str) -> tuple[str | None, s
     return " " * (end + 3) + line[end + 3:], "", ""  # the text after the close is prose, not a fence
 
 
-def _code_span(line: str, pos: int) -> CodeSpan | None:
+def _code_span(line: str, pos: int, scan: CodeSpanScanner | None = None) -> CodeSpan | None:
     """The first code span of ``line`` from ``pos`` whose opening backtick is not escaped.
 
-    A span is a backtick run closed by one of the same length on the same line.
+    A span is a backtick run closed by one of the same length on the same line. ``scan`` keeps the runs read
+    by an earlier call on the same line (blanking leaves the offsets of the text after ``pos`` as they were).
     """
-    while (m := find_code_span(line, pos, stop=LINE_BREAK)) is not None:
+    scan = scan or CodeSpanScanner(line, pos, stop=LINE_BREAK)
+    while (m := scan.find(pos)) is not None:
         if not _escaped(line, m.start()):
             return m
         pos = m.start() + 1
@@ -321,8 +323,9 @@ def _blank_inline(line: str, closes_ahead: bool, pos: int = 0, before: str = "")
     span may close on a later line). A comment opened mid-line with no ``-->`` in its paragraph
     (``closes_ahead`` False) is plain text, as Markdown reads it, so the scan goes on past it.
     """
+    scan = CodeSpanScanner(line, pos, stop=LINE_BREAK)
     while True:
-        code = _code_span(line, pos)
+        code = _code_span(line, pos, scan)
         start = line.find("<!--", pos)
         if code is None and start < 0:
             return line, "", _unpaired_run(line, before)

@@ -12,6 +12,7 @@ each run once and keep the scanned runs by length, so a run with no closer after
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
@@ -56,7 +57,6 @@ class _Runs:
         self.starts: list[int] = []
         self.lens: list[int] = []
         self._by_len: dict[int, list[int]] = {}  # length -> indexes of the runs read so far
-        self._head: dict[int, int] = {}  # length -> the first index of its list not before the last opener
         self._edge = (len(text) + 1, 0)  # (a position, the first stop at or after it): a query between them reuses it
 
     def read(self) -> bool:
@@ -83,15 +83,45 @@ class _Runs:
     def closer(self, n: int, body: int) -> int | None:
         """The start of the first run of ``n`` backticks from ``body`` on, if it starts at or before the stop."""
         limit, same = self.limit(body), self._by_len[n]
-        h = self._head.get(n, 0)
         while True:
-            while h < len(same) and self.starts[same[h]] < body:
-                h += 1
-            self._head[n] = h
+            h = bisect_left(same, body, key=self.starts.__getitem__)
             if h < len(same):
                 return self.starts[same[h]] if self.starts[same[h]] <= limit else None
             if self.starts[-1] > limit or not self.read():
                 return None  # past the stop no later run can close it, and the text may end
+
+
+class CodeSpanScanner:
+    """Finds the code spans of one text from any position on, reading each run of backticks once.
+
+    A caller that searches the same text again after each span (a line that is blanked as it goes) builds one
+    scanner and calls :meth:`find` with a position no earlier than the one it was built with. Options as in
+    :func:`iter_code_spans`.
+    """
+
+    def __init__(
+        self, text: str, pos: int = 0, *, min_run: int = 1, stop: re.Pattern[str] | None = None, not_after: str = "",
+    ) -> None:
+        self.text, self.min_run, self.not_after = text, min_run, not_after
+        self._runs = _Runs(text, pos, stop)
+
+    def find(self, pos: int = 0) -> CodeSpan | None:
+        """The first code span whose opening run starts at or after ``pos``, like ``pattern.search(text, pos)``."""
+        runs, text = self._runs, self.text
+        while (not runs.starts or runs.starts[-1] < pos) and runs.read():
+            pass
+        i = bisect_left(runs.starts, pos)
+        while True:
+            while i >= len(runs.starts):
+                if not runs.read():
+                    return None
+            begin, n = runs.starts[i], runs.lens[i]
+            i += 1
+            if n < self.min_run or (self.not_after and begin > 0 and text[begin - 1] in self.not_after):
+                continue
+            closer = runs.closer(n, begin + n)
+            if closer is not None:
+                return CodeSpan(text, begin, begin + n, closer, closer + n)
 
 
 def iter_code_spans(
@@ -102,27 +132,17 @@ def iter_code_spans(
     ``min_run`` is the shortest opening run, ``not_after`` the characters a run may not follow (a backtick
     always), and ``stop`` a pattern whose match ends the body: a closer must start at or before its start.
     """
-    runs = _Runs(text, pos, stop)
-    i = after = 0
-    while True:
-        while i >= len(runs.starts):
-            if not runs.read():
-                return
-        begin, n = runs.starts[i], runs.lens[i]
-        i += 1
-        if begin < after or n < min_run or (not_after and begin > 0 and text[begin - 1] in not_after):
-            continue
-        closer = runs.closer(n, begin + n)
-        if closer is not None:
-            after = closer + n
-            yield CodeSpan(text, begin, begin + n, closer, after)
+    scanner = CodeSpanScanner(text, pos, min_run=min_run, stop=stop, not_after=not_after)
+    while (span := scanner.find(pos)) is not None:
+        yield span
+        pos = span.end()
 
 
 def find_code_span(
     text: str, pos: int = 0, *, min_run: int = 1, stop: re.Pattern[str] | None = None, not_after: str = "",
 ) -> CodeSpan | None:
     """The first code span of ``text`` from ``pos`` (see :func:`iter_code_spans`), like ``pattern.search(text, pos)``."""
-    return next(iter_code_spans(text, pos, min_run=min_run, stop=stop, not_after=not_after), None)
+    return CodeSpanScanner(text, pos, min_run=min_run, stop=stop, not_after=not_after).find(pos)
 
 
 def replace_code_spans(

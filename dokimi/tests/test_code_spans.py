@@ -19,11 +19,11 @@ from typing import Any
 
 import pytest
 
-from dokimi.code_spans import LINE_BREAK, CodeSpan, find_code_span, iter_code_spans, replace_code_spans
+from dokimi.code_spans import LINE_BREAK, CodeSpan, CodeSpanScanner, _Runs, find_code_span, iter_code_spans, replace_code_spans
 from dokimi.eval.degrade import _replace_code_blocks
 from dokimi.external.online_checks import _BLOCK_START, _BLOCK_START_RE, _distinct_urls
 from dokimi.external.skill_markdown import code_spans, link_pieces
-from dokimi.memory.store import _code_span, _escaped
+from dokimi.memory.store import _blank_inline, _code_span, _escaped
 from tests.growth_timing import GROWTH_LIMIT, growth
 
 
@@ -181,6 +181,47 @@ def _runs_then_pairs(k: int) -> str:
     return _runs(k)[3:] + "`b" * (8 * k)
 
 
+def _runs_between_pairs(k: int) -> str:
+    """Runs of 2 to k with no closer, each followed by a pair of single backticks that does close."""
+    return "".join("`" * i + "a `b` " for i in range(2, k + 2))
+
+
+def _blanked_by_old_regex(line: str) -> str:
+    """``line`` with the spans of the old regex blanked, searching again from each span's end."""
+    pos = 0
+    while (m := _old_store_span(line, pos)) is not None:
+        line = line[:m.start()] + " " * (m.end() - m.start()) + line[m.end():]
+        pos = m.end()
+    return line
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_blanking_a_line_blanks_the_spans_of_the_old_regex(seed: int) -> None:
+    rng = random.Random(seed)
+    for _ in range(600):
+        text = "".join(rng.choices("`a \\", [6, 3, 2, 1], k=rng.randint(4, 30)))
+        assert _blank_inline(text, False)[0] == _blanked_by_old_regex(text), text
+    assert _blank_inline(_runs_between_pairs(9), False)[0].strip("` a") == ""
+
+
+def test_blanking_a_line_reads_each_run_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    reads = 0
+    read = _Runs.read
+
+    def counting(self: _Runs) -> bool:
+        nonlocal reads
+        reads += 1
+        return read(self)
+
+    monkeypatch.setattr(_Runs, "read", counting)
+    counts = []
+    for k in (50, 200):
+        reads = 0
+        _blank_inline(_runs_between_pairs(k), False)
+        counts.append(reads)
+    assert counts[1] <= 8 * counts[0], counts  # 4x the runs, 4x the reads: a rescan per span would make it 16x
+
+
 def _runs_on_two_lines(k: int) -> str:
     """Each run on the first line has its closer on the second."""
     return _runs(k) + "\n" + _runs(k)
@@ -188,8 +229,8 @@ def _runs_on_two_lines(k: int) -> str:
 
 def _production(name: str) -> Callable[[str], Any]:
     def store(text: str) -> list[tuple[int, int]]:
-        out, pos = [], 0
-        while (m := _code_span(text, pos)) is not None:
+        out, pos, scan = [], 0, CodeSpanScanner(text, 0, stop=LINE_BREAK)
+        while (m := _code_span(text, pos, scan)) is not None:
             out.append(m.span())
             pos = m.end()
         return out
@@ -202,7 +243,7 @@ def _production(name: str) -> Callable[[str], Any]:
     }[name]
 
 
-@pytest.mark.parametrize("shape", [_runs, _runs_then_pairs, _runs_on_two_lines])
+@pytest.mark.parametrize("shape", [_runs, _runs_then_pairs, _runs_on_two_lines, _runs_between_pairs])
 @pytest.mark.parametrize("name", NAMES)
 def test_runs_with_no_closer_are_read_in_linear_time(name: str, shape: Callable[[int], str]) -> None:
     _same(name, shape(9))
