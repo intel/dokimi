@@ -391,6 +391,12 @@ def test_969_a_use_phrase_that_names_a_situation_is_accepted(description):
         pytest.param("Formats SQL. (Use when relevant)", id="when-relevant-paren"),
         pytest.param("Formats SQL queries. Use when needed.   Use if useful?", id="two-fillers"),
         pytest.param("Formats SQL. Use this skill when needed.", id="use-this-skill-when-needed"),
+        pytest.param("Formats SQL. Use to **.", id="use-to-markup-only"),
+        pytest.param("Formats SQL. Use to `` .", id="use-to-backticks-only"),
+        pytest.param("Formats SQL. Use to __.", id="use-to-underscores-only"),
+        pytest.param("Formats SQL. Use when **needed**.", id="when-needed-bold"),
+        pytest.param("Formats SQL. Use when `needed`.", id="when-needed-backtick"),
+        pytest.param("Formats SQL. Use if it is _necessary_!", id="if-necessary-italic"),
         pytest.param("Formats SQL. Use it whenever appropriate", id="use-it-whenever-appropriate"),
     ],
 )
