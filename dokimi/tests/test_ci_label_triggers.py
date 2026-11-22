@@ -122,6 +122,7 @@ def test_the_seed_job_runs_on_schedule_and_dispatch_only_under_a_seed_it_passes_
         assert "test-seeds" in _ran({"github.event_name": name})
     for event in ({"github.event_name": "push"}, _pr("synchronize"), _pr("labeled", "skip-changelog")):
         assert "test-seeds" not in _ran(event)
+    assert _ci()["jobs"]["test-seeds"]["timeout-minutes"] <= 30
     runs = [str(step.get("run", "")) for step in _ci()["jobs"]["test-seeds"]["steps"]]
     assert any("pytest" in run and "-n auto" in run and '--randomly-seed="$SEED"' in run for run in runs)
 

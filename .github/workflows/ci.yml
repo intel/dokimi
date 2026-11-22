@@ -490,6 +490,7 @@ jobs:
   # Schedule and dispatch only: https://github.com/intel/dokimi/issues/1059
   test-seeds:
     name: Tests (seed ${{ matrix.leg }})
+    timeout-minutes: 30
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     permissions:
