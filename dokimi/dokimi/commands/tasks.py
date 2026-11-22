@@ -288,11 +288,12 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     print(f"Saved task run artifact: {out_json}")
 
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
+    from dokimi.commands._output import write_report_text
     from dokimi.report.task_runs_report import render_task_runs_report
 
     try:
         out_md.parent.mkdir(parents=True, exist_ok=True)
-        out_md.write_text(render_task_runs_report(output), encoding="utf-8")
+        write_report_text(out_md, render_task_runs_report(output))
     except OSError as exc:
         raise InputError(f"cannot write {out_md}: {exc} (the artifact is saved at {out_json})") from exc
     print(f"Saved task run report:   {out_md}")
