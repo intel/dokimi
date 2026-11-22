@@ -238,9 +238,9 @@ class ArmRunner:
                 rec = self._answer_question(library_name, library_id, q, stop)
             except RunStopped as exc:
                 # Keep the question's completed arms (and their spend); the run is marked terminated.
-                with lock:  # the cause is set before the event: a worker that sees it reads it
-                    self.stop_error = exc.cause
-                    stop.set()  # a usage limit or login: no further arm is asked, also while the record is saved
+                self.stop_error = exc.cause  # set before the event: a worker that sees it reads it
+                stop.set()  # a usage limit or login: no further arm is asked, not after another question's save
+                with lock:
                     _keep(idx, exc.record)
                 print(f"Stopped: {exc.cause}", flush=True)
                 return

@@ -560,3 +560,60 @@ def test_a_failed_save_exits_2_when_another_worker_is_between_arms(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         runner.run("lib", questions, concurrency=2, on_record=save)
     assert exc.value.code == 2
+
+
+def test_a_run_wide_stop_is_set_while_another_question_holds_the_lock_for_its_save(monkeypatch):
+    # q0's partial save holds the lock when q1 hits a usage limit; q2, between its arms, must see
+    # the stop at its next arm, not once q0's save is done. The save waits for that check.
+    import threading
+
+    from dokimi import llm_cli
+    from dokimi.eval import arm_stop
+
+    in_save, q2_asked, q2_checked = threading.Event(), threading.Event(), threading.Event()
+    threads: dict = {}
+    q2: dict = {"checks": 0, "calls": 0}
+    real_halt = arm_stop.halt_if_stopped
+
+    def fake(prompt, model, provider="openai", **kw):
+        if "first" in prompt:
+            assert in_save.wait(10) and q2_asked.wait(10)
+            raise llm_cli.CliCallError("usage limit exceeded", retryable=False, run_wide=True)
+        if "second" in prompt:
+            q2["calls"] += 1
+            q2_asked.set()
+        return "answer", {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+    def halt(stop):
+        second = threads.get(threading.current_thread()) == "q2" and q2["checks"] == 1
+        if threads.get(threading.current_thread()) == "q2":
+            q2["checks"] += 1
+        try:
+            if second:
+                stop.wait(2)  # set at once with the fix; before it, only after q0's save, which waits for this
+            real_halt(stop)
+        finally:
+            if second:
+                q2_checked.set()
+
+    def record(done):
+        if [r["question_id"] for r in done] == ["q0"]:
+            in_save.set()
+            assert q2_checked.wait(10)
+
+    real_answer = arm_runner_mod.ArmRunner._answer_question
+
+    def answer(self, library_name, library_id, q, stop=None):
+        threads[threading.current_thread()] = q["id"]
+        return real_answer(self, library_name, library_id, q, stop)
+
+    monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", fake)
+    monkeypatch.setattr(arm_runner_mod, "halt_if_stopped", halt)
+    monkeypatch.setattr(arm_runner_mod.ArmRunner, "_answer_question", answer)
+    runner = arm_runner_mod.ArmRunner([BaselineTreatment(), BaselineTreatment(name="other")])
+    questions = [{"id": "q0", "question": "the zeroth"}, {"id": "q1", "question": "the first"},
+                 {"id": "q2", "question": "the second"}]
+    records = runner.run("lib", questions, concurrency=3, on_record=record)
+
+    assert q2["calls"] == 1  # q2's second arm is never asked
+    assert records[2]["arms"]["other"]["error"].startswith("not_asked")
