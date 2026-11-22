@@ -151,4 +151,4 @@ NOT_CHECKED_CODES = ("description-when-not-checked", UNSUPPORTED_CODE)  # the no
 
 def not_checked(row: dict) -> bool:
     """Whether an ``ok`` row is only ok because the check did not read it (a ``NOT_CHECKED_CODES`` note)."""
-    return row["state"] == "ok" and any(f["code"] in NOT_CHECKED_CODES for f in row["findings"])
+    return row["state"] == "ok" and any(f.get("code") in NOT_CHECKED_CODES for f in row["findings"])

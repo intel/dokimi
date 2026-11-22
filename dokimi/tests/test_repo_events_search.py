@@ -235,6 +235,17 @@ def test_git_grep_of_an_older_revision_searches_no_workspace_file():
     assert shell_walked("git grep old_instruction -- AGENTS.md").searched == ["AGENTS.md"]
 
 
+def test_git_grep_with_boolean_grouping_still_names_the_workspace_file():
+    command = "git grep -e warn --and '(' -e instruction ')' -- AGENTS.md"
+    assert shell_walked(command).searched == ["AGENTS.md"]
+    assert shell_walked("git grep -e warn --and '(' -e instruction ')' HEAD~1 -- AGENTS.md").searched == []
+
+
+def test_git_grep_of_a_file_named_like_a_grouping_word_names_it():
+    assert shell_walked("git grep -e warn -- '('").searched == ["("]
+    assert shell_walked("git grep -e warn --and '(' -e x ')' -- ')'").searched == [")"]
+
+
 def test_rg_hostname_bin_takes_the_next_word_as_its_value():
     command = "rg --hostname-bin /bin/hostname AGENTS.md other.txt"
     assert shell_walked(command).searched == ["other.txt"]

@@ -166,6 +166,9 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
     if "--help" in flags or "--version" in flags or (digits is not None and digits.isdecimal() and not any(int(c) for c in digits)):
         return []
     if program == "git grep" and "--" in args:  # words before ``--`` are revisions: it searches their trees, not the workspace
-        if len(operands) > len(args) - list(args).index("--") - 1:
+        after = len(args) - list(args).index("--") - 1
+        head = operands[: max(len(operands) - after, 0)]  # before ``--``; the words after it are paths
+        if any(o not in ("(", ")") for o in head):
             return []
+        operands = operands[len(head):]  # grouping words of the expression name no file
     return [o for o in operands if o != "-"]

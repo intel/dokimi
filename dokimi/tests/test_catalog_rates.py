@@ -170,6 +170,20 @@ def test_unchecked_and_skipped_rows_have_their_own_rates(tmp_path):
         assert states[state] == {'skills': 1, 'rate': 0.3333, 'repo_rate': 0.3333}
 
 
+def test_a_warn_row_with_a_not_checked_note_counts_under_warn(tmp_path):
+    tally = RateTally(tmp_path)
+    tally.add(_row("a", "warn", "description-when-not-checked"))
+    states = tally.summary()["states"]
+    assert states["warn"]["skills"] == 1
+    assert states["not_checked"]["skills"] == 0
+
+
+def test_an_ok_row_with_a_finding_that_has_no_code_counts_under_ok(tmp_path):
+    tally = RateTally(tmp_path)
+    tally.add({"relpath": "s", "state": "ok", "findings": [{"level": "warn", "message": "m"}]})
+    assert tally.summary()["states"]["ok"]["skills"] == 1
+
+
 def test_empty_catalog_rates_have_no_denominator(tmp_path):
     states = RateTally(tmp_path).summary()["states"]
     assert all(entry == {"skills": 0, "rate": None, "repo_rate": None} for entry in states.values())
