@@ -262,6 +262,14 @@ def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expect
     ("import sys\nif sys.platform == 'win32':\n    from time import sleep as wait\nelse:\n"
      "    from my_helpers import wait\nwait = print\nwait(1)\n", {}),
     ("from time import sleep as wait\nfor _ in range(2):\n    wait = print\nwait(1)\n", {"time.sleep": 1}),
+    ("import time\ntry:\n    raise ValueError\nexcept (time.sleep(0) or ValueError) as time:\n    pass\n",
+     {"time.sleep": 1}),
+    ("import time\ntry:\n    pass\nexcept ValueError as time:\n    time.sleep(1)\n", {}),
+    ("import time\nFalse and (time := None)\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n(time := None) if False else None\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\nNone if False else (time := None)\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n(time := None) and 1\ntime.sleep(1)\n", {}),
+    ("import time\n1 if (time := None) else 2\ntime.sleep(1)\n", {}),
 ])
 def test_a_name_bound_differently_in_each_branch_counts_when_any_branch_makes_it_a_sleep(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])

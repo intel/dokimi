@@ -110,6 +110,11 @@ def _child_arms(node: ast.AST) -> dict[int, Arm]:
     elif isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
         return {id(child): Arm((id(node), n), 0, (_group_span(group),))
                 for n, group in enumerate((node.body, node.orelse)) for child in group}
+    elif isinstance(node, ast.BoolOp):  # an operand after the first may be skipped
+        return {id(child): Arm((id(node), n), 0, (_group_span([child]),))
+                for n, child in enumerate(node.values) if n}
+    elif isinstance(node, ast.IfExp):
+        groups = [[node.body], [node.orelse]]
     else:
         return {}
     spans = tuple(_group_span(group) for group in groups)
@@ -272,7 +277,7 @@ def _bind_target(node: ast.AST, names: Names, at: Pos | None, path: Arms) -> Non
     if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
         _note(names, node.id, at or _end(node), None, path=path)
     elif isinstance(node, ast.ExceptHandler) and node.name:
-        _note(names, node.name, (node.lineno, node.col_offset), None, path=path)
+        _note(names, node.name, _end(node.type) if node.type else (node.lineno, node.col_offset), None, path=path)
     else:
         _bind_pattern(node, names, at, path)
 
