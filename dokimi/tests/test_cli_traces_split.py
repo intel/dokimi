@@ -1,0 +1,37 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""``repos/cli_traces.py`` stays under the growth cap by keeping the shell walker in ``repos/shell_walk.py`` (#1065)."""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+
+from dokimi.repos import cli_traces, shell_walk
+
+_MODULE = Path(cli_traces.__file__)
+_MOVED = ["shell_reads", "shell_reads_moved", "shell_walk", "shell_walked", "unwrap_shell", "_LONG_VALUE", "_HEREDOC"]
+
+
+def test_cli_traces_is_below_the_growth_cap():
+    assert len(_MODULE.read_text(encoding="utf-8").splitlines()) < 800
+
+
+@pytest.mark.parametrize("name", _MOVED)
+def test_a_moved_name_is_the_walkers_object_not_a_copy(name):
+    assert getattr(cli_traces, name) is getattr(shell_walk, name)
+
+
+def test_the_parsers_stay_in_cli_traces():
+    assert cli_traces.codex_json.__module__ == cli_traces.__name__
+    assert cli_traces.copilot_json.__module__ == cli_traces.__name__
+
+
+def test_the_walker_does_not_import_the_parsers():
+    tree = ast.parse(Path(shell_walk.__file__).read_text(encoding="utf-8"))
+    imported = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    assert not [m for m in imported if m.endswith("cli_traces")]

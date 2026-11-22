@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The redirects of a shell command part that leave its stdout to the agent, and the quote masking they are matched
-through, for the walker of :mod:`~dokimi.repos.cli_traces`."""
+through, for the walker of :mod:`~dokimi.repos.shell_walk`."""
 
 from __future__ import annotations
 
