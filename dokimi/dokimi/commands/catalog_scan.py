@@ -16,6 +16,7 @@ another dokimi version wrote (``dokimi_version``).
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
@@ -24,6 +25,63 @@ from dokimi import __version__
 from dokimi.external.listing import listed_chars
 from dokimi.external.skill_format import UNSUPPORTED_CODE
 from dokimi.utils import InputError
+
+
+def _listing_source(entry):
+    """``(file, meta, body, directory name)`` of the SKILL.md ``repo budget`` would read for the entry, None when it cannot be read
+    or resolves outside the catalog root."""
+    from dokimi.utils import parse_frontmatter
+
+    if entry.path is None:
+        return None
+    try:
+        listed = entry.skill.path if entry.skill is not None else entry.path if entry.path.is_file() else entry.path / "SKILL.md"
+        file = listed.resolve(strict=True)
+        if not file.is_file() or not file.is_relative_to(entry.source_root.resolve()):
+            return None
+        meta, body = parse_frontmatter(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RuntimeError):
+        return None
+    # The default name is the directory the skill is listed in, not the one a symlinked SKILL.md points into.
+    return file, meta if isinstance(meta, dict) else {}, body, Path(os.path.normpath(listed.parent)).name
+
+
+def _name_fits_spec(read, entry) -> bool:
+    """Whether the declared name breaks no name rule (``name-format``, ``name-mismatch``): a skill that also fails those is
+    not listed once its description is added, so the missing-description fallback does not charge it."""
+    from dokimi.external.validate import NAME_MAX, NAME_PATTERN
+
+    file, meta, _, dir_name = read
+    declared = str(meta.get("name") or "").strip()
+    if not declared:
+        return True
+    at_root = file.parent == entry.source_root.resolve()
+    return bool(NAME_PATTERN.fullmatch(declared)) and len(declared) <= NAME_MAX and (at_root or declared == dir_name)
+
+
+def listing_preview(entry, source=None) -> Optional[dict]:
+    """What ``repo budget`` would list for the skill: its text, where it came from, and its characters.
+
+    ``source`` is ``frontmatter`` or ``body`` (the first non-empty line, used when ``description`` is
+    omitted, #943). ``listing_chars`` is the ``repo budget`` charge (name plus the text, capped), whether
+    or not the skill is listed now. None when SKILL.md cannot be read, resolves outside the catalog root,
+    or there is no text to list. ``source`` may be the result of ``_listing_source``, to read the file once.
+    """
+    from dokimi.repos.budget import LISTING_TEXT_CAP
+    from dokimi.skills.listing import listing_description, listing_text_chars
+
+    source = source or _listing_source(entry)
+    if source is None:
+        return None
+    _, meta, body, dir_name = source
+    description = listing_description(meta, body)
+    if not description:
+        return None
+    chars = listing_text_chars(description, meta.get("when_to_use"))
+    return {"description": description,
+            "source": "frontmatter" if meta.get("description") else "body",
+            "description_chars": chars,
+            "listing_chars": len(str(meta.get("name") or dir_name)) + min(chars, LISTING_TEXT_CAP)}
 
 
 def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[Path] = (),
@@ -36,16 +94,26 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
     findings with those codes before the state is taken; ``ignored`` records the codes in effect.
-    ``listing_chars`` is the skill's entry in the routing field's listing, None when it is not listed;
+    ``listing_chars`` is the skill's entry in the routing field's listing, None when it is not listed (a skill whose only
+    fault is a missing ``description`` is listed by the body's first line, so it has the ``listing`` charge, #1087);
+    ``listing`` previews the entry ``repo budget`` charges (``listing_preview``), None when there is none;
     ``listing_name`` is the name the routing field knows the skill by (the loaded name, not the manifest ``name``)."""
     from dokimi.external.catalog_review import entry_relpath
     from dokimi.external.skill_format import not_a_failed_load
     from dokimi.external.findings import state_of
     from dokimi.external.validate import name_risky_commands
 
-    kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
     # An unloaded SKILL.md that is plain Markdown under OpenCode or an unsupported host is a warning or a note here, not a failed load (skill_format).
     exempt = not skill.loaded and not_a_failed_load([f.code for f in review.findings] if review else [])  # before --ignore
+    read = _listing_source(skill)
+    preview = listing_preview(skill, read)
+    listing_chars = listed_chars(review)
+    hidden = read is not None and str(read[1].get("disable-model-invocation", "")).strip().lower() in ("1", "true", "yes", "on")
+    if (listing_chars is None and preview is not None and not skill.loaded and not exempt
+            and _name_fits_spec(read, skill)
+            and "missing a 'description'" in (skill.error or "") and not hidden):
+        listing_chars = preview["listing_chars"]  # Claude Code lists a skill without ``description`` by its body's first line (#943, #1087)
+    kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
     state = "error" if not skill.loaded and not exempt else state_of(kept)
     if not skill.loaded and exempt and state == "ok":
         state = "skipped"  # not read by any format rule: not a pass, even when --ignore dropped its note
@@ -62,7 +130,8 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "skill_sha256": skill_dir_digest(skill, outputs),
         "dokimi_version": __version__,
         "duplicate_of": review.duplicate_of if review else None,
-        "listing_chars": listed_chars(review),
+        "listing_chars": listing_chars,
+        "listing": preview,
         "listing_name": skill.skill.name if skill.skill is not None else None,
         "ignored": sorted(ignore),
         "findings": [{"level": f.level, "code": f.code, "message": f.message, **({"script": f.script} if f.script else {})}
@@ -341,7 +410,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                 if row is None:
                     continue
                 key = _row_key(row)
-                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing_name" in row and row["skill_sha256"] == selected[key]
+                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing" in row and "listing_name" in row and row["skill_sha256"] == selected[key]
                         and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:

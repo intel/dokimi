@@ -434,3 +434,120 @@ def test_catalog_scan_reports_clean_error_on_unloadable_task_dir(tmp_path, instr
     with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert "cannot read tasks at" in str(exc_info.value)
+
+
+def _check_rows(skills: Path, capsys) -> dict:
+    args = build_parser().parse_args(
+        ["catalog", "check", "--root", str(skills), "--kind", "skills", "--format", "json"])
+    try:
+        args.func(args)
+    except SystemExit:  # a skill that fails to load exits 1; the rows are printed either way
+        pass
+    return {row["name"]: row for row in json.loads(capsys.readouterr().out)["skills"]}
+
+
+def test_catalog_check_reports_body_listing_fallback(tmp_path, capsys):
+    """#1087: a row previews the entry `repo budget` charges, including the body fallback of a skill that fails to load."""
+    skills = tmp_path / ".claude" / "skills"
+    fixtures = {
+        "first-line": ("---\nname: first-line\n---\n  Sort café logs.  \nIgnore this line.\n",
+                       "Sort café logs.", "body", 15, 25),
+        "leading-blank": ("---\nname: leading-blank\n---\n\n  \nSummarize queues.\nIgnore this line.\n",
+                          "Summarize queues.", "body", 17, 30),
+        "explicit": ("---\nname: explicit\ndescription: Use when tagging notes.\n---\nDifferent body text.\n",
+                     "Use when tagging notes.", "frontmatter", 23, 31),
+        "with-when": ("---\nname: with-when\ndescription: Tag notes.\nwhen_to_use: on save\n---\nBody.\n",
+                      "Tag notes.", "frontmatter", 20, 29),
+    }
+    for name, (content, *_rest) in fixtures.items():
+        (skills / name).mkdir(parents=True)
+        (skills / name / "SKILL.md").write_text(content, encoding="utf-8")
+    rows = _check_rows(skills, capsys)
+    for name, (_, description, source, description_chars, listing_chars) in fixtures.items():
+        assert rows[name]["listing"] == {"description": description, "source": source,
+                                         "description_chars": description_chars,
+                                         "listing_chars": listing_chars}
+    assert rows["first-line"]["state"] == "error"
+    assert rows["first-line"]["listing_chars"] == 25
+    assert rows["leading-blank"]["listing_chars"] == 30
+
+
+def test_catalog_check_listing_is_null_without_text(tmp_path, capsys):
+    """#1087: no description and an empty body leaves nothing to list, so `listing` is null."""
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "empty").mkdir(parents=True)
+    (skills / "empty" / "SKILL.md").write_text("---\nname: empty\n---\n\n  \n", encoding="utf-8")
+    assert _check_rows(skills, capsys)["empty"]["listing"] is None
+
+
+def test_catalog_check_listing_caps_the_charge_not_the_length(tmp_path, capsys):
+    """#1087: `listing_chars` stops at 1,536 characters of text; `description_chars` is the uncapped length."""
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "long").mkdir(parents=True)
+    (skills / "long" / "SKILL.md").write_text(
+        f"---\nname: long\ndescription: {'x' * 1600}\n---\nBody.\n", encoding="utf-8")
+    listing = _check_rows(skills, capsys)["long"]["listing"]
+    assert (listing["description_chars"], listing["listing_chars"]) == (1600, 4 + 1536)
+
+
+def test_catalog_check_unlisted_skill_without_description_has_no_listing_chars(tmp_path, capsys):
+    """#1087: a skill without `description` that sets `disable-model-invocation` is not listed, so `listing_chars` stays null."""
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "hidden").mkdir(parents=True)
+    (skills / "hidden" / "SKILL.md").write_text(
+        "---\nname: hidden\ndisable-model-invocation: true\n---\nSort logs.\n", encoding="utf-8")
+    row = _check_rows(skills, capsys)["hidden"]
+    assert row["listing_chars"] is None
+    assert row["listing"]["listing_chars"] == len("hidden") + len("Sort logs.")
+
+
+def test_catalog_check_opencode_skill_without_description_has_no_listing_chars(tmp_path, capsys):
+    """#1087: OpenCode does not advertise a skill without `description`, so it adds nothing to `listing_chars`."""
+    skills = tmp_path / ".opencode" / "skills"
+    (skills / "quiet").mkdir(parents=True)
+    (skills / "quiet" / "SKILL.md").write_text("---\nname: quiet\n---\n# Quiet\n", encoding="utf-8")
+    assert _check_rows(skills, capsys)["quiet"]["listing_chars"] is None
+
+
+def test_catalog_check_previews_a_manifest_entry_pointing_at_skill_md(tmp_path, capsys):
+    """#1087: a `catalog_path` that names `SKILL.md` itself gets the same preview and charge as its directory."""
+    (tmp_path / "skills" / "quiet").mkdir(parents=True)
+    (tmp_path / "skills" / "quiet" / "SKILL.md").write_text("---\nname: quiet\n---\nSort logs.\n", encoding="utf-8")
+    (tmp_path / "skills.yaml").write_text(
+        "skills:\n  - name: quiet\n    catalog_path: skills/quiet/SKILL.md\n", encoding="utf-8")
+    row = _check_rows(tmp_path, capsys)["quiet"]
+    assert row["listing"] is not None
+    assert (row["listing"]["listing_chars"], row["listing_chars"]) == (15, 15)
+
+
+def test_catalog_check_whitespace_description_is_charged_like_repo_budget(tmp_path, capsys):
+    """#1087: a blank `description` fails the load as a missing one and `repo budget` charges it, so `listing_chars` does too."""
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "quiet").mkdir(parents=True)
+    (skills / "quiet" / "SKILL.md").write_text(
+        "---\nname: quiet\ndescription: '   '\n---\nSort logs.\n", encoding="utf-8")
+    row = _check_rows(skills, capsys)["quiet"]
+    assert row["listing"]["listing_chars"] == 8
+    assert row["listing_chars"] == 8
+
+
+def test_catalog_check_skill_with_a_bad_name_and_no_description_has_no_listing_chars(tmp_path, capsys):
+    """#1087: the body fallback charges only a skill whose sole fault is the description; a name that breaks the spec leaves it unlisted."""
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "quiet").mkdir(parents=True)
+    (skills / "quiet" / "SKILL.md").write_text("---\nname: WRONG\n---\nSort logs.\n", encoding="utf-8")
+    row = _check_rows(skills, capsys)["quiet"]
+    assert row["listing_chars"] is None
+    assert row["listing"]["listing_chars"] == len("WRONG") + len("Sort logs.")
+
+
+def test_catalog_check_symlinked_skill_md_is_named_by_its_own_directory(tmp_path, capsys):
+    """#1087: a `SKILL.md` symlink without `name` is charged under the directory it is listed in, as `repo budget` does."""
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "entry.md").write_text("---\n---\nSort logs.\n", encoding="utf-8")
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "alias").mkdir(parents=True)
+    (skills / "alias" / "SKILL.md").symlink_to("../../../shared/entry.md")
+    row = _check_rows(tmp_path, capsys)["alias"]
+    assert row["listing"]["listing_chars"] == len("alias") + len("Sort logs.")
+    assert row["listing_chars"] == len("alias") + len("Sort logs.")
