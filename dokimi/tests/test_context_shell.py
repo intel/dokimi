@@ -6,12 +6,16 @@
 from __future__ import annotations
 
 import json
+import re
+from functools import partial
 
 import pytest
 
+from dokimi.context import shell
 from dokimi.context.consistency import (Matcher, apply_outcomes, check_contract, load_outcomes, parse_contract,
                                         parse_run, profile, run_from_events, _events)
 from dokimi.context.shell import program, split_commands, written, written_files
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 
 def _steps(command: str) -> list[tuple[str, str]]:
@@ -285,3 +289,36 @@ def test_events_from_a_normalized_trace_split_like_a_bash_call():
 ])
 def test_loop_bodies_and_errexit_set_which_status_is_masked(command, masked):
     assert [(e.kind, e.masked) for e in _events("Bash", {"command": command})] == masked
+
+
+# the case header (#932) ------------------------------------------------------------------------------------------
+
+_OLD_CASE_HEADER = re.compile(r"^(?:(?:\(+|(?:if|then|else|elif|do|while|until|!|\{)(?=\s))\s*)*case\b.*?\bin\b\s*")
+
+
+@pytest.mark.parametrize("line", [
+    "make", "case", "(make)", "case x in a) make", "case x in", "case $x in\n a) make", "(case x in a) make",
+    "((case x in a)", "( (case x in a)", "(  ( case x in a)", "if case x in a)", "! (case x in a)", "{ case x in a)",
+    "while (( case x in a)", "if (case x in a)", "(if case x in a)", "case x", "(case x", "((case x", "if case x",
+    "case x in a) make ;; esac", "case x in\n", "case x\n in a)", "if if then case x in a)", "do ! { ( case x in y)",
+    "( ( ( (  case a in b", "if(case x in a)", "(if(case x in a)", "ifcase x in a)", "(casex in a)", "case x inn a)",
+    "x case y in a)", "))case x in a)", "(" * 16 + "case x in a)", "(" * 16 + "case x", "if " * 20 + "case x in a)",
+])
+def test_the_case_header_pattern_ends_where_the_old_one_did(line):
+    old, new = _OLD_CASE_HEADER.match(line), shell._CASE_HEADER.match(line)
+    assert (new.end() if new else None) == (old.end() if old else None)
+
+
+def test_split_commands_reads_a_case_after_a_long_run_of_openers_without_an_in():
+    assert shell.split_commands("(" * 1000 + "case") == [("(" * 1000 + "case", "")]
+
+
+def _case_header_call(run: int) -> partial:
+    return partial(shell._CASE_HEADER.match, "(" * run + "case")
+
+
+def test_the_case_header_pattern_reads_a_run_of_openers_in_linear_time():
+    ratio, result = growth(lambda k: partial(shell.split_commands, "(" * k + "case"), 10)
+    assert ratio < GROWTH_LIMIT and result == [("(" * 160 + "case", "")]
+    ratio, result = growth(lambda k: _case_header_call(k), 10)
+    assert ratio < GROWTH_LIMIT and result is None
