@@ -174,6 +174,23 @@ def test_a_manifest_file_read_through_a_pipe_with_a_writer_validates(repo, capsy
     assert "✓ toy" in capsys.readouterr().out
 
 
+@pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="needs /dev/fd")
+def test_a_manifest_piped_to_stdin_validates(repo, capsys):
+    """#975: `cat m.yaml | dokimi repo validate --manifest-file /dev/stdin` reads as on main; only a pipe without a writer is refused."""
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"schema: repo_manifest.v1\nid: toy\nguidance:\n  globs: ['AGENTS.md']\n")
+    os.close(write_fd)
+    saved = os.dup(0)
+    os.dup2(read_fd, 0)
+    try:
+        _run("validate", str(repo), "--manifest-file", "/dev/stdin")
+    finally:
+        os.dup2(saved, 0)
+        os.close(saved)
+        os.close(read_fd)
+    assert "✓ toy" in capsys.readouterr().out
+
+
 def test_repo_validate_names_a_deeply_nested_task_json(repo, capsys):
     """#975 review of #1044: repo validate reports a deep task.json as not valid JSON, not a RecursionError."""
     task = repo / ".agent-eval" / "tasks" / "t1"

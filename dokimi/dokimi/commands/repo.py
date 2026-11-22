@@ -363,11 +363,11 @@ def _load_manifest(tree, args: argparse.Namespace, *, guidance_default: bool = F
 
 
 def _is_fd_pipe(path: Path) -> bool:
-    """True for ``/dev/fd/N`` or ``/proc/<pid>/fd/N`` naming a pipe: process substitution (``<(cat m.yaml)``) has a writer."""
+    """True for ``/dev/fd/N``, ``/dev/stdin`` or ``/proc/<pid>/fd/N`` naming a pipe: process substitution (``<(cat m.yaml)``) and ``cat m.yaml | ... /dev/stdin`` have a writer."""
     import stat
 
     parts = path.parts
-    via_fd = parts[:3] == ("/", "dev", "fd") or (len(parts) > 3 and parts[:2] == ("/", "proc") and parts[3] == "fd")
+    via_fd = parts[:3] == ("/", "dev", "fd") or parts == ("/", "dev", "stdin") or (len(parts) > 3 and parts[:2] == ("/", "proc") and parts[3] == "fd")
     return via_fd and stat.S_ISFIFO(path.stat().st_mode)
 
 
