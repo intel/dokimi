@@ -177,6 +177,6 @@ def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
         if value is not None and 0.0 <= value <= 1.0:
             return value
     match = _REWARD_RE.search(text)
-    if match:
+    if match and not (reward_file and float(match.group(1)) > 1.0):  # a file's `reward: 1.5` is no reward
         return float(match.group(1))
     return None
