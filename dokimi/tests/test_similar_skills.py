@@ -130,10 +130,24 @@ def test_a_pair_in_the_band_with_fewer_than_three_shared_words_gets_nothing():
     assert _codes(loaded) == [[], [], []]
 
 
-def test_a_near_duplicate_is_only_the_warning_not_also_a_note():
-    loaded = _items([("migration-plan", WARN_A, False), ("migration-check", WARN_B, False)])
+def test_a_near_duplicate_is_only_the_warning_not_also_a_note(tmp_path, capsys):
+    # The warning pass runs on the pair: each skill gets description-near-duplicate and no note.
+    _skill(tmp_path / "skills", "migration-plan", name="migration-plan", description=WARN_A)
+    _skill(tmp_path / "skills", "migration-check", name="migration-check", description=WARN_B)
+
+    out, _ = _run(["--root", str(tmp_path), "--kind", "skills", "--format", "json"], capsys)
+    rows = {row["name"]: row for row in json.loads(out)["skills"]}
+    for name in ("migration-plan", "migration-check"):
+        codes = [f["code"] for f in rows[name]["findings"]]
+        assert "description-near-duplicate" in codes
+        assert "similar-skills-exist" not in codes
+
+
+def test_symbol_only_names_are_different_names_so_both_get_the_note():
+    # Without the fallback in _name_key both names key to "" and the pair is skipped as one name.
+    loaded = _items([("★", NOTE_A, False), ("☆", NOTE_B, False)])
     _similar_skills(loaded)
-    assert _codes(loaded) == [[], []]
+    assert _codes(loaded) == [["similar-skills-exist"], ["similar-skills-exist"]]
 
 
 def test_the_same_name_in_another_directory_is_not_a_similar_skill():
