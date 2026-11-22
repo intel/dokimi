@@ -115,7 +115,10 @@ def stratum_of(row: Mapping[str, Any], strata: Optional[Mapping[str, str]]) -> s
 def _is_number(value: Any) -> bool:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
-    return not isinstance(value, float) or math.isfinite(value)
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an integer too large for a float
+        return False
 
 
 def _row_problem(row: Any) -> Optional[str]:
@@ -134,6 +137,8 @@ def _row_problem(row: Any) -> Optional[str]:
     for field in ("new_strict", "tokens"):
         if row.get(field) is not None and not _is_number(row[field]):
             return f"`{field}` must be a number or null"
+    if isinstance(row.get("tokens"), (int, float)) and row["tokens"] < 0:
+        return "`tokens` must not be negative"
     return None
 
 

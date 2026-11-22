@@ -262,6 +262,8 @@ def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
     '[1]\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": null, "new_lenient": 0.5, "tokens": 800}\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": true}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": -800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": ' + '1' + '0' * 400 + '}\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": true, "new_lenient": 0.5, "tokens": 800}\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": NaN, "new_lenient": 0.5, "tokens": 800}\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": NaN, "tokens": 800}\n',
