@@ -44,7 +44,7 @@ _DEFINITION_RE = re.compile(
 # A thematic break line (``---``, ``* * *``, ``___``), with its line end.
 _THEMATIC_BREAK_RE = re.compile(r" {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})(?:\n|$)")
 # A shortcut or collapsed reference: a link only for the nesting check (_external_labels).
-_SHORT_REFERENCE_RE = re.compile(r"(?<!\])\[([^\[\]]+)\](?:\[\])?(?!\()")
+_SHORT_REFERENCE_RE = re.compile(r"(?<!\])\[([^\[\]]+)\](?:\[\])?")
 _FULL_REFERENCE_RE = re.compile(r"\[([^\[\]]+)\]")
 _LINK_END_RE = re.compile(rf"{_TARGET_TITLE}\s*\)")
 LINK_PAREN_DEPTH_MAX = 32
@@ -172,8 +172,21 @@ def _paragraphs(lines: list[str]) -> list[str]:
     return out
 
 
+# What an escaped bracket is masked to: two characters that are no bracket and no space, so that a label
+# ``g\\]`` stays unlike ``g`` (:func:`_unmask_brackets` gives the backslash form back).
+_ESCAPED_BRACKET = {"[": "\ue000\ue001", "]": "\ue000\ue002"}
+_UNMASK_BRACKET = {v: "\\" + k for k, v in _ESCAPED_BRACKET.items()}
+_MASKED_BRACKET_RE = re.compile("\ue000[\ue001\ue002]")
+
+
+def _unmask_brackets(text: str) -> str:
+    """``text`` with the masked escaped brackets of :func:`_unlinked_brackets` written as they were."""
+    return _MASKED_BRACKET_RE.sub(lambda m: _UNMASK_BRACKET[m.group()], text)
+
+
 def _unlinked_brackets(text: str) -> str:
-    """``text`` with the brackets that open no link blanked: an escaped one (``\\[``), and a ``]`` with no
+    """``text`` with the brackets that open no link masked: an escaped one (``\\[``, two marker characters, so a
+    label ``g\\]`` is not ``g``), and a ``]`` with no
     unescaped ``[`` still open before it, so ``\\[guide](x.md)`` and ``note](x.md)`` read no link while
     ``[![CI](badge.svg)](x.md)`` and ``[see [docs]](x.md)`` keep both. An escaped backslash is kept, so a
     bracket after it still counts."""
@@ -186,7 +199,7 @@ def _unlinked_brackets(text: str) -> str:
         if token == "\\\\":
             out.append(token)
         elif token[0] == "\\":
-            out.append("  ")
+            out.append(_ESCAPED_BRACKET[token[1]])
         elif token == "[":
             open_count += 1
             out.append(token)
@@ -219,7 +232,9 @@ def _destination_stop(line: str, start: int) -> Optional[int]:
         elif char == ")":
             depth -= 1
         stop += 1
-    return None if depth or stop == start else stop
+    if depth or (stop == start and not (stop < len(line) and line[stop] == ")")):
+        return None
+    return stop  # an empty destination (``[a]()``) is a link
 
 
 def _inline_destinations(text: str) -> list[str]:
@@ -232,8 +247,8 @@ def _inline_destinations(text: str) -> list[str]:
     for opened in _LINK_OPEN_RE.finditer(text):
         start = opened.end()
         stop = _destination_stop(text, start)
-        if stop is not None and _LINK_END_RE.match(text, stop):
-            found.append(text[start:stop])
+        if stop is not None and stop > start and _LINK_END_RE.match(text, stop):
+            found.append(_unmask_brackets(text[start:stop]))
     return found
 
 
@@ -284,6 +299,25 @@ def _bracket_pairs(masked: str) -> dict[int, int]:
     return pairs
 
 
+def _balanced(destination: str) -> bool:
+    """Whether a bare definition destination has balanced, unescaped parentheses (``<...>`` is taken whole)."""
+    if destination.startswith("<"):
+        return True
+    depth, i = 0, 0
+    while i < len(destination):
+        char = destination[i]
+        if char == "\\":
+            i += 1
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth < 0:
+                return False
+        i += 1
+    return depth == 0
+
+
 def _reference_definitions(masked: str, found: dict[str, bool]) -> None:
     """Add to ``found`` the reference definitions of the paragraph ``masked``: label (case-folded, spaces collapsed)
     -> whether the destination is a URL. A definition cannot interrupt a paragraph, so only those at its start
@@ -293,7 +327,7 @@ def _reference_definitions(masked: str, found: dict[str, bool]) -> None:
     while pos < len(masked):
         if rule := _THEMATIC_BREAK_RE.match(masked, pos):  # a break (or a setext underline) ends the block before it
             pos, block_start = rule.end(), True
-        elif block_start and (m := _DEFINITION_RE.match(masked, pos)):
+        elif block_start and (m := _DEFINITION_RE.match(masked, pos)) and _balanced(m.group(2)):
             found.setdefault(" ".join(m.group(1).casefold().split()), _is_uri_destination(m.group(2)))
             pos = m.end()
         else:
@@ -317,12 +351,14 @@ def _link_closes(masked: str, definitions: dict[str, bool]) -> tuple[list[tuple[
     closes: list[tuple[int, bool]] = []
     chars = list(masked)
     consumed = 0
+    inline_closes: set[int] = set()  # the "]" of each inline link: a shortcut there is that link's label
     for opened in _LINK_OPEN_RE.finditer(masked):
         if opened.start() < consumed:
             continue
         stop = _destination_stop(masked, opened.end())
         end = _LINK_END_RE.match(masked, stop) if stop is not None else None
         if end is not None:
+            inline_closes.add(opened.start())
             closes.append((opened.start(), _is_uri_destination(masked[opened.end() : stop])))
             consumed = end.end()
             chars[opened.end() : end.end() - 1] = " " * (end.end() - 1 - opened.end())
@@ -333,7 +369,7 @@ def _link_closes(masked: str, definitions: dict[str, bool]) -> tuple[list[tuple[
         if ref.start() in pairs and key in definitions:  # an undefined reference is plain text, not a link
             closes.append((ref.start(), definitions[key]))
     for short in _SHORT_REFERENCE_RE.finditer(literal):
-        if " ".join(short.group(1).casefold().split()) not in definitions:
+        if short.end() - 1 in inline_closes or " ".join(short.group(1).casefold().split()) not in definitions:
             continue
         full = _FULL_REFERENCE_RE.match(literal, short.end())
         if full and " ".join(full.group(1).casefold().split()) in definitions:
@@ -410,6 +446,6 @@ def link_pieces(lines: list[str]) -> tuple[list[str], list[str]]:
         for line in _join_label_lines(masked.split("\n")):
             if not _DEFINITION_START_RE.match(line):
                 continue
-            for _, target, _ in split_markdown(line).links:
-                targets[target] = None
+            for _, target, _ in split_markdown(line).links:  # the label stays masked: the splitter reads no escape in it
+                targets[_unmask_brackets(target)] = None
     return list(targets), list(spans)

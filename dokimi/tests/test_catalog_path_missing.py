@@ -669,3 +669,65 @@ def test_1089_a_definition_after_prose_and_a_thematic_break_is_a_definition(tmp_
     body = "See [`scripts/deploy.sh`][guide].\n\nIntroductory prose.\n***\n[guide]: https://example.com\n"
     review, _ = _review(tmp_path, body)
     assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com/(\n",
+        "Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com/)\n",
+        "Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com/a(b\n",
+    ],
+)
+def test_1089_a_definition_with_unbalanced_parentheses_is_no_definition(tmp_path, body):
+    """#1089: a bare destination needs balanced parentheses, so `[g]` is text and the span is checked."""
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_a_definition_with_balanced_parentheses_is_a_url_definition(tmp_path):
+    body = "Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com/a(b)c\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_defined_shortcut_after_an_invalid_inline_destination_is_a_link(tmp_path):
+    """#1089: `[guide](bad destination)` is no inline link, so `[guide]` is the defined shortcut inside the label."""
+    body = "Run [`scripts/deploy.sh` and [guide](bad destination)](https://example.com).\n\n[guide]: notes.md\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_a_definition_label_with_an_escaped_bracket_does_not_define_the_plain_label(tmp_path):
+    """#1089: `[g\\]]: ...` defines the label `g]`, not `g`."""
+    body = "Run [`scripts/deploy.sh`][g].\n\n[g\\]]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_a_reference_use_with_an_escaped_bracket_does_not_use_the_plain_label(tmp_path):
+    """#1089: `[g\\]]` is the label `g]`, so the link below it does not point at `[g]`."""
+    body = "Run [`scripts/deploy.sh`][g\\]].\n\n[g]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+@pytest.mark.parametrize("empty", ["[notes]()", "[notes](<>)"])
+def test_1089_a_link_with_an_empty_destination_in_a_label_means_the_label_is_no_link(tmp_path, empty):
+    """#1089: `[notes]()` is a link, so links do not nest and the outer brackets are text."""
+    review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh` and {empty}](https://example.com).\n")
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_a_reference_definition_with_escaped_brackets_names_its_file(tmp_path):
+    """#1089: `[g]: references/a\\[b\\].md` is a link to the file `references/a[b].md`, which exists."""
+    body = "Read [guide][g].\n\n[g]: references/a\\[b\\].md\n"
+    review, _ = _review(tmp_path, body, files=("references/a[b].md",))
+    assert "link-missing" not in _codes(review)
+
+
+def test_1089_a_definition_with_an_escaped_bracket_in_its_label_names_its_file(tmp_path):
+    """#1089: `[g\\]]: references/missing.md` is a definition of the label `g]`, and its file is missing."""
+    body = "Read [guide][g\\]].\n\n[g\\]]: references/missing.md\n"
+    review, _ = _review(tmp_path, body)
+    assert "link-missing" in _codes(review)
