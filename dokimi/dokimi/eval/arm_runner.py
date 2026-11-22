@@ -299,7 +299,7 @@ class ArmRunner:
             mark_not_asked(arms, self.arm_names)  # the arms the stop never reached; the completed ones are kept
             partial = question_record(library_name, q, qid, question_text, turns, arms,
                                       grounded_from_topics=self.grounded_from_topics)
-            cause = self.stop_error  # set under the lock before the stop event (see _process)
+            cause = self.stop_error  # set before the stop event (see _process)
             if cause is None:
                 raise RuntimeError("the run stopped without a run-wide cause") from None
             raise RunStopped(cause, partial) from None
