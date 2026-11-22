@@ -271,9 +271,8 @@ def test_unsupported_sampling_params_never_block_when_the_check_fails(monkeypatc
 
 
 def test_unsupported_sampling_params_catches_a_value_the_route_refuses():
-    # The name check passes temperature on Haiku 5.5, but the route accepts only
-    # temperature=1 (vendor docs: "Omit temperature, top_p, and top_k"). The value
-    # is what litellm refuses, so the check has to look at the value too.
+    # Haiku 5.5 takes only temperature=1 (vendor docs: "Omit temperature, top_p, and top_k"),
+    # so a name check alone passes a value the route refuses.
     assert unsupported_sampling_params("us.anthropic.claude-haiku-5-5", "amazon-bedrock",
                                        temperature=0.0) == ["temperature"]
     assert unsupported_sampling_params("us.anthropic.claude-haiku-5-5", "amazon-bedrock",
