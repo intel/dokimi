@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from dokimi import cli_flags
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_run import (add_judge2_args, add_panel_args, add_spend_cap,
                                          attach_panel, exit_if_analyze_partial,
@@ -45,6 +46,7 @@ from dokimi.commands.novelty_routing_report import (
     stop_if_partial,
     warn_blind_skills,
 )
+from dokimi.cli_types import unit_interval
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -64,6 +66,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     """Run the full pipeline over one artifact and write the novelty artifact + views."""
     from dokimi.novelty import cost
     from dokimi.artifacts import save_artifact
+    from dokimi.commands._output import write_report_text
     # Import the symbols, not the module: the package re-exports `analyze` as the
     # function, which shadows the submodule of the same name.
     from dokimi.novelty.analyze import AnalyzeConfig, analyze
@@ -151,12 +154,11 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     save_artifact("novelty", result.artifact, out_json)
     verdicts_path = save_panel_verdicts(result, out_json)
     out_md = out_json.with_suffix(".md")
-    out_md.write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
+    write_report_text(out_md, render_novelty_markdown(result.artifact))
     title = f"{artifact_bundle.name or args.artifact} × {answerer.model}"
     view_path = out_dir / ("annotated.html" if args.view_format == "html" else "annotated.md")
     render = render_annotated_html if args.view_format == "html" else render_annotated_markdown
-    view_path.parent.mkdir(parents=True, exist_ok=True)
-    view_path.write_text(render(result.attributions, title=title), encoding="utf-8")
+    write_report_text(view_path, render(result.attributions, title=title))
 
     print(f"OK Saved novelty artifact: {out_json}")
     print(f"OK Saved novelty report:   {out_md}")
@@ -581,6 +583,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
 
 def cmd_novelty_view(args: argparse.Namespace) -> None:
     """Re-render the annotated view from a saved novelty artifact plus its atoms."""
+    from dokimi.commands._output import write_report_text
     from dokimi.commands.novelty_atoms_file import warn_unread
     from dokimi.commands.novelty_view_inputs import load_view_inputs
     from dokimi.novelty.attribute import attribute_spans
@@ -595,8 +598,7 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     render = render_annotated_html if args.format == "html" else render_annotated_markdown
     title = f"{artifact['artifact']['ref']} × {artifact['model']}"
     out = Path(args.out) if args.out else Path(f"annotated.{args.format}")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(attributions, title=title), encoding="utf-8")
+    write_report_text(out, render(attributions, title=title))
     print(f"OK Saved annotated view: {out}")
     print(
         "NOTE colours here come from spans and categories only. For outcome colouring "
@@ -664,8 +666,8 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
     parser.add_argument("--all-atoms", action="store_true", dest="all_atoms",
                         help="Probe every extracted atom (opt-in: the expensive sweep); with "
                              "--atoms, every atom in the file, not only the cap's sample")
-    parser.add_argument("--budgets", type=float, nargs="+", default=[0.75, 0.5],
-                        help="Target token fractions for shortening candidates")
+    cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=unit_interval, nargs="+", default=[0.75, 0.5],
+                  dest="budgets", help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
                         help="Disk cache for retention adjudications")
     parser.add_argument("--seed", type=int, default=0,
@@ -694,9 +696,9 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                              "answering model never writes its own answer key)")
     parser.add_argument("--extract-provider", default=None, dest="extract_provider",
                         choices=PROVIDERS)
-    parser.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens",
-                        help="Output-token ceiling. Raise for reasoning models, which can "
-                             "spend the provider default on reasoning and return empty text")
+    cli_flags.add(parser, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None,
+                  dest="max_tokens", help="Output-token ceiling. Raise for reasoning models, which can "
+                  "spend the provider default on reasoning and return empty text")
     parser.add_argument("--arms", default="no_artifact,full",
                         help="Arms to run: no_artifact,full[,placebo][,shuffled]"
                              "[,no_artifact_repeat] (the last is the noise floor)")

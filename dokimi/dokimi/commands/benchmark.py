@@ -482,7 +482,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--doc-source", default=None, dest="doc_source",
                              help="Override doc/context source (default: first in registry entry)")
     cli_flags.add(bench_run_p, "output", "--out-dir", default=None, dest="output_dir",
-                             help="Output directory (default: results/{target}_final)")
+                  help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
@@ -494,8 +494,9 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
                              help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     bench_run_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
-    bench_run_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
-                             help="Max tokens to retrieve per question from doc source (default: 4000)")
+    cli_flags.add(bench_run_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
+                  default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
+                  help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_run_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency",
                              help="Parallel API calls for answering and judging (default: 5)")
     bench_run_p.add_argument("--force-regen", action="store_true", dest="force_regen",
@@ -531,7 +532,8 @@ def register(sub, positive_int) -> None:
     # Preflight makes no LLM call, but it plans the run that `benchmark run` makes, so it refuses the judge that run refuses.
     bench_pre_p.set_defaults(judge=True)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
-    bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
+    cli_flags.add(bench_pre_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
+                  default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
     bench_pre_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency")
     bench_pre_p.add_argument("--questions-from", default=None, dest="questions_from", help="Question-set source for fair comparison")
     bench_pre_p.add_argument("--questions-root", default=None, dest="questions_root",
@@ -553,8 +555,9 @@ def register(sub, positive_int) -> None:
                                help=JUDGE_MODEL_HELP)
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                                choices=JUDGE_PROVIDERS)
-    bench_batch_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
-                               help="Max tokens to retrieve per question from doc source (default: 4000)")
+    cli_flags.add(bench_batch_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
+                  default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
+                  help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_batch_p.add_argument("--force-regen", action="store_true", dest="force_regen",
                                help=_FORCE_REGEN_HELP)
     bench_batch_p.add_argument("--registry", default=None, help="Path to custom products.yaml")

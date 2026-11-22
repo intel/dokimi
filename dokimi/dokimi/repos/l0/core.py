@@ -631,7 +631,7 @@ class Scan:
     def check_fence(self, file: str, fence: Fence) -> None:
         from . import adapters
 
-        if fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS:
+        if fence.lines and (fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS):
             code = textwrap.dedent("\n".join(text for _, text in fence.lines)).split("\n")
             fence = Fence(fence.line, fence.lang, [(n, t) for (n, _), t in zip(fence.lines, code, strict=True)])  # in a list item
             if "bazel" in self.adapters and (fence.lang in STARLARK_LANGS or adapters.reads_as_build(self, fence)):

@@ -28,7 +28,6 @@
 --bases
 --batch
 --both
---budgets
 --build-network
 --build-timeout
 --cache-root
@@ -112,7 +111,6 @@
 --max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-lines  # eval tasks generate --from prs (#294) adds it: a size filter, not a spend cap; no registry concept yet
 --max-resource-words
---max-tokens
 --max-turns
 --metric
 --min-accuracy
@@ -181,6 +179,7 @@
 --salt
 --save-analysis
 --scenarios
+--schema-only  # eval check --schema-only (#276 M1, was repo validate): the manifest checks, no registry concept yet
 --scorer
 --sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
 --sequential
