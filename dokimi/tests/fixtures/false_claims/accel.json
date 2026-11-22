@@ -1,0 +1,17 @@
+{
+  "atoms": [
+    {"id": "a_driver", "statement": "The accelerator requires driver version 2.1 or newer.",
+     "question": "Which driver version does the accelerator require?", "answer": "2.1 or newer",
+     "tags": ["version_bound"], "span_ids": ["s0001"], "faithfulness": "supported"},
+    {"id": "a_flag", "statement": "Pass --enable-accel to turn the accelerator on.",
+     "question": "Which flag turns the accelerator on?", "answer": "--enable-accel",
+     "span_ids": ["s0002"], "faithfulness": "supported"},
+    {"id": "a_windows", "statement": "The accelerator is not supported on Windows.",
+     "question": "Is the accelerator supported on Windows?", "answer": "No",
+     "tags": ["negative_constraint"], "span_ids": ["s0003"], "faithfulness": "supported"},
+    {"id": "a_bad", "statement": "The accelerator cache size defaults to 64 MB.",
+     "question": "What is the default cache size?", "answer": "64 MB",
+     "span_ids": ["s0004"], "faithfulness": "distorted"}
+  ],
+  "answer": "To use the accelerator you need driver version 3.0. Turn it on with --use-accel. The accelerator is supported on Windows and Linux. Its cache size defaults to 128 MB. Restart the shell afterwards.\nconfidence: 0.8"
+}

@@ -1,0 +1,77 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""False-claims prototype: a stored answer graded against stored atoms, no model calls."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from dokimi.novelty.atoms import Atom
+from dokimi.novelty.false_claims import find_false_claims, split_sentences
+
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "false_claims" / "accel.json")
+                     .read_text(encoding="utf-8"))
+ATOMS = [Atom.from_dict(a) for a in FIXTURE["atoms"]]
+ANSWER = FIXTURE["answer"]
+
+
+def test_sentences_skip_the_confidence_line_and_keep_offsets():
+    sents = split_sentences(ANSWER)
+    assert [s.text for s in sents][-1] == "Restart the shell afterwards."
+    assert all(ANSWER[s.start:s.end] == s.text for s in sents)
+    assert len(sents) == 5
+
+
+def test_lexical_pass_flags_version_flag_and_polarity_conflicts():
+    report = find_false_claims(ANSWER, ATOMS)
+    got = {(c.atom_id, c.how) for c in report.claims}
+    assert ("a_driver", "lexical:value") in got
+    assert ("a_flag", "lexical:value") in got
+    assert ("a_windows", "lexical:polarity") in got
+    driver = next(c for c in report.claims if c.atom_id == "a_driver")
+    assert driver.quote == "3.0" and driver.span_ids == ("s0001",)
+
+
+def test_a_distorted_atom_is_never_used_as_ground_truth():
+    report = find_false_claims(ANSWER, ATOMS)
+    assert "a_bad" not in {c.atom_id for c in report.claims}
+
+
+def test_a_sentence_no_atom_is_about_is_unchecked_not_true():
+    report = find_false_claims(ANSWER, ATOMS)
+    assert report.n_sentences == 5
+    assert report.n_unchecked >= 1  # "Restart the shell afterwards."
+
+
+def _scripted(replies: dict[str, dict]):
+    """A judge that answers by which atom statement the prompt carries."""
+    def judge(prompt: str) -> dict:
+        for statement, reply in replies.items():
+            if statement in prompt:
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+        return {"verdict": "unrelated", "quote": ""}
+    return judge
+
+
+def test_judge_contradictions_need_a_verbatim_quote():
+    judge = _scripted({
+        ATOMS[0].statement: {"verdict": "contradicts", "quote": "driver version 3.0"},
+        ATOMS[1].statement: {"verdict": "contradicts", "quote": "--use-the-accel"},  # not verbatim
+        ATOMS[2].statement: {"verdict": "supports", "quote": ""},
+    })
+    report = find_false_claims(ANSWER, ATOMS, judge=judge)
+    assert [(c.atom_id, c.quote, c.how) for c in report.claims] == [
+        ("a_driver", "driver version 3.0", "judge")]
+    assert report.n_unverified_quote >= 1
+
+
+def test_judge_failures_are_counted_not_read_as_clean():
+    judge = _scripted({ATOMS[0].statement: RuntimeError("timeout"),
+                       ATOMS[1].statement: {"verdict": "maybe"}})
+    report = find_false_claims(ANSWER, ATOMS, judge=judge)
+    assert report.n_judge_errors >= 2
+    assert report.claims == []
