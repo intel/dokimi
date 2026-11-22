@@ -79,8 +79,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         render_novelty_markdown,
     )
 
-    from dokimi.novelty.tiers import FITTED_TOKENS_MAX
-    from dokimi.commands.novelty_budget import print_run_estimate, run_estimate
+    from dokimi.commands.novelty_budget import print_estimate_only, print_run_estimate
 
     artifact_bundle = _bundle_from_args(args)
     settings = _settings(args)
@@ -94,26 +93,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
             print(f"  overridden by flags: {sorted(record['overrides'])}", file=sys.stderr)
 
     if args.estimate_only:
-        estimate, n_tokens = run_estimate(args, settings, artifact_bundle.text, cost.estimate_usd)
-        # Every arm but the baseline is priced as carrying the artifact; a placebo of another
-        # length is not read.
-        if n_tokens > FITTED_TOKENS_MAX:
-            estimate["usd_extrapolated"] = True
-            print(f"expected_usd extrapolates: the artifact has {n_tokens} tokens and the "
-                  f"profiles were fitted on artifacts up to {FITTED_TOKENS_MAX}; the projection "
-                  "ran low as the artifact grew", file=sys.stderr)
-        print(json.dumps(estimate, indent=2))
-        print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
-              "measured shape; batch sizes and retries move the real figure.",
-              file=sys.stderr)
-        if args.max_usd is None:
-            print(
-                "expected_usd prices the calls by role at list prices, from a token profile "
-                "fitted on measured runs: a longer artifact or longer answers cost more, and "
-                "a model with no price gives null. Pass --max-usd to stop the run at a "
-                "dollar figure.",
-                file=sys.stderr,
-            )
+        print_estimate_only(args, settings, artifact_bundle.text, cost.estimate_usd)
         return
     cache_dir = usable_cache_dir(args.cache_dir)
     print_run_estimate(args, settings, artifact_bundle.text, cost.estimate_usd)
