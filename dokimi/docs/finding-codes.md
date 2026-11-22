@@ -30,6 +30,8 @@ changelog. The `message` text is for people and may be reworded, so do not match
 Three codes cannot be ignored (`catalog check` refuses the flag): ignoring them would hide why
 a skill does not load, or make the whole-catalog and `--per-skill` exits disagree.
 They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
+An unloaded skill that no format rule exempts is `error` in the CLI: its load error is the reason, and `--ignore` does not clear it.
+The CLI never emits `not-loaded` (only `review_skill_dir` does), so `--ignore not-loaded` changes nothing there.
 
 ## Codes
 
@@ -60,7 +62,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `name-mismatch` | error | the frontmatter name differs from the directory name | yes |
 | `name-missing` | warn | the frontmatter has no name | yes |
 | `not-a-skill-no-frontmatter` | error | the SKILL.md is plain Markdown with no frontmatter block | no |
-| `not-loaded` | error | a skill reviewed alone did not load | yes |
+| `not-loaded` | error | a skill reviewed alone with `review_skill_dir` did not load; the CLI never emits it, so `--ignore` has no effect there | yes |
 | `opencode-no-description` | warn | an OpenCode `SKILL.md` (under `.opencode/skills`) has no frontmatter or no description; OpenCode loads it but does not advertise it | yes |
 | `package-not-found` | warn | `--online`: a package a command installs is not in its registry | yes |
 | `path-escapes-skill` | warn | a `../` code span names a file outside the skill directory | yes |
