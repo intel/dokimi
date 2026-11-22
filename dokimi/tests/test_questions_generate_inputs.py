@@ -173,3 +173,41 @@ def test_generate_records_the_product_so_runs_list_finds_the_set(tmp_path, monke
     assert (found["kind"], found["subject"], found["model"], found["path"]) == (
         "questions", "oneTBB", "gen-m", "r1/questions/oneTBB.json")
     assert runs_list("oneDAL") == []
+
+
+def test_generate_exits_2_when_a_local_doc_source_path_is_missing(tmp_path, monkeypatch, capsys):
+    """#1086: `--doc-source local:<missing>` is an input error naming the path, before any generation."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    (tmp_path / "personas.json").write_text('{"personas": []}', encoding="utf-8")
+    missing = tmp_path / "missing"
+    assert _generate(monkeypatch, "--personas", "personas.json", "--doc-source", f"local:{missing}",
+                     "--output", "out.json") == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(missing) in err
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_generate_accepts_an_existing_local_doc_source(tmp_path, monkeypatch, capsys):
+    """#1086: the path check passes for an existing directory."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# parallel_for\nUse tbb::parallel_for.", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    (tmp_path / "personas.json").write_text('{"personas": []}', encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "questions", "generate", "--product", "oneTBB",
+                                     "--personas", "personas.json", "--doc-source", f"local:{docs}",
+                                     "--output", "out.json"])
+    cli.main()
+    assert "Error" not in capsys.readouterr().err
+
+
+def test_generate_exits_2_when_a_local_doc_source_name_is_too_long(tmp_path, monkeypatch, capsys):
+    """#1086: a filename past NAME_MAX is a missing path, an input error and not a traceback."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    (tmp_path / "personas.json").write_text('{"personas": []}', encoding="utf-8")
+    assert _generate(monkeypatch, "--personas", "personas.json", "--doc-source", f"local:{'0' * 256}",
+                     "--output", "out.json") == 2
+    assert capsys.readouterr().err.startswith("Error: ")

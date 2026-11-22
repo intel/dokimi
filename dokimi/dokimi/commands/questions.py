@@ -281,6 +281,20 @@ def print_validation_stats(stats: Dict[str, Any]) -> None:
         print(f"  ⚠ Deduplication did NOT run{reason} — duplicates were kept")
 
 
+def _require_local_doc_source(doc_source: str) -> None:
+    """#1086: a `local:<path>` source whose path is missing is an input error, not default seed topics."""
+    if not doc_source.startswith("local:"):
+        return
+    local_path = doc_source[len("local:"):]
+    try:
+        found = Path(local_path).exists()
+    except OSError:  # a name past NAME_MAX raises instead of answering False
+        found = False
+    if not found:
+        # Issue #1086: exit 2 with the path named, not exit 0 with default seed topics.
+        raise InputError(f"--doc-source {doc_source}: path does not exist: {local_path}")
+
+
 def cmd_questions_generate(args: argparse.Namespace) -> None:
     """Generate questions from personas and seed topics."""
     from dokimi.commands.answers import _load_runtime_config
@@ -312,6 +326,8 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
             resolve_library_id_for_product,
         )
         mcp_client = create_doc_source_client(doc_source)
+        # #1086: a missing local path would otherwise fall back to default seed topics and exit 0.
+        _require_local_doc_source(doc_source)
         context7_id = getattr(args, "context7_id", None)
         if context7_id:
             print(f"Using explicit Context7 library ID: {context7_id}")

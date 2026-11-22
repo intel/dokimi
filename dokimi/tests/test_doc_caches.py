@@ -9,6 +9,7 @@ fallback topics) is never replayed, and an unreadable entry is a miss with a war
 
 import json
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -283,6 +284,8 @@ def test_generate_does_not_replay_one_doc_source_topics_for_another(tmp_path, mo
         return client
 
     monkeypatch.chdir(tmp_path)
+    real_exists = Path.exists  # `/docs` is only a source name here; #1086 refuses a missing local path
+    monkeypatch.setattr(Path, "exists", lambda self: str(self) == "/docs" or real_exists(self))
     monkeypatch.setattr(factory, "create_doc_source_client", _client)
     monkeypatch.setattr(factory, "resolve_library_id_for_product", lambda *a, **kw: LIB)
     monkeypatch.setattr(questions_pkg, "QuestionGenerator", _Generator)
