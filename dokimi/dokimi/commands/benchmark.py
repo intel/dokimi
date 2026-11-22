@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, cast
 
 from dokimi import cli_flags
-from dokimi.llm import CALLER_CHOICES, credential_env_var, resolve_api_key
+from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, PROVIDERS, credential_env_var, resolve_api_key, resolve_model
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -146,6 +146,88 @@ def _provider_checks(providers: list[str], notes: list[str] | None = None,
     return errors, warnings
 
 
+def _keyless_route(canonical: str, route: str) -> list[str] | None:
+    """``None`` unless the call needs no key of *canonical*: then the providers it still checks.
+
+    Vertex ADC and AWS keys need none; an unreadable ``file:`` Bedrock token is still refused.
+    """
+    if route == "vertex_ai":
+        return []
+    if canonical != "amazon-bedrock" and route != "bedrock":
+        return None
+    try:
+        if canonical != "amazon-bedrock" and resolve_api_key(canonical):
+            return []  # the configured provider's key is sent as the token; the AWS variable is unused
+        resolve_api_key("amazon-bedrock")  # an absent token is IAM
+    except ValueError:
+        return ["amazon-bedrock"]
+    return []
+
+
+def _credential_providers(args: argparse.Namespace) -> list[str]:
+    """The providers whose key or login a run of *args* needs, by the route each call takes (#967).
+
+    A CLI backend takes its login whatever the model name says. `vertex_ai/` (ADC) and `bedrock/`
+    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider, but a
+    `file:` AWS_BEARER_TOKEN_BEDROCK that cannot be read is refused; a `gemini/`
+    route needs GEMINI_API_KEY or GOOGLE_API_KEY; another provider's route needs that provider's key;
+    a route off the table (`azure/`, `ollama/`) needs none when the configured key is unset.
+    """
+    from dokimi import llm_cli
+
+    pairs = [
+        (args.provider, getattr(args, "model", "")),
+        (getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER), getattr(args, "judge_model", "")),
+    ]
+    providers = []
+    for provider, model in pairs:
+        canonical = PROVIDER_ALIASES.get(provider, provider)
+        if llm_cli.backend(canonical) is not None:
+            providers.append(canonical)
+            continue
+        resolved = resolve_model(str(model), provider)
+        route = resolved.split("/", 1)[0]
+        keyless = _keyless_route(canonical, route)
+        if keyless is not None:
+            providers.extend(keyless)
+            continue
+        off_table = "/" in resolved and route not in ("gemini", *PROVIDERS)
+        if route != canonical and canonical != "openai-codex" and (off_table or route in ("gemini", *PROVIDERS)):
+            # The call sends the configured provider's key when it has one (an unreadable file is
+            # refused); with none, litellm reads the route provider's own variable.
+            try:
+                has_key = bool(resolve_api_key(canonical))
+            except ValueError:
+                has_key = True
+            if not has_key and off_table:
+                continue  # litellm reads the route's own variables (azure/, ollama/): no key to check
+            if not has_key:
+                canonical = "google-vertex" if route == "gemini" else route
+                try:
+                    unset = not resolve_api_key(canonical)
+                except ValueError:
+                    unset = False  # an unreadable file is refused, not rescued by GOOGLE_API_KEY
+                if route == "gemini" and unset and os.environ.get("GOOGLE_API_KEY"):
+                    continue
+        providers.append(canonical)
+    return providers
+
+
+def _refuse_missing_credentials(args: argparse.Namespace) -> None:
+    """Exit 2 before any directory or model call when a provider has no key or login (#967).
+
+    ``benchmark preflight`` makes the same check; ``run`` and ``batch`` made none and failed in
+    the first model call, after the output directories existed. A login that could not be
+    checked is a warning on stderr, as in preflight.
+    """
+    errors, warnings = _provider_checks(_credential_providers(args))
+    for item in warnings:
+        print(f"  ⚠ {item}", file=sys.stderr)
+    if errors:
+        # #967: a missing credential is an input refusal (exit 2), as in `benchmark preflight`.
+        raise InputError("\n".join(errors))
+
+
 def _login_warning(provider: str, status=None) -> str | None:
     """A warning when a CLI provider's login could not be checked (no answer from ``auth status``)."""
     from dokimi import llm_cli
@@ -276,7 +358,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     # them). The other errors are failed checks (exit 1): a CLI provider not installed or signed in.
     refusals: list[str] = []
     notes: list[str] = []
-    errors, warnings = _provider_checks([args.provider, args.judge_provider], notes, refusals)
+    errors, warnings = _provider_checks(_credential_providers(args), notes, refusals)
     _print_notes(notes)
 
     def refuse(message: str) -> None:
@@ -345,6 +427,8 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         _, _, problem = _check_questions_from(questions_from, entry.key)
         if problem:
             raise InputError(f"{problem}")
+
+    _refuse_missing_credentials(args)
 
     if n_runs == 1:
         _run_single_library(
@@ -423,6 +507,8 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
 
     if not entries:
         raise InputError("No libraries to run.")
+
+    _refuse_missing_credentials(args)
 
     print(f"Batch run: {len(entries)} libraries → {args.output_dir}")
     results = []
