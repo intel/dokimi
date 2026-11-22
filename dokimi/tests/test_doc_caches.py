@@ -303,15 +303,22 @@ def test_generate_does_not_replay_one_doc_source_topics_for_another(tmp_path, mo
     assert seen == [["tbb::parallel_for"], ["tbb::flow_graph"]]
 
 
-def test_exists_mock_matches_a_path_as_windows_spells_it(monkeypatch):
-    """#1086: the `/docs` stand-in passes the guard in `cmd_questions_generate`; a path outside it is refused."""
-    from dokimi.commands.questions import _require_local_doc_source
+def test_generate_refuses_a_missing_path_outside_the_exists_stand_in(tmp_path, monkeypatch):
+    """#1086: through `cmd_questions_generate`, the `/docs` stand-in passes the guard and `/other` is refused."""
+    import argparse
+    from dokimi.commands import questions as cmd
+    from dokimi.mcp import factory
 
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(Path, "exists", exists_for_prefix(lambda self: False, "/docs"))
-    _require_local_doc_source("local:/docs")
-    _require_local_doc_source("okf:/docs/caf\u00e9")
+    monkeypatch.setattr(factory, "create_doc_source_client", lambda source: MagicMock())
+    personas = tmp_path / "personas.json"
+    personas.write_text(json.dumps({"personas": [{"id": "dev", "name": "dev", "skill_level": "expert"}]}), encoding="utf-8")
+    args = argparse.Namespace(
+        product="oneTBB", personas=str(personas), topics=None, doc_source="local:/other", context7_id=None,
+        top_k=3, provider="openai", model="m", count=1, validate=False, output=None)
     with pytest.raises(InputError, match="path does not exist: /other"):
-        _require_local_doc_source("local:/other")
+        cmd.cmd_questions_generate(args)
 
 
 def test_exists_stand_in_matches_a_path_as_windows_spells_it():
