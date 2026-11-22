@@ -640,3 +640,14 @@ def test_only_a_real_heredoc_masks_its_body(script, expected):
                                   "bash -o pipefail -c nproc"])
 def test_probe_follows_a_launcher_to_its_program(text):
     assert _probes(text)
+
+
+@pytest.mark.parametrize("text", ["bash --norc <<'EOF'\nnproc\nEOF", "bash -l <<'EOF'\nnproc\nEOF", "bash --noprofile <<'EOF'\nnproc\nEOF"])
+def test_a_heredoc_fed_to_bash_with_an_option_runs_its_body(text):
+    out = with_probes([{"t": 1.0, "kind": "command", "text": text, "rc": 0}], probes_for())
+    assert [e for e in out if e.get("kind") == "probe" and e.get("target") == "cpu"]
+
+
+def test_a_backgrounded_exit_does_not_end_the_scan():
+    out = with_probes([{"t": 1.0, "kind": "command", "text": "exit 0 & nproc", "rc": 0}], probes_for())
+    assert [e for e in out if e.get("kind") == "probe" and e.get("target") == "cpu"]

@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from .probes import command_stages, command_words
+from .probes import _ASSIGN, _ENV_VALUES, _program, command_stages, command_words
 from .shell_split import split_script
 
 ACTS = ("install", "import", "use", "remove")
@@ -76,7 +76,7 @@ def _names(where: str, cid: str, act: str, names: Any) -> tuple[str, ...]:
 class _UniqueKeys(yaml.SafeLoader):
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
         keys: list[Any] = []
-        for key_node, _ in node.value:
+        for key_node, _ in node.value if isinstance(node, yaml.MappingNode) else ():  # else the parent refuses it
             if key_node.tag == "tag:yaml.org,2002:merge":
                 continue
             key = self.construct_object(key_node, deep=deep)
@@ -89,7 +89,7 @@ class _UniqueKeys(yaml.SafeLoader):
 def load_candidate_file(path: str) -> dict[str, dict[str, tuple[str, ...]]]:
     """A run's ``--candidates`` file (YAML, or JSON, which is YAML) through :func:`validate_candidates`."""
     try:
-        raw = yaml.load(Path(path).read_text(encoding="utf-8"), Loader=_UniqueKeys)
+        raw = yaml.load(Path(path).read_text(encoding="utf-8"), Loader=_UniqueKeys)  # nosec B506 - a SafeLoader subclass
     except (OSError, UnicodeDecodeError, yaml.YAMLError, RecursionError) as exc:
         raise ValueError(f"--candidates {path}: {exc}") from exc
     return validate_candidates(raw, f"--candidates {path}")
@@ -120,10 +120,36 @@ def _ran(event: dict[str, Any]) -> bool:
     return not event.get("denied") and event.get("rc") == 0 and event.get("rc_from") != "success"
 
 
+def _runs(words: list[str]) -> list[list[str]]:
+    """The programs a simple command runs (empty for no program)."""
+    return list(command_words(words))
+
+
+def _env_help(words: list[str]) -> bool:
+    """Whether an ``env`` in the command is asked for its help or version: an option of its own, not the value of ``-u``."""
+    for i, word in enumerate(words):
+        if _program(word) != "env":
+            continue
+        j = i + 1
+        while j < len(words) and (words[j].startswith("-") or _ASSIGN.match(words[j])):
+            if words[j] in _INFO_FLAGS:
+                return True
+            j += 2 if words[j] in _ENV_VALUES else 1
+    return False
+
+
+def _call_of(words: list[str], views: list[list[str]]) -> tuple[str, list[str]] | None:
+    """The package call a command makes: none for ``! pip install x`` (it returns 0 when the install failed) or
+    ``env --help pip ...`` (it prints help and runs nothing), though ``exec env --help`` still replaces the shell."""
+    if words[:1] == ["!"] or _env_help(words):
+        return None
+    return next(filter(None, map(_package_call, views)), None)
+
+
 def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str, Sequence[str]]]) -> list[dict]:
     """An install or removal counts only where the command's exit code is its own: every part joined to the next by
-        views = [] if _INFO_FLAGS & set(words) else list(command_words(words))  # a help or version request runs nothing, even after ``env``
-    have failed or never run, so its install gives no choice."""
+    ``&&`` (rc 0 then means each ran), and not in a pipeline (the last stage's code) or behind ``!`` (it inverts the
+    code). A ``;``, ``||`` or ``&`` part may have failed or never run, so its install gives no choice."""
     parts = split_script(str(event.get("text", "")))
     if any(p.after not in ("", "&&") for p in parts[:-1]) or any(p.after not in ("", "&&", ";") for p in parts[-1:]):
         return []
@@ -135,10 +161,10 @@ def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str
         if len(stages) > 1:  # a pipeline reports its last stage's exit code
             continue
         words = stages[0] if stages else []  # ``exec >log`` has no program, ``> scipy`` no operand
-        views = list(command_words(words))
+        views = _runs(words)
         if any(view[:1] == ["exit"] for view in views):  # no later part runs
             break
-        call = next(filter(None, map(_package_call, views)), None)
+        call = _call_of(words, views)
         if call is not None:
             act, packages = call
             for cid, acts in candidates.items():

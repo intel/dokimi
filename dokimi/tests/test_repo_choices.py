@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from dokimi.repos.choices import validate_candidates, with_choices
+from dokimi.repos.choices import load_candidate_file, validate_candidates, with_choices
 from dokimi.repos.events import convert
 
 WS = "/ws"
@@ -378,3 +378,65 @@ def test_a_success_only_copilot_completion_preserves_the_status_without_a_choice
     events = convert("copilot-json", raw).events
     assert events[0]["rc"] == 0 and events[0]["rc_from"] == "success"
     assert _choices(with_choices(events, SCIPY_INSTALL, [])) == []
+
+
+def test_a_deeply_nested_candidate_file_is_a_value_error(tmp_path):
+    path = tmp_path / "candidates.yaml"
+    path.write_text("[" * 5000 + "]" * 5000, encoding="utf-8")
+    with pytest.raises(ValueError, match="--candidates"):
+        load_candidate_file(str(path))
+
+
+def test_a_candidate_id_given_twice_is_refused(tmp_path):
+    path = tmp_path / "candidates.yaml"
+    path.write_text("sp:\n  install: [scipy]\nsp:\n  import: [sklearn]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate key 'sp'"):
+        load_candidate_file(str(path))
+
+
+def test_a_candidate_file_with_distinct_ids_loads(tmp_path):
+    path = tmp_path / "candidates.yaml"
+    path.write_text("sp:\n  install: [scipy]\nsk:\n  import: [sklearn]\n", encoding="utf-8")
+    assert load_candidate_file(str(path)) == {"sp": {"install": ("scipy",)}, "sk": {"import": ("sklearn",)}}
+
+
+@pytest.mark.parametrize("text", ["! pip install scipy", "!  pip install scipy", "pip install scipy && ! pip install scipy"])
+def test_a_negated_install_gives_no_choice(text):
+    if text.startswith("pip"):  # the first part is not negated and still counts
+        assert _choice_of(text) == [("scipy", "install", None)]
+    else:
+        assert _choice_of(text) == []
+
+
+@pytest.mark.parametrize("text", ["env --help pip install scipy", "env -h pip install scipy", "env --version pip install scipy"])
+def test_env_help_runs_nothing_and_gives_no_choice(text):
+    assert _choice_of(text) == []
+
+
+def test_exec_of_a_help_request_still_ends_the_scan():
+    assert _choice_of("exec env --help && pip install scipy") == []
+    assert _choice_of("env --help && pip install scipy") == [("scipy", "install", None)]
+
+
+def test_a_deeply_nested_baseline_is_refused_as_input_not_a_crash(tmp_path):
+    import argparse
+
+    from dokimi.commands.repo_scan import baseline_from
+    from dokimi.utils import InputError
+
+    path = tmp_path / "deep.json"
+    path.write_text("[" * 5000 + "]" * 5000, encoding="utf-8")
+    with pytest.raises(InputError, match="--baseline"):
+        baseline_from(argparse.Namespace(baseline=str(path)), {"claims": []})
+
+
+def test_an_explicit_map_tag_on_a_sequence_is_a_value_error(tmp_path):
+    path = tmp_path / "candidates.yaml"
+    path.write_text("!!map [a]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="--candidates"):
+        load_candidate_file(str(path))
+
+
+def test_a_help_flag_that_is_the_value_of_env_u_does_not_hide_the_install():
+    assert _choice_of("env -u --help pip install scipy") == [("scipy", "install", None)]
+    assert _choice_of("sudo env --help pip install scipy") == []
