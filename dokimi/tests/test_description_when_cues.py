@@ -346,6 +346,7 @@ def test_an_itsu_cue_has_no_distance_limit_inside_its_sentence():
 def test_the_changelog_states_no_distance_limit_for_the_itsu_cue():
     fragment = Path(__file__).resolve().parent.parent / "changelog.d" / "20261113_120000_xaleryb_when-cue-followups.md"
     assert "80 characters" not in fragment.read_text(encoding="utf-8")
+    assert "at any distance" in fragment.read_text(encoding="utf-8")
 
 
 class _CountedSentence(str):
@@ -373,6 +374,21 @@ def test_a_capitalised_noun_after_beim_is_checked_without_copying_the_text_befor
 def test_a_german_abbreviation_does_not_end_the_sentence_with_beim(abbreviation):
     assert when_clause_found(f"Verwende diesen Skill laut {abbreviation}. 3 beim Deployen.") is True
     assert when_clause_found(f"Hilft beim Schreiben. Verwende diesen Skill laut {abbreviation}. 3.") is False
+
+
+@pytest.mark.parametrize("abbreviation", ["usw", "etc", "bzw", "Art", "Nr"])
+def test_a_capitalised_use_verb_after_an_abbreviation_starts_a_sentence(abbreviation):
+    assert when_clause_found(f"Erstellt Berichte, Tabellen {abbreviation}. Verwende diesen Skill beim Deployen.") is True
+    assert when_clause_found(f"Erstellt Berichte {abbreviation}. Verwende diesen Skill. Hilft beim Schreiben.") is False
+
+
+def test_an_abbreviation_before_a_noun_that_starts_like_a_use_verb_does_not_end_the_sentence():
+    assert when_clause_found("Verwende diesen Skill, um z. B. Nutzdaten beim Testen zu prüfen.") is True
+
+
+@pytest.mark.parametrize("noun", ["Ruf und Ansehen", "Nutzen und Risiken", "Setz und Ruf"])
+def test_a_capitalised_noun_that_can_be_a_verb_after_an_abbreviation_does_not_end_the_sentence(noun):
+    assert when_clause_found(f"Verwende diesen Skill, um z. B. {noun} beim Kunden zu verbessern.") is True
 
 
 def test_an_english_when_clause_still_passes_in_a_cjk_description():

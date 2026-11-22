@@ -12,14 +12,14 @@ import re
 from typing import Optional
 
 # German `beim` is a cue only in a sentence with a use verb; sentences end at `.;!?` (not `3.14`, not
-# `z. B.`), and plain searches per sentence keep a long description linear.
+# `z. B.`; an abbreviation followed by a capitalised imperative use verb does end it; `Ruf`, `Nutzen` are nouns), and plain searches per sentence keep a long description linear.
 _DE_ABBREVIATION_RE = re.compile(
-    r"\b(?:z\.\s?[bt]|d\.\s?h|u\.\s?[aä]|u\.\s?U|bzw|ca|usw|etc|vgl|evtl|ggf|ggfs|inkl|bspw|nr|abs|art|kap|tel|bd|hrsg|zzgl|exkl|mio|mrd)\.", re.I
+    r"\b(?:z\.\s?[bt]|d\.\s?h|u\.\s?[aä]|u\.\s?U|bzw|ca|usw|etc|vgl|evtl|ggf|ggfs|inkl|bspw|nr|abs|art|kap|tel|bd|hrsg|zzgl|exkl|mio|mrd)\.(?!\s+(?-i:(?=[A-ZÄÖÜ]))(?:verwend(?:e|en|est|et)|(?:be)?nutz(?:e|est|t))\b)", re.I
 )
 _DE_SENTENCE_END_RE = re.compile(r"[;!?]+|\.+(?!\w)")
 _DE_CLAUSE_OPENERS = ":：-–—•*>\"'„“”‚‘’([«»"
 _JA_ITSU_RE = re.compile(r"(?<![こそあど思追食つ])いつ(?!まで|も|でも|か|の間)")
-_JA_USE_RE = re.compile(r"使[うい用えわっ]|呼び出|起動|発動|実行|参照|適用|利用|用い")
+_JA_USE_RE = re.compile(r"使[うい用えわっお]|呼び出|起動|発動|実行|参照|適用|利用|用い")
 _JA_SENTENCE_RE = re.compile(r"[^。！？!?]+")
 _DE_BEIM_RE = re.compile(r"\bbeim\b", re.I)
 _DE_USE_RE = re.compile(r"(?<!beim )\b(?:verwend(?:e|en|est|et)|(?:be)?nutz(?:e|en|est|et|t)|einsetzen|aufrufen)\b", re.I)
