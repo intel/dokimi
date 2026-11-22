@@ -84,3 +84,21 @@ def test_view_takes_atom_labels_and_needs_atom_verdicts_to_join_them(capsys):
     parsed = build_parser().parse_args(["skill", "novelty", "view", "--novelty", "n.json", "--atoms", "a.json",
                                         "--atom-verdicts", "v.json", "--atom-labels", "l.csv"])
     assert parsed.atom_labels == "l.csv"
+
+
+def test_a_line_that_is_not_json_is_refused(tmp_path):
+    path = tmp_path / "labels.jsonl"
+    path.write_text('{"skill": "s", "atom_id": "a1", "label": "x"}\nnot json\n', encoding="utf-8")
+    with pytest.raises(InputError, match="line 2 is not JSON"):
+        load_atom_labels(path)
+
+
+def test_the_shares_table_has_a_row_per_label_and_the_whole_run():
+    from dokimi.novelty.atom_labels import format_shares
+
+    labels = {("skills/accel-tuning", "a1"): "setup", ("skills/accel-tuning", "a3"): "api"}
+    lines = format_shares(label_shares(_rows(), REF, labels)).splitlines()
+    assert lines[0].startswith("known/new shares for skill:skills/accel-tuning")
+    assert [line.split()[0] for line in lines[2:]] == ["api", "setup", "unlabelled", "all"]
+    setup = next(line for line in lines if line.startswith("setup"))
+    assert setup.split()[-2:] == ["100.0", "0.0"]
