@@ -140,6 +140,7 @@ HAS_WHEN = [
     pytest.param("いつこのスキルを発動する？", id="ja-itsu-hatsudou"),
     pytest.param("いつこのスキルを実行する？", id="ja-itsu-jikkou"),
     pytest.param("いつ参照すべきか", id="ja-itsu-sanshou"),
+    pytest.param("いつこのリポジトリのリリース前の設定ファイル検証にこのスキルを使うか。", id="ja-itsu-long-object-tsukau"),
     pytest.param("いつ適用するか", id="ja-itsu-tekiyou"),
     pytest.param("いつこれを利用する？", id="ja-itsu-riyou"),
 ]
