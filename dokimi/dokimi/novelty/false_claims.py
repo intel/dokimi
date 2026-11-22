@@ -237,8 +237,9 @@ def _judged(atom: Atom, sentence: str, judge: Callable[[str], dict],
         return None
     if verdict != "contradicts":
         return None
-    quote = reply.get("quote") if isinstance(reply.get("quote"), str) else ""
-    if not quote.strip() or quote.strip() not in sentence:
+    raw = reply.get("quote")
+    quote = raw.strip() if isinstance(raw, str) else ""
+    if not quote or quote not in sentence:
         report.n_unverified_quote += 1
         return None
-    return _claim(atom, sentence, quote.strip(), "judge")
+    return _claim(atom, sentence, quote, "judge")
