@@ -63,7 +63,8 @@ def _windows_total_memory() -> int:
                     ("avail_virtual", ctypes.c_ulonglong), ("avail_extended", ctypes.c_ulonglong)]
 
     status = MemoryStatus(length=ctypes.sizeof(MemoryStatus))
-    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))  # type: ignore[attr-defined]
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+        raise OSError("GlobalMemoryStatusEx failed")
     return int(status.total_phys)
 
 
