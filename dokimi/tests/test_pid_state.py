@@ -14,6 +14,7 @@ import pytest
 
 import tests.pid_state as pid_state_module
 from tests.pid_state import describe, pid_alive, pid_state, wait_until_gone
+from tests.waiting import wait_until
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX os.kill(pid, 0)")
@@ -89,14 +90,11 @@ def test_running_zombie_and_reaped_child_are_told_apart():
         assert pid_alive(child.pid)
         assert f"pid {child.pid} state " in describe(child.pid)
         # Wait for the child to exec before reading cmdline (#690).
-        deadline = time.monotonic() + 30
-        while "time.sleep(60)" not in describe(child.pid) and time.monotonic() < deadline:
-            time.sleep(0.01)
+        wait_until(lambda: "time.sleep(60)" in describe(child.pid), 30, what="the child to exec", interval=0.01)
         assert "time.sleep(60)" in describe(child.pid)
         child.kill()
-        deadline = time.monotonic() + 30
-        while pid_state(child.pid) != "Z" and time.monotonic() < deadline:
-            time.sleep(0.01)
+        wait_until(lambda: pid_state(child.pid) == "Z", 30, what="the killed child to become a zombie",
+                   interval=0.01)
         assert pid_state(child.pid) == "Z"  # killed, not reaped yet
         assert not pid_alive(child.pid)
     finally:

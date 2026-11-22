@@ -142,7 +142,7 @@ def _flaky(rate):
     counts, lock = {}, threading.Lock()
 
     def scorer(lib, q, ans):
-        time.sleep(random.random() * 0.001)
+        time.sleep(random.random() * 0.001)  # timing-ok: a jitter that shuffles the thread order, not a wait
         with lock:
             n = counts[(q, ans)] = counts.get((q, ans), 0) + 1
         if int(hashlib.md5(f"{q}|{ans}|{n}".encode(), usedforsecurity=False).hexdigest(), 16) % 1000 < rate * 1000:

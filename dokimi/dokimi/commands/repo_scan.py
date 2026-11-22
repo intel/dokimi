@@ -171,7 +171,7 @@ def baseline_from(args: argparse.Namespace, payload: dict) -> None:
         return
     try:
         doc = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:  # RecursionError: nesting past the decoder's limit
         raise InputError(f"--baseline {args.baseline}: {exc}") from None
     doc = doc.get("data", doc) if isinstance(doc, dict) and doc.get("schema_version") == "cli_output.v1" else doc
     if not isinstance(doc, dict) or not isinstance(doc.get("claims"), list):
