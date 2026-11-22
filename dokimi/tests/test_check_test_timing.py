@@ -225,6 +225,12 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("from time import sleep\n[sleep(1) for _ in (0,) if sleep(2) if (sleep := None)]\n",
      {"time.sleep": 1}),
     ("from time import sleep\n[sleep(1) for _ in (0,) if (sleep := sleep(2))]\n", {"time.sleep": 1}),
+    ("import time\nmatch 1:\n    case time:\n        time.sleep(1)\n", {}),
+    ("import time\nmatch [1, 2]:\n    case [_, *time]:\n        time.sleep(1)\n", {}),
+    ("import time\nmatch {1: 2}:\n    case {1: _, **time}:\n        time.sleep(1)\n", {}),
+    ("import time\nmatch 1:\n    case 2:\n        pass\n    case _:\n        time.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\nmatch 1:\n    case time:\n        pass\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\nif 1:\n    time = 1\n    time.sleep(1)\n", {}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])

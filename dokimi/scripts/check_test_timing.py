@@ -119,7 +119,7 @@ def _child_arms(node: ast.AST) -> dict[int, Arm]:
 def _survivors(entries: list[tuple[Pos, str | None, tuple[Span, ...], Arms]], pos: Pos) -> list[str | None]:
     """What a name may mean at ``pos`` after these bindings (in source order): the last one, and each earlier
     one that no later binding made on every path to it, such as the other arm of an ``if``. A binding in an
-    arm the call is not in never ran with it."""
+    arm the call is not in never ran with it. A binding in an arm the call stands in ran before it."""
     out: list[str | None] = []
     later: list[Arms] = []
     for _, meaning, _, path in reversed(entries):
@@ -128,6 +128,8 @@ def _survivors(entries: list[tuple[Pos, str | None, tuple[Span, ...], Arms]], po
         if not any(path[:len(other)] == other for other in later):
             out.append(meaning)
         later.append(path)
+        if path and all(lo <= pos < hi for a in path for n, (lo, hi) in enumerate(a.spans) if n == a.side):
+            break
     return out
 
 
@@ -271,6 +273,20 @@ def _bind_target(node: ast.AST, names: Names, at: Pos | None, path: Arms) -> Non
         _note(names, node.id, at or _end(node), None, path=path)
     elif isinstance(node, ast.ExceptHandler) and node.name:
         _note(names, node.name, (node.lineno, node.col_offset), None, path=path)
+    else:
+        _bind_pattern(node, names, at, path)
+
+
+def _bind_pattern(node: ast.AST, names: Names, at: Pos | None, path: Arms) -> None:
+    """The name a ``match`` capture binds: ``case x``, ``case [*x]``, ``case {**x}``; ``_`` has none."""
+    if isinstance(node, (ast.MatchAs, ast.MatchStar)):
+        name = node.name
+    elif isinstance(node, ast.MatchMapping):
+        name = node.rest
+    else:
+        return
+    if name:
+        _note(names, name, at or (node.lineno, node.col_offset), None, path=path)
 
 
 def _resolve(call: ast.Call, scopes: list[Scope]) -> str | None:
