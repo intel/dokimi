@@ -122,6 +122,62 @@ class RepoTree(Protocol):
         ...
 
 
+class _LinkLoop(SourceArgumentError):
+    """More than 40 links followed on one path: no file, as in a checkout (ELOOP)."""
+
+
+def _parts(text: str) -> list[str]:
+    """The components of a path as the file system reads them: ``\\`` separates only where ``os.sep`` is it."""
+    return text.replace("\\", "/").split("/") if os.sep == "\\" else text.split("/")
+
+
+def _inside(root: Path, text: str) -> str:
+    """The absolute ``text`` as a path relative to ``root``, kept as text so that a link farther along the
+    chain is still walked: by its own words when it lies under ``root``, else by where the file system lands."""
+    lexical = Path(text)  # not normalised: a ``..`` after a link goes up from the link's target
+    if lexical.is_relative_to(root):
+        return lexical.relative_to(root).as_posix()
+    landed = Path(os.path.realpath(text))
+    if not landed.is_relative_to(root):
+        raise SourceArgumentError(f"path escapes the repository: {text}")
+    return landed.relative_to(root).as_posix()
+
+
+def _walk_links(root: Path, path: str) -> Path:
+    """``path`` walked one component at a time, as a checkout does: a ``..`` after a link goes up from the link's
+    target. :class:`SourceArgumentError` if a ``..`` has nothing left to go up from, an absolute text lands outside
+    ``root``, or more than 40 links are followed."""
+    if os.path.isabs(path):
+        path = _inside(root, path)
+    pending = _parts(path)
+    walked: list[str] = []
+    hops = 0
+    while pending:
+        part = pending.pop(0)
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not walked:
+                raise SourceArgumentError(f"path escapes the repository: {path}")
+            walked.pop()
+            continue
+        walked.append(part)
+        here = root.joinpath(*walked)
+        if not here.is_symlink():
+            continue
+        hops += 1
+        if hops > 40:
+            raise _LinkLoop(f"too many levels of symbolic links: {path}")
+        text = os.readlink(here)
+        if os.path.isabs(text):
+            text = _inside(root, text)
+            walked = []
+        else:
+            walked.pop()
+        pending = _parts(text) + pending
+    return root.joinpath(*walked)
+
+
 class WorkTree:
     """A directory on disk, read as it is (uncommitted changes included); ``files``, when given, is its listing."""
 
@@ -131,10 +187,14 @@ class WorkTree:
         self._files: list[str] | None = sorted(files) if files is not None else None
 
     def _resolve(self, path: str) -> Path:
-        target = (self.root / path).resolve()
-        if not target.is_relative_to(self.root):
-            raise SourceArgumentError(f"path escapes the repository: {path}")
-        return target
+        """The file ``path`` names, walked as :meth:`GitTree._follow` walks it (#1084): a link whose ``..``
+        goes above the root escapes even if it comes back in by the root's own name; an absolute one is
+        followed where it lands inside the root."""
+        try:
+            return _walk_links(self.root, path)
+        except _LinkLoop:
+            (self.root / path).resolve()  # Python before 3.13 raises RuntimeError on a loop, as callers expect
+            raise
 
     def files(self) -> list[str]:
         """Every file, or inside a git working tree the files git would show: tracked or not ignored.
@@ -159,10 +219,16 @@ class WorkTree:
         return self._files
 
     def is_file(self, path: str) -> bool:
-        return self._resolve(path).is_file()
+        try:
+            return self._resolve(path).is_file()
+        except _LinkLoop:
+            return False
 
     def is_dir(self, path: str) -> bool:
-        return self._resolve(path).is_dir()
+        try:
+            return self._resolve(path).is_dir()
+        except _LinkLoop:
+            return False
 
     def read_text(self, path: str) -> str:
         return self._resolve(path).read_text(encoding="utf-8")
