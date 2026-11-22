@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # False claims: agent answers that contradict the product's documentation
 
 Status: research prototype, not wired into any command, score or gate.
