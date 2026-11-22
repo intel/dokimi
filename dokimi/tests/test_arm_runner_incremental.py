@@ -633,9 +633,9 @@ def test_a_run_wide_stop_is_set_while_another_question_holds_the_lock_for_its_sa
         return "answer", {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
 
     def halt(stop):
-        second = threads.get(threading.current_thread()) == "q2" and q2["checks"] == 1
-        if threads.get(threading.current_thread()) == "q2":
-            q2["checks"] += 1
+        mine = threads.get(threading.current_thread()) == "q2"
+        second = mine and q2["checks"] == 1
+        q2["checks"] += mine
         try:
             if second:
                 stop.wait(2)  # set at once with the fix; before it, only after q0's save, which waits for this
