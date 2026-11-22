@@ -282,10 +282,11 @@ def print_validation_stats(stats: Dict[str, Any]) -> None:
 
 
 def _require_local_doc_source(doc_source: str) -> None:
-    """#1086: a `local:<path>` source whose path is missing is an input error, not default seed topics."""
-    if not doc_source.startswith("local:"):
+    """#1086: a `local:<path>` or `okf:<path>` source whose path is missing is an input error, not default seed topics."""
+    prefix = next((p for p in ("local:", "okf:") if doc_source.startswith(p)), None)
+    if prefix is None:
         return
-    local_path = doc_source[len("local:"):]
+    local_path = doc_source[len(prefix):]
     try:
         found = Path(local_path).exists()
     except OSError:  # a name past NAME_MAX raises instead of answering False

@@ -12,8 +12,13 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from collections.abc import Callable
+from typing import Any
+
 import httpx
 import pytest
+
+from tests.exists_mock import exists_for_prefix
 
 from dokimi.mcp.context7 import Context7Client
 from dokimi.mcp.url_client import URLClient
@@ -285,7 +290,7 @@ def test_generate_does_not_replay_one_doc_source_topics_for_another(tmp_path, mo
 
     monkeypatch.chdir(tmp_path)
     real_exists = Path.exists  # `/docs` is only a source name here; #1086 refuses a missing local path
-    monkeypatch.setattr(Path, "exists", lambda self: str(self) == "/docs" or real_exists(self))
+    monkeypatch.setattr(Path, "exists", exists_for_prefix(real_exists, "/docs"))
     monkeypatch.setattr(factory, "create_doc_source_client", _client)
     monkeypatch.setattr(factory, "resolve_library_id_for_product", lambda *a, **kw: LIB)
     monkeypatch.setattr(questions_pkg, "QuestionGenerator", _Generator)
@@ -296,3 +301,13 @@ def test_generate_does_not_replay_one_doc_source_topics_for_another(tmp_path, mo
             product="oneTBB", personas=str(personas), topics=None, doc_source=source, context7_id=None,
             top_k=3, provider="openai", model="m", count=1, validate=False, output=None))
     assert seen == [["tbb::parallel_for"], ["tbb::flow_graph"]]
+
+
+def test_exists_mock_matches_a_path_as_windows_spells_it():
+    """#1086: `PureWindowsPath('/docs').as_posix()` is `/docs`; a path outside the prefix falls to the real check."""
+    from pathlib import PureWindowsPath
+
+    mock: Callable[[Any], bool] = exists_for_prefix(lambda self: False, "/docs")
+    assert mock(PureWindowsPath("/docs")) is True
+    assert mock(PureWindowsPath("/docs/caf\u00e9")) is True
+    assert mock(PureWindowsPath("/other")) is False

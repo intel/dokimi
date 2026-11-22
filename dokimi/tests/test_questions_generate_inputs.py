@@ -175,13 +175,14 @@ def test_generate_records_the_product_so_runs_list_finds_the_set(tmp_path, monke
     assert runs_list("oneDAL") == []
 
 
-def test_generate_exits_2_when_a_local_doc_source_path_is_missing(tmp_path, monkeypatch, capsys):
-    """#1086: `--doc-source local:<missing>` is an input error naming the path, before any generation."""
+@pytest.mark.parametrize("scheme", ["local", "okf"])
+def test_generate_exits_2_when_a_local_doc_source_path_is_missing(tmp_path, monkeypatch, capsys, scheme):
+    """#1086: `--doc-source local:<missing>` and `okf:<missing>` are input errors naming the path, before any generation."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
     (tmp_path / "personas.json").write_text('{"personas": []}', encoding="utf-8")
     missing = tmp_path / "missing"
-    assert _generate(monkeypatch, "--personas", "personas.json", "--doc-source", f"local:{missing}",
+    assert _generate(monkeypatch, "--personas", "personas.json", "--doc-source", f"{scheme}:{missing}",
                      "--output", "out.json") == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(missing) in err
