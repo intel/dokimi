@@ -184,7 +184,7 @@ _SHARED_FLAGS = (
     "--model", "answer-model", "--provider", "openrouter", "--context7-id", "/demo/docs",
     "--judge", "--judge-model", "judge-model", "--judge-provider", "openai",
     "--top-k", "7", "--rerank-threshold", "0.55", "--max-iterations", "3",
-    "--max-tokens", "32000", "--grounded-from-topics", "--concurrency", "2",
+    "--max-output-tokens", "32000", "--grounded-from-topics", "--concurrency", "2",
 )
 #: The flags only ``arms run`` and ``arms matrix-run`` take, away from their default.
 _ARMS_FLAGS = (

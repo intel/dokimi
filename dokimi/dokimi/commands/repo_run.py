@@ -169,11 +169,11 @@ def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None)
 def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
     """Whether a task of the exported eval dir names a ``dokimi:`` grader; an unreadable task.json counts."""
     from dokimi.repos.graders import builtin_name
-    from dokimi.repos.workspace import load_tasks
+    from dokimi.repos.workspace import PrepError, load_tasks
 
     try:
         tasks = load_tasks(content, manifest)
-    except (OSError, ValueError):
+    except (OSError, ValueError, PrepError):  # PrepError: a task.json that is not JSON or nested too deeply (#975)
         return True
     return any(isinstance(t.raw, dict) and builtin_name(t.raw.get("grader")) is not None for t in tasks)
 
@@ -265,6 +265,20 @@ def _errors():
     from dokimi.repos.workspace import PrepError
 
     return (ArmError, SourceError, ManifestError, ContainerError, PrepError, ProfileError, ValueError, OSError)
+
+
+def cmd_eval_check(args: argparse.Namespace) -> None:
+    """`eval check`: the self-check, or with --schema-only the manifest and task checks (`repo validate`, #94 M1)."""
+    from .repo import cmd_repo_validate
+
+    if args.schema_only:
+        for opt, dest, default in args.schema_refused:  # the self-check's options, which --schema-only would ignore
+            if getattr(args, dest, default) != default:
+                raise InputError(f"{opt} is for the self-check, which --schema-only skips")
+        return cmd_repo_validate(args)
+    if args.json or args.fail_on:
+        raise InputError("--json and --fail-on need --schema-only")
+    return cmd_repo_tasks_check(args)
 
 
 def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
@@ -616,12 +630,21 @@ RUN_EXIT = _SOURCE_EXIT + "for a cell that crashed, a batch budget stop or an in
 
 
 def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
-    # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`
+    # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`; with --schema-only,
+    # the manifest and task checks that `repo validate` ran.
     check_p = eval_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
-        "pass it (score-only: reach score.max), and the agent's container must not see tasks or source",
+        "pass it (score-only: reach score.max), and the agent's container must not see tasks or source; "
+        "--schema-only: the manifest and task.json checks of `repo validate`",
         description=CHECK_EXIT)
     _common(check_p, source_help, cache_help, positive_int)
+    check_p.add_argument("--schema-only", action="store_true", dest="schema_only",
+                         help="Check the manifest and every task.json against one snapshot, with no self-check run "
+                         "(what `repo validate` did); --json and --fail-on apply to it")
+    cli_flags.add(check_p, "output", "--json", action="store_true",
+                  help="Print cli_output.v1 on stdout (--schema-only: the full report under data)")
+    cli_flags.add(check_p, "fail_on", "--fail-on", choices=("warn", "fail"),
+                         help="--schema-only: warn exits 1 on a warning or error, fail on an error")
     check_p.add_argument("--warm", action="store_true",
                          help="Run null and oracle with network to fill the caches before offline runs")
     check_p.add_argument("--arm", action="append", default=None,
@@ -634,7 +657,13 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                          "and tasks whose host probe failed still exit 1, and so does a check in "
                          "which no task is ok")
     cli_flags.add(check_p, "output", "--out-dir", dest="out", default="repo-check", help="Work directory (default: repo-check)")
-    check_p.set_defaults(func=cmd_repo_tasks_check)
+    # Every option of the self-check that --schema-only does not read: passing one with --schema-only is a refusal.
+    schema_kept = {"schema_only", "json", "fail_on", "help", "manifest", "manifest_file", "cache_dir"}
+    schema_refused = tuple((a.option_strings[0], a.dest, a.default) for a in check_p._actions
+                           if a.option_strings and a.dest not in schema_kept
+                           and not isinstance(a, argparse._HelpAction))
+    check_p.set_defaults(func=cmd_eval_check, emits_cli_output=True, cli_kind="eval check",
+                         schema_refused=schema_refused)
 
     run_p = repo_sub.add_parser(
         "run", help="Run an agent per (task, arm, model, rep) in the image and grade each run; one "

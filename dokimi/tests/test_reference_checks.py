@@ -13,7 +13,6 @@ fake ``ask`` that answers the checklist's two polarities.
 from __future__ import annotations
 
 import json
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -96,11 +95,19 @@ def test_regex_check_and_a_bad_pattern():
 
 
 @pytest.mark.parametrize("negate", [False, True])
-def test_a_regex_that_backtracks_past_the_timeout_is_unscored(negate):
-    # (a|aa)+$ on a run of a's that ends in ! backtracks for minutes under re.
-    started = time.monotonic()
+def test_a_regex_that_backtracks_past_the_timeout_is_unscored(negate, monkeypatch):
+    # (a|aa)+$ on a run of a's that ends in ! backtracks for minutes under re. The real search runs and
+    # its own timeout ends it; the test checks the limit handed to it, not how long the runner took.
+    real_search, limits = regex.search, []
+
+    def search(pattern, string, flags=0, timeout=None):
+        assert timeout is not None, "a search without a limit hangs on this pattern"
+        limits.append(timeout)
+        return real_search(pattern, string, flags, timeout=timeout)
+
+    monkeypatch.setattr(regex, "search", search)
     g = _one({"type": "regex", "values": ["(a|aa)+$"], "negate": negate}, "a" * 40 + "!")
-    assert time.monotonic() - started < 5 * REGEX_TIMEOUT
+    assert len(limits) == 1 and 0 < limits[0] <= REGEX_TIMEOUT
     assert g.checks[0].as_dict() == {"type": "regex", "passed": None, "score": None,
                                      "detail": "not scored: regex ran past 1s"}
     assert g.score is None and g.passed is None
@@ -190,12 +197,18 @@ def test_a_space_is_a_real_pattern_and_an_unstripped_match_value():
     assert _one({"type": "regex", "values": [" "]}, "nogap").passed is False
 
 
-def test_a_settled_any_mode_regex_does_not_wait_for_a_later_pattern():
-    # The first pattern decides the check, so the timing-out second one is never run.
-    started = time.monotonic()
+def test_a_settled_any_mode_regex_does_not_wait_for_a_later_pattern(monkeypatch):
+    # The first pattern decides the check, so the timing-out second one is never searched.
+    real_search, searched = regex.search, []
+
+    def search(pattern, string, flags=0, timeout=None):
+        searched.append(pattern)
+        return real_search(pattern, string, flags, timeout=timeout)
+
+    monkeypatch.setattr(regex, "search", search)
     g = _one({"type": "regex", "values": ["!", "(a|aa)+$"]}, "a" * 40 + "!")
     assert (g.checks[0].passed, g.checks[0].score) == (True, 1.0)
-    assert time.monotonic() - started < REGEX_TIMEOUT
+    assert searched == ["!"]
 
 
 def test_an_all_mode_regex_is_not_settled_by_its_first_match():

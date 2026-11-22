@@ -74,7 +74,7 @@ CASES: dict[str, list[list[str]]] = {
     "estimate/all-atoms": [[*EST, "--all-atoms"]],
     "estimate/all-atoms-beats-max": [[*EST, "--all-atoms", "--max-atoms", "5"]],
     "estimate/every-stage-off": [[*EST, *NO_STAGES]],
-    "estimate/standard-budgets": [[*EST, "--tier", "standard", "--budgets", "0.6", "0.4",
+    "estimate/standard-budgets": [[*EST, "--tier", "standard", "--token-budgets", "0.6", "0.4",
                                    "0.2"]],
     "estimate/four-arms": [[*EST, "--arms", "no_artifact,full,placebo,shuffled"]],
     "estimate/arms-without-full": [[*EST, "--tier", "triage", "--arms", "no_artifact"]],

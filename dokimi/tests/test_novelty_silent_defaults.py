@@ -561,7 +561,7 @@ def test_an_answer_with_no_text_at_all_gets_the_max_tokens_hint(monkeypatch, tmp
     calls = _completion_counter(monkeypatch, tmp_path, None)
     result = _measure_once()
     assert all(run.errored for run in result.runs)
-    assert "raise --max-tokens" in result.runs[0].response
+    assert "raise --max-output-tokens" in result.runs[0].response
     _measure_once()
     assert len(calls) == 4  # nothing was stored
 
@@ -631,7 +631,7 @@ def test_an_empty_answer_is_a_dropped_pair_not_a_wrong_one(monkeypatch, tmp_path
     calls = _completion_counter(monkeypatch, tmp_path, "")
     result = _measure_once()
     assert all(run.errored for run in result.runs)
-    assert "raise --max-tokens" in result.runs[0].response
+    assert "raise --max-output-tokens" in result.runs[0].response
     assert result.paired("lenient")["n_unpaired_dropped"] == 1
     _measure_once()
     assert len(calls) == 4  # not cached either
