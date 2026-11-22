@@ -84,7 +84,7 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
 
     # 2. What will the measurement cost? Still no model. The walkthrough's own form.
     _run("skill", "novelty", "analyze", "--artifact", f"skill:{skill}",
-         "--tier", "study", "--estimate-only")
+         "--tier", "study", "--dry-run")
     printed = capsys.readouterr().out
     estimate = json.loads(printed[printed.index("{"):])
     assert estimate["estimate"]["total_calls"] > 0
@@ -135,6 +135,8 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
     assert artifact["schema_version"] == "novelty.v1"
     assert artifact["run_config"]["tier"]["name"] == "study"
     assert (out_dir / "novelty.md").exists()
+    verdicts = json.loads((out_dir / "novelty.atom_verdicts.json").read_text(encoding="utf-8"))
+    assert verdicts["schema_version"] == "novelty_atoms.v1" and verdicts["atoms"]
     # Step 6 of the walkthrough is about this file.
     view = out_dir / "annotated.html"
     assert view.exists() and view.stat().st_size > 0
@@ -306,7 +308,7 @@ def test_the_estimate_prices_the_bundled_files_when_they_are_included(tmp_path, 
 
     def estimate(*extra):
         args = build_parser().parse_args(
-            ["skill", "novelty", "analyze", "--artifact", f"skill:{skill / 'SKILL.md'}", "--estimate-only", *extra])
+            ["skill", "novelty", "analyze", "--artifact", f"skill:{skill / 'SKILL.md'}", "--dry-run", *extra])
         args.func(args)
         return json.loads(capsys.readouterr().out)
 
@@ -317,7 +319,7 @@ def test_the_estimate_prices_the_bundled_files_when_they_are_included(tmp_path, 
 
 def test_documented_estimate_flags_match_the_run_it_prices():
     """The walkthrough's estimate commands carry the flags of the run they price (doc reference)."""
-    estimates = [c for c in _documented_novelty_commands() if "--estimate-only" in c]
+    estimates = [c for c in _documented_novelty_commands() if "--dry-run" in c]
     assert estimates and all("--include-resources" in c for c in estimates)
 
 

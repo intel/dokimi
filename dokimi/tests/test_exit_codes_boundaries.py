@@ -30,6 +30,11 @@ from tests.cli_refusal import refusal
 PIN = "a" * 40
 
 
+def _leaf(command):
+    """The argv of a repo source command: `repo validate` moved to `eval check --schema-only` (#94 M1)."""
+    return ("eval", "check", "--schema-only") if command == "validate" else ("repo", command)
+
+
 def _argv(monkeypatch, *argv):
     monkeypatch.setattr("sys.argv", ["dokimi", *argv])
 
@@ -250,7 +255,7 @@ def test_repo_unreachable_source_keeps_exit_1(command, tmp_path, monkeypatch, ca
     # A pinned source that cannot be fetched is a fetch failure (network), not a bad invocation.
     # open_source is stubbed, so the result does not depend on git, the network or the host.
     monkeypatch.setattr("dokimi.repos.open_source", _failed_fetch)
-    _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
+    _argv(monkeypatch, *_leaf(command), f"https://127.0.0.1:9/example.git@{PIN}",
           "--cache-dir", str(tmp_path / "cache"))
     with refusal() as exc:
         cli.main()
@@ -269,7 +274,7 @@ def test_repo_source_os_or_value_error_keeps_exit_1_with_a_message(error, comman
         raise error
 
     monkeypatch.setattr("dokimi.repos.open_source", open_failed)
-    _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
+    _argv(monkeypatch, *_leaf(command), f"https://127.0.0.1:9/example.git@{PIN}",
           "--cache-dir", str(tmp_path / "cache"))
     with refusal() as exc:
         cli.main()
@@ -290,7 +295,7 @@ def test_repo_fetch_and_reach_os_or_value_error_keeps_exit_1_with_a_message(comm
 
     monkeypatch.setattr("dokimi.repos.open_source", open_failed)
     extra = ["--model", "m", "--out-dir", str(tmp_path / "out")] if command == "reach" else []
-    _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
+    _argv(monkeypatch, *_leaf(command), f"https://127.0.0.1:9/example.git@{PIN}",
           "--cache-dir", str(tmp_path / "cache"), *extra)
     with refusal() as exc:
         cli.main()
@@ -300,7 +305,7 @@ def test_repo_fetch_and_reach_os_or_value_error_keeps_exit_1_with_a_message(comm
 
 @pytest.mark.parametrize("command", REPO_SOURCE_COMMANDS)
 def test_repo_unpinned_remote_exits_2_for_every_source_command(command, tmp_path, monkeypatch, capsys):
-    _argv(monkeypatch, "repo", command, "https://example.com/example.git",
+    _argv(monkeypatch, *_leaf(command), "https://example.com/example.git",
           "--cache-dir", str(tmp_path / "cache"))
     with refusal() as exc:
         cli.main()
@@ -332,7 +337,7 @@ def test_repo_pinned_local_source_inside_a_repository_exits_2(command, tmp_path,
                   "commit", "-q", "-m", "init"]):
         subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
     extra = ["--model", "m"] if command == "reach" else []
-    err = _expect_exit(monkeypatch, capsys, 2, "repo", command, f"{repo / 'sub'}@HEAD", *extra)
+    err = _expect_exit(monkeypatch, capsys, 2, *_leaf(command), f"{repo / 'sub'}@HEAD", *extra)
     assert "inside a repository; give its root" in err
 
 
@@ -341,7 +346,7 @@ def test_repo_manifest_path_leaving_the_tree_exits_2_with_a_message(command, tmp
     # The tree refuses a path that escapes it with SourceError; the manifest is the caller's input.
     repo = tmp_path / "repo"
     repo.mkdir()
-    _argv(monkeypatch, "repo", command, str(repo), "--manifest", "../x.yaml")
+    _argv(monkeypatch, *_leaf(command), str(repo), "--manifest", "../x.yaml")
     with refusal() as exc:
         cli.main()
     assert exc.code == 2
@@ -362,7 +367,7 @@ def test_repo_manifest_read_that_fails_in_git_keeps_exit_1(command, tmp_path, mo
     repo.mkdir()
     monkeypatch.setattr("dokimi.commands.repo._load_manifest", failing_load)
     extra = [*REACH_ARGS[:-1], str(tmp_path / "reach-out")] if command == "reach" else []
-    err = _expect_exit(monkeypatch, capsys, 1, "repo", command, str(repo), *extra)
+    err = _expect_exit(monkeypatch, capsys, 1, *_leaf(command), str(repo), *extra)
     assert "git show failed" in err
 
 
@@ -397,7 +402,7 @@ def test_repo_reach_from_saved_git_read_that_fails_keeps_exit_1(tmp_path, monkey
     repo.mkdir()
     saved = tmp_path / "reach.json"
     saved.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr("dokimi.commands.repo._saved_reach_inputs",
+    monkeypatch.setattr("dokimi.commands.repo_reach._saved_reach_inputs",
                         lambda args: (SimpleNamespace(name="claude-code"), SimpleNamespace(), {"scenarios": []}))
     monkeypatch.setattr("dokimi.repos.open_source", lambda source, cache: SimpleNamespace(sha="a" * 40))
     monkeypatch.setattr("dokimi.commands.repo._load_manifest", lambda tree, args, **kwargs: SimpleNamespace(id="m"))
@@ -417,7 +422,7 @@ def _expect_exit(monkeypatch, capsys, code, *argv):
 def test_repo_validate_invalid_manifest_exits_2(tmp_path, monkeypatch, capsys):
     (tmp_path / ".agent-eval").mkdir()
     (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text("schema: no-such-schema\n", encoding="utf-8")
-    err = _expect_exit(monkeypatch, capsys, 2, "repo", "validate", str(tmp_path))
+    err = _expect_exit(monkeypatch, capsys, 2, "eval", "check", "--schema-only", str(tmp_path))
     assert err.startswith("Error: ")
 
 
@@ -426,7 +431,7 @@ def test_repo_manifest_yaml_timestamp_out_of_range_exits_2(command, tmp_path, mo
     # PyYAML raises a bare ValueError for a date it cannot build: a manifest error, not a traceback.
     (tmp_path / ".agent-eval").mkdir()
     (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text("id: 2026-99-99\n", encoding="utf-8")
-    err = _expect_exit(monkeypatch, capsys, 2, "repo", command, str(tmp_path))
+    err = _expect_exit(monkeypatch, capsys, 2, *_leaf(command), str(tmp_path))
     assert err.startswith("Error: ") and "Traceback" not in err
 
 
@@ -456,7 +461,7 @@ def test_repo_budget_unknown_harness_exits_2(tmp_path, monkeypatch, capsys):
 def test_repo_report_and_compare_batch_that_is_not_a_directory_exit_2(command, tmp_path, monkeypatch, capsys):
     missing = tmp_path / "no-such-batch"
     extra = ["--baseline", "none"] if command == "compare" else []
-    err = _expect_exit(monkeypatch, capsys, 2, "repo", command, str(missing), *extra)
+    err = _expect_exit(monkeypatch, capsys, 2, *_leaf(command), str(missing), *extra)
     assert f"not a directory: {missing}" in err
 
 
@@ -735,14 +740,14 @@ def test_trigger_set_unresolved_field_rule_is_refused_before_any_rewrite_call(tm
 
 
 def test_trigger_set_strict_refusal_exits_1(tmp_path, monkeypatch, capsys):
-    # One question is labelled and one is not, so the set has an unresolved label; --strict refuses it.
-    # --strict is a lint gate over a valid set: its verdict is exit 1, as on main.
+    # One question is labelled and one is not, so the set has an unresolved label; --fail-on warn refuses it.
+    # --fail-on warn is a lint gate over a valid set: its verdict is exit 1, as on main.
     spec = _trigger_questions(tmp_path, [
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
         {"id": "2", "text": "what is the weather"},
     ])
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
-          "--questions", spec, "--strict", "--out", str(tmp_path / "o.json"))
+          "--questions", spec, "--fail-on", "warn", "--out", str(tmp_path / "o.json"))
     with refusal() as exc:
         cli.main()
     assert exc.code == 1

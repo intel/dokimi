@@ -82,7 +82,7 @@ def test_the_extractor_runs_on_the_named_provider_and_every_role_gets_max_tokens
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x",
                   "--model", "claude-haiku-4-5", "--provider", "anthropic",
                   "--judge-model", "claude-sonnet-5-5", "--extract-model", "gpt-4o",
-                  "--extract-provider", "openai", "--max-tokens", "777")
+                  "--extract-provider", "openai", "--max-output-tokens", "777")
     extractor, answerer, judge = novelty_cost.clients(args)
     assert (extractor.model, extractor.provider) == ("gpt-4o", "openai")
     assert (judge.model, judge.provider) == ("claude-sonnet-5-5", "anthropic")
@@ -141,7 +141,7 @@ def test_the_estimate_points_at_the_cap(tmp_path, capsys):
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nText.\n", encoding="utf-8")
-    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--estimate-only")
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--dry-run")
     args.func(args)
     assert "--max-usd" in capsys.readouterr().err
 

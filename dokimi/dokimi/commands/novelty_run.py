@@ -39,7 +39,7 @@ def exit_if_analyze_partial(result, out) -> None:
 
 
 def add_spend_cap(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--max-usd", type=positive_usd, default=None, dest="max_usd",
+    parser.add_argument("--max-usd", type=positive_usd, default=None, dest="max_usd", metavar="X",
                         help="Stop the run once its model calls have cost this much (USD, "
                              "all roles together; calls in flight can overshoot it). A call "
                              "with no known price also stops it; a reply replayed from "

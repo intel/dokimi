@@ -26,7 +26,7 @@ from typing import Callable, NamedTuple, Optional
 from dokimi import process
 from dokimi.skills.loader import TEMPLATE_DIR_NAMES, VENDORED_DIR_NAMES
 
-ScriptFinding = tuple[str, str, str]  # (level, code, message), as ``validate.Finding`` takes them
+ScriptFinding = tuple[str, str, str, Optional[str]]  # (level, code, message, script), as ``validate.Finding`` takes them
 Which = Callable[[str], Optional[str]]
 
 MAX_BYTES = 1_000_000  # a larger file is not read
@@ -93,7 +93,7 @@ def script_findings(
         findings += _file_findings(path, path.relative_to(skill_dir).as_posix(), data, bash, runner)
     tools = _lint(python_files, shell_files, which, runner)
     if any(tools.values()):
-        findings.append(("note", "script-lint", _lint_message(tools)))
+        findings.append(("note", "script-lint", _lint_message(tools), None))
     return findings
 
 
@@ -104,17 +104,17 @@ def _file_findings(path: Path, rel: str, data: bytes, bash: Optional[str], runne
     found: list[ScriptFinding] = []
     if crlf and (suffix in SHELL_SUFFIXES or data.startswith(b"#!")):
         found.append(("warn", "script-crlf", f"{rel} has CRLF line endings: bash and a shebang "
-                      "interpreter fail on the carriage return"))
+                      "interpreter fail on the carriage return", rel))
     if suffix == ".py":
         problem = _python_problem(data, path)
         if problem:
-            found.append(("warn", "script-syntax", f"{rel} does not parse as Python: {problem}"))
+            found.append(("warn", "script-syntax", f"{rel} does not parse as Python: {problem}", rel))
     elif suffix in SHELL_SUFFIXES and bash is not None and not crlf and _runs_under_bash(data):
         # a CRLF script fails on every line, so its crlf finding is the one to fix; fish, zsh etc. are not bash's
         options = _shell_options(data)  # None: the shebang asks for an option bash -n cannot be given
         problem = None if options is None else _shell_problem(bash, options, data, runner)
         if problem:
-            found.append(("warn", "script-syntax", f"{rel} does not parse as shell: {problem}"))
+            found.append(("warn", "script-syntax", f"{rel} does not parse as shell: {problem}", rel))
     return found
 
 

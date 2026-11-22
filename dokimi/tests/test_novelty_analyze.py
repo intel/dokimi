@@ -258,6 +258,31 @@ def test_a_generator_that_drops_the_version_bound_is_dropped_and_warned_about(tm
     assert paraphrase["reasons"]["anchor_dropped"] == 1
     assert any("paraphrase wordings failed the fidelity check" in w
                for w in artifact["warnings"])
+    assert any("probes.by_kind.paraphrase.rejected_examples" in w for w in artifact["warnings"])
+    [example] = paraphrase["rejected_examples"]
+    assert example["candidate"] == "May it be enabled?"
+    assert "anchor_dropped" in example["reasons"]
+
+
+def _artifact_with_examples(examples):
+    from pathlib import Path
+
+    fixture = Path(__file__).parent / "fixtures" / "artifacts" / "novelty.v1.json"
+    artifact = json.loads(fixture.read_text(encoding="utf-8"))
+    row = {"generated": 30, "kept": 0, "rejected": 30, "malformed_rate": 1.0,
+           "reasons": {"restates_source": 30}, "rejected_examples": examples}
+    return dict(artifact, schema_version="novelty.v1", probes={"by_kind": {"reversal": row}})
+
+
+def test_the_schema_holds_rejected_examples_to_twenty_complete_rows():
+    example = {"atom_id": "a1", "source": "s", "candidate": "c", "reasons": ["empty"]}
+    validate_artifact("novelty", _artifact_with_examples([example] * 20))
+    with pytest.raises(ArtifactValidationError):
+        validate_artifact("novelty", _artifact_with_examples([example] * 21))
+    for missing in example:
+        partial = {k: v for k, v in example.items() if k != missing}
+        with pytest.raises(ArtifactValidationError):
+            validate_artifact("novelty", _artifact_with_examples([partial]))
 
 
 def test_a_bundle_run_reports_which_file_carried_each_atom(tmp_path):

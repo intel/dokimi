@@ -282,3 +282,11 @@ def test_a_miss_without_a_clean_baseline_score_leaves_the_doc_score_alone(tmp_pa
     _make_eval_file(tmp_path, "oneTBB", [_ev("q1", "Q?", 80, 60), miss])
     p = ResultsAggregator(tmp_path).aggregate().products[0]
     assert (p.doc_health, p.doc_score) == (80.0, 80.0)
+
+
+def test_save_dashboard_markdown_writes_a_lone_surrogate_in_a_product_name_as_a_question_mark(tmp_path):
+    data = DashboardData(generated_at="now", products=[
+        ProductSnapshot("n\ud800", "key", "", "m", 10, 80.0, 60.0, 20.0)])
+    path = tmp_path / "out" / "DASHBOARD.md"
+    save_dashboard_markdown(data, path)
+    assert "n?" in path.read_text(encoding="utf-8")

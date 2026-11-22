@@ -50,6 +50,11 @@ also holds a PR to:
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
   network calls.
+- Tests wait on a condition, not on time: a test that waits for a thread, process
+  or timer uses `tests/waiting.py`, never `time.sleep` or `threading.Timer`.
+  `scripts/check_test_timing.py` fails a new one unless its baseline holds it (it
+  only shrinks) or the line says `# timing-ok: <reason>`. A complexity test counts
+  work or uses `tests/growth_timing.py`, never an elapsed-time assertion.
 - Comments of at most two lines (`scripts/check_comment_blocks.py`): say the
   constraint or the reason, and end with an issue or PR URL when a reader needs
   the backstory. A block of three or more `#` lines fails once the PR adds or
@@ -135,8 +140,8 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
 - Commit with `git commit -s`: the repo is public and takes DCO sign-off
   (`CONTRIBUTING.md` at the root).
-- A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` /
-  `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
+- A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` (bar
+  `project.version`) / `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
   `dokimi/changelog.d/` (`scriv create`), never an edit to `CHANGELOG.md`; the
   `Fragment for package changes` step in `ci.yml`'s `static` job enforces it. Versioning and releases:
   `dokimi/docs/releasing.md`.

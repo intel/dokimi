@@ -97,11 +97,3 @@ def build_run_manifest(
     if extra:
         manifest["extra"] = extra
     return manifest
-
-
-def write_run_manifest(manifest: dict, path: Path) -> None:
-    import json
-
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

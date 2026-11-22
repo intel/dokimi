@@ -21,6 +21,9 @@ code spans of a prose file (Markdown, .mdx, .txt, .rst, .adoc), and the whole of
 (a script, say). So "pip install to get started" in a sentence is not an install. A skill at the
 root of a scanned checkout reads its own ``SKILL.md`` only, since its bundled files are the rest of that
 checkout.
+
+The text is read in each of its :func:`dokimi.external.lookalikes.readings`, so a Cyrillic, Greek or fullwidth
+look-alike letter does not hide a command.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from typing import Iterator, Sequence
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
+from .lookalikes import readings
 from .skill_markdown import CODE_SPAN_RE
 
 BUNDLED_MAX_BYTES = 256 * 1024
@@ -42,6 +46,15 @@ EXAMPLES_SHOWN = 3
 # Prose files: their installs are read from code (fences and spans), as in Markdown.
 PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
 
+# A word that runs what it reads (exec, eval, a shell, a child process); a word that ends a string
+# literal ("eval") is data. A command substitution (``$(``, a backtick) hands the program to the shell.
+_EXEC = (r"(?:(?<!\w)(?:exec|eval|system|popen|spawn|subprocess|child_process|__import__|Function|runpy"
+         r"|instance_eval|instance_exec|class_eval|module_eval|qx)(?!\w*['\"])|\$\(|`)")
+# The inline program after ``-c``/``-e``: one quoted string (it may span lines; a double-quoted one holds ``\"``) or one
+# word, none of it running anything, and ended there: a quoted segment glued to it is part of the program.
+_CLEAN_PROGRAM = (
+    rf"(?:'(?:(?!{_EXEC})[^'])*'|\"(?:\\[\s\S]|(?!{_EXEC})[^\"\\])*\"|(?:(?!{_EXEC})[^\s;&|'\"])+)(?![^\s;&|])"
+)
 # Bounded (500 pieces) so a long line of curl words stays linear; ``||`` is not a pipe, ``|&`` is.
 # A quoted string is taken whole, so a ``&`` or ``;`` in a quoted URL does not end the command.
 _PIPE_TO = (
@@ -50,7 +63,15 @@ _PIPE_TO = (
 )
 PIPE_TO_SHELL = re.compile(
     r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
-    + _PIPE_TO + r"(?:(?:ba|z|da|k)?sh|fish|python(?:3(?:\.\d+)?)?|node|perl|ruby)\b"
+    + _PIPE_TO + r"(?:"
+    # An inline program (`python -c`, `node -e`, `ruby -e`) or `python -m json.tool` takes the download as data,
+    # unless the program execs or evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
+    r"(?:(?:ba|z|da|k)?sh|fish)\b"
+    rf"|python(?:3(?:\.\d+)?)?(?![\w.])(?![ \t]+-c(?![\w-])[ \t]+{_CLEAN_PROGRAM})(?![ \t]+-m[ \t]+json\.tool(?![\w.-]))"
+    rf"|node\b(?![ \t]+-[ep](?![\w-])[ \t]+{_CLEAN_PROGRAM})"
+    rf"|perl\b(?![ \t]+-[eE](?![\w-])[ \t]+{_CLEAN_PROGRAM})"
+    rf"|ruby\b(?![ \t]+-e(?![\w-])[ \t]+{_CLEAN_PROGRAM})"
+    r")"
 )
 PERMISSION_BYPASS = re.compile(
     r"(?<![\w-])--dangerously-skip-permissions(?![\w-])|(?<![\w-])--yolo(?![\w-])|\bbypassPermissions\b"
@@ -419,19 +440,36 @@ def _without_printed(code: str) -> str:
     return "".join(mask)
 
 
-def _unpinned_installs(code: str) -> list[str]:
-    """One entry per distinct ``<manager> <name>``: the same install shown twice is one."""
-    found: list[str] = []
+def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
+    """``(offset in code, command, end of its arguments, ["pip name", ...])`` of each install command, with an empty
+    list when all its packages are pinned. The offset is where the arguments begin, which folding a prefix
+    (``ｕｖ pip``) does not move. The quoted text of an ``echo`` or ``printf`` is blanked first, in place, so no
+    offset moves."""
     code = _without_printed(code)
-    for manager, pattern, names in (
-        ("pip", PIP, _unpinned_pip),
-        ("npm", NPM, _unpinned_npm),
-        ("pnpm", PNPM, lambda rest: _unpinned_npm(rest, PNPM_VALUE_OPTIONS)),
-        ("pnpm", PNPM_DLX, _unpinned_dlx),
-        ("npx", NPX, _unpinned_npx),
-    ):
-        found += [f"{manager} {n}" for m in pattern.finditer(code) for n in names(*m.groups())]
-    return list(dict.fromkeys(found))
+    found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
+    found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
+    found += [(m.start(1), "pnpm", m.end(1), [f"pnpm {n}" for n in _unpinned_npm(m.group(1), PNPM_VALUE_OPTIONS)])
+              for m in PNPM.finditer(code)]
+    found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
+              for m in PNPM_DLX.finditer(code)]
+    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1))]) for m in NPX.finditer(code)]
+    return found
+
+
+def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
+    """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
+    once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
+    same place is counted once, with the packages of the most folded reading that finds it. A reading that finds no
+    unpinned package replaces an earlier result only when it reads the same arguments (a fullwidth ``＝＝`` pins a
+    package the raw reading calls unpinned); one that reads fewer has ended the command at a fullwidth separator,
+    which is not evidence about the arguments the earlier reading saw. A command at another place is another install."""
+    best: dict[tuple[int, str], tuple[int, list[str]]] = {}
+    for reading in readings(_code_text(text, markdown)):
+        for offset, command, end, labels in _unpinned_at(reading):
+            key = (offset, command)
+            if labels or key not in best or best[key][0] == end:
+                best[key] = (end, labels)
+    return [label for key in sorted(best) for label in best[key][1]]
 
 
 def _is_skill_dir(path: Path) -> bool:
@@ -487,8 +525,9 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
 
     findings: list[tuple[str, str]] = []
     unpinned: list[str] = []
-    for rel, text in sources:
-        pipes = _lines_of(text, PIPE_TO_SHELL.finditer(text))
+    for rel, raw in sources:
+        # Each reading of the text: folding a character that is not a letter can also end a match the raw text has.
+        pipes = _lines_of(raw, (m for r in readings(raw) for m in PIPE_TO_SHELL.finditer(r)))
         if pipes:
             where = ", ".join(str(n) for n in pipes)
             findings.append((
@@ -496,7 +535,7 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
                 f"a download is piped into a shell or interpreter in {rel} (line {where}); "
                 "save the file, read it, then run it",
             ))
-        bypass = _lines_of(text, PERMISSION_BYPASS.finditer(text))
+        bypass = _lines_of(raw, (m for r in readings(raw) for m in PERMISSION_BYPASS.finditer(r)))
         if bypass:
             where = ", ".join(str(n) for n in bypass)
             findings.append((
@@ -504,7 +543,7 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
                 f"{rel} names a flag or mode that turns off the agent's permission prompts (line {where}); "
                 "say what it may run unprompted, or drop it",
             ))
-        unpinned += _unpinned_installs(_code_text(text, rel.lower().endswith(PROSE_SUFFIXES)))
+        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES))
 
     unpinned = list(dict.fromkeys(unpinned))  # one per package across SKILL.md and the bundled files
     if unpinned:

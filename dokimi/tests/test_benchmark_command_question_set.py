@@ -16,6 +16,13 @@ from dokimi.registry import ProductEntry
 from tests.cli_refusal import refusal
 
 
+@pytest.fixture(autouse=True)
+def _provider_keys(monkeypatch):
+    """#967: `benchmark run|batch` refuse a missing key, so these tests hold one."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+
+
 class _Registry:
     def get(self, key: str) -> ProductEntry:
         assert key == "onetbb"
@@ -457,7 +464,7 @@ def test_run_rejects_an_unusable_questions_from_before_any_call(
     monkeypatch.setattr(benchmark, "_run_single_library", lambda *a, **k: calls.append(k))
 
     args = build_parser().parse_args([
-        "benchmark", "run", "--library", "onetbb", "--multi-run", str(multi_run),
+        "benchmark", "run", "--library", "onetbb", "--reps", str(multi_run),
         "--out-dir", str(tmp_path / "out"),
         "--questions-from", str(make_source(tmp_path)),
     ])

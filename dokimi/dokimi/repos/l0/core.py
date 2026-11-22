@@ -25,6 +25,7 @@ from ..source import GitTree, RepoTree, SourceError
 from . import branches, workflows
 from .gitignore import GitIgnore, Rule
 from .held import held_dirs
+from .identifiers import is_identifier
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 from .rule_links import loaded_text, rule_link_targets
 
@@ -43,7 +44,6 @@ CONVENTION_WORDS = frozenset({"CamelCase", "camelCase", "PascalCase", "snake_cas
 _EXT = (r"h|hh|hpp|hxx|c|cc|cpp|cxx|cu|i|py|pyx|pxd|pyi|bzl|bazel|md|rst|txt|yml|yaml|json|toml|cfg|ini|"
         r"mk|cmake|in|sh|bat|ps1|ver|js|ts|go|rs|java")
 _PATHLIKE = re.compile(rf"^(?:\.{{0,2}}/)?[\w.@\-*<>{{}}]+(?:/[\w.@\-*<>{{}},]*)+$|^[\w\-*.]+\.(?:{_EXT})$")
-_IDENT = re.compile(r"^[A-Za-z_]\w*(::\w+)+$|^[A-Z][A-Z0-9_]{3,}$|^[a-z]+_[a-z_]+$|^[A-Z]\w*[a-z]\w*[A-Z]\w*$")
 _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
@@ -52,6 +52,7 @@ _PLACEHOLDER = re.compile(r"^(?:<[^>]+>|\{[^}]+\}|\$\w+|\$\{[^}]+\}|\.\.\.)$")
 # an Action a workflow step uses is `ok`. A ref ending in a file extension (`assets/icon@2x.png`) is a file name.
 _ACTION_REF = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@(?![\w.-]*\.[A-Za-z][A-Za-z0-9]{0,4}$)"
                          r"[\w.-]+?(?:\.\.\.|…)?$")
+_TRAILING_COMMENT = re.compile(r"(?<!\s)\s+#.*$")  # from the start of the whitespace run before the first `#`; no start inside a run
 _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, maybe with a comment
 # `2>&1`, `> log`, `>>log`, `&>/dev/null`, `< in`: a redirection and its target, not arguments.
 _REDIRECT = re.compile(r"(?:(?<=\s)|^)[0-9]?(?:&>>?|>>?|<)(?:&[0-9]+|\s*[^\s|;&<>]+)")
@@ -566,7 +567,7 @@ class Scan:
             r = self.resolve_path(file, span)
             if r:
                 self.add(file, line, "path", span, r[0], r[1], ctx)
-        elif _IDENT.match(span) and span not in CONVENTION_WORDS:
+        elif is_identifier(span) and span not in CONVENTION_WORDS:
             tok = span.split("::")[-1]
             if tok in self.words():
                 self.add(file, line, "identifier", span, "ok", f"`{tok}` found in tracked non-doc files", ctx)
@@ -630,7 +631,7 @@ class Scan:
     def check_fence(self, file: str, fence: Fence) -> None:
         from . import adapters
 
-        if fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS:
+        if fence.lines and (fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS):
             code = textwrap.dedent("\n".join(text for _, text in fence.lines)).split("\n")
             fence = Fence(fence.line, fence.lang, [(n, t) for (n, _), t in zip(fence.lines, code, strict=True)])  # in a list item
             if "bazel" in self.adapters and (fence.lang in STARLARK_LANGS or adapters.reads_as_build(self, fence)):
@@ -646,8 +647,7 @@ class Scan:
                          "command wrapped in backticks inside a code fence: pasted, it runs as command substitution",
                          raw)
                 s = wrapped.group(1)
-            s = _PROMPT.sub("", s)
-            s = re.sub(r"\s+#.*$", "", s)
+            s = _TRAILING_COMMENT.sub("", _PROMPT.sub("", s))
             if s and not s.startswith("#"):
                 self.check_command(file, n, s, raw)
         self._cd, self._cd_stack = None, []
@@ -709,7 +709,7 @@ def logical_lines(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
         if heredoc:
             heredoc = "" if raw.strip() == heredoc else heredoc
             continue
-        code = "" if raw.lstrip().startswith("#") else re.sub(r"\s+#.*$", "", raw)
+        code = "" if raw.lstrip().startswith("#") else _TRAILING_COMMENT.sub("", raw)
         if code.rstrip().endswith("\\") and raw.rstrip().endswith("\\"):  # not a backslash then a comment
             first = first if joined else n
             joined += code.rstrip()[:-1] + " "

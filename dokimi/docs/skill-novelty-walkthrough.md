@@ -59,7 +59,7 @@ listing truncates descriptions selects on less text than the command shows.
 ## 2. What will the measurement cost? (free)
 
 ```bash
-python cli.py skill novelty analyze --artifact skill:skills/my-skill --tier study --estimate-only \
+python cli.py skill novelty analyze --artifact skill:skills/my-skill --tier study --dry-run \
     --include-resources
 ```
 
@@ -184,7 +184,7 @@ extraction, not empty.
 
 ```bash
 python cli.py skill shorten --artifact skill:skills/my-skill --atoms atoms.json \
-    --budgets 0.75 0.5 --lexical-only --out short/SKILL.md
+    --token-budgets 0.75 0.5 --lexical-only --out short/SKILL.md
 ```
 
 `--lexical-only` runs the retention oracle without an LLM adjudicator: cheap, reproducible,

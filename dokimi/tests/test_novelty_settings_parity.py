@@ -6,7 +6,7 @@
 Resolving the tier-controlled flags in one place (``tiers.resolve_settings``) is a
 refactor, and a refactor changes no number (#4). Each case runs the real CLI -- with
 scripted clients, so nothing leaves the machine -- and keeps what the flags decide: the
-``--estimate-only`` bill and its stderr, and for a measured run the ``run_config`` (tier
+``--dry-run`` bill and its stderr, and for a measured run the ``run_config`` (tier
 record included), the warnings, the model calls per role, the atom cap and the probe kinds.
 ``tests/fixtures/novelty_settings_main.json`` is this module's ``_capture`` output on
 ``main`` at f76a760. The module uses only interfaces that exist there, so it runs there
@@ -52,7 +52,7 @@ def _big_skill() -> str:
     return f"---\nname: big\ndescription: A big skill\n---\n\n# Big\n\n{body}\n"
 
 
-EST = ["skill", "novelty", "analyze", "--artifact", "skill:big", "--estimate-only"]
+EST = ["skill", "novelty", "analyze", "--artifact", "skill:big", "--dry-run"]
 RUN = ["skill", "novelty", "analyze", "--artifact", "skill:accel-tuning", "--concurrency", "1",
        "--out-dir", "out"]
 ATOMS = ["skill", "novelty", "atoms", "--artifact", "skill:accel-tuning", "--out", "atoms.json"]
@@ -74,7 +74,7 @@ CASES: dict[str, list[list[str]]] = {
     "estimate/all-atoms": [[*EST, "--all-atoms"]],
     "estimate/all-atoms-beats-max": [[*EST, "--all-atoms", "--max-atoms", "5"]],
     "estimate/every-stage-off": [[*EST, *NO_STAGES]],
-    "estimate/standard-budgets": [[*EST, "--tier", "standard", "--budgets", "0.6", "0.4",
+    "estimate/standard-budgets": [[*EST, "--tier", "standard", "--token-budgets", "0.6", "0.4",
                                    "0.2"]],
     "estimate/four-arms": [[*EST, "--arms", "no_artifact,full,placebo,shuffled"]],
     "estimate/arms-without-full": [[*EST, "--tier", "triage", "--arms", "no_artifact"]],

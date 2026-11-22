@@ -77,8 +77,8 @@ JUDGE_MODEL_HELP = (f"Judge model (default: the default judge for --judge-provid
 DEFAULT_RETRIEVAL_TOP_K = 3
 
 # Answering/judging method version, stamped into answers and eval artifacts; bump it when a change moves scores.
-# A later compare is meant to refuse mixed versions; an unstamped artifact predates it (#228 step 2) and is v1.
-ANSWERING_METHOD_VERSION = 2
+# Unstamped is v1 (before #228 step 2); v3 retrieves through DocTreatment (step 3). Compare is to refuse a mix.
+ANSWERING_METHOD_VERSION = 3
 #: The version of an artifact that carries no stamp (written before ANSWERING_METHOD_VERSION existed).
 LEGACY_ANSWERING_METHOD_VERSION = 1
 
