@@ -85,7 +85,7 @@ def test_input_or_usage_refusal_exits_2_with_a_message(argv_for, needle, tmp_pat
 
 def test_explore_list_without_a_bundled_task_root_exits_2(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("dokimi.explore.tasks.EXPLORE_TASKS_ROOT", tmp_path / "absent")
-    monkeypatch.setattr("sys.argv", ["dokimi", "explore", "list"])
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "tasks", "list", "--format", "localization"])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert "Pass --tasks-root" in capsys.readouterr().err

@@ -213,7 +213,7 @@ def _member_specs(kind: str, ref: str, *, agentic: bool) -> list[str]:
         return [f"agent:{ref}" if agentic else f"docs:{ref}"]
     if kind == "repo":
         raise ValueError(
-            "repo subjects have no prompt arm; validate them with `repo validate` "
+            "repo subjects have no prompt arm; validate them with `eval check --schema-only` "
             "(repository-mode runs are not implemented yet)"
         )
     raise ValueError(f"unsupported subject kind {kind!r}")

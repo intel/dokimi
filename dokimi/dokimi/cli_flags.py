@@ -433,7 +433,7 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--jobs", "--concurrency", leaves=(("catalog", "check"), ("eval", "check"), ("repo", "run"))),
     # Fail-on concept (F1b): a gate on warnings or failures is `--fail-on {warn,fail}`. The moved
     # leaves gate on the level their old flag gated on; `--strict` keeps its other meanings.
-    FlagMove("--fail-on-warning", "--fail-on=warn", leaves=(("repo", "validate"), ("repo", "budget"))),
+    FlagMove("--fail-on-warning", "--fail-on=warn", leaves=(("eval", "check"), ("repo", "budget"))),
     FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
     FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
     FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
