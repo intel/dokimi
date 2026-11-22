@@ -102,7 +102,7 @@ def _pr(action: str, label: str | None = None) -> dict:
     return event | ({"github.event.label.name": label} if label else {})
 
 
-_PR_JOBS = set(_ci()["jobs"]) - {"test-latest"}
+_PR_JOBS = set(_ci()["jobs"]) - {"test-latest", "test-seeds"}
 
 
 @pytest.mark.parametrize("action", ["labeled", "unlabeled"])
@@ -114,6 +114,16 @@ def test_a_label_no_step_reads_neither_cancels_the_run_nor_runs_the_jobs(action)
     assert (_group(ignored), _ran(ignored)) == ("ci-9001", set())
     for label in read:
         assert (_group(_pr(action, label)), _ran(_pr(action, label))) == ("ci-512", _PR_JOBS)
+
+
+def test_the_seed_job_runs_on_schedule_and_dispatch_only_under_a_seed_it_passes_to_pytest():
+    """#1059 asks for a scheduled whole-suite run on main under several random seeds."""
+    for name in ("schedule", "workflow_dispatch"):
+        assert "test-seeds" in _ran({"github.event_name": name})
+    for event in ({"github.event_name": "push"}, _pr("synchronize"), _pr("labeled", "skip-changelog")):
+        assert "test-seeds" not in _ran(event)
+    runs = [str(step.get("run", "")) for step in _ci()["jobs"]["test-seeds"]["steps"]]
+    assert any("pytest" in run and "-n auto" in run and '--randomly-seed="$SEED"' in run for run in runs)
 
 
 def test_a_push_to_a_pr_supersedes_its_run_and_a_main_push_keeps_its_own():
