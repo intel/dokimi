@@ -21,7 +21,7 @@ criteria:
     delivery: available
     enforce: true
     capability: question-set-pinning
-    surfaces: ["benchmark run --questions-root", "benchmark run --multi-run"]
+    surfaces: ["benchmark run --questions-root", "benchmark run --reps"]
     outcome: OUTCOME-PINNED-QUESTIONS
     refs: [docs/user-flow.md#4-reuse-same-question-set-for-fair-comparison, dokimi/orchestrator/pipeline.py]
     evidence:
@@ -105,12 +105,12 @@ criteria:
     delivery: available
     enforce: true
     capability: guidance-static-check
-    surfaces: ["repo scan --fail-on-fail"]
+    surfaces: ["repo scan --fail-on"]
     refs: [docs/repo-evaluation-contract.md#8-l0-scan-repo_readinessv1, dokimi/commands/repo.py]
     evidence:
       - id: cjm-repo-scan
         kind: cli_scenario
-        invokes: ["repo scan --manifest-file --out", "repo scan --fail-on-fail"]
+        invokes: ["repo scan --manifest-file --out", "repo scan --fail-on"]
         stubs: []
     scope: a toy git repository fixture; real scan code, no network
   AC-J04-003:
@@ -196,11 +196,11 @@ criteria:
     delivery: available
     enforce: true
     capability: guidance-static-check
-    surfaces: ["repo scan --fail-on-fail"]
+    surfaces: ["repo scan --fail-on"]
     evidence:
       - id: cjm-repo-scan
         kind: cli_scenario
-        invokes: ["repo scan --manifest-file --out", "repo scan --fail-on-fail"]
+        invokes: ["repo scan --manifest-file --out", "repo scan --fail-on"]
         stubs: []
   AC-J03-003:
     delivery: available
@@ -247,12 +247,12 @@ criteria:
     evidence:
       - id: cjm-repo-budget
         kind: cli_scenario
-        invokes: ["repo budget --fail-on-warning", "repo budget --out"]
+        invokes: ["repo budget --fail-on", "repo budget --out"]
         stubs: []
   AC-J03-002:
     delivery: available
     enforce: false
-    surfaces: ["repo validate --manifest"]
+    surfaces: ["eval check --schema-only --manifest"]
     gaps: ["not yet bound to a test id"]
 
   # ---------------------------------------------------------------- J7
@@ -299,7 +299,7 @@ criteria:
     evidence:
       - id: cjm-builtin-review-graders
         kind: cli_scenario
-        invokes: ["eval check --task", "repo validate --json"]
+        invokes: ["eval check --task", "eval check --schema-only --json"]
         stubs: [Docker (FakeRunner)]
   AC-J07-005:
     delivery: available

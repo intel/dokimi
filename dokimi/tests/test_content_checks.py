@@ -68,6 +68,37 @@ def test_legacy_id_in_bundled_script_names_the_file_and_line(tmp_path):
     assert message.startswith("scripts/call.py line 1:")
 
 
+@pytest.mark.parametrize(
+    ("alias", "state", "replacement"),
+    [
+        ("claude-opus-4-0", "retired by anthropic on 2026-06-15", "use claude-opus-4-8"),
+        ("claude-sonnet-4-0", "retired by anthropic on 2026-06-15", "use claude-sonnet-5-5"),
+        ("claude-opus-4-1", "retired by anthropic on 2026-08-05", "use claude-opus-4-8"),
+        ("claude-3-7-sonnet-latest", "retired by anthropic on 2026-02-19", "use claude-sonnet-5-5"),
+        ("claude-3-5-haiku-latest", "retired by anthropic on 2026-02-19", "use claude-haiku-4-5-20251001"),
+        ("claude-3-5-sonnet-latest", "retired by anthropic on 2025-10-28", "use claude-sonnet-5-5"),
+        ("claude-3-opus-latest", "retired by anthropic on 2026-01-05", "use claude-opus-4-8"),
+    ],
+)
+def test_alias_of_a_retired_dated_id_is_a_warning(tmp_path, alias, state, replacement):
+    # #945: an alias beside a retired dated ID in legacy_models.toml is read as the same retired model.
+    _skill(tmp_path / "skills", "alias-only", body=f'\nCall the API with `model="{alias}"`.\n')
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert f"'{alias}'" in message
+    assert state in message
+    assert replacement in message
+
+
+def test_alias_does_not_match_inside_a_dated_id_or_a_longer_name(tmp_path):
+    # #945, and docs/external-content.md: IDs match whole tokens, so adding an alias adds no second match.
+    # The alias claude-opus-4-1 is a prefix of the dated ID: one finding; "claude-opus-4-0-beta" is another name.
+    _skill(tmp_path / "skills", "dated", body="Use claude-opus-4-1-20250805 and claude-opus-4-0-beta.\n")
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert "'claude-opus-4-1-20250805'" in message
+
+
 def test_model_id_inside_a_longer_name_or_a_version_step_is_not_matched(tmp_path):
     # "gpt-4" is listed, but "gpt-4.1" is a different model; "-notes" makes the opus ID part of a longer name.
     _skill(
@@ -321,3 +352,243 @@ def test_a_listed_but_unenterable_folder_does_not_stop_the_text_walk(tmp_path):
         assert [p.name for p in _text_files(skill_dir)] == ["SKILL.md"]
     finally:
         noexec.chmod(0o755)
+
+
+# ---- look-alike letters (#960) ------------------------------------------------------------------
+
+def _fullwidth(text: str) -> str:
+    return "".join(chr(ord(c) + 0xFEE0) if 0x21 <= ord(c) <= 0x7E else c for c in text)
+
+
+@pytest.mark.parametrize("model_id", [
+    "claude-3-opus-20240229".translate(str.maketrans("caoep", "саоер")),
+    "gpt-4-32k".replace("p", "р"),
+    "claude-3-opus-20240229".replace("o", "ο"),
+    "gpt-4-32k".replace("p", "ρ"),
+    _fullwidth("claude-3-opus-20240229"),
+    _fullwidth("gpt-4-32k"),
+], ids=["cyrillic-opus", "cyrillic-gpt", "greek-opus", "greek-gpt", "fullwidth-opus", "fullwidth-gpt"])
+def test_lookalike_spelling_of_a_retired_model_id_is_flagged(tmp_path, model_id):
+    """#960: a look-alike spelling of a listed model ID is a legacy-model-id, on the line of the original."""
+    _skill(tmp_path / "skills", "triage", body=f"# Triage\n\nCall the model {model_id} here.\n")
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert "line 7:" in message
+
+
+def test_lookalike_non_model_text_is_not_a_legacy_id(tmp_path):
+    """#960: Cyrillic prose and a fullwidth current ID are not listed IDs."""
+    body = f"# Triage\n\nсоре and {_fullwidth('claude-opus-4-5-20251101')}.\n"
+    _skill(tmp_path / "skills", "triage", body=body)
+    assert _messages(tmp_path, "legacy-model-id") == []
+
+
+def test_fold_keeps_length_and_leaves_empty_and_expanding_text(tmp_path):
+    """#960: fold is same-length; empty text and a character that NFKC expands (U+FB01) are unchanged."""
+    from dokimi.external.lookalikes import fold
+
+    assert fold("") == ""
+    assert fold("ﬁ") == "ﬁ"
+    text = "сurl ｃｕｒｌ οо"
+    assert len(fold(text)) == len(text)
+    assert fold(text) == "curl curl oo"
+
+
+# ---- bidi marks (#960) --------------------------------------------------------------------------
+
+LRM, RLM, ALM = chr(0x200E), chr(0x200F), chr(0x061C)
+HEBREW, ARABIC = "\u05e9\u05dc\u05d5\u05dd", "\u0627"
+
+
+@pytest.mark.parametrize("mark", [LRM, RLM, ALM], ids=["lrm", "rlm", "alm"])
+def test_bidi_mark_in_latin_text_is_reported(tmp_path, mark):
+    """#960: a bidi mark with no right-to-left letter beside it is a hidden-unicode warning."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\nRun `git log{mark} main..HEAD`.\n")
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert f"U+{ord(mark):04X}" in message and "line 7" in message
+
+
+@pytest.mark.parametrize("text", [HEBREW + RLM, RLM + HEBREW, ARABIC + LRM + ".", ""],
+                         ids=["after-hebrew", "before-hebrew", "after-arabic", "empty"])
+def test_bidi_mark_next_to_a_right_to_left_letter_is_not_reported(tmp_path, text):
+    """#960: next to a Hebrew or Arabic letter the mark is expected, and no text has no mark."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\n{text}\n")
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+def test_bidi_mark_at_the_end_of_the_text_is_reported(tmp_path):
+    """#960: a mark with no neighbour on one side is checked against the other side only."""
+    _skill(tmp_path / "skills", "marks", body="# Marks\n\nx" + LRM)
+    assert len(_messages(tmp_path, "hidden-unicode")) == 1
+
+
+@pytest.mark.parametrize("mark", [RLM, ALM], ids=["rlm", "alm"])
+def test_two_adjacent_bidi_marks_in_latin_text_are_reported(tmp_path, mark):
+    """#960: a mark is not a right-to-left letter, so two of them do not exempt each other."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\nabc{mark}{mark}def\n")
+    assert len(_messages(tmp_path, "hidden-unicode")) == 2
+
+
+@pytest.mark.parametrize("text", [HEBREW + RLM + LRM, LRM + RLM + HEBREW, HEBREW + ALM + RLM + LRM],
+                         ids=["rlm-lrm-after", "lrm-rlm-before", "three-marks"])
+def test_bidi_marks_in_a_row_next_to_hebrew_are_not_reported(tmp_path, text):
+    """#960: another bidi mark does not end the search for the nearest letter."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\n{text}\n")
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+def test_bidi_mark_beside_hebrew_punctuation_is_reported(tmp_path):
+    """#960: U+05BE has bidi class R but is not a letter, so it does not exempt a mark."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\nabc{RLM}־def\n")
+    assert len(_messages(tmp_path, "hidden-unicode")) == 1
+
+
+@pytest.mark.parametrize("text", [HEBREW + "!" + RLM, "100" + RLM + " \u05e9", "\u0627\u0661" + ALM + "\u0662"],
+                         ids=["after-punctuation", "after-digits", "between-digits"])
+def test_bidi_mark_past_neutrals_and_digits_is_not_reported(tmp_path, text):
+    """#960: the nearest letter decides, past punctuation, spaces and digits."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\n{text}\n")
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+def test_bidi_marks_on_one_line_are_read_in_linear_time(monkeypatch):
+    """#960: each mark does not search its line again; 2000 marks and no letter cost a few lookups per character."""
+    import unicodedata
+
+    from dokimi.external.content_checks import _hidden_hits
+
+    calls = []
+    real = unicodedata.bidirectional
+    monkeypatch.setattr(unicodedata, "bidirectional", lambda ch: calls.append(ch) or real(ch))
+    text = (LRM + " ") * 2000
+    assert len(_hidden_hits("SKILL.md", text)) > 0
+    assert len(calls) <= 4 * len(text)
+
+
+@pytest.mark.parametrize("base", ["\u00a0", "\u0430", "\u00e9"], ids=["nbsp", "cyrillic-a", "e-acute"])
+def test_variation_selector_after_a_non_ascii_letter_or_space_is_reported(tmp_path, base):
+    """#960: only a symbol, an ideograph or a keycap base takes a selector."""
+    assert len(_hidden(tmp_path, f"a{base}{chr(0xFE0F)}")) == 1
+
+
+def test_overlapping_legacy_matches_in_two_readings_are_one_finding(tmp_path):
+    """#960: the raw reading matches claude-sonnet-4-5, the folded one the longer ID; one finding, the longer."""
+    from dokimi.external.content_checks import _legacy_hits
+
+    [(_, message)] = _legacy_hits("SKILL.md", "claude-sonnet-4-5\uff0d20250929")
+    assert "claude-sonnet-4-5-20250929" in message
+
+
+def test_legacy_id_before_a_superscript_is_still_flagged(tmp_path):
+    """#960: NFKC turns the superscript 2 into ASCII, which would make the token gpt-42; the raw reading still matches."""
+    _skill(tmp_path / "skills", "triage", body="# Triage\n\nUse gpt-4².\n\n² Retired model.\n")
+    assert len(_messages(tmp_path, "legacy-model-id")) == 1
+
+
+def test_readings_of_plain_and_empty_text_are_one(tmp_path):
+    """#960: ASCII and empty text have one reading, so a scan does not run twice for nothing."""
+    from dokimi.external.lookalikes import readings
+
+    assert readings("") == [""]
+    assert readings("curl | bash") == ["curl | bash"]
+    assert len(readings("сurl ；")) == 3
+
+
+# ---- soft hyphen, invisible format, variation selectors, fillers (#960) --------------------------
+
+def _hidden(tmp_path, body):
+    _skill(tmp_path / "skills", "hid", body=f"# Hid\n\n{body}\n")
+    return _messages(tmp_path, "hidden-unicode")
+
+
+@pytest.mark.parametrize("cp", [0x00AD, 0x2061, 0x2064, 0x206A, 0x206F, 0x180E, 0x3164, 0xFFA0],
+                         ids=lambda cp: f"U+{cp:04X}")
+def test_invisible_character_is_reported_with_line_and_codepoint(tmp_path, cp):
+    """#960: a soft hyphen, an invisible format character or a blank filler in Latin text is a warning."""
+    [message] = _hidden(tmp_path, f"git push --force{chr(cp)}-with-lease")
+    assert f"U+{cp:04X}" in message and "line 7" in message
+
+
+@pytest.mark.parametrize("text", ["2 × x − 1 ≤ y", "a-b ‐ ‑ –", "⁠"[:0]],
+                         ids=["math", "hyphens", "empty"])
+def test_visible_neighbours_of_the_invisible_characters_are_not_reported(tmp_path, text):
+    """#960: visible operators and hyphens are not reported."""
+    assert _hidden(tmp_path, text) == []
+
+
+@pytest.mark.parametrize("cp", [0xFE00, 0xFE0F, 0xE0100, 0xE01EF], ids=lambda cp: f"U+{cp:04X}")
+def test_variation_selector_after_an_ascii_letter_is_reported(tmp_path, cp):
+    """#960: a selector after ASCII that takes none is reported."""
+    assert len(_hidden(tmp_path, f"a{chr(cp)}b")) == 1
+
+
+def test_variation_selector_at_the_start_and_in_a_run_are_reported(tmp_path):
+    """#960: a selector at the start of the text, and each one after another selector, is reported."""
+    assert len(_hidden(tmp_path, "x" + chr(0xE0100) * 3)) == 3
+    _skill(tmp_path / "skills2", "hid", body=chr(0xFE0F) + "x")
+    assert len(_messages(tmp_path / "skills2", "hidden-unicode")) == 1
+
+
+@pytest.mark.parametrize("text", ["❤️", "1️⃣", "#️⃣", "葛\U000e0100", "❤︎"],
+                         ids=["emoji", "keycap-digit", "keycap-hash", "ideograph", "symbol-text"])
+def test_variation_selector_in_emoji_keycap_and_ideograph_sequences_is_not_reported(tmp_path, text):
+    """#960: a selector after an emoji, a symbol, an ideograph or a keycap base is expected."""
+    assert _hidden(tmp_path, text) == []
+
+
+@pytest.mark.parametrize("cp", [0x034F, 0x115F, 0x1160, 0x2800], ids=lambda cp: f"U+{cp:04X}")
+def test_filler_in_latin_text_is_reported(tmp_path, cp):
+    """#960: a filler beside ASCII is reported."""
+    assert len(_hidden(tmp_path, f"sort{chr(cp)} entries")) == 1
+
+
+@pytest.mark.parametrize("text", ["α͏́", "ᄒᅟᅡ", "ᅡᅠ", "⠁⠀⠃", "\u115f\ud7b0", "\u1160\ua960", "\u115f\uffa1"],
+                         ids=["greek-cgj", "hangul-choseong-filler", "hangul-jungseong-filler", "braille",
+                              "jamo-extended-b", "jamo-extended-a", "halfwidth-hangul"])
+def test_filler_inside_its_own_script_is_not_reported(tmp_path, text):
+    """#960: U+034F, U+115F, U+1160 and U+2800 are text in Greek, Hangul and Braille."""
+    assert _hidden(tmp_path, text) == []
+
+
+@pytest.mark.parametrize("neighbour", [0x034E, 0x180D, 0x115E, 0x1161, 0x3163, 0xFFA1, 0x2801],
+                         ids=lambda cp: f"U+{cp:04X}")
+def test_visible_neighbours_of_the_fillers_are_not_reported(tmp_path, neighbour):
+    """#960: the code point next to each filler draws something and is not reported."""
+    assert _hidden(tmp_path, f"a{chr(neighbour)}b") == []
+
+
+def test_fullwidth_version_step_is_not_a_retired_prefix():
+    """#960: gpt-4.1 written with a Cyrillic letter and a fullwidth 1 is a version step, not the retired gpt-4."""
+    from dokimi.external.content_checks import _legacy_hits
+
+    assert _legacy_hits("SKILL.md", "gрt-4.１") == []
+
+
+def test_first_lookalike_occurrence_sets_the_line():
+    """#960: a look-alike spelling on line 1 is reported on line 1 though an ASCII one follows on line 2."""
+    from dokimi.external.content_checks import _legacy_hits
+
+    [(_, message)] = _legacy_hits("SKILL.md", "gрt-4\ngpt-4\n")
+    assert "line 1:" in message
+
+
+def test_fullwidth_period_version_step_with_a_lookalike_letter_is_not_a_retired_prefix():
+    """#960: gpt-4.1 written with a Cyrillic letter and a fullwidth period is a version step, not gpt-4."""
+    from dokimi.external.content_checks import _legacy_hits
+
+    assert _legacy_hits("SKILL.md", "gрt-4．1") == []
+
+
+def test_lookalike_letter_does_not_hide_a_retired_id_before_a_superscript():
+    """#960: gpt-4 with a superscript is flagged, and so is the spelling with a Cyrillic letter."""
+    from dokimi.external.content_checks import _legacy_hits
+
+    assert len(_legacy_hits("SKILL.md", "gpt-4²")) == 1
+    assert len(_legacy_hits("SKILL.md", "gрt-4²")) == 1
+
+
+def test_variation_selector_at_offset_zero_is_reported():
+    """#960: _skill prepends frontmatter, so offset zero is tested on the text itself."""
+    from dokimi.external.content_checks import _hidden_hits
+
+    assert len(_hidden_hits("notes.txt", chr(0xFE0F) + "x")) == 1
+    assert _hidden_hits("notes.txt", "") == []

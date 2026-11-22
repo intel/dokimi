@@ -189,12 +189,14 @@ CONCEPTS: tuple[Concept, ...] = (
         name="tokens",
         help="token caps and token budget fractions",
         canonical=(
-            Flag("--max-output-tokens", "N", "int"),
-            Flag("--retrieval-tokens", "N", "int"),
-            Flag("--token-budgets", "F,F", "text"),
+            Flag("--max-output-tokens", "N", "int", meaning="the output ceiling of each model call"),
+            Flag("--retrieval-tokens", "N", "int", meaning="the tokens of docs retrieved per question"),
+            Flag("--token-budgets", "F [F ...]", "float",
+                 meaning="target token fractions for shortening candidates"),
         ),
         banned=("--max-tokens", "--budgets"),
-        note="--max-tokens meant retrieval in six leaves and output in seven.",
+        note="--max-tokens meant retrieval in four leaves and output in ten; FLAG_MOVES moves each leaf "
+             "by what its code does.",
     ),
     Concept(
         name="output",
@@ -214,6 +216,8 @@ CONCEPTS: tuple[Concept, ...] = (
         help="exit non-zero on warnings or failures",
         canonical=(Flag("--fail-on", "{warn,fail}", "choice"),),
         banned=("--strict", "--fail-on-warning", "--fail-on-error", "--fail-on-fail"),
+        note="A leaf takes the values it can gate on: warn, fail, or both. --strict stays where it "
+             "gates a verdict (an exit code of its own), not a finding level; the allowlist says why.",
     ),
     Concept(
         name="run_name",
@@ -404,6 +408,35 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
     )),
+    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on ten.
+    FlagMove("--max-tokens", "--retrieval-tokens", leaves=(
+        ("answers", "generate"), ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
+    )),
+    FlagMove("--max-tokens", "--max-output-tokens", leaves=(
+        ("arms", "run"), ("arms", "matrix-run"), ("subjects", "run"), ("tools", "preference"),
+        ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"),
+        ("skill", "routing"), ("catalog", "routing"),
+    )),
+    FlagMove("--budgets", "--token-budgets", leaves=(
+        ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"),
+    )),
+    # Reps concept (F1b): each old spelling counted the same thing on its one leaf, so the move
+    # is limited to that leaf (elsewhere the hint would name a flag the command does not take).
+    FlagMove("--repeats", "--reps", leaves=(("tasks", "run"),)),
+    FlagMove("--work-repeats", "--reps", leaves=(("subjects", "run"),)),
+    FlagMove("--multi-run", "--reps", leaves=(("benchmark", "run"),)),
+    FlagMove("--trials", "--reps", leaves=(("catalog", "trigger-probe"),)),
+    # Concurrency concept (F1b): how much runs at once; `-j` stays as its short form. The old
+    # `--jobs` was on these three leaves only.
+    FlagMove("--jobs", "--concurrency", leaves=(("catalog", "check"), ("eval", "check"), ("repo", "run"))),
+    # Fail-on concept (F1b): a gate on warnings or failures is `--fail-on {warn,fail}`. The moved
+    # leaves gate on the level their old flag gated on; `--strict` keeps its other meanings.
+    FlagMove("--fail-on-warning", "--fail-on=warn", leaves=(("eval", "check"), ("repo", "budget"))),
+    FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
+    FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
+    FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
     # Spend concept (F1b): a whole-command cap is --max-usd, a cap per agent run is --max-usd-per-cell.
     FlagMove("--max-cost-usd", "--max-usd", leaves=(("tools", "preference"),)),
     FlagMove("--max-batch-usd", "--max-usd", leaves=(("repo", "run"),)),

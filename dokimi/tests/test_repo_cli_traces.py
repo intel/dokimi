@@ -58,6 +58,11 @@ from dokimi.repos.events import convert
     ("nl -ba a", ["a"]),
     ("sed -n -e '1p' f", ["f"]),
     ("sed -n -E '1,3p' f", ["f"]),
+    ("sed -ne5p AGENTS.md", ["AGENTS.md"]),               # the script attached to -e in a cluster
+    ("sed -ne5p -e 6,7p f", ["f"]),
+    ("sed -n -- 1p AGENTS.md", ["AGENTS.md"]),            # after --, the words are operands: the script, then the files
+    ("sed -n -- 1p -weird", ["-weird"]),                  # after --, a word that starts with - is a file
+    ("sed -n", []),                                       # no script, no file
     ("sed -n -i.bak 1p f", []),                           # in-place edit
     ("sed -n --in-place 1p f", []),
     ("sed -n '$p' f", ["f"]),                             # $ inside single quotes is the last line
@@ -419,7 +424,7 @@ def test_codex_json_to_events():
     t = convert("codex-json", raw, "/ws")
     assert t.answer == "DONE" and t.num_turns == 1 and (t.input_tokens, t.output_tokens) == (100, 7)
     assert t.cost_usd is None  # Codex reports no cost: the batch budget counts the cap
-    assert t.events == [
+    assert [e for e in t.events if e["kind"] != "turn"] == [
         {"t": None, "kind": "read", "path": "AGENTS.md"},
         {"t": None, "kind": "command", "text": "cat /ws/AGENTS.md", "rc": 0, "output": "# guide\n",
          "output_truncated": False},
@@ -554,8 +559,9 @@ def test_codex_incomplete_command_is_recorded_with_rc_null():
         {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}},
     )
     t = convert("codex-json", raw, None)
-    assert len(t.events) == 1
-    assert t.events[0] == {"t": None, "kind": "command", "text": "make build", "rc": None}
+    steps = [e for e in t.events if e["kind"] != "turn"]  # the turn event is accounting, not the command
+    assert len(steps) == 1
+    assert steps[0] == {"t": None, "kind": "command", "text": "make build", "rc": None}
 
 
 def test_codex_failed_command_does_not_count_as_a_read():

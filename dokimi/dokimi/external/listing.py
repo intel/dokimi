@@ -5,10 +5,39 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
+from dokimi.utils import parse_frontmatter
 
 if TYPE_CHECKING:
+    from dokimi.skills.loader import Skill
+
     from .validate import SkillReview
+
+ENTRY_SEP = ": "  # between a skill's name and its description in a listing entry
+WHEN_SEP = " - "  # between the description and ``when_to_use``, as the harness listing joins them
+
+
+def entry_chars(skill: Skill) -> int:
+    """The characters of the skill's listing entry: ``name: description``, then `` - when_to_use`` when set (#966).
+
+    Read from the ``SKILL.md`` frontmatter, so the whole-catalog scan, ``--per-skill``, ``--jobs`` workers and the
+    row a ``--resume`` keeps all count one skill the same way. A line break between entries is not counted. Claude Code
+    cuts ``description - when_to_use`` at ``LISTING_MAX_DESC_CHARS`` per entry, so the entry counts no more than that
+    after the name; an empty ``when_to_use`` adds nothing.
+    """
+    from dokimi.harnesses.skill_treatment import LISTING_MAX_DESC_CHARS
+
+    meta, _ = parse_frontmatter(skill.path.read_text(encoding="utf-8"))
+    text = str(skill.description)
+    if meta.get("when_to_use"):
+        text += f"{WHEN_SEP}{meta['when_to_use']}"
+    return len(skill.name) + len(ENTRY_SEP) + min(len(text), LISTING_MAX_DESC_CHARS)
+
+
+def listed_chars(review: Optional[SkillReview]) -> Optional[int]:
+    """The listing characters a skill adds to the routing field: None when it is not listed (``in_field``)."""
+    return review.listing_chars if review is not None and in_field(review) else None
 
 
 def only_description_too_long(review: SkillReview) -> bool:

@@ -100,7 +100,7 @@ from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_
 from .content_checks import content_findings
 from .frontmatter_shape import keeps_load_error, opens_frontmatter
 from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
-from .listing import in_field
+from .listing import entry_chars, in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
 from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTED, format_findings, opencode_hidden, skill_format
 from .script_checks import script_findings
@@ -168,6 +168,7 @@ FINDING_CODES = (
     "link-dead",
     "link-escapes-skill",
     "link-missing",
+    "listing-over-budget",
     "mirror-drift",
     "name-conflict",
     "name-format",
@@ -575,29 +576,58 @@ def _min_overlap(size: int) -> int:
     return max(NEAR_DUPLICATE_MIN_SHARED, math.ceil(NEAR_DUPLICATE_JACCARD * size - 1e-9))
 
 
+def _required_overlap(size: int, other: int) -> int:
+    """The fewest words skills of ``size`` and ``other`` words share to pass: ``s >= J * (size + other) / (1 + J)``."""
+    j = NEAR_DUPLICATE_JACCARD
+    return max(NEAR_DUPLICATE_MIN_SHARED, math.ceil(j * (size + other) / (1 + j) - 1e-9))  # the epsilon only lowers it
+
+
+def _candidates(i: int, sizes: list[int], prefix: list[str], postings: dict[str, list[tuple[int, int]]]) -> list[int]:
+    """The later skills that share a prefix word with skill ``i`` and can still reach ``_required_overlap``, in order."""
+    first_shared: dict[int, tuple[int, int]] = {}  # candidate -> positions of the rarest shared word
+    for position, word in enumerate(prefix):
+        for k, other_position in postings[word]:
+            if k > i and k not in first_shared:
+                first_shared[k] = (position, other_position)
+    return [
+        k
+        for k, (position, other_position) in sorted(first_shared.items())
+        if 1 + min(sizes[i] - position - 1, sizes[k] - other_position - 1) >= _required_overlap(sizes[i], sizes[k])
+    ]
+
+
 def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
     """``description-near-duplicate`` on both skills of each pair whose descriptions overlap.
 
     Only candidate pairs are compared, found by a prefix filter: each skill's words are ordered
     rarest first across all the skills, and only its first ``size - _min_overlap(size) + 1`` words are
     indexed. A passing pair with ``s`` shared words has at least ``_min_overlap`` of them, so its
-    rarest shared word sits inside both skills' prefixes and the pair is a candidate. Non-candidates
+    rarest shared word sits inside both skills' prefixes and the pair is a candidate. A positional
+    bound then drops a candidate whose shared words, the rarest one and those after it in both
+    orderings, cannot reach ``_required_overlap`` (which also rules out sizes over 2x apart). Non-candidates
     could not pass, so the findings, and their order, match comparing every pair.
+
+    The pass is still quadratic with a small constant, not near-linear: the common words of a catalog
+    keep it so. On the 1250- and 5000-skill catalog-like corpora of ``tests/test_near_duplicate_blocking.py``
+    the prefix filter alone leaves 2.3% of all pairs at both sizes (18166 and 283510 pairs, 15.6x for 4x
+    the skills); with the positional bound the pairs compared are 2357 and 39928, 0.3% of all pairs (about
+    7x fewer), and still grow about 17x.
     """
     shown = [item for item in loaded if not item[2].disable_model_invocation]
     tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
     names = [_dir_name(item) for item in shown]
     frequency = Counter(word for words in tokens for word in words)
     prefixes: list[list[str]] = []
-    by_prefix_word: dict[str, list[int]] = {}
+    by_prefix_word: dict[str, list[tuple[int, int]]] = {}  # word -> (skill, the word's position in its ordering)
     for index, words in enumerate(tokens):
         ordered = sorted(words, key=lambda word: (frequency[word], word))
         prefix = ordered[: max(0, len(ordered) - _min_overlap(len(ordered)) + 1)]
         prefixes.append(prefix)
-        for word in prefix:
-            by_prefix_word.setdefault(word, []).append(index)
+        for position, word in enumerate(prefix):
+            by_prefix_word.setdefault(word, []).append((index, position))
+    sizes = [len(words) for words in tokens]
     for i, (entry, _, review) in enumerate(shown):
-        for j in sorted({k for word in prefixes[i] for k in by_prefix_word[word] if k > i}):
+        for j in _candidates(i, sizes, prefixes[i], by_prefix_word):
             o_entry, _, o_review = shown[j]
             if o_review.content_sha256 == review.content_sha256:
                 continue  # an identical SKILL.md: already a duplicate
@@ -682,6 +712,7 @@ def review_skills(
             if not hidden and fmt != FORMAT_UNSUPPORTED:
                 review.findings += _description_findings(skill)
             review.content_sha256 = _skill_digest(skill)
+            review.listing_chars = entry_chars(skill)
         except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:  # the unreadable row
             unreadable = Finding("error", "unreadable", f"SKILL.md cannot be read: {exc}")
             reviews.append(SkillReview(findings=[unreadable]))

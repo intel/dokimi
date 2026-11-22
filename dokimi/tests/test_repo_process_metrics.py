@@ -52,8 +52,8 @@ def test_built_in_counts():
 
 def test_no_events_counts_zero():
     assert process_metrics([], _guidance) == {"tool_calls": 0, "commands": 0, "failed_commands": 0,
-                                              "denied_commands": 0, "guidance_read": [], "unknown_reads": 0,
-                                              "counters": {}}
+                                              "denied_commands": 0, "guidance_read": [], "guidance_searched": [],
+                                              "unknown_reads": 0, "counters": {}}
 
 
 def test_counters_search_text_output_or_both():
@@ -105,6 +105,32 @@ def test_a_read_that_only_the_second_guidance_glob_matches_is_guidance():
     ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
     events = [{"kind": "read", "path": ".github/instructions/c.md"}]
     assert run_process_metrics(ctx, events)["guidance_read"] == [".github/instructions/c.md"]
+
+
+def test_a_guidance_path_outside_the_held_set_is_no_guidance_read():
+    # The held set is what the workspace held as the agent started; None keeps any path the globs match.
+    paths = ["dpnp/tests/AGENTS.md", "dpnp/tests/third_party/AGENTS.md", "dpnp/tests/third_party/cupy/AGENTS.md"]
+    events = [{"kind": "read", "path": p, "rc": 0} for p in paths]
+    ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
+    assert run_process_metrics(ctx, events, 0, frozenset({"dpnp/tests/AGENTS.md"}))["guidance_read"] == paths[:1]
+    assert run_process_metrics(ctx, events)["guidance_read"] == sorted(paths)
+
+
+def test_guidance_searched_is_the_sorted_distinct_guidance_paths_of_the_searched_lists():
+    events = [{"kind": "command", "text": "grep x", "rc": 0, "searched": ["src/AGENTS.md", "src/lib.c", "./AGENTS.md"]},
+              {"kind": "tool", "name": "Grep", "searched": ["AGENTS.md", "../AGENTS.md", "/home/a/AGENTS.md", "~/AGENTS.md"]},
+              {"kind": "command", "text": "grep y", "rc": 0, "searched": [".github/instructions/c.md"]},
+              {"kind": "command", "text": "grep z", "rc": None, "denied": True, "searched": ["docs/AGENTS.md"]}]
+    got = process_metrics(events, _guidance)
+    assert got["guidance_searched"] == [".github/instructions/c.md", "AGENTS.md", "src/AGENTS.md"]
+    assert got["guidance_read"] == [] and got["tool_calls"] == 4  # a search is no read, and no extra tool call
+
+
+def test_guidance_searched_keeps_only_the_files_the_workspace_held():
+    events = [{"kind": "command", "text": "grep x", "rc": 0, "searched": ["AGENTS.md", "gone/AGENTS.md"]}]
+    ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
+    assert run_process_metrics(ctx, events, 0, frozenset({"AGENTS.md"}))["guidance_searched"] == ["AGENTS.md"]
+    assert run_process_metrics(ctx, events)["guidance_searched"] == ["AGENTS.md", "gone/AGENTS.md"]
 
 
 def test_a_command_the_permissions_denied_is_denied_not_failed():

@@ -721,7 +721,7 @@ candidates any more; name it in the id or in `BENCHFLOW_SKILL_CREATOR_DIR`.
 **One cell is one attempt.** BenchFlow's default (`max_retries=2`) reruns the
 whole rollout, agent included, after idle timeouts, ACP errors and verifier
 infrastructure errors, even when the attempt already has a reward. The adapter
-passes `--retry-attempts 0`, so `--repeats` is the only repetition, as for
+passes `--retry-attempts 0`, so `--reps` is the only repetition, as for
 `docker-*` and Harbor cells. The row records `metrics.n_attempts`.
 
 **One agent budget.** BenchFlow's idle watchdog ends a prompt after 600 s
@@ -929,7 +929,7 @@ python cli.py subjects run my-subject.toml \
   --work-harnesses docker-claude,docker-claude-skill:<content-checkout>/skills/onetbb-quickstart \
   --work-baseline-harness docker-claude \
   --work-model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
-  --work-repeats 3
+  --reps 3
 ```
 
 The subject scorecard embeds the work status, the `task_runs.v1` artifact path,
@@ -949,11 +949,11 @@ python cli.py tasks run \
   --harnesses docker-claude,docker-claude-skill:<content-checkout>/skills/intel-performance-patterns/SKILL.md \
   --baseline-harness docker-claude \
   --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
-  --repeats 3 \
+  --reps 3 \
   --out results/skill-task-arms.json
 ```
 
-- `--repeats 3` runs every `(task, harness)` cell three times so the pass-rate
+- `--reps 3` runs every `(task, harness)` cell three times so the pass-rate
   and cost deltas carry variance (N=1 is noisy on a binary verifier).
 - `--baseline-harness docker-claude` makes the no-skill harness the reference,
   so `summary.comparisons` reports the skill arm's `pass_rate_delta` and
@@ -1050,7 +1050,7 @@ Run all three together:
 python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --tasks onetbb-transpose \
   --harnesses docker-claude,docker-claude-skill:<skill>,docker-claude-skill-discover:<skill> \
-  --baseline-harness docker-claude --model <model> --repeats 3 \
+  --baseline-harness docker-claude --model <model> --reps 3 \
   --out results/onetbb-discover.json
 ```
 
@@ -1128,7 +1128,7 @@ python cli.py tasks run --tasks <task-name> \
 `tasks run` writes a `task_runs.v1` JSON artifact. Important fields:
 
 - `results[]`: one row per `(task, harness, model, repeat)` cell. With
-  `--repeats > 1` each row carries a `repeat` index and the run lands in a
+  `--reps > 1` each row carries a `repeat` index and the run lands in a
   `run<N>/` subdirectory.
 - `results[].passed`: verifier pass/fail. If a reward file is present, its
   number is `results[].reward`: `1.0` passes, and anything lower, including
@@ -1244,7 +1244,7 @@ Four properties are worth internalising before reading the number:
 - **A small suite cannot reach significance.** Four fixes and zero regressions
   gives *p* = 0.125; six and zero gives 0.0312. That is the honest floor of a
   20-task suite, not a defect.
-- **`--repeats` does not buy the power it looks like.** Repeats are paired as
+- **`--reps` does not buy the power it looks like.** Repeats are paired as
   separate `(task, repeat)` cells, so `n` grows but the independent units do not:
   repeats of one task share its difficulty, and McNemar assumes independent
   pairs. `n_units` reports the distinct tasks, `pseudo_replicated` flags
@@ -1273,7 +1273,7 @@ numbers, so do not read the two side by side without the caveats below:
 
 | Field | Meaning |
 |---|---|
-| `per_harness.<h>.pass_rate_ci` | Wilson 95% interval on `pass_rate`, over the same scored (non-errored) cells; same independence caveat as McNemar under `--repeats`. SkillsBench does not use Wilson: its paper uses a Wald interval (v4, App. G; a percentile bootstrap in v1) and its leaderboard a task-level `1.96·stdev(per-task means)/√87`, which is wider under repeats |
+| `per_harness.<h>.pass_rate_ci` | Wilson 95% interval on `pass_rate`, over the same scored (non-errored) cells; same independence caveat as McNemar under `--reps`. SkillsBench does not use Wilson: its paper uses a Wald interval (v4, App. G; a percentile bootstrap in v1) and its leaderboard a task-level `1.96·stdev(per-task means)/√87`, which is wider under repeats |
 | `per_harness.<h>.skill_invocation_rate` | share of the rows reporting `metrics.n_skill_invocations` (errored rows excluded) where it is > 0; `null` when no row reports it. Only harnesses that write `metrics.n_skill_invocations` contribute; the key counts invocations of the treatment skill. A row marked `metrics.solver_error` is errored too and is left out |
 | `per_harness.<h>.skill_invocation_n` | the rows behind `skill_invocation_rate` |
 | `per_harness.<h>.cost.cost_per_pass_usd` | total cost / passes, only when every row, errored rows included, carries `metrics.cost_usd`. A runner-errored row (no `cost_usd`) or an agent timeout whose result was never parsed therefore nulls it for the arm |
@@ -1302,6 +1302,10 @@ DOKIMI_OP {"type":"loop","name":"turn","elapsed_sec":3.4}
 
 Unstructured stdout/stderr lines mentioning `tool`, `subagent`, or `loop` are
 also counted as low-fidelity telemetry, but structured events are preferred.
+
+A command's output in `events.jsonl` is clipped when it is over 8 KB; the rule,
+including how a split UTF-8 character is counted, is in
+[the `events.jsonl` contract](repo-evaluation-contract.md#41-eventsjsonl).
 
 ## Fair Comparisons
 
