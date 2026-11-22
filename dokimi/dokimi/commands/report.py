@@ -157,9 +157,10 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
 
     # Save output
     output_path = Path(args.output) if args.output else Path(f"reports/{args.product}.{args.format}")
+    from dokimi.commands._output import write_report_text
+
     try:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(report, encoding="utf-8")
+        write_report_text(output_path, report)
     except OSError as exc:
         print(f"Error: cannot write {output_path}: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from None
@@ -178,8 +179,9 @@ def cmd_report_summary(args: argparse.Namespace) -> None:
 
     text = render(summarize(args.inputs), args.format)
     if args.out:
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(text, encoding="utf-8")
+        from dokimi.commands._output import write_text_or_exit
+
+        write_text_or_exit(Path(args.out), text)
     else:
         sys.stdout.write(text)
 
@@ -272,8 +274,9 @@ def register(sub, positive_int) -> None:
     )
     sm_p.add_argument("inputs", nargs="+", metavar="PATH",
                       help="cli_output.v1 files, or directories whose *.json files are read")
-    sm_p.add_argument("--format", default="markdown", choices=["markdown", "json", "annotations"],
-                      help="markdown (job summary, PR comment, terminal), json, or annotations (::error/::warning lines)")
+    sm_p.add_argument("--format", default="markdown", choices=["markdown", "json", "annotations", "sarif"],
+                      help="markdown (job summary, PR comment, terminal), json, annotations (::error/::warning "
+                           "lines), or sarif (SARIF 2.1.0 for code scanning in GitHub, Azure DevOps, GitLab, Jenkins)")
     sm_p.add_argument("--out", default=None, help="Write to this file instead of stdout")
     sm_p.set_defaults(func=cmd_report_summary)
 

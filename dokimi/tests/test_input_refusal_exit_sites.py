@@ -28,7 +28,7 @@ EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.commands.evaluate": (1, "typed scorer: ImportError (a missing backend): a missing optional dependency; "
                                     "a bad typed spec is InputError"),
     "dokimi.commands.ingest": (1, "Docling not installed: a missing optional dependency, not an input"),
-    "dokimi.commands.repo": (5, "output writes that cannot be made; TypecheckError (the tool or the interpreter "
+    "dokimi.commands.repo": (4, "output writes that cannot be made; TypecheckError (the tool or the interpreter "
                                 "cannot run: a missing dependency)"),
     "dokimi.commands.repo_hits": (1, "--out lock or write on a read-only batch: a user-path write"),
     "dokimi.commands.report": (3, "--out and output writes that cannot be made: user-path writes"),

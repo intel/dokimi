@@ -18,7 +18,7 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 **Availability:** Partial.
 
-Inspect persisted run artifacts, reports and dashboards without rerunning the model, keeping source and configuration provenance; resume and re-render only where the selected track supports them. Gate a Q&A eval file against a saved baseline with `dokimi baseline compare --max-context-drop/--max-lift-drop` in your own CI job, and compare repository task batches with `dokimi repo compare --baseline <arm>` (or `<batch>/<arm>`); the reusable `repo-eval.yml` workflow runs `repo validate`, `repo scan` and `eval check` only. The broader record/revalidate lifecycle is not one complete shipped workflow.
+Inspect persisted run artifacts, reports and dashboards without rerunning the model, keeping source and configuration provenance; resume and re-render only where the selected track supports them. Gate a Q&A eval file against a saved baseline with `dokimi baseline compare --max-context-drop/--max-lift-drop` in your own CI job, and compare repository task batches with `dokimi repo compare --baseline <arm>` (or `<batch>/<arm>`); the reusable `repo-eval.yml` workflow runs `eval check --schema-only`, `repo scan` and `eval check` only. The broader record/revalidate lifecycle is not one complete shipped workflow.
 
 **Input:** Stored run artifacts readable by the selected report reader, a saved baseline, comparable candidate results and explicit regression thresholds.
 

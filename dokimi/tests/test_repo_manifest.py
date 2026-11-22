@@ -203,6 +203,81 @@ def test_bad_task_is_reported(tmp_path, task_extra, needle):
     assert "bad" not in [t.id for t in report.tasks]
 
 
+@pytest.mark.parametrize("rev", [False, True], ids=["tree", "at-head"])
+@pytest.mark.parametrize("target", ["task.json", "../../../../src", "missing.json", "../../../../../../../etc/hostname", "missing/../missing.json"],
+                         ids=["loop", "directory", "dangling", "outside", "dangling-past-absent-dir"])
+def test_task_json_that_is_an_unreadable_link_is_reported_not_raised(tmp_path, target, rev):
+    # #910: a task.json linked to itself, to a directory, to nothing or out of the repository raised OSError (tree) or SourceError (@rev)
+    root = _repo(tmp_path)
+    link = root / "dev/evals/tasks/bad/task.json"
+    link.parent.mkdir()
+    link.symlink_to(target)
+    if rev:
+        _git_commit(root)
+    tree = GitTree(root, "HEAD") if rev else WorkTree(root)
+    report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+    assert not report.ok
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+    assert not any(str(tmp_path) in e or "Errno" in e for e in report.errors), report.errors  # repo-relative in both trees
+    assert "bad" not in [t.id for t in report.tasks]
+
+
+def test_task_json_failed_git_show_is_raised_not_reported(tmp_path, monkeypatch):
+    # a failed or timed-out git show is not a task.json problem: it is raised, as load_manifest does
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    _git_commit(root)
+    tree = GitTree(root, "HEAD")
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = GitTree.read_text
+
+    def read_text(self, path):
+        if path.endswith("bad/task.json"):
+            raise SourceError("git show failed")
+        return real(self, path)
+
+    monkeypatch.setattr(GitTree, "read_text", read_text)
+    with pytest.raises(SourceError, match="git show failed"):
+        check_repo(tree, manifest)
+
+
+def test_task_json_that_cannot_be_opened_is_reported_not_raised(tmp_path, monkeypatch):
+    # #910: a task.json the process may not read (EACCES, EIO) is a validation error, not a traceback and exit 5
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    tree = WorkTree(root)
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = WorkTree.read_text
+
+    def read_text(self, path):
+        if path.endswith("bad/task.json"):
+            raise PermissionError(13, "Permission denied", path)
+        return real(self, path)
+
+    monkeypatch.setattr(WorkTree, "read_text", read_text)
+    report = check_repo(tree, manifest)
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+    assert "bad" not in [t.id for t in report.tasks]
+
+
+def test_task_json_link_loop_that_raises_runtime_error_is_reported(tmp_path, monkeypatch):
+    # Path.resolve raises RuntimeError for a link loop before Python 3.13 (#910)
+    root = _repo(tmp_path)
+    _task(root, "bad")
+    tree = WorkTree(root)
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = WorkTree._resolve
+
+    def resolve(self, path):
+        if path.endswith("bad/task.json"):
+            raise RuntimeError(f"Symlink loop from {path!r}")
+        return real(self, path)
+
+    monkeypatch.setattr(WorkTree, "_resolve", resolve)
+    report = check_repo(tree, manifest)
+    assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
+
+
 @pytest.mark.parametrize("task_id", ["my task", "tab\tid", "a,b"])
 def test_task_id_with_whitespace_or_comma_is_refused(tmp_path, task_id):
     # the workflow splits its tasks, smoke-tasks and exclude-tasks inputs on whitespace and commas,
@@ -438,13 +513,13 @@ def _run_cli(argv: list[str]) -> None:
 
 def test_repo_validate_cli(tmp_path, capsys):
     root = _repo(tmp_path)
-    _run_cli(["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+    _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True and out["tasks"]["count"] == 2
 
     _task(root, "bad", id="other")
     with refusal() as exc:
-        _run_cli(["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
+        _run_cli(["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
     assert exc.code == 1
     assert "does not equal the directory name" in capsys.readouterr().err
 
@@ -452,7 +527,7 @@ def test_repo_validate_cli(tmp_path, capsys):
 def test_repo_validate_fail_on_warning(tmp_path, capsys):
     guidance = {**MANIFEST["guidance"], "also_scan": ["no-such-file-*.md"]}
     root = _repo(tmp_path, {**MANIFEST, "guidance": guidance})
-    argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
+    argv = ["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
     _run_cli(argv)  # a warning alone still passes by default
     assert "warning: guidance/also_scan matches no file" in capsys.readouterr().out
     _run_cli([*argv, "--fail-on", "fail"])
@@ -463,22 +538,31 @@ def test_repo_validate_fail_on_warning(tmp_path, capsys):
     assert "warning:" in capsys.readouterr().out
 
 
-def test_repo_validate_out_writes_the_report(tmp_path, capsys):
+def test_repo_validate_json_is_the_report(tmp_path, capsys):
     root = _repo(tmp_path)
-    dest = tmp_path / "validate.json"
-    argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--out", str(dest)]
-    _run_cli(argv)
-    written = json.loads(dest.read_text(encoding="utf-8"))
-    assert written["ok"] is True and written["tasks"]["count"] == 2
-    assert "tasks:" in capsys.readouterr().out  # the summary still prints
-
+    argv = ["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
     _run_cli([*argv, "--json"])
-    assert json.loads(capsys.readouterr().out)["data"] == written
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["data"]["ok"] is True and doc["data"]["tasks"]["count"] == 2
 
-    with refusal() as exc:
-        _run_cli([*argv[:-1], str(tmp_path / "no" / "dir" / "v.json")])
+    _run_cli(argv)  # the summary prints without --json
+    assert "tasks:" in capsys.readouterr().out
+
+    with refusal() as exc:  # a self-check work directory has no meaning for --schema-only
+        _run_cli([*argv, "--out-dir", str(tmp_path / "x")])
     assert exc.code == 2
-    assert "cannot write" in capsys.readouterr().err
+    assert "--schema-only" in capsys.readouterr().err
+    _run_cli([*argv, "--out-dir", "repo-check"])  # the documented default value is accepted, as before
+
+
+def test_schema_only_refuses_the_self_check_options(tmp_path, capsys):
+    root = _repo(tmp_path)
+    argv = ["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
+    for extra in (["--task", "t1"], ["--suite", "s.yaml"], ["--concurrency", "2"], ["--image", "img"]):
+        with refusal() as exc:
+            _run_cli([*argv, *extra])
+        assert exc.code == 2, extra
+        assert "is for the self-check" in capsys.readouterr().err, extra
 
 
 def test_repo_fetch_cli(tmp_path, capsys):
@@ -636,7 +720,7 @@ def test_scan_without_a_manifest_checks_the_default_guidance(tmp_path, capsys):
 
 
 def test_validate_still_needs_a_manifest(tmp_path):
-    args = build_parser().parse_args(["repo", "validate", str(_repo(tmp_path))])
+    args = build_parser().parse_args(["eval", "check", "--schema-only", str(_repo(tmp_path))])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2

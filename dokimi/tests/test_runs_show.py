@@ -29,6 +29,7 @@ CONTENTS = {
     "skill_discovery.v1": {"cases": 4, "scenarios": 1, "records": 4},
     "matrix_rollup.v1": {"cells": 2},
     "novelty.v1": {"conflicts": 0, "warnings": 2},
+    "novelty_atoms.v1": {"atoms": 2, "conflicts": 1},
     "plan.v1": {"cells": 6},
     "plugin_delta.v1": {"arms": 2},
     "questions.v2": {"questions": 3},

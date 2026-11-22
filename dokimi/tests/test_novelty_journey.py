@@ -135,6 +135,8 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
     assert artifact["schema_version"] == "novelty.v1"
     assert artifact["run_config"]["tier"]["name"] == "study"
     assert (out_dir / "novelty.md").exists()
+    verdicts = json.loads((out_dir / "novelty.atom_verdicts.json").read_text(encoding="utf-8"))
+    assert verdicts["schema_version"] == "novelty_atoms.v1" and verdicts["atoms"]
     # Step 6 of the walkthrough is about this file.
     view = out_dir / "annotated.html"
     assert view.exists() and view.stat().st_size > 0

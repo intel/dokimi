@@ -14,6 +14,13 @@ from dokimi.commands import benchmark
 from dokimi.orchestrator.pipeline import EvaluationPipeline
 from tests.test_answering_stack_parity import _subparser
 
+@pytest.fixture(autouse=True)
+def _provider_keys(monkeypatch):
+    """#967: `benchmark run|batch` refuse a missing key, so these tests hold one."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+
+
 CUSTOM = """\
 products:
   my_lib:

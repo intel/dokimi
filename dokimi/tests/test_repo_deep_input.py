@@ -17,7 +17,9 @@ DEEP = "[" * 100000
 
 
 def _run(*argv: str) -> None:
-    args = build_parser().parse_args(["repo", *argv])
+    head, *rest = argv  # `repo validate` moved to `eval check --schema-only` (#94 M1)
+    words = ["eval", "check", "--schema-only"] if head == "validate" else ["repo", head]
+    args = build_parser().parse_args([*words, *rest])
     args.func(args)
 
 

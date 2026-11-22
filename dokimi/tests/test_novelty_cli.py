@@ -735,7 +735,7 @@ def test_unread_spans_travel_from_novelty_atoms_to_shorten(tmp_path, monkeypatch
 
     out = tmp_path / "short.md"
     args = _parse("skill", "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
-                  "--budgets", "0.5", "--allow-unsafe", "--out", str(out))
+                  "--token-budgets", "0.5", "--allow-unsafe", "--out", str(out))
     args.func(args)
     captured = capsys.readouterr()
     assert "1 of" in captured.err and "were never read by extraction" in captured.err
