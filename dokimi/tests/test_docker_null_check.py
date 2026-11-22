@@ -76,7 +76,7 @@ def test_an_empty_pytest_run_is_no_verdict_even_with_an_explicit_zero():
 
 @pytest.mark.parametrize("summary", [
     "no tests ran in 0.01s", "3 deselected in 0.02s", "2 skipped in 0.01s",
-    "1 failed in 0.20s\n2 skipped in 0.01s",
+    "1 failed in 0.20s\n2 skipped in 0.01s", "1 failed in 0.20s\n3 deselected in 0.02s",
     "1 failed in 0.20s\nno tests ran in 0.01s", "1 warning in 0.01s",
 ])
 def test_docker_null_requires_evidence_of_failure_from_pytest(tmp_path, summary):
