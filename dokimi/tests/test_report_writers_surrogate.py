@@ -22,7 +22,7 @@ NAMES = pytest.mark.parametrize(
 
 
 def _text(path: Path) -> str:
-    return path.read_bytes().decode("utf-8")
+    return path.read_text(encoding="utf-8")
 
 
 @NAMES
