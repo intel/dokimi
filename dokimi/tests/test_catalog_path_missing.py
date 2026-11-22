@@ -568,3 +568,104 @@ def test_1089_a_definition_whose_title_continues_on_the_next_line_is_a_url_defin
     body = 'See [`scripts/deploy.sh`][guide]\n\n[guide]: https://example.com "first line\nsecond line"\n'
     review, _ = _review(tmp_path, body)
     assert _path_findings(review) == []
+
+
+def _missing(review):
+    return [f.message.split(" ")[0] for f in _path_findings(review)]
+
+
+@pytest.mark.parametrize("dest", ["notes.md:main", "notes.md:42", "notes.md:10-20", "<notes.md:main>"])
+def test_1089_a_local_link_with_a_line_or_symbol_suffix_is_not_a_url_link(tmp_path, dest):
+    """#1089: `_file_ref` reads `notes.md:main` as the file `notes.md`, so the label's missing file is reported."""
+    review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh`]({dest}).\n", files=("notes.md",))
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+@pytest.mark.parametrize("dest", ["x:example", "tel:123", "urn:isbn:1", "a.b:c.d"])
+def test_1089_a_destination_with_any_other_scheme_is_a_url_link(tmp_path, dest):
+    """#1089: a one-letter or a dotted scheme with no file-like tail is a URI, as in `_file_ref`."""
+    review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh`]({dest}).\n\n[g]: {dest}\n")
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize("opener,closer", [('"', '"'), ("'", "'"), ("(", ")")])
+def test_1089_a_definition_whose_title_never_closes_is_no_definition(tmp_path, opener, closer):
+    """#1089: `[g]: https://example.com "unterminated` defines nothing, so `[g]` is text and the span is checked."""
+    body = f"Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com {opener}unterminated\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+    body = f"Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com {opener}closed\nlater{closer}\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_title_on_the_next_line_that_never_closes_leaves_the_definition_without_a_title(tmp_path):
+    """#1089: `[g]: https://example.com` is a definition; the next line, `"open`, is a paragraph."""
+    body = 'Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com\n"open\n'
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_definition_inside_a_paragraph_defines_nothing(tmp_path):
+    """#1089: a definition cannot interrupt a paragraph, so `[guide]` after prose is text."""
+    body = "Run [`scripts/deploy.sh`][guide].\n\nOrdinary paragraph.\n[guide]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_consecutive_definitions_at_the_start_of_a_block_all_count(tmp_path):
+    """#1089: the second definition of a block starts after the first, not after prose."""
+    body = "Run [`scripts/deploy.sh`][b].\n\n[a]: notes.md\n[b]: https://example.com\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _path_findings(review) == []
+
+
+def test_1089_many_adjacent_url_links_are_read_in_linear_time():
+    """#1089: each label is checked for a nested link, which must not scan every other link."""
+    import time
+
+    from dokimi.external.skill_markdown import link_pieces
+
+    line = "[`a/b.py`](https://example.com) " * 40000
+    started = time.monotonic()
+    assert link_pieces([line]) == (["https://example.com"], [])
+    assert time.monotonic() - started < 10
+
+
+def test_1089_link_shaped_text_in_an_image_title_is_no_link(tmp_path):
+    """#1089: `"[guide](notes.md)"` is the image's title, so the outer URL label holds no link."""
+    body = 'See [`scripts/deploy.sh` ![badge](badge.svg "[guide](notes.md)")](https://example.com).\n'
+    review, _ = _review(tmp_path, body, files=("badge.svg", "notes.md"))
+    assert _path_findings(review) == []
+
+
+def test_1089_a_defined_shortcut_after_an_undefined_full_reference_is_a_link(tmp_path):
+    """#1089: `[guide][undefined]` falls back to the shortcut `[guide]`, which sits in the label."""
+    body = "Run [`scripts/deploy.sh` and [guide][undefined]](https://example.com).\n\n[guide]: notes.md\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_an_escaped_bang_is_not_an_image_marker(tmp_path):
+    """#1089: `\\![guide](notes.md)` is a literal `!` and a link, so the outer brackets are text."""
+    body = "Run [`scripts/deploy.sh` and \\![guide](notes.md)](https://example.com).\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+    body = "Run [`scripts/deploy.sh` and ![guide](notes.md)](https://example.com).\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize("rule", ["---", "***", "___", "- - -"])
+def test_1089_a_definition_after_a_thematic_break_is_a_definition(tmp_path, rule):
+    """#1089: a thematic break is a block of its own, so the definition after it starts a block."""
+    body = f"See [`scripts/deploy.sh`][guide].\n\n{rule}\n[guide]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_definition_after_prose_and_a_thematic_break_is_a_definition(tmp_path):
+    """#1089: `***` ends the prose block, so `[guide]: ...` after it starts a block."""
+    body = "See [`scripts/deploy.sh`][guide].\n\nIntroductory prose.\n***\n[guide]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []

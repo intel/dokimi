@@ -12,7 +12,9 @@ block rules (fences, blockquotes, list items, paragraphs) and the link-destinati
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from typing import Optional
+from urllib.parse import unquote
 
 from dokimi.repos.l0.markdown import split as split_markdown
 
@@ -26,14 +28,24 @@ BRACKET_RE = re.compile(r"\\\\|\\[\[\]]|[\[\]]")
 # break inside), with an optional title; split() reads one level of parentheses only, so these are read here.
 _TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
 _LINK_OPEN_RE = re.compile(r"\]\(\s*")
-# A scheme with a dot and only digits after it (``notes.md:42``) is a file and a line; ``tel:123`` is a scheme.
-_SCHEME_RE = re.compile(r"<?(?:[A-Za-z][A-Za-z0-9+-]+:|[A-Za-z][A-Za-z0-9+.-]*\.[A-Za-z0-9+.-]*:(?!\d+(?!\w)))")
+# A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
+ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
+# RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (:func:`is_uri`).
+_URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
+# After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
+_FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 _REFERENCE_RE = re.compile(r"\]\[([^\]]+)\]")
-# A definition's title may start on this line and end on a later one, so its closing quote is optional here.
-_DEFINITION_TITLE = r"""(?:\s+(?:"[^"]*"?|'[^']*'?|\([^()]*\)?))?"""
-_DEFINITION_RE = re.compile(rf"^ {{0,3}}\[(?!\^)([^\]]+)\]:\s*(<[^<>\n]*>|\S+){_DEFINITION_TITLE}\s*$")
+# A reference definition at the start of a block: label, destination, and a title that may start on the destination's
+# line or the next and span lines. A title that never closes is no title, and text after it makes it no definition.
+_DEFINITION_RE = re.compile(
+    r"""[ ]{0,3}\[(?!\^)([^\]]+)\]:[ \t]*\n?[ \t]*(<[^<>\n]*>|\S+)"""
+    r"""(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:"[^"]*"|'[^']*'|\([^()]*\)))?[ \t]*(?:\n|$)"""
+)
+# A thematic break line (``---``, ``* * *``, ``___``), with its line end.
+_THEMATIC_BREAK_RE = re.compile(r" {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})(?:\n|$)")
 # A shortcut or collapsed reference: a link only for the nesting check (_external_labels).
-_SHORT_REFERENCE_RE = re.compile(r"(?<!\])\[([^\[\]]+)\](?:\[\])?(?![(\[])")
+_SHORT_REFERENCE_RE = re.compile(r"(?<!\])\[([^\[\]]+)\](?:\[\])?(?!\()")
+_FULL_REFERENCE_RE = re.compile(r"\[([^\[\]]+)\]")
 _LINK_END_RE = re.compile(rf"{_TARGET_TITLE}\s*\)")
 LINK_PAREN_DEPTH_MAX = 32
 # A reference label alone on its line: its destination may be on the next line.
@@ -240,46 +252,94 @@ def _join_label_lines(lines: list[str]) -> list[str]:
     return out
 
 
-def _label_start(masked: str, close: int) -> int | None:
-    """The index of the ``[`` that opens the label closed by the ``]`` at ``close``, or None."""
-    depth = 0
-    for i in range(close, -1, -1):
-        if masked[i] == "]":
-            depth += 1
-        elif masked[i] == "[":
-            depth -= 1
-            if depth == 0:
-                return i
-    return None
+def is_uri(text: str) -> bool:
+    """Whether a link destination, already decoded (``<>`` off, escapes, ``#``, ``?`` and ``%`` read), is a URL or
+    another URI (``https:``, ``mailto:``, ``tel:``, ``x:``), not a file. A dotted scheme with a line or symbol after
+    it (``notes.md:42``, ``notes.md:main``) is a file."""
+    if "://" in text:
+        return True
+    scheme = _URI_SCHEME_RE.match(text)
+    return bool(scheme and not ("." in scheme.group() and _FILE_SUFFIX_RE.fullmatch(text[scheme.end() :])))
+
+
+def _is_uri_destination(raw: str) -> bool:
+    """:func:`is_uri` of a destination as written, decoded as :func:`dokimi.external.link_files._file_ref` decodes it."""
+    text = raw.strip()
+    if text.startswith("<") and text.endswith(">"):
+        text = text[1:-1].strip()
+    text = ESCAPE_RE.sub(r"\1", text)
+    text = unquote(text.split("#", 1)[0].split("?", 1)[0].strip())
+    return not text.startswith("/") and is_uri(text)
+
+
+def _bracket_pairs(masked: str) -> dict[int, int]:
+    """``{index of "]": index of the "[" that opens it}`` for the brackets of ``masked``, matched in one pass."""
+    pairs: dict[int, int] = {}
+    stack: list[int] = []
+    for i, char in enumerate(masked):
+        if char == "[":
+            stack.append(i)
+        elif char == "]" and stack:
+            pairs[i] = stack.pop()
+    return pairs
 
 
 def _reference_definitions(masked: str, found: dict[str, bool]) -> None:
-    """Add to ``found`` the reference definitions in ``masked``: label (case-folded, spaces collapsed) -> whether the
-    destination has a URL scheme. The first definition of a label decides, as in CommonMark."""
-    for line in _join_label_lines(masked.split("\n")):
-        m = _DEFINITION_RE.match(line)
-        if m:
-            found.setdefault(" ".join(m.group(1).casefold().split()), bool(_SCHEME_RE.match(m.group(2))))
+    """Add to ``found`` the reference definitions of the paragraph ``masked``: label (case-folded, spaces collapsed)
+    -> whether the destination is a URL. A definition cannot interrupt a paragraph, so only those at its start
+    count, one after the other. A thematic break starts a new block, so a definition may follow one after prose.
+    The first definition of a label decides, as in CommonMark."""
+    pos, block_start = 0, True
+    while pos < len(masked):
+        if rule := _THEMATIC_BREAK_RE.match(masked, pos):  # a break (or a setext underline) ends the block before it
+            pos, block_start = rule.end(), True
+        elif block_start and (m := _DEFINITION_RE.match(masked, pos)):
+            found.setdefault(" ".join(m.group(1).casefold().split()), _is_uri_destination(m.group(2)))
+            pos = m.end()
+        else:
+            eol = masked.find("\n", pos)
+            pos, block_start = (len(masked) if eol == -1 else eol + 1), False
 
 
-def _link_closes(masked: str, definitions: dict[str, bool]) -> list[tuple[int, bool]]:
-    """The ``(index of "]", destination is a URL)`` of each inline, reference, collapsed and shortcut link in ``masked``."""
-    closes: list[tuple[int, bool]] = []  # (index of "]", destination is a URL) of each inline or reference link
+def _is_image(masked: str, open_at: int) -> bool:
+    """Whether the ``[`` at ``open_at`` follows an unescaped ``!``."""
+    if open_at < 1 or masked[open_at - 1] != "!":
+        return False
+    slashes = 0
+    while open_at - 2 - slashes >= 0 and masked[open_at - 2 - slashes] == "\\":
+        slashes += 1
+    return slashes % 2 == 0
+
+
+def _link_closes(masked: str, definitions: dict[str, bool]) -> tuple[list[tuple[int, bool]], str]:
+    """The ``(index of "]", destination is a URL)`` of each inline, reference, collapsed and shortcut link in ``masked``,
+    and ``masked`` with the destinations and titles of the inline links blanked (their text is literal)."""
+    closes: list[tuple[int, bool]] = []
+    chars = list(masked)
+    consumed = 0
     for opened in _LINK_OPEN_RE.finditer(masked):
-        stop = _destination_stop(masked, opened.end())
-        if stop is not None and _LINK_END_RE.match(masked, stop):
-            closes.append((opened.start(), bool(_SCHEME_RE.match(masked, opened.end()))))
-    for ref in _REFERENCE_RE.finditer(masked):
-        start = _label_start(masked, ref.start())
-        if start is None:
+        if opened.start() < consumed:
             continue
+        stop = _destination_stop(masked, opened.end())
+        end = _LINK_END_RE.match(masked, stop) if stop is not None else None
+        if end is not None:
+            closes.append((opened.start(), _is_uri_destination(masked[opened.end() : stop])))
+            consumed = end.end()
+            chars[opened.end() : end.end() - 1] = " " * (end.end() - 1 - opened.end())
+    literal = "".join(chars)
+    pairs = _bracket_pairs(literal)
+    for ref in _REFERENCE_RE.finditer(literal):
         key = " ".join(ref.group(1).casefold().split())
-        if key in definitions:  # an undefined reference is plain text, not a link
+        if ref.start() in pairs and key in definitions:  # an undefined reference is plain text, not a link
             closes.append((ref.start(), definitions[key]))
-    for short in _SHORT_REFERENCE_RE.finditer(masked):
-        if " ".join(short.group(1).casefold().split()) in definitions:
-            closes.append((short.start(1) + len(short.group(1)), False))  # a link, never a label read here
-    return closes
+    for short in _SHORT_REFERENCE_RE.finditer(literal):
+        if " ".join(short.group(1).casefold().split()) not in definitions:
+            continue
+        full = _FULL_REFERENCE_RE.match(literal, short.end())
+        if full and " ".join(full.group(1).casefold().split()) in definitions:
+            continue  # ``[a][b]`` with ``b`` defined is the full reference, counted above; else ``[a]`` stands alone
+        closes.append((short.start(1) + len(short.group(1)), False))  # a link, never a label read here
+    return closes, literal
 
 
 def _external_labels(masked: str, definitions: dict[str, bool]) -> list[tuple[int, int]]:
@@ -290,20 +350,35 @@ def _external_labels(masked: str, definitions: dict[str, bool]) -> list[tuple[in
     no link, as links do not nest. ``masked`` has its code spans blanked to the same length, so offsets match.
     A collapsed (``[a][]``) or shortcut reference is not read as a label (its label is its key, blanked when it holds
     a code span), but one with a definition inside a label counts as a link there."""
-    closes = _link_closes(masked, definitions)
+    closes, literal = _link_closes(masked, definitions)
+    pairs = _bracket_pairs(literal)
+    link_starts = sorted(pairs[c] for c, _ in closes if c in pairs and not _is_image(literal, pairs[c]))
     found: list[tuple[int, int]] = []
-    starts = {close: _label_start(masked, close) for close, _ in closes}
     for close, is_url in closes:
-        start = starts[close]
+        start = pairs.get(close)
         if start is None or not is_url:
             continue
-        nested = any(
-            (inner := starts[c]) is not None and start < inner and c < close and masked[inner - 1 : inner] != "!"
-            for c, _ in closes
-        )
-        if not nested:
+        inner = bisect_right(link_starts, start)  # brackets pair up, so a link that starts inside the label ends inside it
+        if not (inner < len(link_starts) and link_starts[inner] < close):
             found.append((start, close))
     return found
+
+
+def _merged(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """``spans`` sorted, with the overlapping ones joined."""
+    out: list[tuple[int, int]] = []
+    for a, b in sorted(spans):
+        if out and a < out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def _inside(spans: list[tuple[int, int]], starts: list[int], pos: int) -> bool:
+    """Whether ``pos`` is in one of the ``spans`` (:func:`_merged`), whose starts are ``starts``."""
+    i = bisect_right(starts, pos) - 1
+    return i >= 0 and pos < spans[i][1]
 
 
 def link_pieces(lines: list[str]) -> tuple[list[str], list[str]]:
@@ -324,10 +399,11 @@ def link_pieces(lines: list[str]) -> tuple[list[str], list[str]]:
     for masked in maskeds:
         _reference_definitions(masked, definitions)
     for paragraph, masked in zip(paragraphs, maskeds, strict=True):
-        labels = _external_labels(masked, definitions)
+        labels = _merged(_external_labels(masked, definitions))
+        label_starts = [a for a, _ in labels]
         for m in CODE_SPAN_RE.finditer(paragraph):
             text = m.group(2).replace("\n", " ").strip()
-            if text and not any(a <= m.start() < b for a, b in labels):
+            if text and not _inside(labels, label_starts, m.start()):
                 spans[text] = None
         for target in _inline_destinations(masked):
             targets[target] = None

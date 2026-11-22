@@ -9,20 +9,12 @@ file-length cap (``scripts/growth_baseline.json``).
 
 from __future__ import annotations
 
-import re
 from typing import Optional
 from urllib.parse import unquote
 
 from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR
-from .skill_markdown import link_pieces, outside_fences
-
-
-# A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
-_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
-# RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
-URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
-# After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
-FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
+from .skill_markdown import ESCAPE_RE as _ESCAPE_RE
+from .skill_markdown import is_uri, link_pieces, outside_fences
 
 
 def _link_files(markdown: str) -> list[Optional[str]]:
@@ -77,10 +69,7 @@ def _file_ref(raw: str, link: bool = False) -> Optional[str]:
         text = _ESCAPE_RE.sub(r"\1", text)
         text = text.split("#", 1)[0].split("?", 1)[0].strip()
         text = unquote(text)
-    if not text or "://" in text or text.startswith("/"):
-        return None
-    scheme = URI_SCHEME_RE.match(text)
-    if scheme and not ("." in scheme.group() and FILE_SUFFIX_RE.fullmatch(text[scheme.end() :])):
+    if not text or text.startswith("/") or is_uri(text):
         return None
     text = LOCATION_SUFFIX_RE.sub("", text)  # the file is named before its line or symbol suffix
     if not text or text.lower() in {"url", "link", "path", "uri", "href", "todo", "tbd", "..."}:  # a stand-in
