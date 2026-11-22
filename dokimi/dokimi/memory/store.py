@@ -19,6 +19,8 @@ from urllib.parse import unquote
 
 import yaml
 
+from dokimi.code_spans import LINE_BREAK, CodeSpan, find_code_span
+
 INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
@@ -33,7 +35,6 @@ _EMPTY_LINK = re.compile(r"\]\(\s*(?:<>)?\s*\)")  # [t]() is an inline link with
 _ENTITY = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")  # a reference ends in a semicolon
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
-_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)")  # a backtick run closed by one of the same length
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:")  # two letters or more, so a drive path like C:\\x is not a scheme
 _LIST_ITEM = re.compile(r" *(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
@@ -197,9 +198,12 @@ def _resume_comment(line: str, comment: str, opener: str) -> tuple[str | None, s
     return " " * (end + 3) + line[end + 3:], "", ""  # the text after the close is prose, not a fence
 
 
-def _code_span(line: str, pos: int) -> re.Match | None:
-    """The first code span of ``line`` from ``pos`` whose opening backtick is not escaped."""
-    while (m := _CODE_SPAN.search(line, pos)) is not None:
+def _code_span(line: str, pos: int) -> CodeSpan | None:
+    """The first code span of ``line`` from ``pos`` whose opening backtick is not escaped.
+
+    A span is a backtick run closed by one of the same length on the same line.
+    """
+    while (m := find_code_span(line, pos, stop=LINE_BREAK)) is not None:
         if not _escaped(line, m.start()):
             return m
         pos = m.start() + 1
