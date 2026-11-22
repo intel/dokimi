@@ -46,16 +46,19 @@ import re
 from dataclasses import dataclass, field
 from collections.abc import Iterable
 from datetime import datetime
+from pathlib import PureWindowsPath
 from typing import Any
 
 from dokimi.context.trace import parse_trace
 
-from .cli_traces import _failed_read, codex_json, copilot_json, shell_walk
+from .cli_traces import _failed_read, codex_json, copilot_json, failed_search, shell_walked
 from .turn_events import claude_events
-from .transcript import Transcript, _parse_time, clip_output, relative_path
+from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
 
+_GREP_TOOL = "Grep"  # Claude Code's search tool: with ``output_mode`` ``content`` it prints the lines it finds
+_NO_GREP_LINES = ("", "No matches found")  # what a Grep result says when it prints no line
 _SHELL_TOOL = "Bash"  # a POSIX shell: its command is parsed for the files it prints (not PowerShell's)
 _COMMAND_TOOLS = {_SHELL_TOOL, "PowerShell"}
 _READ_TOOLS = {"Read"}
@@ -88,7 +91,9 @@ class _BashCall:
     reads: list[dict[str, Any]] = field(default_factory=list)  # their read events, put before the command event
     moves: bool = False  # the command may leave its shell in another directory
     unknown: int = 0  # the relative files it named after a directory change it could not follow, in itself
+    searched: list[tuple[str, str]] = field(default_factory=list)  # the files its searches show lines of: as named, relative
     result: str | None = None  # "ok", "error" or "denied"; None while nothing came back
+    silent: bool = False  # the result came back with no text: no search of it showed a line
 
 
 @dataclass
@@ -100,6 +105,7 @@ class _Stream:
     by_id: dict[str, dict[str, Any]] = field(default_factory=dict)  # tool_use id -> its event
     bash: dict[int, _BashCall] = field(default_factory=dict)  # id() of a Bash call's command event -> the call
     stop_at: dict[str, int] = field(default_factory=dict)  # message id -> its index in ``stop_reasons``
+    relative_greps: set[int] = field(default_factory=set)  # id() of a Grep call's event that searched a relative path
 
 
 def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
@@ -131,6 +137,7 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     _walk_bash(out, stream)
     _settle_bash(out, stream.bash.values())
+    _settle_grep(out, stream)
     trace = parse_trace(raw)
     main = trace.main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
@@ -151,10 +158,14 @@ def _apply_result(out: Transcript, block: dict[str, Any], stream: _Stream) -> No
     if denied:
         _deny(stream, tool_id)
     elif id(result_of) in stream.bash:
-        stream.bash[id(result_of)].result = "error" if block.get("is_error") else "ok"
+        call = stream.bash[id(result_of)]
+        call.result = "error" if block.get("is_error") else "ok"
+        call.silent = output == ""
     if (result_of["kind"] == "read" or result_of.get("name") == "Skill") and not denied:
         # A read that failed (the file does not exist) shows nothing of the file; a failed Skill call, no skill.
         result_of["rc"] = 1 if block.get("is_error") else 0
+    if result_of.get("name") == _GREP_TOOL and (block.get("is_error") or (output or "").strip() in _NO_GREP_LINES):
+        result_of.pop("searched", None)  # a search that failed, or found no line to show (``offset`` past the last), showed none
     if result_of["kind"] == "edit" and not denied:
         # A failed edit (old_string not found) left the file as it was: rc 1, so it is no useful result.
         result_of["rc"] = 1 if block.get("is_error") else 0
@@ -176,6 +187,7 @@ def _deny(stream: _Stream, tool_id: Any) -> None:
     """A refused call (a hook's result or a final ``permission_denials`` entry): it never ran."""
     event = stream.by_id[tool_id]
     event["denied"] = True
+    event.pop("searched", None)  # a refused Grep call showed no line
     if id(event) in stream.bash:
         stream.bash[id(event)].result = "denied"
 
@@ -186,8 +198,10 @@ def _walk_bash(out: Transcript, stream: _Stream) -> None:
     walked alone: Claude Code starts it in a new shell, which keeps the directory but no function an earlier call
     defined (``cat() { echo hi; }``, then ``cat AGENTS.md``, reads the file)."""
     for call in stream.bash.values():
-        call.named, call.moves, call.unknown = shell_walk(call.text, stream.cwd)
+        walked = shell_walked(call.text, stream.cwd)
+        call.named, call.moves, call.unknown = walked.reads, walked.moved, walked.unknown
         call.reads = [_read(call.event, p, stream.workdir) for p in call.named]
+        call.searched = [(p, relative_path(p, stream.workdir)) for p in walked.searched]
     if stream.bash:
         out.events[:] = [e for event in out.events
                          for e in (*(stream.bash[id(event)].reads if id(event) in stream.bash else ()), event)]
@@ -220,8 +234,9 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
     dropped: set[int] = set()
     for call in calls:
         failed = call.result == "error" and _failed_read(call.text, 1)
-        if call.result != "denied" and not failed:
-            out.unknown_reads += call.unknown
+        if call.result != "denied":
+            out.unknown_reads += 0 if failed else call.unknown
+            _note_searched(call, moved)  # it drops a failed one-file search itself, but keeps a failed pipeline's
         for read, path in zip(call.reads, call.named, strict=True):
             unknown = moved and not path.startswith("/")  # the shell's directory is not known, nor the file
             if call.result == "denied":  # kept after a move too, with no path when it was relative
@@ -236,6 +251,26 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
         out.events[:] = [e for e in out.events if id(e) not in dropped]
 
 
+def _settle_grep(out: Transcript, stream: _Stream) -> None:
+    """A ``Grep`` call's relative path starts at the directory of Claude Code's shell, which a Bash call before it that was not
+    denied may have moved (as for a Bash search in :func:`_note_searched`): the file it searched is not known, so it has no ``searched``."""
+    moved = False
+    for event in out.events:
+        if id(event) in stream.relative_greps and moved:
+            event.pop("searched", None)
+        if (call := stream.bash.get(id(event))) is not None:
+            moved |= call.moves and call.result != "denied"
+
+
+def _note_searched(call: _BashCall, moved: bool) -> None:
+    """Put the files the call's searches show lines of on its command event: not a relative one after the shell moved
+    (its directory is not known; ``unknown_reads`` counts reads only), and none for a call refused or failed as one search of one file, or whose result has no text."""
+    no_match = call.result == "error" and failed_search(call.text, 1, exit_known=False)  # Claude Code reports no exit code: any error is a no match
+    kept = [] if call.silent or no_match else [rel for raw, rel in call.searched if not (moved and not raw.startswith("/"))]
+    if kept:
+        call.event["searched"] = kept
+
+
 def _deny_read(read: dict[str, Any], unknown: bool) -> None:
     """A refused call's read; ``unknown``: relative, after a move, so the file it named is not known and has no path."""
     read["denied"] = True
@@ -243,13 +278,21 @@ def _deny_read(read: dict[str, Any], unknown: bool) -> None:
         del read["path"]
 
 
+def _absolute(path: str) -> bool:
+    """Whether a tool's ``path`` is absolute as :func:`~dokimi.repos.transcript._from_cwd` reads it: POSIX or Windows
+    (``C:/ws/f``, ``C:\\ws\\f``, ``\\\\host\\share\\f``), a shell's ``cd`` does not change what it names."""
+    return path.startswith("/") or PureWindowsPath(path).is_absolute()
+
+
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
     """The event of one tool_use block; a Bash call's derived reads come before it when the trace ends (:func:`_walk_bash`)."""
-    event = _tool_event(block, t, stream.workdir)
+    event = _tool_event(block, t, stream.workdir, stream.cwd)
     if agent:
         event["agent"] = agent
     if block.get("name") == _SHELL_TOOL:
         stream.bash[id(event)] = _BashCall(str(event["text"]), event)
+    elif event.get("searched") and not _absolute(str(block["input"].get("path"))):
+        stream.relative_greps.add(id(event))
     if block.get("name") in _AGENT_TOOLS:
         out.subagent_calls = (out.subagent_calls or 0) + 1
     out.events.append(event)
@@ -341,7 +384,7 @@ def _well_formed_tool_result(block: dict[str, Any]) -> bool:
     return isinstance(block.get("tool_use_id"), str) and bool(block["tool_use_id"])
 
 
-def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> dict[str, Any]:
+def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None, cwd: str = "") -> dict[str, Any]:
     name = str(block.get("name") or "")
     raw_args = block.get("input")
     args: dict[str, Any] = raw_args if isinstance(raw_args, dict) else {}
@@ -355,6 +398,9 @@ def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> 
         event.update(kind="tool", name=name)
         if name == "Skill":  # Claude Code names the skill in `skill`; older versions in `command`
             event["skill"] = str(args.get("skill") or args.get("command") or "")
+        if name == _GREP_TOOL and args.get("output_mode") == "content" and args.get("path"):
+            # the default mode prints names only; a relative path starts at the directory the harness started in
+            event["searched"] = [relative_path(_from_cwd(str(args["path"]), cwd), workdir)]
     return event
 
 

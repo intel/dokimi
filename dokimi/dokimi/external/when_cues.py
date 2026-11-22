@@ -14,8 +14,11 @@ from typing import Optional
 # A "when" clause or use phrase per language: the model chooses a skill from its description alone.
 # Latin cues take word boundaries, CJK cues are substrings; bare 使用 (use) or 用于 (for) are too broad.
 WHEN_CUES = {
-    "en": r"\b(?:when\s+\w|use for\b|use (?:this skill )?to\s+\w|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
-          r"invoke this\b|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)\b|"
+    "en": r"\b(?:when\s+\w|use for\b|use (?:this skill )?to\s+[*_`~]*(?![.;!?)*_`~\s])\S|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|"
+          r"activate\b|invoke this\b|use (?:it |this |these )?(?:when|if|whenever|proactively|anytime)\b|"
+          # "Use after sglang-xpu-run." names a skill, not a situation: 2+ hyphens, no of/the/and/or/to/in/on/for part.
+          # A dot ends the name only before a space or the end, so "pre-commit-hooks.sh" stays a cue (#969).
+          r"use (?:it |this |these )?(?:before|after)\b(?!\s*(?:[.;!?)]|$)|\s+`?\w+(?:-(?!(?:of|the|and|or|to|in|on|for)\b)\w+){2,}`?\s*(?:[;!?)]|\.(?!\w)|$))|"
           r"whenever\b)",
     "es": r"(?<!vez en )\bcuando\b|\bcuándo\b|\bsiempre que\b|\bcada vez que\b|\ben caso de\b|\bal (?:usar|utilizar|invocar|ejecutar)\b",
     "fr": r"\bquand\b(?!\s+même)|\blorsqu\w*|\bdès que\b|\bchaque fois que\b|\ben cas de\b|\blors (?:de|d')",
@@ -31,6 +34,13 @@ WHEN_CUES = {
           r"|(?<![그한이])(?<!그 )(?<!이 )때(?![문로때])|언제(?!나)|상황에서|상황이면|트리거(?:\s*(?:키워드|조건|문구|단어))?\s*[:：]|트리거(?:가|는)?\s*(?:되면|될 때|되었을 때)|사용 시점|사용 시기|(?<=[가-힣])(?<!(?<![가-힣])매)(?<!현대)(?<!고전)(?<!서울)(?<!부산)(?<!대구)(?<!인천)(?<!광주)(?<!대전)(?<!울산)(?<!세종) 시(?=[\s에,.:]|$)",
 }
 WHEN_RE = re.compile("|".join(WHEN_CUES.values()), re.I)
+# "Use when needed.": a when whose only word is a filler names no situation. English only, a closed list.
+# Markdown marks around the filler and a "use this skill" in front of it go with it.
+_EMPTY_WHEN_RE = re.compile(
+    r"(?:\buse (?:this skill|it|this|these)\s+)?\b(?:when|whenever|if|anytime)\s+[*_`~]*(?:it(?: is|['\u2019]s)\s+[*_`~]*)?"
+    r"(?:needed|necessary|appropriate|applicable|relevant|required|helpful|useful|possible|desired)[*_`~]*\s*(?:[;!?)]|\.(?!\w)|$)",
+    re.I,
+)
 # Letters in a script some cue list covers (Latin with accents, Cyrillic, kana, Han, Hangul), and all letters.
 _COVERED_LETTER_RE = re.compile(r"[A-Za-zÀ-ɏḀ-ỿЀ-ӿ぀-ヿ㐀-䶿一-鿿가-힯]")
 _LETTER_RE = re.compile(r"[^\W\d_]")
@@ -39,7 +49,7 @@ _LETTER_RE = re.compile(r"[^\W\d_]")
 def when_clause_found(description: str) -> Optional[bool]:
     """Whether the description has a "when" cue; None when most of its letters are in a script no cue list covers."""
     text = " ".join(description.split())
-    if WHEN_RE.search(text):
+    if WHEN_RE.search(_EMPTY_WHEN_RE.sub(" ", text)):
         return True
     letters = len(_LETTER_RE.findall(text))
     covered = len(_COVERED_LETTER_RE.findall(text))

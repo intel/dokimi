@@ -464,7 +464,7 @@ class TestTypedArmWithTheReliabilityModes:
 
         class Slow(FakeAgent):
             def predict(self, state, questions, **kwargs):
-                time.sleep(0.05)
+                time.sleep(0.05)  # timing-ok: each call must take measurable time for the summed usage seconds
                 return super().predict(state, questions, **kwargs)
 
         agent = Slow()
