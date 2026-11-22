@@ -213,8 +213,8 @@ def test_final_answer_scans_unclosed_openers_in_linear_time() -> None:
 
 # cli_traces._HEREDOC and shell.split_commands -------------------------------------------------------------------------
 
-_OLD_CLI_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
-_OLD_SHELL_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S)
+_OLD_CLI_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w++)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+_OLD_SHELL_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w++)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S)
 
 HEREDOC_TABLE = [
     "",
@@ -323,14 +323,23 @@ def test_cli_trace_heredoc_scans_long_delimiters_among_closing_lines_of_many_len
     assert any(relative() < 1.3 for _ in range(3))  # copying prefixes: 2.3 in every attempt; a busy host spoils some attempts, and an attempt that passes ends the test
 
 
-def test_cli_trace_heredoc_closes_an_unquoted_opener_by_a_line_of_a_prefix_of_its_delimiter_after_it() -> None:
-    assert _cli_heredocs("<<ABC\nx\nAB\ny") == _old_cli_heredocs("<<ABC\nx\nAB\ny")
-    assert _cli_heredocs("AB\n<<ABC\nx\n") == _old_cli_heredocs("AB\n<<ABC\nx\n")
+@pytest.mark.parametrize("text", ["<<ABC\nx\nAB\ny", "AB\n<<ABC\nx\n", "cat <<AB\necho hi\nA\nrm x\n", "<<'AB'\nx\nA\ny"])
+def test_cli_trace_heredoc_is_not_closed_by_a_line_of_a_prefix_of_its_delimiter(text: str) -> None:
+    assert cli_traces._HEREDOC.sub(lambda m: m.group(3), text) == text  # unclosed: nothing is cut (#930)
+
+
+def test_cli_trace_heredoc_closes_by_the_whole_delimiter_after_a_prefix_line() -> None:
+    assert cli_traces._HEREDOC.sub(lambda m: m.group(3), "cat <<AB\necho hi\nA\nrm x\nAB\nls\n") == "cat \nls\n"
+
+
+def test_split_commands_keeps_the_lines_after_a_prefix_line_in_an_unclosed_heredoc() -> None:
+    assert shell.split_commands("cat <<AB\necho hi\nA\nrm x\n") == [("cat <<AB", "\n"), ("echo hi", "\n"), ("A", "\n"), ("rm x", "\n")]
+    assert shell.split_commands("cat <<AB\necho hi\nA\nrm x\nAB\nls\n") == [("cat <<AB", "\n"), ("ls", "\n")]
 
 
 @pytest.mark.parametrize("delimiter", ["EOF", "Z" * 80])
 def test_cli_trace_heredoc_keeps_no_line_that_is_no_prefix_of_a_delimiter_in_memory(delimiter: str) -> None:
-    """A closed heredoc of 52000 one-word lines of 80 characters (4.2 MB) took 1.1 GB when every line word went into the trie, also under an 80-character delimiter (#933 review)."""
+    """A closed heredoc of 52000 one-word lines of 80 characters (4.2 MB) took 1.1 GB when every line word was kept, also under an 80-character delimiter (#933 review)."""
     rng = random.Random(0)
     body = "\n".join(rng.randbytes(40).hex() for _ in range(52_000))
     text = f"cat <<{delimiter} > f\n{body}\n{delimiter}\n"
