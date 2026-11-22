@@ -532,7 +532,7 @@ class _HoldOneDecision:
             hold = self._local.n == 3 and not self._held
             self._held = self._held or hold
         if hold:
-            time.sleep(0.3)
+            time.sleep(0.3)  # timing-ok: the slow worker is the subject of the test; nothing else tells it to go on
         return self._lock.__enter__()
 
     def __exit__(self, *exc):

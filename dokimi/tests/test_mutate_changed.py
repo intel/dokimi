@@ -12,11 +12,12 @@ import os
 import signal
 import subprocess
 import sys
-import time
 import types
 from pathlib import Path
 
 import pytest
+
+from tests.waiting import poll_until
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "mutate_changed.py"
 _spec = importlib.util.spec_from_file_location("mutate_changed", _SCRIPT)
@@ -278,9 +279,7 @@ def test_a_mutant_that_times_out_leaves_no_process_of_its_tests_behind(tmp_path:
     pid = int(pid_file.read_text(encoding="utf-8"))
     try:
         assert [m["status"] for m in report["mutants"]] == ["timeout"]
-        deadline = time.monotonic() + 5
-        while _alive(pid) and time.monotonic() < deadline:
-            time.sleep(0.1)
+        poll_until(lambda: not _alive(pid), 5, interval=0.1)
         assert not _alive(pid)
     finally:
         if _alive(pid):
