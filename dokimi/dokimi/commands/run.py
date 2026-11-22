@@ -189,6 +189,9 @@ def register(sub, positive_int) -> None:
     check_p.add_argument("--strict", action="store_true", help="Enable hard gate and critical bands (exit 1 on failure)")
     check_p.set_defaults(func=cmd_run)
     register_compare(docs_sub, positive_int)
+    from dokimi.commands import llms_txt
+
+    llms_txt.register(docs_sub, positive_int)
 
 
 def register_compare(sub, positive_int) -> None:

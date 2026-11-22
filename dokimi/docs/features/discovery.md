@@ -70,6 +70,24 @@ Change tool wording or position while holding the request fixed. Repeat the tria
 
 [Usage guide](../tool-preference.md) · [Implementation](../../dokimi/commands/tools.py) · [Back to feature tree](README.md)
 
+<a id="49-check-an-llms-txt-index"></a>
+
+## Is the docs index agent-ready?
+
+**Availability:** Prototype on main.
+
+`docs llms-txt` reads a docs site's `llms.txt` (the agent-facing index) and checks what an agent needs to decide whether the tool applies: an H1 title with a blockquote summary, Markdown links with one-line descriptions, `When to use` and `When not to use` sections, and a size under a token budget. No network and no model call.
+
+**Input:** An `llms.txt` file, or a directory that holds one at its top.
+
+**Scope and limits:** Static structure only: it does not fetch the linked pages or test whether an agent answers better with the index. Token counts are an estimate (four characters a token).
+
+**Result:** One row per finding (`fail` or `warn`, with the fix); exit 1 when a `fail` exists. `--json` prints `cli_output.v1`; `report opportunities` turns the same findings into a queue of fixes.
+
+**Next step:** Read the [guide](../llms-txt.md), fix the `fail` rows first, then rerun.
+
+[Usage guide](../llms-txt.md) · [Implementation](../../dokimi/commands/llms_txt.py) · [Back to feature tree](README.md)
+
 <a id="18-split-or-merge-skills"></a>
 
 ## Split or merge skills?

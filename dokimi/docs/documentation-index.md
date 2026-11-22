@@ -143,6 +143,8 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   harness profiles, and the guidance reach probe; and how to run its task
   self-check, agent runs, report and arm comparison (`eval check`,
   `repo run`, `repo report`, `repo compare`). Tasks and graders stay in the scanned repository.
+- [llms-txt.md](llms-txt.md) — prototype: `docs llms-txt`, the static check of a docs
+  site's `llms.txt` index, its checks, output and exit code.
 - [reach-matrix.md](reach-matrix.md) — the reach conformance suite: fixture
   repositories, what each harness's vendor documentation says they load, the
   `scripts/reach_conformance.py` run and merge that produce the agent × version

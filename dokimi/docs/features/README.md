@@ -32,6 +32,7 @@ Reviewed against [ae08a920](https://github.com/intel/dokimi/tree/ae08a92063d4bd1
     - [Will the agent discover and load it?](discovery.md#13-will-the-agent-discover-it)
     - [Will it choose the right skill?](discovery.md#14-will-it-choose-the-right-skill)
     - [Why did it choose that tool?](discovery.md#15-why-did-it-choose-that-tool)
+    - [Is the docs index agent-ready?](discovery.md#49-check-an-llms-txt-index)
     - [Split or merge skills?](discovery.md#18-split-or-merge-skills)
 - **[Does repository guidance work?](repositories.md)**
     - [Check repository claims](repositories.md#19-check-repository-claims)
