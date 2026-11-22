@@ -267,7 +267,7 @@ def _unresolved(protocol: Mapping[str, Any]) -> set[str]:
     listed = set(protocol.get("unresolved") or [])
     if (protocol.get("id"), protocol.get("version")) == (PROTOCOL_ID, PROTOCOL_VERSION):
         listed |= set(REQUIRED_INPUTS) - set(_resolved(protocol))
-    listed |= {key for key, value in _resolved(protocol).items() if value is None or is_alias(value)}
+    listed |= {key for key, value in _resolved(protocol).items() if value in (None, PROTOCOL_MIXED) or is_alias(value)}
     return listed
 
 
