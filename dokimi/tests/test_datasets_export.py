@@ -108,6 +108,28 @@ def test_a_refused_to_jsonl_leaves_the_existing_file_and_creates_none(tmp_path):
     assert not fresh.exists()
 
 
+@pytest.mark.skipif(not hasattr(Path, "symlink_to"), reason="no symlinks")
+@pytest.mark.parametrize("target_exists", [True, False])
+def test_to_jsonl_writes_through_a_symlink_and_keeps_it(tmp_path, target_exists):
+    """``open(path, "w")`` followed a link at the destination; the atomic publish replaces the target, not the link (#1020)."""
+    shared = tmp_path / "shared" / "shared.jsonl"
+    shared.parent.mkdir()
+    if target_exists:
+        shared.write_text("stale\n")
+    link = tmp_path / "rows.jsonl"
+    try:
+        link.symlink_to(Path("shared") / "shared.jsonl")
+    except OSError:
+        pytest.skip("symlinks need a privilege here")
+
+    to_jsonl([{"a": 1}], link)
+
+    assert link.is_symlink()
+    assert shared.read_text() == '{"a": 1}\n'
+    assert sorted(p.name for p in shared.parent.iterdir()) == ["shared.jsonl"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["rows.jsonl", "shared"]
+
+
 def test_to_jsonl_holds_one_row_of_output_at_a_time(tmp_path):
     """The output is encoded row by row into a tmp file, so memory is bounded by a row, not the export (#1020)."""
     import tracemalloc

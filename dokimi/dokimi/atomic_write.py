@@ -42,9 +42,10 @@ def write_bytes_atomic(path: Path | str, data: bytes) -> None:
 def write_chunks_atomic(path: Path | str, chunks: Iterable[bytes]) -> None:
     """:func:`write_bytes_atomic` for an iterable of byte chunks, taken one at a time and never held together.
 
-    An exception from the iterable removes the tmp file and leaves the file at ``path`` as it was.
+    An exception from the iterable removes the tmp file and leaves the file at ``path`` as it was. A symlink at ``path``
+    (dangling or not) is followed, as ``open(path, "w")`` follows it: the tmp file is made beside the link's target, which is replaced, and the link stays.
     """
-    _publish(Path(path), lambda fd: os.fdopen(fd, "wb"), chunks)
+    _publish(Path(os.path.realpath(path)), lambda fd: os.fdopen(fd, "wb"), chunks)
 
 
 def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
