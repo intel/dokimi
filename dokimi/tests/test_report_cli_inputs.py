@@ -112,6 +112,35 @@ def test_an_eval_with_one_evaluation_writes_the_report(tmp_path):
     assert "| 100% |" in report  # the one record's diagnosis is the failure analysis' whole total
 
 
+def test_generate_writes_a_lone_surrogate_in_a_question_text_as_a_question_mark(tmp_path):
+    ev = tmp_path / "ev.json"
+    ev.write_text(ONE_EVALUATION.replace("How?", "n\\ud800"), encoding="utf-8")
+    _generate(tmp_path, ev)
+    assert "n?" in (tmp_path / "r.md").read_text(encoding="utf-8")
+
+
+def test_summary_writes_a_lone_surrogate_in_a_subject_as_a_question_mark(tmp_path, monkeypatch):
+    summary = {"overall": "pass", "checks": [], "spent_usd": None,
+               "subjects": [{"subject": "n\ud800", "verdicts": {"k": "pass"}, "findings": []}]}
+    monkeypatch.setattr("dokimi.report.summary.summarize", lambda paths: summary)
+    out = tmp_path / "out" / "s.md"
+    args = build_parser().parse_args(["report", "summary", "x.json", "--out", str(out)])
+    args.func(args)
+    assert "n?" in out.read_text(encoding="utf-8")
+
+
+def test_summary_out_naming_a_directory_exits_2_with_a_message(tmp_path, monkeypatch, capsys):
+    summary = {"overall": "pass", "checks": [], "spent_usd": None, "subjects": []}
+    monkeypatch.setattr("dokimi.report.summary.summarize", lambda paths: summary)
+    out = tmp_path / "taken"
+    out.mkdir()
+    args = build_parser().parse_args(["report", "summary", "x.json", "--out", str(out)])
+    with refusal() as exc:
+        args.func(args)
+    assert exc.code == 2
+    assert f"Error: cannot write {out}" in capsys.readouterr().err
+
+
 def test_the_failure_analysis_shows_n_a_rates_for_zero_evaluations():
     """The pipeline reports straight from its own run, which can judge no answers."""
     from dokimi.report.generator import ReportGenerator

@@ -42,7 +42,7 @@ import sys
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Container, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,6 +87,7 @@ from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
+from .held_guidance import held_guidance
 from .host import probe_host, unmet, validate_tasks
 from .manifest import match_glob, scratch_name
 from .process_metrics import process_metrics
@@ -234,6 +235,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     rd.mkdir(parents=True)
     meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir,
                              base_git_dir=ctx.git_dir_for(task.id))
+    held = held_guidance(rd, ctx.manifest)  # before the agent runs: a file it creates is not guidance it read
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
     if ctx.suite is not None and task.id in ctx.suite.meta:  # additive: only a suite task's base is elsewhere
@@ -315,7 +317,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                                                argv=argv, transcript=transcript, config_sha256=config_sha),
                          agent["trace_errors"])
         if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record
-            process = _process_or_null(ctx, events, agent["trace_errors"], transcript.unknown_reads)
+            process = _process_or_null(ctx, events, agent["trace_errors"], transcript.unknown_reads, held)
         if meta.get("skills") and started:
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         # A Ctrl-C does not kill the grade: the cell is past its agent, so it is recorded (contract §9).
@@ -352,18 +354,22 @@ def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str,
     return record
 
 
-def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]], unknown_reads: int = 0) -> dict[str, Any]:
-    """``result.json`` ``process``: the framework's counts and the manifest's ``process_metrics`` (contract §4.1)."""
+def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]], unknown_reads: int = 0,
+                        held: Container[str] | None = None) -> dict[str, Any]:
+    """``result.json`` ``process``: the framework's counts and the manifest's ``process_metrics`` (contract §4.1).
+
+    ``held``: the guidance files the workspace held as the agent started; a path outside it is no guidance read
+    (a multi-file read cannot say which file failed). None: any path the globs match."""
     globs = ctx.manifest.guidance_globs
-    return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs),
+    return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs) and (held is None or path in held),
                            ctx.manifest.process_metrics, unknown_reads)
 
 
 def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str],
-                     unknown_reads: int = 0) -> dict[str, Any] | None:
+                     unknown_reads: int = 0, held: Container[str] | None = None) -> dict[str, Any] | None:
     """The cell's ``process``, or None when its metrics raise: a best-effort count must not fail the task."""
     try:
-        return run_process_metrics(ctx, events, unknown_reads)
+        return run_process_metrics(ctx, events, unknown_reads, held)
     except Exception as exc:  # noqa: BLE001  # a metric that fails is recorded, the grade still counts
         errors.append(f"process metrics failed ({type(exc).__name__}): {str(exc)[:200]}")
         return None

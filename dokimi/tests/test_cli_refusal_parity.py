@@ -42,7 +42,7 @@ def _assert_helper_matches_main(argv, monkeypatch, capsys, expect):
     (lambda d: ["eval", "judge", "validate", "--answers", str(d / "a.json"), "--mode", "absolute",
                 "--escalate-model", "m"], "need --mode pairwise"),
     (lambda d: ["eval", "tasks", "list", "--tasks-root", str(d / "missing")], "--tasks-root is not a directory"),
-    (lambda d: ["explore", "list", "--tasks-root", str(d / "missing")], "--tasks-root is not a directory"),
+    (lambda d: ["eval", "tasks", "list", "--format", "localization", "--tasks-root", str(d / "missing")], "--tasks-root is not a directory"),
     (lambda d: ["catalog", "check", "--root", str(d / "missing")], "--root is not a directory"),
     (lambda d: ["catalog", "list", "--kind", "subject", "--subjects-root", str(d / "missing")],
      "--subjects-root is not a directory"),

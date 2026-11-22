@@ -23,13 +23,19 @@ import json
 import posixpath
 import re
 import shlex
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, NamedTuple
+
+from dokimi.text_spans import HeredocPattern
 
 from .shell_functions import Functions, define
+from .shell_redirects import bare, masked, without_stderr
+from .shell_search import Searched, cuts_lines, passes_through, search_program, searched_field, searched_files
+from .shell_sed import sed_files
 from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
-                          _run_name, _runs_dir, _time_keyword, _unquoted)
+                          _run_name, _runs_dir, _stdout_after_stderr, _time_keyword, _unquoted)
 from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 from .turn_events import codex_turn
 
@@ -40,17 +46,10 @@ _COPILOT_READ = {"view"}
 _COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
 _PATCH_FILE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.M)
 _CONTINUATION = re.compile(r"\\\n")
-_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
-# a redirect that leaves what a printing command shows on stdout: 2>&1, >&2, 2>/dev/null. A stdout discard
-# (>/dev/null, 1>/dev/null, &>/dev/null) is not one of them: no content reaches the agent, so no read.
-_HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?>&\d+(?=\s|$|[;&|])|(?<![^\s;&|(])(?!1(?![0-9]))\d+>>?\s*/dev/null(?=\s|$|[;&|])")
+_HEREDOC_DELIMITER = r"<<-?[ \t]*(['\"]?)(\w+)\1"
+_HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
+                          re.compile(r"^[ \t]*(\w+)[ \t]*$", re.M), word=2, quote=1)
 _GLOB = re.compile(r"[*?\[]|\{[^\s{}]*(?:,|\.\.)[^\s{}]*\}")  # a pathname or brace expansion, unquoted
-_PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?)?\s*p\s*")  # ``p``, ``5p``, ``1,80p``, ``$p``: prints, writes nothing
-# stderr sent to a file: stdout, what a printing command shows, is unchanged
-# (matched on the part with quoted text masked, so a quote glued to ``2`` or to the target is seen)
-_STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
-# redirects apply in order: after ``2>/dev/null`` or ``2>file``, a ``1>&2`` sends stdout there too, away from the agent
-_STDOUT_AFTER_STDERR = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+.*?(?<![^\s;&|(])1?>&2(?!\d)")
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
@@ -112,7 +111,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     ``--version`` print and open no file. A function definition is skipped whole, its ``{`` on a later line too
     (``f()\\n{``). Absolute paths are kept.
     """
-    return _walk_script(script, cwd)[0]
+    return shell_walked(script, cwd).reads
 
 
 def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
@@ -127,8 +126,26 @@ def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
 
 def shell_walk(script: str, cwd: str = "") -> tuple[list[str], bool, int]:
     """:func:`shell_reads_moved`, and how many relative files its printing commands named at a directory not known."""
-    reads, walk = _walk_script(script, cwd)
-    return reads, walk.shell_moved, walk.unknown
+    walked = shell_walked(script, cwd)
+    return walked.reads, walked.moved, walked.unknown
+
+
+class Walked(NamedTuple):
+    """What a script does that a trace shows: see :func:`shell_walked`."""
+
+    reads: list[str]
+    moved: bool
+    unknown: int
+    searched: list[str]
+
+
+def shell_walked(script: str, cwd: str = "") -> Walked:
+    """:func:`shell_walk`, and the files the script's ``grep`` / ``rg`` / ``git grep`` commands search and show lines of
+    (:mod:`~dokimi.repos.shell_search`), with the same ``cd`` rules as the reads, from ``cwd``. A relative one at a
+    directory not known is dropped, and is not in ``unknown``. A search is no read: ``reads`` holds none."""
+    found, walk = _walk_script(script, cwd)
+    return Walked([p for p in found if not isinstance(p, Searched)], walk.shell_moved, walk.unknown,
+                  [str(p) for p in found if isinstance(p, Searched)])
 
 
 def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
@@ -141,15 +158,17 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     walk = _Walk(posixpath.normpath(cwd) if cwd else "", define(known, script), known)
     for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
+        if _ungrouped(part).strip():  # the ``}`` that closes a group has no exit of its own: the group's last command's
+            walk.last_start, walk.cut = len(out), False
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
             walk.here, walk.gated = None, False
         walk.chain(op, chained)
-        if walk.in_function(_bare(part)) or walk.in_case(outer, part, after, out):  # a definition runs nothing
+        if walk.in_function(bare(part)) or walk.in_case(outer, part, after, out):  # a definition runs nothing
             continue
         if op == "||" and walk.moved:
             walk.here = None
-        walk.track_groups(_bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
+        walk.track_groups(bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
         if in_subshell:  # a subshell: its reads are not tracked
             if _runs_dir(outer, walk.dirs, walk.functions):  # ``cd $(dirname f)``: the cd is outside the parentheses
                 walk.lose(_in_own_shell(outer, after))
@@ -157,6 +176,9 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         words = walk.words(part, after)
         if words:
             out.extend(walk.command(words, after, chained, _time_keyword(part)))
+        elif (stage := _search_stage(part, walk.functions)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
+            walk.cut = True
+            out.extend(walk.piped(walk.words(stage, after, staged=True), _time_keyword(part)))
     walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
     return out, walk
 
@@ -177,14 +199,17 @@ class _Walk:
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
         # the open brace groups: the spot before it, in a pipeline, (index in the reads, ``unknown``) where it began,
         # the enclosing && / || list's (list_start, listed), which the group's own separators do not end
-        self.groups: list[tuple[_Spot, bool, tuple[int, int], tuple[_Spot, bool]]] = []
+        self.groups: list[tuple[_Spot, bool, tuple[int, int, bool], tuple[_Spot, bool]]] = []
         self.list_start: _Spot = (here, False, False)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
         self.head = False  # the last part was a function's name alone (``f()``): its body's ``{`` comes next
         self.case = 0  # the depth inside ``case ... esac``
         self.operands: int | None = None  # how many files the last printing command named
+        self.passthru = False  # a search printed every line (``rg --passthru``): its exit 1 is no sign it showed none
+        self.last_start = 0  # where in the found paths the script's last non-empty part began
         self.unknown = 0  # the relative files printing commands named at a directory not known
+        self.cut = False  # the last part is a search piped into head or tail: its exit may be the pipeline's, under pipefail
 
     def spot(self) -> _Spot:
         return self.here, self.shell_moved, self.moved
@@ -228,7 +253,7 @@ class _Walk:
         if not self.case and not opens:
             return False
         self.case += opens
-        self.track_groups(_bare(outer), after, out)  # before lose: a backgrounded group around the case restores it
+        self.track_groups(bare(outer), after, out)  # before lose: a backgrounded group around the case restores it
         if any(w in self.dirs for w in _unquoted(outer.split())):
             self.lose()
         self.case -= _case_closes(part)
@@ -244,7 +269,7 @@ class _Walk:
         """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. A group is
         one command of the list around it: ``cd sub && { a; b; } &`` backgrounds the whole list. The reads of a group
         whose output feeds a pipe after it, or a file, are dropped from ``out``, and so are those it counted in
-        ``unknown``: its output is not the agent's. Each brace of ``bare`` counts, in order (``{ { cd x``,
+        ``unknown`` and the ``passthru`` it set: its output is not the agent's. Each brace of ``bare`` counts, in order (``{ { cd x``,
         ``} | { cat a``)."""
         braces = [(m.end() - 1, m) for m in _GROUP_OPEN.finditer(bare)] + [(m.end(), m) for m in _GROUP_CLOSE.finditer(bare)]
         for _, m in sorted(braces, key=lambda b: b[0]):
@@ -255,31 +280,30 @@ class _Walk:
 
     def open_group(self, before_brace: str, mark: int) -> None:
         piped = bool(_PIPE.search(before_brace))
-        self.groups.append((self.spot(), piped, (mark, self.unknown), (self.list_start, self.listed)))
+        self.groups.append((self.spot(), piped, (mark, self.unknown, self.passthru), (self.list_start, self.listed)))
         if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
             self.here = None
 
     def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
-        before, piped, (mark, unknown), (self.list_start, self.listed) = self.groups.pop()
-        if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
+        before, piped, (mark, unknown, passthru), (self.list_start, self.listed) = self.groups.pop()
+        if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _stdout_after_stderr(redirects):
             del out[mark:]
-            self.unknown = unknown
+            self.unknown, self.passthru = unknown, passthru  # a passthru search dropped with the group shows the agent no line
         if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
             self.back(before)
 
-    def words(self, part: str, after: str = "") -> list[str]:
+    def words(self, part: str, after: str = "", staged: bool = False) -> list[str]:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
-        and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell)."""
-        if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
-            part = _outside_quotes(part, _HARMLESS_REDIRECT)
-        part = _outside_quotes(part, _STDERR_FILE)
+        and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell;
+        ``staged``: ``part`` is the first stage of a pipeline, cut out of it, so it ran in a subshell)."""
+        part = without_stderr(part)
         try:
             words = shlex.split(part) if not _computed(part) else None
         except ValueError:
             return []
         if words is None:
             if _runs_dir(part, self.dirs, self.functions):  # ``builtin cd "$D"``: where it went is not known
-                self.lose(_in_own_shell(part, after))
+                self.lose(_in_own_shell(part, after) and not staged)
             return []
         while words[:1] == ["{"]:  # a brace group runs in this shell: its cd and reads count
             words = words[1:]
@@ -307,20 +331,51 @@ class _Walk:
             self.gated |= chained
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
                 self.here, self.shell_moved, self.moved = _cd(self.here, words[1:]), True, True
-        elif name in _PRINTERS and not negated:  # ``! cat f`` inverts the exit, which no longer says f was printed
-            return self.printed(name, words[1:], chdir)
+        elif not negated:  # ``! cat f`` inverts the exit, which no longer says f was printed (nor ``! grep``, searched)
+            return self.shown(name, words[1:], chdir)
         return []
+
+    def shown(self, name: str, args: list[str], chdir: bool) -> list[str]:
+        """The files a printing command prints, or a search shows lines of, as a path list (:class:`Searched` for a search)."""
+        if name in _PRINTERS:
+            return self.printed(name, args, chdir)
+        search = search_program(name, args)
+        return self.searching(*search, chdir) if search else []
+
+    def piped(self, words: list[str], timed: bool) -> list[str]:
+        """The files a search shows lines of when it is the first stage of ``grep x f | head`` (:func:`_search_stage`);
+        no other command of a pipeline counts, and neither does a ``cd``. A keyword before the search (``if grep x f | head``)
+        is dropped, but not ``!``, which inverts the exit."""
+        while words and words[0] in _KEYWORDS:
+            if words[0] == "!":
+                return []
+            words = words[1:]
+        words, via_env, chdir, bypassed = _command_words(words, timed, self.functions)
+        name = _run_name(words[0], via_env) if words else None
+        search = search_program(name, words[1:]) if name and (bypassed or words[0] not in self.functions) else None
+        return self.searching(*search, chdir) if search else []
 
     def printed(self, name: str, args: list[str], chdir: bool) -> list[str]:
         """The files a printing command reads; ``unknown`` counts those it names at a directory not known."""
         if _asks_for_help(args):  # ``cat --help AGENTS.md`` prints the help and opens no file
             return []
-        files = _sed_files(args) if name == "sed" else _print_files(name, args)
+        files = sed_files(args) if name == "sed" else _print_files(name, args)
+        known = self.named(files, chdir)
+        self.unknown += len(files) - len(known)
+        return known
+
+    def searching(self, program: str, args: Sequence[str], chdir: bool) -> list[str]:
+        """The files a search shows lines of (:func:`~dokimi.repos.shell_search.searched_files`), as :class:`Searched`
+        paths among the reads. One at a directory not known is dropped, and not counted in ``unknown``, which counts reads."""
+        files = searched_files(program, args)
+        self.passthru |= bool(files) and passes_through(program, args)  # ``rg --passthru -q`` shows no line
+        return [Searched(p) for p in self.named(files, chdir)]
+
+    def named(self, files: list[str], chdir: bool) -> list[str]:
+        """The files a printing or searching command names that are known, resolved; ``operands`` counts all of them."""
         self.operands = len(files)  # all it names, those at an unknown directory too
         # ``env -C dir cat f`` reads dir/f, which is not known: only an absolute path is the same
-        known = [f for f in files if f.startswith("/") or (self.here is not None and not chdir)]
-        self.unknown += len(files) - len(known)
-        return [self.resolve(f) for f in known]
+        return [self.resolve(f) for f in files if f.startswith("/") or (self.here is not None and not chdir)]
 
     def resolve(self, f: str) -> str:
         return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
@@ -329,7 +384,7 @@ class _Walk:
 def _in_own_shell(outer: str, after: str) -> bool:
     """Whether the part with this outer text runs in the script's shell: not backgrounded by ``after``, nor a
     pipeline stage (a pipe in quotes or escaped, ``\\|``, is not one)."""
-    return after != "&" and not _PIPE.search(re.sub(r"\\.", "", _bare(outer)))
+    return after != "&" and not _PIPE.search(re.sub(r"\\.", "", bare(outer)))
 
 
 def _computed(part: str) -> bool:
@@ -375,106 +430,12 @@ def _print_files(cmd: str, args: list[str]) -> list[str]:
     return files
 
 
-class _SedScan:
-    """What the options of a ``sed`` command line say: ``-n`` (quiet), the scripts given by ``-e`` / ``--expression``,
-    a script file (``-f`` / ``--file``, not read here), an in-place edit, and which option takes the next word."""
-
-    def __init__(self) -> None:
-        self.quiet = self.in_place = self.script_file = False
-        self.scripts: list[str] = []
-        self.takes = ""  # the option whose value is the next word: "e", "f", "l" (line length), or "" for none
-
-    def add(self, kind: str, value: str) -> None:
-        if kind == "e":
-            self.scripts.append(value)
-        elif kind == "f":
-            self.script_file = True
-
-    def long(self, a: str) -> None:
-        name, eq, value = a.partition("=")
-        if name == "--in-place":
-            self.in_place = True
-        self.quiet |= name in ("--quiet", "--silent")
-        kind = {"--expression": "e", "--file": "f", "--line-length": "l"}.get(name, "")
-        if kind and eq:
-            self.add(kind, value)
-        elif kind:
-            self.takes = kind  # the value is the next word
-
-    def short(self, a: str) -> None:
-        """A cluster of short options: -n, -ne, -nE, -i.bak, -e1p."""
-        for i, c in enumerate(a[1:], 1):
-            if c == "i":
-                self.in_place = True
-                return
-            self.quiet |= c == "n"
-            if c in "efl":
-                if i < len(a) - 1:  # attached: -e1p
-                    self.add(c, a[i + 1:])
-                else:
-                    self.takes = c  # the value is the next word
-                return
-
-
-def _sed_files(args: list[str]) -> list[str]:
-    """Files of ``sed -n <script> files``, for a script that only prints (``p`` with line addresses). Nothing for an
-    in-place edit, a run without ``-n``, a script file (not read), or any other script (``d``, ``w``, ``s``...)."""
-    scan = _SedScan()
-    positional = _sed_positional(scan, args)
-    if positional is None or not scan.quiet or scan.script_file:
-        return []
-    if scan.scripts:
-        scripts, files = scan.scripts, positional
-    elif positional:
-        scripts, files = positional[:1], positional[1:]
-    else:
-        return []
-    if not all(_print_only(script) for script in scripts):
-        return []  # not a print-only script: its files are not read as printed
-    return [f for f in files if f != "-"]  # `-` is stdin: the script still counts it as a position
-
-
-def _sed_positional(scan: _SedScan, args: list[str]) -> list[str] | None:
-    """The operands of a sed command line, its options read into ``scan``; None for an in-place edit."""
-    ended = False
-    positional: list[str] = []
-    for a in args:
-        if scan.takes:
-            scan.add(scan.takes, a)
-            scan.takes = ""
-        elif ended or not a.startswith("-") or a == "-":
-            positional.append(a)
-        elif a == "--":
-            ended = True
-        elif a.startswith("--"):
-            scan.long(a)
-        else:
-            scan.short(a)
-        if scan.in_place:
-            return None
-    return positional
-
-
-def _print_only(script: str) -> bool:
-    return all(not piece.strip() or _PRINT_ONLY.fullmatch(piece) for piece in re.split(r"[;\n]", script))
-
-
-def _bare(part: str) -> str:
-    """``part`` with the text inside quotes emptied, so only shell syntax is left to match."""
-    return re.sub(r"'[^']*'", "''", re.sub(r'"[^"]*"', '""', part))
-
-
-def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:
-    """``part`` with each match of ``rx`` removed, matched with the text inside quotes masked: a match
-    starts outside quotes, and a quote glued to it (``'a'2>x``, ``2>x'y'``) is part of its word."""
-    masked = re.sub(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"",  # a backslash escape is masked too: ``\"`` opens no quote
-                    lambda m: "qq" if m.group()[0] == "\\" else m.group()[0] + "q" * (len(m.group()) - 2) + m.group()[-1],
-                    part, flags=re.DOTALL)
-    out, last = [], 0
-    for m in rx.finditer(masked):
-        out += [part[last:m.start()], " "]
-        last = m.end()
-    return "".join(out) + part[last:]
+def _search_stage(part: str, functions: Functions) -> str | None:
+    """The first stage of a pipeline whose other stages all only cut its lines (:func:`~dokimi.repos.shell_search.cuts_lines`:
+    ``grep x AGENTS.md | head -n 20``), else None: the lines of a search that only ``head`` or ``tail`` cut still reach the agent."""
+    cuts = [m.start() for m in _PIPE.finditer(masked(part))]
+    stages = [part[a:b] for a, b in zip([0, *(c + 1 for c in cuts)], [*cuts, len(part)], strict=True)]
+    return stages[0] if cuts and all(cuts_lines(without_stderr(s.removeprefix("&")), functions) for s in stages[1:]) else None  # the ``&`` of ``|&`` is no word
 
 
 def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
@@ -502,6 +463,7 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     out.answer = messages[-1].strip() if messages else ""
     out.agent_messages = messages
+    drop_failed_searches(out.events)
     return out
 
 
@@ -566,10 +528,11 @@ def _codex_command_started(out: Transcript, item: dict[str, Any], workdir: str |
                            by_id: dict[str, dict[str, Any]], cwd: str,
                            event_reads: dict[int, _Derived]) -> None:
     script = unwrap_shell(str(item.get("command") or ""))
-    paths, unknown = _counted_reads(out, script, cwd)
+    paths, unknown, searched = _counted_reads(out, script, cwd)
     read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)} for path in paths]
     out.events.extend(read_events)
-    event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
+    event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None,
+                             **searched_field(searched, workdir)}
     event_reads[id(event)] = (read_events, unknown)
     by_id[_codex_key(item, script)] = event
     out.events.append(event)
@@ -614,6 +577,8 @@ def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[s
     event["rc"] = item.get("exit_code")
     if item.get("aggregated_output"):
         event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
+    elif item.get("aggregated_output") == "":
+        event.pop("searched", None)  # it printed nothing, so no search of it showed a line
     derived, unknown = event_reads.get(id(event), ([], 0))
     if _failed_read(str(event["text"]), event["rc"]):  # drop the read events derived from it, and its unknown ones
         out.unknown_reads -= unknown
@@ -624,12 +589,14 @@ def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[s
 def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str, workdir: str | None,
                              cwd: str) -> None:
     """Fallback for item.completed without item.started."""
-    paths, _, unknown = shell_walk(script, cwd)
+    walked = shell_walked(script, cwd)
     if not _failed_read(script, item.get("exit_code")):
-        out.unknown_reads += unknown
-        for path in paths:
+        out.unknown_reads += walked.unknown
+        for path in walked.reads:
             out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
-    event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
+    printed = item.get("aggregated_output") != ""  # an empty output: no search of it showed a line
+    event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code"),
+             **searched_field(walked.searched if printed else [], workdir)}
     if item.get("aggregated_output"):
         event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
     out.events.append(event)
@@ -638,12 +605,41 @@ def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str,
 _Derived = tuple[list[dict[str, Any]], int]  # a command's read events, and how many files it named at a directory not known
 
 
-def _counted_reads(out: Transcript, script: str, cwd: str) -> tuple[list[str], int]:
-    """:func:`shell_reads`, and the files it named at a directory not known, which ``out.unknown_reads`` counts
-    until the command's result says it failed (:func:`_failed_read`)."""
-    reads, _, unknown = shell_walk(script, cwd)
-    out.unknown_reads += unknown
-    return reads, unknown
+def _counted_reads(out: Transcript, script: str, cwd: str) -> tuple[list[str], int, list[str]]:
+    """:func:`shell_reads`, the files it named at a directory not known, which ``out.unknown_reads`` counts
+    until the command's result says it failed (:func:`_failed_read`), and the files its searches show lines of."""
+    walked = shell_walked(script, cwd)
+    out.unknown_reads += walked.unknown
+    return walked.reads, walked.unknown, walked.searched
+
+
+def drop_failed_searches(events: list[dict[str, Any]]) -> None:
+    """A command that failed and was one search of one file (:func:`_failed_read`), or whose last part is its only search
+    and exited 1 (:func:`failed_search`), showed no line: it has no ``searched``. A search piped into ``head`` or ``tail``
+    is judged by :func:`failed_search` alone: its exit 141 is ``grep`` killed by the closed pipe after it showed lines."""
+    for event in events:
+        if event.get("searched") and event.get("kind") == "command":
+            text, rc = str(event["text"]), event.get("rc")
+            if failed_search(text, rc) or (not _walk_script(text, "")[1].cut and _failed_read(text, rc)):
+                del event["searched"]
+
+
+def failed_search(script: str, rc: Any, exit_known: bool = True) -> bool:
+    """Whether ``script`` exited 1 and every search in it is in its last part (``grep x A.md sub/A.md``, ``echo hi; grep x
+    A.md``, ``cd sub && grep x A.md | head``): the exit status is that part's, and 1 is a search that matched no line in
+    any file. A search before the last part (``grep x A.md; grep y B.md``) may be the one that showed lines. Without a
+    known exit (``exit_known`` false: Claude Code says only that the call failed), a last part that pipes the search into
+    ``head`` or ``tail`` is no failed search: under ``pipefail`` the failure may be ``grep`` killed by the closed pipe, after
+    it showed lines."""
+    if rc != 1:
+        return False
+    found, walk = _walk_script(script, "")
+    if walk.cut and not exit_known:
+        return False
+    # the same walk as the whole script's, so a ``cd`` that loses the directory hides no earlier search; ``rg --passthru``
+    # prints every line, so its exit 1 says nothing
+    earlier = any(isinstance(p, Searched) for p in found[:walk.last_start])
+    return not earlier and not walk.passthru and any(isinstance(p, Searched) for p in found[walk.last_start:])
 
 
 def _failed_read(script: str, rc: Any) -> bool:
@@ -661,7 +657,8 @@ def _failed_read(script: str, rc: Any) -> bool:
     parts = [p for p in (_ungrouped(part.text) for part in split_script(script)) if p]
     if rc in (None, 0) or not all(_is_cd(p) or _is_activate(p) for p in parts[:-1]):
         return False
-    return _walk_script(script, "")[1].operands == 1  # the printer's own operands, not the reads kept of them
+    walk = _walk_script(script, "")[1]
+    return walk.operands == 1 and not walk.passthru  # the printer's own operands, not the reads kept of them
 
 
 def _ungrouped(text: str) -> str:
@@ -742,6 +739,7 @@ def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out.answer = (run.final or run.last).strip()
     out.num_turns = run.turns or None
     out.result_seen = bool(run.turns) or run.result
+    drop_failed_searches(out.events)  # not in _copilot_result, which only the reads' failure belongs to
     return out
 
 
@@ -755,9 +753,9 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
     if name in _COPILOT_SHELL:
         command = str(obj.get("command", ""))
         # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
-        scripts = _counted_reads(out, command, cwd)[0] if name == "bash" else []
+        scripts, _, searched = _counted_reads(out, command, cwd) if name == "bash" else ([], 0, [])
         reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
-        return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
+        return [*reads, {"t": t, "kind": "command", "text": command, "rc": None, **searched_field(searched, workdir)}]
     if name in _COPILOT_READ | _COPILOT_EDIT:
         path = str(obj.get("path") or obj.get("file_path") or "")
         if not path:  # a call without a path names no file
@@ -793,6 +791,8 @@ def _copilot_result(out: Transcript, call: _Derived, data: dict[str, Any]) -> No
         output = result.get("content") if isinstance(result, dict) else None
         if isinstance(output, str) and output:
             event["output"], event["output_truncated"] = clip_output(output)
+        elif output == "":
+            event.pop("searched", None)  # it printed nothing, so no search of it showed a line
     if failed:
         out.unknown_reads -= unknown
         dropped = {id(e) for e in reads}

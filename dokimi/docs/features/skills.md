@@ -18,7 +18,7 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 **Availability:** Available on main.
 
-Extract knowledge atoms, probe with and without the skill, and inspect added, redundant, degraded and still-missing outcomes per model. The annotated source view traces those outcomes back to the passages they came from (`dokimi novelty view --novelty novelty.json --atoms atoms.json` re-renders it with no model call, coloured by span structure only (unread, protected, empty, or unscored); outcome and category colouring needs the render made during `skill novelty analyze`); treat it as a diagnostic lead, not a causal effect for each sentence, and confirm useful knowledge on real tasks.
+Extract knowledge atoms, probe with and without the skill, and inspect added, redundant, degraded and still-missing outcomes per model. The annotated source view traces those outcomes back to the passages they came from (`dokimi novelty view --novelty novelty.json --atoms atoms.json` re-renders it with no model call, coloured by span structure only (unread, protected, empty, or unscored); outcome and category colouring needs `--atom-verdicts` (the file `skill novelty analyze` writes beside its artifact, with `--atoms` the `<out stem>.atoms.json` it writes there too) or the render made during `skill novelty analyze`); treat it as a diagnostic lead, not a causal effect for each sentence, and confirm useful knowledge on real tasks.
 
 **Input:** A skill/document artifact, extracted knowledge probes, the configured answerer and judge, and the analysed source revision.
 

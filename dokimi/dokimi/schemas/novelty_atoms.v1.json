@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/novelty_atoms.v1.json",
+  "title": "Novelty per-atom verdicts v1",
+  "description": "`<out stem>.atom_verdicts.json` beside the `novelty` artifact of `skill novelty analyze` (dokimi.novelty.atom_verdicts): one row per atom the run probed, with the judged verdicts (needed, scaffolding, conflict), the measured paired outcome under each scoring and the content category.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_ref",
+    "ref_digest",
+    "model",
+    "analysis_digest",
+    "with_arm",
+    "atoms",
+    "conflicts"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "novelty_atoms.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "artifact_ref": {
+      "type": "string",
+      "description": "`artifact.ref` of the `novelty` artifact this file was written beside."
+    },
+    "ref_digest": {
+      "type": ["string", "null"],
+      "description": "`artifact.ref_digest` of the `novelty` artifact this file was written beside: the revision of the text the run measured."
+    },
+    "model": {
+      "type": "string",
+      "description": "The answering model, as in the `novelty` artifact."
+    },
+    "analysis_digest": {
+      "type": "string",
+      "description": "`sha256:` digest of the canonical JSON of the `novelty` artifact this file was written beside, without `schema_version`, `run_id` and `dokimi_version`: names the one analysis, also when two commands share a `DOKIMI_RUN_ID`."
+    },
+    "with_arm": {
+      "type": "string",
+      "description": "The arm the outcomes compare with the baseline arm."
+    },
+    "conflicts": {
+      "type": "array",
+      "description": "The conflict pairs the run found, with atom ids; [] when none, or when classification did not run.",
+      "items": {
+        "type": "object",
+        "required": ["a", "b", "why"],
+        "properties": {
+          "a": {"type": "string"},
+          "b": {"type": "string"},
+          "why": {"type": "string"}
+        }
+      }
+    },
+    "atoms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "question",
+          "answer",
+          "kind",
+          "tags",
+          "span_ids",
+          "faithfulness",
+          "needed",
+          "scaffolding",
+          "conflict",
+          "conflict_why",
+          "outcome",
+          "category"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "statement": {"type": "string"},
+          "question": {"type": "string"},
+          "answer": {"type": "string"},
+          "kind": {"type": "string"},
+          "tags": {"type": "array", "items": {"type": "string"}},
+          "span_ids": {"type": "array", "items": {"type": "string"}},
+          "faithfulness": {
+            "enum": ["supported", "distorted", "unsupported", "unchecked"]
+          },
+          "needed": {
+            "type": ["boolean", "null"],
+            "description": "The value judge's answer; null when the judge gave the atom none (--no-classify, a tier without classification, or an atom the judge did not answer for, also when a detected conflict names it)."
+          },
+          "scaffolding": {"type": ["boolean", "null"], "description": "The value judge's answer; null as for needed."},
+          "conflict": {"type": ["boolean", "null"]},
+          "conflict_why": {"type": ["string", "null"]},
+          "outcome": {
+            "type": "object",
+            "required": ["lenient", "strict"],
+            "additionalProperties": false,
+            "description": "dokimi.novelty.measure.atom_outcomes under each scoring: the worst paired outcome over the atom's probes; null for an atom with no usable pair.",
+            "properties": {
+              "lenient": {"enum": ["added", "redundant", "degraded", "still_missing", null]},
+              "strict": {"enum": ["added", "redundant", "degraded", "still_missing", null]}
+            }
+          },
+          "category": {
+            "enum": [
+              "scaffolding",
+              "novel_useful",
+              "known_useful",
+              "novel_inert",
+              "known_inert",
+              "harmful_conflicting",
+              null
+            ],
+            "description": "dokimi.novelty.classify.categorize; null when classification did not run or gave the atom no verdict."
+          }
+        }
+      }
+    }
+  }
+}

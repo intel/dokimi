@@ -1,11 +1,16 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The output concept's moves (issue #94 §2.4, F1b): old spellings tombstone, new ones parse the same."""
+"""The output and tokens concepts' moves (issue #94 §2.4, F1b).
+
+Old spellings tombstone, new ones parse the same.
+"""
 
 from __future__ import annotations
 
 import argparse
+
+import shlex
 
 import pytest
 
@@ -31,12 +36,50 @@ def _tombstone(argv: list[str], capsys) -> str:
      ["eval", "tasks", "generate", "src", "--out-dir", "t"]),
     # a retired command and a moved flag in one argv: the printed line is the final command
     (["repo", "tasks", "check", "src", "--out", "d"], ["eval", "check", "src", "--out-dir", "d"]),
+    # `repo validate --out FILE` wrote the report; the report is --json now, the file is the redirect
+    (["repo", "validate", "src", "--out", "r.json"], ["eval", "check", "--schema-only", "src"]),
+    (["repo", "validate", "src", "--out"], ["eval", "check", "--schema-only", "src"]),  # no value: still dropped
+    (["repo", "validate", "src", "--ou", "r.json"], ["eval", "check", "--schema-only", "src"]),  # argparse prefix
+    (["repo", "validate", "src", "--cache", "c"], ["eval", "check", "--schema-only", "src", "--cache-dir", "c"]),
+    # the retired parser's prefixes resolve to its own options, not to the new leaf's (--j was --json only;
+    # --jobs is --concurrency on eval check; --c was --cache-dir only, --cache and --cache-root collide too)
+    (["repo", "validate", "src", "--j"], ["eval", "check", "--schema-only", "src", "--json"]),
+    (["repo", "validate", "src", "--c", "c"], ["eval", "check", "--schema-only", "src", "--cache-dir", "c"]),
+    (["repo", "validate", "src", "--o", "r.json"], ["eval", "check", "--schema-only", "src"]),
+    (["repo", "validate", "src", "--f", "warn"], ["eval", "check", "--schema-only", "src", "--fail-on", "warn"]),
+    (["repo", "validate", "src", "--manifest-f", "m.yaml"],
+     ["eval", "check", "--schema-only", "src", "--manifest-file", "m.yaml"]),
+    # a value option takes the next token only when that token is not an option: `--out` with none is
+    # dropped, and the option after it is still printed (the retired parser refused the whole argv)
+    (["repo", "validate", "src", "--out", "--fail-on-warning"],
+     ["eval", "check", "--schema-only", "src", "--fail-on=warn"]),
+    (["repo", "validate", "src", "--out", "--json"], ["eval", "check", "--schema-only", "src", "--json"]),
+    # argparse takes a negative number as a value (the retired parser had no option that looks like one)
+    (["repo", "validate", "src", "--out", "-1"], ["eval", "check", "--schema-only", "src"]),
+    # a `--` ends the options: a source named --out after it stays the source
+    (["repo", "validate", "--", "--out"], ["eval", "check", "--schema-only", "--", "--out"]),
+    (["repo", "validate", "src", "--", "--out", "r.json"],
+     ["eval", "check", "--schema-only", "src", "--", "--out", "r.json"]),
+    (["explore", "list", "--json"], ["eval", "tasks", "list", "--format", "localization"]),  # --json is no flag of the new leaf
 ])
 def test_an_old_spelling_tombstones_with_the_new_argv(old, new, capsys):
     text = _tombstone(old, capsys)
-    assert text.startswith("moved: dokimi ")
     assert " ".join(new) in text
+    assert text == "moved: dokimi " + " ".join(new) + "\n"  # exact: a stray token after the hint fails too
     assert cli_flags.registry_problems() == []
+
+
+@pytest.mark.parametrize(("token", "kept"), [
+    ("-report file.json", []),
+    ("--unknown=report file.json", []),
+    ("--manifest-f=repo file.yaml", ["--manifest-file=repo file.yaml"]),
+    ("--man=repo file.yaml", ["--man=repo file.yaml"]),  # ambiguous on the old parser
+    ("-h file", ["-h file"]),
+    ("-report\tfile.json", ["-report\tfile.json"]),  # argparse recognizes a literal space only
+])
+def test_retired_out_distinguishes_quoted_paths_from_options(token, kept, capsys):
+    text = _tombstone(["repo", "validate", "src", "--out", token], capsys)
+    assert shlex.split(text.removeprefix("moved: ")) == ["dokimi", "eval", "check", "--schema-only", "src", *kept]
 
 
 @pytest.mark.parametrize("argv", [
@@ -73,6 +116,104 @@ def test_old_and_new_spellings_parse_to_the_same_value():
     assert arms_new.out_json == "a.json"
 
 
+@pytest.mark.parametrize(("old", "new"), [
+    # `--max-tokens` was retrieval on four leaves and the output ceiling on ten (the tokens concept, F1b)
+    (["answers", "generate", "--product", "p", "--max-tokens", "8"],
+     ["answers", "generate", "--product", "p", "--retrieval-tokens", "8"]),
+    (["benchmark", "preflight", "--library", "x", "--max-tokens", "8"],
+     ["benchmark", "preflight", "--library", "x", "--retrieval-tokens", "8"]),
+    (["skill", "novelty", "atoms", "--max-tokens", "8"], ["skill", "novelty", "atoms", "--max-output-tokens", "8"]),
+    (["tools", "preference", "--max-tokens", "8"], ["tools", "preference", "--max-output-tokens", "8"]),
+    (["skill", "shorten", "--max-tokens", "8"], ["skill", "shorten", "--max-output-tokens", "8"]),
+    # a retired command and a moved flag in one argv: the printed line is the final command
+    (["novelty", "routing", "--max-tokens", "9"], ["skill", "routing", "--max-output-tokens", "9"]),
+    (["skill", "shorten", "--budgets", "0.5"], ["skill", "shorten", "--token-budgets", "0.5"]),
+])
+def test_an_old_token_spelling_tombstones_with_the_new_argv(old, new, capsys):
+    text = _tombstone(old, capsys)
+    assert " ".join(new) in text
+
+
+@pytest.mark.parametrize(("argv", "dest", "value"), [
+    (["answers", "generate", "--product", "p", "--questions", "q", "--retrieval-tokens", "8"], "max_tokens", 8),
+    (["skill", "novelty", "atoms", "--artifact", "skill:s", "--max-output-tokens", "8"],
+     "max_tokens", 8),
+    (["skill", "shorten", "--artifact", "skill:s", "--atoms", "a.json", "--token-budgets", "0.5", "0.25"],
+     "budgets", [0.5, 0.25]),
+])
+def test_the_token_spellings_parse_to_the_same_value(argv, dest, value):
+    assert getattr(cli.build_parser().parse_args(argv), dest) == value
+
+
+def _leaves_with(spelling: str) -> dict[tuple[str, ...], argparse.Action]:
+    """Each leaf of the CLI tree (its argv path) that has ``spelling``, with the action behind it."""
+    found: dict[tuple[str, ...], argparse.Action] = {}
+
+    def walk(node: argparse.ArgumentParser, path: tuple[str, ...]) -> None:
+        for action in node._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, sub in action.choices.items():
+                    walk(sub, (*path, name))
+            elif spelling in action.option_strings:
+                found[path] = action
+
+    walk(cli.build_parser(), ())
+    return found
+
+
+@pytest.mark.parametrize("flag", [f for c in cli_flags.CONCEPTS if c.name == "tokens" for f in c.canonical])
+def test_help_shows_the_registry_metavar_for_each_token_spelling(flag):
+    # without a metavar argparse prints the dest, the old `MAX_TOKENS` / `BUDGETS`
+    leaves = _leaves_with(flag.spelling)
+    assert leaves
+    assert {path: action.metavar for path, action in leaves.items()} == {
+        path: flag.value.split()[0] for path in leaves}
+
+
+_TOKEN_MOVES = [m for m in cli_flags.FLAG_MOVES if m.old in ("--max-tokens", "--budgets")]
+
+
+@pytest.mark.parametrize("move", _TOKEN_MOVES, ids=lambda m: f"{m.old}->{m.new}")
+def test_a_token_move_lists_exactly_the_leaves_that_have_the_new_spelling(move):
+    # a leaf missing here fails with a bare `unrecognized arguments` instead of a `moved:` line
+    assert sorted(move.leaves) == sorted(_leaves_with(move.new))
+
+
+@pytest.mark.parametrize(("old", "new", "leaf"), [
+    (m.old, m.new, leaf) for m in _TOKEN_MOVES for leaf in m.leaves])
+def test_every_token_move_tombstones_on_each_of_its_leaves(old, new, leaf, capsys):
+    text = _tombstone([*leaf, old, "8"], capsys)
+    assert text.startswith("moved: dokimi ")
+    assert " ".join([*leaf, new, "8"]) in text
+
+
+@pytest.mark.parametrize("leaf", sorted(_leaves_with("--retrieval-tokens")))
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_every_retrieval_leaf_refuses_a_count_below_one(leaf, value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        _leaves_with("--retrieval-tokens")[leaf].type(value)
+
+
+@pytest.mark.parametrize("leaf", sorted(_leaves_with("--max-output-tokens")))
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_every_output_token_leaf_refuses_a_count_below_one(leaf, value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        _leaves_with("--max-output-tokens")[leaf].type(value)
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-0.1", "1.5"])
+def test_token_budgets_refuse_values_outside_the_unit_interval(value):
+    for action in _leaves_with("--token-budgets").values():
+        with pytest.raises(argparse.ArgumentTypeError):
+            action.type(value)
+
+
+@pytest.mark.parametrize("value", ["0", "1"])
+def test_token_budget_endpoints_are_valid(value):
+    for action in _leaves_with("--token-budgets").values():
+        assert action.type(value) == float(value)
+
+
 def test_add_refuses_a_spelling_the_concept_does_not_own():
     parser = argparse.ArgumentParser()
     cli_flags.add(parser, "output", "--out", default=None)
@@ -82,8 +223,13 @@ def test_add_refuses_a_spelling_the_concept_does_not_own():
         cli_flags.add(parser, "no-such-concept", "--out")
 
 
+def test_eval_check_j_prefix_is_json_only():
+    # --jobs is --concurrency now, so --j has one match on eval check; no hidden alias keeps it for the old name
+    assert cli.parse_args(["eval", "check", "src", "--j", "--schema-only"]).json is True
+
+
 @pytest.mark.parametrize(("old", "new"), [
-    (["repo", "validate", "src", "--fail-on-warning"], ["repo", "validate", "src", "--fail-on=warn"]),
+    (["repo", "validate", "src", "--fail-on-warning"], ["eval", "check", "--schema-only", "src", "--fail-on=warn"]),
     (["repo", "budget", "src", "--fail-on-warning"], ["repo", "budget", "src", "--fail-on=warn"]),
     (["repo", "scan", "src", "--fail-on-fail"], ["repo", "scan", "src", "--fail-on=fail"]),
     (["repo", "inspect", "src", "--fail-on-error"], ["repo", "inspect", "src", "--fail-on=fail"]),
@@ -114,9 +260,9 @@ def test_each_fail_on_leaf_takes_only_the_level_it_gates_on():
     parser = cli.build_parser()
     assert parser.parse_args(["repo", "budget", "src", "--fail-on", "warn"]).fail_on == "warn"
     assert parser.parse_args(["repo", "scan", "src", "--fail-on", "fail"]).fail_on == "fail"
-    for leaf in ("validate", "inspect"):  # both levels, as memory lint and repo security take them
+    for leaf in (("eval", "check"), ("repo", "inspect")):  # both levels, as memory lint and repo security take them
         for level in ("warn", "fail"):
-            assert parser.parse_args(["repo", leaf, "src", "--fail-on", level]).fail_on == level
+            assert parser.parse_args([*leaf, "src", "--fail-on", level]).fail_on == level
     with pytest.raises(SystemExit) as exc:
         parser.parse_args(["repo", "scan", "src", "--fail-on", "warn"])
     assert exc.value.code == 2

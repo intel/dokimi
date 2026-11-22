@@ -229,7 +229,7 @@ def test_the_listing_charges_when_to_use_and_caps_it_with_the_description(tmp_pa
     })
     entries = _by_path(budget(tree, NAMES))
     listing = {p.split("/")[2]: e["chars"] for (p, kind), e in entries.items() if kind == "skill listing"}
-    assert listing == {"a": 1 + len("Format code.") + len("On save."), "b": 1 + 1536, "c": 1 + 1536}
+    assert listing == {"a": 1 + len("Format code. - On save."), "b": 1 + 1536, "c": 1 + 1536}
 
 
 def test_near_duplicate_and_missing_descriptions_warn(tmp_path):
