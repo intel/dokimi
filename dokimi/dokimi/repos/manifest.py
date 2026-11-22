@@ -518,7 +518,7 @@ def _read_task_json(tree: RepoTree, where: str) -> tuple[Any, str]:
     """The parsed task.json and "", or None and what is wrong with it."""
     try:
         return json.loads(tree.read_text(tree.resolve(where))), ""
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
         return None, f"not valid JSON: {exc}"
     except (OSError, SourceArgumentError, _NoSuchPath) as exc:  # a link that loops, names a directory or nothing (also past an absent directory), or leaves the tree; a failed git show is raised
         return None, f"cannot read task.json: {exc}"

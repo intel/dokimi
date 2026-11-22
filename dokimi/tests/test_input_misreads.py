@@ -34,6 +34,13 @@ from dokimi.registry import ProductRegistry
 from tests.cli_refusal import refusal
 
 
+@pytest.fixture
+def _provider_keys(monkeypatch):
+    """#967: `benchmark run` refuses a missing key before it reads the input these tests misread."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+
+
 def _registry(tmp_path: Path, data: dict) -> Path:
     path = tmp_path / "products.yaml"
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
@@ -184,7 +191,8 @@ def test_a_merge_renumbers_a_generated_id_a_kept_record_has():
     ('{"questions": [', "Expecting value"),
     (None, None),  # the OS words it: "Is a directory" on POSIX, "Permission denied" on Windows
 ], ids=["shared-ids", "schema", "truncated", "directory"])
-def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path, monkeypatch, capsys, text, reason):
+def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(
+        tmp_path, monkeypatch, capsys, text, reason, _provider_keys):
     """A cache main's ``--force-regen`` wrote with two ``q_001``, one cut short, or a directory: exit 2, no traceback."""
     cache = tmp_path / "questions" / "onetbb.json"
     cache.parent.mkdir()
@@ -207,7 +215,7 @@ def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path,
     assert "(fix or delete it to generate a new set; benchmark run: --force-regen)" in err
 
 
-def test_benchmark_run_on_a_golden_set_with_shared_ids_exits_2(tmp_path, monkeypatch, capsys):
+def test_benchmark_run_on_a_golden_set_with_shared_ids_exits_2(tmp_path, monkeypatch, capsys, _provider_keys):
     """``benchmark preflight`` refuses this set (``_check_golden_set``); ``run`` refuses it too."""
     root = tmp_path / "root"
     root.mkdir()
