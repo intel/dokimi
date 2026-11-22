@@ -167,6 +167,11 @@ def test_a_turn_without_its_counts_does_not_validate():
     assert schema_errors("repo_event.v1", {**turn, "v": 1}) != []
 
 
+def test_a_turn_without_its_counts_does_not_validate_against_v2():
+    turn = {"kind": "turn", "t": None, "turn": 0, "input": 1, "output": 1}  # no cache or prompt counts
+    assert schema_errors("repo_event.v2", {**turn, "v": 2}) != []
+
+
 def test_a_claude_usage_missing_counts_are_null_not_zero():
     raw = _lines(_call("a", {"input_tokens": 10, "output_tokens": 2}, "2026-11-14T10:00:00Z"),
                  _call("b", {"input_tokens": 5}, "2026-11-14T10:00:01Z"),

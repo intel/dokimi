@@ -98,6 +98,7 @@
 --libraries
 --library
 --limit
+--listing-budget  # catalog check (#966): a cap on the skill listing's characters; no registry concept yet
 --listing-budget-fraction  # catalog trigger-probe (#217) adds it: no registry concept yet
 --manifest
 --manifest-file
