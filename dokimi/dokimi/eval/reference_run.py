@@ -160,6 +160,8 @@ def artifact(result: ReferenceRun, data: Any, *, judge_model: Optional[str], jud
     }
     if isinstance(data, dict) and data.get("run_intent"):
         meta["run_intent"] = data["run_intent"]  # the intent the answers file was stamped with
+    if isinstance(data, dict) and data.get("terminated"):
+        meta["terminated"] = data["terminated"]  # the answers run stopped early: the eval covers part of it
     judge = {"judge_model": judge_model, "judge_provider": judge_provider}
     if result.run.shape == "arms":
         # arms.v1 requires judge strings next to `evaluations`; with no judge, the scorer is the stamp.
