@@ -388,7 +388,7 @@ def test_an_interrupt_cancels_the_queued_skills_keeps_the_rows_done_and_exits_no
         started.append(name)
         if len(started) == 1:  # the signal arrives while the first skill is in flight; it finishes
             os.kill(os.getpid(), signum)
-            time.sleep(0.5)  # the main thread cancels the queued skills well inside this
+            time.sleep(0.5)  # timing-ok: the main thread cancels the queued skills inside this window; no event marks it
         return SimpleNamespace(partial=None, artifact=artifact)
 
     monkeypatch.setattr(catalog_novelty, "_analyze_skill", analyze)
@@ -442,9 +442,9 @@ def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, m
         started.append(args.artifact.rsplit("/", 1)[-1])
         if len(started) == 1:  # two Ctrl-Cs while the first skill is in flight
             os.kill(os.getpid(), signal.SIGINT)
-            time.sleep(0.1)
+            time.sleep(0.1)  # timing-ok: the second signal lands after the first handler ran; the handler sets no event to wait on
             os.kill(os.getpid(), signal.SIGINT)
-            time.sleep(0.5)
+            time.sleep(0.5)  # timing-ok: the sweep stops inside this window; no event marks the stop
             try:
                 args._spend_cap.before_call("m")  # the skill's next call, after the sweep stopped
                 next_call.append("started")
@@ -530,7 +530,7 @@ def test_a_skill_queued_when_the_stop_lands_makes_no_call(monkeypatch):
 
     def late_wait(futures, **kwargs):  # the main thread wakes late: the freed worker takes the next skill first
         done = real_wait(futures, **kwargs)
-        time.sleep(0.3)
+        time.sleep(0.3)  # timing-ok: simulates a late main-thread wakeup; the delay is the scenario
         return done
 
     monkeypatch.setattr(catalog_novelty, "wait", late_wait)
@@ -540,7 +540,7 @@ def test_a_skill_queued_when_the_stop_lands_makes_no_call(monkeypatch):
     def review(item):
         started.append(item.key)
         if item.key == "a":  # b is queued behind a by now; the stop lands while a is in flight
-            time.sleep(0.05)
+            time.sleep(0.05)  # timing-ok: b must be queued behind a before the stop; queueing has no observable event
             stop[0] = True
         return {"key": item.key}
 
@@ -566,7 +566,7 @@ def test_a_row_finished_during_the_drain_is_written_before_the_next_wait(monkeyp
 
     def fast_skill():
         started.wait(5)
-        time.sleep(0.1)  # still in flight when the drain starts
+        time.sleep(0.1)  # timing-ok: the fast skill is still in flight when the drain starts; no event marks the drain start
         return {"key": "fast"}
 
     def slow_skill():
