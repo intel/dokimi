@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -603,14 +604,18 @@ class _Partial:
 
     def _reserve(self) -> Path:
         """Create the file before its first save, so a run started meanwhile with the same stem takes another name."""
+        with contextlib.suppress(OSError):  # a directory that cannot be made: the save names the refusal
+            self.out_json.parent.mkdir(parents=True, exist_ok=True)  # else a missing one would reserve nothing
         while self._path is None:
             path = self.name()
             try:
                 os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            except OSError as exc:  # another run took it since: the next name; any other refusal, the save names
-                if isinstance(exc, FileExistsError):
-                    continue
-            self._path = path
+            except FileExistsError:  # another run took it since: the next name
+                continue
+            except OSError:  # not created: the save that follows fails on it and names the refusal
+                self._path = path
+            else:
+                self._path = path
         return self._path
 
     def save(self, output: dict) -> None:

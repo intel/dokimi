@@ -665,3 +665,14 @@ def test_a_run_wide_stop_is_set_while_another_question_holds_the_lock_for_its_sa
 
     assert q2["calls"] == 1  # q2's second arm is never asked
     assert records[2]["arms"]["other"]["error"].startswith("not_asked")
+
+
+def test_two_runs_into_a_directory_not_made_yet_reserve_two_names(tmp_path):
+    # The default results/arms/ of a fresh checkout: the reservation makes the directory first.
+    from dokimi.commands.arms import _Partial
+
+    new = tmp_path / "new"
+    first, second = _Partial(new / "demo"), _Partial(new / "demo.json")
+    first._reserve()  # both reserve before either has saved, as two runs started at once
+    second._reserve()
+    assert (first.name().name, second.name().name) == ("demo.partial.json", "demo.partial2.json")
