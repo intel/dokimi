@@ -651,3 +651,8 @@ def test_a_heredoc_fed_to_bash_with_an_option_runs_its_body(text):
 def test_a_backgrounded_exit_does_not_end_the_scan():
     out = with_probes([{"t": 1.0, "kind": "command", "text": "exit 0 & nproc", "rc": 0}], probes_for())
     assert [e for e in out if e.get("kind") == "probe" and e.get("target") == "cpu"]
+
+
+def test_a_command_substitution_inside_arithmetic_runs_its_command():
+    out = with_probes([{"t": 1.0, "kind": "command", "text": "echo $(( $(nproc) + 1 ))", "rc": 0}], probes_for())
+    assert [e["pattern"] for e in out if e.get("kind") == "probe" and e.get("target") == "cpu"] == ["nproc"]

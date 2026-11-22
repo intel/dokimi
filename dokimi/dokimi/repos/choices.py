@@ -138,12 +138,32 @@ def _env_help(words: list[str]) -> bool:
     return False
 
 
-def _call_of(words: list[str], views: list[list[str]]) -> tuple[str, list[str]] | None:
-    """The package call a command makes: none for ``! pip install x`` (it returns 0 when the install failed) or
-    ``env --help pip ...`` (it prints help and runs nothing), though ``exec env --help`` still replaces the shell."""
-    if words[:1] == ["!"] or _env_help(words):
+def _call_of(words: list[str], views: list[list[str]], part: str = "") -> tuple[str, list[str]] | None:
+    """The package call a command makes: none for ``! pip install x`` (it returns 0 when the install failed), ``env --help
+    pip ...`` (it prints help and runs nothing) or ``xargs -r pip ...`` (no input, no run), though ``exec env --help``
+    still replaces the shell."""
+    if words[:1] == ["!"] or _env_help(words) or _no_run_if_empty(views, part):
         return None
     return next(filter(None, map(_package_call, views)), None)
+
+
+def _no_run_if_empty(views: list[list[str]], part: str) -> bool:
+    """Whether a program the command runs is ``xargs -r`` reading standard input: given none it runs nothing and exits
+    0. An ``-a`` file or a ``<`` redirection from anything but ``/dev/null`` gives it input, so that run is not assumed
+    empty."""
+    if re.search(r"<(?!\s*/dev/null(?![\w./-]))", part):
+        return False
+    for view in views:
+        if _program(view[0]) != "xargs":
+            continue
+        j, empty, file = 1, False, False
+        while j < len(view) and view[j].startswith("-"):
+            empty |= view[j] in ("-r", "--no-run-if-empty")
+            file |= view[j] in ("-a", "--arg-file") or view[j].startswith("--arg-file=")
+            j += 2 if view[j] in ("-n", "-I", "-L", "-P", "-d", "-E", "-s", "-a", "--arg-file") else 1
+        if empty and not file:
+            return True
+    return False
 
 
 def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str, Sequence[str]]]) -> list[dict]:
@@ -164,7 +184,7 @@ def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str
         views = _runs(words)
         if any(view[:1] == ["exit"] for view in views):  # no later part runs
             break
-        call = _call_of(words, views)
+        call = _call_of(words, views, part)
         if call is not None:
             act, packages = call
             for cid, acts in candidates.items():

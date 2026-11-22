@@ -440,3 +440,21 @@ def test_an_explicit_map_tag_on_a_sequence_is_a_value_error(tmp_path):
 def test_a_help_flag_that_is_the_value_of_env_u_does_not_hide_the_install():
     assert _choice_of("env -u --help pip install scipy") == [("scipy", "install", None)]
     assert _choice_of("sudo env --help pip install scipy") == []
+
+
+def test_xargs_with_an_arg_file_runs_pip_even_with_r():
+    event = {"kind": "command", "text": "xargs -r -a packages.txt pip install scipy", "rc": 0}
+    out = with_choices([event], {"scipy": {"install": ["scipy"]}}, [])
+    assert [e["target"] if "target" in e else e["kind"] for e in out if e["kind"] == "choice"] != []
+
+
+def test_an_argument_named_xargs_is_not_the_xargs_program():
+    event = {"kind": "command", "text": "pip install scipy --log xargs -r requirements.txt", "rc": 0}
+    out = with_choices([event], {"scipy": {"install": ["scipy"]}}, [])
+    assert [e for e in out if e["kind"] == "choice"] != []
+
+
+def test_xargs_r_reading_a_file_redirection_runs_pip():
+    event = {"kind": "command", "text": "xargs -r pip install scipy < packages.txt", "rc": 0}
+    out = with_choices([event], {"scipy": {"install": ["scipy"]}}, [])
+    assert [e for e in out if e["kind"] == "choice"] != []

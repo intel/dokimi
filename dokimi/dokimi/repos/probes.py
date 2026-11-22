@@ -50,11 +50,13 @@ DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
 _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep", "egrep", "fgrep", "awk", "tac",
                       "strings", "wc", "rg"})
 _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is an expression, not a file
-_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice", "timeout", "xargs", "doas", "stdbuf"})  # each runs
-# the command after it
+_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice", "timeout", "xargs", "doas", "stdbuf"})  # each runs the next command
 _KEYWORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!"})  # shell keywords before a command
 _OPTION_OPERANDS = frozenset({("doas", "-u"), ("doas", "-C"), ("stdbuf", "-i"), ("stdbuf", "-o"), ("stdbuf", "-e"),
-                              ("nice", "-n"), ("sudo", "-u"), ("timeout", "-s"), ("timeout", "-k"),
+                              ("nice", "-n"), ("sudo", "-u"), ("sudo", "-g"), ("sudo", "-h"), ("sudo", "-p"),
+                              ("sudo", "-r"), ("sudo", "-t"), ("sudo", "-C"), ("sudo", "-D"), ("sudo", "-R"),
+                              ("sudo", "-T"), ("sudo", "-U"), ("time", "-f"), ("time", "-o"), ("time", "--format"),
+                              ("time", "--output"), ("exec", "-a"), ("timeout", "-s"), ("timeout", "-k"),
                               ("xargs", "-n"), ("xargs", "-I"), ("xargs", "-L"), ("xargs", "-P"), ("xargs", "-d"),
                               ("xargs", "-E"), ("xargs", "-s"), ("xargs", "-a")})  # wrapper options that take a value
 _ENV_VALUES = frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"})  # env options with a value word
@@ -442,7 +444,9 @@ def _substitutions(part: str) -> tuple[list[str], str]:
     i = 0
     while i < len(part):
         if part.startswith("$((", i):
-            i = _close_of(part, i + 2) + 1
+            end = _close_of(part, i + 3)
+            codes.extend(_substitutions(part[i + 3:end])[0])
+            i = end + 2
         elif part.startswith("$(", i):
             end = _close_of(part, i + 2)
             codes.append(part[i + 2:end])
@@ -503,7 +507,7 @@ def _stages(part: str, *, include_reads: bool = True) -> list[list[str]]:
             if target == "<" and include_reads:
                 reads.append(_restore(token))
             target = ""
-        elif token == "|":
+        elif token in ("|", "|&"):
             _close(stages[-1], reads)
             reads = []
             stages.append([])
