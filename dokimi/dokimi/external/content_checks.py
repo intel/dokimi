@@ -11,7 +11,8 @@
   emoji (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script (U+0600 to U+0DFF), and a byte
   order mark at the start of a file.
 
-Scanned: ``SKILL.md`` and the text files beside it (``.md``, ``.py``, ``.json`` and similar) in the skill
+Scanned: ``SKILL.md`` and the text files beside it (``.md``, ``.py``, ``.json``, ``.bash``, ``.html``, ``.csv`` and the other
+suffixes of :data:`TEXT_SUFFIXES`) in the skill
 directory. Left out: hidden folders, the vendored and dependency folders of
 :data:`dokimi.skills.loader.VENDORED_DIR_NAMES` (``site-packages``, ``node_modules``, ``.venv`` ...), folders
 that hold another skill's ``SKILL.md`` (that skill is checked on its own), symlinks, and files that are not
@@ -33,7 +34,10 @@ from dokimi.skills.loader import VENDORED_DIR_NAMES
 
 DATA_FILE = Path(__file__).with_name("legacy_models.toml")
 TEXT_SUFFIXES = frozenset(
-    {".md", ".txt", ".rst", ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml", ".toml"}
+    {
+        ".md", ".txt", ".rst", ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml", ".toml",
+        ".bash", ".zsh", ".ps1", ".mjs", ".tsx", ".html", ".xml", ".csv", ".jsonl", ".mdx", ".cfg", ".ini",
+    }
 )
 MAX_BYTES = 1 << 20  # a bundled file over a megabyte is data, not instructions the model reads
 REPORT_PER_FILE = 5  # hidden characters named per file; the rest are counted
