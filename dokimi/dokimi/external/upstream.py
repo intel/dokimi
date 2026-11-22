@@ -44,7 +44,7 @@ SIMILAR_JACCARD = 0.8
 MONTH_DAYS = 30.44
 MANIFEST_SCHEMA = "dokimi.upstream.v1"
 _SKILL_PATHSPEC = ":(glob,icase)**/SKILL.md"
-_WORDS = re.compile(r"[a-z0-9]+")
+_WORDS = re.compile(r"[^\W_]+")
 
 
 def _is_zero(sha: str) -> bool:
