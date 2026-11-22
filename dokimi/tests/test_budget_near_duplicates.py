@@ -116,6 +116,9 @@ def test_shared_boilerplate_with_unique_tails_keeps_no_candidate_pair():
     # skills; each overlap is 2 of 6 words, below 0.5, and none may be kept.
     words = [{"common", "shared", f"a{n}", f"b{n}"} for n in range(60)]
     assert list(candidate_pairs(words, DUPLICATE_JACCARD)) == []
+    # Neither an empty pair nor a pair with a set under 3 words is reported.
+    small = [set(), set(), {"a"}, {"a", "b"}, {"a", "b", "c"}]
+    assert list(candidate_pairs(small, DUPLICATE_JACCARD)) == []
 
 
 def test_dense_exact_duplicates_are_streamed_not_stored():
@@ -164,4 +167,4 @@ def test_the_pass_compares_few_of_the_pairs_of_a_catalog_like_corpus(monkeypatch
     reported = _near_duplicates(skills)
     assert reported  # the corpus holds near-copies, so the pass found something
     all_pairs = len(skills) * (len(skills) - 1) // 2
-    assert len(checks) < all_pairs // 20
+    assert 0 < len(checks) < all_pairs // 20
