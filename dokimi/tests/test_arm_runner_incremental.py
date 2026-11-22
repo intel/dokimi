@@ -445,7 +445,7 @@ def test_a_run_wide_stop_halts_the_other_questions_before_its_partial_save(monke
     from dokimi.eval import arm_stop
 
     stopping, q2_checked, q2_asked = threading.Event(), threading.Event(), threading.Event()
-    q2 = {"thread": None, "checks": 0, "calls": 0}
+    q2: dict = {"thread": None, "checks": 0, "calls": 0}
     real_halt = arm_stop.halt_if_stopped
 
     def fake(prompt, model, provider="openai", **kw):
@@ -500,3 +500,63 @@ def test_an_out_symlinked_to_the_partial_name_keeps_the_finished_file(tmp_path, 
     finished = json.loads((tmp_path / "arms.json").read_text(encoding="utf-8"))
     assert "partial" not in finished and len(finished["answers"]) == len(QUESTIONS)
     assert not (tmp_path / "arms.partial2.json").exists()
+
+
+def test_an_arms_partial_block_without_counts_names_no_none():
+    message = records.partial_refusal({"schema_version": "arms.v1", "partial": {}}, "out/arms.partial.json")
+    assert message is not None and "None" not in message
+
+
+def test_a_run_never_replaces_the_checkpoint_an_earlier_crashed_run_left(tmp_path, monkeypatch):
+    # `--out demo` crashed and left demo.partial.json; a run to `--out demo.json` has the same stem.
+    _fake_llm(monkeypatch)
+    crashed = tmp_path / "demo.partial.json"
+    crashed.write_text('{"partial": {"questions_requested": 9, "questions_recorded": 3}}', encoding="utf-8")
+    kept = []
+    real = arms_run.run_prepared
+
+    def spy(*args, **kw):
+        save = kw["on_partial"]
+
+        def watch(output):
+            save(output)
+            kept.append(sorted(p.name for p in tmp_path.glob("demo*.partial*.json")))
+        kw["on_partial"] = watch
+        return real(*args, **kw)
+
+    monkeypatch.setattr(arms_run, "run_prepared", spy)
+    argv = _arms_argv(tmp_path)
+    argv[argv.index("--out") + 1] = str(tmp_path / "demo.json")
+    _run(argv)
+    assert json.loads(crashed.read_text(encoding="utf-8"))["partial"]["questions_recorded"] == 3
+    assert kept and all(names == ["demo.partial.json", "demo.partial2.json"] for names in kept)
+    assert sorted(p.name for p in tmp_path.glob("demo*")) == ["demo.json", "demo.partial.json"]
+
+
+def test_a_failed_save_exits_2_when_another_worker_is_between_arms(monkeypatch):
+    import concurrent.futures
+    import threading
+
+    saved = threading.Event()
+
+    def fake(prompt, model, provider="openai", **kw):
+        if "second" in prompt:
+            assert saved.wait(10)
+        return "answer", {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+
+    def save(records):
+        saved.set()
+        raise SystemExit(2)
+
+    def done_first(futures):
+        concurrent.futures.wait(futures)
+        return iter(list(reversed(futures)))
+
+    monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", fake)
+    monkeypatch.setattr(arm_runner_mod, "as_completed", done_first)
+    runner = arm_runner_mod.ArmRunner([BaselineTreatment(), BaselineTreatment(name="other")],
+                                      model="gpt-4o-mini", provider="openai")
+    questions = [{"id": "q1", "question": "the first"}, {"id": "q2", "question": "the second"}]
+    with pytest.raises(SystemExit) as exc:
+        runner.run("lib", questions, concurrency=2, on_record=save)
+    assert exc.value.code == 2

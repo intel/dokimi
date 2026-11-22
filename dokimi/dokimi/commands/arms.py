@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi import cli_flags
-from dokimi.commands.novelty_budget import partial_destination
+from dokimi.commands.novelty_budget import fresh_partial_destination
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import InputError, question_id
@@ -589,8 +589,8 @@ def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
 class _Partial:
     """The file a run keeps its answered questions in until it saves *out_json* whole (#228 step 4).
 
-    ``<stem>.partial.json`` beside it, or the next free name: never a finished file, as for novelty
-    runs. It is named at :meth:`name` or the first save, so a matrix cell passes over the files the
+    ``<stem>.partial.json`` beside it, or the next name nothing holds: never a finished file, nor the
+    checkpoint of an earlier run that crashed. It is named at :meth:`name` or the first save, so a matrix cell passes over the files the
     cells before it finished.
     """
 
@@ -604,7 +604,7 @@ class _Partial:
         """The file's path, named on the first call; ``InputError`` when it cannot be named."""
         if self._path is None:
             try:
-                self._path = partial_destination(self.out_json)
+                self._path = fresh_partial_destination(self.out_json)
             except OSError as exc:
                 raise InputError(f"cannot write {self.out_json}: {exc}") from exc
         return self._path

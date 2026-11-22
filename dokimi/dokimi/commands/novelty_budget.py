@@ -31,6 +31,16 @@ def partial_destination(out: Path) -> Path:
     return next(p for p in _partial_destinations(Path(out)) if os.path.realpath(p) != target)
 
 
+def fresh_partial_destination(out: Path) -> Path:
+    """The first of ``<stem>.partial.json``, ``<stem>.partial2.json``, ... where nothing is yet
+    (a symlink counts), so a run never replaces the checkpoint an earlier crashed run left, whatever
+    its ``--out`` spelling. A name that is the file ``out`` resolves to is passed over as in
+    :func:`partial_destination`."""
+    target = os.path.realpath(out)
+    return next(p for p in _partial_destinations(Path(out))
+                if os.path.realpath(p) != target and not os.path.lexists(p))
+
+
 def partial_write(out: Path, write: Callable[[Path], object]) -> Path:
     """Run ``write`` on the first sidecar beside ``out`` that takes a partial result. A read-only
     file that holds one refuses the write, and is passed over for the next name, as the routing

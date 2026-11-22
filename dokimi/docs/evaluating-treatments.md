@@ -160,7 +160,7 @@ While it answers, the run keeps the questions done so far in `<out stem>.partial
 the `--out` file, rewritten after each question and removed once the whole run is saved. A run
 killed or crashed before that save leaves it behind: an `arms.v1` file with a `partial` block
 (`questions_requested`, `questions_recorded`) and the answers paid for, none judged. It never
-replaces a finished file (a name that holds one is passed over for `<out stem>.partial2.json`),
+replaces a file (a name that holds one, finished or left by a crashed run, is passed over for `<out stem>.partial2.json`),
 and the commands that read arms files refuse it. There is no resume: rerun the command.
 `arms matrix-run` keeps one per cell, `cells/<cell>.partial.json`.
 

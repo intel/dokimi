@@ -218,8 +218,7 @@ class ArmRunner:
             # Before any answer is paid for: a question short of follow-ups fails the run.
             check_session_questions(questions, self.session_turns)
         results: Dict[int, Dict[str, Any]] = {}
-        lock = threading.Lock()
-        done = [0]
+        lock, done = threading.Lock(), [0]
         stop = threading.Event()  # set by a run-wide error: questions not yet started are not asked
 
         def _keep(idx: int, rec: Dict[str, Any]) -> None:  # under the lock
@@ -228,6 +227,7 @@ class ArmRunner:
                 if on_record is not None:
                     on_record([results[i] for i in sorted(results)])
             except BaseException:
+                self.stop_error = self.stop_error or RuntimeError("a checkpoint save failed")  # what a worker that sees the stop reads
                 stop.set()  # a failed save: the questions not yet started are not paid for
                 raise
 

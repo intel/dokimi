@@ -282,8 +282,8 @@ def partial_refusal(data: Mapping[str, Any], source: str) -> Optional[str]:
     block = data.get("partial")
     if data.get("schema_version") != "arms.v1" or not isinstance(block, Mapping):
         return None
-    return (f"{source} is the partial file of a run that did not finish: {block.get('questions_recorded')} of "
-            f"{block.get('questions_requested')} questions answered and none judged. Rerun the command "
+    return (f"{source} is the partial file of a run that did not finish: {block.get('questions_recorded', '?')} of "
+            f"{block.get('questions_requested', '?')} questions answered and none judged. Rerun the command "
             "for a whole run")
 
 
