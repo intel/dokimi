@@ -167,6 +167,8 @@ MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
         "Only warnings can trigger this gate."),
     ("dokimi repo budget", "--fail-on", "choices"): (frozenset({"warn"}),
         "Only warnings can trigger this gate."),
+    ("dokimi repo scan", "--baseline", "metavar"): ("FILE",
+        "The readiness gate reads a baseline file; it does not accept a run or named baseline."),
     ("dokimi repo scan", "--fail-on", "choices"): (frozenset({"fail"}),
         "Only a failure can trigger this gate."),
     ("dokimi repo reach", "--max-usd-per-cell", "type"): ("float",
