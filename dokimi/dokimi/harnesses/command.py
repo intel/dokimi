@@ -434,7 +434,7 @@ def _find_reward(output_dir: Path | None, stdout: str, stderr: str) -> float | N
             if not path.is_file():  # a directory of that name holds no reward, like an empty file
                 continue
             try:
-                return reward_in_file(path.name, path.read_text(encoding="utf-8", errors="replace"))
+                return reward_in_file(path.name, path.read_bytes())
             except ValueError:  # no reward in this one: the next file may have it
                 continue
         if candidates:

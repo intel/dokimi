@@ -100,6 +100,26 @@ def test_a_deeply_nested_reward_json_errors_the_cell_like_any_malformed_one(tmp_
         _verify(tmp_path, DockerCLI(reward=None, reward_json="[" * 100000 + "]" * 100000))
 
 
+def _writes_bytes(name: str, data: bytes):
+    def copy(call):
+        if call.argv[1] == "cp" and call.argv[-2].endswith(f":/logs/verifier/{name}"):
+            Path(call.argv[-1]).write_bytes(data)
+            return reply()
+        return None
+    return copy
+
+
+@pytest.mark.parametrize(("name", "data"), [
+    ("reward.json", b'{"reward": 1, "gr\xffoup": 1}'),  # a bad byte in a part's name, the reward intact
+    ("reward.txt", b"1\xff"),
+])
+def test_a_reward_file_that_is_not_utf8_errors_the_cell(tmp_path, name, data):
+    # Harbor reads it with read_text(), whose UnicodeDecodeError is its parse error (harbor 0.24.0 verifier.py).
+    cli = DockerCLI(reward="1", answer=_writes_bytes(name, data))
+    with pytest.raises(RuntimeError, match=f"/logs/verifier/{name} is not UTF-8"):
+        _verify(tmp_path, cli)
+
+
 def test_a_failed_copy_of_reward_json_errors_the_cell_and_reward_txt_does_not_stand_in(tmp_path):
     def daemon_down(call):
         if call.argv[1] == "cp" and call.argv[-2].endswith(":/logs/verifier/reward.json"):
@@ -228,6 +248,12 @@ def test_a_command_harness_reads_reward_json_by_the_same_rule(tmp_path, text, ex
     (tmp_path / "verifier").mkdir()
     (tmp_path / "verifier" / "reward.json").write_text(text, encoding="utf-8")
     assert _find_reward(tmp_path, "reward: 1", "") == expected
+
+
+def test_a_command_harness_reward_json_that_is_not_utf8_has_no_reward(tmp_path):
+    (tmp_path / "verifier").mkdir()
+    (tmp_path / "verifier" / "reward.json").write_bytes(b'{"reward": 1, "gr\xffoup": 1}')
+    assert _find_reward(tmp_path, "reward: 1", "") is None
 
 
 @pytest.mark.parametrize(("directory", "beside", "text"), [
