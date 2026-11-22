@@ -82,6 +82,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Optional, Sequence
 
@@ -549,10 +550,11 @@ def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) ->
 def _name_key(name: str) -> str:
     """The name as the corpus analyses compare names: lower case, every run of other characters one hyphen.
 
-    A name with no ``a-z0-9`` at all (``インシデント``) would key to ``""`` and equal every other such name, so it
-    keys to its case-folded self.
+    A name with no letter or digit at all (``インシデント``) would key to ``""``
+    and equal every other such name, so it keys to its case-folded self.
     """
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or name.casefold().strip()
+    kept = "".join(c if c.isalnum() or unicodedata.category(c).startswith("M") else "-" for c in name.lower())
+    return re.sub(r"-+", "-", kept).strip("-") or name.casefold().strip()
 
 
 def _similar_skills(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:

@@ -292,7 +292,7 @@ with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
 its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
 skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
-half and shares three words (`description-near-duplicate`). Under a different name, an overlap from 40% up to that line is a `note` (`similar-skills-exist`) that leaves the state `ok`. The `description-no-when` cue is read in English,
+half and shares three words (`description-near-duplicate`). Under a different name, an overlap from 40% up to that line that shares at least three words is a `note` (`similar-skills-exist`) that leaves the state `ok`. The `description-no-when` cue is read in English,
 Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
 of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
 (Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same

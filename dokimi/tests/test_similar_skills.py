@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.cli import build_parser
 from dokimi.external.catalog import SkillCatalogEntry
 from dokimi.external.validate import (
     NEAR_DUPLICATE_JACCARD,
@@ -27,7 +28,29 @@ from dokimi.external.validate import (
     _tokens,
 )
 from dokimi.skills import Skill
-from tests.test_catalog_ignore import _run, _skill
+from dokimi.utils import InputError
+
+
+def _skill(root: Path, rel: str, name: str, description: str) -> None:
+    """Write ``<root>/<rel>/SKILL.md`` with the frontmatter ``name`` and ``description``."""
+    skill_dir = root / rel
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n# Body\n", encoding="utf-8"
+    )
+
+
+def _run(argv: list[str], capsys) -> tuple[str, int]:
+    """stdout and the exit code of ``catalog check``; 2 when it refuses its flags."""
+    args = build_parser().parse_args(["catalog", "check", *argv])
+    try:
+        args.func(args)
+    except InputError:
+        return capsys.readouterr().out, 2
+    except SystemExit as exc:
+        return capsys.readouterr().out, int(exc.code or 0)
+    return capsys.readouterr().out, 0
+
 
 # Description pairs with their word overlap (Jaccard similarity over the tokens), checked with _tokens.
 BAND_A = "Reconcile spreadsheet invoices against bank statements for the accounts team"  # 0.333 with BAND_B
@@ -142,6 +165,20 @@ def test_two_skills_with_non_ascii_names_are_different_names():
     _similar_skills(loaded)
     assert _codes(loaded) == [["similar-skills-exist"], ["similar-skills-exist"]]
     assert _name_key("インシデント") != _name_key("ポストモーテム")
+
+
+def test_names_that_differ_only_in_non_ascii_letters_are_different_names():
+    loaded = _items([("インシデント-timelines", NOTE_A, False), ("timelines", NOTE_B, False)])
+    _similar_skills(loaded)
+    assert _codes(loaded) == [["similar-skills-exist"], ["similar-skills-exist"]]
+    assert _name_key("Café") != _name_key("Caf")
+
+
+def test_names_that_differ_only_in_combining_marks_are_different_names():
+    loaded = _items([("\u0915\u093e", NOTE_A, False), ("\u0915\u093f", NOTE_B, False)])
+    _similar_skills(loaded)
+    assert _codes(loaded) == [["similar-skills-exist"], ["similar-skills-exist"]]
+    assert _name_key("Incident_Timelines") == _name_key("incident-timelines")
 
 
 def _brute_similar(loaded) -> None:
