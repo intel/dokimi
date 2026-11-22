@@ -17,7 +17,8 @@ _MOVED = ["shell_reads", "shell_reads_moved", "shell_walk", "shell_walked", "unw
 
 
 def test_cli_traces_is_below_the_growth_cap():
-    assert len(_MODULE.read_text(encoding="utf-8").splitlines()) < 800
+    """#1065 asks for room in both files: the parsers are 399 lines, 799 with the walker."""
+    assert len(_MODULE.read_text(encoding="utf-8").splitlines()) < 600
 
 
 @pytest.mark.parametrize("name", _MOVED)
