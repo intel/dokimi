@@ -99,6 +99,13 @@ CI additionally holds a PR to:
   order. A third-party warning gets a narrow `filterwarnings` ignore in
   `pyproject.toml` with the reason. The plugins come from `requirements-test.txt`:
   a venv without them stops with `Unknown config option: timeout`, so reinstall.
+  `tests/conftest.py` imports litellm once at session start, so a warning its
+  import raises fails the session under its own name, not whichever test imports it first.
+- **Changed tests repeat.** The `Repeat changed tests` step (Python 3.14 leg, pull
+  requests only) runs each `tests/test_*.py` the PR adds, modifies or renames 20 times
+  under `-n auto` with `--randomly-seed` 1 to 20 (`scripts/repeat_changed_tests.py`), at
+  most 10 files; the log names the rest. It stops at the first failing seed and prints it
+  for replay. Run it locally with `python scripts/repeat_changed_tests.py --base <remote>/main`.
 - **User outcomes hold.** `pytest --outcomes` checks each promise in
   `tests/outcomes/*.json` (what a doc tells the user, the code that keeps it,
   and evidence ids) against the tests that ran. A test claims an id with

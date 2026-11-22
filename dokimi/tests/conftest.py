@@ -15,6 +15,9 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 # threads took test_the_interval_excludes_zero_exactly_when_p_is_below_005 to 27 s under xdist, one thread 3 s.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
+# Imported here, where the warning filter is active, so a third-party import-time warning fails the session
+# once under its own name instead of the first test that imports litellm (#1035).
+import litellm  # noqa: E402
 import pytest
 
 pytest_plugins = ["tests.outcomes.plugin"]
@@ -91,8 +94,6 @@ def provider_calls(monkeypatch):
     """
     import time
     from types import SimpleNamespace
-
-    import litellm
 
     from dokimi import caching, llm
     from tests.provider_calls import FakeOpenAI, ProviderCalls
