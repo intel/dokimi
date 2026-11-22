@@ -18,11 +18,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from dokimi.commands.catalog_scan import (
-    ROW_STATES, is_plain_markdown, not_checked, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
-    fail_on_reason, fails_on_finding, unrestricted_and_risky,
-)
+
 from dokimi import cli_flags
+from dokimi.commands.catalog_scan import (
+    ROW_STATES, fail_on_reason, fails_on_finding, is_plain_markdown, listing_failed, listing_total, not_checked, row_ignore,
+    ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
+)
 from dokimi.utils import InputError
 
 
@@ -67,7 +68,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     plain = 0
     unchecked = 0
     failed = False
-    ignore = frozenset(args.ignore or ())
+    ignore = row_ignore(args)
     fail_on = frozenset(args.fail_on or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
         if only is not None and skill.name != only:
@@ -96,6 +97,8 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         _print_fail_on_reasons(report["skills"], frozenset(args.fail_on or ()))
         _print_online(online)
         print()
+    report["listing"] = {"chars": listing_total(report["skills"])}
+    failed = listing_failed(args, report, as_json) or failed  # before the granularity section: after the counts
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
 
@@ -242,12 +245,12 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         # Each worker would open its own connections and cache, and --resume would keep rows that no network check made.
         raise InputError("--online checks the whole catalog at once and does not combine with --per-skill")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
-                                 or args.jobs is not None or args.online or args.ignore or args.fail_on):
+                                 or args.jobs is not None or args.online or args.ignore or args.fail_on
+                                 or args.listing_budget):
         # --fail-on-code (#942) reads skill findings, so like --ignore it has no meaning for tasks.
-        raise InputError("--per-skill, --skip-nested, --ignore, --fail-on-code, --jsonl, --concurrency, --resume and --online apply to "
-                         "skills; drop them or use --kind skills|all")
+        raise InputError("--per-skill, --skip-nested, --ignore, --fail-on-code, --jsonl, --concurrency, --resume, --online and "
+                         "--listing-budget apply to skills; drop them or use --kind skills|all")
     _refuse_unchecked_fail_on(args)
-
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
@@ -302,7 +305,7 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
         bad = bool(row["error"]) or any(f["code"] == "unreadable" for f in row["findings"]) or (
             fails_on_finding(row, fail_on)) or (
             args.strict and (row["state"] == "error" or unrestricted_and_risky(row)))
-        findings = [cli_output.finding(f["level"], f["code"], f["message"], file) for f in row["findings"]]
+        findings = [cli_output.finding(f["level"], f["code"], f["message"], file, script=f.get("script")) for f in row["findings"]]
         if row["error"]:
             findings.insert(0, cli_output.finding("error", "load-error", str(row["error"]), file))
         subjects.append({"subject": row["name"], "verdict": "fail" if bad else "pass", "findings": findings})
@@ -311,6 +314,13 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
             if row["state"] == "error" else []
         subjects.append({"subject": f"task:{row['name']}", "verdict": "fail" if row["state"] == "error" else "pass",
                          "findings": findings})
+    listing = report.get("listing") or {}
+    if listing.get("over_budget") and "listing-over-budget" not in (args.ignore or ()):
+        # The cap is on the whole listing, not on one skill: its own subject, so the warning and, with --strict, the
+        # failure have a name (#966).
+        message = f"the skill listing is {listing['chars']} characters, over the --listing-budget of {listing['budget']}"
+        subjects.append({"subject": "catalog:listing", "verdict": "fail" if args.strict else "pass",
+                         "findings": [cli_output.finding("warn", "listing-over-budget", message, None)]})
     counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ROW_STATES}
     reason = None
     if failed:
@@ -400,7 +410,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         print(f"warning: {summary['label_unresolved']} questions have an unresolved @field label; "
               "they are left unlabelled and dropped from --format reach/skill-creator", file=sys.stderr)
     if summary["unknown_expected"] or (
-        args.strict and (summary["names_skill"] or summary["exam_framing"] or summary["label_unresolved"])
+        args.fail_on == "warn" and (summary["names_skill"] or summary["exam_framing"] or summary["label_unresolved"])
     ):
         # Refuse before writing, so a pipeline that only checks for the file
         # cannot pick up a set with a mistyped label. A lint gate verdict: exit 1, as on main.
@@ -630,6 +640,12 @@ def register(sub, positive_int, eval_sub) -> None:
         help="With --jsonl: keep the rows already in PATH and review only the skills without one",
     )
     scan_p.add_argument(
+        "--listing-budget", type=positive_int, default=None, metavar="CHARS",
+        help="Warn with listing-over-budget when the skills the routing field lists (name, description and "
+             "when_to_use) total more than CHARS characters; with --strict, exit 1. The total is in the "
+             "report under listing",
+    )
+    scan_p.add_argument(
         "--online", action="store_true",
         help="Opt in to network checks of the skills: a pip/npm/npx package missing from PyPI or the "
              "npm registry, and an http(s) link that answers 404/410, or does not resolve while another "
@@ -676,8 +692,8 @@ def register(sub, positive_int, eval_sub) -> None:
                       help="Rewrite each question into first-person user voice (model sees only the question)")
     ts_p.add_argument("--model", help="Model for --rewrite")
     ts_p.add_argument("--provider", default="openai", help="Provider for --rewrite (default: openai)")
-    ts_p.add_argument("--strict", action="store_true",
-                      help="Exit 1 if any query names a skill, keeps exam framing, or has an unresolved @field label")
+    cli_flags.add(ts_p, "fail_on", "--fail-on", choices=("warn",), default=None,
+                  help="warn: exit 1 if any query names a skill, keeps exam framing, or has an unresolved @field label")
     ts_p.add_argument("--out", required=True, help="Output JSON path")
     ts_p.set_defaults(func=cmd_catalog_trigger_set)
 

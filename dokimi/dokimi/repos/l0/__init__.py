@@ -18,6 +18,7 @@ from ..manifest import RepoManifest, match_glob
 from ..source import RepoTree, SourceError
 from ..static import STATUS_CLASSES, check_static, status_class
 from .adapters import ADAPTERS, detect
+from .config import apply_config, load_config
 from .core import Claim, Scan
 from .typecheck import Check, check_fences
 
@@ -92,12 +93,15 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         static_info = {"errors": problems, "claims": 0, "superseded": 0, "extra": extra}
         if not problems:
             repository = [dict(c, source="repository") for c in static["claims"]]
+            for c in repository:
+                c.pop("baselined", None)  # only a baseline given to this scan marks a claim known
             static_info["claims"] = len(repository)
     keys = {_key(c, scan) for c in repository if c.get("claim") is not None}
     kept = [c for c in framework if _key(c, scan) not in keys]
     if static_info is not None:
         static_info["superseded"] = len(framework) - len(kept)
     claims = sorted(repository + kept, key=lambda c: (c["file"], c["line"], c["source"]))
+    scan_config = apply_config(claims, load_config(tree), scan.files)  # the ignores cover the repository's claims too
 
     warnings, reasons = _coverage_warnings(tree, manifest, files)
     rc_files = scan.cached("bazel", dict).get("unread", {})  # `.bazelrc` imports, whatever their names
@@ -108,7 +112,9 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     warnings += unscanned
     reasons += unscanned  # every warning that makes the scan incomplete, in the order of `warnings`
     warnings += not_counted
+    warnings += scan_config["errors"]
     reasons += not_counted
+    reasons += scan_config["errors"]  # a broken scan.toml drops the repository's settings: the scan is incomplete
     sha = getattr(tree, "sha", None)
     return {
         "repo": {"id": manifest.id, "tree": tree.label, "sha": sha, "manifest": manifest.path},
@@ -125,6 +131,7 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         "warnings": warnings,
         "incomplete": bool(reasons),
         "incomplete_reasons": reasons,
+        "scan_config": scan_config,
         "claims": claims,
     }
 

@@ -122,6 +122,11 @@
                   "null"
                 ],
                 "minimum": 1
+              },
+              "script": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Only on a finding about one bundled script (`script-crlf`, `script-syntax`): its path relative to the skill directory, with `/` separators. `file` stays the skill's SKILL.md (#961)."
               }
             }
           }

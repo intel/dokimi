@@ -86,9 +86,13 @@ jobs:
       - name: Duplicate code ratchet
         if: ${{ !cancelled() }}
         run: python scripts/check_duplicates.py
+      # No new time.sleep or threading.Timer in tests/ past scripts/test_timing_baseline.json.
+      - name: Test timing ratchet
+        if: ${{ !cancelled() }}
+        run: python scripts/check_test_timing.py
       - name: guidance self-scan (L0)
         if: ${{ !cancelled() }}
-        run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on-fail
+        run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on fail
       # Static audit of the workflow files: unpinned actions, template injection,
       # credential persistence, over-broad token permissions.
       - name: zizmor
@@ -340,6 +344,13 @@ jobs:
           else
             pytest -n auto --outcomes --outcomes-report=outcomes-result.json --journeys-report=journeys-result.json
           fi
+      # Test files this PR adds or changes run 20 times under -n auto, seeds 1-20, at most 10 files (#1035).
+      # Coverage leg only: it has the history to diff. No test file changed: nothing runs.
+      - name: Repeat changed tests
+        if: github.event_name == 'pull_request' && matrix.coverage
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python scripts/repeat_changed_tests.py --base "origin/$BASE_REF" --head HEAD
       # Coverage of the lines this PR changes, not of the whole tree: the total
       # moves too little per PR to gate on, an untested new function does not.
       # Below 20 measurable changed lines one missed line swings the percentage

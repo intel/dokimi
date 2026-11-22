@@ -228,10 +228,17 @@ _ANSWER_STRICT = re.compile(r"(?im)^ANSWER\s*:\s*([A-Za-z\d ,]+)\s*(?:$|\.)")
 _ANSWER_LENIENT = re.compile(r"(?i)ANSWER\s*:\s*([A-Za-z\d ,]+)(?:[^\w]|$)")
 
 
+# The wrapped text cannot end in a space (the `\s*` before the closer takes it), so a run of spaces
+# with no closer is tried once, not from every split (https://github.com/intel/dokimi/issues/998).
+_LETTERS = r"([A-Za-z\d](?:[A-Za-z\d ,]*[A-Za-z\d,])?)"
+_BOLD_LETTERS = re.compile(rf"\*\*\s*{_LETTERS}\s*\*\*")
+_MATH_LETTERS = re.compile(rf"\$\s*{_LETTERS}\s*\$")
+
+
 def chosen_letters(answer: str) -> Optional[frozenset[str]]:
     """The letters of the last ``ANSWER: ...`` line (Inspect ``multiple_choice`` parsing), or None."""
-    text = re.sub(r"\*\*\s*([A-Za-z\d][A-Za-z\d ,]*?)\s*\*\*", r"\1", answer)
-    text = re.sub(r"\$\s*([A-Za-z\d][A-Za-z\d ,]*?)\s*\$", r"\1", text)
+    text = _BOLD_LETTERS.sub(r"\1", answer)
+    text = _MATH_LETTERS.sub(r"\1", text)
     text = re.sub(r"(?i)(^|[:,])(\s*)\(([A-Za-z\d])\)(?=\s*(?:,|\.|\n|\Z))", r"\1\2\3", text)
     found = _ANSWER_STRICT.findall(text) or _ANSWER_LENIENT.findall(text)
     if not found:
