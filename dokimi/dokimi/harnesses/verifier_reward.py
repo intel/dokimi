@@ -29,6 +29,9 @@ from dokimi.utils import retry_writable
 REWARD_FILES = ("reward.json", "reward.txt")
 
 _REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D+([01](?:\.\d+)?)", re.IGNORECASE)
+# In a reward file the whole number after the label: `reward: 10` or `pass rate: 12/20` is no reward.
+_FILE_REWARD_RE = re.compile(
+    r"(?:reward|score|pass[_ -]?rate)\D*?([-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?)(?![\d./%])", re.IGNORECASE)
 
 
 def reward_in_file(name: str, data: bytes) -> float:
@@ -176,7 +179,7 @@ def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
             value = None
         if value is not None and 0.0 <= value <= 1.0:
             return value
-    match = _REWARD_RE.search(text)
-    if match and not (reward_file and float(match.group(1)) > 1.0):  # a file's `reward: 1.5` is no reward
+    match = (_FILE_REWARD_RE if reward_file else _REWARD_RE).search(text)
+    if match and (not reward_file or 0.0 <= float(match.group(1)) <= 1.0):
         return float(match.group(1))
     return None
