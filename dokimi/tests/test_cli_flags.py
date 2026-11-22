@@ -207,6 +207,7 @@ MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
 
 
 def _registered_choices(value: str) -> frozenset[str]:
+    """Read a brace-delimited list or pipe-separated alternatives. Other values only require choices to exist."""
     if value.startswith("{") and value.endswith("}"):
         return frozenset(part.strip() for part in value[1:-1].split(","))
     if "|" in value:
@@ -247,8 +248,11 @@ def meaning_clashes(found: Sequence[Use],
         if (flag.kind == "flag") != (use.nargs == 0):
             shape = "a switch" if use.nargs == 0 else "a value"
             clashes.append((use, "switch", f"is {shape} here, but the registry kind is `{flag.kind}`"))
-        if flag.kind != "flag" and use.metavar is not None and use.metavar != flag.value:
-            clashes.append((use, "metavar", f"has metavar `{use.metavar}`, the registry says `{flag.value}`"))
+        metavar = use.metavar
+        if metavar is not None and use.nargs == "+" and flag.value.endswith(" ...]"):
+            metavar = f"{metavar} [{metavar} ...]"
+        if flag.kind != "flag" and metavar is not None and metavar != flag.value:
+            clashes.append((use, "metavar", f"has metavar `{metavar}`, the registry says `{flag.value}`"))
         if choice_clash := _choice_clash(flag, use.choices):
             clashes.append((use, *choice_clash))
         allowed = _TYPES_BY_KIND.get(flag.kind)
@@ -590,5 +594,16 @@ def test_exception_can_check_the_observed_empty_set_of_choices():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pick", choices=[])
     concept = cli_flags.Concept(name="x", help="", canonical=(cli_flags.Flag("--pick", "A|B", "choice"),))
-    rows = {("dokimi", "--pick", "empty_choices"): (frozenset(), "Intentionally disabled.")}
+    rows: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
+        ("dokimi", "--pick", "empty_choices"): (frozenset(), "Intentionally disabled.")}
     assert meaning_problems(uses(parser), rows, (concept,)) == []
+
+
+@pytest.mark.parametrize(("nargs", "metavar", "clashes"), [
+    ("+", "F", False), (None, "F", True), ("+", "N", True),
+])
+def test_a_repeated_registry_metavar_matches_argparse_usage(nargs, metavar, clashes):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--budget", metavar=metavar, nargs=nargs, type=float)
+    concept = cli_flags.Concept(name="tokens", help="", canonical=(cli_flags.Flag("--budget", "F [F ...]", "float"),))
+    assert bool(meaning_clashes(uses(parser), (concept,))) == clashes
