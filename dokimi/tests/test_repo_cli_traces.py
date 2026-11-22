@@ -58,6 +58,11 @@ from dokimi.repos.events import convert
     ("nl -ba a", ["a"]),
     ("sed -n -e '1p' f", ["f"]),
     ("sed -n -E '1,3p' f", ["f"]),
+    ("sed -ne5p AGENTS.md", ["AGENTS.md"]),               # the script attached to -e in a cluster
+    ("sed -ne5p -e 6,7p f", ["f"]),
+    ("sed -n -- 1p AGENTS.md", ["AGENTS.md"]),            # after --, the words are operands: the script, then the files
+    ("sed -n -- 1p -weird", ["-weird"]),                  # after --, a word that starts with - is a file
+    ("sed -n", []),                                       # no script, no file
     ("sed -n -i.bak 1p f", []),                           # in-place edit
     ("sed -n --in-place 1p f", []),
     ("sed -n '$p' f", ["f"]),                             # $ inside single quotes is the last line

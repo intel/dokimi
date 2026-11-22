@@ -30,7 +30,8 @@ def _no_tasks(root: Path | None) -> NoReturn:
     raise InputError(f"No explore tasks {where}. Pass --tasks-root <dir> of task YAML files.")
 
 
-def cmd_explore_list(args: argparse.Namespace) -> None:
+def list_localization_tasks(args: argparse.Namespace) -> None:
+    """`eval tasks list --format localization` (#94 M1): the exploration task YAMLs under --tasks-root."""
     from dokimi.explore import discover_explore_tasks
 
     root = Path(args.tasks_root) if args.tasks_root else None
@@ -169,11 +170,7 @@ def register(sub, positive_int) -> None:
         help="Run exploration-only localization tasks (ExploreBench)",
     )
     explore_sub = explore_p.add_subparsers(dest="explore_cmd", required=True)
-
-    list_p = explore_sub.add_parser("list", help="List exploration tasks")
-    list_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)
-    list_p.add_argument("--repo-root", default=None, dest="repo_root", help=_REPO_ROOT_HELP)
-    list_p.set_defaults(func=cmd_explore_list)
+    # `explore list` moved to `eval tasks list --format localization` (#94 M1).
 
     run_p = explore_sub.add_parser("run", help="Run exploration tasks through arms")
     run_p.add_argument("--tasks", default=None, help="Comma-separated task ids")

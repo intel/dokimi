@@ -252,7 +252,7 @@ criteria:
   AC-J03-002:
     delivery: available
     enforce: false
-    surfaces: ["repo validate --manifest"]
+    surfaces: ["eval check --schema-only --manifest"]
     gaps: ["not yet bound to a test id"]
 
   # ---------------------------------------------------------------- J7
@@ -299,7 +299,7 @@ criteria:
     evidence:
       - id: cjm-builtin-review-graders
         kind: cli_scenario
-        invokes: ["eval check --task", "repo validate --json"]
+        invokes: ["eval check --task", "eval check --schema-only --json"]
         stubs: [Docker (FakeRunner)]
   AC-J07-005:
     delivery: available

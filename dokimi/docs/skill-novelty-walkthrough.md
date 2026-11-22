@@ -184,7 +184,7 @@ extraction, not empty.
 
 ```bash
 python cli.py skill shorten --artifact skill:skills/my-skill --atoms atoms.json \
-    --budgets 0.75 0.5 --lexical-only --out short/SKILL.md
+    --token-budgets 0.75 0.5 --lexical-only --out short/SKILL.md
 ```
 
 `--lexical-only` runs the retention oracle without an LLM adjudicator: cheap, reproducible,

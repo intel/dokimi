@@ -24,8 +24,6 @@ from dokimi.defaults import (
 from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE, check_caller_provider
 from dokimi.metrics.usage import UsageRecord, to_record
 
-from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
-
 
 ANSWER_PROMPT_WITH_DOCS = """You are a technical documentation expert answering a user question.
 
@@ -124,19 +122,11 @@ class Answerer:
         self.top_k = DEFAULT_RETRIEVAL_TOP_K if top_k is None else top_k
         self.debug_retrieval = debug_retrieval
         
-        # Initialize reranker (prefer semantic, fallback to lexical)
-        self.reranker: SentenceTransformerReranker | SimpleReranker
-        if SENTENCE_TRANSFORMERS_AVAILABLE:
-            try:
-                self.reranker = SentenceTransformerReranker(threshold=rerank_threshold)
-                logger.info(f"Semantic reranker initialized with threshold={rerank_threshold:.2f}")
-            except Exception as e:  # noqa: BLE001 - logged; the lexical reranker is the documented fallback
-                logger.warning(f"Semantic reranker failed ({e}); fallback to lexical reranker")
-                self.reranker = SimpleReranker(threshold=rerank_threshold)
-        else:
-            self.reranker = SimpleReranker(threshold=rerank_threshold)
-            logger.info(f"Lexical reranker initialized with threshold={rerank_threshold:.2f}")
-        
+        # The arms stack's choice (semantic, else lexical), so both stacks rank alike (#228 step 3).
+        from dokimi.treatments.arms import DocTreatment
+
+        self.reranker = DocTreatment._default_reranker(rerank_threshold)
+
         logger.info(f"Answerer initialized: {provider}/{model}, MCP={'yes' if mcp_client else 'no'}")
     
     def generate_answers(
@@ -330,55 +320,27 @@ class Answerer:
         return_metadata: bool = False,
     ) -> Any:
         """
-        Retrieve relevant docs via MCP client with reranking.
-        
+        Retrieve relevant docs through ``DocTreatment``, the arms stack's path (#228 step 3).
+
+        The same request (``max_results=top_k``, ``max_tokens``) and the same docs kept: the top 3
+        after rerank, or the first 3 raw docs when the reranker raises.
+
         Returns:
             (docs, metadata): Reranked docs and retrieval metadata dict
         """
-        metadata = {
-            "raw_count": 0,
-            "after_rerank": 0,
-            "top_score": None,
-            "avg_score": None,
-            "fallback_triggered": False
-        }
-        
-        try:
-            # Retrieve top-k docs, the same request the arms stack sends (max_results=top_k)
-            raw_docs = self.mcp_client.get_library_docs(
-                library_id=library_id,
-                query=question,
-                max_results=self.top_k,
-                max_tokens=max_tokens
-            )
-            metadata["raw_count"] = len(raw_docs)
-            logger.info(f"Retrieved {len(raw_docs)} raw doc chunks")
-            
-            if not raw_docs:
-                return ([], metadata) if return_metadata else []
-            
-            # Rerank docs by relevance
-            reranked_docs = self.reranker.rerank(question, raw_docs)
-            metadata["after_rerank"] = len(reranked_docs)
-            
-            if reranked_docs:
-                scores = [d.get('relevance_score', 0) for d in reranked_docs]
-                metadata["top_score"] = round(max(scores), 3)
-                metadata["avg_score"] = round(sum(scores) / len(scores), 3)
-                
-                # Keep top 3 after reranking
-                docs_out = reranked_docs[:3]
-                return (docs_out, metadata) if return_metadata else docs_out
-            else:
-                # No docs passed threshold
-                metadata["fallback_triggered"] = True
-                logger.warning("No docs passed rerank threshold for question")
-                return ([], metadata) if return_metadata else []
-                
-        except Exception:
-            logger.exception("Context retrieval failed")
-            return ([], metadata) if return_metadata else []
-    
+        from dokimi.treatments.arms import DocTreatment
+
+        arm = DocTreatment(self.mcp_client, name="with_docs", top_k=self.top_k, keep=3,
+                           reranker=self.reranker, retrieval_tokens=max_tokens)
+        config = arm.prepare(question, library_id, library_id=library_id)
+        docs_out = config.injected_context
+        metadata = dict(config.metadata)
+        # Docs came back but none passed the rerank threshold.
+        metadata["fallback_triggered"] = metadata["raw_count"] > 0 and metadata["after_rerank"] == 0
+        if metadata["fallback_triggered"]:
+            logger.warning("No docs passed rerank threshold for question")
+        return (docs_out, metadata) if return_metadata else docs_out
+
     def _generate_with_docs(
         self,
         question: str,

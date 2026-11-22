@@ -28,7 +28,6 @@
 --bases
 --batch
 --both
---budgets
 --build-network
 --build-timeout
 --cache-root
@@ -100,6 +99,7 @@
 --libraries
 --library
 --limit
+--listing-budget  # catalog check (#966): a cap on the skill listing's characters; no registry concept yet
 --listing-budget-fraction  # catalog trigger-probe (#217) adds it: no registry concept yet
 --manifest
 --manifest-file
@@ -113,7 +113,6 @@
 --max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-lines  # eval tasks generate --from prs (#294) adds it: a size filter, not a spend cap; no registry concept yet
 --max-resource-words
---max-tokens
 --max-turns
 --metric
 --min-accuracy
@@ -182,6 +181,7 @@
 --salt
 --save-analysis
 --scenarios
+--schema-only  # eval check --schema-only (#276 M1, was repo validate): the manifest checks, no registry concept yet
 --scorer
 --sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
 --sequential
@@ -252,5 +252,6 @@
 --alpha  # repo security: the one-sided Fisher level per violation class, no registry concept yet (#360)
 --canary  # repo security: a planted fake secret to look for, repeatable (#360)
 --canaries-file  # repo security: the same canaries one per line (#360)
+--atom-verdicts  # skill novelty view (#1005): the per-atom verdicts file `analyze` writes; no registry concept yet
 --tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
 --tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet

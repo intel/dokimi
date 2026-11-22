@@ -235,12 +235,13 @@ def install_common(monkeypatch, client: RecordingDocClient, reranker: StubRerank
     """Replace the doc source, the reranker class and the answering modules' clock; nothing else."""
     from dokimi.eval import answerer as answerer_mod
     from dokimi.eval import arm_runner as arm_runner_mod
+    from dokimi.eval import reranker as reranker_mod
     from dokimi.orchestrator import pipeline as pipeline_mod
 
     clock = FrozenClock()
     monkeypatch.setattr(pipeline_mod, "create_doc_source_client", lambda kind: client)
-    monkeypatch.setattr(answerer_mod, "SENTENCE_TRANSFORMERS_AVAILABLE", False)
-    monkeypatch.setattr(answerer_mod, "SimpleReranker", lambda threshold: reranker)
+    monkeypatch.setattr(reranker_mod, "SENTENCE_TRANSFORMERS_AVAILABLE", False)
+    monkeypatch.setattr(reranker_mod, "SimpleReranker", lambda threshold: reranker)
     monkeypatch.setattr(answerer_mod, "time", clock)
     monkeypatch.setattr(arm_runner_mod, "time", clock)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
@@ -311,8 +312,13 @@ def run_stack_a(
     temperature: Optional[float] = 0.0,
     seed: Optional[int] = 1,
     top_k: int = TOP_K,
+    retrieval_tokens: Optional[int] = None,
+    questions: Optional[List[Dict[str, Any]]] = None,
 ) -> Observed:
-    """Stack A end to end on the fixture: answer under both arms, then judge."""
+    """Stack A end to end on the fixture: answer under both arms, then judge.
+
+    ``retrieval_tokens`` is the docs arm's retrieval budget; the arms commands leave it unset.
+    """
     from dokimi.eval.arm_runner import ArmRunner
     from dokimi.eval.judge import Judge
     from dokimi.treatments.arms import BaselineTreatment, DocTreatment
@@ -325,7 +331,7 @@ def run_stack_a(
 
     treatments = [
         BaselineTreatment("baseline"),
-        DocTreatment(client, name="docs", top_k=top_k, reranker=reranker),
+        DocTreatment(client, name="docs", top_k=top_k, reranker=reranker, retrieval_tokens=retrieval_tokens),
     ]
     runner = ArmRunner(
         treatments,
@@ -336,7 +342,8 @@ def run_stack_a(
         seed=seed,
     )
     mark = len(provider_calls.calls)
-    records = runner.run(PRODUCT, QUESTIONS, library_id=LIBRARY_ID, concurrency=1)
+    qs = QUESTIONS if questions is None else questions
+    records = runner.run(PRODUCT, qs, library_id=LIBRARY_ID, concurrency=1)
     judge = Judge(model=JUDGE_MODEL, provider=JUDGE_PROVIDER)
     scored = runner.judge(judge, PRODUCT, records)
     artifact = runner.build_output(PRODUCT, records, evaluations=scored, judge=judge)
