@@ -38,8 +38,8 @@ example keeps the write token away from pull request code:
 | `comment` (`actions/opportunities-comment`) | `pull-requests: write` | no: it reads the uploaded findings as data |
 
 The checks run on the head commit `gate` reads, which can be a commit pushed after the
-comment while the run was queued. To pin what runs, comment `/dokimi run <sha>` (7 to 40
-hex digits of the head commit): the gate refuses it with a reply when the head has moved.
+comment while the run was queued. To pin what runs, comment `/dokimi run <sha>` (the full
+40-hex head commit; a short prefix could be matched by a crafted commit): the gate refuses it with a reply when the head has moved.
 Set `require-sha: 'true'` on `actions/pr-command` to accept only that form, for a
 repository where a push between the comment and the run is a concern. The
 comment text is built from the findings, which quote the pull request's files: `@`

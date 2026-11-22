@@ -194,7 +194,7 @@ def test_example_workflow_permissions_and_pins() -> None:
                 assert re.fullmatch(r"actions/[\w-]+@[0-9a-f]{40}", uses), uses
 
 
-@pytest.mark.parametrize("pin", [SHA[:7], SHA.upper(), SHA])
+@pytest.mark.parametrize("pin", [SHA.upper(), SHA])
 def test_a_named_head_commit_runs(tmp_path: Path, pin: str) -> None:
     r, out = _gate(tmp_path, body=f"/dokimi run {pin}")
     assert r.returncode == 0, r.stderr
@@ -203,7 +203,7 @@ def test_a_named_head_commit_runs(tmp_path: Path, pin: str) -> None:
 
 def test_a_commit_that_is_no_longer_the_head_is_refused(tmp_path: Path) -> None:
     # A push after the comment moves the head: the named commit no longer matches, nothing runs.
-    r, out = _gate(tmp_path, body="/dokimi run bbbbbbb")
+    r, out = _gate(tmp_path, body="/dokimi run " + "b" * 40)
     assert (r.returncode, out) == (0, {"run": "false"})
     assert "is not the head" in (tmp_path / "body.md").read_text(encoding="utf-8")
 
@@ -214,7 +214,7 @@ def test_require_sha_refuses_the_bare_command(tmp_path: Path) -> None:
     assert SHA in (tmp_path / "body.md").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("body", ["/dokimi run abc", "/dokimi run aaaaaaa extra", "/dokimi run $(id)"])
+@pytest.mark.parametrize("body", ["/dokimi run abc", "/dokimi run aaaaaaa", f"/dokimi run {SHA} extra", "/dokimi run $(id)"])
 def test_a_malformed_commit_does_nothing(tmp_path: Path, body: str) -> None:
     r, out = _gate(tmp_path, body=body)
     assert (r.returncode, out) == (0, {"run": "false"})
