@@ -35,6 +35,11 @@ def _behind_text(row: dict) -> str:
     return ", ".join(part for part in (commits, months, removed) if part) or "unknown"
 
 
+def _cell(text: str) -> str:
+    """A table cell from a path or name: control characters are escaped, so a tab or newline cannot split a row."""
+    return "".join(ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii") for ch in text)
+
+
 def _text(report: dict) -> str:
     summary = report["summary"]
     lines = []
@@ -53,13 +58,13 @@ def _text(report: dict) -> str:
     )
     lines.append("skill\tmatch\tupstream\tversion\tbehind\tedited")
     for row in report["skills"]:
-        upstream_text = "-" if row["upstream"] is None else f"{row['upstream']}:{row['path']}"
+        upstream_text = "-" if row["upstream"] is None else _cell(f"{row['upstream']}:{row['path']}")
         version = "-" if row["commit"] is None else f"{row['commit']}{' ' + row['date'] if row['date'] else ''}"
         if row["version"]:
             version = f"v{row['version']} {version}"
         edited = "-" if row["edited"] is None else "yes" if row["edited"] else "no"
         lines.append(
-            f"{row['skill']}\t{row['match'] or 'unmatched'}\t{upstream_text}\t{version}\t"
+            f"{_cell(row['skill'])}\t{row['match'] or 'unmatched'}\t{upstream_text}\t{_cell(version)}\t"
             f"{_behind_text(row)}\t{edited}"
         )
     return "\n".join(lines)

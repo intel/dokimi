@@ -756,3 +756,17 @@ def test_a_history_path_with_a_non_utf8_byte_keeps_its_name(tmp_path: Path) -> N
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
     assert (row["match"], row["removed_at_head"], row["path"]) == ("exact", False, rel)
+
+
+def test_text_table_escapes_control_characters_in_upstream_paths(tmp_path: Path) -> None:
+    path = tmp_path / "upstream.json"
+    path.write_text(json.dumps({
+        "schema": "dokimi.upstream.v1", "name": "acme", "head": {"date": "2026-04-01"},
+        "skills": [{"path": "a\tb\nc/SKILL.md", "content": V1, "head": True}],
+    }), encoding="utf-8")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    lines = _run(root, "--upstream-manifest", str(path), fmt="text")["text"].splitlines()
+    header = lines.index("skill\tmatch\tupstream\tversion\tbehind\tedited")
+    rows = lines[header + 1:]
+    assert rows and all(len(line.split("\t")) == 6 for line in rows)
+    assert "a\\tb\\nc/SKILL.md" in rows[0]
