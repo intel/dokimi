@@ -23,7 +23,7 @@ from dokimi.utils import parse_frontmatter
 
 from .allowed_tools import RISKY_COMMAND_CODES, grants_unrestricted_bash
 from .command_checks import skill_md_findings
-from .upstream import Index, Match
+from .upstream import Index, Match, frontmatter_name
 from .validate import Finding
 
 UNRESTRICTED_BASH = "allowed-tools-unrestricted-bash"
@@ -105,6 +105,6 @@ def add_upstream_findings(index: Index, skills: Sequence, reviews: Sequence, ign
             continue  # the review already says the SKILL.md cannot be read: there are no bytes to match
         raw = entry.skill.path.read_bytes()
         copy_risks = frozenset(f.code for f in review.findings) & (RISK_CODES - ignore)
-        match = index.match(raw, entry.skill.name)
+        match = index.match(raw, frontmatter_name(raw))
         head_known = match is None or index.head_known(match.version)
         review.findings += upstream_findings(match, raw, copy_risks, head_known=head_known)

@@ -15,7 +15,6 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.utils import InputError
-from tests.test_catalog_validate import _skill
 
 HEAD_TEXT = (
     "---\nname: pdf\ndescription: Use when reading PDFs and forms.\nlicense: MIT\nallowed-tools: Read\n---\n"
@@ -47,14 +46,14 @@ def _manifest(tmp_path, *versions: dict, name: str = "acme") -> str:
 
 def _copy(tmp_path, text: str, name: str = "pdf"):
     root = tmp_path / "catalog"
-    _skill(root, f"skills/{name}", name=name, description="Use when reading PDFs and forms.")
+    (root / "skills" / name).mkdir(parents=True)
     (root / "skills" / name / "SKILL.md").write_text(text, encoding="utf-8")
     return root
 
 
-def _check(root, capsys, *extra: str) -> tuple[int, dict]:
+def _check(root, capsys, *extra: str) -> tuple[str | int | None, dict]:
     args = build_parser().parse_args(["catalog", "check", "--root", str(root), "--format", "json", *extra])
-    code = 0
+    code: str | int | None = 0
     try:
         args.func(args)
     except SystemExit as exc:
@@ -224,3 +223,24 @@ def test_a_flagged_head_on_one_path_does_not_make_another_path_stale(tmp_path, c
                          {"content": OLD_TEXT, "commit": "aaaa"})  # pdf has no entry flagged as head
     _, report = _check(_copy(tmp_path, OLD_TEXT), capsys, "--upstream-manifest", manifest)
     assert _found(_row(report), "upstream-stale") == []
+
+
+def test_a_copy_with_no_frontmatter_name_is_not_matched_by_its_directory(tmp_path, capsys):
+    manifest = _manifest(tmp_path, {"content": HEAD_TEXT, "head": True, "commit": "bbbb"})
+    nameless = NO_LICENSE.replace("name: pdf\n", "")
+    row = _row(_check(_copy(tmp_path, nameless), capsys, "--upstream-manifest", manifest)[1])
+    assert _found(row, "license-dropped-from-upstream") == []
+
+
+def test_non_ascii_bodies_with_no_shared_words_are_not_similar(tmp_path):
+    from dokimi.external import upstream
+
+    head = "---\nname: x\n---\n日本語の本文です\n"
+    copy = "---\nname: x\n---\n全く別の内容だ\n"
+    manifest = tmp_path / "acme.json"
+    manifest.write_text(json.dumps({
+        "schema": "dokimi.upstream.v1", "name": "acme",
+        "head": {"commit": "bbbb", "date": "2026-04-01T00:00:00+00:00"},
+        "skills": [{"path": "skills/x/SKILL.md", "content": head, "head": True, "commit": "bbbb"}],
+    }), encoding="utf-8")
+    assert upstream.build((), [manifest]).match(copy.encode("utf-8"), "x") is None
