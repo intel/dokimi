@@ -590,6 +590,7 @@ class _Partial:
     def __init__(self, out_json: Path) -> None:
         self.out_json = out_json
         self._path: Path | None = None
+        self._created = False
         self.recorded = 0
         self.failed = False
 
@@ -609,13 +610,14 @@ class _Partial:
         while self._path is None:
             path = self.name()
             try:
-                os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666))
             except FileExistsError:  # another run took it since: the next name
                 continue
             except OSError:  # not created: the save that follows fails on it and names the refusal
-                self._path = path
+                self._created = False
             else:
-                self._path = path
+                self._created = True
+            self._path = path
         return self._path
 
     def save(self, output: dict) -> None:
@@ -625,6 +627,9 @@ class _Partial:
             _save_artifact_or_exit("arms", output, self._reserve())
         except BaseException:
             self.failed = True
+            if self._created and not self.recorded:  # the empty file the reservation made holds nothing
+                with contextlib.suppress(OSError):
+                    self.name().unlink(missing_ok=True)
             raise
         self.recorded = output["partial"]["questions_recorded"]
 

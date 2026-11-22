@@ -676,3 +676,39 @@ def test_two_runs_into_a_directory_not_made_yet_reserve_two_names(tmp_path):
     first._reserve()  # both reserve before either has saved, as two runs started at once
     second._reserve()
     assert (first.name().name, second.name().name) == ("demo.partial.json", "demo.partial2.json")
+
+
+def test_a_failed_first_save_leaves_no_empty_reserved_file(tmp_path, monkeypatch, capsys):
+    # The reservation creates the file empty; if the first save then fails, nothing of it stays.
+    import errno
+
+    from dokimi import artifacts
+    from dokimi.commands.arms import _Partial
+
+    def full(kind, data, path, **kw):
+        raise OSError(errno.ENOSPC, "No space left on device", str(path))
+
+    monkeypatch.setattr(artifacts, "save_artifact", full)
+    partial = _Partial(tmp_path / "demo.json")
+    with refusal() as exc:
+        partial.save(_bare_partial(1, "lost"))
+    assert exc.code == 2
+    assert "Error: cannot write" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_reserved_file_that_held_a_save_stays_when_a_later_save_fails(tmp_path, monkeypatch):
+    from dokimi import artifacts
+    from dokimi.commands.arms import _Partial
+
+    partial = _Partial(tmp_path / "demo.json")
+    partial.save(_bare_partial(1, "kept"))
+
+    def full(kind, data, path, **kw):
+        raise OSError(28, "No space left on device", str(path))
+
+    monkeypatch.setattr(artifacts, "save_artifact", full)
+    with refusal():
+        partial.save(_bare_partial(2, "lost"))
+    kept = json.loads((tmp_path / "demo.partial.json").read_text(encoding="utf-8"))
+    assert kept["answers"][0]["arms"]["baseline"]["answer"] == "kept"
