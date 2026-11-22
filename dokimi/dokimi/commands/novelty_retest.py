@@ -39,6 +39,9 @@ def cmd_novelty_retest(args: argparse.Namespace) -> None:
         out = Path(args.out_dir)
         if out.exists() and not out.is_dir():
             raise InputError(f"--out-dir {out} is a file, not a directory")
+        for name in ("retest.json", "retest.md"):
+            if (out / name).is_dir():
+                raise InputError(f"{out / name} is a directory; remove it or pick another --out-dir")
         save_artifact("novelty_retest", summary, out / "retest.json")
         (out / "retest.md").write_text(render_markdown(summary, warnings=paired["warnings"]),
                                        encoding="utf-8")

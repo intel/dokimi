@@ -140,6 +140,19 @@ def test_an_out_dir_that_is_a_file_is_refused_as_bad_input(tmp_path):
             retest=str(_write_runs(tmp_path / "b", second)), scoring="lenient", out_dir=str(blocker)))
 
 
+def test_an_out_dir_with_a_directory_named_like_an_output_is_refused_before_any_write(tmp_path):
+    pairs = _pairs([(0.1, 0.2), (0.5, 0.45)])
+    first = {r["ref"]: _artifact(r["ref"], r["first"]) for r in pairs}
+    second = {r["ref"]: _artifact(r["ref"], r["second"], seed=2) for r in pairs}
+    out = tmp_path / "out"
+    (out / "retest.md").mkdir(parents=True)
+    with pytest.raises(InputError, match="retest.md"):
+        novelty_cmd.cmd_novelty_retest(argparse.Namespace(
+            baseline=str(_write_runs(tmp_path / "a", first)),
+            retest=str(_write_runs(tmp_path / "b", second)), scoring="lenient", out_dir=str(out)))
+    assert not (out / "retest.json").exists()
+
+
 def test_identical_runs_measure_no_noise():
     summary = retest_summary(_pairs([(0.2, 0.2), (0.6, 0.6), (0.9, 0.9)]))
     assert summary["sd_diff"] == 0
