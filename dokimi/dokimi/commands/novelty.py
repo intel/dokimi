@@ -649,7 +649,10 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
     cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=unit_interval, nargs="+", default=[0.75, 0.5],
                   dest="budgets", help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
-                        help="Disk cache for retention adjudications")
+                        help="Disk memo of retention adjudications only (not model replies). The "
+                             "response cache is separate and opt-in: set DOKIMI_RESPONSE_CACHE to a "
+                             "writable directory. Research or a rerun should set it; without it a rerun "
+                             "pays for every call again.")
     parser.add_argument("--seed", type=int, default=0,
                         help="Seed for the shuffled control and random selection, so both "
                              "are reproducible across runs")
