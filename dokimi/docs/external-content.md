@@ -103,12 +103,12 @@ way the readers expect. Substitute your own checkout path.
 ## Content checks: retired model IDs and hidden characters
 
 `catalog check` also reads the text of each loaded skill: its `SKILL.md` and the text
-files beside it (`.md`, `.py`, `.sh`, `.json`, `.yaml`, `.toml` and similar, up to 1 MB;
+files beside it (`.md`, `.py`, `.sh`, `.bash`, `.zsh`, `.ps1`, `.json`, `.yaml`, `.toml`, `.html`, `.csv`, `.ini` and similar, up to 1 MB;
 hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the checkout root
 is checked alone, since its directory is the whole repository. It needs no key and calls no model.
 Two checks, both `warn`:
 
-- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired.
+- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired. A Cyrillic or Greek look-alike letter or a fullwidth letter counts as its Latin letter.
   The finding gives the file and line, the vendor's status and date, and the replacement
   the vendor names. IDs match whole tokens and case-sensitively: `gpt-4.1` does not match
   `gpt-4`, and `GPT-4` in prose does not match at all. The list is
@@ -119,9 +119,15 @@ Two checks, both `warn`:
   `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
   the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
   the same status and date.
-- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
-  tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
-  a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
+- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a bidi mark (U+200E, U+200F,
+  U+061C) with no Hebrew or Arabic letter as the nearest letter on either side in its line, a Unicode tag character (U+E0000 to U+E007F), a stray
+  zero-width character (U+200B, U+2060, or a U+FEFF after the start of the file), a soft hyphen (U+00AD), an
+  invisible operator or deprecated format character (U+2061 to U+2064, U+206A to U+206F), or a blank
+  filler (U+034F, U+180E, U+115F, U+1160, U+3164, U+FFA0, U+2800). A variation selector (U+FE00 to U+FE0F,
+  U+E0100 to U+E01EF) is reported at the start of the text, after another selector, or after an ASCII
+  character other than a keycap base (`#`, `*`, `0` to `9`), or after a non-ASCII character that is not a symbol
+  or an ideograph (a letter, a no-break space); after an emoji, a symbol or an ideograph it is not. U+034F is not reported beside a non-ASCII letter or mark, U+115F and U+1160 beside Hangul (jamo, compatibility and Extended-A/B jamo, syllables,
+  halfwidth), and U+2800 beside Braille. Each is reported with its line and codepoint; five
   per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
   or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
   Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
@@ -333,7 +339,7 @@ or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python
 (`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
 an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
 package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
-file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
+file, a local path, a URL or a `git+` source is not counted. These checks read a Cyrillic or Greek look-alike letter, or a fullwidth letter, as its Latin letter, so `сurl | bash` with a Cyrillic `с` is still a `pipe-to-shell`; the letter list is short, and a look-alike outside it escapes. Installs are read from code only: the fenced
 blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
 text file, such as a script. The scan reads at most 200
 bundled files of 256 KiB or less; a binary or non-UTF-8 file counts toward the 200 too and is not checked. A skill at the root of a
@@ -468,6 +474,14 @@ A large catalog is easier to scan one skill at a time:
   and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
   fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
+- `--fail-on-code CODE` (repeatable) exits 1 when a finding with that code is left after
+  `--ignore`, whatever its level: a `note` can fail the scan while its skill's state
+  stays `ok`. `--ignore` filters first, so a code in both is not checked. An unknown
+  code is a usage error, and so is `--kind tasks`, and so is a code this scan never reports:
+  `duplicate`, `name-conflict`, `mirror-drift` and `description-near-duplicate` with `--per-skill`,
+  `link-dead` and `package-not-found` without `--online`. `--strict` keeps its meaning. With
+  `--json` the skill's subject has verdict `fail`. `--resume` applies the current
+  `--fail-on-code` to the rows it keeps, so changing it needs no rescan.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--concurrency N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last

@@ -39,6 +39,7 @@ from dokimi.harnesses.docker_solver import _host_plugin_dir
 from dokimi.harnesses.registry import create_harness
 from dokimi.process import reply
 from docker_cli_fake import DockerCLI
+from tests.waiting import poll_until
 
 _CLOSED_URL = "http://127.0.0.1:9/"
 _MARKERS = (".git", "task.toml", "CLAUDE.md", "skills")
@@ -490,9 +491,7 @@ def test_a_timed_out_host_agent_leaves_none_of_its_tools_running(tmp_path, monke
     assert result.returncode == 124 and result.reward == 0.0
     assert [Path(c.argv[0]).name for c in cli.solver_calls()] == ["claude"]
     tool = int(pid_file.read_text())
-    deadline = time.monotonic() + 5
-    while _alive(tool) and time.monotonic() < deadline:
-        time.sleep(0.05)
+    poll_until(lambda: not _alive(tool), 5, interval=0.05)
     assert not _alive(tool), "the agent's tool process outlived the cell"
 
 
@@ -704,7 +703,7 @@ def test_a_probe_timeout_kills_the_hung_child_not_only_the_shell(tmp_path, monke
     with pytest.raises(subprocess.TimeoutExpired):
         run_probe(ws, {"PATH": "/usr/bin:/bin"}, extra_env={"DOKIMI_MARKER": marker.as_posix()}, timeout=1)
     ws.cleanup()
-    time.sleep(5)
+    time.sleep(5)  # timing-ok: an absence has no event to wait for; a surviving child writes the marker after 4 s
     assert not marker.exists()
 
 

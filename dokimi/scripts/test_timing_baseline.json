@@ -1,17 +1,3 @@
 {
-  "files": {
-    "tests/test_agent_sandbox.py": 2,
-    "tests/test_benchflow_harness.py": 1,
-    "tests/test_docker_cmd.py": 1,
-    "tests/test_example_runner_processes.py": 1,
-    "tests/test_judge_sequential_design.py": 1,
-    "tests/test_mutate_changed.py": 1,
-    "tests/test_pid_state.py": 2,
-    "tests/test_process.py": 5,
-    "tests/test_repo_reach.py": 2,
-    "tests/test_task_harnesses.py": 1,
-    "tests/test_tool_preference.py": 1,
-    "tests/test_typed_scorer.py": 1,
-    "tests/test_writers_stop_on_rejected_save.py": 2
-  }
+  "files": {}
 }
