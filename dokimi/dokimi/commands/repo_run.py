@@ -169,11 +169,11 @@ def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None)
 def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
     """Whether a task of the exported eval dir names a ``dokimi:`` grader; an unreadable task.json counts."""
     from dokimi.repos.graders import builtin_name
-    from dokimi.repos.workspace import load_tasks
+    from dokimi.repos.workspace import PrepError, load_tasks
 
     try:
         tasks = load_tasks(content, manifest)
-    except (OSError, ValueError):
+    except (OSError, ValueError, PrepError):  # PrepError: a task.json that is not JSON or nested too deeply (#975)
         return True
     return any(isinstance(t.raw, dict) and builtin_name(t.raw.get("grader")) is not None for t in tasks)
 

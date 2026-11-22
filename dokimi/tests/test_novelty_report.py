@@ -198,9 +198,13 @@ def test_analyze_writes_a_lone_surrogate_in_its_markdown_as_a_question_mark(
     result = SimpleNamespace(artifact=artifact, attributions=[], partial=False,
                              measure_result=SimpleNamespace(runs=[]))
     monkeypatch.setattr("dokimi.novelty.cost.clients", lambda args: (
-        None, SimpleNamespace(model=model), SimpleNamespace(model="judge")))
+        SimpleNamespace(model="extractor", provider="openai"), SimpleNamespace(model=model),
+        SimpleNamespace(model="judge")))
     # The package re-exports `analyze` as the function, which shadows the submodule's name.
     monkeypatch.setattr(sys.modules["dokimi.novelty.analyze"], "analyze", lambda *a, **k: result)
+    # The atom files are not what this test reads; the fake result has no atoms to write.
+    for saver in ("save_atom_verdicts", "save_run_atoms"):
+        monkeypatch.setattr(f"dokimi.novelty.atom_verdicts.{saver}", lambda *a, **k: tmp_path / "atoms.json")
     out_dir = tmp_path / "out"
     args = _novelty_cmd_args("analyze", "--artifact", f"skill:{skill}", "--out-dir", str(out_dir))
     args.func(args)
