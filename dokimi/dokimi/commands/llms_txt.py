@@ -68,8 +68,8 @@ def register(docs_sub, positive_int) -> None:
     """Add ``docs llms-txt`` under the ``docs`` group."""
     p = docs_sub.add_parser("llms-txt", help="Check an llms.txt file: structure, positioning sections, size")
     p.add_argument("path", metavar="PATH", help="an llms.txt file, or a directory with llms.txt at its top")
-    p.add_argument("--token-budget", type=positive_int, default=llms_txt.TOKEN_BUDGET, metavar="N",
-                   help=f"Warn when the file is over ~N tokens (default {llms_txt.TOKEN_BUDGET})")
+    cli_flags.add(p, "tokens", "--token-budget", type=positive_int, default=llms_txt.TOKEN_BUDGET, metavar="N",
+                  help=f"Warn when the file is over ~N tokens (default {llms_txt.TOKEN_BUDGET})")
     cli_flags.add(p, "output", "--json", action="store_true",
                   help="Print cli_output.v1 on stdout (the findings under data)")
     p.set_defaults(func=cmd_docs_llms_txt, emits_cli_output=True, cli_kind="docs llms-txt")

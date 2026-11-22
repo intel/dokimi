@@ -254,4 +254,3 @@
 --atom-verdicts  # skill novelty view (#1005): the per-atom verdicts file `analyze` writes; no registry concept yet
 --tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
 --tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet
---token-budget  # docs llms-txt: a size ceiling of one static check, in estimated tokens; tokens has --token-budgets (fractions), a different meaning

@@ -193,6 +193,8 @@ CONCEPTS: tuple[Concept, ...] = (
             Flag("--retrieval-tokens", "N", "int", meaning="the tokens of docs retrieved per question"),
             Flag("--token-budgets", "F [F ...]", "float",
                  meaning="target token fractions for shortening candidates"),
+            Flag("--token-budget", "N", "int",
+                 meaning="the estimated-token ceiling of a static size check (docs llms-txt)"),
         ),
         banned=("--max-tokens", "--budgets"),
         note="--max-tokens meant retrieval in four leaves and output in ten; FLAG_MOVES moves each leaf "

@@ -578,7 +578,6 @@
           "subcommands": {}
         }
       }
-      }
     },
     "eval": {
       "allow_abbrev": true,
