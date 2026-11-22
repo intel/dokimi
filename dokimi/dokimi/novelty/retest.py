@@ -200,8 +200,8 @@ def retest_summary(pairs: list[dict], scoring: str = "lenient") -> dict:
         raise InputError("retest pairs need numeric K0 scores between 0 and 1")
     diffs = [b - a for a, b in zip(first, second, strict=True)]
     n = len(pairs)
-    sd = round(statistics.stdev(diffs), 4) if n >= 2 else None
-    floor = round(NOISE_Z * sd, 4) if sd is not None else None
+    sd = statistics.stdev(diffs) if n >= 2 else None
+    floor = NOISE_Z * sd if sd is not None else None
     below = []
     if floor is not None:
         for i in range(n):
@@ -214,9 +214,9 @@ def retest_summary(pairs: list[dict], scoring: str = "lenient") -> dict:
         "n_items": n,
         "mean_abs_diff": round(sum(abs(d) for d in diffs) / n, 4) if n else None,
         "mean_shift": round(sum(diffs) / n, 4) if n else None,
-        "sd_diff": sd,
+        "sd_diff": round(sd, 4) if sd is not None else None,
         "pearson_r": pearson(first, second) if n >= 3 else None,
-        "floor": floor,
+        "floor": round(floor, 4) if floor is not None else None,
         "small_sample": n < SMALL_SAMPLE_N,
         "n_comparisons": n * (n - 1) // 2,
         "n_below_floor": len(below),
@@ -234,6 +234,15 @@ def retest_summary(pairs: list[dict], scoring: str = "lenient") -> dict:
     }
 
 
+def pearson_text(summary: dict) -> str:
+    """The Pearson r as shown to a reader: the value, or why there is none."""
+    if summary["pearson_r"] is not None:
+        return str(summary["pearson_r"])
+    if summary["n_items"] < 3:
+        return "not measured (needs 3 items)"
+    return "not defined (one run has the same score for every item)"
+
+
 def render_markdown(summary: dict, *, warnings: list[str]) -> str:
     """The retest as a report: the noise floor first, then each item and the warnings."""
     lines = ["# Novelty test-retest", ""]
@@ -243,7 +252,8 @@ def render_markdown(summary: dict, *, warnings: list[str]) -> str:
         lines += [
             f"- Noise floor on `{summary['scoring']}` (single-run difference, 95%): "
             f"**±{summary['floor']:.3f}**. Two single-run scores closer than this are not told apart.",
-            f"- Items: {summary['n_items']}. Pearson r between runs: {summary['pearson_r']}. "
+            f"- Items: {summary['n_items']}. Pearson r between runs: "
+            f"{pearson_text(summary)}. "
             f"Mean |diff|: {summary['mean_abs_diff']:.3f}. Mean shift (second − first): "
             f"{summary['mean_shift']:+.3f}.",
             f"- Comparisons below the floor: {summary['n_below_floor']} of {summary['n_comparisons']}.",

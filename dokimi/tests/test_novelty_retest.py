@@ -9,7 +9,9 @@ first run used seed 0, the retest seed 2 and a fresh cache. No model is called h
 
 from __future__ import annotations
 
+import argparse
 import json
+from typing import Any
 
 import pytest
 
@@ -83,11 +85,59 @@ def test_a_comparison_below_the_floor_is_flagged_and_one_above_is_not():
     assert ("skill:/s/1", "skill:/s/2") not in flagged
 
 
-def test_a_gap_exactly_at_the_floor_is_not_below_it():
-    # sd of the diffs 0.102 gives a floor of 0.1999; the first-run gap is also 0.1999.
-    summary = retest_summary(_pairs([(0.0, 0.0), (0.1999, 0.34415)]))
-    assert summary["floor"] == pytest.approx(0.1999)
-    assert summary["n_below_floor"] == 0
+def test_a_zero_k0_is_a_measured_score_that_pairs():
+    first = {"skill:/s/a": _artifact("skill:/s/a", 0.0)}
+    second = {"skill:/s/a": _artifact("skill:/s/a", 0.4, seed=2)}
+    assert [p["ref"] for p in pair_runs(first, second, "lenient")["pairs"]] == ["skill:/s/a"]
+
+
+def test_a_gap_under_the_unrounded_floor_is_below_it_and_one_over_it_is_not():
+    # sd of the diffs 0.10203551 gives a floor of 0.1999896: a first-run gap of 0.1999 is
+    # below it although the rounded floor reported is 0.2.
+    summary = retest_summary(_pairs([(0.0, 0.0), (0.1999, 0.3442)]))
+    assert summary["floor"] == pytest.approx(0.2, abs=0.00005)
+    assert summary["n_below_floor"] == 1
+    assert retest_summary(_pairs([(0.0, 0.0), (0.2, 0.3443)]))["n_below_floor"] == 0
+
+
+def test_two_items_report_the_correlation_as_not_measured(tmp_path, capsys):
+    pairs = _pairs([(0.1, 0.2), (0.5, 0.45)])
+    assert "Pearson r between runs: not measured (needs 3 items)" in render_markdown(
+        retest_summary(pairs), warnings=[])
+    first = {r["ref"]: _artifact(r["ref"], r["first"]) for r in pairs}
+    second = {r["ref"]: _artifact(r["ref"], r["second"], seed=2) for r in pairs}
+    novelty_cmd.cmd_novelty_retest(argparse.Namespace(
+        baseline=str(_write_runs(tmp_path / "a", first)), retest=str(_write_runs(tmp_path / "b", second)),
+        scoring="lenient", out_dir=None))
+    assert "Pearson r not measured (needs 3 items)" in capsys.readouterr().out
+
+
+def test_a_constant_run_is_not_reported_as_too_few_items(tmp_path, capsys):
+    pairs = [{"ref": f"skill:/s/{i}", "first": 0.5, "second": b} for i, b in enumerate((0.2, 0.4, 0.6))]
+    summary = retest_summary(pairs)
+    assert summary["pearson_r"] is None
+    assert "needs 3 items" not in render_markdown(summary, warnings=[])
+    assert "not defined" in render_markdown(summary, warnings=[])
+    first = {p["ref"]: _artifact(p["ref"], p["first"]) for p in pairs}
+    second = {p["ref"]: _artifact(p["ref"], p["second"], seed=2) for p in pairs}
+    novelty_cmd.cmd_novelty_retest(argparse.Namespace(
+        baseline=str(_write_runs(tmp_path / "a", first)), retest=str(_write_runs(tmp_path / "b", second)),
+        scoring="lenient", out_dir=None))
+    out = capsys.readouterr().out
+    assert "needs 3 items" not in out
+    assert "Pearson r not defined" in out
+
+
+def test_an_out_dir_that_is_a_file_is_refused_as_bad_input(tmp_path):
+    pairs = _pairs([(0.1, 0.2), (0.5, 0.45)])
+    first = {r["ref"]: _artifact(r["ref"], r["first"]) for r in pairs}
+    second = {r["ref"]: _artifact(r["ref"], r["second"], seed=2) for r in pairs}
+    blocker = tmp_path / "out"
+    blocker.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(InputError, match="out"):
+        novelty_cmd.cmd_novelty_retest(argparse.Namespace(
+            baseline=str(_write_runs(tmp_path / "a", first)),
+            retest=str(_write_runs(tmp_path / "b", second)), scoring="lenient", out_dir=str(blocker)))
 
 
 def test_identical_runs_measure_no_noise():
@@ -408,7 +458,7 @@ def test_confidence_correlation_is_the_pearson_r_of_confidence_and_correctness()
 
     from dokimi.novelty.measure import MeasureResult
 
-    rows = [SimpleNamespace(confidence=c, correct=lambda _mode, ok=ok: ok)
+    rows: Any = [SimpleNamespace(confidence=c, correct=lambda _mode, ok=ok: ok)
             for c, ok in ((0.1, False), (0.5, True), (0.9, True))]
     result = MeasureResult.__new__(MeasureResult)
     result.runs = rows
@@ -421,7 +471,7 @@ def test_partial_marker_excludes_either_member_of_a_pair(marker, side):
     ref = "skill:/s/a"
     runs = [{ref: _artifact(ref, 0.5, seed=seed)} for seed in (1, 2)]
     runs[side][ref].update(marker)
-    result = pair_runs(*runs, "lenient")
+    result = pair_runs(runs[0], runs[1], "lenient")
     assert result["pairs"] == []
     assert result["unscored"] == [ref]
     assert any("partial" in warning for warning in result["warnings"])
@@ -438,3 +488,14 @@ def test_unusable_k0_is_excluded_from_the_persisted_summary(tmp_path, score):
     json.dumps(report, allow_nan=False)
     assert report["unscored"] == ["invalid"]
     assert [row["ref"] for row in report["items"]] == ["valid"]
+
+
+def test_a_strict_retest_pairs_and_summarises_the_strict_scores():
+    first = {ref: _artifact(ref, 0.8) for ref in ("skill:/s/a", "skill:/s/b")}
+    second = {ref: _artifact(ref, 0.8, seed=2) for ref in first}
+    first["skill:/s/a"]["k0"]["strict"] = 0.1
+    second["skill:/s/a"]["k0"]["strict"] = 0.2
+    first["skill:/s/b"]["k0"]["strict"] = 0.2
+    second["skill:/s/b"]["k0"]["strict"] = 0.5
+    paired = pair_runs(first, second, "strict")
+    assert retest_summary(paired["pairs"], "strict")["mean_shift"] == pytest.approx(0.2)
