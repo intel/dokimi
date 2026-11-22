@@ -103,7 +103,7 @@ way the readers expect. Substitute your own checkout path.
 ## Content checks: retired model IDs and hidden characters
 
 `catalog check` also reads the text of each loaded skill: its `SKILL.md` and the text
-files beside it (`.md`, `.py`, `.sh`, `.json`, `.yaml`, `.toml` and similar, up to 1 MB;
+files beside it (`.md`, `.py`, `.sh`, `.bash`, `.zsh`, `.ps1`, `.json`, `.yaml`, `.toml`, `.html`, `.csv`, `.ini` and similar, up to 1 MB;
 hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the checkout root
 is checked alone, since its directory is the whole repository. It needs no key and calls no model.
 Two checks, both `warn`:
