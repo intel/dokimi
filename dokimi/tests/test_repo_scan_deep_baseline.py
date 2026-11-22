@@ -15,6 +15,6 @@ from dokimi.utils import InputError
 
 def test_a_deeply_nested_baseline_is_an_input_error(tmp_path):
     path = tmp_path / "deep.json"
-    path.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+    path.write_text("[" * 200000 + "0" + "]" * 200000, encoding="utf-8")
     with pytest.raises(InputError):
         baseline_from(argparse.Namespace(baseline=str(path)), {})
