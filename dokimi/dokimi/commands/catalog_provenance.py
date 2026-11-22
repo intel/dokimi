@@ -70,7 +70,9 @@ def _skill_file(entry, root: Path) -> Path | None:
     path = entry.skill.path if entry.skill is not None else entry.path
     if path is not None and path.is_dir():
         path = path / "SKILL.md"
-    if path is None or not path.is_file() or not path.resolve().is_relative_to(root.resolve()):
+    if path is None or path.name != "SKILL.md" or not path.is_file():
+        return None
+    if not path.resolve().is_relative_to(root.resolve()):
         return None
     return path
 

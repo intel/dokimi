@@ -646,6 +646,15 @@ def test_a_skill_symlinked_to_a_file_outside_the_root_is_not_read(upstream_repo,
     assert report["skills"] == []
 
 
+def test_a_manifest_path_naming_a_non_skill_file_is_not_a_copy(upstream_repo, tmp_path: Path) -> None:
+    root = tmp_path / "catalog"
+    root.mkdir()
+    (root / "README.md").write_text(V1, encoding="utf-8")
+    (root / "skills.yaml").write_text("skills:\n  - name: pdf\n    catalog_path: README.md\n", encoding="utf-8")
+    report = _run(root, "--upstream", str(upstream_repo))
+    assert report["skills"] == []
+
+
 def test_an_unreadable_skill_is_an_input_error_naming_the_file(upstream_repo, tmp_path: Path) -> None:
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     skill = root / "skills/pdf/SKILL.md"
