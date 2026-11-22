@@ -212,3 +212,42 @@ def test_generate_exits_2_when_a_local_doc_source_name_is_too_long(tmp_path, mon
     assert _generate(monkeypatch, "--personas", "personas.json", "--doc-source", f"local:{'0' * 256}",
                      "--output", "out.json") == 2
     assert capsys.readouterr().err.startswith("Error: ")
+
+
+def test_require_local_doc_source_reports_a_permission_error_as_unreadable(monkeypatch):
+    """#1086: `local:/restricted/docs` under a directory denying search exists; it is not `path does not exist`."""
+    from pathlib import Path
+
+    from dokimi.commands.questions import _require_local_doc_source
+    from dokimi.utils import InputError
+
+    def denied(self):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "exists", denied)
+    with pytest.raises(InputError, match="cannot read /restricted/docs") as exc:
+        _require_local_doc_source("local:/restricted/docs")
+    assert "does not exist" not in str(exc.value)
+
+
+def test_require_local_doc_source_reports_a_denied_directory_when_exists_answers_false(tmp_path, monkeypatch):
+    """#1086: Python 3.14 `Path.exists` returns False on a denied directory; the guard still says unreadable."""
+    import os
+    from pathlib import Path
+
+    from dokimi.commands.questions import _require_local_doc_source
+    from dokimi.utils import InputError
+
+    restricted = tmp_path / "restricted"
+    (restricted / "docs").mkdir(parents=True)
+    restricted.chmod(0)
+    if os.access(restricted / "docs", os.F_OK):
+        restricted.chmod(0o700)
+        pytest.skip("directory permissions are not enforced for this user")
+    monkeypatch.setattr(Path, "exists", lambda self: os.path.exists(self))
+    try:
+        with pytest.raises(InputError, match="cannot read") as exc:
+            _require_local_doc_source(f"local:{restricted / 'docs'}")
+    finally:
+        restricted.chmod(0o700)
+    assert "does not exist" not in str(exc.value)

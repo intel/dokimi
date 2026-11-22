@@ -9,9 +9,7 @@ fallback topics) is never replayed, and an unreadable entry is a miss with a war
 
 import json
 import logging
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -321,11 +319,11 @@ def test_generate_refuses_a_missing_path_outside_the_exists_stand_in(tmp_path, m
         cmd.cmd_questions_generate(args)
 
 
-def test_exists_stand_in_matches_a_path_as_windows_spells_it():
-    """#1086: `str(PureWindowsPath('/docs'))` is `\\docs`; the stand-in matches on `as_posix()` so it still says True."""
-    from pathlib import PureWindowsPath
+def test_doc_source_guard_accepts_the_stand_in_prefix_and_refuses_other_paths(monkeypatch):
+    """#1086: `_require_local_doc_source` passes `/docs/caf\u00e9` under the stand-in and refuses `/other`."""
+    from dokimi.commands.questions import _require_local_doc_source
 
-    mock: Callable[[Any], bool] = exists_for_prefix(lambda self: False, "/docs")
-    assert mock(PureWindowsPath("/docs")) is True
-    assert mock(PureWindowsPath("/docs/caf\u00e9")) is True
-    assert mock(PureWindowsPath("/other")) is False
+    monkeypatch.setattr(Path, "exists", exists_for_prefix(lambda self: False, "/docs"))
+    _require_local_doc_source("local:/docs/caf\u00e9")
+    with pytest.raises(InputError, match="path does not exist: /other"):
+        _require_local_doc_source("okf:/other")
