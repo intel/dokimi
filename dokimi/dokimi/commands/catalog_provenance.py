@@ -65,9 +65,22 @@ def _text(report: dict) -> str:
     return "\n".join(lines)
 
 
+def _skill_file(entry, root: Path) -> Path | None:
+    """The SKILL.md of *entry* when it is a file under *root*. A skill that does not load still has bytes."""
+    path = entry.skill.path if entry.skill is not None else entry.path
+    if path is not None and path.is_dir():
+        path = path / "SKILL.md"
+    if path is None or path.name != "SKILL.md" or not path.is_file():
+        return None
+    if not path.resolve().is_relative_to(root.resolve()):
+        return None
+    return path
+
+
 def cmd_catalog_provenance(args: argparse.Namespace) -> None:
     from dokimi.external import read_skill_manifest
     from dokimi.external import upstream
+    from dokimi.external.catalog import _scan_skill_files
 
     root = Path(args.root)
     if not root.is_dir():
@@ -80,13 +93,15 @@ def cmd_catalog_provenance(args: argparse.Namespace) -> None:
         entries = read_skill_manifest(root)
     except ValueError as exc:
         raise InputError(f"skills.yaml: {exc}") from exc
+    if (root / "skills.yaml").is_file():
+        # The manifest lists some skills; every other SKILL.md under --root is still a copy to report.
+        listed = {f.resolve() for f in (_skill_file(e, root) for e in entries) if f is not None}
+        entries = [*entries, *(e for e in _scan_skill_files(root)
+                               if (f := _skill_file(e, root)) is not None and f.resolve() not in listed)]
     rows = []
     for entry in entries:
-        # A skill that does not load (no description, broken YAML) still has bytes: it is matched like the others.
-        path = entry.skill.path if entry.skill is not None else entry.path
-        if path is not None and path.is_dir():
-            path = path / "SKILL.md"
-        if path is None or not path.is_file() or not path.resolve().is_relative_to(root.resolve()):
+        path = _skill_file(entry, root)
+        if path is None:
             continue  # no file to read: `catalog check` reports it
         try:
             raw = path.read_bytes()
