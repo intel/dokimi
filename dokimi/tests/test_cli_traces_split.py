@@ -13,11 +13,11 @@ import pytest
 from dokimi.repos import cli_traces, shell_walk
 
 _MODULE = Path(cli_traces.__file__)
-_MOVED = ["shell_reads", "shell_reads_moved", "shell_walk", "shell_walked", "unwrap_shell", "Walked", "_LONG_VALUE", "_HEREDOC"]
+_MOVED = ["shell_reads", "shell_reads_moved", "shell_walk", "shell_walked", "unwrap_shell", "Walked", "_LONG_VALUE", "_HEREDOC", "_HEREDOC_DELIMITER"]
 
 
 def test_cli_traces_is_below_the_growth_cap():
-    """#1065 asks for room in both files: the parsers are 399 lines, 799 with the walker."""
+    """#1065 asks for room in both files: the parsers are 400 lines, 799 with the walker."""
     assert len(_MODULE.read_text(encoding="utf-8").splitlines()) < 600
 
 
