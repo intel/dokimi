@@ -285,3 +285,28 @@ def test_a_key_file_that_is_not_utf8_is_named_in_the_refusal(tmp_path, monkeypat
     code, err = _preflight(tmp_path, monkeypatch, capsys)
     assert f"Cannot read API key from file '{key}'" in err
     assert code == 2
+
+
+def test_a_vertex_route_refuses_an_unreadable_key_file_of_the_configured_provider(monkeypatch):
+    import argparse
+    from dokimi.commands.benchmark import _credential_providers, _provider_checks
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "file:/nonexistent/key")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    args = argparse.Namespace(provider="anthropic", model="vertex_ai/gemini-2.5-pro",
+                              judge_provider="openai", judge_model="")
+    errors, _ = _provider_checks(_credential_providers(args))
+    assert any("/nonexistent/key" in e for e in errors)
+
+
+def test_a_bedrock_route_refuses_an_unreadable_key_file_of_the_configured_provider(monkeypatch):
+    import argparse
+    from dokimi.commands.benchmark import _credential_providers, _provider_checks
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "file:/nonexistent/key")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "valid-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    args = argparse.Namespace(provider="anthropic", model="bedrock/us.anthropic.claude-sonnet-4-6",
+                              judge_provider="openai", judge_model="gpt-4o")
+    errors, _ = _provider_checks(_credential_providers(args))
+    assert any("/nonexistent/key" in e for e in errors)

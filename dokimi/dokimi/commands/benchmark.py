@@ -149,15 +149,24 @@ def _provider_checks(providers: list[str], notes: list[str] | None = None,
 def _keyless_route(canonical: str, route: str) -> list[str] | None:
     """``None`` unless the call needs no key of *canonical*: then the providers it still checks.
 
-    Vertex ADC and AWS keys need none; an unreadable ``file:`` Bedrock token is still refused.
+    Vertex ADC and AWS keys need none; an unreadable ``file:`` key of the configured provider
+    (read on every call) or Bedrock token is still refused.
     """
     if route == "vertex_ai":
+        try:
+            resolve_api_key(canonical)
+        except ValueError:
+            return [canonical]
         return []
     if canonical != "amazon-bedrock" and route != "bedrock":
         return None
+    if canonical != "amazon-bedrock":
+        try:
+            if resolve_api_key(canonical):
+                return []  # the configured provider's key is sent as the token; the AWS variable is unused
+        except ValueError:
+            return [canonical]  # every call reads this file, so an unreadable one is refused
     try:
-        if canonical != "amazon-bedrock" and resolve_api_key(canonical):
-            return []  # the configured provider's key is sent as the token; the AWS variable is unused
         resolve_api_key("amazon-bedrock")  # an absent token is IAM
     except ValueError:
         return ["amazon-bedrock"]
