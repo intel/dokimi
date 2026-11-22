@@ -321,6 +321,29 @@ def test_a_workspace_export_refuses_a_tree_with_an_unsearchable_directory(tmp_pa
     assert not (tmp_path / "ws").exists()
 
 
+def test_refuse_skipped_removes_the_partial_directory_and_names_the_path(tmp_path):
+    """The refusal lives in `repos/export_skips.py` so `workspace.py` stays under its 800-line cap."""
+    from typing import cast
+
+    from dokimi.repos.errors import PrepError
+    from dokimi.repos.export_skips import refuse_skipped
+    from dokimi.repos.source import RepoTree
+
+    class Tree:
+        label = "src"
+        skipped_paths = ["d/f.txt", "private/x"]
+        skipped = ["d/f.txt: Permission denied", "private/x: Permission denied"]
+
+    partial = tmp_path / "ws.partial"
+    partial.mkdir()
+    refuse_skipped(cast(RepoTree, Tree()), "eval", "private", partial)  # neither path is under `eval`
+    assert partial.is_dir()
+    with pytest.raises(PrepError, match=r"d/f\.txt: Permission denied") as raised:
+        refuse_skipped(cast(RepoTree, Tree()), None, "private", partial)
+    assert "private/x" not in str(raised.value)
+    assert not partial.exists()
+
+
 @pytest.mark.parametrize("only, exclude", [("eval", None), (None, "private")])
 def test_a_workspace_export_ignores_a_skipped_path_outside_what_it_copies(tmp_path, only, exclude):
     """#959 review of #1028: `private/data.txt` is not in `eval` and is in the excluded directory."""
@@ -403,6 +426,21 @@ def test_a_skipped_markdown_import_through_an_absolute_link_with_dot_components_
     """Review of #1028: `alias.md -> <parent>/./<repo>/d/context.md` is the same file as the canonical path."""
     target = f"{tmp_path.parent}/./{tmp_path.name}//d/./context.md"
     assert _scan_through_links(tmp_path, {"alias.md": target}) == 1
+
+
+def test_a_skipped_markdown_import_through_an_absolute_link_with_dot_dot_after_a_directory_link_makes_the_scan_incomplete(
+        tmp_path):
+    """Review of #1028: `jump -> p/q`, `alias.md -> <repo>/jump/../d/context.md` is `p/d/context.md`, not `d/context.md`."""
+    _repo(tmp_path)
+    _track(tmp_path, {"CLAUDE.md": "@alias.md\n", "p/q/x.md": "x\n", "p/d/context.md": "Read `missing.py`.\n"})
+    os.symlink("p/q", tmp_path / "jump")
+    os.symlink(f"{tmp_path}/jump/../d/context.md", tmp_path / "alias.md")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+    mode = _lock(tmp_path / "p" / "d")
+    try:
+        assert _scan_exit(tmp_path) == 1
+    finally:
+        (tmp_path / "p" / "d").chmod(mode)
 
 
 @pytest.mark.parametrize("backslashes", ["relative", "absolute", "extended"])

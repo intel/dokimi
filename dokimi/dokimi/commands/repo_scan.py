@@ -164,7 +164,7 @@ def _link_target(tree, path: str) -> str | None:
         where = _posix(where)
         if posixpath.isabs(where) or (_WINDOWS and re.match(r"[A-Za-z]:/", where)):
             where = re.sub(r"/(?:\.?/)+", "/", where)  # `/repo/./d` is `/repo/d`; a `..` stays, a link may precede it
-            inside = [posixpath.relpath(where, r) for r in roots if where == r or where.startswith(r + "/")]
+            inside = [where[len(r) + 1:] or "." for r in roots if where == r or where.startswith(r + "/")]  # a text cut: `..` stays
             if not inside:
                 return None
             where, done = inside[0], []

@@ -54,6 +54,7 @@ from dokimi.process_io import exact_path_text
 from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .bases import _patch_paths
 from .errors import PrepError
+from .export_skips import refuse_skipped
 from .guidance_arms import GUIDANCE_SKILL_DESCRIPTION, _apply_as_skill, _apply_format  # noqa: F401
 from .guidance_format import FORMATS
 from .guidance_history import arm_rev_history, record_imports
@@ -322,13 +323,8 @@ def _export(tree: RepoTree, dest: Path, only: str | None, exclude: str | None) -
         _checkout_tree(tree.git_dir, f"{tree.sha}:{only}" if only else tree.sha, tmp, prefix=only)
     else:
         root = Path(tree.label)
-        files = tree.files()
-        # a skipped path the export would copy: inside ``only`` (or a directory above it), not inside ``exclude``
-        skipped = [w for p, w in zip(getattr(tree, "skipped_paths", ()), getattr(tree, "skipped", ()), strict=True)
-                   if (not only or _is_within(p, only) or _is_within(only, p)) and not (exclude and _is_within(p, exclude))]
-        if skipped:  # a workspace that silently lacks files would run an agent on a partial repo
-            shutil.rmtree(tmp, ignore_errors=True)
-            raise PrepError(f"{tree.label} has paths that cannot be looked at: " + "; ".join(skipped))
+        files = tree.files()  # fills ``tree.skipped``
+        refuse_skipped(tree, only, exclude, tmp)  # a workspace that silently lacks files would run an agent on a partial repo
         for rel in files:
             if only and not _is_within(rel, only):
                 continue
