@@ -185,8 +185,8 @@ class Index:
         best_score, best = max(
             scored,
             key=lambda pair: (pair[0], pair[1].head, -pair[1].upstream.order,
-                              -(pair[1].behind if pair[1].behind is not None else 1 << 30),
-                              pair[1].date.timestamp() if pair[1].date is not None else float("-inf")),
+                              pair[1].date.timestamp() if pair[1].date is not None else float("-inf"),
+                              -(pair[1].behind if pair[1].behind is not None else 1 << 30)),
         )
         if best_score < SIMILAR_JACCARD:
             return None
@@ -273,7 +273,7 @@ def _history(root: Path) -> tuple[list[tuple[str, str, list[tuple[str, str]]]], 
         raise ValueError(f"{root}: cannot read history: {_git_error(log)}")
     commits: list[tuple[str, str, list[tuple[str, str]]]] = []
     merges: set[str] = set()
-    for line in log.stdout.split("\n"):  # not splitlines(): U+2028 and the like may be in a path
+    for line in log.stdout_bytes.decode("utf-8", errors="surrogateescape").split("\n"):  # not splitlines(): U+2028 and the like may be in a path
         if line.startswith("C "):
             _, sha, date, *parents = line.split(" ")
             commits.append((sha, date, []))

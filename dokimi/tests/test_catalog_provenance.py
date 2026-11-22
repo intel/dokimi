@@ -657,3 +657,43 @@ def test_an_unreadable_skill_is_an_input_error_naming_the_file(upstream_repo, tm
             _run(root, "--upstream", str(upstream_repo))
     finally:
         skill.chmod(0o644)
+
+
+def test_an_edited_copy_of_bytes_at_two_paths_takes_the_newer_commit(tmp_path: Path) -> None:
+    repo = tmp_path / "acme-skills"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, {"skills/a/SKILL.md": V1}, "2026-01-01T10:00:00+00:00", "a v1")
+    _commit(repo, {"skills/b/SKILL.md": V1}, "2026-03-01T10:00:00+00:00", "b v1")
+    _commit(repo, {"skills/a/SKILL.md": UNRELATED}, "2026-04-01T10:00:00+00:00", "a other")
+    _commit(repo, {"skills/b/SKILL.md": UNRELATED}, "2026-05-01T10:00:00+00:00", "b other")
+    _commit(repo, {"skills/b/SKILL.md": UNRELATED + "x\n"}, "2026-06-01T10:00:00+00:00", "b more")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1.replace("split pages", "split pages scans")})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["date"]) == ("similar", "2026-03-01")
+
+
+def test_a_skill_the_manifest_does_not_list_is_still_reported(upstream_repo, tmp_path: Path) -> None:
+    root = _copy_root(tmp_path, {
+        "skills/pdf/SKILL.md": V1,
+        "skills/cook/SKILL.md": UNRELATED,
+        "skills.yaml": "skills:\n  - name: pdf\n    catalog_path: skills/pdf\n",
+    })
+    report = _run(root, "--upstream", str(upstream_repo))
+    assert sorted(r["skill"] for r in report["skills"]) == ["skills/cook", "skills/pdf"]
+    assert report["summary"]["skills"] == 2
+
+
+def test_a_history_path_with_a_non_utf8_byte_keeps_its_name(tmp_path: Path) -> None:
+    repo = tmp_path / "acme-skills"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    rel = os.fsdecode(b"skills/\xff/SKILL.md")
+    try:
+        _commit(repo, {rel: V1}, "2026-01-01T10:00:00+00:00", "v1")
+    except (OSError, UnicodeError, subprocess.CalledProcessError):
+        pytest.skip("this file system cannot hold a non-UTF-8 name")
+    _commit(repo, {rel: V2}, "2026-02-01T10:00:00+00:00", "v2")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["removed_at_head"], row["path"]) == ("exact", False, rel)
