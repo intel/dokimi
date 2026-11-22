@@ -26,9 +26,14 @@ BRACKET_RE = re.compile(r"\\\\|\\[\[\]]|[\[\]]")
 # break inside), with an optional title; split() reads one level of parentheses only, so these are read here.
 _TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
 _LINK_OPEN_RE = re.compile(r"\]\(\s*")
-_SCHEME_RE = re.compile(r"<?[A-Za-z][A-Za-z0-9+.-]+:")
+# A scheme with a dot and only digits after it (``notes.md:42``) is a file and a line; ``tel:123`` is a scheme.
+_SCHEME_RE = re.compile(r"<?(?:[A-Za-z][A-Za-z0-9+-]+:|[A-Za-z][A-Za-z0-9+.-]*\.[A-Za-z0-9+.-]*:(?!\d+(?!\w)))")
 _REFERENCE_RE = re.compile(r"\]\[([^\]]+)\]")
-_DEFINITION_RE = re.compile(r"^ {0,3}\[(?!\^)([^\]]+)\]:\s*(\S+)")
+# A definition's title may start on this line and end on a later one, so its closing quote is optional here.
+_DEFINITION_TITLE = r"""(?:\s+(?:"[^"]*"?|'[^']*'?|\([^()]*\)?))?"""
+_DEFINITION_RE = re.compile(rf"^ {{0,3}}\[(?!\^)([^\]]+)\]:\s*(<[^<>\n]*>|\S+){_DEFINITION_TITLE}\s*$")
+# A shortcut or collapsed reference: a link only for the nesting check (_external_labels).
+_SHORT_REFERENCE_RE = re.compile(r"(?<!\])\[([^\[\]]+)\](?:\[\])?(?![(\[])")
 _LINK_END_RE = re.compile(rf"{_TARGET_TITLE}\s*\)")
 LINK_PAREN_DEPTH_MAX = 32
 # A reference label alone on its line: its destination may be on the next line.
@@ -257,14 +262,8 @@ def _reference_definitions(masked: str, found: dict[str, bool]) -> None:
             found.setdefault(" ".join(m.group(1).casefold().split()), bool(_SCHEME_RE.match(m.group(2))))
 
 
-def _external_labels(masked: str, definitions: dict[str, bool]) -> list[tuple[int, int]]:
-    """The ``(start, end)`` of each link label in ``masked`` whose destination has a URL scheme (``https:``, ``mailto:``).
-
-    The destination is inline, or a reference whose first definition in ``definitions`` has one. A code span in such a
-    label is the link's text, not a file of the skill. A label that holds another link (an image is fine) is
-    no link, as links do not nest. ``masked`` has its code spans blanked to the same length, so offsets match.
-    A collapsed (``[a][]``) or shortcut reference is not read: its label is its key, which is blanked when it holds a code span."""
-    found: list[tuple[int, int]] = []
+def _link_closes(masked: str, definitions: dict[str, bool]) -> list[tuple[int, bool]]:
+    """The ``(index of "]", destination is a URL)`` of each inline, reference, collapsed and shortcut link in ``masked``."""
     closes: list[tuple[int, bool]] = []  # (index of "]", destination is a URL) of each inline or reference link
     for opened in _LINK_OPEN_RE.finditer(masked):
         stop = _destination_stop(masked, opened.end())
@@ -277,6 +276,22 @@ def _external_labels(masked: str, definitions: dict[str, bool]) -> list[tuple[in
         key = " ".join(ref.group(1).casefold().split())
         if key in definitions:  # an undefined reference is plain text, not a link
             closes.append((ref.start(), definitions[key]))
+    for short in _SHORT_REFERENCE_RE.finditer(masked):
+        if " ".join(short.group(1).casefold().split()) in definitions:
+            closes.append((short.start(1) + len(short.group(1)), False))  # a link, never a label read here
+    return closes
+
+
+def _external_labels(masked: str, definitions: dict[str, bool]) -> list[tuple[int, int]]:
+    """The ``(start, end)`` of each link label in ``masked`` whose destination has a URL scheme (``https:``, ``mailto:``).
+
+    The destination is inline, or a reference whose first definition in ``definitions`` has one. A code span in such a
+    label is the link's text, not a file of the skill. A label that holds another link (an image is fine) is
+    no link, as links do not nest. ``masked`` has its code spans blanked to the same length, so offsets match.
+    A collapsed (``[a][]``) or shortcut reference is not read as a label (its label is its key, blanked when it holds
+    a code span), but one with a definition inside a label counts as a link there."""
+    closes = _link_closes(masked, definitions)
+    found: list[tuple[int, int]] = []
     starts = {close: _label_start(masked, close) for close, _ in closes}
     for close, is_url in closes:
         start = starts[close]

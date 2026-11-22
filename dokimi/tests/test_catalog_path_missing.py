@@ -527,3 +527,44 @@ def test_1089_an_undefined_reference_inside_a_url_label_is_text(tmp_path):
     body = "See [`examples/mixed.py` and [guide][undefined]](https://example.com).\n"
     review, _ = _review(tmp_path, body)
     assert _path_findings(review) == []
+
+
+def test_1089_a_local_link_with_a_line_suffix_is_not_a_url_link(tmp_path):
+    """#1089: `notes.md:42` is a file and a line, not a scheme, so the label's missing file is reported."""
+    review, _ = _review(tmp_path, "Run [`scripts/deploy.sh`](notes.md:42).\n", files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+@pytest.mark.parametrize("ref", ["[guide]", "[guide][]"])
+def test_1089_a_shortcut_or_collapsed_link_in_a_label_means_the_label_is_no_link(tmp_path, ref):
+    """#1089: links do not nest, so a defined `[guide]` or `[guide][]` inside the label makes the outer one text."""
+    body = f"Run [`scripts/deploy.sh` and {ref}](https://example.com).\n\n[guide]: notes.md\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_a_definition_with_trailing_text_is_no_definition(tmp_path):
+    """#1089: `[guide]: https://example.com unexpected trailing text` is a paragraph, so `[guide]` is not a URL link."""
+    body = "Run [`scripts/deploy.sh`][guide].\n\n[guide]: https://example.com unexpected trailing text\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_a_tel_link_with_digits_is_a_url_link(tmp_path):
+    """#1089: `tel:1234567890` is a URI scheme, so the label's span is the link's text."""
+    review, _ = _review(tmp_path, "Run [`scripts/deploy.sh`](tel:1234567890).\n")
+    assert _path_findings(review) == []
+
+
+def test_1089_a_definition_in_angle_brackets_with_a_space_is_a_url_definition(tmp_path):
+    """#1089: `<https://example.com/my guide>` is one destination, so `[guide]` is a URL link."""
+    body = "Run [`scripts/deploy.sh`][guide]\n\n[guide]: <https://example.com/my guide>\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_definition_whose_title_continues_on_the_next_line_is_a_url_definition(tmp_path):
+    """#1089: a title may span lines, so `[guide]` is still a URL link."""
+    body = 'See [`scripts/deploy.sh`][guide]\n\n[guide]: https://example.com "first line\nsecond line"\n'
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
