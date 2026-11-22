@@ -41,7 +41,7 @@ SPDX-License-Identifier: Apache-2.0
 >
 > ```bash
 > python cli.py repo scan <source> --manifest <path> [--static <repo_static.json>] [--out readiness.json]
->     [--json] [--fail-on fail]
+>     [--json] [--fail-on fail] [--baseline <earlier readiness.json>]
 > ```
 >
 > `repo budget` sizes what the tree puts into an agent's context (no manifest,
@@ -2175,7 +2175,28 @@ output prints them after the warnings, on one `incomplete: ...` line, and when
 `✗ scan incomplete: ...`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
-`unresolved` needs a human look. Not implemented yet: the pre-commit↔CI
+`unresolved` needs a human look.
+
+**A gate any repository can adopt (#851).** Three things keep `--fail-on fail` from failing on noise
+the repository cannot fix:
+
+- A bare identifier (`` `mkl_random` ``, `` `PyArray_Resize` ``) the tracked non-doc files lack is
+  `unresolved_identifier`, not `fail`: it may be an external API, a sibling package or a builtin. A
+  name that is the stem of a tracked file (`` `bench_fftnd` `` for `bench_fftnd.py`) is `ok_stem`.
+  Paths, links, scripts and labels still fail when the tree lacks them.
+- `.dokimi/scan.toml` in the tree is the repository's own setting. `identifiers = "fail"` restores
+  failing on a missing identifier. Each `[[ignore]]` entry (`pattern`, an fnmatch on the claim text;
+  optional `kind`; a required `reason`) turns a matching claim that is not `ok` into
+  `unresolved_ignored`. The report's `scan_config` block lists each entry with its hit count, and a
+  file with any error (bad TOML, an unknown key, also inside an `[[ignore]]`, an `[[ignore]]` without a
+  `reason`, a non-list `ignore`) is a warning that discards every setting in it and keeps the defaults, and
+  makes the scan `incomplete`, so `--fail-on fail` exits 1 until the file is fixed. An ignore applies to the claims of
+  `--static` too, after they are merged; the identifier setting applies to the scan's own claims.
+- `--baseline FILE` reads an earlier report (`--out`, or the `--json` document). A `fail` claim that
+  report also fails, matched by file, kind and text and not by line, is `baselined` (once per claim the baseline holds), and the gate
+  counts only the rest. A key the baseline fails n times covers n claims; a repeat beyond that is new. The `baseline` block gives `known`, `new` and `fixed`. A repository commits
+  one report as its baseline, so adoption needs no cleanup first and a PR fails only on drift it
+  adds. Not implemented yet: the pre-commit↔CI
 file-set parity check.
 
 Measured on oneDAL and scikit-learn-intelex, claim by claim against their own

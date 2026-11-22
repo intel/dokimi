@@ -115,6 +115,16 @@ class AnalyzeResult:
     #: Set when ``--max-usd`` (or a call with no price) stopped the run: ``artifact`` is then the
     #: partial record (:mod:`.analyze_partial`) and this is its ``partial`` block.
     partial: dict | None = None
+    #: What :mod:`.atom_verdicts` writes out; empty on a partial result, and the last three
+    #: without classification.
+    outcomes: dict = field(default_factory=dict)
+    strict_outcomes: dict = field(default_factory=dict)
+    verdicts: dict = field(default_factory=dict)
+    categories: dict = field(default_factory=dict)
+    conflicts: list = field(default_factory=list)
+    #: Ids of the atoms the conflict check never compared with anything, and the extraction report.
+    unchecked: list = field(default_factory=list)
+    extraction: object | None = None
 
 
 def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
@@ -332,7 +342,8 @@ def _analyze(
                 f"{row['rejected']} of {row['generated']} generated {kind} wordings failed "
                 f"the fidelity check and were dropped "
                 f"({', '.join(sorted(row['reasons']))}); {kind} probes cover "
-                f"{row['kept']} of {len(atom_list)} atoms"
+                f"{row['kept']} of {len(atom_list)} atoms; the first rejected wordings are in "
+                f"probes.by_kind.{kind}.rejected_examples"
             )
     progress.stage = "measurement"
     measure_result = progress.measure_result = measure.run_measurement(
@@ -351,6 +362,8 @@ def _analyze(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
         )
     outcomes = measure.atom_outcomes(measure_result.runs, with_arm=measure_result.with_arm)
+    strict_outcomes = measure.atom_outcomes(
+        measure_result.runs, with_arm=measure_result.with_arm, scoring="strict")
     # What *kind* of knowledge the model lacked, not just how much (skill-novelty-evidence.md
     # §10.1). The slices are the actionable cut for an author; the caveats ride along in the report.
     by_knowledge_kind = {
@@ -362,8 +375,10 @@ def _analyze(
     }
 
     categories: dict[str, str] = {}
+    verdicts: dict[str, classify.AtomVerdict] = {}
     conflicts: list[dict] = []
     conflict_coverage = None
+    unchecked: list[str] = []
     if config.classify_content and atom_list:
         judged = classify.ClassifyReport()
         verdicts = classify.judge_value(
@@ -379,6 +394,7 @@ def _analyze(
         classify.apply_conflicts(verdicts, conflicts)
         categories = classify.categorize(atom_list, verdicts, outcomes)
         warnings.extend(judged.warnings(len(atom_list)))
+        unchecked = list(judged.unchecked)
         conflict_coverage = {
             "pairs_compared": judged.pairs_compared,
             "pairs_total": judged.pairs_total,
@@ -507,6 +523,13 @@ def _analyze(
         spans=span_list,
         measure_result=measure_result,
         extracted_atoms=extracted,
+        outcomes=outcomes,
+        strict_outcomes=strict_outcomes,
+        verdicts=verdicts,
+        categories=categories,
+        conflicts=conflicts,
+        unchecked=unchecked,
+        extraction=extraction,
     )
 
 

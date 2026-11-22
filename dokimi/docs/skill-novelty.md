@@ -398,6 +398,19 @@ Read it in this order:
 4. **`added` last** — it tells you whether the artifact is worth its tokens, but the three checks
    above tell you what to do.
 
+### Per-atom verdicts: `<out stem>.atom_verdicts.json`
+
+`novelty.json` holds totals. Beside it `analyze` writes `novelty.atom_verdicts.json` (the output's stem plus `.atom_verdicts.json`), a `novelty_atoms` artifact with one row per atom the run probed (a capped run's sample), and `novelty.atoms.json` (the stem plus `.atoms.json`), the atoms and spans that run extracted, in the format of the `atoms.json` that `skill novelty atoms` writes. The verdict rows:
+
+- `id`, `statement`, `question`, `answer`, `kind`, `tags`, `span_ids` and `faithfulness` (`supported`, `distorted`, `unsupported` or `unchecked`), as in `atoms.json`.
+- `needed`, `scaffolding`, `conflict` and `conflict_why`: the value judge's verdict and the conflict check. `needed` and `scaffolding` are `null` for an atom the value judge gave no answer, even when a detected conflict names it (`conflict` and the category `harmful_conflicting` stay). All four are `null` for an atom with no verdict, and for every atom of a run with `--no-classify` or a tier without classification. `conflict` and `conflict_why` are also `null` for an atom the conflict check never compared with anything (the "not checked for conflicts" warning in `novelty.json`, with `conflict_coverage.pairs_compared` below `pairs_total`): `null` is "not checked", `false` is "checked, no conflict".
+- `outcome.lenient` and `outcome.strict`: the atom's worst paired outcome (`degraded`, then `added`, `still_missing`, `redundant`) under each scoring; `null` for an atom with no usable pair.
+- `category`: the content category from the judged axes and the lenient outcome (never the strict one); with no usable pair it is `novel_*`, from the judged axes alone, so a `null` `outcome` still gives `novel_useful` or `novel_inert`; `null` without a verdict.
+
+Top level: `artifact_ref`, `ref_digest` (the artifact revision), `model`, `with_arm` and `conflicts` (the pairs, as `a`, `b`, `why` with atom ids). To check the grader, filter the rows on `outcome.lenient` and `category`, for example `redundant` outcomes with category `known_inert`, and read each row's `statement` and `span_ids` against the spans. The file is always written, so a file left by an earlier run into the same output is replaced.
+
+`skill novelty view --novelty novelty.json --atoms novelty.atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. Pass the `novelty.atoms.json` of the same run: atom ids hash the statement, so an `atoms.json` from a separate `skill novelty atoms` call holds the same ids only when the extractor worded every atom the same. It exits 2 when the file's `artifact_ref`, `ref_digest`, `model`, `run_id` or `analysis_digest` differs from the `--novelty` artifact's (a `novelty.json` with no `run_id` differs from a file that has one; `analysis_digest` is the digest of the `novelty.json` payload without `schema_version`, `run_id` and `dokimi_version`, so two analyses that share a `DOKIMI_RUN_ID` still differ), or when it names an atom `--atoms` does not hold or cites other `span_ids` for an atom than `--atoms` does (an atoms file extracted again from an edited source keeps the ids and moves the spans). It also exits 2 when the `--atoms` file's `bundle.measured_digest` differs from the `--novelty` artifact's `ref_digest`; an atoms file that records no such digest is not checked against it.
+
 ### 2. Span attribution — where in the file
 
 Each span of the artifact is annotated with the atoms it carries, their outcome, and its token cost,
@@ -705,31 +718,53 @@ prompt asks for. A negation written as its synonym counts as the negation itself
 `X rather than Y` and `non-deterministic` restate `X, not Y` and `not deterministic`
 rather than inverting them. An opening `Doesn't` / `Isn't` is question phrasing and is not counted, so
 `Doesn't X support Y?` restates `X supports Y`, while `Is it true that X supports Y?`
-inverts `X does not support Y`. A reversal may run up to 15 words past the 2.5x length cap,
+inverts `X does not support Y`. A tag at the end (`..., doesn't it?`, `..., is it not?`) is question phrasing
+in the same way, so `The skill ships with numbers, doesn't it?` inverts `No numbers ship with
+the skill`; `Is it NOT the case that ...?` still counts as a negation. A reversal may run up to 15 words past the 2.5x length cap,
 the size of a leading frame such as `Isn't it true that ... NOT ..., but rather ...?`.
 
 Known gap: the paraphrase polarity check only asks whether a negation is present, so a
 faithful paraphrase that drops one (`Can you run X without root?` to `Is root required to
 run X?`) is rejected and counted in `malformed_rate`. The error inflates the rate; it never
-lets a corrupted wording through. The reversal check is lexical too: an inversion made by a
-plain antonym (`faster` to `slower`, `off` to `on`) is rejected and inflates the rate, while a
-restatement whose verb carries the negation (`does not support` to `lacks support for`) is
-not detected and is probed with a true premise.
+lets a corrupted wording through. The reversal check is lexical too. It accepts an inversion
+that adds one of these words the source lacks: `skip`, `unreliable`, `useless`,
+`unsuitable`, `unhelpful`, `wrong`, plus the bound and permission words (`any`, `all`, `newer`,
+`safe`, ...); `always` when the source holds `sometimes`, `occasionally`, `rarely`, `never` or
+`only the first` and the candidate drops it; and `entirety` when the source holds `subset`,
+`partial`, `some` or `few` and the candidate drops it. `Only administrators ...` to `... always ...`
+is rejected, since `only`, `once` and `single` limit who, when and how many, which `always` does not
+widen. `skip` governed by `wrong`, `useless`, `unreliable`, `unsuitable`, `unhelpful`, `unwise`,
+`bad`, `risky` or `mistake` cancels, in `... to skip` (up to two words between, `to ever skip`
+included) and in `skipping ... <judgement>` at the end of a clause (`Is it wrong to skip
+warm-up?`, `Is skipping warm-up a mistake?` restate `warm up first`) and is rejected; the adjective
+after `skip` (`skip warm-up because it is useless`) does not cancel it. A filler word (`still`, `also`, `even`, `just`) is never one. An
+inversion made by a pure antonym with no listed word (`preferable`, `stays the same`, `faster`
+to `slower`, `off` to `on`) is rejected and inflates the rate, while a restatement whose verb
+carries the negation (`does not support` to `lacks support for`) is not detected and is probed
+with a true premise.
 
 Rejected wordings are dropped, never probed, and the rate ships with the result:
 
 ```json
 "probes": {"n_probes": 81, "malformed_rate": 0.12,
            "by_kind": {"paraphrase": {"generated": 27, "kept": 24, "rejected": 3,
-                                      "reasons": {"anchor_dropped": 3}}}}
+                                      "reasons": {"anchor_dropped": 3},
+                                      "rejected_examples": [
+                                        {"atom_id": "a007", "source": "Which flag enables the accelerator on driver 2.1?",
+                                         "candidate": "Which flag enables the accelerator?",
+                                         "reasons": ["anchor_dropped"]}]}}}
 ```
+
+`rejected_examples` keeps the first 20 rejected wordings of each kind (an empty generator row
+is kept with `candidate` `""`), so a reader can audit the rate; `reasons` still counts every
+rejection.
 
 Read it as a budget statement, not a quality score. The denominator is **atoms asked for**,
 not rows the generator returned, so a failed or truncated generation counts: a
 `malformed_rate` of 0.12 on paraphrases means that kind probed 24 of 27 atoms, and a
 `redundant` verdict that was supposed to be confirmed under reworded phrasing was not
 confirmed for three of them. Above
-0.2 the run says so in `warnings`. The checks reject on evidence only, so a rate of 0.0 is
+0.2 the run says so in `warnings`, which names `probes.by_kind.<kind>.rejected_examples`. The checks reject on evidence only, so a rate of 0.0 is
 the absence of detectable corruption — not proof that the wordings are faithful.
 
 ## Can the artifact be selected at all

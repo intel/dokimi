@@ -328,7 +328,7 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
-(`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
+(`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
 an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
 package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
 file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
@@ -446,6 +446,16 @@ A large catalog is easier to scan one skill at a time:
   catalog too, so they are not run here; the text output says so in a
   `# granularity: not run with --per-skill` line; `--format json` has no
   `granularity` key in this mode.
+- `--listing-budget CHARS` adds up each listed skill's entry (`name: description`, then
+  ` - when_to_use` when the frontmatter sets it and is not empty; characters, not bytes, and no line break between
+  entries; the description and `when_to_use` count at most 1,536 characters per entry, as Claude Code cuts them; a byte-identical `SKILL.md` under another path is one entry, as the routing field keeps one card
+  for it, while a name whose copies differ is left out, as there) and compares it with CHARS. The total is `listing.chars` in the JSON report, with
+  `budget` and `over_budget`. Over the cap is a `listing-over-budget` warning after the counts,
+  and exit 1 with `--strict`; a total equal to CHARS passes. The whole-catalog scan, `--per-skill`,
+  `--concurrency` and `--resume` count the same way: a resumed row keeps its `listing_chars`, and the cap is
+  checked against this run's value, so lowering it can fail a resumed `--strict` scan whose receipt is
+  still valid. `--ignore listing-over-budget` drops the warning, the exit and the line that carries the total
+  (the report keeps it); it is not in a row's `ignored`, so adding or dropping it does not redo a resumed row.
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.

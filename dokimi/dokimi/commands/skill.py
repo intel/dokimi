@@ -176,7 +176,15 @@ def register_skill(skill_sub, positive_int) -> None:
     # Was `novelty view` (#94 M3 tail): re-render the saved artifact; no model calls.
     view_p = novelty_sub.add_parser("view", help="Re-render the annotated artifact view")
     view_p.add_argument("--novelty", required=True, help="novelty.json from `skill novelty analyze`")
-    view_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
+    view_p.add_argument("--atoms", required=True,
+                        help="atoms.json from `skill novelty atoms`, or the <out stem>.atoms.json "
+                             "`skill novelty analyze` writes beside novelty.json (the one to pass "
+                             "with --atom-verdicts)")
+    view_p.add_argument("--atom-verdicts", default=None, dest="atom_verdicts", metavar="FILE",
+                        help="<out stem>.atom_verdicts.json written beside novelty.json by `skill "
+                             "novelty analyze`: colours spans by the measured outcome and category "
+                             "of each atom. Refused when it is another analysis's or names atoms "
+                             "--atoms does not hold")
     view_p.add_argument("--format", default="html", choices=["html", "md"])
     view_p.add_argument("--out", default=None)
     view_p.set_defaults(func=cmd_novelty_view)

@@ -1,0 +1,3 @@
+### Fixed
+
+- **`skill novelty atoms` shows the verifier the span after a cited lead-in that ends in a colon** — the faithfulness check got the heading path and the span before the cited ones, but never the code block or first item that a sentence such as "Three commands answer most questions before any code changes:" introduces, so an atom naming those commands could read `distorted`. When the last cited span in document order ends in `:`, the next span is added to the context as a `Following:` line, unless it is a heading, in another section or itself cited. Only that one span is added, and the prompt still says the context never supplies the claim (#1016).

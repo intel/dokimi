@@ -70,6 +70,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     # Import the symbols, not the module: the package re-exports `analyze` as the
     # function, which shadows the submodule of the same name.
     from dokimi.novelty.analyze import AnalyzeConfig, analyze
+    from dokimi.novelty.atom_verdicts import save_atom_verdicts, save_run_atoms
     from dokimi.novelty.atoms import ExtractionError
     from dokimi.novelty.measure import SelfJudgeError
     from dokimi.novelty.report import (
@@ -153,6 +154,10 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     stamp(result.artifact, args, result.measure_result, answerer=answerer, judge=judge, judge2=judge2)
     save_artifact("novelty", result.artifact, out_json)
     verdicts_path = save_panel_verdicts(result, out_json)
+    atom_verdicts_path = save_atom_verdicts(result, out_json)
+    atoms_path = save_run_atoms(result, out_json, extractor=extractor.model,
+                                extractor_provider=extractor.provider, cap=config.max_atoms,
+                                bundle=artifact_bundle.summary())
     out_md = out_json.with_suffix(".md")
     write_report_text(out_md, render_novelty_markdown(result.artifact))
     title = f"{artifact_bundle.name or args.artifact} × {answerer.model}"
@@ -165,6 +170,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     print(f"OK Saved annotated view:   {view_path}")
     if verdicts_path:
         print(f"OK Saved judge verdicts:   {verdicts_path}")
+    print(f"OK Saved atom verdicts:    {atom_verdicts_path}")
+    print(f"OK Saved atoms:            {atoms_path}")
     _print_headline(result.artifact)
 
 
@@ -585,25 +592,22 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     """Re-render the annotated view from a saved novelty artifact plus its atoms."""
     from dokimi.commands._output import write_report_text
     from dokimi.commands.novelty_atoms_file import warn_unread
-    from dokimi.commands.novelty_view_inputs import load_view_inputs
+    from dokimi.commands.novelty_view_inputs import colour_note, load_atom_verdicts, load_view_inputs
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
-    artifact, atoms, spans = load_view_inputs(args.novelty, args.atoms)
+    artifact, atoms, spans, saved = load_view_inputs(args.novelty, args.atoms)
     warn_unread(spans, "they render as `unread`, not as text that carries nothing")
-    # Re-rendering needs per-atom outcomes; the artifact carries aggregates, so a view
-    # rebuilt from it alone would colour by category only. Say so instead of implying the
-    # colours mean more than they do.
-    attributions = attribute_spans(spans, atoms)
+    # The artifact carries aggregates only: without the atom verdicts a rebuilt view cannot
+    # colour by outcome. Say so instead of implying the colours mean more than they do.
+    outcomes, categories = load_atom_verdicts(args.atom_verdicts, artifact, atoms, saved)
+    attributions = attribute_spans(spans, atoms, outcomes=outcomes, categories=categories)
     render = render_annotated_html if args.format == "html" else render_annotated_markdown
     title = f"{artifact['artifact']['ref']} × {artifact['model']}"
     out = Path(args.out) if args.out else Path(f"annotated.{args.format}")
     write_report_text(out, render(attributions, title=title))
     print(f"OK Saved annotated view: {out}")
-    print(
-        "NOTE colours here come from spans and categories only. For outcome colouring "
-        "(added / degraded), render during `skill novelty analyze`, which has the paired runs."
-    )
+    print(colour_note(args.atom_verdicts))
 
 
 def _bundle_from_args(args: argparse.Namespace):
