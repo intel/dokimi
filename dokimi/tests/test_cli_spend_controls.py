@@ -136,3 +136,10 @@ def test_a_dry_run_that_still_calls_the_model_is_not_listed_as_a_preview():
         "capped": False,
         "preview": False,
     }
+
+
+def test_subjects_run_work_dry_run_is_not_listed_as_a_preview():
+    """Issue #940: `subjects run --work-dry-run` still runs the awareness matrix, so it is no spend preview."""
+    rows = {r["path"]: r for r in scs.paid_leaves()}
+    assert rows["subjects run"] == {"path": "subjects run", "capped": False, "preview": False}
+    assert "--work-dry-run" not in scs.PREVIEW_FLAGS

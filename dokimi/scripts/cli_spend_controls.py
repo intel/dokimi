@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dokimi import cli, cli_routes  # noqa: E402
 
 CAP_FLAGS = frozenset({"--max-usd"})
-PREVIEW_FLAGS = frozenset({"--estimate-only", "--dry-run", "--work-dry-run"})
+PREVIEW_FLAGS = frozenset({"--estimate-only", "--dry-run"})
+# `--work-dry-run` is not listed: `subjects run` still runs its awareness matrix with it.
 # Leaves whose preview flag still spends: ``eval questions refine --fill-gaps --dry-run`` calls the model.
 NOT_A_PREVIEW = frozenset({("eval", "questions", "refine")})
 
