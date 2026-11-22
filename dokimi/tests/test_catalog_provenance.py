@@ -770,3 +770,25 @@ def test_text_table_escapes_control_characters_in_upstream_paths(tmp_path: Path)
     rows = lines[header + 1:]
     assert rows and all(len(line.split("\t")) == 6 for line in rows)
     assert "a\\tb\\nc/SKILL.md" in rows[0]
+
+
+def test_a_gitlink_named_skill_md_does_not_shift_the_blob_read_after_it(tmp_path: Path) -> None:
+    import hashlib
+
+    repo = tmp_path / "acme-skills"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, {"skills/pdf/SKILL.md": V1}, "2026-01-01T10:00:00+00:00", "v1")
+    gitlink_target = _git(repo, "rev-parse", "HEAD").strip()
+    # a later version whose blob id sorts after the gitlink target, so the batch reads it after the gitlink
+    for index in range(1000):
+        newest = V2 + f"<!-- {index} -->\n"
+        blob = hashlib.sha1(f"blob {len(newest.encode())}\0{newest}".encode(), usedforsecurity=False).hexdigest()
+        if blob > gitlink_target:
+            break
+    _commit(repo, {"skills/pdf/SKILL.md": newest}, "2026-02-01T10:00:00+00:00", "v2")
+    _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{gitlink_target},skills/sub/SKILL.md")
+    _git(repo, "commit", "-q", "-m", "a submodule named like a skill")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": newest})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["at_head"]) == ("exact", True)

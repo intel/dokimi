@@ -260,11 +260,12 @@ def _read_blobs(root: Path, shas: Sequence[str]) -> dict[str, bytes]:
         end = data.index(b"\n", pos)
         header = data[pos:end].split()
         pos = end + 1
-        if len(header) != 3 or header[1] != b"blob":
-            continue  # missing, or not a blob: its version is left out
+        if len(header) != 3:
+            continue  # missing or ambiguous: no payload follows the header
         size = int(header[2])
-        out[sha] = data[pos:pos + size]
-        pos += size + 1
+        if header[1] == b"blob":
+            out[sha] = data[pos:pos + size]
+        pos += size + 1  # the payload and its newline, whatever the object type (a gitlink is a commit)
     return out
 
 
