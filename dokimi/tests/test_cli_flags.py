@@ -361,6 +361,7 @@ def test_meaning_clashes_name_each_disagreement_with_its_registry_row():
 
 @pytest.mark.parametrize(("value", "choices", "clashes"), [
     ("native|none", ["none", "native"], False),
+    ("native | none", ["none", "native"], False),
     ("native|none", ["native", "none", "auto"], True),
     ("{warn,fail}", ["warn"], True),
     ("{warn, fail}", ["warn", "fail"], False),
