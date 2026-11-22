@@ -163,6 +163,14 @@ def test_the_stop_ends_the_body_and_a_closer_may_start_on_it() -> None:
     assert [s.group(2) for s in iter_code_spans("`a\nb`")] == ["a\nb"]
 
 
+def test_a_span_has_three_groups() -> None:
+    span = find_code_span("``a``", 0)
+    assert span is not None
+    assert (span.group(), span.group(1), span.group(2)) == ("``a``", "``", "a")
+    with pytest.raises(IndexError):
+        span.group(3)
+
+
 def _runs(k: int) -> str:
     """The issue's text: runs of 1, 2, ... k backticks, each followed by ``a``; no run has a closer."""
     return "".join("`" * i + "a" for i in range(1, k + 1))

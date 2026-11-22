@@ -39,13 +39,12 @@ class CodeSpan:
         return self.begin, self.finish
 
     def group(self, index: int = 0) -> str:
-        if index == 0:
-            return self.text[self.begin:self.finish]
-        if index == 1:
-            return self.text[self.begin:self.body_begin]
-        if index == 2:
-            return self.text[self.body_begin:self.body_end]
-        raise IndexError("no such group")
+        groups = (
+            self.text[self.begin:self.finish],
+            self.text[self.begin:self.body_begin],
+            self.text[self.body_begin:self.body_end],
+        )
+        return groups[index]
 
 
 class _Runs:
