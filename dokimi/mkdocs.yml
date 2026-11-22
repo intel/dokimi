@@ -129,6 +129,7 @@ nav:
       - adding-doc-source.md
       - evaluating-treatments.md
       - tool-preference.md
+      - llms-txt.md
       - run-consistency.md
       - coding-harnesses.md
       - subscription-backends.md
