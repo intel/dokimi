@@ -253,37 +253,24 @@ def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
     assert [(r["key"], r["new_lenient"]) for r in summarize(rows, resamples=50)["ranking"]] == [("a", 0.5)]
 
 
-@pytest.mark.parametrize("row, missing", [
-    ({"key": "a", "status": "ok"}, "usd, new_lenient, tokens"),
-    ({"key": "a", "status": "ok", "usd": 0.1, "tokens": 5}, "new_lenient"),
-    ({"key": "a", "status": "error"}, "usd"),
+@pytest.mark.parametrize("bad", [
+    '{"key": "a", "name": "a", "status": "ok", "usd": "x"}\n',
+    '{"key": [], "name": "a", "status": "partial", "usd": 0.0}\n',
+    '{"key": "a", "status": "ok"}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": "high"}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0}\n',  # the summary reads new_lenient of an ok row
+    '[1]\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": null, "new_lenient": 0.5, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": true, "new_lenient": 0.5, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": NaN, "new_lenient": 0.5, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": NaN, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": Infinity, "tokens": 800}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": Infinity}\n',
+    '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": "800"}\n',
+    '{"key": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 800}\n',
 ])
-def test_read_rows_refuses_a_row_without_the_fields_the_summary_reads(tmp_path, row, missing):
+def test_a_row_of_the_wrong_shape_is_a_line_numbered_input_error(tmp_path, bad):
     path = tmp_path / "s.jsonl"
-    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
-    with pytest.raises(InputError, match=f"line 1 has no {missing}"):
-        read_rows(path)
-
-
-@pytest.mark.parametrize("usd", ["0.1", None, True, float("inf"), float("nan")])
-def test_read_rows_refuses_invalid_spend(tmp_path, usd):
-    path = tmp_path / "s.jsonl"
-    row = {"key": "a", "status": "ok", "usd": usd, "new_lenient": 0.5, "tokens": 800}
-    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
-    with pytest.raises(InputError, match="line 1 has invalid usd"):
-        read_rows(path)
-
-
-@pytest.mark.parametrize("patch", [
-    {"new_lenient": "0.5"}, {"tokens": "800"}, {"name": None},
-    {"new_lenient": float("nan")}, {"new_lenient": float("inf")}, {"tokens": float("inf")},
-])
-def test_read_rows_refuses_an_ok_row_the_summary_cannot_read(tmp_path, patch):
-    row = {"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 800}
-    row.update(patch)
-    if row["name"] is None:
-        del row["name"]
-    path = tmp_path / "s.jsonl"
-    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
-    with pytest.raises(InputError, match="line 1"):
+    path.write_text(json.dumps(_ok("a", 0.3)) + "\n" + bad, encoding="utf-8")
+    with pytest.raises(InputError, match="line 2 is not a sweep row"):
         read_rows(path)

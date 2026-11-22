@@ -130,7 +130,7 @@ def load_suite(tree: RepoTree, path: str, allow_floating: bool = False) -> Suite
         raise SuiteError(path, [f"suite manifest not found in {tree.label}"])
     try:
         raw = yaml.safe_load(tree.read_text(path))
-    except (yaml.YAMLError, UnicodeDecodeError) as exc:
+    except (yaml.YAMLError, UnicodeDecodeError, RecursionError) as exc:  # RecursionError: deep nesting (#975)
         raise SuiteError(path, [f"not valid YAML: {exc}"]) from exc
     return parse_suite(raw, path, allow_floating)
 

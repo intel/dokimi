@@ -1266,14 +1266,21 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   (`--jobs`, threads). `--max-usd-per-skill` caps one skill inside it; a skill that hits either
   cap is a `partial` row with no novelty file, and the sweep goes on. Once the whole-run budget
   is spent, no further skill starts: it is not in the JSONL, and the run says how many were not run.
+  A skill stopped by a call with no price or by a permanent provider error (see above, routing) stops the
+  sweep the same way, since every later skill would meet it on its first calls.
+  A run that leaves any skill it took on `partial`, `error` or not run exits 1 after it has written
+  its rows and the summary; a run that measured every one of them exits 0.
 - **Resume.** `--resume` keeps the `ok` rows whose skill directory digest, measurement settings
   and dokimi version are unchanged, rewrites the JSONL with them and with the rows of skills this
   run does not select (a narrower `--limit`), and runs the other skills. Set
   `DOKIMI_RESPONSE_CACHE` so the calls already paid replay at $0. Without `--resume`, an existing
-  `--jsonl` is refused rather than overwritten.
+  `--jsonl` is refused rather than overwritten. A `--resume` whose settings differ from those of an `ok` row of a
+  selected skill (or whose dokimi version does) is refused and names the fields, since rewriting the file would
+  delete that paid row before its rerun; pass `--rerun-changed` to measure those skills again on purpose.
 - **Settings.** The sweep takes the measurement flags it needs (`--model`, `--judge-model`,
   `--tier`, `--max-atoms`, `--token-budgets`, `--arms`, `--include-resources`, ...); the rest keep their
-  `skill novelty analyze` defaults. `--judge2` is not part of the sweep: run it on one skill.
+  `skill novelty analyze` defaults. `--judge2` and a judge panel (`--judge` more than once, `--judge-aggregate`) are not part of
+  the sweep, which refuses them: run them on one skill.
 - **Summary.** The first line of the summary is the share the model already knew without the
   skill, `k0.lenient`, and the share it did not know (`1 - known`): the new-to-the-model share.
   Each interval is a 95% percentile bootstrap over the skills (2000 resamples,
@@ -1281,21 +1288,28 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   column (the skill's directory under ROOT, or its name) and a stratum column (`--stratum-column`,
   default `stratum`); a skill the CSV does not name is `(unassigned)`.
 - **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
-  sweep with no model call. `--summary-out FILE` also writes it as JSON. The summary leads with
+  sweep with no model call. `--summary-out FILE` also writes it as JSON. A file whose `ok`
+  rows were measured under different settings or dokimi versions (a `--resume --limit` with a changed
+  `--model`) is refused: one interval would pool two models' shares. The summary leads with
   the already-known share, then lists the skills by **new share per 1k tokens** (the new share
   divided by the skill's size in thousands of tokens; the top ten in text, all in the JSON
   `ranking`). The ranking has one entry per skill, from its latest `ok` row, so a skill measured by
   two sweeps into one JSONL is listed once; the overall figures still sum every `ok` row.
-- **Identical copies.** Directories under ROOT whose `SKILL.md` files are byte-identical and name the
-  same skill (the frontmatter `name`, or the directory name when it has none) are one skill: the
-  shallowest path is kept, the other copies get no row and no call (not an error).
+- **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
+  byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
+  are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names
+  them (not an error). Two directories with the same `SKILL.md` and different bundled files are two skills.
 - **Interrupt.** Ctrl-C or SIGTERM stops the sweep without new calls: the skills not yet started
   are cancelled, the skills in flight finish and keep their rows, and the run exits nonzero (130
   for SIGINT, 143 for SIGTERM). A SIGTERM therefore waits for the calls in flight. The rows already
   written stay in the JSONL, so `--resume` continues from them. A second signal kills the subprocess calls in
   flight (their paid work is lost, so set `DOKIMI_RESPONSE_CACHE` to replay what was done) and stops
   at once. An API call in flight cannot be killed: its row is not written, and the process waits for it to end
-  before it exits, so its paid call is lost unless `DOKIMI_RESPONSE_CACHE` is set.
+  before it exits, so its paid call is lost unless `DOKIMI_RESPONSE_CACHE` is set. No call after it starts.
+  A skill that is measured again (`--resume`) first loses its earlier `novelty.json` and `novelty.md`, so a
+  `partial` or `error` row never sits beside a file from an older run. `--summary-out` may not be the
+  `--jsonl` file, and neither `--out-dir` nor `--jsonl` may be inside a skill directory (its files
+  would change the skill's digest, so each `--resume` would measure it again).
 
 ```bash
 dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \

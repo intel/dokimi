@@ -51,6 +51,11 @@ def measured_fields(artifact: dict) -> dict[str, Any]:
     }
 
 
+def has_measure(measured: Mapping[str, Any]) -> bool:
+    """Whether *measured* has a share and a paired probe behind it (k0 reads 0.0 when no baseline probe answered)."""
+    return measured["new_lenient"] is not None and bool(measured["n_paired"])
+
+
 def make_row(*, key: str, name: str, path: str, skill_sha256: Optional[str], status: str,
              settings: dict, version: str, usd: float = 0.0, calls: int = 0,
              reason: Optional[str] = None, message: Optional[str] = None,
@@ -107,14 +112,27 @@ def stratum_of(row: Mapping[str, Any], strata: Optional[Mapping[str, str]]) -> s
     return strata.get(row["key"]) or strata.get(row["name"]) or UNASSIGNED
 
 
-def _refuse_unreadable_row(row: dict, path: Path, lineno: int) -> None:
-    if row["status"] != "ok":
-        return
-    bad = any(row[k] is not None and (type(row[k]) not in (int, float)
-                                      or (isinstance(row[k], float) and not math.isfinite(row[k])))
-              for k in ("new_lenient", "tokens"))
-    if "name" not in row or bad:
-        raise InputError(f"--jsonl {path} line {lineno} has no name or a non-finite or non-numeric new_lenient or tokens; fix or remove it before --resume")
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _row_problem(row: Any) -> Optional[str]:
+    """What a row lacks of the fields the summary and a resume read, or None when it has them."""
+    if not isinstance(row, dict):
+        return "not an object"
+    if row.get("status") not in STATUSES:
+        return "unknown status"
+    if not isinstance(row.get("key"), str) or not isinstance(row.get("name"), str):
+        return "`key` and `name` must be strings"
+    if not _is_number(row.get("usd")):
+        return "`usd` must be a number"
+    if row["status"] == "ok" and not ("new_lenient" in row and (row["new_lenient"] is None
+                                                                or _is_number(row["new_lenient"]))):
+        return "`new_lenient` must be a number or null"
+    for field in ("new_strict", "tokens"):
+        if row.get(field) is not None and not _is_number(row[field]):
+            return f"`{field}` must be a number or null"
+    return None
 
 
 def read_rows(path: Path) -> list[dict]:
@@ -136,16 +154,10 @@ def read_rows(path: Path) -> list[dict]:
             if lineno == len(lines) and not raw.endswith(b"\n"):
                 break
             raise InputError(f"--jsonl {path} line {lineno} is not a sweep row: {exc}") from exc
-        if not isinstance(row, dict) or row.get("status") not in STATUSES or "key" not in row:
-            raise InputError(f"--jsonl {path} line {lineno} is not a sweep row; fix or remove it before --resume")
-        needed = ("usd", "new_lenient", "tokens") if row["status"] == "ok" else ("usd",)
-        missing = [k for k in needed if k not in row]
-        if missing:
-            raise InputError(f"--jsonl {path} line {lineno} has no {', '.join(missing)}; fix or remove it before --resume")
-        usd = row["usd"]
-        if type(usd) not in (int, float) or (isinstance(usd, float) and not math.isfinite(usd)):
-            raise InputError(f"--jsonl {path} line {lineno} has invalid usd; fix or remove it before --resume")
-        _refuse_unreadable_row(row, path, lineno)
+        problem = _row_problem(row)
+        if problem:
+            raise InputError(f"--jsonl {path} line {lineno} is not a sweep row ({problem}); "
+                             "fix or remove it before --resume")
         rows.append(row)
     return rows
 

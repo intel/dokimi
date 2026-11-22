@@ -139,8 +139,12 @@ class NestedSpendCap(SpendCap):
     """
 
     parent: SpendCap | None = None
+    # Set to stop this unit at once: the call in flight ends on its own, and no later call starts.
+    hard_stop: threading.Event | None = field(default=None, repr=False, compare=False)
 
     def before_call(self, model: str) -> None:
+        if self.hard_stop is not None and self.hard_stop.is_set():
+            raise SpendCapReached(f"stopped by a second signal; not calling {model}", reason="stopped")
         super().before_call(model)
         if self.parent is not None:
             self.parent.before_call(model)

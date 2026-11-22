@@ -8,10 +8,11 @@ model calls are paid. ``--max-usd`` is one budget for the whole sweep and ``--ma
 a cap on each skill; ``--jobs`` runs skills in parallel threads that share the budget. Each skill
 writes one row to ``--jsonl`` as it finishes, so a killed sweep keeps its rows, and ``--resume``
 runs only the skills without a measured row (same directory digest, same settings).
-``--summary-only`` prints the summary of a JSONL file without any model call. Directories whose
-``SKILL.md`` files are identical and name the same skill count as one (the shallowest path is kept). Ctrl-C or SIGTERM
+``--summary-only`` prints the summary of a JSONL file without any model call. Directories with the
+same contents (``SKILL.md`` and bundled files) that name the same skill count as one (the shallowest path
+is kept, the others are named on stderr). Ctrl-C or SIGTERM
 cancels the skills not yet started, lets the running ones finish, keeps the rows done and exits nonzero
-(a second signal kills the subprocess calls in flight and stops at once; an API call in flight cannot be killed, so its row is not written).
+(a second signal kills the subprocess calls in flight and stops at once; an API call in flight cannot be killed but no call after it starts, and its row is not written).
 
 A skill the budget stops mid-analysis is a ``partial`` row and leaves no novelty file. Set
 ``DOKIMI_RESPONSE_CACHE`` so a resumed run replays the calls already paid for at $0.
@@ -35,6 +36,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from dokimi import __version__, cli_flags
+from dokimi.atomic_write import write_text_atomic
+from dokimi.cli_types import unit_interval
 from dokimi.commands.novelty_run import stops_at_cap
 from dokimi.novelty.sweep import read_rows, resumable, summarize, summary_lines
 from dokimi.utils import InputError
@@ -51,6 +54,7 @@ class _Stop:
 
     def __init__(self) -> None:
         self.signum: Optional[int] = None
+        self.hard = threading.Event()  # set by a second signal: no skill in flight starts another call
 
     @property
     def requested(self) -> bool:
@@ -65,7 +69,8 @@ class _Stop:
 def _interruptible(stop: _Stop):
     """While the sweep runs, the first SIGINT or SIGTERM only sets *stop*: the sweep cancels the skills
     not started, and the skills in flight finish. A second signal kills the subprocess calls in flight
-    (``process.kill_children``) and raises KeyboardInterrupt. The handlers are restored after.
+    (``process.kill_children``), sets ``stop.hard`` so no skill in flight starts another call, and raises
+    KeyboardInterrupt. The handlers are restored after.
     Only the main thread can install them."""
     if threading.current_thread() is not threading.main_thread():
         yield
@@ -75,6 +80,7 @@ def _interruptible(stop: _Stop):
         if stop.requested:  # a second signal: stop at once, the calls in flight too
             from dokimi.process import kill_children
 
+            stop.hard.set()  # the API calls in flight end on their own, but the next one never starts
             kill_children()
             raise KeyboardInterrupt
         stop.signum = signum
@@ -102,33 +108,63 @@ class _Item:
         return self.skill_md.parent
 
 
-def _items(root: Path, limit: Optional[int]) -> list[_Item]:
-    """The skills under *root* in path order, the first *limit* of them."""
-    from dokimi.skills.loader import load_skill, skill_files
+def _skill_digest(skill_md: Path) -> str:
+    """The digest a resumed run compares: the directory tree, and the entry point's loaded content
+    (a symlinked SKILL.md changes its target's text without changing the link the tree digest reads)."""
     from dokimi.utils import tree_digest
 
-    items: list[_Item] = []
-    for skill_md in skill_files(root):
+    entry = hashlib.sha256(skill_md.read_bytes()).hexdigest()
+    tree = tree_digest(skill_md.parent.resolve(), tracked={})  # resolved: tree_digest hashes a symlinked ROOT by its link text
+    return hashlib.sha256(f"{tree}:{entry}".encode("utf-8")).hexdigest()
+
+
+def _items(root: Path, limit: Optional[int]) -> list[_Item]:
+    """The skills under *root* in path order, the first *limit* of them.
+
+    A bundle identical to a shallower one (same name, same files) is left out and named on stderr;
+    two bundles with the same SKILL.md and different bundled files are two skills.
+    """
+    from dokimi.skills.loader import TEMPLATE_DIR_NAMES, load_skill, walk_skill_files
+
+    candidates: list[_Item] = []
+    for skill_md in walk_skill_files(root):
         directory = skill_md.parent
+        if not (skill_md.is_file() or skill_md.is_symlink()) or TEMPLATE_DIR_NAMES.intersection(directory.relative_to(root).parts):
+            continue
         error: Optional[str] = None
         try:
             name = load_skill(skill_md).name
         except (OSError, ValueError, RecursionError) as exc:
             name, error = directory.name, str(exc)
         try:
-            sha: Optional[str] = tree_digest(directory, tracked={})
+            sha: Optional[str] = _skill_digest(skill_md)
         except OSError:
             sha = None
-        items.append(_Item(key=directory.relative_to(root).as_posix(), name=name, skill_md=skill_md,
-                           sha256=sha, error=error))
+        candidates.append(_Item(key=directory.relative_to(root).as_posix(), name=name, skill_md=skill_md,
+                                sha256=sha, error=error))
+    keeper: dict[tuple[str, str], _Item] = {}
+    for item in sorted(candidates, key=lambda i: (len(i.skill_md.parts), i.skill_md.as_posix())):
+        if item.sha256 is not None and item.error is None:
+            keeper.setdefault((item.name, item.sha256), item)
+    items: list[_Item] = []
+    for item in candidates:
+        kept = keeper.get((item.name, item.sha256 or "")) if item.sha256 is not None and item.error is None else item
+        if kept is not None and kept is not item:
+            print(f"# left out {item.skill_md}: identical to {kept.skill_md}", file=sys.stderr)
+            continue
+        items.append(item)
         if limit is not None and len(items) == limit:
             break
     return items
 
 
+#: The most characters of a skill's key kept in its output directory name (the hash of the whole key follows).
+DIRNAME_CHARS = 80
+
+
 def _dirname(key: str) -> str:
     """A directory name for one skill's outputs: readable, and unique even when two keys read alike."""
-    readable = re.sub(r"[^A-Za-z0-9._-]+", "_", key).strip("_") or "root"
+    readable = re.sub(r"[^A-Za-z0-9._-]+", "_", key).strip("_")[-DIRNAME_CHARS:].strip("_") or "root"
     return f"{readable}-{hashlib.sha256(key.encode('utf-8')).hexdigest()[:8]}"
 
 
@@ -224,7 +260,8 @@ def _run_sweep(items: list[_Item], *, jobs: int, review: Callable[[_Item], Optio
     no new skill is submitted once ``out_of_budget()`` holds. A stop request (``stop_requested()``)
     does the same, and cancels the skills queued but not started, so they make no call. The skills
     in flight finish and their rows are written. A worker's unexpected failure cancels the queue the
-    same way and propagates after the rows finished so far are written.
+    same way and propagates after the rows finished so far are written. A KeyboardInterrupt (the second
+    signal) waits for nothing: it writes the rows already done and propagates.
     """
     pending = iter(items)
     running: set = set()
@@ -251,10 +288,23 @@ def _run_sweep(items: list[_Item], *, jobs: int, review: Callable[[_Item], Optio
                 if row is not None:
                     write(row)
             fill()
-    except BaseException:
-        _settle(pool, running, write)
+    except BaseException as exc:
+        _unwind(exc, pool, running, write)
         raise
     _settle(pool, running, write)
+
+
+def _unwind(exc: BaseException, pool: ThreadPoolExecutor, running: set, write: Callable[[dict], None]) -> None:
+    """What the sweep does on its way out of *exc*. A KeyboardInterrupt (the second signal) waits for nothing:
+    the queue is cancelled and only the rows already done are written. Any other failure settles."""
+    if not isinstance(exc, KeyboardInterrupt):
+        _settle(pool, running, write)
+        return
+    pool.shutdown(wait=False, cancel_futures=True)
+    for future in list(running):
+        if future.done():
+            _keep(future, write)
+    running.clear()
 
 
 def _settle(pool: ThreadPoolExecutor, running: set, write: Callable[[dict], None]) -> None:
@@ -279,28 +329,53 @@ def _keep(future, write: Callable[[dict], None]) -> None:
         write(future.result())
 
 
-def _review_one(item: _Item, *, args: argparse.Namespace, run_cap: "SpendCap", per_skill: Optional[float],
+def _refuse_to_run(item: _Item, novelty_json: Path) -> Optional[tuple[str, str]]:
+    """The (reason, message) of an error row when the skill is not analysed at all, else None. Runs first:
+    the files an earlier run left for this skill describe content this attempt may not measure, so they go."""
+    try:
+        novelty_json.unlink(missing_ok=True)
+        novelty_json.with_suffix(".md").unlink(missing_ok=True)
+    except OSError as exc:
+        return "error", f"could not remove its earlier novelty file: {exc}"
+    return None if item.error is None else ("not_loaded", item.error)
+
+
+def _save_novelty(artifact: dict, novelty_json: Path) -> Optional[str]:
+    """Write the novelty file and its report; the reason it could not, else None. The paid analysis is
+    done by now, so a failed write is this skill's error, not the sweep's."""
+    from dokimi.artifacts import save_artifact
+    from dokimi.novelty.report import render_novelty_markdown
+
+    try:
+        save_artifact("novelty", artifact, novelty_json)
+        novelty_json.with_suffix(".md").write_text(render_novelty_markdown(artifact), encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        return f"could not save its novelty file: {exc}"
+    return None
+
+
+def _review_one(item: _Item, *, args: argparse.Namespace, run_cap: "SpendCap", per_skill: float,
+                hard_stop: Optional[threading.Event] = None,
                 placebo_text: Optional[str], cache_dir: Optional[Path], out_dir: Path,
                 fingerprint: dict) -> Optional[dict]:
     """The row of one skill: analyse it under its own cap and save its novelty file, or say why it has none."""
-    from dokimi.artifacts import save_artifact
     from dokimi.novelty.atoms import ExtractionError
     from dokimi.novelty.client import NestedSpendCap, SpendCapReached
     from dokimi.novelty.measure import SelfJudgeError
-    from dokimi.novelty.report import render_novelty_markdown
-    from dokimi.novelty.sweep import make_row, measured_fields
+    from dokimi.novelty.sweep import has_measure, make_row, measured_fields
 
     if run_cap.spent_usd >= run_cap.limit_usd:
         return None
-    cap = NestedSpendCap(limit_usd=per_skill if per_skill is not None else math.inf, parent=run_cap)
+    cap = NestedSpendCap(limit_usd=per_skill, parent=run_cap, hard_stop=hard_stop)
 
     def row(status: str, **fields: Any) -> dict:
         return make_row(key=item.key, name=item.name, path=str(item.skill_md),
                         skill_sha256=item.sha256, status=status, settings=fingerprint,
                         version=__version__, usd=cap.spent_usd, calls=cap.calls, **fields)
 
-    if item.error is not None:
-        return row("error", reason="not_loaded", message=item.error)
+    novelty_json = out_dir / _dirname(item.key) / "novelty.json"
+    if (refusal := _refuse_to_run(item, novelty_json)) is not None:
+        return row("error", reason=refusal[0], message=refusal[1])
     skill_args = copy.copy(args)
     skill_args.artifact = f"skill:{item.directory}"
     skill_args._spend_cap = cap  # cost.spend_cap() hands this cap to every role client of the skill
@@ -316,14 +391,10 @@ def _review_one(item: _Item, *, args: argparse.Namespace, run_cap: "SpendCap", p
         return row("partial", reason=result.partial["reason"], message=result.partial["message"])
     measured = measured_fields(result.artifact)
     # k0 reads 0.0 when no baseline probe answered, so a zero pair count is the signal, not the share.
-    if measured["new_lenient"] is None or not measured["n_paired"]:
+    if not has_measure(measured):
         return row("error", reason="no_pairs", message="no probe was paired, so there is no share")
-    novelty_json = out_dir / _dirname(item.key) / "novelty.json"
-    try:
-        save_artifact("novelty", result.artifact, novelty_json)
-        novelty_json.with_suffix(".md").write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
-    except (OSError, ValueError) as exc:  # the paid analysis is done: a failed write is this skill's error
-        return row("error", reason="error", message=f"could not save its novelty file: {exc}")
+    if (failure := _save_novelty(result.artifact, novelty_json)) is not None:
+        return row("error", reason="error", message=failure)
     return row("ok", measured=measured, novelty_json=str(novelty_json))
 
 
@@ -331,7 +402,7 @@ def _emit_summary(summary: dict, args: argparse.Namespace) -> None:
     for line in summary_lines(summary):
         print(line)
     if args.summary_out:
-        Path(args.summary_out).write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        write_text_atomic(args.summary_out, json.dumps(summary, indent=2) + "\n")
         print(f"summary written to {args.summary_out}")
 
 
@@ -343,20 +414,23 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
     from dokimi.novelty.sweep import load_strata
 
     root = Path(args.root)
-    if not root.is_dir():
-        raise InputError(f"ROOT is not a directory: {root}")
     strata = load_strata(Path(args.strata), args.stratum_column) if args.strata else None
     out_dir = Path(args.out_dir)
     jsonl = Path(args.jsonl) if args.jsonl else out_dir / DEFAULT_JSONL
+    _refuse_unsafe_summary_out(args, jsonl)
     if args.summary_only:
         _summary_only(jsonl, strata, args)
         return
+    if not root.is_dir():
+        raise InputError(f"ROOT is not a directory: {root}")
     _refuse_unsafe_run(args, jsonl)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     cache_dir = usable_cache_dir(args.cache_dir)
-    items = _items(root, args.limit)
-    if not items:
+    all_items = _items(root, None)
+    if not all_items:
         raise InputError(f"no SKILL.md under {root}")
+    _refuse_outputs_inside_a_skill(all_items, out_dir, jsonl)
+    items = all_items[:args.limit]
     fingerprint = _fingerprint(args, placebo_text)
     kept, todo, others = _plan(items, jsonl, args, fingerprint)
     print(f"# catalog novelty: {len(items)} skills under {root}; {len(kept)} measured and kept, "
@@ -370,12 +444,51 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
                            out_dir=out_dir, placebo_text=placebo_text, cache_dir=cache_dir,
                            fingerprint=fingerprint)
     _emit_summary(summarize(kept + new_rows, strata, resamples=args.bootstrap_resamples), args)
+    _exit_if_short(len(todo), new_rows, jsonl)
+
+
+def _exit_if_short(run: int, new_rows: list[dict], jsonl: Path) -> None:
+    """Exit 1 once the rows and the summary are written when a skill this run took on was not measured
+    (partial, error or not run), as the novelty commands do when the budget or a failed call stops them."""
+    short = run - sum(row["status"] == "ok" for row in new_rows)
+    if short:
+        raise SystemExit(f"{short} of {run} skill(s) this run took on were not measured (partial, error or "
+                         f"not run); the rows are in {jsonl}, and --resume runs them again")
+
+
+def _refuse_outputs_inside_a_skill(items: list[_Item], out_dir: Path, jsonl: Path) -> None:
+    """Refuse an --out-dir or --jsonl inside a skill's directory: what the sweep writes there changes the
+    skill's digest, so every --resume would pay for that skill again."""
+    for flag, path in (("--out-dir", out_dir), ("--jsonl", jsonl)):
+        for item in items:
+            if path.resolve().is_relative_to(item.directory.resolve()):
+                raise InputError(f"{flag} {path} is inside the skill {item.key!r}: its files would change the "
+                                 "skill's digest, so every --resume would measure it again; write it elsewhere")
+
+
+def _refuse_unsafe_summary_out(args: argparse.Namespace, jsonl: Path) -> None:
+    """Refuse a --summary-out that is the --jsonl file (the summary would replace the paid rows) or
+    whose directory cannot be made, before any paid work."""
+    if not args.summary_out:
+        return
+    summary_out = Path(args.summary_out)
+    if summary_out.resolve() == jsonl.resolve():
+        raise InputError(f"--summary-out {summary_out} is the --jsonl file: the summary would replace the rows")
+    try:
+        summary_out.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise InputError(f"cannot write --summary-out {summary_out}: {exc}") from exc
 
 
 def _summary_only(jsonl: Path, strata, args: argparse.Namespace) -> None:
     rows = read_rows(jsonl)
     if not rows:
         raise InputError(f"--jsonl {jsonl} has no rows to summarise")
+    measured_under = {json.dumps([row.get("settings"), row.get("dokimi_version")], sort_keys=True)
+                      for row in rows if row["status"] == "ok"}
+    if len(measured_under) > 1:  # one interval over two answerers or settings is no one model's share
+        raise InputError(f"--jsonl {jsonl} holds ok rows measured under {len(measured_under)} different settings or "
+                         "dokimi versions; a --resume without --limit measures them all alike")
     _emit_summary(summarize(rows, strata, resamples=args.bootstrap_resamples), args)
 
 
@@ -386,15 +499,39 @@ def _refuse_unsafe_run(args: argparse.Namespace, jsonl: Path) -> None:
 
     if args.judge2:
         raise InputError("--judge2 is not part of catalog novelty: run it on one skill with skill novelty analyze")
+    if len(args.judges or ()) > 1 or args.judge_aggregate != "median":
+        raise InputError("a judge panel (--judge given more than once, --judge-aggregate) is not part of catalog "
+                         "novelty: the sweep grades with one judge; run a panel on one skill with skill novelty analyze")
     if args.max_usd is None:
         raise InputError("catalog novelty makes paid calls: pass --max-usd, the whole-run budget "
                          "(--max-usd-per-skill caps one skill inside it)")
     if jsonl.exists() and not args.resume:
         raise InputError(f"--jsonl {jsonl} exists: pass --resume to continue it, or remove it to start over")
+    from dokimi.novelty.measure import SelfJudgeError, check_self_judge
+
     try:
         cost.role_models(args)
-    except ValueError as exc:
+        _, answerer, judge = cost.clients(copy.copy(args))  # a copy: the run's own cap is set up later
+        check_self_judge(judge, answerer, args.allow_self_judge)  # before a resume drops a row or a file
+    except (ValueError, SelfJudgeError) as exc:
         raise InputError(str(exc)) from exc
+
+
+def _refuse_changed_settings(prior: list[dict], selected: dict[str, Optional[str]],
+                             fingerprint: dict[str, Any]) -> None:
+    """Refuse a --resume that would drop the ``ok`` row of a selected skill measured under other settings or
+    another dokimi version: the rewrite of the JSONL deletes it before the budget may reach its rerun."""
+    for row in prior:
+        if row["status"] != "ok" or row["key"] not in selected:
+            continue
+        old = row.get("settings") or {}
+        differ = sorted(name for name in fingerprint.keys() | old.keys() if old.get(name) != fingerprint.get(name))
+        if row.get("dokimi_version") != __version__:
+            differ.append("dokimi_version")
+        if differ:
+            raise InputError(f"--resume: the measured row of {row['key']!r} was made under other settings "
+                             f"({', '.join(differ)}); resuming would delete it before it is measured again. Use "
+                             "another --jsonl, or pass --rerun-changed to measure those skills again")
 
 
 def _plan(items: list[_Item], jsonl: Path, args: argparse.Namespace,
@@ -403,6 +540,8 @@ def _plan(items: list[_Item], jsonl: Path, args: argparse.Namespace,
     skills this run does not select (a narrower --limit, a moved skill): those stay in the file as they are."""
     selected = {item.key: item.sha256 for item in items}
     prior = read_rows(jsonl) if args.resume else []
+    if args.resume and not args.rerun_changed:
+        _refuse_changed_settings(prior, selected, fingerprint)
     kept = resumable(prior, selected, fingerprint, __version__)
     done = {row["key"] for row in kept}
     others = [row for row in prior if row["key"] not in selected]
@@ -414,7 +553,8 @@ def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: l
                 cache_dir: Optional[Path], fingerprint: dict[str, Any]) -> list[dict]:
     """Run the skills still to do, writing each row as it finishes; returns the rows this run made."""
     sink = _Sink(jsonl, others + kept, resume=args.resume)
-    review = _bound(args, run_cap=run_cap, placebo_text=placebo_text, cache_dir=cache_dir,
+    stop = _Stop()
+    review = _bound(args, run_cap=run_cap, hard_stop=stop.hard, placebo_text=placebo_text, cache_dir=cache_dir,
                     out_dir=out_dir, fingerprint=fingerprint)
     new_rows: list[dict] = []
 
@@ -428,7 +568,6 @@ def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: l
     def out_of_budget() -> bool:
         return run_cap.spent_usd >= run_cap.limit_usd
 
-    stop = _Stop()
     try:
         with _interruptible(stop):
             _run_sweep(todo, jobs=args.jobs, review=review, write=write, out_of_budget=out_of_budget,
@@ -439,7 +578,8 @@ def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: l
         sink.close()
     not_run = len(todo) - len(new_rows)
     if not_run:
-        print(f"# {not_run} skill(s) not run: the budget was spent or the run was stopped. Rerun with "
+        print(f"# {not_run} skill(s) not run: the budget was spent, a call had no price, a provider error every "
+              "call would meet stopped it, or the run was stopped. Rerun with "
               "--resume (and a higher --max-usd if the budget was spent); set DOKIMI_RESPONSE_CACHE so the "
               "calls already paid replay at $0", file=sys.stderr)
     if stop.requested:
@@ -451,12 +591,22 @@ def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: l
 
 def _bound(args: argparse.Namespace, **shared: Any) -> Callable[[_Item], Optional[dict]]:
     """The per-skill review with this run's shared pieces bound: the arguments, the budget and the output dir."""
-    per_skill = args.max_usd_per_skill
+    per_skill = args.max_usd_per_skill or math.inf  # unset: no cap of its own, only the run's
+    halted = threading.Event()  # a skill met a stop every later skill would meet: none starts after it
 
     def review(item: _Item) -> Optional[dict]:
-        return _review_one(item, args=args, per_skill=per_skill, **shared)
+        if halted.is_set():
+            return None
+        row = _review_one(item, args=args, per_skill=per_skill, **shared)
+        if row is not None and row["reason"] in RUN_WIDE_STOPS:
+            halted.set()
+        return row
 
     return review
+
+
+#: The stop reasons a higher budget does not cure: every later skill would meet them on its first calls.
+RUN_WIDE_STOPS = ("no_price", "permanent_error")
 
 
 def register(catalog_sub, positive_int) -> None:
@@ -471,9 +621,9 @@ def register(catalog_sub, positive_int) -> None:
         help="Corpus novelty sweep: analyze every skill under a catalog root under a budget, resumable, "
              "with bootstrap CIs per stratum [paid]",
     )
-    p.add_argument("root", help="Catalog root: every SKILL.md under it is one skill. Directories whose "
-                                "SKILL.md files are identical and name the same skill count once: the shallowest path is kept, the "
-                                "other copies are left out (not an error, no row)")
+    p.add_argument("root", help="Catalog root: every SKILL.md under it is one skill. Directories with identical "
+                                "contents (SKILL.md and bundled files) that name the same skill count once: the "
+                                "shallowest path is kept, the other copies are named on stderr (not an error, no row)")
     p.add_argument("--out-dir", required=True, dest="out_dir",
                    help="Where each skill's novelty.json and report go (OUT_DIR/<skill>/)")
     p.add_argument("--jsonl", default=None,
@@ -485,6 +635,9 @@ def register(catalog_sub, positive_int) -> None:
                    help="Skills analysed in parallel threads, sharing --max-usd (default 1)")
     p.add_argument("--resume", action="store_true",
                    help="Keep the measured rows in --jsonl and run only the other skills")
+    p.add_argument("--rerun-changed", action="store_true", dest="rerun_changed",
+                   help="With --resume, measure again the skills whose measured row was made under other settings "
+                        "or another dokimi version, replacing the row (without it such a --resume is refused)")
     p.add_argument("--max-usd-per-skill", type=positive_usd, default=None, dest="max_usd_per_skill",
                    help="Stop one skill once its calls cost this much (USD); the rest of the sweep goes on")
     p.add_argument("--limit", type=positive_int, default=None,
@@ -502,8 +655,9 @@ def register(catalog_sub, positive_int) -> None:
                    dest="bootstrap_resamples", help=f"Bootstrap resamples per interval (default {RESAMPLES})")
     p.add_argument("--tier", default=None, choices=sorted(TIERS),
                    help="Named cost tier for every skill (see skill novelty analyze --tier)")
-    cli_flags.add(p, "tokens", "--token-budgets", dest="budgets", type=float, nargs="+", default=[0.75, 0.5],
-                   help="Target token fractions for shortening candidates")
+    cli_flags.add(p, "tokens", "--token-budgets", dest="budgets", metavar="F", type=unit_interval, nargs="+",
+                  default=[0.75, 0.5],
+                  help="Target token fractions for shortening candidates")
     p.add_argument("--max-atoms", type=positive_int, default=None, dest="max_atoms",
                    help="Atom cap per skill (see skill novelty analyze)")
     p.add_argument("--seed", type=int, default=0, help="Seed for the controls and the selection, per skill")

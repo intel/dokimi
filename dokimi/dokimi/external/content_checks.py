@@ -31,6 +31,8 @@ from pathlib import Path
 from dokimi.skills import Skill
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
+from .lookalikes import readings
+
 DATA_FILE = Path(__file__).with_name("legacy_models.toml")
 TEXT_SUFFIXES = frozenset(
     {".md", ".txt", ".rst", ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml", ".toml"}
@@ -39,8 +41,14 @@ MAX_BYTES = 1 << 20  # a bundled file over a megabyte is data, not instructions 
 REPORT_PER_FILE = 5  # hidden characters named per file; the rest are counted
 
 BIDI_CONTROLS = frozenset(range(0x202A, 0x202F)) | frozenset(range(0x2066, 0x206A))
+BIDI_MARKS = frozenset({0x200E, 0x200F, 0x061C})  # LRM, RLM, ALM: reported unless a right-to-left letter is beside them
 TAG_CHARACTERS = frozenset(range(0xE0000, 0xE0080))
 ZERO_WIDTH = frozenset({0x200B, 0x2060, 0xFEFF})  # a BOM is exempt at offset 0 (see _is_hidden)
+SOFT_HYPHEN = 0x00AD
+INVISIBLE_FORMAT = frozenset(range(0x2061, 0x2065)) | frozenset(range(0x206A, 0x2070))  # invisible operators, deprecated
+VARIATION_SELECTORS = frozenset(range(0xFE00, 0xFE10)) | frozenset(range(0xE0100, 0xE01F0))
+KEYCAP_BASES = frozenset("#*0123456789")  # an ASCII character a selector may follow (keycap sequences)
+BLANK_FILLERS = frozenset({0x034F, 0x180E, 0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800})  # draw nothing
 JOINERS = frozenset({0x200C, 0x200D})  # ZWNJ, ZWJ: exempt in emoji and Arabic or Indic text
 
 Hit = tuple[str, str]  # (finding code, message)
@@ -81,7 +89,14 @@ def _legacy_hits(where: str, text: str) -> list[Hit]:
     pattern, by_id, sources = _legacy_index()
     hits: list[Hit] = []
     seen: set[str] = set()
-    for match in pattern.finditer(text):
+    # Every reading has the length of the text, so the line is the line of the original.
+    found = [m for reading in readings(text) for m in pattern.finditer(reading)]
+    end = 0
+    # First occurrence first, whichever reading found it; of matches at one place the longest, and none inside it.
+    for match in sorted(found, key=lambda m: (m.start(), -m.end())):
+        if match.start() < end:
+            continue
+        end = match.end()
         model_id = match.group()
         if model_id in seen:
             continue
@@ -102,8 +117,70 @@ def _joiner_exempt(text: str, index: int) -> bool:
     return False
 
 
-def _is_hidden(text: str, index: int) -> bool:
+def _bidi_mark_exempt(text: str) -> set[int]:
+    """Indexes of the LRM, RLM and ALM expected next to a right-to-left letter (Hebrew, Arabic), where it orders
+    the text. Two linear passes record the class of the nearest letter on each side within the line, past
+    neutrals, digits and other bidi marks. A character of class R or AL that is not a letter (a Hebrew
+    punctuation mark) is not one, so it counts as none."""
+    marks = [i for i, ch in enumerate(text) if ord(ch) in BIDI_MARKS]
+    if not marks:
+        return set()
+    exempt: set[int] = set()
+    for order in (range(len(text)), range(len(text) - 1, -1, -1)):
+        nearest = ""
+        for i in order:
+            ch = text[i]
+            if ch == "\n":
+                nearest = ""
+            elif ord(ch) in BIDI_MARKS:
+                if nearest in ("R", "AL"):
+                    exempt.add(i)
+            else:
+                cls = unicodedata.bidirectional(ch)
+                if cls in ("L", "R", "AL"):
+                    nearest = cls if unicodedata.category(ch).startswith("L") else ""
+    return exempt
+
+
+def _selector_stray(text: str, index: int) -> bool:
+    """A variation selector at the start, after another selector, or after a base that takes none: ASCII that is not
+    a keycap base, or a non-ASCII character that is not a symbol (``S*``) or an ideograph."""
+    if index == 0 or ord(text[index - 1]) in VARIATION_SELECTORS:
+        return True
+    before = text[index - 1]
+    if before.isascii():
+        return before not in KEYCAP_BASES
+    return not (unicodedata.category(before).startswith("S") or unicodedata.name(before, "").startswith("CJK"))
+
+
+def _is_hangul(cp: int) -> bool:
+    """Jamo, compatibility jamo, Extended-A jamo, syllables with Extended-B jamo, and halfwidth Hangul."""
+    return 0x1100 <= cp <= 0x11FF or 0x3130 <= cp <= 0x318F or 0xA960 <= cp <= 0xA97F or 0xAC00 <= cp <= 0xD7FF or 0xFFA0 <= cp <= 0xFFDC
+
+
+def _filler_exempt(text: str, index: int) -> bool:
+    """U+034F, U+115F, U+1160 and U+2800 are text in Greek or other non-ASCII script, Hangul and Braille."""
     cp = ord(text[index])
+    near = [ord(text[j]) for j in (index - 1, index + 1) if 0 <= j < len(text) and ord(text[j]) not in BLANK_FILLERS]
+    if cp in (0x115F, 0x1160):
+        return any(_is_hangul(n) for n in near)
+    if cp == 0x2800:
+        return any(0x2800 <= n <= 0x28FF for n in near)
+    if cp == 0x034F:
+        return any(n > 0x7F and unicodedata.category(chr(n))[0] in "LM" for n in near)
+    return False
+
+
+def _is_hidden(text: str, index: int, bidi_exempt: set[int]) -> bool:
+    cp = ord(text[index])
+    if cp == SOFT_HYPHEN or cp in INVISIBLE_FORMAT:
+        return True
+    if cp in VARIATION_SELECTORS:
+        return _selector_stray(text, index)
+    if cp in BLANK_FILLERS:
+        return not _filler_exempt(text, index)
+    if cp in BIDI_MARKS:
+        return index not in bidi_exempt
     if cp in BIDI_CONTROLS or cp in TAG_CHARACTERS:
         return True
     if cp == 0xFEFF:
@@ -116,7 +193,8 @@ def _is_hidden(text: str, index: int) -> bool:
 
 
 def _hidden_hits(where: str, text: str) -> list[Hit]:
-    found = [i for i in range(len(text)) if _is_hidden(text, i)]
+    bidi_exempt = _bidi_mark_exempt(text)
+    found = [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt)]
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = text[index]
