@@ -34,7 +34,7 @@ class UnusableReply(ValueError):
 def retry_wording(retried: int, unusable: int) -> tuple[str, str]:
     """The label and the advice for batches re-asked as halves, split by cause.
 
-    Only a cut-off reply is cured by a higher ``--max-tokens``; one whose rows are all
+    Only a cut-off reply is cured by a higher ``--max-output-tokens``; one whose rows are all
     unusable is not, so the advice is given only for the rest.
     """
     cut = retried - unusable
@@ -44,7 +44,7 @@ def retry_wording(retried: int, unusable: int) -> tuple[str, str]:
         label = "unparseable or unusable"
     else:
         label = "unparseable"
-    return label, ("; a higher --max-tokens avoids the extra calls" if cut else "")
+    return label, ("; a higher --max-output-tokens avoids the extra calls" if cut else "")
 
 
 def or_stop(call: Callable[..., T], *args: Any, **kwargs: Any) -> T:

@@ -987,7 +987,7 @@ plugins = []
     args = build_parser().parse_args([
         "subjects", "run", str(descriptor),
         "--out-dir", str(out_dir),
-        "--max-tokens", "32000",
+        "--max-output-tokens", "32000",
         "--grounded-from-topics",
     ])
 

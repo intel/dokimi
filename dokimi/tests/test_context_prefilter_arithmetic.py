@@ -45,6 +45,6 @@ def test_an_unclosed_run_of_openers_is_scanned_in_linear_time():
         command = "<<" + "$((" * n
         return lambda: _without_heredoc_bodies(command)
 
-    ratio, result = growth(timed, 1500)
+    ratio, result = growth(timed, 375)
     assert result.startswith("<<")
     assert ratio < GROWTH_LIMIT

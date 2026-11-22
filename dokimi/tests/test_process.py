@@ -15,6 +15,7 @@ import pytest
 
 from dokimi import process, process_io
 from dokimi.process import TIMEOUT_RC, Env, FakeRunner, Limits, reply
+from tests.waiting import poll_until, wait_until
 
 PY = sys.executable
 INHERIT = Env.inherit()
@@ -53,21 +54,12 @@ def _alive(pid: int) -> bool:
 
 
 def _gone_soon(pid: int, within: float = 5.0) -> bool:
-    deadline = time.monotonic() + within
-    while time.monotonic() < deadline:
-        if not _alive(pid):
-            return True
-        time.sleep(0.05)
-    return False
+    return poll_until(lambda: not _alive(pid), within, interval=0.05)
 
 
 def _wait_for(path: Path, within: float = 10.0) -> str:
-    deadline = time.monotonic() + within
-    while time.monotonic() < deadline:
-        if path.is_file() and path.read_text():
-            return path.read_text()
-        time.sleep(0.05)
-    raise AssertionError(f"{path} never written")
+    return wait_until(lambda: path.is_file() and path.read_text(), within, what=f"{path} to be written",
+                      interval=0.05)
 
 
 # ── exit, output, encoding ──────────────────────────────────────────────────
@@ -387,7 +379,7 @@ def test_an_interrupt_during_the_grace_of_a_closed_output_sends_one_sigterm(tmp_
     def wait_group(proc, until):
         calls.append(until)
         if len(calls) == 1:
-            time.sleep(0.3)
+            _wait_for(log)  # the child has handled the SIGTERM: the grace is under way
             raise KeyboardInterrupt
         real_wait_group(proc, until)
 
@@ -569,7 +561,7 @@ def test_an_earlier_handler_still_runs_and_an_ignored_sighup_stays_ignored(tmp_p
     caller, grandchild = _caller(tmp_path, "nohup")
     try:
         caller.send_signal(signal.SIGHUP)
-        time.sleep(0.5)
+        time.sleep(0.5)  # timing-ok: the test asserts the SIGHUP changed nothing, so there is no event to wait for
         assert caller.poll() is None and _alive(grandchild)
     finally:
         caller.kill()
@@ -868,7 +860,7 @@ def test_an_interrupt_during_the_grace_sends_no_second_sigterm(tmp_path, monkeyp
     def wait_group(proc, until):
         calls.append(until)
         if len(calls) == 1:  # the timeout's grace, after the output closed: Ctrl-C now
-            time.sleep(0.3)
+            _wait_for(log)  # the child has handled the SIGTERM: the grace is under way
             raise KeyboardInterrupt
         real_wait_group(proc, until)
 

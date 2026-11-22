@@ -14,6 +14,7 @@ import pytest
 
 import tests.pid_state as pid_state_module
 from tests.pid_state import describe, pid_alive, pid_state, wait_until_gone
+from tests.waiting import wait_until
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX os.kill(pid, 0)")
@@ -65,8 +66,8 @@ def test_wait_until_gone_counts_its_grace_from_the_call_not_from_the_test_start(
     now = [45.0]  # a slow harness start has already used 45 s of the test
     dies_at = 65.0  # the helper is gone 20 s after the wait begins
 
-    monkeypatch.setattr(pid_state_module.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(pid_state_module.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
     monkeypatch.setattr(pid_state_module, "pid_alive", lambda pid: now[0] < dies_at)
     assert wait_until_gone([7, 8], 30) == []
     assert now[0] < 75.0
@@ -75,8 +76,8 @@ def test_wait_until_gone_counts_its_grace_from_the_call_not_from_the_test_start(
 def test_wait_until_gone_names_the_pids_that_outlast_the_grace(monkeypatch):
     now = [0.0]
 
-    monkeypatch.setattr(pid_state_module.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(pid_state_module.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
     monkeypatch.setattr(pid_state_module, "pid_alive", lambda pid: pid == 8 or now[0] < 2)
     assert wait_until_gone([7, 8], 30) == [8]
     assert 30 <= now[0] < 31
@@ -89,14 +90,11 @@ def test_running_zombie_and_reaped_child_are_told_apart():
         assert pid_alive(child.pid)
         assert f"pid {child.pid} state " in describe(child.pid)
         # Wait for the child to exec before reading cmdline (#690).
-        deadline = time.monotonic() + 30
-        while "time.sleep(60)" not in describe(child.pid) and time.monotonic() < deadline:
-            time.sleep(0.01)
+        wait_until(lambda: "time.sleep(60)" in describe(child.pid), 30, what="the child to exec", interval=0.01)
         assert "time.sleep(60)" in describe(child.pid)
         child.kill()
-        deadline = time.monotonic() + 30
-        while pid_state(child.pid) != "Z" and time.monotonic() < deadline:
-            time.sleep(0.01)
+        wait_until(lambda: pid_state(child.pid) == "Z", 30, what="the killed child to become a zombie",
+                   interval=0.01)
         assert pid_state(child.pid) == "Z"  # killed, not reaped yet
         assert not pid_alive(child.pid)
     finally:

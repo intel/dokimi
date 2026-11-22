@@ -1310,6 +1310,10 @@ DOKIMI_OP {"type":"loop","name":"turn","elapsed_sec":3.4}
 Unstructured stdout/stderr lines mentioning `tool`, `subagent`, or `loop` are
 also counted as low-fidelity telemetry, but structured events are preferred.
 
+A command's output in `events.jsonl` is clipped when it is over 8 KB; the rule,
+including how a split UTF-8 character is counted, is in
+[the `events.jsonl` contract](repo-evaluation-contract.md#41-eventsjsonl).
+
 ## Fair Comparisons
 
 Use one task suite, one model, and fixed task revisions when comparing harnesses.

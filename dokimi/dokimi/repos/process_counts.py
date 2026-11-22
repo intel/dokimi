@@ -4,7 +4,7 @@
 """``result.json`` ``process`` counts (contract §4.1) as measures of ``repo report`` and ``repo compare``.
 
 Each count is a number per cell: ``process:<key>`` for the framework's counts
-(``guidance_read``, a list of paths, is counted) and ``counter:<name>`` for
+(``guidance_read`` and ``guidance_searched``, lists of paths, are counted) and ``counter:<name>`` for
 each manifest ``process_metrics`` counter. A cell whose ``process`` is absent
 (written before it existed) or ``null`` (its trace could not be read) has none
 and is left out of a mean, not counted as zero; so is a value that is not a
@@ -21,8 +21,10 @@ from dokimi.measure import as_float
 from .grading import SCORE_BOUND
 
 
-#: ``result.json`` ``process`` keys that are counts (``guidance_read`` is a list of paths, counted).
-PROCESS_KEYS = ("tool_calls", "commands", "failed_commands", "denied_commands", "guidance_read", "unknown_reads")
+#: ``result.json`` ``process`` keys that are counts (``guidance_read`` and ``guidance_searched`` are lists of paths, counted).
+PROCESS_KEYS = ("tool_calls", "commands", "failed_commands", "denied_commands", "guidance_read", "guidance_searched",
+                "unknown_reads")
+LIST_KEYS = ("guidance_read", "guidance_searched")
 
 
 def process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:
@@ -39,7 +41,7 @@ def process_values(rec: dict[str, Any]) -> dict[str, float]:
     out = {}
     for key in PROCESS_KEYS:
         value = found.get(key)
-        count = len(value) if key == "guidance_read" and isinstance(value, list) else value
+        count = len(value) if key in LIST_KEYS and isinstance(value, list) else value
         if (num := as_measure(count)) is not None:
             out[f"process:{key}"] = num
     counters = found.get("counters")

@@ -39,9 +39,11 @@ from dokimi.artifacts import (
     SCHEMA_VERSIONS,
     SUPERSEDED_VERSIONS,
     ArtifactValidationError,
+    listed_ids,
     save_artifact,
     schema_errors,
     schema_version_for,
+    shared_question_ids,
 )
 from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
 from dokimi.questions.normalizer import canonical_question, record_id
@@ -71,8 +73,8 @@ def upgrade_questions(data: dict) -> dict:
 def save_questions_artifact(data: dict, path: Path | str) -> dict:
     """Write ``data`` as a current-version questions artifact; return exactly what was written.
 
-    Records may still use v1's ``text``; it is renamed to ``question``. Validation, the
-    ``.rejected`` copy on failure and the atomic write are :func:`save_artifact`'s.
+    Records may still use v1's ``text``; it is renamed to ``question``. Validation (two records
+    with one id included), the ``.rejected`` copy on failure and the atomic write are :func:`save_artifact`'s.
     """
     return save_artifact(KIND, upgrade_questions(data), path)
 
@@ -214,6 +216,15 @@ def _explain(path: Path, data: dict, errors: list[str]) -> str:
             f"dokimi/schemas/{SCHEMA_VERSIONS[KIND]}.json, or drop the record.")
 
 
+def _refuse_shared_ids(path: Path, artifact: dict) -> None:
+    """Raise when two records share an id (:func:`~dokimi.artifacts.shared_question_ids`)."""
+    dupes = shared_question_ids(artifact)
+    if dupes:
+        raise ArtifactValidationError(
+            f"duplicate question ids in {path}: {listed_ids(dupes)}; give each record "
+            f"an id of its own (or `question_id` in a v1 set), or drop the repeated record")
+
+
 def _warn_provenance(path: Path, records: list) -> None:
     """A malformed ``version`` or ``provenance`` on a record is a WARNING, never a refusal: the schema accepts any
     value so that files written before the key existed still load, and the value is kept as written."""
@@ -238,7 +249,7 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
 
     With ``validate`` the upgraded set must be a valid v2 artifact, or
     :class:`~dokimi.artifacts.ArtifactValidationError` names each failing record and the fix; so
-    must a ``schema_version`` this reader does not know. A set that is not a list of questions at
+    must a ``schema_version`` this reader does not know, and ids two records share. A set that is not a list of questions at
     all (e.g. ``{"questions": {...}}``) is refused either way.
 
     A malformed ``version`` or ``provenance`` on a record is logged at WARNING and kept as written; it does not
@@ -276,6 +287,7 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
         errors = schema_errors(current, artifact)
         if errors:
             raise ArtifactValidationError(_explain(path, artifact, errors))
+        _refuse_shared_ids(path, artifact)
         matched = None if bare_list else schema_version_for(KIND, data)
         source_version = matched if matched and not schema_errors(matched, data) else None
         if source_version is None and not bare_list and not seen:
