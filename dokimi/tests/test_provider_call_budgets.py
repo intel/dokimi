@@ -334,7 +334,7 @@ def _answers_generate(tmp_path, monkeypatch, out):
     monkeypatch.setattr(
         "dokimi.mcp.factory.create_doc_source_client", lambda *a, **kw: _DocSource()
     )
-    monkeypatch.setattr("dokimi.eval.answerer.SENTENCE_TRANSFORMERS_AVAILABLE", False)
+    monkeypatch.setattr("dokimi.eval.reranker.SENTENCE_TRANSFORMERS_AVAILABLE", False)
     questions = tmp_path / "questions.json"
     questions.write_text(
         json.dumps(

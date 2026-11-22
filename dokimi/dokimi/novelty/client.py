@@ -179,6 +179,7 @@ class LLMClient:
     usage: list[UsageRecord] = field(default_factory=list)
     calls: int = 0
     cap: SpendCap | None = None
+    output_limit_configurable: bool = True
 
     def text(
         self, prompt: str, *, system: str | None = None, accept: Accept | None = None,
@@ -222,7 +223,7 @@ class LLMClient:
                        else f"max_tokens={self.max_tokens or DEFAULT_MAX_TOKENS}")
             raise OutputTruncated(
                 f"reply cut at the output ceiling ({self.model}, {ceiling}, "
-                f"{usage.completion_tokens} tokens)" + ("" if cli else "; raise --max-tokens"),
+                f"{usage.completion_tokens} tokens)" + ("; raise --max-output-tokens" if self.output_limit_configurable and not cli else ""),
                 reply=reply or "")
         return reply or ""
 

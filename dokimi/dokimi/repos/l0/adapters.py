@@ -388,7 +388,7 @@ def label_claims(scan: Scan, file: str, line: int, text: str) -> bool:
 def _is_label(label: str) -> bool:
     """A package, a target or a repository, and no host name (`//github.com/x` is a protocol-relative URL)."""
     m = _LABEL_PARTS.match(label.lstrip("-"))
-    if not m:
+    if not m or label.lstrip("-@").startswith("///"):  # `///` is a doc-comment marker, not the root package
         return False
     repo, pkg, target = m.groups()
     return bool(pkg or target or (repo or "").strip("@")) and "." not in pkg.split("/", 1)[0]

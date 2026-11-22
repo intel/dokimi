@@ -33,7 +33,7 @@ dokimi repo reach /path/to/your/repository --harness claude-code --model YOUR_MO
 
 ## 3. Measure the effect on real work
 
-Prepare the repository's task manifest, environment, reference solutions and graders using the [repository evaluation contract](../repo-evaluation-contract.md). Before paid agent runs, check the manifest with `dokimi repo validate /path/to/your/repository`, then run `dokimi eval check /path/to/your/repository` (it needs Docker and an `image` in the manifest) to confirm that each task fails untouched and passes with its reference solution. Compare guidance conditions on the same tasks; use the [rule ledger](../rule-ledger.md) to retain reasons for instructions.
+Prepare the repository's task manifest, environment, reference solutions and graders using the [repository evaluation contract](../repo-evaluation-contract.md). Before paid agent runs, check the manifest with `dokimi eval check --schema-only /path/to/your/repository`, then run `dokimi eval check /path/to/your/repository` (it needs Docker and an `image` in the manifest) to confirm that each task fails untouched and passes with its reference solution. Compare guidance conditions on the same tasks; use the [rule ledger](../rule-ledger.md) to retain reasons for instructions.
 
 **Result:** task outcomes and comparison evidence. Without tasks, report a static/loading review, not an outcome improvement.
 

@@ -342,9 +342,9 @@ def test_a_save_that_fails_is_that_skills_error_row_and_the_sweep_goes_on(tmp_pa
 
 @pytest.mark.parametrize("flag", [
     ["--max-file-words", "100"], ["--max-resource-words", "100"], ["--model", "other-m"],
-    ["--judge-model", "other-judge"], ["--arms", "no_artifact,full,shuffled"], ["--budgets", "0.5"], ["--seed", "1"],
+    ["--judge-model", "other-judge"], ["--arms", "no_artifact,full,shuffled"], ["--token-budgets", "0.5"], ["--seed", "1"],
     ["--include-resources"], ["--context-framing", "neutral"], ["--no-paraphrase"], ["--max-atoms", "3"],
-    ["--no-reversal"], ["--max-tokens", "77"],
+    ["--no-reversal"], ["--max-output-tokens", "77"],
 ])
 def test_resume_runs_again_the_rows_measured_under_other_input_limits(tmp_path, capsys, flag):
     root, out = _root(tmp_path), tmp_path / "out"
@@ -359,7 +359,7 @@ def test_a_resume_under_other_settings_is_refused_and_keeps_every_paid_row(tmp_p
     _sweep(root, out, "--max-usd", "5")
     before = (out / "sweep.jsonl").read_text(encoding="utf-8")
     with pytest.raises(InputError, match=r"max_tokens.*--rerun-changed"):
-        _sweep(root, out, "--max-usd", "0.02", "--resume", "--max-tokens", "999")
+        _sweep(root, out, "--max-usd", "0.02", "--resume", "--max-output-tokens", "999")
     assert (out / "sweep.jsonl").read_text(encoding="utf-8") == before
 
 

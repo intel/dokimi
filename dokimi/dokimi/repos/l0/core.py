@@ -25,6 +25,7 @@ from ..source import GitTree, RepoTree, SourceError
 from . import branches, workflows
 from .gitignore import GitIgnore, Rule
 from .held import held_dirs
+from .identifiers import is_identifier
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 from .rule_links import loaded_text, rule_link_targets
 
@@ -43,7 +44,6 @@ CONVENTION_WORDS = frozenset({"CamelCase", "camelCase", "PascalCase", "snake_cas
 _EXT = (r"h|hh|hpp|hxx|c|cc|cpp|cxx|cu|i|py|pyx|pxd|pyi|bzl|bazel|md|rst|txt|yml|yaml|json|toml|cfg|ini|"
         r"mk|cmake|in|sh|bat|ps1|ver|js|ts|go|rs|java")
 _PATHLIKE = re.compile(rf"^(?:\.{{0,2}}/)?[\w.@\-*<>{{}}]+(?:/[\w.@\-*<>{{}},]*)+$|^[\w\-*.]+\.(?:{_EXT})$")
-_IDENT = re.compile(r"^[A-Za-z_]\w*(::\w+)+$|^[A-Z][A-Z0-9_]{3,}$|^[a-z]+_[a-z_]+$|^[A-Z]\w*[a-z]\w*[A-Z]\w*$")
 _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
@@ -567,7 +567,7 @@ class Scan:
             r = self.resolve_path(file, span)
             if r:
                 self.add(file, line, "path", span, r[0], r[1], ctx)
-        elif _IDENT.match(span) and span not in CONVENTION_WORDS:
+        elif is_identifier(span) and span not in CONVENTION_WORDS:
             tok = span.split("::")[-1]
             if tok in self.words():
                 self.add(file, line, "identifier", span, "ok", f"`{tok}` found in tracked non-doc files", ctx)
@@ -631,7 +631,7 @@ class Scan:
     def check_fence(self, file: str, fence: Fence) -> None:
         from . import adapters
 
-        if fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS:
+        if fence.lines and (fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS):
             code = textwrap.dedent("\n".join(text for _, text in fence.lines)).split("\n")
             fence = Fence(fence.line, fence.lang, [(n, t) for (n, _), t in zip(fence.lines, code, strict=True)])  # in a list item
             if "bazel" in self.adapters and (fence.lang in STARLARK_LANGS or adapters.reads_as_build(self, fence)):

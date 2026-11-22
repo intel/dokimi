@@ -120,9 +120,11 @@ def _render_product_section(p: ProductSnapshot, top_n: int) -> list[str]:
     return lines
 
 
-def save_dashboard_markdown(data: DashboardData, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_dashboard(data), encoding="utf-8")
+def save_dashboard_markdown(data: DashboardData, path: Path, top_n_bad_questions: int = 5) -> None:
+    from dokimi.atomic_write import write_bytes_in_place_or_atomic
+    from dokimi.process_io import text_file_bytes
+
+    write_bytes_in_place_or_atomic(path, text_file_bytes(render_dashboard(data, top_n_bad_questions)))
 
 
 def save_dashboard_json(data: DashboardData, path: Path) -> None:

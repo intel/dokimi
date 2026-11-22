@@ -21,20 +21,57 @@ from dokimi.utils import InputError
 #: A C identifier prefix: a C identifier that ends in an underscore (``cblas_``, ``LAPACKE_``).
 _PREFIX = re.compile(r"[A-Za-z_]\w*_")
 #: Comments and string or character literals of C code: no declaration is named in them.
-_C_SKIP = re.compile(r'//(?:\\\n|[^\n])*|"(?:\\.|[^"\\\n])*"|\'(?:\\(?:x[0-9A-Fa-f]+|[0-7]{1,3}|.)|[^\'\\\n])\'', re.DOTALL)
+_C_SKIP = re.compile(r"//(?:\\\n|[^\n])*|'(?:\\(?:x[0-9A-Fa-f]+|[0-7]{1,3}|.)|[^'\\\n])'", re.DOTALL)
 _C_START = re.compile(r"/\*|[/\"']")
 _CHUNK = 1 << 20
+
+
+def _escaped(text: str, pos: int, low: int) -> bool:
+    """``text[pos]`` follows an odd run of backslashes that starts at ``low`` or later: an escape takes it."""
+    start = pos
+    while start > low and text[start - 1] == "\\":
+        start -= 1
+    return (pos - start) % 2 == 1
+
+
+def _string_end(text: str, at: int) -> tuple[int, int]:
+    """For the ``"`` at ``at``: ``(end, 0)`` of the string, or ``(-1, stop)`` when it has no closing quote.
+
+    A backslash takes the next character, a line end included. A string stops at a line end or at the
+    end of the text, ``stop``. The scan goes from quote to quote with ``str.find`` and counts the
+    backslashes before each (https://github.com/intel/dokimi/issues/1000).
+    """
+    size = len(text)
+    pos, quote = at + 1, -1
+    while True:
+        if quote < pos:
+            quote = text.find('"', pos)
+            quote = size if quote < 0 else quote
+        line = text.find("\n", pos, quote)
+        if line >= 0:
+            if not _escaped(text, line, pos):
+                return -1, line
+            pos = line + 1
+        elif quote == size:
+            return -1, size
+        elif _escaped(text, quote, pos):
+            pos = quote + 1
+        else:
+            return quote + 1, 0
 
 
 def _blank_skipped(text: str) -> str:
     """``text`` with each comment and literal replaced by a space, found left to right.
 
     A ``/*`` with no ``*/`` after it stays in the text, and no later ``/*`` has a closer either, so the
-    search for ``*/`` runs once (https://github.com/intel/dokimi/issues/928).
+    search for ``*/`` runs once (https://github.com/intel/dokimi/issues/928). A string with no closing
+    quote fails at its line end, and so does each later quote before it, which an escape took: they
+    are not scanned again.
     """
     out: list[str] = []
     last = 0
     closable = True
+    dead = 0  # the end of a line on which a string found no closing quote
     for start in _C_START.finditer(text):
         at = start.start()
         if at < last:
@@ -43,6 +80,10 @@ def _blank_skipped(text: str) -> str:
             end = text.find("*/", at + 2) if closable else -1
             closable = end >= 0
             skipped = end + 2 if end >= 0 else at
+        elif start.group() == '"':
+            end, stop = _string_end(text, at) if at >= dead else (-1, dead)
+            dead = max(dead, stop)
+            skipped = end if end >= 0 else at
         else:
             literal = _C_SKIP.match(text, at)
             skipped = literal.end() if literal else at
