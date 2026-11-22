@@ -95,7 +95,7 @@ def _add_routing_options(routing_p, positive_int, refused: bool = False) -> None
                            help="Also ask this model to pick from the same cards. Optional: "
                                 "without it only the free lexical floor is computed")
     routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
-    routing_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
+    cli_flags.add(routing_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     routing_p.add_argument("--seed", type=int, default=0,
                            help="Seeds only the card order (a seeded permutation per query, so "
                                 "a position-biased model scores about 1/N). Not answer "

@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from dokimi.eval.arm_summary import TOOL_COUNTS
 from dokimi.records import read
 from dokimi.report import fmt
+from dokimi.report.stop_note import stop_note
 
 
 def _md_cell(text: str) -> str:
@@ -139,6 +140,7 @@ def render_arms_report(data: Dict[str, Any]) -> str:
 
     lines.append(f"# Treatment-arm comparison — {lib}")
     lines.append("")
+    lines.extend(stop_note(data))
     lines.append(f"- Model: `{data.get('provider', '?')}/{data.get('model', '?')}`")
     lines.append(f"- Harness: `{data.get('harness', 'arms-runner')}`")
     if data.get("matrix_cell"):

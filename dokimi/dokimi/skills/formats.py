@@ -177,6 +177,10 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
         pkg.problems.append("no name")
     bundle = path.parent if fmt == FORMAT_GEMINI_EXTENSION else path.parent.parent
     pkg.details["skills"] = len(list((bundle / "skills").glob("*/SKILL.md")))
+    if fmt == FORMAT_CLAUDE_PLUGIN:  # declared directories add to the default one; a skill both name counts once
+        found = (_skill_dirs(bundle, "./skills", pkg.problems)
+                                                  | _skill_dirs(bundle, data.get("skills"), pkg.problems))
+        pkg.details["skills"] = len(found or _marketplace_skills(bundle, path.parent / "marketplace.json", pkg.problems))
     if fmt == FORMAT_GEMINI_EXTENSION:
         pkg.details["context_file"] = data.get("contextFileName") or (
             "GEMINI.md" if (bundle / "GEMINI.md").is_file() else None)
@@ -186,6 +190,50 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
         else:
             pkg.problems.append("mcpServers is not an object")
     return pkg
+
+
+def _skill_dirs(base: Path, entries, problems: list[str]) -> set[Path]:
+    """The skill directories ``entries`` (a path or a list, relative to ``base``) name: one holding SKILL.md, or
+    each child of a directory that does. A path that cannot be resolved (a symlink loop raises RuntimeError before
+    Python 3.13) is a problem, and the others are still read."""
+    found: set[Path] = set()
+    for entry in [entries] if isinstance(entries, str) else entries if isinstance(entries, list) else []:
+        if not isinstance(entry, str):
+            continue
+        try:
+            d = (base / entry).resolve()
+            if (d / "SKILL.md").is_file():
+                found.add(d)
+            elif d.is_dir():
+                found.update(p.parent.resolve() for p in d.glob("*/SKILL.md"))
+        except (OSError, RuntimeError) as exc:
+            problems.append(f"skills path {entry!r} cannot be resolved: {exc}")
+    return found
+
+
+def _marketplace_skills(bundle: Path, marketplace: Path, problems: list[str]) -> set[Path]:
+    """Skills of the ``source`` (its ``skills/`` and its ``skills`` entries) of each plugin in the marketplace
+    manifest next to a plugin that declares none itself."""
+    found: set[Path] = set()
+    if marketplace.is_file():
+        try:
+            market = json.loads(marketplace.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            problems.append(f"marketplace.json: unreadable JSON: {exc}")
+            return found
+        if not isinstance(market, dict):
+            problems.append("marketplace.json: not an object")
+            return found
+        plugins = market.get("plugins")
+        if plugins is not None and not isinstance(plugins, list):
+            problems.append("marketplace.json: plugins is not a list")
+            plugins = []
+        for plugin in plugins or []:
+            if isinstance(plugin, dict) and isinstance(plugin.get("source"), str):
+                declared = plugin.get("skills") or ["./"]
+                found |= _skill_dirs(bundle / plugin["source"],
+                                     ["./skills", *(declared if isinstance(declared, list) else [declared])], problems)
+    return found
 
 
 def classify(path: Path) -> Optional[SkillPackage]:
