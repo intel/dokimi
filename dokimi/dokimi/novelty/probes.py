@@ -307,8 +307,8 @@ def check_wording(kind: str, *, source: str, candidate: str, answer: str = "") -
     # inversion "is it fine to run X without Y?" keeps one. A boolean comparison called
     # that unflipped.
     src_claim, cand_claim = _normalise_negations(source), _normalise_negations(text)
-    src_negations = len(_NEGATIONS.findall(src_claim))
-    cand_negations = len(_NEGATIONS.findall(cand_claim))
+    src_negations = len(_NEGATIONS.findall(_strip_question_phrasing(src_claim)))
+    cand_negations = len(_NEGATIONS.findall(_strip_question_phrasing(cand_claim)))
     if kind == "reversal":
         if not text.endswith("?"):
             reasons.append("not_a_question")
@@ -368,6 +368,11 @@ def _normalise_negations(text: str) -> str:
     return text
 
 
+def _strip_question_phrasing(text: str) -> str:
+    """``text`` without a leading negative auxiliary and a trailing tag (#1014)."""
+    return _TRAILING_TAG.sub("?", _LEADING_NEGATIVE.sub(" ", text, count=1), count=1)
+
+
 def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     """How many negations ``text``'s claim carries, and which of ``source``'s words they hit.
 
@@ -378,7 +383,7 @@ def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     BLAKE3, not over contents" to "over contents, NOT with BLAKE3") can be told apart from
     one reworded onto a new verb, which is not evidence of anything.
     """
-    claim = _TRAILING_TAG.sub("?", _LEADING_NEGATIVE.sub(" ", text, count=1), count=1)
+    claim = _strip_question_phrasing(text)
     source_stems = _stems(source)
     targets = set()
     for match in _NEGATIONS.finditer(claim):

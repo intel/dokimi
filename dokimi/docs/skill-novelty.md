@@ -723,6 +723,8 @@ in the same way, so `The skill ships with numbers, doesn't it?` inverts `No numb
 the skill`; `Is it NOT the case that ...?` still counts as a negation. A reversal may run up to 15 words past the 2.5x length cap,
 the size of a leading frame such as `Isn't it true that ... NOT ..., but rather ...?`.
 
+The paraphrase polarity check reads the same way: an opening `Doesn't` and a closing tag are not counted on either side.
+
 Known gap: the paraphrase polarity check only asks whether a negation is present, so a
 faithful paraphrase that drops one (`Can you run X without root?` to `Is root required to
 run X?`) is rejected and counted in `malformed_rate`. The error inflates the rate; it never
