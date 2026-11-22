@@ -110,8 +110,8 @@ def _child_arms(node: ast.AST) -> dict[int, Arm]:
     elif isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
         return {id(child): Arm((id(node), n), 0, (_group_span(group),))
                 for n, group in enumerate((node.body, node.orelse)) for child in group}
-    elif isinstance(node, ast.BoolOp):  # an operand after the first may be skipped
-        return {id(child): Arm((id(node), n), 0, (_group_span([child]),))
+    elif isinstance(node, ast.BoolOp):  # an operand after the first may be skipped; one that follows it ran
+        return {id(child): Arm((id(node), n), 0, (((child.lineno, child.col_offset), _end(node)),))
                 for n, child in enumerate(node.values) if n}
     elif isinstance(node, ast.IfExp):
         groups = [[node.body], [node.orelse]]

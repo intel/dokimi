@@ -270,6 +270,9 @@ def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expect
     ("import time\nNone if False else (time := None)\ntime.sleep(1)\n", {"time.sleep": 1}),
     ("import time\n(time := None) and 1\ntime.sleep(1)\n", {}),
     ("import time\n1 if (time := None) else 2\ntime.sleep(1)\n", {}),
+    ("from time import sleep\nTrue and (sleep := lambda _: None) and sleep(1)\n", {}),
+    ("from time import sleep\nFalse or (sleep := lambda _: None) or sleep(1)\n", {}),
+    ("from time import sleep\nTrue and (sleep := lambda _: None) and sleep(1)\nsleep(2)\n", {"time.sleep": 1}),
 ])
 def test_a_name_bound_differently_in_each_branch_counts_when_any_branch_makes_it_a_sleep(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
