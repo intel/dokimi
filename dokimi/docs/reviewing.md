@@ -55,8 +55,8 @@ For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answ
 |---|---|---|
 | 1. Does it load? | `dokimi catalog check --root <catalog> --kind skills [--strict]` | free |
 | 2. Is it ever picked? | `dokimi skill routing skill:<dir> --against <catalog> --queries queries.json [--model …]` | free without `--model` |
-| 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
-| 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
+| 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --dry-run` | free |
+| 4. What does it add? | the same command without `--dry-run`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
 | 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <model> --provider <provider> --judge --judge-model <judge-model> --judge-provider <judge-provider>` | one answer and one grade per question and arm |
 | 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](coding-harnesses.md)) | one agent run per task and harness; needs Docker and Claude credentials (`AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), not the provider keys above; run with `--dry-run` first |
 
@@ -96,7 +96,7 @@ For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answ
   file, so a large bundle costs more extraction calls than its 25 probes suggest.
   `--tier standard` (60 atoms) spreads more probes without promising each file
   one; add `--all-atoms` to the tier command to probe every extracted atom, and
-  run `--estimate-only` first, it costs more.
+  run `--dry-run` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable
   tasks for 5b. `arms run` takes no tasks. That content lives outside this repository
   ([external-content.md](external-content.md)). Without it, the
@@ -109,9 +109,9 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 | Step | Command | Cost |
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget`; to see whether a Bash read of a nested file loads its directory's guidance (agents that read with `cat`), `--scenarios bash` (or `--scenarios bash --only bash=<dir>`) | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--max-usd-per-cell`; to see whether a Bash read of a nested file loads its directory's guidance (agents that read with `cat`), `--scenarios bash` (or `--scenarios bash --only bash=<dir>`) | capped by `--max-usd-per-cell` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi skill novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
-| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
+| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --max-usd-per-cell <usd> --max-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--max-usd-per-cell` defaults to $2.00 per agent run with no batch cap unless you pass `--max-usd` |
 
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
@@ -131,7 +131,7 @@ guidance:
 A glob that matches no file is only a warning. To scan a file the globs leave out,
 add `also_scan: ["CONTRIBUTING.md"]` under `guidance`: `also_scan` names files the
 repository has and the gate must see, so a missing one makes the scan `incomplete`
-and `repo scan --fail-on-fail` exits 1.
+and `repo scan --fail-on fail` exits 1.
 
 The `id` must be lowercase: start with a letter or digit, then use only letters, digits, `.`, `_` and `-`.
 `reach` always adds the harness's own guidance file names (for example `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md`).
@@ -206,9 +206,22 @@ these, in order, before writing what it showed (the fields:
   counts a read tool's reads and a Claude Code Bash call, Codex command or
   Copilot `bash` command that only prints files (§7's list: a bare `cat`,
   `head`, `tail`, `nl` or `sed -n`), not a pipe, `grep`, `rg` or `! cat`, nor a
-  relative read after the shell moved; `process:unknown_reads` counts those
-  dropped relative reads, so `guidance_read: []` with `unknown_reads` above 0
-  is not "never read". For the rest, look in `events.jsonl` or
+  relative read after the shell moved. A listed file may have been printed in
+  part (`head -n 1 AGENTS.md`, `sed -n 1p AGENTS.md`), so `guidance_read` does
+  not show that the whole file reached the agent: read `agent.stdout` for
+  that; `process:guidance_searched` counts the
+  guidance files a `grep`, `rg` or `git grep` (or Claude Code's `Grep` in
+  `content` mode) named in a search that showed lines: a search of several
+  files lists all of them when it showed a line of any (`grep visible
+  AGENTS.md docs/AGENTS.md` with `visible` only in `AGENTS.md` lists both), so
+  a listed file is not proof that it supplied a line; an agent that only searched a nested
+  `AGENTS.md` has it there and not in `guidance_read` (a file printed and searched
+  is in both), but a search of a directory or a glob names no file
+  (`grep -rn x .`, `rg x docs`, a `Grep` call with no `path` or with a `glob`),
+  so `guidance_searched: []` is not "never searched": look in `events.jsonl`;
+  `process:unknown_reads` counts
+  those dropped relative reads, so `guidance_read: []` with `unknown_reads`
+  above 0 is not "never read". For the rest, look in `events.jsonl` or
   `agent.stdout`, or add a `process_metrics` counter. Name what was delivered
   as what was tested ("the root `AGENTS.md`", not "the guidance").
 - **A leakage cut.** A task is out of sample for a guidance revision only when
@@ -252,7 +265,8 @@ these, in order, before writing what it showed (the fields:
   content: the same file, within `window` lines of a thread, with no judge.
   `dokimi repo report <batch> --hits` finds the pairs but cuts each comment
   and finding to 100 characters (200 with `--json`): read each pair you cite
-  in full, the thread's `comment` in the task's `gold.json` (or at its `url`),
+  in full, the thread's `comment` in the file named by the task's `gold` field in
+  `task.json` (default `gold.json`; or at the thread's `url`),
   then the finding in the cell's `answer.txt`.
   `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
   every credited pair (`same point`, `related` or `unrelated`) and gives

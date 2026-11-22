@@ -18,6 +18,7 @@ One JSON object on stdout (`--kind skills`; a `--kind all` scan also has `tasks`
 | `skills` | array of skill rows | one row per declared skill (the row schema below) |
 | `tasks` | array | task rows, empty unless `--kind tasks` or `--kind all` |
 | `online` | object | only with `--online`: the network checks' summary |
+| `listing` | object | `chars`, the total of the rows' `listing_chars` (a mirror with the same name and `content_sha256` counts once; a name whose copies differ is left out); with `--listing-budget` also `budget` and `over_budget` |
 | `granularity` | object | only without `--per-skill`: the merge and split hints |
 
 ## `--per-skill --jsonl PATH`
@@ -35,19 +36,22 @@ The text on stdout is only the counts. A run killed midway keeps the whole lines
 | `path` | string or null | the skill's directory as scanned; when a manifest `catalog_path` names a SKILL.md file, that file |
 | `relpath` | string or null | the skill's directory relative to the scanned root, with `/` separators |
 | `nested_in` | string or null | the relpath of the skill whose directory holds this one; null when it is not nested |
-| `state` | `ok`, `warn` or `error` | `error` for a load error or an error finding, `warn` for a warning only, else `ok`; `ignored` codes are left out |
+| `state` | `ok`, `warn`, `error` or `skipped` | `error` for a load error or an error finding, `warn` for a warning only, `skipped` for an unloaded skill no format rule read (an unsupported host's plain Markdown), else `ok`; `ignored` codes are left out |
 | `error` | string or null | the load error, when the skill did not load |
 | `disable_model_invocation` | boolean | the skill sets `disable-model-invocation: true`, so the description-quality checks skip it; the frontmatter length limit still applies |
 | `content_sha256` | string or null | digest of the SKILL.md text; null when there is no review |
 | `skill_sha256` | string or null | digest of every file in the skill's directory (the scan's own output files excluded); used by `--resume` |
 | `dokimi_version` | string | the dokimi version that wrote the row; `--resume` redoes rows from another version |
+| `listing_chars` | integer or null | characters of the skill's entry in the routing field's listing (`name: description`, then ` - when_to_use` when it is not empty; the description and `when_to_use` count at most 1,536 characters); null when the skill is not listed (it does not load, has a spec error other than a long description, or sets `disable-model-invocation`). `--resume` redoes a row without it |
+| `listing_name` | string or null | the name the routing field knows the skill by: the loaded `SKILL.md` name, which can differ from `name` (a manifest alias); null when the skill did not load. The listing total groups copies by it. `--resume` redoes a row without it |
 | `duplicate_of` | string or null | the relpath of the identical copy this skill duplicates; null for the original |
 | `ignored` | array of strings | the `--ignore` codes in effect, sorted (`[]` when none); `--resume` redoes a row written under other codes |
 | `findings` | array of finding objects | the findings left after `--ignore` |
 
 A finding object has three keys: `level` (`note`, `warn` or `error`), `code` (one of the
 [finding codes](finding-codes.md)) and `message` (text for people; it may be reworded between
-versions, so match on `code`).
+versions, so match on `code`). A `script-crlf` or `script-syntax` finding also has `script`, the
+script's path relative to the skill directory.
 
 The field list above is the contract that `tests/test_catalog_output_docs.py` checks against
 the rows the scan writes: a key added to a row must be added here.

@@ -35,6 +35,7 @@ def test_process_counters_are_descriptive_measures(tmp_path):
         raw = "__guidance-raw__" in name
         return {"tool_calls": 10 if raw else 14, "commands": 4, "failed_commands": 0 if raw else 2,
                 "denied_commands": 0, "guidance_read": ["AGENTS.md"] if raw else [],
+                "guidance_searched": ["AGENTS.md", "docs/AGENTS.md", "src/AGENTS.md"] if raw else ["AGENTS.md"],
                 "unknown_reads": 0 if raw else 2, "counters": {"bazel": 3 if raw else 1}}
 
     _with_process(tmp_path, process)
@@ -42,9 +43,10 @@ def test_process_counters_are_descriptive_measures(tmp_path):
     measures = [r["measure"] for r in summary["comparisons"]]
     assert measures[:3] == ["gate", "cost_usd", "turns"]
     assert measures[3:] == ["process:tool_calls", "process:commands", "process:failed_commands",
-                            "process:denied_commands", "process:guidance_read", "process:unknown_reads",
-                            "counter:bazel"]
+                            "process:denied_commands", "process:guidance_read", "process:guidance_searched",
+                            "process:unknown_reads", "counter:bazel"]
     assert _row(summary, "process:unknown_reads")["delta"]["mean"] == pytest.approx(-2.0)
+    assert _row(summary, "process:guidance_searched")["delta"]["mean"] == pytest.approx(2.0)  # 3 searched files, against 1
     row = _row(summary, "process:tool_calls")
     assert (row["n_tasks"], row["baseline_mean"], row["treatment_mean"]) == (3, 14.0, 10.0)
     assert row["delta"]["mean"] == pytest.approx(-4.0) and row["down"] == 3 and row["p_holm"] is None
@@ -158,6 +160,16 @@ def test_unknown_reads_is_a_process_measure_beside_guidance_read(tmp_path):
                                           "counters": {"bazel": 1}})
     assert "process tool_calls 4, guidance_read 0, unknown_reads 1.5, counter:bazel 1" in \
         format_report(summarize(tmp_path))
+
+
+def test_guidance_searched_is_counted_as_a_list_and_shown_beside_guidance_read_in_the_report(tmp_path):
+    assert process_values({"process": {"guidance_read": ["a"], "guidance_searched": ["a", "b"]}}) == {
+        "process:guidance_read": 1.0, "process:guidance_searched": 2.0}
+    assert process_values({"process": {"guidance_searched": "AGENTS.md"}}) == {}  # not a list, not a number
+    _cell(tmp_path, "a", "guidance:raw", 1)
+    _with_process(tmp_path, lambda name: {"tool_calls": 4, "guidance_read": [], "guidance_searched": ["AGENTS.md", "b/AGENTS.md"],
+                                          "unknown_reads": 0, "counters": {}})
+    assert "process tool_calls 4, guidance_read 0, guidance_searched 2, unknown_reads 0" in format_report(summarize(tmp_path))
 
 
 def test_process_values_skip_what_is_not_a_count():

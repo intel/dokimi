@@ -183,7 +183,7 @@ def _cli(argv, monkeypatch, runner):
 
 
 def _check(root, out, runner, monkeypatch, *extra):
-    _cli(["eval", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--out", str(out),
+    _cli(["eval", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--out-dir", str(out),
           "--cache-root", str(out / "caches"), *extra], monkeypatch, runner)
 
 
@@ -411,7 +411,7 @@ def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_p
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     with pytest.raises(SystemExit):  # the budget stops it after one cell
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
-             "--max-batch-usd", "0.005")
+             "--max-usd", "0.005")
     assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
     summary = summarize(out / "b1")
     assert summary["unsupported"] == [] and summary["missing"] == ["fix_race__guidance-raw__m-1__r2"]
@@ -424,11 +424,11 @@ def test_a_resumed_run_keeps_the_batch_spend_it_already_made_under_the_cap(tmp_p
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     with pytest.raises(SystemExit):  # the cap stops it after one cell, which spends past the cap
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
-             "--max-batch-usd", "0.005")
+             "--max-usd", "0.005")
     capsys.readouterr()
     try:  # the same cap on resume: the spend already made still counts
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
-             "--max-batch-usd", "0.005")
+             "--max-usd", "0.005")
     except SystemExit:
         pass
     assert "0 ran, 1 already done, 0 crashed, 1 not started" in capsys.readouterr().out
@@ -441,8 +441,8 @@ def test_parallel_cells_reserve_their_budget_so_the_cap_is_not_passed_at_once(tm
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     capsys.readouterr()
     try:  # two cells in flight, each holding its budget until it is charged: the second may not start
-        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--jobs", "2",
-             "--max-batch-usd", "0.005")
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--concurrency", "2",
+             "--max-usd", "0.005")
     except SystemExit:
         pass
     assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
@@ -454,9 +454,9 @@ def test_a_cell_reserves_the_budget_its_task_allows_not_the_run_budget(tmp_path,
     with pytest.raises(SystemExit):  # every cell unsupported: no result
         _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     capsys.readouterr()
-    try:  # --budget 0.001 is below the task's 0.02: the first cell's reservation is 0.02, so the second may not start
-        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--jobs", "2",
-             "--budget", "0.001", "--max-batch-usd", "0.005")
+    try:  # --max-usd-per-cell 0.001 is below the task's 0.02: the first cell's reservation is 0.02, so the second may not start
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--concurrency", "2",
+             "--max-usd-per-cell", "0.001", "--max-usd", "0.005")
     except SystemExit:
         pass
     assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
@@ -510,7 +510,8 @@ def test_a_batch_spend_that_is_not_a_number_stops_the_run(tmp_path, text):
 
 
 @pytest.mark.parametrize("text", ["{broken", '{"spent_usd": NaN}', '{"spent_usd": -1}',
-                                  '{"spent_usd":' + "[" * 100000 + "0" + "]" * 100000 + "}"])
+                                  '{"spent_usd":' + "[" * 100000 + "0" + "]" * 100000 + "}"],
+                         ids=["invalid-json", "non-finite", "negative", "deeply-nested"])
 def test_a_batch_spend_that_cannot_be_read_does_not_stop_a_run_without_a_cap(tmp_path, monkeypatch, text):
     root = _repo(tmp_path)
     out = tmp_path / "runs"
@@ -805,7 +806,7 @@ def test_ctrl_c_in_a_threaded_batch_kills_each_container_a_worker_started(tmp_pa
 
     root = _repo(tmp_path)
     with pytest.raises(KeyboardInterrupt):
-        _run(root, tmp_path / "runs", DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--jobs", "2")
+        _run(root, tmp_path / "runs", DockerRunner(runner=process.FakeRunner(answer)), monkeypatch, "--concurrency", "2")
     assert started and set(started) <= set(killed), (started, killed)
     assert not list((tmp_path / "runs").rglob("result.json")), "an interrupted cell must not be recorded"
 
@@ -941,7 +942,7 @@ def test_a_probe_failure_leaves_no_marker_for_report_to_count(tmp_path, monkeypa
 def test_validate_reports_a_bad_host_shape(tmp_path, monkeypatch, capsys):
     root, _ = make_repo(tmp_path, {"fix_race": dict(RACE, host={"min_cpus": "4", "cpu_vendors": ["Intel"]})})
     with pytest.raises(SystemExit) as exc:
-        _cli(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml"], monkeypatch, HostRunner(None))
+        _cli(["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml"], monkeypatch, HostRunner(None))
     assert exc.value.code == 1
     err = capsys.readouterr()
     assert "host.min_cpus must be an integer >= 1" in err.out + err.err

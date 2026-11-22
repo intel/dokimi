@@ -229,7 +229,7 @@ def test_the_listing_charges_when_to_use_and_caps_it_with_the_description(tmp_pa
     })
     entries = _by_path(budget(tree, NAMES))
     listing = {p.split("/")[2]: e["chars"] for (p, kind), e in entries.items() if kind == "skill listing"}
-    assert listing == {"a": 1 + len("Format code.") + len("On save."), "b": 1 + 1536, "c": 1 + 1536}
+    assert listing == {"a": 1 + len("Format code. - On save."), "b": 1 + 1536, "c": 1 + 1536}
 
 
 def test_near_duplicate_and_missing_descriptions_warn(tmp_path):
@@ -294,7 +294,7 @@ def test_identical_two_word_descriptions_are_duplicates(tmp_path):
 @pytest.mark.outcome("cjm-repo-budget")
 def test_gate_passes_a_clean_tree(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, ".claude/skills/a/SKILL.md": _skill("a", "Format Python code.")})
-    out = _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys).out  # no SystemExit
+    out = _run(["repo", "budget", str(tmp_path), "--fail-on", "warn"], capsys).out  # no SystemExit
     assert "start 40 chars, lazy 0, on demand 13, off 0" in out and "warning" not in out
     assert "| start | guidance | CLAUDE.md | 20 |" in out
 
@@ -309,7 +309,7 @@ def _run(argv, capsys):
 def test_cli_table_and_gate(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, "AGENTS.md": "a" * 10, ".mcp.json": '{"mcpServers": {"docs": {}}}'})
     with refusal() as exc:
-        _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys)
+        _run(["repo", "budget", str(tmp_path), "--fail-on", "warn"], capsys)
     assert exc.code == 1
     out = _run(["repo", "budget", str(tmp_path)], capsys).out
     assert "start 20 chars, lazy 0, on demand 0, off 10" in out
@@ -697,7 +697,7 @@ def test_code_span_stripping_is_linear_on_backtick_runs():
 
     shapes = (lambda k: "`" * k, lambda k: "`" + "`a" * k, lambda k: "``" + "` " * k + "\n\n@x.md")
     for shape in shapes:
-        ratio, _ = growth(lambda k, shape=shape: partial(_strip_code_spans, shape(k)), 1_000)
+        ratio, _ = growth(lambda k, shape=shape: partial(_strip_code_spans, shape(k)), 1_250, reps=15)  # a call of 6 µs to 0.3 ms at n
         assert ratio < GROWTH_LIMIT
     assert _strip_code_spans("a `b` c ``d`e`` f") == "a  c  f"
     assert _strip_code_spans("`a\nb` @x.md") == " @x.md"

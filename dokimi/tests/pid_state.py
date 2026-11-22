@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 import os
-import time
 from pathlib import Path
+
+from tests.waiting import poll_until
 
 
 def pid_state(pid: int) -> str | None:
@@ -38,9 +39,7 @@ def pid_alive(pid: int) -> bool:
 
 def wait_until_gone(pids: list[int], grace_s: float) -> list[int]:
     """Wait up to ``grace_s`` seconds from now for every pid to stop running; the pids still running."""
-    deadline = time.monotonic() + grace_s
-    while any(map(pid_alive, pids)) and time.monotonic() < deadline:
-        time.sleep(0.05)
+    poll_until(lambda: not any(map(pid_alive, pids)), grace_s, interval=0.05)
     return [p for p in pids if pid_alive(p)]
 
 

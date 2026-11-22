@@ -63,14 +63,36 @@ _PWSH = frozenset({"pwsh", "powershell"})  # PowerShell: its script follows ``-C
 _PWSH_VALUES = frozenset({"-executionpolicy", "-ep", "-workingdirectory", "-wd", "-settingsfile", "-configurationname",
                           "-inputformat", "-outputformat"})  # PowerShell options whose next word is their value
 _GREP_VALUES = frozenset({"-m", "-A", "-B", "-C", "-d", "-D", "--max-count", "--after-context", "--before-context",
-                          "--context", "--label", "--binary-files", "--directories", "--devices"})
-_RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not", "--type-add", "-m", "--max-count",
-                        "-A", "-B", "-C", "--after-context", "--before-context", "--context", "-M", "--max-columns", "-j",
-                        "--threads", "-E", "--encoding", "-r", "--replace", "-d", "--max-depth", "--sort", "--sortr"})
+                          "--context", "--label", "--binary-files", "--directories", "--devices", "--include", "--exclude",
+                          "--exclude-from", "--exclude-dir", "--group-separator"})
+_RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not", "--type-add", "--type-clear", "-m",
+                        "--max-count", "-A", "-B", "-C", "--after-context", "--before-context", "--context", "-M",
+                        "--max-columns", "-j", "--threads", "-E", "--encoding", "-r", "--replace", "-d", "--max-depth",
+                        "--sort", "--sortr", "--ignore-file", "--pre", "--pre-glob", "--color", "--colors", "--engine",
+                        "--max-filesize", "--path-separator", "--context-separator", "--field-context-separator",
+                        "--field-match-separator", "--dfa-size-limit", "--regex-size-limit", "--hyperlink-format",
+                        "--hostname-bin"})
+_GIT_GREP_VALUES = frozenset({"-m", "-A", "-B", "-C", "--max-count", "--after-context", "--before-context", "--context",
+                              "--max-depth", "--threads"})  # git grep's own: no -d or -D, and --max-depth takes a word
 _SEARCH_VALUES = {"grep": _GREP_VALUES, "egrep": _GREP_VALUES, "fgrep": _GREP_VALUES, "rg": _RG_VALUES,
-                  "awk": frozenset({"-F", "-v"})}  # a searcher's options whose next word is a value, not an operand
+                  "git grep": _GIT_GREP_VALUES, "awk": frozenset({"-F", "-v"})}  # a searcher's options whose next word is a value, not an operand
 _PATTERN_FILE = frozenset({"-f", "--file"})  # a searcher's option whose value is a file it reads, and no expression
 _EXPRESSION = frozenset({"-e", "--regexp", "--expression"})  # a searcher's option whose value is the search expression
+_GNU_GREP_LONG = frozenset({
+    "basic-regexp", "extended-regexp", "fixed-regexp", "fixed-strings", "perl-regexp", "after-context", "before-context",
+    "binary-files", "byte-offset", "context", "color", "colour", "count", "dereference-recursive", "devices", "directories",
+    "exclude", "exclude-from", "exclude-dir", "file", "files-with-matches", "files-without-match", "group-separator",
+    "help", "include", "ignore-case", "no-ignore-case", "initial-tab", "label", "line-buffered", "line-number",
+    "line-regexp", "max-count", "no-filename", "no-group-separator", "no-messages", "null", "null-data", "only-matching",
+    "quiet", "recursive", "regexp", "invert-match", "silent", "text", "binary", "unix-byte-offsets", "version",
+    "with-filename", "word-regexp"})  # GNU grep's long options
+_GIT_GREP_LONG = frozenset({
+    "cached", "no-index", "index", "untracked", "exclude-standard", "recurse-submodules", "invert-match", "ignore-case",
+    "word-regexp", "text", "textconv", "recursive", "max-depth", "extended-regexp", "basic-regexp", "fixed-strings",
+    "perl-regexp", "line-number", "column", "full-name", "files-with-matches", "name-only", "files-without-match", "null",
+    "only-matching", "count", "color", "break", "heading", "context", "before-context", "after-context", "threads",
+    "show-function", "function-context", "and", "or", "not", "quiet", "all-match", "open-files-in-pager", "ext-grep",
+    "max-count"})  # git grep's long options
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
@@ -482,12 +504,32 @@ def _hits(probe: Probe, pipeline: list[list[Stage]]) -> bool:
 
 
 def _value_span(word: str, values: frozenset[str]) -> int:
-    """How many words a searcher's option takes with its value: 1 for ``--max-count=1``, 2 for ``-m 1`` and for a flag
-    cluster that ends in a value option (``-nA 2``), 0 for a word that is no such option."""
+    """How many words a searcher's option takes with its value: 1 for ``--max-count=1``, for ``-m1`` and for ``-g*.md``
+    (the letters after the first value option are its value), 2 for ``-m 1`` and for a flag cluster whose first value
+    option is its last letter (``-nA 2``), 0 for a word that is no such option."""
     name, eq, _ = word.partition("=")
     if name in values:
         return 1 if eq else 2
-    return 2 if re.fullmatch(r"-[^-=]{2,}", word) and f"-{word[-1]}" in values else 0
+    if not re.fullmatch(r"-[^-=]{2,}", word):
+        return 0
+    for at, c in enumerate(word[1:], 1):
+        if f"-{c}" in values:
+            return 2 if at == len(word) - 1 else 1
+    return 0
+
+
+def _attached_pattern(word: str, values: frozenset[str]) -> tuple[str, str, str] | None:
+    """A short cluster that holds ``-e`` or ``-f``: (the cluster before that letter, the letter, the rest of the word,
+    which is its value, or empty when the value is the next word). ``-ewarn`` is ``-e`` with ``warn``, ``-nf`` is ``-n``
+    and ``-f``. None when a letter that takes a value comes first (``-gfoo`` is ``-g`` with ``foo``) or there is none."""
+    if len(word) < 3 or word[0] != "-" or word[1] == "-":
+        return None
+    for at, c in enumerate(word[1:], 1):
+        if f"-{c}" in values:
+            return None
+        if c in "ef":
+            return word[:at], c, word[at + 1:]
+    return None
 
 
 def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
@@ -496,32 +538,100 @@ def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
     value (``rg -g '*.c'``, ``grep -m 1``) takes that word, which is neither."""
     if program not in _SEARCHERS:
         return args
+    operands, pattern_files, _, _ = search_words(program, args)
+    return pattern_files + operands
+
+
+def _pattern_option(args: Sequence[str], i: int, values: frozenset[str]) -> tuple[int, str, list[str]] | None:
+    """The option at ``args[i]`` that gives the search expression or a pattern file, else None: (the words it takes, the
+    short flags before it in its cluster, the pattern file it names). ``-e warn``, ``--regexp=warn``, ``-ewarn``, ``-nf F``."""
+    name, eq, value = args[i].partition("=")
+    if name in _EXPRESSION or name in _PATTERN_FILE:
+        before, is_file, inline = "", name in _PATTERN_FILE, value if eq else None
+    elif attached := _attached_pattern(args[i], values):
+        before, letter, rest = attached
+        is_file, inline = letter == "f", rest or None
+    else:
+        return None
+    named = inline if inline is not None else (args[i + 1] if i + 1 < len(args) else None)
+    return (1 if inline is not None else 2), before, [named] if is_file and named is not None else []
+
+
+def _match_limit(word: str, args: Sequence[str], i: int, values: frozenset[str]) -> str | None:
+    """The value ``args[i]`` gives to ``-m`` / ``--max-count`` (``-m0``, ``-nm 0``, ``--max-count=0``), else None."""
+    name, eq, value = word.partition("=")
+    if name in ("-m", "--max-count"):
+        return value if eq else (args[i + 1] if i + 1 < len(args) else None)
+    if name.startswith("-") and not name.startswith("--"):
+        # the caller found a value letter in this word: the cluster ends there, and the rest of it is that letter's value
+        at = next(k for k, c in enumerate(name) if k and f"-{c}" in values)
+        return (name[at + 1:] or (args[i + 1] if i + 1 < len(args) else None)) if name[at] == "m" else None
+    return None
+
+
+def _gnu_long(program: str, word: str) -> str:
+    """``word`` with the long option it names written in full, for GNU grep (``--max=1`` is ``--max-count=1``) and git grep
+    (``--max-d`` is ``--max-depth``), each against its own options: both read an unambiguous prefix of an option as the
+    option. rg is not held to this, and nor is a word that is no long option or whose prefix is ambiguous (``--exclu`` is
+    ``--exclude``, ``--exclude-from`` or ``--exclude-dir``)."""
+    name, eq, value = word.partition("=")
+    long = _GIT_GREP_LONG if program == "git grep" else _GNU_GREP_LONG
+    if program == "rg" or not name.startswith("--") or len(name) == 2 or name[2:] in long:
+        return word
+    hits = [n for n in long if n.startswith(name[2:])]
+    return f"--{hits[0]}{eq}{value}" if len(hits) == 1 else word
+
+
+def search_words(program: str, args: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...], frozenset[str], str | None]:
+    """A searcher's command line as (the files and directories it searches, the pattern files it reads (``-f``), the
+    options it was given: ``--quiet`` as written, a short one as ``-q`` also from a cluster, ``-nq``, the value of its
+    last ``-m`` / ``--max-count`` or None). Its search expression, an ``-e`` value or else the first operand, is none
+    of them, and nor is the value of an option in the table (``--exclude AGENTS.md``)."""
     values = _SEARCH_VALUES.get(program, frozenset())
     operands: list[str] = []
+    pattern_files: list[str] = []
+    flags: set[str] = set()
+    limit: str | None = None
     given = False  # an expression or a pattern file is named, so the first operand is no expression
     i = 0
+    args = list(args)
     while i < len(args):
-        word = args[i]
-        name, eq, value = word.partition("=")  # ``--file=F``; a plain operand is kept as it is
+        word = args[i] = _gnu_long(program, args[i])
         if word == "--":
             operands.extend(args[i + 1:])
             break
-        if name in _EXPRESSION or name in _PATTERN_FILE:
+        if pattern := _pattern_option(args, i, values):
+            used, before, pattern_file = pattern
             given = True
-            if name in _PATTERN_FILE:
-                if eq:
-                    operands.append(value)
-                elif i + 1 < len(args):
-                    operands.append(args[i + 1])
-            i += 1 if eq else 2
+            flags.update(_option_names(before, values))
+            pattern_files.extend(pattern_file)
+            i += used
         elif span := _value_span(word, values):
+            flags.update(_option_names(word, values))
+            limit = _match_limit(word, args, i, values) or limit
             i += span
         elif word.startswith("-") and len(word) > 1:
+            flags.update(_option_names(word, values))
             i += 1
         else:
             operands.append(word)
             i += 1
-    return tuple(operands) if given else tuple(operands[1:])
+    return (tuple(operands) if given else tuple(operands[1:])), tuple(pattern_files), frozenset(flags), limit
+
+
+def _option_names(word: str, values: frozenset[str] = frozenset()) -> set[str]:
+    """The options a word gives: ``--quiet`` (``--max-count=1`` as ``--max-count``), or a short cluster's letters, ``-nq`` as
+    ``-n`` and ``-q``. A cluster ends at its first letter that takes a value: the rest of the word is that value (``rg -tc``
+    is ``-t`` with the type ``c``, ``grep -cm1`` is ``-c`` and ``-m`` with 1)."""
+    name = word.partition("=")[0]
+    if name.startswith("--"):
+        return {name}
+    names: set[str] = set()
+    for c in word[1:]:
+        names.add(f"-{c}")
+        if f"-{c}" in values:
+            break
+    return names
 
 
 def _calls(args: tuple[str, ...], probe: Probe) -> bool:

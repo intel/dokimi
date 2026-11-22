@@ -739,7 +739,7 @@ def test_repo_reach_cli_dry_run_and_run(tmp_path, monkeypatch, capsys):
 @pytest.mark.outcome("cjm-repo-reach")
 def test_repo_reach_dry_run_shows_the_run_budget_and_turns(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "reach", str(_repo(tmp_path)), "--manifest", "evals/repo-eval.yaml",
-                                      "--model", "m", "--dry-run", "--budget", "0.02", "--max-turns", "2"])
+                                      "--model", "m", "--dry-run", "--max-usd-per-cell", "0.02", "--max-turns", "2"])
     args.func(args)
     argv = json.loads(capsys.readouterr().out)["runs"][0]["argv"]
     assert argv[argv.index("--max-budget-usd") + 1] == "0.02"
@@ -749,9 +749,9 @@ def test_repo_reach_dry_run_shows_the_run_budget_and_turns(tmp_path, capsys):
 @pytest.mark.parametrize("extra, message", [
     (["--scenarios", "root,cw"], "unknown --scenarios kind(s) cw"),
     (["--only", "read=nope"], "--only read=nope matches no scenario"),
-    (["--budget", "0"], "--budget must be > 0"),
-    (["--budget", "nan"], "--budget must be > 0"),
-    (["--budget", "inf"], "--budget must be > 0"),
+    (["--max-usd-per-cell", "0"], "--max-usd-per-cell must be > 0"),
+    (["--max-usd-per-cell", "nan"], "--max-usd-per-cell must be > 0"),
+    (["--max-usd-per-cell", "inf"], "--max-usd-per-cell must be > 0"),
 ])
 def test_repo_reach_rejects_selections_that_would_drop_scenarios(tmp_path, capsys, extra, message):
     args = build_parser().parse_args(["repo", "reach", str(_repo(tmp_path)), "--manifest", "evals/repo-eval.yaml",

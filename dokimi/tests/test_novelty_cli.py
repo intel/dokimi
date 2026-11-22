@@ -136,7 +136,7 @@ def test_dropping_the_baseline_arm_is_refused(tmp_path):
     # The CLI exits with the same message.
     (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                        encoding="utf-8")
-    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--estimate-only",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--dry-run",
                   "--arms", "full")
     with pytest.raises(InputError, match="^--arms must include no_artifact: the 2x2"):
         args.func(args)
@@ -735,7 +735,7 @@ def test_unread_spans_travel_from_novelty_atoms_to_shorten(tmp_path, monkeypatch
 
     out = tmp_path / "short.md"
     args = _parse("skill", "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
-                  "--budgets", "0.5", "--allow-unsafe", "--out", str(out))
+                  "--token-budgets", "0.5", "--allow-unsafe", "--out", str(out))
     args.func(args)
     captured = capsys.readouterr()
     assert "1 of" in captured.err and "were never read by extraction" in captured.err

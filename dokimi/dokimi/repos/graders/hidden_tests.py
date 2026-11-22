@@ -52,7 +52,7 @@ def _paths_problem(raw: dict[str, Any], key: str, required: bool) -> str | None:
 
 
 def task_problems(raw: dict[str, Any]) -> list[str]:
-    """Problems with a ``dokimi:hidden_tests`` task's own fields (checked by ``repo validate`` and ``eval check``)."""
+    """Problems with a ``dokimi:hidden_tests`` task's own fields (checked by ``eval check --schema-only`` and ``eval check``)."""
     problems = [p for p in (_paths_problem(raw, "hidden_tests", True), _paths_problem(raw, "hidden_files", False),
                             _paths_problem(raw, "reference_deleted", False)) if p]
     if not problems:

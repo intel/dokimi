@@ -149,7 +149,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     n_pair = sum(i["kind"] == "pair" for i in items)
     print(f"{len(doc['groups'])} groups -> {len(items)} items ({n_pair} pair, {len(items) - n_pair} control)"
           f" x {args.reps} reps = {len(items) * args.reps} calls"
-          + (f", stopping at ${args.max_cost_usd:g}" if args.max_cost_usd else ""))
+          + (f", stopping at ${args.max_usd:g}" if args.max_usd else ""))
     _print_skipped(tp.skipped_factors(doc, factors), len(doc["groups"]))
     if args.items_out:
         _write_items(args.items_out, items)
@@ -166,27 +166,27 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
 
     results = tp.run_probe(items, _first_turn_caller(args.model, args.provider, args.max_tokens),
                            reps=args.reps, concurrency=args.concurrency, on_progress=progress,
-                           max_cost_usd=args.max_cost_usd)
+                           max_cost_usd=args.max_usd)
     data = tp.payload(doc, items, results, model=args.model, provider=args.provider,
                       reps=args.reps, factors=factors, max_tokens=args.max_tokens,
-                      max_cost_usd=args.max_cost_usd)
+                      max_cost_usd=args.max_usd)
     _save_result(data, args.out_json)
     _print_summary(data["summary"])
     u = data["usage"]
     print(f"cost: {u['cost_usd']} USD over {u['n_calls']} calls ({u['cost_known_calls']} priced)")
     print(f"-> {args.out_json}")
-    if args.max_cost_usd and u["cost_known_calls"] < u["n_calls"] and data["summary"]["n_skipped"] == 0:
+    if args.max_usd and u["cost_known_calls"] < u["n_calls"] and data["summary"]["n_skipped"] == 0:
         print(f"Warning: {u['n_calls'] - u['cost_known_calls']} call(s) had no price and did not count "
-              f"toward --max-cost-usd", file=sys.stderr)
+              f"toward --max-usd", file=sys.stderr)
     if data["summary"]["n_calls"] and data["summary"]["n_errors"] == data["summary"]["n_calls"]:
         first = next(r["error"] for r in results if r["error"])
         print(f"Error: all {len(results)} call(s) failed ({first}); see results[].error in {args.out_json}",
               file=sys.stderr)
         raise SystemExit(EXIT_FAILURE)  # a runtime failure: every model call failed (docs/quickstart.md)
     if data["summary"]["n_skipped"]:
-        why = (f"--max-cost-usd {args.max_cost_usd:g} reached"
+        why = (f"--max-usd {args.max_usd:g} reached"
                if u["cost_known_calls"] == u["n_calls"]
-               else "a call came back with no price, so --max-cost-usd cannot be enforced")
+               else "a call came back with no price, so --max-usd cannot be enforced")
         print(f"Error: {why}; {data['summary']['n_skipped']} of {len(results)} call(s) not run, "
               f"the summary covers the rest. See {args.out_json}", file=sys.stderr)
         raise SystemExit(EXIT_INCONCLUSIVE)  # the documented "run incomplete" exit (docs/quickstart.md), not a usage refusal
@@ -209,10 +209,10 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                         help="Comma list of factors (default: vendor_name,assertive,social_proof,long_desc,exclusion)")
     pref_p.add_argument("--reps", type=positive_int, default=3,
                         help="Calls per item at the provider's default sampling (default: 3)")
-    pref_p.add_argument("--max-tokens", type=positive_int, default=2048, dest="max_tokens",
-                        help="Per call; reasoning models spend part of it before the tool call (default: 2048)")
+    cli_flags.add(pref_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=2048, dest="max_tokens",
+                  help="Per call; reasoning models spend part of it before the tool call (default: 2048)")
     pref_p.add_argument("--concurrency", type=positive_int, default=8)
-    pref_p.add_argument("--max-cost-usd", type=positive_usd, default=None, dest="max_cost_usd",
+    cli_flags.add(pref_p, "spend", "--max-usd", type=positive_usd, default=None, dest="max_usd", metavar="X",
                         help="Start no new call once the priced calls have spent this much; the calls "
                              "not started are recorded as skipped and, if there are any, the command "
                              "exits 3 (default: no cap)")

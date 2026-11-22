@@ -5,9 +5,9 @@
 
 The framework counts what every repository asks of a trace:
 
-- ``tool_calls``: every event of a known kind (:data:`~dokimi.repos.event_format.KNOWN_KINDS`), so every tool call
-  of the parent and its subagents, and each ``read`` event kept
-  from a shell command, a denied one or one of a failed multi-file read (``cat a missing``) too;
+- ``tool_calls``: every tool event (:data:`~dokimi.repos.event_format.TOOL_KINDS`), so every tool call of the
+  parent and its subagents, and each ``read`` event kept from a shell command, a denied one or one of a
+  failed multi-file read (``cat a missing``) too;
 - ``commands``: the ``command`` events;
 - ``failed_commands``: commands not denied whose ``rc`` is neither ``0`` nor ``null`` (``null`` means
   no result came back, which is not a failure; a permission denial carries ``rc`` 1 but never ran);
@@ -15,7 +15,12 @@ The framework counts what every repository asks of a trace:
 - ``guidance_read``: the sorted workspace paths of ``read`` events (a read tool, or a shell command that only
   prints files, ``cat`` / ``head`` / ``tail`` / ``nl`` / ``sed -n``; a pipe, ``grep`` or ``rg`` is not one) not
   denied that the manifest's guidance globs match; a path outside the workspace (absolute, or with ``..``) is
-  no repository file;
+  no repository file. ``repo run`` keeps only the guidance files the workspace held as the agent started (``is_guidance``
+  tells them): a multi-file read (``cat a missing``) keeps its reads, as its exit does not say which file failed;
+- ``guidance_searched``: the sorted workspace paths, under the same rules as ``guidance_read``, in the ``searched`` list of
+  a ``command`` event not denied (a ``grep``, ``egrep``, ``fgrep``, ``rg`` or ``git grep`` that showed lines of the file) or of
+  a Claude Code ``Grep`` ``tool`` event (``output_mode`` ``content``). The files are not in ``guidance_read``, and the
+  search is no ``read`` event, so ``tool_calls`` does not count it;
 - ``unknown_reads``: the relative shell reads the trace made at a directory the converter could not follow
   (after ``source env.sh``, say), which have no ``read`` event: ``guidance_read`` may miss them. It comes from
   the converter (:attr:`~dokimi.repos.transcript.Transcript.unknown_reads`), not from the events.
@@ -35,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from dokimi.repos.event_format import KNOWN_KINDS
+from dokimi.repos.event_format import TOOL_KINDS
 
 COUNTER_FIELDS = ("text", "output", "any")
 
@@ -90,12 +95,17 @@ def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[
     # A read that failed (rc 1: the file does not exist) read no guidance.
     reads = {w for e in events if e.get("kind") == "read" and e.get("path") and not e.get("denied")
              and e.get("rc") in (0, None) and (w := _workspace_path(str(e["path"]))) is not None}
+    # A search that failed as one search of one file, or that a relative path after a shell move left unknown, has no
+    # ``searched`` (the converter drops it); a refused command searched nothing.
+    searched = {w for e in events if e.get("searched") and not e.get("denied") for p in e["searched"]
+                if (w := _workspace_path(str(p))) is not None}
     return {
-        "tool_calls": sum(e.get("kind") in KNOWN_KINDS for e in events),
+        "tool_calls": sum(e.get("kind") in TOOL_KINDS for e in events),
         "commands": len(commands),
         "failed_commands": sum(e.get("rc") not in (0, None) and not e.get("denied") for e in commands),
         "denied_commands": sum(bool(e.get("denied")) for e in commands),
         "guidance_read": sorted(p for p in reads if is_guidance(p)),
+        "guidance_searched": sorted(p for p in searched if is_guidance(p)),
         "unknown_reads": unknown_reads,
         "counters": {name: sum(c.hits(e) for e in commands) for name, c in (counters or {}).items()},
     }

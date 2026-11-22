@@ -18,14 +18,39 @@ _POSIX = sys.platform != "win32"
 
 
 def joined_pairs(text: str) -> str:
-    """*text* with each high surrogate followed by a low one (a JSON ``\\ud83d\\ude00`` escape, which PyYAML and ``json``
-    load as two code points) joined into its character; a lone surrogate stays, for ``errors="replace"`` to write as ``?``."""
+    """*text* with each high surrogate followed by a low one (a YAML double-quoted ``"\\ud83d\\ude00"`` escape, which PyYAML
+    loads as two code points; ``json`` joins the pair itself) joined into its character; a lone surrogate stays, for ``errors="replace"`` to write as ``?``."""
     return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
 
 
 def utf8_bytes(text: str) -> bytes:
     """*text* as UTF-8 with its surrogate pairs joined (:func:`joined_pairs`) and a lone surrogate sent as ``?``."""
     return joined_pairs(text).encode("utf-8", "replace")
+
+
+def text_file_bytes(text: str) -> bytes:
+    """What ``Path.write_text(text, encoding="utf-8")`` writes on this platform (``\\n`` as ``os.linesep``) for text that
+    encodes; a lone surrogate is a ``?`` and a pair is joined (:func:`utf8_bytes`), where ``write_text`` raises."""
+    return utf8_bytes(text if os.linesep == "\n" else text.replace("\n", os.linesep))
+
+
+def argv_text(text: str) -> str:
+    """An argv entry as the child gets it: pairs joined (:func:`joined_pairs`), and each character ``os.fsencode`` cannot
+    encode (a lone surrogate) a ``?``. On POSIX U+DC80..U+DCFF stay: ``os.fsdecode`` makes them of a non-UTF-8 file name."""
+    joined = joined_pairs(text)
+    try:
+        os.fsencode(joined)
+    except UnicodeEncodeError:
+        return "".join("?" if 0xD800 <= ord(char) <= 0xDFFF and not _fs_encodable(char) else char for char in joined)
+    return joined
+
+
+def _fs_encodable(char: str) -> bool:
+    try:
+        os.fsencode(char)
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def path_text(raw: bytes) -> str:

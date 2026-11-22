@@ -29,6 +29,8 @@ import re
 from dataclasses import dataclass, replace
 from typing import Iterable, Mapping, Optional, Sequence
 
+from dokimi.text_spans import pairs
+
 # A citation line: a path token, optionally followed by ``:start`` or
 # ``:start-end`` (also accepts an en-dash and ``start:end``). The path may be
 # wrapped in backticks or surrounded by list/bullet noise, which we strip first.
@@ -36,9 +38,8 @@ _RANGE_RE = re.compile(
     r"^(?P<path>[^\s:`]+)"
     r"(?::(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?)?$"
 )
-_FINAL_ANSWER_RE = re.compile(
-    r"<final_answer>(.*?)</final_answer>", re.IGNORECASE | re.DOTALL
-)
+_FINAL_ANSWER_OPEN = re.compile(r"<final_answer>", re.IGNORECASE)
+_FINAL_ANSWER_CLOSE = re.compile(r"</final_answer>", re.IGNORECASE)
 # Fallback when no <final_answer> block exists: scan for path:line(-line) tokens. A
 # wrapping pair around the whole citation, ``(src/a.py:10)``, is not part of the path;
 # a leading bracket with no closer after the range, ``(app)/page.tsx:10``, is.
@@ -184,10 +185,11 @@ def parse_final_answer(text: str) -> CitationSet:
     falls back to scanning the whole text for ``path:line`` tokens (and reports
     no malformed lines, since intent cannot be inferred outside the block).
     """
-    blocks = _FINAL_ANSWER_RE.findall(text or "")
+    text = text or ""
+    blocks = [text[o.end():c.start()] for o, c in pairs(text, _FINAL_ANSWER_OPEN, _FINAL_ANSWER_CLOSE)]
     if blocks:
         return _parse_block(blocks[-1])
-    return _parse_loose(text or "")
+    return _parse_loose(text)
 
 
 def _parse_block(block: str) -> CitationSet:
