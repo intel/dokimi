@@ -299,7 +299,7 @@ next release.
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
   unreadable files (non-UTF-8, dangling or out-of-tree link), on imports past the harness's
   hop limit, and on a link at or below `.claude/rules` to a directory or out of the tree, or a root `.claude` link to a
-  directory with `rules/` or out of the tree, or a git submodule at `.claude` or at or below `.claude/rules` (the rules behind it are not counted at start), each of which also trips `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
+  directory with `rules/` or out of the tree, or a git submodule at `.claude` or at or below `.claude/rules` (the rules behind it are not counted at start), each of which also trips `--fail-on warn`. For a profile with `guidance.claude_rules` (Claude Code),
   `.claude/rules/**/*.md` files are `rule` entries: `start` in the root `.claude/rules/` when
   `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, but `start` whatever its `paths` when a root CLAUDE.md or
   AGENTS.md imports it, the frontmatter not counted. An `@` path in a rule is not followed, unless a CLAUDE.md or AGENTS.md
@@ -531,7 +531,7 @@ runs `pip check` and the installed-package smoke test,
    hooks and bandit (pip-audit is its own workflow, `pip-audit.yml`). Schema checks: `schema_check` validates
    `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
    `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs
-   `repo scan` as a gate (`--fail-on-fail`).
+   `repo scan` as a gate (`--fail-on fail`).
 2. **mypy** — type check of the whole package (modules listed in the
    `pyproject.toml` override are exempt until fixed).
 3. **test** — pytest from `requirements.lock.txt`, offline, in parallel

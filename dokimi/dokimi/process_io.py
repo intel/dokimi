@@ -22,8 +22,8 @@ _ASTRAL = re.compile("[\U00010000-\U0010ffff]")
 
 
 def joined_pairs(text: str) -> str:
-    """*text* with each high surrogate followed by a low one (a JSON ``\\ud83d\\ude00`` escape, which PyYAML and ``json``
-    load as two code points) joined into its character; a lone surrogate stays, for ``errors="replace"`` to write as ``?``."""
+    """*text* with each high surrogate followed by a low one (a YAML double-quoted ``"\\ud83d\\ude00"`` escape, which PyYAML
+    loads as two code points; ``json`` joins the pair itself) joined into its character; a lone surrogate stays, for ``errors="replace"`` to write as ``?``."""
     return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
 
 
@@ -47,6 +47,12 @@ def _distinct_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     if len(set(keys)) < len(keys):
         raise ValueError("two object keys are the same once their surrogate pairs are joined; a reader would keep one")
     return dict(pairs)
+
+
+def text_file_bytes(text: str) -> bytes:
+    """What ``Path.write_text(text, encoding="utf-8")`` writes on this platform (``\\n`` as ``os.linesep``) for text that
+    encodes; a lone surrogate is a ``?`` and a pair is joined (:func:`utf8_bytes`), where ``write_text`` raises."""
+    return utf8_bytes(text if os.linesep == "\n" else text.replace("\n", os.linesep))
 
 
 def argv_text(text: str) -> str:

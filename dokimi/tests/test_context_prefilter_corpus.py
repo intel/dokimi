@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from dokimi.cli import build_parser
 from dokimi.commands.context import _read_sessions
 from dokimi.context.session_log import read_session_tree
-from tests.test_context_prefilter import _prompt, _report, _row, _tool, _write
+from tests.test_context_prefilter import GUIDE, _prompt, _report, _row, _tool, _write
 
 RULE = "- Run `make ci-local` when pushing a branch.\n"
 
@@ -92,3 +95,33 @@ def test_a_resumed_log_that_repeats_records_is_one_session_with_each_record_once
     assert (len(sessions), row["sessions_triggered"], row["episodes"], row["status"]) == (12, 3, 3, "rare_not_ranked")
     assert [len(s.events) for s in sessions[:3]] == [3, 3, 3]
     assert "b0.jsonl: repeats records of" in capsys.readouterr().err
+
+
+def _json_status(tmp_path, capsys, *logs):
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), *map(str, logs), "--min-sessions", "1", "--json"])
+    args.func(args)
+    return json.loads(capsys.readouterr().out)["status"]
+
+
+def _bad_line(path):
+    path.write_text(path.read_text(encoding="utf-8") + "not json\n", encoding="utf-8")
+    return path
+
+
+def test_a_skipped_line_of_a_resumed_log_merged_into_its_first_makes_the_report_partial(tmp_path, capsys):
+    """#938: ``docs/session-prefilter.md`` makes a report ``partial`` when a session had skipped records."""
+    earlier = [_at(1, _prompt("push the branch now"), uuid="p")]
+    a = _write(tmp_path / "a.jsonl", earlier)
+    b = _bad_line(_write(tmp_path / "b.jsonl", [*earlier, _at(2, _prompt("thanks"), uuid="n")]))
+    assert _json_status(tmp_path, capsys, a, b) == "partial"
+
+
+def test_a_skipped_line_of_a_subagent_transcript_named_alone_makes_the_report_partial(tmp_path, capsys):
+    """#938: the transcript is left out of the corpus, but its skipped records still count."""
+    good = _write(tmp_path / "s.jsonl", [_at(1, _prompt("push the branch now"))])
+    (tmp_path / "x" / "subagents").mkdir(parents=True)
+    lone = _bad_line(_write(tmp_path / "x" / "subagents" / "agent-1.jsonl",
+                            [_at(3, _tool("Bash", command="ls"), isSidechain=True)]))
+    assert _json_status(tmp_path, capsys, good, lone) == "partial"

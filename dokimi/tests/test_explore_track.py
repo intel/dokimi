@@ -174,7 +174,7 @@ def test_explore_list_passes_repo_root_from_cli(tmp_path, capsys):
 
     parser = build_parser()
     args = parser.parse_args(
-        ["explore", "list", "--tasks-root", str(tmp_path), "--repo-root", str(external)]
+        ["eval", "tasks", "list", "--format", "localization", "--tasks-root", str(tmp_path), "--repo-root", str(external)]
     )
     assert args.repo_root == str(external)
 
@@ -196,7 +196,7 @@ def test_explore_list_passes_repo_root_from_cli(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("argv", [
-    ["explore", "list"],
+    ["eval", "tasks", "list", "--format", "localization"],
     ["explore", "run", "--all"],
     ["explore", "run", "--tasks", "t"],
 ])

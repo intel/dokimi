@@ -25,6 +25,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from dokimi.text_spans import replace_pairs
 from dokimi.utils import InputError, refuse_device
 
 # Input keys whose value is file content or a model-facing brief, not the agent's intent: left out of an event's text.
@@ -35,8 +36,8 @@ _SUBAGENT_TOOLS = frozenset({"Task", "Agent"})
 _PATH_KEYS = ("file_path", "path", "notebook_path")
 # Markup a harness wraps around text it injects into a user turn; not the user's words.
 # ``bash-stdout`` and ``bash-stderr`` hold what a ``!`` shell turn printed: output, not the user's words.
-_INJECTED = re.compile(r"<(system-reminder|command-[a-z-]+|local-command-[a-z-]+|bash-stdout|bash-stderr)>.*?</\1>",
-                       re.S)
+_INJECTED_TAG = r"(system-reminder|command-[a-z-]+|local-command-[a-z-]+|bash-stdout|bash-stderr)"
+_INJECTED_OPEN, _INJECTED_CLOSE = re.compile(f"<{_INJECTED_TAG}>"), re.compile(f"</{_INJECTED_TAG}>")
 # the record Claude Code writes when the user stops a turn or a tool call: the harness's words, not a prompt
 _INTERRUPTED = re.compile(r"\[Request interrupted by user(?: for tool use)?\]")
 _ERROR_LIMIT = 20
@@ -65,6 +66,7 @@ class Session:
     name: str
     events: list[Event] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    errors_dropped: int = 0  # problems past the limit on ``errors``: counted, not listed
     sidechain_only: bool = False  # every prompt and tool record is a subagent's: a transcript without its session
 
 
@@ -123,7 +125,8 @@ def merge_repeats(sessions: list[Session]) -> tuple[list[Session], list[str]]:
             events += [e for e in session.events if not e.uuid or e.uuid not in seen]
             seen |= {e.uuid for e in session.events}
             notes.append(f"{session.name}: repeats records of {first.name} (a resumed or forked session); read as one")
-        merged.append(Session(first.name, in_time_order(events)) if rest else first)
+        errors = [e for s in (first, *rest) for e in s.errors]  # #938: a merged log's skipped records still count
+        merged.append(Session(first.name, in_time_order(events), errors) if rest else first)
     return merged, notes
 
 
@@ -162,13 +165,15 @@ def parse_session(raw: str, name: str = "") -> Session:
 
 def prompt_text(raw: str) -> str:
     """The user's own words: harness markup removed, edges trimmed. An interruption marker alone is no words."""
-    text = _INJECTED.sub(" ", raw).strip()
+    text = replace_pairs(raw, _INJECTED_OPEN, _INJECTED_CLOSE, lambda _: " ").strip()
     return "" if _INTERRUPTED.fullmatch(text) else text
 
 
 def add_error(session: Session, message: str) -> None:
     if len(session.errors) < _ERROR_LIMIT:
         session.errors.append(message)
+    else:
+        session.errors_dropped += 1
 
 
 def _shape_problem(rec: dict[str, Any]) -> str | None:

@@ -18,8 +18,8 @@ on:
 permissions:
   contents: read
 
-# Runners: pull_request runs, fork PRs too, go to dokimi-ec2 (persistent hosts); main, schedules and LINUX_RUNNER_OFF=true
-# go to intel-ubuntu-latest (ephemeral), forks of the repo to ubuntu-latest. https://github.com/intel/dokimi/pull/272
+# Runners: pull_request runs, fork PRs too, go to dokimi-ec2 (persistent hosts); every other run, and every run while
+# LINUX_RUNNER_OFF=true, goes to GitHub-hosted ubuntu-latest, so no secret or write token meets fork code. https://github.com/intel/dokimi/pull/272
 
 # A new push to a PR supersedes the run in flight; other runs get a group of their own (run_id), as a shared one drops queued main pushes.
 # A label the steps do not read gets one too and skips its jobs, so it cancels nothing: https://github.com/intel/dokimi/actions/runs/42551017626
@@ -47,7 +47,7 @@ jobs:
   static:
     name: Static checks (ruff, schema, zizmor, licenses, pre-commit, bandit, secrets, changelog, schema compat)
     if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       # Full history: the commit scan, the changelog and schema checks diff
@@ -86,9 +86,13 @@ jobs:
       - name: Duplicate code ratchet
         if: ${{ !cancelled() }}
         run: python scripts/check_duplicates.py
+      # No new time.sleep or threading.Timer in tests/ past scripts/test_timing_baseline.json.
+      - name: Test timing ratchet
+        if: ${{ !cancelled() }}
+        run: python scripts/check_test_timing.py
       - name: guidance self-scan (L0)
         if: ${{ !cancelled() }}
-        run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on-fail
+        run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on fail
       # Static audit of the workflow files: unpinned actions, template injection,
       # credential persistence, over-broad token permissions.
       - name: zizmor
@@ -247,7 +251,7 @@ jobs:
   typecheck:
     name: mypy
     if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -281,12 +285,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: deptry .
 
-  # Waits for `static`, PR-only checks included, so a PR that fails one never boots the matrix on
-  # the pool; typecheck and windows-smoke do not wait.
+  # Waits for `static`, PR-only checks included, so a PR that fails one never starts the matrix on
+  # a runner; typecheck and windows-smoke do not wait.
   test:
     name: Tests (py${{ matrix.python-version }})
     needs: static
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     permissions:
       contents: read
       # Codecov upload over OIDC, so no upload token is stored. PRs from forks
@@ -301,12 +305,10 @@ jobs:
         include:
           - python-version: '3.14'
             coverage: true
-        # A PR runs the two ends, 3.11 (the floor) and 3.14 (the coverage leg);
-        # the middle versions run on main, weekly and on dispatch. A break on
-        # 3.12 or 3.13 alone is rare and shows on main right after the merge.
-        # Excluded by expression, not by a computed list: ci_local.py reads
-        # python-version as a list. On other events the entries match no leg.
+        # A PR runs the coverage leg (3.14) only; main, weekly and dispatch run all four. Excluded by
+        # expression, as ci_local.py reads python-version as a list; elsewhere 'none' matches no leg.
         exclude:
+          - python-version: ${{ github.event_name == 'pull_request' && '3.11' || 'none' }}
           - python-version: ${{ github.event_name == 'pull_request' && '3.12' || 'none' }}
           - python-version: ${{ github.event_name == 'pull_request' && '3.13' || 'none' }}
     steps:
@@ -398,7 +400,7 @@ jobs:
     name: Mutation of changed lines
     if: github.event_name == 'pull_request'
     needs: static
-    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -430,7 +432,7 @@ jobs:
   fidelity:
     name: Fidelity golden (claude-code 2.1.318)
     needs: static
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -460,7 +462,7 @@ jobs:
   test-latest:
     name: Tests (latest deps, py3.13)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -482,7 +484,7 @@ jobs:
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
     needs: static
-    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false

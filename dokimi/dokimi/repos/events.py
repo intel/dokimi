@@ -51,6 +51,7 @@ from typing import Any
 from dokimi.context.trace import parse_trace
 
 from .cli_traces import _failed_read, codex_json, copilot_json, shell_walk
+from .turn_events import claude_events
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
@@ -130,8 +131,10 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     _walk_bash(out, stream)
     _settle_bash(out, stream.bash.values())
-    main = parse_trace(raw).main_calls()
+    trace = parse_trace(raw)
+    main = trace.main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
+    out.events.extend(claude_events(trace, start))
     return out
 
 

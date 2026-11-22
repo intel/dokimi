@@ -319,7 +319,7 @@ def test_shorten_refuses_a_sample_the_entry_point_leaves_empty(tmp_path, monkeyp
     path.write_text(json.dumps(data))
     out = tmp_path / "short.md"
     argv = ("shorten", "--artifact", f"skill:{skill}", "--atoms", str(path), "--lexical-only",
-            "--budgets", "0.5", "--out", str(out))
+            "--token-budgets", "0.5", "--out", str(out))
     with pytest.raises(InputError) as exit_info:
         _cli(monkeypatch, *argv)
     assert not out.exists()
@@ -343,7 +343,7 @@ def test_the_shorten_note_counts_the_file_atoms_not_the_entry_point_subset(
         {"path": "references/r.md", "start": data["spans"][4]["start"]}]}
     path.write_text(json.dumps(data))
     _cli(monkeypatch, "shorten", "--artifact", f"skill:{skill}", "--atoms", str(path),
-         "--lexical-only", "--budgets", "0.5", "--out", str(tmp_path / "short.md"))
+         "--lexical-only", "--token-budgets", "0.5", "--out", str(tmp_path / "short.md"))
     err = capsys.readouterr().err
     assert f"{path} records as the cap's sample, of its 7; spans are indexed from all 7." in err
 

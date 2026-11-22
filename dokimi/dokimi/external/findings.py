@@ -15,11 +15,15 @@ from typing import Iterable, Optional
 
 @dataclass
 class Finding:
-    """One check that did not pass: ``level`` is ``note``, ``warn`` or ``error``."""
+    """One check that did not pass: ``level`` is ``note``, ``warn`` or ``error``.
+
+    ``script`` is the bundled script a script finding is about, relative to the skill directory (#961); None otherwise.
+    """
 
     level: str
     code: str
     message: str
+    script: Optional[str] = None
 
 
 def state_of(findings: Iterable[Finding]) -> str:
@@ -37,6 +41,7 @@ class SkillReview:
     duplicate_of: Optional[str] = (
         None  # the skill directory of the earlier copy, relative to the catalog root
     )
+    listing_chars: Optional[int] = None  # the skill's entry in a skill listing (listing.entry_chars); None when unread
 
     @property
     def state(self) -> str:

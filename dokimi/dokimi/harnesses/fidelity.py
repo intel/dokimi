@@ -40,6 +40,7 @@ from dokimi.container_policy import ContainerPolicy
 from dokimi.harnesses.agent_sandbox import agent_env
 from dokimi.harnesses.payload_audit import Leak, new_leaks
 from dokimi.process_io import json_utf8_bytes
+from dokimi.text_spans import pairs, replace_pairs
 
 #: The Claude Code release the golden is captured with; CI installs this one.
 PINNED_CLAUDE_VERSION = "2.1.318"
@@ -231,12 +232,26 @@ def _walk(value: Any, fn: Callable[[str], str]) -> Any:
 #: The client's token-budget and commit-attribution reminders: part of the golden, removed
 #: only for an operator-host capture whose client adds its own (``keep_skills`` set).
 OPERATOR_REMINDERS = ("<total_tokens>", "Attribution for git commits", "End git commit messages with")
-_TOKEN_BUDGET = re.compile(r"\n*<total_tokens>.*?</total_tokens>", re.DOTALL)
+_TOKEN_BUDGET_OPEN, _TOKEN_BUDGET_CLOSE = re.compile(r"<total_tokens>"), re.compile(r"</total_tokens>")
+
+
+def _without_token_budget(text: str) -> str:
+    """``text`` without each ``<total_tokens>...</total_tokens>`` element and the newlines before it."""
+    out, pos = [], 0
+    for o, c in pairs(text, _TOKEN_BUDGET_OPEN, _TOKEN_BUDGET_CLOSE):
+        start = o.start()
+        while start > pos and text[start - 1] == "\n":
+            start -= 1
+        out.append(text[pos:start])
+        pos = c.end()
+    return "".join(out) + text[pos:]
+
+
 #: The operator's commit-attribution rule, as the reminder words it in each build.
 _ATTRIBUTION_MARKS = ("Attribution for git commits", "End git commit messages with")
 _ATTRIBUTION = re.compile(r"^[^\n]*(?:%s)[^\n]*(?:\n|$)" % "|".join(map(re.escape, _ATTRIBUTION_MARKS)),
                           re.MULTILINE)
-_REMINDER_ELEMENT = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+_REMINDER_OPEN, _REMINDER_CLOSE = re.compile(r"<system-reminder>"), re.compile(r"</system-reminder>")
 _SKILLS_HEADER = "The following skills are available for use with the Skill tool:"
 
 
@@ -281,9 +296,9 @@ def _keep_text(text: str, keep_skills: Optional[Sequence[str]]) -> Optional[str]
     """
     if keep_skills is None:
         return text
-    cleaned = _REMINDER_ELEMENT.sub(
-        lambda m: "" if any(mk in m.group(0) for mk in _ATTRIBUTION_MARKS) else m.group(0), text)
-    cleaned = _ATTRIBUTION.sub("", _TOKEN_BUDGET.sub("", cleaned))
+    cleaned = replace_pairs(text, _REMINDER_OPEN, _REMINDER_CLOSE,
+                            lambda span: "" if any(mk in span for mk in _ATTRIBUTION_MARKS) else span)
+    cleaned = _ATTRIBUTION.sub("", _without_token_budget(cleaned))
     if cleaned != text and not re.sub(r"</?system-reminder>|\s", "", cleaned):
         return None  # only the reminder's wrapper is left: the block was the reminder
     text = cleaned
@@ -318,7 +333,7 @@ def _strip_system(system: Any) -> Any:
     """The client also appends a token budget to the system prompt; drop it (operator host)."""
     if not isinstance(system, list):
         return system
-    return [{**blk, "text": _TOKEN_BUDGET.sub("", blk["text"])}
+    return [{**blk, "text": _without_token_budget(blk["text"])}
             if isinstance(blk, dict) and isinstance(blk.get("text"), str) else blk
             for blk in system]
 

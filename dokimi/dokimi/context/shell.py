@@ -18,6 +18,8 @@ import re
 import shlex
 from pathlib import Path
 
+from dokimi.text_spans import HeredocPattern
+
 #: Separators between commands, and what each says about the status a call reports: ``a && b`` fails
 #: as a whole when ``a`` does; after ``;``, a newline, ``||`` or ``&`` the status is a later command's.
 HIDING = {";", "\n", "||", "&"}
@@ -30,6 +32,9 @@ _NO_COMMAND = re.compile(r"^(?:(?:for|select|fi|done|esac|in|function)\b|\}(?=[\
 # `perl -Mstrict` is not an edit.
 _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
              "perl": re.compile(r"^-[pnalw0-9]*i[^-\s]*$")}
+_HEREDOC_DELIMITER = r"<<-?\s*['\"]?(\w+)['\"]?"
+_HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S), re.compile(_HEREDOC_DELIMITER),
+                          re.compile(r"^[^\S\n]*(\w+)[^\S\n]*$", re.M), word=1, gap=1)
 
 
 class _Scan:
@@ -106,7 +111,7 @@ def split_commands(command: str) -> list[tuple[str, str]]:
 
     Heredoc bodies and comments are dropped (their lines are data); a separator inside quotes,
     after a backslash, or inside ``$(...)`` / backticks does not split."""
-    command = re.sub(r"<<-?\s*['\"]?(\w+)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", r"<<\1\2", command, flags=re.S)
+    command = _HEREDOC.sub(lambda m: f"<<{m.group(1)}{m.group(2)}", command)
     out: list[tuple[str, str]] = []
     scan = _Scan(command)
     while scan.i < len(command):

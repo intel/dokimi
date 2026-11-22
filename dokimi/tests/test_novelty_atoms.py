@@ -56,7 +56,7 @@ def test_a_truncated_batch_is_split_and_every_span_still_yields_an_atom():
     assert report.warnings(len(spans)) == [
         f"atom extraction re-asked {report.retried_batches} unparseable batches as halves: "
         f"{len(calls)} extraction calls where 1 would do without splitting; a higher "
-        "--max-tokens avoids the extra calls"
+        "--max-output-tokens avoids the extra calls"
     ]
 
 
@@ -75,7 +75,7 @@ def test_a_span_that_never_parses_is_reported_not_silently_lost():
     assert [s.id for s in spans if s.unread] == [bad]
     lost = report.warnings(len(spans))[0]
     assert lost.startswith(f"atom extraction could not read 1 of {len(spans)} spans")
-    assert "did not parse even one span per call" in lost and "raise --max-tokens" in lost
+    assert "did not parse even one span per call" in lost and "raise --max-output-tokens" in lost
     assert "lost to calls that failed" not in lost
 
 
@@ -110,7 +110,7 @@ def test_a_partial_transport_failure_names_the_lost_spans():
     lost = report.warnings(len(spans))[0]
     assert "5 were lost to calls that failed, which are not split" in lost
     assert "RuntimeError: throttled" in lost
-    assert "--max-tokens" not in lost  # a failed call is not an output ceiling
+    assert "--max-output-tokens" not in lost  # a failed call is not an output ceiling
 
 
 def test_a_recovered_parse_error_does_not_hide_the_failure_that_lost_spans():
@@ -189,7 +189,7 @@ def test_an_empty_reply_is_its_own_cause_with_the_max_tokens_hint():
     assert report.warnings(len(spans)) == [
         f"atom extraction could not read 5 of {len(spans)} spans ({tokens} tokens): 5 got an "
         "empty reply, which a reasoning model returns when it spends the output ceiling "
-        "before answering, so raise --max-tokens (empty replies are not split: half a batch "
+        "before answering, so raise --max-output-tokens (empty replies are not split: half a batch "
         "comes back empty too). Unread spans are left out of `frac_carrying_nothing` and "
         "dead weight, labelled `unread`, kept by every shortening candidate, and listed in "
         "`extraction.unread_span_ids`; whatever they assert is missing from every rate"
@@ -224,7 +224,7 @@ def test_a_capped_extraction_sends_every_batch():
     assert (report.calls, report.batches, report.retried_batches) == (24, 8, 8)
     assert (
         "atom extraction re-asked 8 unparseable batches as halves: 24 extraction calls where "
-        "8 would do without splitting; a higher --max-tokens avoids the extra calls"
+        "8 would do without splitting; a higher --max-output-tokens avoids the extra calls"
     ) in report.warnings(len(spans))
     # The 120 kept are spread over all 600, one per 5, from the middle of the first stride.
     assert [a.span_ids[0] for a in atoms[:3]] == ["s0001", "s0003", "s0005"]

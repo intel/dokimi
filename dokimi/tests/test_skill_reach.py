@@ -871,8 +871,8 @@ def test_a_skill_reach_trace_is_versioned_and_validates(tmp_path, monkeypatch):
              for line in p.read_text(encoding="utf-8").splitlines()]
     assert lines
     for event in lines:
-        assert event["v"] == 1
-        assert schema_errors("repo_event.v1", event) == [], event
+        assert event["v"] == 2
+        assert schema_errors("repo_event.v2", event) == [], event
 
 
 def test_a_new_run_clears_the_traces_of_an_earlier_one(tmp_path):

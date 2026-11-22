@@ -131,7 +131,7 @@ guidance:
 A glob that matches no file is only a warning. To scan a file the globs leave out,
 add `also_scan: ["CONTRIBUTING.md"]` under `guidance`: `also_scan` names files the
 repository has and the gate must see, so a missing one makes the scan `incomplete`
-and `repo scan --fail-on-fail` exits 1.
+and `repo scan --fail-on fail` exits 1.
 
 The `id` must be lowercase: start with a letter or digit, then use only letters, digits, `.`, `_` and `-`.
 `reach` always adds the harness's own guidance file names (for example `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md`).
@@ -252,7 +252,8 @@ these, in order, before writing what it showed (the fields:
   content: the same file, within `window` lines of a thread, with no judge.
   `dokimi repo report <batch> --hits` finds the pairs but cuts each comment
   and finding to 100 characters (200 with `--json`): read each pair you cite
-  in full, the thread's `comment` in the task's `gold.json` (or at its `url`),
+  in full, the thread's `comment` in the file named by the task's `gold` field in
+  `task.json` (default `gold.json`; or at the thread's `url`),
   then the finding in the cell's `answer.txt`.
   `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
   every credited pair (`same point`, `related` or `unrelated`) and gives

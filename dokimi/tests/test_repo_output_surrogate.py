@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -61,3 +62,25 @@ def test_a_trace_whose_command_output_has_a_lone_surrogate_converts():
     assert json.loads(raw.splitlines()[1])["message"]["content"][0]["content"] == "n" + LONE_HIGH
     (event,) = convert("claude-stream-json", raw).events
     assert event["output"] == "n?" and event["output_truncated"] is False
+
+
+CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "repo-evaluation-contract.md"
+
+
+def test_the_contract_states_that_a_split_character_is_dropped_whole():
+    """#964: a character a cut splits is dropped, so the ends keep up to 4,096 bytes and N counts the rest."""
+    text = CONTRACT.read_text(encoding="utf-8")
+    section = " ".join(text[text.index("### 4.1 `events.jsonl`") :].split("\n### ", 1)[0].split())
+    assert "up to 4,096 bytes at each end" in section
+    assert "dropped whole" in section
+    head = "é" * 2047 + "h"
+    tail = "界" * 1364 + "e"
+    clipped, truncated = clip_output(head + "😀MID😀" + tail)
+    assert truncated and clipped.split("\n")[0] == head
+
+
+def test_reviewing_names_the_gold_field_of_task_json():
+    """#964: a task sets its gold file with ``gold`` in task.json, so the guide cannot name only gold.json."""
+    guide = (CONTRACT.parent / "reviewing.md").read_text(encoding="utf-8")
+    para = guide[guide.index("Read the hits before citing one") :][:900]
+    assert "`gold` field" in para and "default `gold.json`" in para

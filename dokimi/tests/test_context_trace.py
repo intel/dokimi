@@ -95,7 +95,7 @@ def test_tool_results_failures_and_repeats():
     assert s["repeated_tool_calls"] == 1
     assert s["tool_result_chars"] == 300 + 300 + len("File does not exist.") + 50 + 4
     assert s["largest_tool_results"][0] == {"tool": "Bash", "calls": 3, "chars": 650, "max_chars": 300}
-    assert trace.compactions == [{"trigger": "auto", "pre_tokens": 20815, "post_tokens": 9000, "after_call": 2}]
+    assert trace.compactions == [{"trigger": "auto", "pre_tokens": 20815, "post_tokens": 9000, "after_call": 2, "at": None}]
 
 
 def test_without_a_window_there_is_no_fill():
@@ -347,8 +347,8 @@ def test_camel_case_and_bare_compactions():
         {"type": "system", "subtype": "compact_boundary"},
     ))
     assert got.compactions == [
-        {"trigger": "manual", "pre_tokens": 7, "post_tokens": None, "after_call": 0},
-        {"trigger": None, "pre_tokens": None, "post_tokens": None, "after_call": 0},
+        {"trigger": "manual", "pre_tokens": 7, "post_tokens": None, "after_call": 0, "at": None},
+        {"trigger": None, "pre_tokens": None, "post_tokens": None, "after_call": 0, "at": None},
     ]
 
 
@@ -393,3 +393,36 @@ def test_one_unreadable_trace_does_not_lose_the_others(tmp_path, capsys):
 def test_json_that_python_cannot_load_is_a_line_warning(line):
     got = parse_trace(line + chr(10) + json.dumps(_assistant("m1", _usage(1, 0, 0))))
     assert got.errors == ["line 1: not JSON"] and len(got.calls) == 1
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_cli_fill_is_rounded_once_from_the_token_counts(tmp_path, capsys):
+    """#962: docs/context-window.md: **fill** is peak over `--window` as a whole percent,
+    rounded once from the token counts."""
+    # 198,999 / 200,000 = 99.4995%: rounding to 4 places first gave 99.5% and showed 100%
+    t = tmp_path / "fill.jsonl"
+    t.write_text(_jsonl(_assistant("m1", _usage(198999, 0, 0))), encoding="utf-8")
+    out = _run_cli(["trace", "inspect", str(t), "--window", "200000"], capsys).out
+    assert f"| {t} | 1 | 198,999 | 198,999 | 99% | 0 |" in out
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_cli_fill_of_a_full_window_is_100_percent(tmp_path, capsys):
+    """#962: docs/context-window.md: **fill** is peak over `--window`; a peak equal to it is 100%."""
+    t = tmp_path / "full.jsonl"
+    t.write_text(_jsonl(_assistant("m1", _usage(200000, 0, 0))), encoding="utf-8")
+    out = _run_cli(["trace", "inspect", str(t), "--window", "200000"], capsys).out
+    assert f"| {t} | 1 | 200,000 | 200,000 | 100% | 0 |" in out
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_result_chars_skips_an_image_block():
+    """#962: docs/context-window.md: **result chars** is the text in tool results, in characters;
+    a non-text block, such as an image a `Read` returns, adds nothing."""
+    trace = parse_trace(_jsonl(
+        _assistant("m1", _usage(1, 0, 0), _tool_use("t1", "Read", file_path="/a.png"), _tool_use("t2", "Bash", command="x")),
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "image", "source": {"data": "AAAA"}}]},
+            {"type": "tool_result", "tool_use_id": "t2", "content": [{"type": "text", "text": "é🙂"}]}]}},
+    ))
+    assert trace.summary()["tool_result_chars"] == 2

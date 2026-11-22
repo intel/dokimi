@@ -47,6 +47,7 @@ from typing import Any
 
 from dokimi.repos.rule_frontmatter import _FRONTMATTER, _has_paths, _without_frontmatter
 from dokimi.repos.source import RepoTree
+from dokimi.skills.listing import listing_description, listing_text_chars
 from dokimi.repos.unlisted_rules import RULES_ENTRY as _RULES_ENTRY, unlisted_rules
 
 SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
@@ -654,13 +655,11 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
             meta, body, unreadable = {}, "", _unreadable_reason(err)
         meta = meta if isinstance(meta, dict) else {}
         name = str(meta.get("name") or path.split("/")[-2])
-        # Claude Code uses the first non-empty line of the body when the description is omitted
-        description = str(meta.get("description") or "") or next(
-            (line.strip() for line in body.splitlines() if line.strip()), "")
+        description = listing_description(meta, body)
         # The CLI reads a boolean as 1/true/yes/on (as harnesses/skill_treatment.py does); such a
         # skill is left out of the listing, so the model never sees its name or description.
         hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in ("1", "true", "yes", "on")
-        listed_text = len(description) + len(str(meta.get("when_to_use") or ""))
+        listed_text = listing_text_chars(description, meta.get("when_to_use"))
         out.append({"path": path, "name": name, "description": description,
                     "listing_chars": len(name) + min(listed_text, LISTING_TEXT_CAP),
                     "body_chars": len(body),

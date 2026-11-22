@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import tomllib
 from pathlib import Path
@@ -78,8 +79,19 @@ def matrix_config(descriptor: SubjectDescriptor) -> dict[str, Any]:
     return {"matrix": {"cells": list(descriptor.matrix_cells)}}
 
 
+def name_too_long(exc: OSError) -> bool:
+    """A name past the file-name limit: ENAMETOOLONG, or WinError 123, 206 or 1921 on Windows."""
+    return exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) in (123, 206, 1921)
+
+
 def _load_mapping(path: Path) -> dict[str, Any]:
-    if not path.is_file():
+    try:
+        is_file = path.is_file()
+    except OSError as exc:
+        if not name_too_long(exc):
+            raise
+        is_file = False
+    if not is_file:
         raise FileNotFoundError(path)
     suffix = path.suffix.lower()
     if suffix == ".json":
@@ -201,7 +213,7 @@ def _member_specs(kind: str, ref: str, *, agentic: bool) -> list[str]:
         return [f"agent:{ref}" if agentic else f"docs:{ref}"]
     if kind == "repo":
         raise ValueError(
-            "repo subjects have no prompt arm; validate them with `repo validate` "
+            "repo subjects have no prompt arm; validate them with `eval check --schema-only` "
             "(repository-mode runs are not implemented yet)"
         )
     raise ValueError(f"unsupported subject kind {kind!r}")
