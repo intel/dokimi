@@ -121,7 +121,7 @@ def _bidi_mark_exempt(text: str) -> set[int]:
     """Indexes of the LRM, RLM and ALM expected next to a right-to-left letter (Hebrew, Arabic), where it orders
     the text. Two linear passes record the class of the nearest letter on each side within the line, past
     neutrals, digits and other bidi marks. A character of class R or AL that is not a letter (a Hebrew
-    punctuation mark) is not one, so it counts as none."""
+    punctuation mark such as U+05BE) is passed over like any other neutral."""
     marks = [i for i, ch in enumerate(text) if ord(ch) in BIDI_MARKS]
     if not marks:
         return set()
@@ -137,8 +137,8 @@ def _bidi_mark_exempt(text: str) -> set[int]:
                     exempt.add(i)
             else:
                 cls = unicodedata.bidirectional(ch)
-                if cls in ("L", "R", "AL"):
-                    nearest = cls if unicodedata.category(ch).startswith("L") else ""
+                if cls in ("L", "R", "AL") and unicodedata.category(ch).startswith("L"):
+                    nearest = cls
     return exempt
 
 
@@ -162,6 +162,13 @@ def _filler_exempt(text: str, index: int) -> bool:
     """U+034F, U+115F, U+1160 and U+2800 are text in Greek or other non-ASCII script, Hangul and Braille."""
     cp = ord(text[index])
     near = [ord(text[j]) for j in (index - 1, index + 1) if 0 <= j < len(text) and ord(text[j]) not in BLANK_FILLERS]
+    if cp == 0x2800:  # a run of blank patterns is Braille when a pattern borders it
+        for step in (-1, 1):
+            j = index + step
+            while 0 <= j < len(text) and text[j] == "\u2800":
+                j += step
+            if 0 <= j < len(text):
+                near.append(ord(text[j]))
     if cp in (0x115F, 0x1160):
         return any(_is_hangul(n) for n in near)
     if cp == 0x2800:

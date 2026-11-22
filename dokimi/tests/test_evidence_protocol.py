@@ -351,6 +351,22 @@ def test_each_cell_of_a_two_question_set_suite_carries_the_digest_of_its_own_set
     assert changed[1]["questions_digest"] == second["questions_digest"]
 
 
+def test_a_scorecard_built_without_its_questions_file_has_no_question_digest(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from dokimi.subjects import build_subject_scorecard, load_subject
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "subject.toml").write_text(
+        '[subject]\nid = "s"\nkind = "doc-source"\nref = "local:docs"\n\n'
+        '[suite]\nproducts = ["p"]\nquestions = ["q.json"]\n', encoding="utf-8")
+    runs = [{"product": "p", "questions": "q.json", "matrix_rollup": "m.json",
+             "rollup": {"cells": [{"matrix_cell": "p"}]}}]
+    scorecard = build_subject_scorecard(load_subject(tmp_path / "subject.toml"), out_dir=tmp_path,
+                                        awareness_runs=runs)
+    assert scorecard["cells"][0]["questions_digest"] is None
+    assert scorecard["suite"]["question_set_hash"] is None
+
+
 def test_a_non_finite_p_or_delta_gives_no_direction():
     base = _fixture("verdict_with_rule.json")
     huge = 10 ** 400  # valid JSON, too large for a float
@@ -418,6 +434,14 @@ def test_a_mixed_judge_context_is_an_unresolved_input_not_a_measurement_identity
     from dokimi.eval.judge_context import PROTOCOL_MIXED
     protocol = build_protocol({"judge_context": PROTOCOL_MIXED, "repeats": 3})
     assert "judge_context" in protocol["unresolved"] and "judge_context" not in protocol["resolved"]
+
+
+def test_a_protocol_that_states_the_mixed_judge_context_as_resolved_is_not_comparable():
+    from dokimi.eval.judge_context import PROTOCOL_MIXED
+    result = _fixture("verdict_with_rule.json")
+    resolved = {**result["protocol"]["resolved"], "judge_context": PROTOCOL_MIXED}
+    result["protocol"] = {**result["protocol"], "resolved": resolved, "digest": protocol_digest(resolved)}
+    assert "protocol inputs not resolved: judge_context" in compare(result, json.loads(json.dumps(result)))
 
 
 # --- the family multiplier and the recorded judge snapshot (self-review round 10) ----------------

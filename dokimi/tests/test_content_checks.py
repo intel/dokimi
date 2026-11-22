@@ -450,6 +450,20 @@ def test_bidi_mark_past_neutrals_and_digits_is_not_reported(tmp_path, text):
     assert _messages(tmp_path, "hidden-unicode") == []
 
 
+@pytest.mark.parametrize("text", [HEBREW + "\u05be" + RLM, RLM + "\u05be" + HEBREW],
+                         ids=["after-maqaf", "before-maqaf"])
+def test_bidi_mark_past_a_hebrew_punctuation_mark_uses_the_nearest_letter(tmp_path, text):
+    """#960: the maqaf is passed over like ``!``; the Hebrew letter beyond it still exempts the mark."""
+    _skill(tmp_path / "skills", "marks", body=f"# Marks\n\n{text}\n")
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+def test_a_run_of_braille_blanks_between_braille_patterns_is_not_reported(tmp_path):
+    """#960: each U+2800 in the run borders Braille once the run is read as a whole."""
+    _skill(tmp_path / "skills", "marks", body="# Marks\n\n\u2801\u2800\u2800\u2800\u2803\n")
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
 def test_bidi_marks_on_one_line_are_read_in_linear_time(monkeypatch):
     """#960: each mark does not search its line again; 2000 marks and no letter cost a few lookups per character."""
     import unicodedata
