@@ -89,10 +89,10 @@ positioning Lightsage reports as most predictive), every listed link described, 
 ## 5. Recommended next steps
 
 1. Done: `dokimi report opportunities PATH... [--format markdown|json] [--top-n N] [--out FILE]`
-   (inputs detected by content: novelty JSON, repo_static.v1 JSON, llms.txt; `opportunities.v1`
-   schema). Still open: a `cli_output` envelope, a user-docs page and outcome test; adapters for
-   `catalog check --json`, judge-validity and routing reports; per-atom novelty spans so the
-   prompt names the exact passage.
+   (inputs detected by content: novelty, repo_static.v1, catalog_eval.v1, judge_validity.v1,
+   llms.txt; `opportunities.v1` schema; user docs in `dokimi/docs/opportunities.md`). Routing
+   has no artifact of its own (it is a novelty field), so it needs no adapter. Still open: a
+   `cli_output` envelope; per-atom novelty spans so the prompt names the exact passage.
 2. Ship `dokimi docs llms-txt <path-or-file>` (or a `repo scan` metric) and a feature card under
    "Will the agent use it?"; later, optional fetch of `/llms.txt` + `robots.txt` AI-crawler rules.
 3. Add a `/dokimi run` PR-comment trigger to the GitHub Action, gated on write permission, posting

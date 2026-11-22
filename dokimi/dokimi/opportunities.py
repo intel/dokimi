@@ -114,6 +114,47 @@ def from_repo_static(doc: dict, *, target: str = "repository") -> list[Opportuni
     ) for path, rows in sorted(bad.items())]
 
 
+def from_catalog_eval(doc: dict) -> list[Opportunity]:
+    """Error and warning findings of ``catalog check``, grouped per skill and code."""
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for skill in doc.get("skills", []):
+        for f in skill.get("checks", {}).get("findings", []):
+            if f.get("level") in ("error", "warn"):
+                groups.setdefault((skill.get("path", skill.get("name", "?")), f["code"]), []).append(f)
+    total = sum(len(v) for v in groups.values())
+    return [Opportunity(
+        kind="catalog-check", title=f"{len(rows)} {code} findings in {path}",
+        why=rows[0]["message"], next_action=f"Fix the {code} findings: " + "; ".join(
+            sorted({r.get("script", r["path"]) for r in rows})) + ".",
+        target=path, impact=round(_share(len(rows), total) / 2
+                                  + (0.5 if any(r["level"] == "error" for r in rows) else 0), 3),
+        effort="low", evidence={"code": code, "levels": sorted({r["level"] for r in rows})},
+        identity=code,
+    ) for (path, code), rows in sorted(groups.items())]
+
+
+def from_judge_validity(doc: dict) -> list[Opportunity]:
+    """A judge that fails or cannot settle its validity gate: every score it gave is in doubt."""
+    s = doc.get("summary", {})
+    judge = s.get("judge", "judge")
+    bad = sorted(set(s.get("inconclusive_variants", [])) | set(s.get("unmeasured_variants", [])))
+    if s.get("passed") and s.get("conclusive"):
+        return []
+    failed = not s.get("passed")
+    return [Opportunity(
+        kind="judge-validity",
+        title=f"judge {judge} {'fails' if failed else 'is inconclusive on'} its validity gate",
+        why=f"accuracy {s.get('gate_accuracy', 0):.2f} against a minimum of "
+            f"{s.get('min_accuracy', 0)}; scores from this judge are not evidence yet.",
+        next_action="Change the judge model or prompt, or add pairs"
+                    + (f" for {', '.join(bad)}" if bad else "") + ", then re-run judge validity.",
+        target=str(judge), impact=1.0 if failed else 0.5, effort="medium",
+        evidence={k: s.get(k) for k in ("n_pairs", "gate_accuracy", "accuracy_ci", "passed",
+                                       "conclusive")},
+        identity="gate",
+    )]
+
+
 def from_llms_txt(findings: list[Finding], *, target: str = "llms.txt") -> list[Opportunity]:
     """Each llms.txt finding as a quick technical fix; a failed check counts more."""
     return [Opportunity(

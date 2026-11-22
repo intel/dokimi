@@ -88,3 +88,26 @@ def test_llms_txt_key_survives_a_change_in_h1_count():
     keys = [opp.from_llms_txt(llms_txt.check(f"# A\n{extra}\n> s\n"))[0].source_key
             for extra in ("# B", "# B\n# C")]
     assert keys[0] == keys[1]
+
+
+def test_catalog_errors_outrank_warnings_and_group_per_code():
+    doc = {"skills": [{"path": "skills/a", "checks": {"findings": [
+        {"level": "error", "code": "script-crlf", "message": "CRLF breaks bash", "path": "skills/a",
+         "script": "run.sh"},
+        {"level": "warn", "code": "desc-long", "message": "long", "path": "skills/a"},
+        {"level": "warn", "code": "desc-long", "message": "long", "path": "skills/a"},
+        {"level": "note", "code": "x", "message": "m", "path": "skills/a"}]}}]}
+    ranked = opp.rank(opp.from_catalog_eval(doc))
+    assert [(r["title"], r["quadrant"]) for r in ranked] == [
+        ("1 script-crlf findings in skills/a", "act_now"),
+        ("2 desc-long findings in skills/a", "act_now")]
+    assert "run.sh" in ranked[0]["next_action"]
+
+
+def test_a_valid_judge_gives_no_item_and_a_failed_one_does():
+    ok = {"summary": {"judge": "j", "passed": True, "conclusive": True}}
+    bad = {"summary": {"judge": "j", "passed": False, "conclusive": True, "gate_accuracy": 0.6,
+                       "min_accuracy": 0.8, "unmeasured_variants": ["swap"]}}
+    assert opp.from_judge_validity(ok) == []
+    [item] = opp.from_judge_validity(bad)
+    assert item.impact == 1.0 and "swap" in item.next_action and "fails" in item.title

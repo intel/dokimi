@@ -40,7 +40,7 @@ def test_build_detects_each_input_kind(inputs):
 def test_unknown_json_is_an_input_error(tmp_path):
     other = tmp_path / "x.json"
     other.write_text('{"a": 1}', encoding="utf-8")
-    with pytest.raises(InputError, match="not a novelty artifact"):
+    with pytest.raises(InputError, match="not a novelty"):
         cmd.build([str(other)])
 
 
@@ -66,3 +66,15 @@ def test_malformed_json_is_an_input_error(tmp_path):
     bad.write_text('{"paired": ', encoding="utf-8")
     with pytest.raises(InputError, match="not valid JSON"):
         cmd.build([str(bad)])
+
+
+def test_build_reads_catalog_and_judge_validity_files(tmp_path):
+    cat = tmp_path / "cat.json"
+    cat.write_text(json.dumps({"schema_version": "catalog_eval.v1", "skills": [{"path": "s", "checks": {
+        "findings": [{"level": "error", "code": "c", "message": "m", "path": "s"}]}}]}), encoding="utf-8")
+    jv = tmp_path / "jv.json"
+    jv.write_text(json.dumps({"schema_version": "judge_validity.v1",
+                              "summary": {"judge": "j", "passed": False}}), encoding="utf-8")
+    doc = cmd.build([str(cat), str(jv)])
+    assert [i["kind"] for i in doc["inputs"]] == ["catalog_eval", "judge_validity"]
+    assert {i["kind"] for i in doc["items"]} == {"catalog-check", "judge-validity"}
