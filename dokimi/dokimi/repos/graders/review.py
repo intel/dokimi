@@ -94,9 +94,24 @@ def _too_deep(block):
     return False
 
 
+def _json_fences(text):
+    """The bodies of the ```` ```json ```` fences of ``text``; an opener with no ```` ``` ```` after it ends the scan."""
+    bodies, pos = [], 0
+    while (opener := text.find("```json", pos)) != -1:
+        start = opener + 7
+        while start < len(text) and text[start].isspace():
+            start += 1
+        end = text.find("```", start)
+        if end == -1:
+            break
+        bodies.append(text[start:end])
+        pos = end + 3
+    return bodies
+
+
 def last_json(text):
     """The last parseable ```` ```json ```` fenced block of ``text``, or None."""
-    for block in reversed(re.findall(r"```json\s*(.*?)```", text or "", re.S)):
+    for block in reversed(_json_fences(text or "")):
         if _too_deep(block):
             continue
         try:

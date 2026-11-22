@@ -88,7 +88,7 @@ implicit default that points at a sibling checkout:
 |---|---|---|
 | `--root` | a whole content checkout to scan | `catalog check` |
 | `--questions-root` | directory holding `<product_key>_golden.json` | `benchmark preflight/run/batch`, `evaluate`, `coverage`, `config_check` |
-| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `explore list/run`, `coverage`, `config_check` |
+| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `eval tasks list --format localization`, `explore run`, `coverage`, `config_check` |
 | `--repo-root` | the source tree an exploration task is scored against | `explore run` |
 | `--registry` | a `products.yaml` describing products this repo has never heard of | `benchmark preflight/run` |
 | `--questions` | one question-set file | `arms run`, `answers generate` |
@@ -313,7 +313,8 @@ At most 200 files of a bundle are walked: every file counts, `SKILL.md` and non-
 order (a directory's files sorted by name, then its subdirectories). Files past the cap are not checked and give
 no finding; a subdirectory with its own `SKILL.md` is another skill and is skipped.
 A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
-Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
+Nothing is run or imported. In `catalog check --json` and `catalog eval --json` a `script-crlf` or `script-syntax` finding carries `script`, the
+script's path relative to the skill directory, while `file` stays the skill's `SKILL.md`. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
 `ast.parse` rejects is a `warn` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
 goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
@@ -327,7 +328,7 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
-(`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
+(`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
 an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
 package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
 file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
@@ -445,6 +446,16 @@ A large catalog is easier to scan one skill at a time:
   catalog too, so they are not run here; the text output says so in a
   `# granularity: not run with --per-skill` line; `--format json` has no
   `granularity` key in this mode.
+- `--listing-budget CHARS` adds up each listed skill's entry (`name: description`, then
+  ` - when_to_use` when the frontmatter sets it and is not empty; characters, not bytes, and no line break between
+  entries; the description and `when_to_use` count at most 1,536 characters per entry, as Claude Code cuts them; a byte-identical `SKILL.md` under another path is one entry, as the routing field keeps one card
+  for it, while a name whose copies differ is left out, as there) and compares it with CHARS. The total is `listing.chars` in the JSON report, with
+  `budget` and `over_budget`. Over the cap is a `listing-over-budget` warning after the counts,
+  and exit 1 with `--strict`; a total equal to CHARS passes. The whole-catalog scan, `--per-skill`,
+  `--concurrency` and `--resume` count the same way: a resumed row keeps its `listing_chars`, and the cap is
+  checked against this run's value, so lowering it can fail a resumed `--strict` scan whose receipt is
+  still valid. `--ignore listing-over-budget` drops the warning, the exit and the line that carries the total
+  (the report keeps it); it is not in a row's `ignored`, so adding or dropping it does not redo a resumed row.
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
@@ -597,7 +608,7 @@ the YAML directory, `--repo-root` the tree a task is scored against when its
 own YAML omits `repo_root:`.
 
 ```console
-$ python cli.py explore list --tasks-root C:/Users/Public/content-repo/explore_tasks
+$ python cli.py eval tasks list --format localization --tasks-root C:/Users/Public/content-repo/explore_tasks
 demo-locate-widget      demo    1 ref(s)        Where is the widget width clamped?
 
 $ python cli.py explore run --all \
@@ -718,13 +729,13 @@ Worth knowing before you read a suspiciously clean result:
 | `catalog check --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
 | `tasks run --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `eval tasks list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
-| `explore list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --format localization --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
 `eval tasks list` is the trap for an existing directory: an empty listing and a correct listing
 both exit 0, so an empty checkout looks like a correct one. A missing root is refused with exit 2,
-not a silent success. `explore list` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
+not a silent success. `eval tasks list --format localization` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage

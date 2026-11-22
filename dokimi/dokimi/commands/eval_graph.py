@@ -115,7 +115,8 @@ def _author(name: str, description: str, args: argparse.Namespace,
     from dokimi.novelty.cost import spend_cap
     from dokimi.novelty.needs import build_need_graph
 
-    client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args))
+    client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args),
+                       output_limit_configurable=False)
     try:
         return build_need_graph(name, description, client=client, strict=True), False
     except SpendCapReached as exc:

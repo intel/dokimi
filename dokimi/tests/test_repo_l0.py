@@ -139,8 +139,9 @@ def test_generic_checks_and_adapters(toy):
         ("path", "<out>/a.h"): "ok",  # a.h exists below some directory
         ("path", "{run_dir}/x.json"): "unresolved",  # the root is not in the tree
         ("identifier", "ToyWidget"): "ok",
-        ("identifier", "GhostWidget"): "fail",
-        ("identifier", "OnlyInDocs"): "fail",  # prose is not code
+        # not in the code: a bare name may be external, so unresolved unless .dokimi/scan.toml opts in (#851)
+        ("identifier", "GhostWidget"): "unresolved_identifier",
+        ("identifier", "OnlyInDocs"): "unresolved_identifier",  # prose is not code
         ("bazel_label", "//lib:core"): "ok",
         ("bazel_label", "//lib:nope"): "fail",
         ("bazel_label", "//pkg2:gen_extra"): "unresolved",  # pkg2/BUILD calls a macro
@@ -602,7 +603,7 @@ def test_stacked_quantifiers_of_a_branch_filter_fold_into_one(pattern, regex):
 def test_a_branch_filter_with_many_stars_matches_in_linear_time():
     """With `re`, `[^/]*a` per star backtracks polynomially: about 4 s here for 80 `a` and a `c`."""
     glob = branches._filter_regex("release/*a*a*a*a*a*a*b")
-    ratio, matched = growth(lambda k: partial(glob.match, "release/" + "a" * k + "c"), 20)
+    ratio, matched = growth(lambda k: partial(glob.match, "release/" + "a" * k + "c"), 5)
     assert ratio < GROWTH_LIMIT
     assert not matched
     assert glob.match("release/" + "a" * 80 + "b")

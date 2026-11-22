@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, cast
 
 from dokimi import cli_flags
-from dokimi.llm import CALLER_CHOICES, credential_env_var, resolve_api_key
+from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, PROVIDERS, credential_env_var, resolve_api_key, resolve_model
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -146,6 +146,88 @@ def _provider_checks(providers: list[str], notes: list[str] | None = None,
     return errors, warnings
 
 
+def _keyless_route(canonical: str, route: str) -> list[str] | None:
+    """``None`` unless the call needs no key of *canonical*: then the providers it still checks.
+
+    Vertex ADC and AWS keys need none; an unreadable ``file:`` Bedrock token is still refused.
+    """
+    if route == "vertex_ai":
+        return []
+    if canonical != "amazon-bedrock" and route != "bedrock":
+        return None
+    try:
+        if canonical != "amazon-bedrock" and resolve_api_key(canonical):
+            return []  # the configured provider's key is sent as the token; the AWS variable is unused
+        resolve_api_key("amazon-bedrock")  # an absent token is IAM
+    except ValueError:
+        return ["amazon-bedrock"]
+    return []
+
+
+def _credential_providers(args: argparse.Namespace) -> list[str]:
+    """The providers whose key or login a run of *args* needs, by the route each call takes (#967).
+
+    A CLI backend takes its login whatever the model name says. `vertex_ai/` (ADC) and `bedrock/`
+    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider, but a
+    `file:` AWS_BEARER_TOKEN_BEDROCK that cannot be read is refused; a `gemini/`
+    route needs GEMINI_API_KEY or GOOGLE_API_KEY; another provider's route needs that provider's key;
+    a route off the table (`azure/`, `ollama/`) needs none when the configured key is unset.
+    """
+    from dokimi import llm_cli
+
+    pairs = [
+        (args.provider, getattr(args, "model", "")),
+        (getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER), getattr(args, "judge_model", "")),
+    ]
+    providers = []
+    for provider, model in pairs:
+        canonical = PROVIDER_ALIASES.get(provider, provider)
+        if llm_cli.backend(canonical) is not None:
+            providers.append(canonical)
+            continue
+        resolved = resolve_model(str(model), provider)
+        route = resolved.split("/", 1)[0]
+        keyless = _keyless_route(canonical, route)
+        if keyless is not None:
+            providers.extend(keyless)
+            continue
+        off_table = "/" in resolved and route not in ("gemini", *PROVIDERS)
+        if route != canonical and canonical != "openai-codex" and (off_table or route in ("gemini", *PROVIDERS)):
+            # The call sends the configured provider's key when it has one (an unreadable file is
+            # refused); with none, litellm reads the route provider's own variable.
+            try:
+                has_key = bool(resolve_api_key(canonical))
+            except ValueError:
+                has_key = True
+            if not has_key and off_table:
+                continue  # litellm reads the route's own variables (azure/, ollama/): no key to check
+            if not has_key:
+                canonical = "google-vertex" if route == "gemini" else route
+                try:
+                    unset = not resolve_api_key(canonical)
+                except ValueError:
+                    unset = False  # an unreadable file is refused, not rescued by GOOGLE_API_KEY
+                if route == "gemini" and unset and os.environ.get("GOOGLE_API_KEY"):
+                    continue
+        providers.append(canonical)
+    return providers
+
+
+def _refuse_missing_credentials(args: argparse.Namespace) -> None:
+    """Exit 2 before any directory or model call when a provider has no key or login (#967).
+
+    ``benchmark preflight`` makes the same check; ``run`` and ``batch`` made none and failed in
+    the first model call, after the output directories existed. A login that could not be
+    checked is a warning on stderr, as in preflight.
+    """
+    errors, warnings = _provider_checks(_credential_providers(args))
+    for item in warnings:
+        print(f"  ⚠ {item}", file=sys.stderr)
+    if errors:
+        # #967: a missing credential is an input refusal (exit 2), as in `benchmark preflight`.
+        raise InputError("\n".join(errors))
+
+
 def _login_warning(provider: str, status=None) -> str | None:
     """A warning when a CLI provider's login could not be checked (no answer from ``auth status``)."""
     from dokimi import llm_cli
@@ -276,7 +358,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     # them). The other errors are failed checks (exit 1): a CLI provider not installed or signed in.
     refusals: list[str] = []
     notes: list[str] = []
-    errors, warnings = _provider_checks([args.provider, args.judge_provider], notes, refusals)
+    errors, warnings = _provider_checks(_credential_providers(args), notes, refusals)
     _print_notes(notes)
 
     def refuse(message: str) -> None:
@@ -345,6 +427,8 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         _, _, problem = _check_questions_from(questions_from, entry.key)
         if problem:
             raise InputError(f"{problem}")
+
+    _refuse_missing_credentials(args)
 
     if n_runs == 1:
         _run_single_library(
@@ -424,6 +508,8 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
     if not entries:
         raise InputError("No libraries to run.")
 
+    _refuse_missing_credentials(args)
+
     print(f"Batch run: {len(entries)} libraries → {args.output_dir}")
     results = []
     failed = []
@@ -482,7 +568,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--doc-source", default=None, dest="doc_source",
                              help="Override doc/context source (default: first in registry entry)")
     cli_flags.add(bench_run_p, "output", "--out-dir", default=None, dest="output_dir",
-                             help="Output directory (default: results/{target}_final)")
+                  help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
@@ -494,8 +580,9 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
                              help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     bench_run_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
-    bench_run_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
-                             help="Max tokens to retrieve per question from doc source (default: 4000)")
+    cli_flags.add(bench_run_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
+                  default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
+                  help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_run_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency",
                              help="Parallel API calls for answering and judging (default: 5)")
     bench_run_p.add_argument("--force-regen", action="store_true", dest="force_regen",
@@ -531,7 +618,8 @@ def register(sub, positive_int) -> None:
     # Preflight makes no LLM call, but it plans the run that `benchmark run` makes, so it refuses the judge that run refuses.
     bench_pre_p.set_defaults(judge=True)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
-    bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
+    cli_flags.add(bench_pre_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
+                  default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
     bench_pre_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency")
     bench_pre_p.add_argument("--questions-from", default=None, dest="questions_from", help="Question-set source for fair comparison")
     bench_pre_p.add_argument("--questions-root", default=None, dest="questions_root",
@@ -553,8 +641,9 @@ def register(sub, positive_int) -> None:
                                help=JUDGE_MODEL_HELP)
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                                choices=JUDGE_PROVIDERS)
-    bench_batch_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
-                               help="Max tokens to retrieve per question from doc source (default: 4000)")
+    cli_flags.add(bench_batch_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
+                  default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
+                  help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_batch_p.add_argument("--force-regen", action="store_true", dest="force_regen",
                                help=_FORCE_REGEN_HELP)
     bench_batch_p.add_argument("--registry", default=None, help="Path to custom products.yaml")

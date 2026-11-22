@@ -469,12 +469,23 @@ def _entry(root: Path, path: Path, archived: bool) -> MemoryEntry:
     return MemoryEntry(rel, text, body, data, archived=archived)
 
 
+#: Files a repository root has and a memory directory does not: read as a store, its README and
+#: AGENTS.md would be linted as memory entries.
+_REPO_MARKERS = (".git", "pyproject.toml", "setup.py", "CMakeLists.txt", "package.json", "Cargo.toml", "go.mod",
+                 "MODULE.bazel", "WORKSPACE", "Makefile")
+
+
 def read_claude_memory(root: str | Path) -> MemoryStore:
     """Read ``root`` as a Claude Code memory directory; no file is written."""
     root = Path(root)
     if not root.is_dir():
         raise MemoryStoreError(f"{root}: not a directory")
     index_path = root / INDEX_NAME
+    if not index_path.is_file():
+        marker = next((m for m in _REPO_MARKERS if (root / m).exists()), None)
+        if marker is not None:
+            raise MemoryStoreError(f"{root}: has {marker} and no {INDEX_NAME}, so it looks like a repository, "
+                                   "not a memory directory; pass the directory that holds the memory files")
     index = _entry(root, index_path, False) if index_path.is_file() else None
     entries = [_entry(root, p, False) for p in sorted(root.glob("*.md")) if p.name != INDEX_NAME and p.is_file()]
     archive = root / ARCHIVE_DIR

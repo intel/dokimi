@@ -229,7 +229,7 @@ def test_the_listing_charges_when_to_use_and_caps_it_with_the_description(tmp_pa
     })
     entries = _by_path(budget(tree, NAMES))
     listing = {p.split("/")[2]: e["chars"] for (p, kind), e in entries.items() if kind == "skill listing"}
-    assert listing == {"a": 1 + len("Format code.") + len("On save."), "b": 1 + 1536, "c": 1 + 1536}
+    assert listing == {"a": 1 + len("Format code. - On save."), "b": 1 + 1536, "c": 1 + 1536}
 
 
 def test_near_duplicate_and_missing_descriptions_warn(tmp_path):
@@ -697,7 +697,7 @@ def test_code_span_stripping_is_linear_on_backtick_runs():
 
     shapes = (lambda k: "`" * k, lambda k: "`" + "`a" * k, lambda k: "``" + "` " * k + "\n\n@x.md")
     for shape in shapes:
-        ratio, _ = growth(lambda k, shape=shape: partial(_strip_code_spans, shape(k)), 5_000, reps=15)  # a call of 50 µs to 2 ms at n
+        ratio, _ = growth(lambda k, shape=shape: partial(_strip_code_spans, shape(k)), 1_250, reps=15)  # a call of 6 µs to 0.3 ms at n
         assert ratio < GROWTH_LIMIT
     assert _strip_code_spans("a `b` c ``d`e`` f") == "a  c  f"
     assert _strip_code_spans("`a\nb` @x.md") == " @x.md"

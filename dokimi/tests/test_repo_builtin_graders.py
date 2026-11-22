@@ -384,7 +384,7 @@ def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, mon
 def test_repo_validate_finds_a_builtin_task_without_its_data_file_or_a_wrong_name(tmp_path, capsys):
     root = _repo(tmp_path, {"nodata": {**REVIEW, "grader": "dokimi:review_seeds"},  # no manifest.json
                             "typo": {**REVIEW, "grader": "dokimi:review_seed"}})
-    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
+    args = build_parser().parse_args(["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
                                       "--cache-dir", str(tmp_path / "caches"), "--json"])
     with pytest.raises(SystemExit):
         args.func(args)
@@ -579,7 +579,7 @@ def test_a_builtin_grader_exiting_127_for_another_reason_is_a_plain_exit(tmp_pat
 
 def test_a_replay_window_that_is_not_a_positive_number_is_an_authoring_error(tmp_path, capsys):
     root = _repo(tmp_path, {"replay_mul": {**TASKS["replay_mul"], "window": "5"}})  # its gold.json is in DATA
-    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
+    args = build_parser().parse_args(["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
                                       "--cache-dir", str(tmp_path / "caches"), "--json"])
     with pytest.raises(SystemExit):
         args.func(args)
@@ -609,7 +609,7 @@ def test_a_replay_window_is_checked_only_for_replay_and_defaults_to_five(tmp_pat
               json.dumps(GOLD if task_id.startswith("replay") else {"seeds": [], "decoys": []}))
     git(root, "add", "-A")
     git(root, "commit", "-qm", "window cases")
-    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
+    args = build_parser().parse_args(["eval", "check", "--schema-only", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
                                       "--cache-dir", str(tmp_path / "caches"), "--json"])
     try:
         args.func(args)

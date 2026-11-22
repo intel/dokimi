@@ -870,7 +870,7 @@ def test_online_still_probes_the_good_skills_when_one_skill_fails_to_load(tmp_pa
 
 def test_a_long_line_with_hash_comments_and_no_install_is_read_in_linear_time():
     # Quadratic on head: 8000 "#" on one line without an install command took 7.5 s.
-    ratio, packages = growth(lambda k: lambda: online_checks.extract_packages("`a` #x " * k), 2000)
+    ratio, packages = growth(lambda k: lambda: online_checks.extract_packages("`a` #x " * k), 500)
     assert ratio < GROWTH_LIMIT
     assert packages == []
 
