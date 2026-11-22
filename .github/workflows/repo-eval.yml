@@ -159,13 +159,13 @@ jobs:
           dokimi-ref: ${{ inputs.dokimi-repository == inputs.dokimi-action-repository && steps.action-ref.outputs.sha || inputs.dokimi-ref }}
           dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
-      - name: repo validate
+      - name: eval check --schema-only
         env:
           MANIFEST: ${{ inputs.manifest }}
         run: |
           status=0
-          dokimi repo validate . --manifest "$MANIFEST" || status=$?
-          dokimi repo validate . --manifest "$MANIFEST" --json > "$RUNNER_TEMP/validate.json" || true
+          dokimi eval check . --schema-only --manifest "$MANIFEST" || status=$?
+          dokimi eval check . --schema-only --manifest "$MANIFEST" --json > "$RUNNER_TEMP/validate.json" || true
           # One renderer over the cli_output.v1 document (#749): the job summary and an annotation per finding.
           dokimi report summary "$RUNNER_TEMP/validate.json" >> "$GITHUB_STEP_SUMMARY"
           dokimi report summary "$RUNNER_TEMP/validate.json" --format annotations

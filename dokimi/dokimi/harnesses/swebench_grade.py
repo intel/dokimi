@@ -49,7 +49,6 @@ def parse_pytest(log: str) -> StatusMap:
 
 
 def parse_pytest_options(log: str) -> StatusMap:
-    option = re.compile(r"(.*?)\[(.*)\]")
     found: StatusMap = {}
     for line in log.split("\n"):
         if not _starts_with_status(line):
@@ -59,10 +58,10 @@ def parse_pytest_options(log: str) -> StatusMap:
         parts = line.split()
         if len(parts) <= 1:
             continue
-        match = option.search(parts[1])
         name = parts[1]
-        if match:
-            main, opt = match.groups()
+        first, last = name.find("["), name.rfind("]")
+        if 0 <= first < last:  # the text before the first "[" and the text up to the last "]" after it
+            main, opt = name[:first], name[first + 1:last]
             if opt.startswith("/") and not opt.startswith("//") and "*" not in opt:
                 opt = "/" + opt.split("/")[-1]
             name = f"{main}[{opt}]"

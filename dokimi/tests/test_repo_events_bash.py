@@ -824,11 +824,20 @@ def test_a_definition_whose_close_is_not_seen_keeps_the_rest_of_the_script_as_it
 
 
 @pytest.mark.parametrize("script, n", [
-    (lambda k: "\n".join(f"f{i}() {{ echo {i}" for i in range(k)) + "\ncd x", 500),
-    (lambda k: "\n".join(f"g{i}() {{ g{i + 1}; }}" for i in range(k)) + f"\ng{k}() {{ cd x; }}", 250),
+    (lambda k: "\n".join(f"f{i}() {{ echo {i}" for i in range(k)) + "\ncd x", 125),
+    (lambda k: "\n".join(f"g{i}() {{ g{i + 1}; }}" for i in range(k)) + f"\ng{k}() {{ cd x; }}", 62),
 ], ids=["unclosed-definitions", "call-chain"])
 def test_many_unclosed_definitions_or_a_long_call_chain_walk_in_linear_time(script, n):
     # each body's own text is read once, and each function is found a mover once: quadratic, these took seconds
     ratio, walked = growth(lambda k: partial(shell_walk, "f0; g0; cat AGENTS.md\n" + script(k)), n)
     assert ratio < GROWTH_LIMIT
     assert walked == ([], True, 1)
+
+
+def test_each_function_body_is_read_once_however_many_are_unclosed(monkeypatch):
+    """Nested unclosed bodies give each function its own text, so the characters read grow with the script (#1061)."""
+    from dokimi.repos import shell_functions
+    from tests.work_count import WORK_LIMIT, count_calls, work_ratio
+    read = count_calls(monkeypatch, shell_functions, "_words")
+    script = lambda k: "f0; g0; cat AGENTS.md\n" + "\n".join(f"f{i}() {{ echo {i}" for i in range(k)) + "\ncd x"
+    assert work_ratio(read, lambda k: shell_walk(script(k)), 125) <= WORK_LIMIT

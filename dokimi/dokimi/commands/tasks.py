@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from dokimi import cli_flags
+from dokimi.commands.explore import list_localization_tasks
 from dokimi.utils import InputError
 
 _TASKS_ROOT_HELP = (
@@ -39,6 +40,10 @@ def _tasks_root(args: argparse.Namespace) -> Path | None:
 
 
 def cmd_tasks_list(args: argparse.Namespace) -> None:
+    if args.format == "localization":  # `explore list` before #94 M1: the exploration task YAMLs
+        return list_localization_tasks(args)
+    if args.repo_root is not None:  # only the localization tasks read a repo; a terminal-bench task has none
+        raise InputError("--repo-root is for --format localization")
     from dokimi.harnesses import discover_tasks
 
     root = _tasks_root(args)
@@ -155,7 +160,7 @@ def _select_swebench(args: argparse.Namespace) -> list:
 def _refuse_repeats(kind: str, names: list[str]) -> None:
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
-        raise InputError(f"Repeated {kind}: {', '.join(repeated)}. List each once; use --repeats to run it again.")
+        raise InputError(f"Repeated {kind}: {', '.join(repeated)}. List each once; use --reps to run it again.")
 
 
 def _select_tasks(args: argparse.Namespace) -> list:
@@ -308,8 +313,14 @@ def register(sub, positive_int, eval_sub) -> None:
     # eval tasks list (#94 M1)
     eval_tasks_sub = eval_sub.add_parser("tasks", help="Eval tasks: list them, generate repository tasks").add_subparsers(
         dest="eval_tasks_cmd", required=True)
-    list_p = eval_tasks_sub.add_parser("list", help="List terminal-bench task metadata")
+    list_p = eval_tasks_sub.add_parser("list", help="List task metadata (terminal-bench, or exploration tasks)")
     list_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)
+    cli_flags.add(list_p, "output", "--format", choices=("terminal-bench", "localization"),
+                  default="terminal-bench",
+                  help="terminal-bench: the task directories under --tasks-root; localization: the exploration "
+                  "task YAMLs (--tasks-root and --repo-root, as `explore list` took them)")
+    list_p.add_argument("--repo-root", default=None, dest="repo_root",
+                        help="--format localization: the tree a task is scored against when its YAML omits repo_root")
     list_p.set_defaults(func=cmd_tasks_list)
 
     from .tasks_generate import add_parser as add_generate_parser
@@ -350,8 +361,8 @@ def register(sub, positive_int, eval_sub) -> None:
     cli_flags.add(run_p, "output", "--out", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md",
                        help="Markdown report path (default: alongside --out)")
-    run_p.add_argument(
-        "--repeats", type=positive_int, default=1,
+    cli_flags.add(
+        run_p, "reps", "--reps", type=positive_int, default=1, dest="repeats", metavar="N",
         help="Run each (task, harness) cell N times for pass-rate/cost variance (default: 1)",
     )
     run_p.add_argument(

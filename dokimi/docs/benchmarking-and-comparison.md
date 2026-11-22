@@ -160,7 +160,7 @@ python cli.py benchmark run \
   --model gpt-6.1-sol \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --multi-run 3 \
+  --reps 3 \
   --out-dir results/onetbb_sol
 ```
 
@@ -478,7 +478,7 @@ effort is set, which dokimi does not do). The run stops at the probe below, befo
 any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
 pinned, only measured: run the same configuration several times
-(`benchmark run --multi-run N`; for `arms run`, repeat the run into separate
+(`benchmark run --reps N`; for `arms run`, repeat the run into separate
 `--out` files) and quote the spread.
 
 - `--temperature`, `--seed`: sampling for answer generation, recorded in
@@ -983,8 +983,10 @@ An artifact of a registered run kind carries the run's envelope right after its
 ```
 
 - `run_id` is made once per process, when it is first needed (a CLI command makes it at start),
-  from the UTC time and 8 random hex digits. So every file one process writes shares it: a
-  pipeline's answers and eval, or a catalog run's report, plan and result. `runs list` lists the
+  from the UTC time and 8 random hex digits. So every artifact one process writes that carries the
+  run envelope shares it: a pipeline's answers and eval, or a catalog run's `catalog.json`,
+  `plan.json` and `result.json` (`report.md` beside them is a Markdown summary and
+  carries no `run_id`). `runs list` lists the
   artifacts of one run together, and `runs show RUN_ID` lists one run
   ([runs.md](runs.md)).
 - `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
@@ -1012,4 +1014,6 @@ An artifact of a registered run kind carries the run's envelope right after its
   versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
 - The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect` is the
   `cli_output.v1` envelope with the document their `--out` writes under `data`.
-- Only `repo hits judge` fills the envelope's `cost`; the other leaves report zero.
+- `repo hits judge` and `skill routing` fill the envelope's `cost`; the other commands report a cost of zero. `cost` is a
+  field of the `cli_output.v1` document a leaf prints with `--json`: read it from stdout, since the
+  saved artifacts (`catalog.json`, `plan.json`, `result.json`) have no top-level `cost`.

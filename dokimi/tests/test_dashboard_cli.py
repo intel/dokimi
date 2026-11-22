@@ -47,6 +47,39 @@ def test_generate_exits_2_with_a_message_when_the_output_dir_is_a_file(tmp_path,
     assert "Traceback" not in err
 
 
+def test_generate_writes_a_lone_surrogate_in_a_product_name_as_a_question_mark(tmp_path):
+    results = _results(tmp_path)
+    eval_file = results / "oneTBB" / "eval_results.json"
+    eval_file.write_text(eval_file.read_text(encoding="utf-8").replace("oneTBB", "n\\ud800"), encoding="utf-8")
+    out = tmp_path / "out"
+    args = build_parser().parse_args(
+        ["dashboard", "generate", "--results-dir", str(results), "--out-dir", str(out)])
+
+    args.func(args)
+
+    assert "n?" in (out / "DASHBOARD.md").read_text(encoding="utf-8")
+
+
+def test_generate_passes_top_n_to_the_dashboard(tmp_path):
+    results = _results(tmp_path)
+    eval_file = results / "oneTBB" / "eval_results.json"
+    doc = json.loads(eval_file.read_text(encoding="utf-8"))
+    doc["evaluations"] = [
+        {"question_id": f"q{i}", "question": f"Question number {i}?",
+         "with_docs": {"aggregate": 10 * i, "correctness": 10 * i},
+         "without_docs": {"aggregate": 90, "correctness": 90}, "delta": 10 * i - 90}
+        for i in range(1, 5)]
+    eval_file.write_text(json.dumps(doc), encoding="utf-8")
+    out = tmp_path / "out"
+    args = build_parser().parse_args(
+        ["dashboard", "generate", "--results-dir", str(results), "--out-dir", str(out), "--top-n", "1"])
+
+    args.func(args)
+
+    shown = (out / "DASHBOARD.md").read_text(encoding="utf-8")
+    assert shown.count("Question number") == 1
+
+
 def test_generate_writes_both_files_into_a_fresh_output_dir(tmp_path):
     results = _results(tmp_path)
     out = tmp_path / "out" / "nested"
