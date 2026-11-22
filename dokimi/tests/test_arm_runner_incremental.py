@@ -562,6 +562,41 @@ def test_a_failed_save_exits_2_when_another_worker_is_between_arms(monkeypatch):
     assert exc.value.code == 2
 
 
+def _bare_partial(recorded: int, answer: str) -> dict:
+    return {"arms": ["baseline"], "answers": [{"question_id": "q0", "arms": {"baseline": {"answer": answer}}}],
+            "partial": {"questions_requested": 4, "questions_recorded": recorded}}
+
+
+def test_two_runs_at_once_with_one_stem_keep_their_own_partial_files(tmp_path):
+    # `--out demo` and `--out demo.json` both start before either answers: each reserves its file at
+    # its first save, so neither replaces nor removes the other's.
+    from dokimi.commands.arms import _Partial
+
+    first, second = _Partial(tmp_path / "demo"), _Partial(tmp_path / "demo.json")
+    assert first.name() == second.name() == tmp_path / "demo.partial.json"
+    first.save(_bare_partial(1, "first-paid-answer"))
+    second.save(_bare_partial(1, "second-paid-answer"))
+    assert second.name() == tmp_path / "demo.partial2.json"
+    second.drop()
+    kept = json.loads((tmp_path / "demo.partial.json").read_text(encoding="utf-8"))
+    assert kept["answers"][0]["arms"]["baseline"]["answer"] == "first-paid-answer"
+    assert not (tmp_path / "demo.partial2.json").exists()
+
+
+def test_a_name_taken_between_naming_and_reserving_passes_to_the_next(tmp_path, monkeypatch):
+    from dokimi.commands import arms as arms_cmd
+
+    taken = tmp_path / "demo.partial.json"
+    taken.write_text("{}", encoding="utf-8")  # another run created it after the name was picked
+    names = iter([taken])
+    real = arms_cmd.fresh_partial_destination
+    monkeypatch.setattr(arms_cmd, "fresh_partial_destination", lambda out: next(names, None) or real(out))
+    partial = arms_cmd._Partial(tmp_path / "demo.json")
+    partial.save(_bare_partial(1, "mine"))
+    assert partial.name() == tmp_path / "demo.partial2.json"
+    assert taken.read_text(encoding="utf-8") == "{}"
+
+
 def test_a_run_wide_stop_is_set_while_another_question_holds_the_lock_for_its_save(monkeypatch):
     # q0's partial save holds the lock when q1 hits a usage limit; q2, between its arms, must see
     # the stop at its next arm, not once q0's save is done. The save waits for that check.

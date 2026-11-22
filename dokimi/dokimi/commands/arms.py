@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -581,8 +582,8 @@ class _Partial:
     """The file a run keeps its answered questions in until it saves *out_json* whole (#228 step 4).
 
     ``<stem>.partial.json`` beside it, or the next name nothing holds: never a finished file, nor the
-    checkpoint of an earlier run that crashed. It is named at :meth:`name` or the first save, so a matrix cell passes over the files the
-    cells before it finished.
+    checkpoint of an earlier run that crashed. It is reserved (created) at the first save, so a matrix cell
+    passes over the files the cells before it finished, and a run running at the same time takes another name.
     """
 
     def __init__(self, out_json: Path) -> None:
@@ -592,19 +593,31 @@ class _Partial:
         self.failed = False
 
     def name(self) -> Path:
-        """The file's path, named on the first call; ``InputError`` when it cannot be named."""
-        if self._path is None:
+        """The name the file would take now; ``InputError`` when none can be named. Reserved at the first save."""
+        if self._path is not None:
+            return self._path
+        try:
+            return fresh_partial_destination(self.out_json)
+        except OSError as exc:
+            raise InputError(f"cannot write {self.out_json}: {exc}") from exc
+
+    def _reserve(self) -> Path:
+        """Create the file before its first save, so a run started meanwhile with the same stem takes another name."""
+        while self._path is None:
+            path = self.name()
             try:
-                self._path = fresh_partial_destination(self.out_json)
-            except OSError as exc:
-                raise InputError(f"cannot write {self.out_json}: {exc}") from exc
+                os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            except OSError as exc:  # another run took it since: the next name; any other refusal, the save names
+                if isinstance(exc, FileExistsError):
+                    continue
+            self._path = path
         return self._path
 
     def save(self, output: dict) -> None:
         if self.failed:  # the run is stopping on the first failure: the questions still in flight add no message
             return
         try:
-            _save_artifact_or_exit("arms", output, self.name())
+            _save_artifact_or_exit("arms", output, self._reserve())
         except BaseException:
             self.failed = True
             raise
