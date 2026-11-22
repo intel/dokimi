@@ -1,11 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
-#
-# Example: copy to .github/workflows/dokimi-pr-command.yml in your repository and
-# replace <sha> with the dokimi commit you pin. A `/dokimi run` comment on a pull
-# request from someone with write or admin permission runs the checks on the
-# pull request's head commit and keeps one comment with the opportunities table.
-# See docs/pr-command.md.
+
+# Copy to .github/workflows/ and replace <sha> with your pinned dokimi commit;
+# a writer's `/dokimi run` comment runs the checks (docs/pr-command.md).
 name: dokimi PR command
 
 on:
