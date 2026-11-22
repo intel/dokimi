@@ -126,3 +126,13 @@ def test_every_cap_flag_is_taken_by_some_leaf_of_the_parser_tree():
     """Issue #940: a cap flag no leaf takes any more (a renamed `--budget`) is dropped from `CAP_FLAGS`."""
     taken = set().union(*(flags for _, flags in scs._leaves(scs.cli.build_parser())))
     assert sorted(scs.CAP_FLAGS - taken) == []
+
+
+def test_a_dry_run_that_still_calls_the_model_is_not_listed_as_a_preview():
+    """Issue #940: `eval questions refine --dry-run` only skips the output file, so it is no spend preview."""
+    rows = {r["path"]: r for r in scs.paid_leaves()}
+    assert rows["eval questions refine"] == {
+        "path": "eval questions refine",
+        "capped": False,
+        "preview": False,
+    }

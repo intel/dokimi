@@ -6,8 +6,8 @@
 
 The input is the parser tree of ``dokimi.cli.build_parser()`` joined to
 ``cli_routes.cost_of``. A leaf is *capped* when it takes one of ``CAP_FLAGS``
-and *previewable* when it takes one of ``PREVIEW_FLAGS``; flags are matched by
-name only, so a ``--dry-run`` that only skips an output file still counts::
+and *previewable* when it takes one of ``PREVIEW_FLAGS``, unless the leaf is in
+``NOT_A_PREVIEW`` (its ``--dry-run`` only skips an output file and still calls the model)::
 
     python scripts/cli_spend_controls.py          # one line per paid leaf
     python scripts/cli_spend_controls.py --json   # the same, then a summary line
@@ -26,6 +26,8 @@ from dokimi import cli, cli_routes  # noqa: E402
 
 CAP_FLAGS = frozenset({"--max-usd"})
 PREVIEW_FLAGS = frozenset({"--estimate-only", "--dry-run", "--work-dry-run"})
+# Leaves whose preview flag still spends: ``eval questions refine --fill-gaps --dry-run`` calls the model.
+NOT_A_PREVIEW = frozenset({("eval", "questions", "refine")})
 
 
 def _leaves(parser: argparse.ArgumentParser, path: tuple[str, ...] = ()):
@@ -47,7 +49,7 @@ def paid_leaves() -> list[dict]:
                 {
                     "path": " ".join(path),
                     "capped": bool(flags & CAP_FLAGS),
-                    "preview": bool(flags & PREVIEW_FLAGS),
+                    "preview": bool(flags & PREVIEW_FLAGS) and path not in NOT_A_PREVIEW,
                 }
             )
     return sorted(rows, key=lambda r: r["path"])
