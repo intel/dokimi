@@ -37,7 +37,11 @@ run.jsonl: prompt tokens per call: 21390 21673
   counted apart (`subagent_calls` in `--json`).
 - **first**: the prompt of the first call, `input + cache_creation +
   cache_read` tokens. It is everything start-up loaded (system prompt, tool
-  schemas, memory and guidance files, the skill listing) plus the task.
+  schemas, memory and guidance files, the skill listing) plus the task. The
+  blocks of one call add up, each contributing the counts it carries. A call
+  whose usage reports none of the three counts (only `output_tokens`) has an
+  unknown prompt: `first` shows a dash and `null` in `--json`, and the `--calls`
+  series shows a dash for it. **peak** reads the calls that have a prompt.
 - **peak**, **growth**: the largest prompt, and how far it rose above
   **first**: what the history added. **fill** is peak over `--window` as a whole
   percent, shown only when you pass the window, because the trace does not say it.

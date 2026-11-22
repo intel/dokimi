@@ -628,7 +628,8 @@ calls; `null` when the harness wrote no result record.
 message id, as `trace inspect` reads it): everything start-up loaded plus the
 task, so two arms that differ only in guidance differ there by what start-up
 loaded of it. It is `null` when the trace has no main-thread call with
-`usage`, and for a trace format that carries none (`text`).
+`usage`, when the first call's usage reports none of the three counts (only
+`output_tokens`), and for a trace format that carries none (`text`).
 
 `result.json` `process` holds what the framework counts in the events, the
 parent's and subagents' together, so a grader need not:

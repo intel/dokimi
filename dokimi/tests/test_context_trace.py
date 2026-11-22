@@ -426,3 +426,82 @@ def test_result_chars_skips_an_image_block():
             {"type": "tool_result", "tool_use_id": "t2", "content": [{"type": "text", "text": "é🙂"}]}]}},
     ))
     assert trace.summary()["tool_result_chars"] == 2
+
+
+def _first_prompt(tmp_path, capsys, *records):
+    a = tmp_path / "a.jsonl"
+    a.write_text(_jsonl(INIT, *records), encoding="utf-8")
+    doc = json.loads(_run_cli(["trace", "inspect", str(a), "--json"], capsys).out)
+    return doc["data"][0]
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_split_usage_blocks_sum_every_prompt_part(tmp_path, capsys):
+    """#1088: blocks of one message id that each carry some counts add up to one prompt (§4.1)."""
+    row = _first_prompt(
+        tmp_path, capsys,
+        _assistant("first", {"input_tokens": 7, "cache_read_input_tokens": 101}),
+        _assistant("first", {"input_tokens": 7, "cache_creation_input_tokens": 11, "output_tokens": 4}))
+    assert row["first_prompt_tokens"] == 119
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_output_only_usage_leaves_the_prompt_unknown(tmp_path, capsys):
+    """#1088: a usage with no prompt count is a null prompt, not a zero one (§4.1)."""
+    row = _first_prompt(tmp_path, capsys, _assistant("first", {"output_tokens": 7}))
+    assert row["first_prompt_tokens"] is None and row["peak_prompt_tokens"] is None
+    assert row["final_prompt_tokens"] is None and row["growth_tokens"] is None
+    assert row["output_tokens"] == 7
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_prompt_counts_arriving_in_a_later_block_fill_an_unknown_prompt(tmp_path, capsys):
+    """#1088: an output-only block followed by a block with counts of the same message has a prompt."""
+    row = _first_prompt(
+        tmp_path, capsys,
+        _assistant("first", {"output_tokens": 7}),
+        _assistant("first", {"input_tokens": 5, "cache_read_input_tokens": 0}))
+    assert row["first_prompt_tokens"] == 5
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_summary_skips_unknown_prompts_for_peak(tmp_path, capsys):
+    """#1088: an unknown first prompt stays null; peak and final read the calls that have one."""
+    row = _first_prompt(
+        tmp_path, capsys,
+        _assistant("m1", {"output_tokens": 3}),
+        _assistant("m2", _usage(10, 0, 90)))
+    assert row["first_prompt_tokens"] is None
+    assert row["peak_prompt_tokens"] == row["final_prompt_tokens"] == 100
+    assert row["growth_tokens"] is None
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_calls_series_marks_an_unknown_prompt(tmp_path, capsys):
+    """#1088: --calls prints a dash for a call with no prompt count, not None."""
+    a = tmp_path / "a.jsonl"
+    a.write_text(_jsonl(INIT, _assistant("m1", {"output_tokens": 3}), _assistant("m2", _usage(10, 0, 90))),
+                 encoding="utf-8")
+    out = _run_cli(["trace", "inspect", str(a), "--calls"], capsys).out
+    assert f"{a}: prompt tokens per call: – 100" in out
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_zero_prompt_block_before_output_only_block_keeps_the_zero(tmp_path, capsys):
+    """#1088: a reported zero prompt count in an all-zero block is not lost when a later block of the id has output."""
+    row = _first_prompt(
+        tmp_path, capsys,
+        _assistant("m1", {"input_tokens": 0}),
+        _assistant("m1", {"output_tokens": 7}))
+    assert row["first_prompt_tokens"] == 0 and row["peak_prompt_tokens"] == 0
+    assert row["calls"] == 1 and row["output_tokens"] == 7
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_all_zero_blocks_of_one_id_make_no_call(tmp_path, capsys):
+    """#1088: blocks that stay all zero add no call."""
+    row = _first_prompt(
+        tmp_path, capsys,
+        _assistant("m1", {"input_tokens": 0}),
+        _assistant("m1", {"input_tokens": 0}))
+    assert row["calls"] == 0

@@ -22,7 +22,7 @@
     "dokimi/commands/judge_reliability.py::cmd_eval_cross_judge": {"complexity": 29, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/commands/report.py::cmd_report_model_compare": {"complexity": 12},
     "dokimi/commands/tools.py::cmd_tools_preference": {"complexity": 11},
-    "dokimi/context/trace.py::_apply": {"complexity": 18},
+    "dokimi/context/trace.py::_apply": {"complexity": 15},
     "dokimi/eval/agent_runner.py::_summarize_tool_usage": {"complexity": 11},
     "dokimi/eval/agent_runner.py::run_agent_loop": {"complexity": 14},
     "dokimi/eval/checklist.py::ChecklistReport.format_markdown": {"complexity": 12},
