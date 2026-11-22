@@ -89,6 +89,25 @@ def record_id(q: Dict[str, Any], idx: int) -> Any:
     return f"q{idx:04d}" if own is None else own
 
 
+def free_id(prefix: str, taken: set) -> str:
+    """The first ``<prefix>_NNN`` not in ``taken``, added to it: a set never gives two records one id (#687)."""
+    n = 0
+    while f"{prefix}_{n:03d}" in taken:
+        n += 1
+    taken.add(f"{prefix}_{n:03d}")
+    return f"{prefix}_{n:03d}"
+
+
+def renumber_taken(new: List[Dict[str, Any]], kept: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """``new`` with each id a ``kept`` record already has replaced by a free ``q_NNN``; ``kept`` ids stay.
+
+    Generated ids restart at ``q_001`` on every run, so a regeneration merged with an earlier set repeats them.
+    """
+    kept_ids = {str(question_id(q)) for q in kept if question_id(q) is not None}
+    taken = kept_ids | {str(question_id(q)) for q in new if question_id(q) is not None}
+    return [{**q, "id": free_id("q", taken)} if str(question_id(q)) in kept_ids else q for q in new]
+
+
 def normalize_question(q: Dict[str, Any], idx: int = 0) -> Dict[str, Any]:
     """Normalize a single question record to canonical schema.
 

@@ -134,3 +134,12 @@ def test_the_heredoc_scan_takes_linear_time_in_the_lines_with_a_heredoc_sign():
     ratio, kept = growth(lambda k: partial(_without_heredoc_bodies, command(k)), 375)  # a re-scan per line was quadratic
     assert ratio < GROWTH_LIMIT
     assert kept.endswith("cat <<EOF\nmake ci-local")
+
+
+def test_the_heredoc_scan_masks_each_line_once(monkeypatch):
+    """The characters masked grow with the command: no line is masked again for the quote state (#1061)."""
+    from dokimi.context import prefilter
+    from tests.work_count import WORK_LIMIT, count_calls, work_ratio
+    masked = count_calls(monkeypatch, prefilter, "_masked_line")
+    command = lambda k: "\n".join([": <<< x"] * k + ["cat <<EOF", "body", "EOF", "make ci-local"])
+    assert work_ratio(masked, lambda k: _without_heredoc_bodies(command(k)), 375) <= WORK_LIMIT

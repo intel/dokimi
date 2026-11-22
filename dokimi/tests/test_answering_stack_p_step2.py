@@ -13,6 +13,13 @@ import pytest
 from tests.test_answering_stack_parity import _subparser
 
 
+@pytest.fixture(autouse=True)
+def _provider_keys(monkeypatch):
+    """#967: `benchmark run|batch` refuse a missing key, so these tests hold one."""
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+
+
 class _FakePipeline:
     """Stands in for EvaluationPipeline: keeps the kwargs ``benchmark run`` builds it with."""
 
@@ -88,7 +95,7 @@ def test_eval_output_is_stamped_with_the_method_version(monkeypatch):
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
     out = Judge(model="gpt-x", provider="openai")._build_evaluation_output([])
-    assert out["method_version"] == ANSWERING_METHOD_VERSION == 2
+    assert out["method_version"] == ANSWERING_METHOD_VERSION == 3
 
 
 def test_eval_output_says_whether_the_placeholder_was_judged(monkeypatch):
