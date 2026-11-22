@@ -28,6 +28,7 @@ from .shell_search import Searched, searched_field
 from .shell_split import split_script
 from .shell_walk import _HEREDOC as _HEREDOC  # re-exported: the walker is defined in shell_walk
 from .shell_walk import _LONG_VALUE as _LONG_VALUE
+from .shell_walk import Walked as Walked
 from .shell_walk import _ungrouped, _walk_script, unwrap_shell
 from .shell_walk import shell_reads as shell_reads
 from .shell_walk import shell_reads_moved as shell_reads_moved

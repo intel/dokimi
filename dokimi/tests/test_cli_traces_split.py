@@ -13,7 +13,7 @@ import pytest
 from dokimi.repos import cli_traces, shell_walk
 
 _MODULE = Path(cli_traces.__file__)
-_MOVED = ["shell_reads", "shell_reads_moved", "shell_walk", "shell_walked", "unwrap_shell", "_LONG_VALUE", "_HEREDOC"]
+_MOVED = ["shell_reads", "shell_reads_moved", "shell_walk", "shell_walked", "unwrap_shell", "Walked", "_LONG_VALUE", "_HEREDOC"]
 
 
 def test_cli_traces_is_below_the_growth_cap():
@@ -24,6 +24,22 @@ def test_cli_traces_is_below_the_growth_cap():
 @pytest.mark.parametrize("name", _MOVED)
 def test_a_moved_name_is_the_walkers_object_not_a_copy(name):
     assert getattr(cli_traces, name) is getattr(shell_walk, name)
+
+
+def test_the_walked_result_type_is_still_importable_from_cli_traces():
+    """``Walked`` was defined in ``cli_traces`` before the move: an import of it from there keeps working."""
+    assert cli_traces.Walked is shell_walk.Walked
+    assert isinstance(cli_traces.shell_walked("cat a.txt"), cli_traces.Walked)
+
+
+def test_a_wrapper_with_an_unclosed_quote_is_left_as_written():
+    assert shell_walk.unwrap_shell("bash -lc 'cat a") == "bash -lc 'cat a"
+
+
+@pytest.mark.parametrize("script", ["env", "time", "env -i", "env --"])
+def test_a_command_prefix_with_no_command_after_it_reads_nothing(script):
+    assert shell_walk.shell_reads(script) == []
+    assert shell_walk.shell_reads(f"cat a.txt && {script}") == ["a.txt"]
 
 
 def test_the_parsers_stay_in_cli_traces():
