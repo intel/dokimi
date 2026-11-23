@@ -34,7 +34,8 @@ loaded names are enough to rebuild what was read.
 
 import logging
 import threading
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from collections import Counter
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from dokimi.records import arm_answers, read
 from dokimi.utils import digest_text, question_id
@@ -68,6 +69,22 @@ JUDGE_CONTEXT_BASELINE = "baseline"
 JUDGE_CONTEXT_MODES = (JUDGE_CONTEXT_ARM, JUDGE_CONTEXT_BASELINE)
 
 
+def check_mode(mode: str) -> str:
+    """*mode* when it is one of :data:`JUDGE_CONTEXT_MODES`, else a ``ValueError``."""
+    if mode not in JUDGE_CONTEXT_MODES:
+        raise ValueError(f"judge_context_mode must be one of {JUDGE_CONTEXT_MODES}, got {mode!r}")
+    return mode
+
+
+def shown_to_judge(mode: str, material: Callable[[], str]) -> str:
+    """The text the judge is shown for one arm in *mode*.
+
+    ``baseline`` shows every arm the rendering of no material, which is what a
+    baseline arm's judge sees, so *material* is not built. ``arm`` builds it.
+    """
+    return build([], "") if mode == JUDGE_CONTEXT_BASELINE else material()
+
+
 def stamp_for(sources: Iterable[Optional[str]], *, withheld: bool = False) -> Optional[str]:
     """The ``judge_context`` stamp a judged run has actually earned.
 
@@ -91,6 +108,26 @@ def stamp_for(sources: Iterable[Optional[str]], *, withheld: bool = False) -> Op
     if seen == {SOURCE_STORED, SOURCE_SNIPPET_FALLBACK}:
         return PROTOCOL_MIXED
     return PROTOCOL_WITHHELD if withheld else PROTOCOL
+
+
+def stamp_judged_run(out: Dict[str, Any], sources: List[Optional[str]], mode: str) -> None:
+    """Write a judged run's per-source counts and ``judge_context`` stamp into *out*.
+
+    *mode* is the ``--judge-context`` value the run was judged with. A stamp that
+    pools with nothing gets a warning, since its scores cannot be paired with other runs.
+    """
+    out["judge_context_sources"] = dict(sorted(Counter(s for s in sources if s is not None).items()))
+    stamp = stamp_for(sources, withheld=mode == JUDGE_CONTEXT_BASELINE)
+    if stamp is not None:
+        out["judge_context"] = stamp
+    if stamp not in (PROTOCOL, PROTOCOL_WITHHELD):
+        logger.warning(
+            "Judge context for this run: %s — %s. Answer and judge in one "
+            "process, with unique question ids, for treatment-material scores.",
+            out["judge_context_sources"],
+            "unstamped, so it pools only with pre-treatment-material runs"
+            if stamp is None else f"stamped {stamp!r}, which pools with nothing",
+        )
 
 
 #: Cap on the injected part when the caller does not pass the answerer's own cap.
