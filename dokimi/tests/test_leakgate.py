@@ -672,6 +672,31 @@ def test_read_skill_without_a_skipped_list_still_skips_quietly(tmp_path):
     assert sorted(rs(tmp_path)) == ["SKILL.md"]
 
 
+def test_read_skill_leaves_out_the_skills_own_evals_directory(tmp_path):
+    (tmp_path / "evals").mkdir()
+    (tmp_path / "SKILL.md").write_text("benign\n", encoding="utf-8")
+    (tmp_path / "evals" / "evals.json").write_text('{"expected": "held-out answer"}', encoding="utf-8")
+    (tmp_path / "evals" / "bin.dat").write_bytes(b"\xff\xfe\x00\x81")
+    skipped: list[str] = []
+    assert read_skill(tmp_path, skipped=skipped) == {"SKILL.md": "benign\n"}
+    assert skipped == []
+
+
+def test_read_skill_still_reads_an_evals_directory_below_the_root_and_a_file_named_evals(tmp_path):
+    (tmp_path / "references" / "evals").mkdir(parents=True)
+    (tmp_path / "SKILL.md").write_text("benign\n", encoding="utf-8")
+    (tmp_path / "references" / "evals" / "notes.md").write_text("notes", encoding="utf-8")
+    (tmp_path / "evals").write_text("a file, not a directory", encoding="utf-8")
+    assert sorted(read_skill(tmp_path)) == ["SKILL.md", "evals", "references/evals/notes.md"]
+
+
+def test_read_skill_with_only_an_evals_directory_has_no_text_to_check(tmp_path):
+    (tmp_path / "evals").mkdir()
+    (tmp_path / "evals" / "evals.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="no UTF-8 text file"):
+        read_skill(tmp_path)
+
+
 def test_format_table_prints_each_warning_under_the_split_line():
     result = run({"SKILL.md": "clean"}, QUESTIONS)
     result["warnings"] = ["notes.txt: not UTF-8 text, not read"]
