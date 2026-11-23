@@ -3,6 +3,8 @@
 
 """The Markdown novelty report agrees with the gate on whether 0 conflicting atoms was checked."""
 
+import sys
+
 import pytest
 
 from dokimi.gate.novelty_gate import uncleared_conflicts
@@ -151,3 +153,59 @@ def test_a_cap_met_on_the_last_span_leaves_the_zero_uncleared_without_naming_an_
     assert ("> **Conflicts not cleared.** The atom set was capped (30 indexed), so 0 conflicts "
             "among the capped atoms") in markdown
     assert "opening" not in markdown
+
+
+def _novelty_cmd_args(*argv):
+    from dokimi.cli import build_parser
+
+    return build_parser().parse_args(["skill", "novelty", *argv])
+
+
+@pytest.mark.parametrize("fmt", ["md", "html"])
+def test_view_writes_a_lone_surrogate_in_the_artifact_ref_as_a_question_mark(tmp_path, fmt):
+    from dokimi.artifacts import save_artifact
+    from dokimi.novelty.atoms import save_atoms
+    from dokimi.novelty.spans import segment
+    from tests.test_novelty_cli import _minimal_artifact
+
+    atoms_path, novelty_path = tmp_path / "atoms.json", tmp_path / "novelty.json"
+    save_atoms([], segment("# H\n\nText.\n"), atoms_path)
+    save_artifact("novelty", {**_minimal_artifact(), "artifact": {
+        "kind": "skill", "ref": "n\ud800", "ref_digest": None, "tokens": 10}}, novelty_path)
+    out = tmp_path / "view" / f"annotated.{fmt}"
+    args = _novelty_cmd_args("view", "--novelty", str(novelty_path), "--atoms", str(atoms_path),
+                             "--format", fmt, "--out", str(out))
+    args.func(args)
+    assert "n?" in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(("ref", "model", "written"), [
+    ("n\ud800", "m", "novelty.md"),
+    ("skill:x", "n\ud800", "annotated.html"),
+], ids=["report-ref", "annotated-title"])
+def test_analyze_writes_a_lone_surrogate_in_its_markdown_as_a_question_mark(
+        tmp_path, monkeypatch, ref, model, written):
+    from types import SimpleNamespace
+
+    from tests.test_novelty_analyze import SKILL
+    from tests.test_novelty_cli import _minimal_artifact
+
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(SKILL, encoding="utf-8")
+    artifact = {**_minimal_artifact(), "provider": "openai",
+                "artifact": {"kind": "skill", "ref": ref, "ref_digest": None, "tokens": 10}}
+    result = SimpleNamespace(artifact=artifact, attributions=[], partial=False,
+                             measure_result=SimpleNamespace(runs=[]))
+    monkeypatch.setattr("dokimi.novelty.cost.clients", lambda args: (
+        SimpleNamespace(model="extractor", provider="openai"), SimpleNamespace(model=model),
+        SimpleNamespace(model="judge")))
+    # The package re-exports `analyze` as the function, which shadows the submodule's name.
+    monkeypatch.setattr(sys.modules["dokimi.novelty.analyze"], "analyze", lambda *a, **k: result)
+    # The atom files are not what this test reads; the fake result has no atoms to write.
+    for saver in ("save_atom_verdicts", "save_run_atoms"):
+        monkeypatch.setattr(f"dokimi.novelty.atom_verdicts.{saver}", lambda *a, **k: tmp_path / "atoms.json")
+    out_dir = tmp_path / "out"
+    args = _novelty_cmd_args("analyze", "--artifact", f"skill:{skill}", "--out-dir", str(out_dir))
+    args.func(args)
+    assert "n?" in (out_dir / written).read_text(encoding="utf-8")

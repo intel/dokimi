@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from dokimi.cli import build_parser
@@ -17,7 +19,9 @@ DEEP = "[" * 100000
 
 
 def _run(*argv: str) -> None:
-    args = build_parser().parse_args(["repo", *argv])
+    head, *rest = argv  # `repo validate` moved to `eval check --schema-only` (#94 M1)
+    words = ["eval", "check", "--schema-only"] if head == "validate" else ["repo", head]
+    args = build_parser().parse_args([*words, *rest])
     args.func(args)
 
 
@@ -94,3 +98,113 @@ def test_load_manifest_reports_a_repo_manifest_it_has_no_permission_to_read(repo
     tree = open_source(RepoSource.parse(str(repo)), repo.parent / "cache")
     with pytest.raises(ManifestError, match="cannot read: .*Permission denied"):
         load_manifest(tree)
+
+
+def test_load_tasks_names_a_task_json_it_cannot_parse(tmp_path):
+    """#975: a task.json that is deeply nested, not JSON or not UTF-8 is a PrepError naming the file."""
+    from dokimi.repos.manifest import parse_manifest
+    from dokimi.repos.workspace import PrepError, load_tasks
+
+    manifest = parse_manifest({"schema": "repo_manifest.v1", "id": "toy", "eval_dir": "ev", "tasks": "ev/tasks",
+                               "entry_points": {"grade": "g {run_dir}", "oracle": "o {run_dir}"},
+                               "guidance": {"globs": ["AGENTS.md"]}}, "m.yaml")
+    for name, content in (("deep", DEEP.encode()), ("bad", b"{"), ("utf8", b"\xff\xfe")):
+        task = tmp_path / "tasks" / name
+        task.mkdir(parents=True)
+        (task / "task.json").write_bytes(content)
+        with pytest.raises(PrepError, match=f"^ev/tasks/{name}/task.json: cannot read"):
+            load_tasks(tmp_path, manifest, [name])
+
+
+def test_a_deeply_nested_suite_file_is_refused_like_a_bad_one(tmp_path):
+    """#975: load_suite refuses a deeply nested suite as `not valid YAML`, as it does a non-UTF-8 one."""
+    from dokimi.repos.suite import SuiteError, load_suite
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "suite.json").write_text(DEEP + "]" * 100000, encoding="utf-8")
+    tree = open_source(RepoSource.parse(str(root)), tmp_path / "cache")
+    with pytest.raises(SuiteError, match="not valid YAML"):
+        load_suite(tree, "suite.json")
+
+
+def test_a_manifest_file_that_is_not_a_regular_file_exits_2_naming_it(repo, tmp_path, capsys):
+    """#975: a directory or a FIFO as --manifest-file is refused, not read (a FIFO without a writer blocks)."""
+    import os
+
+    fifo = tmp_path / "m.yaml"
+    if hasattr(os, "mkfifo"):
+        os.mkfifo(fifo)
+    else:
+        fifo.mkdir()
+    with refusal() as exc:
+        _run("validate", str(repo), "--manifest-file", str(fifo))
+    assert exc.code == 2
+    err = capsys.readouterr().err
+    assert str(fifo) in err and "not a regular file" in err
+
+
+def test_a_manifest_file_name_too_long_to_stat_exits_2_naming_it(repo, capsys):
+    """#975: the regular-file check is inside the OSError handler: an overlong name is a manifest error, not a traceback."""
+    name = "0" * 300
+    with refusal() as exc:
+        _run("validate", str(repo), "--manifest-file", name)
+    assert exc.code == 2
+    assert name in capsys.readouterr().err
+
+
+def test_a_missing_manifest_file_still_says_it_is_missing(repo, tmp_path, capsys):
+    """#975 review of #1044: only a path that exists and is not a regular file is "not a regular file"."""
+    missing = tmp_path / "absent.yaml"
+    with refusal() as exc:
+        _run("validate", str(repo), "--manifest-file", str(missing))
+    assert exc.code == 2
+    err = capsys.readouterr().err
+    assert str(missing) in err and "No such file" in err and "not a regular file" not in err
+
+
+@pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="needs /dev/fd")
+def test_a_manifest_file_read_through_a_pipe_with_a_writer_validates(repo, capsys):
+    """#975 review of #1044: process substitution (/dev/fd/N) reads as on main; a named FIFO is still refused."""
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"schema: repo_manifest.v1\nid: toy\nguidance:\n  globs: ['AGENTS.md']\n")
+    os.close(write_fd)
+    try:
+        _run("validate", str(repo), "--manifest-file", f"/dev/fd/{read_fd}")
+    finally:
+        os.close(read_fd)
+    assert "✓ toy" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="needs /dev/fd")
+def test_a_manifest_piped_to_stdin_validates(repo, capsys):
+    """#975: `cat m.yaml | dokimi repo validate --manifest-file /dev/stdin` reads as on main; only a pipe without a writer is refused."""
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"schema: repo_manifest.v1\nid: toy\nguidance:\n  globs: ['AGENTS.md']\n")
+    os.close(write_fd)
+    saved = os.dup(0)
+    os.dup2(read_fd, 0)
+    try:
+        _run("validate", str(repo), "--manifest-file", "/dev/stdin")
+    finally:
+        os.dup2(saved, 0)
+        os.close(saved)
+        os.close(read_fd)
+    assert "✓ toy" in capsys.readouterr().out
+
+
+def test_repo_validate_names_a_deeply_nested_task_json(repo, capsys):
+    """#975 review of #1044: repo validate reports a deep task.json as not valid JSON, not a RecursionError."""
+    task = repo / ".agent-eval" / "tasks" / "t1"
+    task.mkdir(parents=True)
+    (task / "task.json").write_text(DEEP, encoding="utf-8")
+    (repo / ".agent-eval" / "repo-eval.yaml").write_text(
+        "schema: repo_manifest.v1\nid: toy\neval_dir: .agent-eval\ntasks: .agent-eval/tasks\n"
+        "entry_points: {grade: 'g {run_dir}', oracle: 'o {run_dir}'}\nguidance:\n  globs: ['AGENTS.md']\n",
+        encoding="utf-8")
+    try:
+        _run("validate", str(repo))
+    except SystemExit:
+        pass
+    captured = capsys.readouterr()
+    assert "task.json: not valid JSON" in captured.out + captured.err

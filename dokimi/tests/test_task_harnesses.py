@@ -23,6 +23,7 @@ from dokimi.harnesses.operations import load_operations
 from dokimi.harnesses.registry import create_harness, known_harnesses
 from dokimi.harnesses.runner import summarize_task_results
 from dokimi.process import FakeRunner, reply
+from tests.waiting import poll_until
 
 
 def _fixture_task(tmp_path: Path) -> Path:
@@ -699,16 +700,14 @@ def test_agent_timeout_with_text_output_still_reports(tmp_path, monkeypatch):
 
 
 def _pid_gone(pid: int, within: float = 5.0) -> bool:
-    import time
-
-    deadline = time.monotonic() + within
-    while time.monotonic() < deadline:
+    def gone() -> bool:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return True
-        time.sleep(0.05)
-    return False
+        return False
+
+    return poll_until(gone, within, interval=0.05)
 
 
 # An agent that starts a helper (a tool call, a language server) and writes its pid; the

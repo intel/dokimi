@@ -32,6 +32,7 @@ from dokimi.harnesses.benchflow import (
 )
 from dokimi.harnesses.registry import create_harness, known_harnesses
 from dokimi.process import FakeRunner, reply
+from tests.waiting import wait_until
 
 # Trimmed from a real rollout (haiku-4.5 on onetbb-histogram-local-aggregation).
 _RESULT = {
@@ -846,15 +847,14 @@ def test_run_bench_kills_the_process_group_on_timeout(tmp_path, reap):
     run = mod._run_bench(["bash", "-c", script], 1.0, dict(os.environ))
     assert run.returncode == mod._TIMEOUT_RC and run.timed_out
     pid = int(marker.read_text())
-    import time
-    for _ in range(50):
+
+    def gone() -> bool:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
-            break
-        time.sleep(0.1)
-    else:
-        pytest.fail("child of the timed-out bench process is still alive")
+            return True
+        return False
+    wait_until(gone, 5, what="the child of the timed-out bench process to be gone", interval=0.1)
 
 
 @pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX process groups")

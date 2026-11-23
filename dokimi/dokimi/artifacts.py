@@ -7,7 +7,7 @@ The benchmark produces long-lived JSON artifact kinds: ``questions``,
 ``answers``, ``eval`` (LLM-judge scores), ``arms`` (treatment-arm comparisons),
 ``task_runs`` (executable task results), ``explore_runs`` (ExploreBench
 localization results), ``novelty`` (what an artifact's content adds to one
-model), ``guidance_reach`` (L1 reach probes), ``skill_discovery`` (which
+model), ``novelty_atoms`` (the per-atom verdicts of one ``novelty`` run), ``guidance_reach`` (L1 reach probes), ``skill_discovery`` (which
 skills a harness lists, from where), ``repo_readiness`` (L0 claim
 checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
@@ -46,11 +46,13 @@ import os
 import re
 import secrets
 import threading
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from dokimi._version import __version__
+from dokimi.process_io import json_utf8_bytes
 from dokimi.utils import InputError, read_json_input
 
 logger = logging.getLogger(__name__)
@@ -68,6 +70,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "subject_scorecard": "subject_scorecard.v2",
     "skill_evidence": "skill_evidence.v1",
     "novelty": "novelty.v1",
+    "novelty_atoms": "novelty_atoms.v1",
     "task_runs": "task_runs.v1",
     "explore_runs": "explore_runs.v1",
     "guidance_reach": "guidance_reach.v1",
@@ -229,9 +232,29 @@ def schema_errors(schema: str | Path, instance: Any) -> list[str]:
     ]
 
 
+def shared_question_ids(data: dict) -> list[str]:
+    """The ids two or more records of a ``questions`` payload share, compared as strings, as
+    :attr:`dokimi.records.Record.key` joins answers by them; questions.v2 declares an id unique (#687)."""
+    records = data.get("questions")
+    if not isinstance(records, list):
+        return []
+    counts = Counter(str(q["id"]) for q in records if isinstance(q, dict) and "id" in q)
+    return sorted(qid for qid, n in counts.items() if n > 1)
+
+
+def listed_ids(ids: list[str]) -> str:
+    """The first five of ``ids`` for a message, and how many more there are."""
+    shown = ", ".join(map(repr, ids[:5]))
+    return shown + (f" and {len(ids) - 5} more" if len(ids) > 5 else "")
+
+
 def summary_errors(kind: str, data: dict) -> list[str]:
     """What the schema file of ``kind`` leaves unchecked: a finished ``novelty`` record (one without
-    ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks."""
+    ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks;
+    a ``questions`` set may not give two records one id (:func:`shared_question_ids`)."""
+    if kind == "questions":
+        shared = shared_question_ids(data)
+        return [f"questions: duplicate question ids {listed_ids(shared)}"] if shared else []
     if kind != "novelty" or "status" in data:
         return []
     return [f"<root>: {name!r} is a required property"
@@ -288,6 +311,11 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
     - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
       people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
+      With ``ensure_ascii`` false a surrogate pair is joined into its character and a lone
+      surrogate stays its ``\\udXXX`` escape, and a pair key beside its character key raises
+      ``ValueError``; ASCII-escaped, a pair stays two escapes and no key check runs. The text is
+      validated as a reader loads it as well, so two ids that become one once a pair is joined are
+      refused like any duplicate id.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
@@ -301,17 +329,18 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
         head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
     except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
-                                       ensure_ascii=ensure_ascii), encoding="utf-8")
+        rejected.write_bytes(json_utf8_bytes(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
+                                                        ensure_ascii=ensure_ascii)))
         raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     payload = {**head, **{k: v for k, v in data.items() if k not in head}}
-    text = json.dumps(payload, indent=2, ensure_ascii=ensure_ascii)
+    encoded = json_utf8_bytes(json.dumps(payload, indent=2, ensure_ascii=ensure_ascii))
     try:
         validate_artifact(kind, payload)
+        validate_artifact(kind, json.loads(encoded))  # what a reader gets: a joined pair can make two ids one
     except ArtifactValidationError as exc:
         rejected = path.with_name(path.name + ".rejected")
         try:
-            rejected.write_text(text, encoding="utf-8")
+            rejected.write_bytes(encoded)
         except OSError as kept:  # still a refusal: the caller exits as for a refused payload, not as an unwritable path
             raise ArtifactValidationError(f"{exc}\n(not written to {path}; the payload could not be kept at "
                                           f"{rejected}: {kept})") from exc
@@ -319,7 +348,7 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
     target = _write_target(path)
     tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
-        tmp.write_text(text, encoding="utf-8")
+        tmp.write_bytes(encoded)
         os.replace(tmp, target)
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -354,7 +383,8 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
     """Read and (optionally) validate an artifact of ``kind`` from ``path``.
 
     Every failure is an :class:`~dokimi.utils.InputError` naming ``path``: a file that is
-    missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema.
+    missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema, and
+    the partial file of an unfinished novelty or arms run.
     """
     data = read_json_input(path)
     if not isinstance(data, dict):
@@ -367,6 +397,11 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
                              "Drop --max-usd to run unmetered" if reason == "no_price" else
                              "Fix the provider error and rerun" if reason == "permanent_error" else
                              "Rerun with a higher --max-usd, or without the cap"))
+    if kind == "arms":
+        from dokimi.records import partial_refusal
+
+        if refusal := partial_refusal(data, str(path)):
+            raise InputError(refusal)
     if validate:
         try:
             validate_artifact(kind, data)

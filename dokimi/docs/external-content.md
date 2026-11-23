@@ -88,7 +88,7 @@ implicit default that points at a sibling checkout:
 |---|---|---|
 | `--root` | a whole content checkout to scan | `catalog check` |
 | `--questions-root` | directory holding `<product_key>_golden.json` | `benchmark preflight/run/batch`, `evaluate`, `coverage`, `config_check` |
-| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `explore list/run`, `coverage`, `config_check` |
+| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `eval tasks list --format localization`, `explore run`, `coverage`, `config_check` |
 | `--repo-root` | the source tree an exploration task is scored against | `explore run` |
 | `--registry` | a `products.yaml` describing products this repo has never heard of | `benchmark preflight/run` |
 | `--questions` | one question-set file | `arms run`, `answers generate` |
@@ -103,12 +103,12 @@ way the readers expect. Substitute your own checkout path.
 ## Content checks: retired model IDs and hidden characters
 
 `catalog check` also reads the text of each loaded skill: its `SKILL.md` and the text
-files beside it (`.md`, `.py`, `.sh`, `.json`, `.yaml`, `.toml` and similar, up to 1 MB;
+files beside it (`.md`, `.py`, `.sh`, `.bash`, `.zsh`, `.ps1`, `.json`, `.yaml`, `.toml`, `.html`, `.csv`, `.ini` and similar, up to 1 MB;
 hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the checkout root
 is checked alone, since its directory is the whole repository. It needs no key and calls no model.
 Two checks, both `warn`:
 
-- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired.
+- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired. A Cyrillic or Greek look-alike letter or a fullwidth letter counts as its Latin letter.
   The finding gives the file and line, the vendor's status and date, and the replacement
   the vendor names. IDs match whole tokens and case-sensitively: `gpt-4.1` does not match
   `gpt-4`, and `GPT-4` in prose does not match at all. The list is
@@ -119,9 +119,15 @@ Two checks, both `warn`:
   `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
   the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
   the same status and date.
-- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
-  tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
-  a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
+- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a bidi mark (U+200E, U+200F,
+  U+061C) with no Hebrew or Arabic letter as the nearest letter on either side in its line, a Unicode tag character (U+E0000 to U+E007F), a stray
+  zero-width character (U+200B, U+2060, or a U+FEFF after the start of the file), a soft hyphen (U+00AD), an
+  invisible operator or deprecated format character (U+2061 to U+2064, U+206A to U+206F), or a blank
+  filler (U+034F, U+180E, U+115F, U+1160, U+3164, U+FFA0, U+2800). A variation selector (U+FE00 to U+FE0F,
+  U+E0100 to U+E01EF) is reported at the start of the text, after another selector, or after an ASCII
+  character other than a keycap base (`#`, `*`, `0` to `9`), or after a non-ASCII character that is not a symbol
+  or an ideograph (a letter, a no-break space); after an emoji, a symbol or an ideograph it is not. U+034F is not reported beside a non-ASCII letter or mark, U+115F and U+1160 beside Hangul (jamo, compatibility and Extended-A/B jamo, syllables,
+  halfwidth), and U+2800 beside Braille. Each is reported with its line and codepoint; five
   per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
   or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
   Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
@@ -292,10 +298,12 @@ with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
 its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
 skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
-half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
+half and shares three words (`description-near-duplicate`). Under a different name, an overlap from 40% up to that line that shares at least three words is a `note` (`similar-skills-exist`) that leaves the state `ok`. The `description-no-when` cue is read in English,
 Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
 of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
-(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
+(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. A word that only states a capability is not a cue:
+Japanese いつ counts only before a use verb, Chinese 耗时, 超时 and 延时 do not count directly before 调用 or 执行 (a comma or 请 between them restores it), and German `beim`
+counts only in the same sentence as a use verb (verwenden, nutzen, ...). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
 `.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
@@ -328,10 +336,10 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
-(`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
+(`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
 an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
 package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
-file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
+file, a local path, a URL or a `git+` source is not counted. These checks read a Cyrillic or Greek look-alike letter, or a fullwidth letter, as its Latin letter, so `сurl | bash` with a Cyrillic `с` is still a `pipe-to-shell`; the letter list is short, and a look-alike outside it escapes. Installs are read from code only: the fenced
 blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
 text file, such as a script. The scan reads at most 200
 bundled files of 256 KiB or less; a binary or non-UTF-8 file counts toward the 200 too and is not checked. A skill at the root of a
@@ -439,13 +447,24 @@ $ echo $?
 
 A large catalog is easier to scan one skill at a time:
 
-- `--per-skill` reviews each skill alone. The four cross-catalog checks
-  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
+- `--per-skill` reviews each skill alone. The five cross-catalog checks
+  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`,
+  `similar-skills-exist`)
   compare a skill with the others, so they do not run in this mode; every other
   check does. The granularity hints (merge and split candidates) need the whole
   catalog too, so they are not run here; the text output says so in a
   `# granularity: not run with --per-skill` line; `--format json` has no
   `granularity` key in this mode.
+- `--listing-budget CHARS` adds up each listed skill's entry (`name: description`, then
+  ` - when_to_use` when the frontmatter sets it and is not empty; characters, not bytes, and no line break between
+  entries; the description and `when_to_use` count at most 1,536 characters per entry, as Claude Code cuts them; a byte-identical `SKILL.md` under another path is one entry, as the routing field keeps one card
+  for it, while a name whose copies differ is left out, as there) and compares it with CHARS. The total is `listing.chars` in the JSON report, with
+  `budget` and `over_budget`. Over the cap is a `listing-over-budget` warning after the counts,
+  and exit 1 with `--strict`; a total equal to CHARS passes. The whole-catalog scan, `--per-skill`,
+  `--concurrency` and `--resume` count the same way: a resumed row keeps its `listing_chars`, and the cap is
+  checked against this run's value, so lowering it can fail a resumed `--strict` scan whose receipt is
+  still valid. `--ignore listing-over-budget` drops the warning, the exit and the line that carries the total
+  (the report keeps it); it is not in a row's `ignored`, so adding or dropping it does not redo a resumed row.
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
@@ -456,6 +475,14 @@ A large catalog is easier to scan one skill at a time:
   and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
   fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
+- `--fail-on-code CODE` (repeatable) exits 1 when a finding with that code is left after
+  `--ignore`, whatever its level: a `note` can fail the scan while its skill's state
+  stays `ok`. `--ignore` filters first, so a code in both is not checked. An unknown
+  code is a usage error, and so is `--kind tasks`, and so is a code this scan never reports:
+  `duplicate`, `name-conflict`, `mirror-drift` and `description-near-duplicate` with `--per-skill`,
+  `link-dead` and `package-not-found` without `--online`. `--strict` keeps its meaning. With
+  `--json` the skill's subject has verdict `fail`. `--resume` applies the current
+  `--fail-on-code` to the rows it keeps, so changing it needs no rescan.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--concurrency N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
@@ -476,6 +503,50 @@ JSON report and of each JSONL row in [catalog check output](catalog-jsonl.md).
 combine with `--format json`; any other misuse exits 2. From Python,
 `dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
 skill in `path`.
+
+### Provenance: which upstream a copy came from (`catalog provenance`)
+
+A skill copied from another repository drifts from it: the upstream is updated and the
+copy is not, or the copy is edited and drops the licence. `catalog provenance` matches each
+skill under `--root` to a version of an upstream you name, offline. Dokimi ships no
+upstream list: give it the upstreams yourself.
+
+- `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. Clone it yourself; a full clone
+  gives the exact count of commits behind, a shallow one says it sees only its own history.
+- `--upstream-manifest FILE` (repeatable) is a JSON file of one upstream, for an upstream that
+  is not a git checkout. Its `schema` field is the version-1 upstream schema string shown here:
+
+  ```json
+  {"schema": "dokimi.upstream.v1", "name": "acme-skills",
+   "head": {"commit": "2c5958e", "date": "2026-04-01T00:00:00+00:00"},
+   "skills": [{"path": "skills/pdf/SKILL.md", "content": "---\nname: pdf\n...", "head": true,
+               "commit": "9f1c2ab", "date": "2026-03-01T00:00:00+00:00"}]}
+  ```
+
+  `content` is the text of the file, hashed as UTF-8; line endings count, except that a CRLF copy also matches the LF form of its text (as `git hash-object` reads it under `core.autocrlf`), against a manifest or a checkout. `head`, `commit` and `date` are optional. The git blob
+  sha is computed from `content`, so a manifest and a checkout agree.
+
+```text
+$ dokimi catalog provenance --root ./my-plugin --upstream ~/src/acme-skills
+# upstream acme-skills: head 446e0e560cff 2026-04-01, history full
+# skills (2 under ./my-plugin: 1 exact, 1 similar, 0 unmatched; 1 edited; 0 at head; median 3.0 months behind)
+skill	match	upstream	version	behind	edited
+skills/pdf-copy	exact	acme-skills:pdf/SKILL.md	88fa89b3fcc7 2026-01-01	1 commits, 3.0 mo	no
+skills/pdf-edit	similar	acme-skills:pdf/SKILL.md	88fa89b3fcc7 2026-01-01	1 commits, 3.0 mo	yes
+```
+
+A copy is matched by its bytes first: an identical `SKILL.md` at the upstream head or in its
+history is `exact` (not edited), and the newest such version is the one reported. Otherwise
+an upstream version with the same frontmatter `name` and a word Jaccard similarity of at least
+0.8 is `similar` (edited). Anything else is `unmatched`. `behind` counts the commits that
+touched the file after the matched version, and the months run from that version's commit date
+to the upstream head. When the matched path is no longer in the upstream head tree (the skill was
+renamed or deleted), the row says `removed_at_head` and the text adds `path removed at head`: `behind`
+then counts only the commits that touched the old path. A copy that does not load (no `description`,
+broken YAML) is matched by its bytes like the others, and the copy's frontmatter `name`, not its
+directory name, is the name for a `similar` match. A checkout that lacks blobs of its history (a
+partial clone) reports `history: partial` with `missing_blobs`; fetch them for an exact count.
+`--format json` adds the upstreams, one row per skill and a `summary`.
 
 ## 2. The awareness half: question sets
 
@@ -598,7 +669,7 @@ the YAML directory, `--repo-root` the tree a task is scored against when its
 own YAML omits `repo_root:`.
 
 ```console
-$ python cli.py explore list --tasks-root C:/Users/Public/content-repo/explore_tasks
+$ python cli.py eval tasks list --format localization --tasks-root C:/Users/Public/content-repo/explore_tasks
 demo-locate-widget      demo    1 ref(s)        Where is the widget width clamped?
 
 $ python cli.py explore run --all \
@@ -719,13 +790,13 @@ Worth knowing before you read a suspiciously clean result:
 | `catalog check --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
 | `tasks run --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `eval tasks list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
-| `explore list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --format localization --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
 `eval tasks list` is the trap for an existing directory: an empty listing and a correct listing
 both exit 0, so an empty checkout looks like a correct one. A missing root is refused with exit 2,
-not a silent success. `explore list` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
+not a silent success. `eval tasks list --format localization` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage

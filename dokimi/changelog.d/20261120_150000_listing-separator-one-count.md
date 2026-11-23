@@ -1,0 +1,3 @@
+### Fixed
+
+- **`repo budget` and the skill arm's `skill_listing` receipt now count a skill's listing entry the same way.** `repo budget` left out the ` - ` between `description` and `when_to_use` and `skill_listing` counted it even for an empty `when_to_use`. Both now count it only for a non-empty `when_to_use`. For a non-empty string `when_to_use`, `repo budget` charges 3 more characters per skill before the per-entry cap. A `when_to_use` of `false` or `0`, which `repo budget` used to leave out, is now counted as the text `False` or `0`. `skill_listing` also takes the first body line when `description` is omitted, as `repo budget` does.

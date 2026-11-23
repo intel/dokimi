@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""A shell command's words, for :func:`~dokimi.repos.cli_traces.shell_reads`: the command word past what comes before
+"""A shell command's words, for :func:`~dokimi.repos.shell_walk.shell_reads`: the command word past what comes before
 it (``NAME=value``, a redirection, ``builtin``, ``command``, ``time``, ``env``), whether it runs a directory builtin, and
 the ``case ... esac`` a part opens or closes."""
 
@@ -31,6 +31,24 @@ _LEAD = _KEYWORDS | {"{", "time"}
 _QUOTED = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"", re.S)
 _SUBSTITUTION = re.compile(r"`[^`]*`|\$\(")
 _EXPANDS = re.compile(r"[$`*?\[{]")  # a word the shell expands (``$V/bin/activate``, ``*/bin/activate``): not known here
+# redirects apply in order: after ``2>/dev/null`` or ``2>file``, a ``1>&2`` sends stdout there too, away from the agent
+_STDERR_TARGET = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+")
+_STDOUT_TO_STDERR = re.compile(r"(?<![^\s;&|(])1?>&2(?!\d)")
+
+
+def _stdout_after_stderr(text: str) -> bool:
+    """Whether a ``2>file`` is followed on its line by ``>&2``; the next line is scanned once, not once per ``2>``."""
+    pos, closer = 0, None
+    while (target := _STDERR_TARGET.search(text, pos)) is not None:
+        if closer is None or closer.start() < target.end():
+            closer = _STDOUT_TO_STDERR.search(text, target.end())
+            if closer is None:
+                return False
+        eol = text.find("\n", target.end())
+        if eol == -1 or closer.start() < eol:
+            return True
+        pos = eol + 1  # the closer is on a later line: no other target on this one reaches it
+    return False
 
 
 def _time_keyword(text: str) -> bool:

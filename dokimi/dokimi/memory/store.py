@@ -19,6 +19,8 @@ from urllib.parse import unquote
 
 import yaml
 
+from dokimi.code_spans import LINE_BREAK, CodeSpan, CodeSpanScanner
+
 INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
@@ -29,11 +31,10 @@ _MD_REF_DEF = re.compile(  # a definition: label, destination, then nothing or a
     r"(?:[ \t]+[\"'(](?:\\.|\\$|[^\\])*)?\s*$")
 _MD_LABEL = re.compile(r"\[([^\[\]\n]+)\]")
 _LABEL_ACROSS_LINES = re.compile(r"\[([^\[\]]+)\]")  # used on two joined lines: a label may wrap a line break
-_EMPTY_LINK = re.compile(r"\]\(\s*(?:<>)?\s*\)")  # [t]() is an inline link with an empty destination
+_EMPTY_LINK = re.compile(r"\]\(\s*(?:<>\s*)?\)")  # [t]() is an inline link with an empty destination
 _ENTITY = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")  # a reference ends in a semicolon
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
-_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)")  # a backtick run closed by one of the same length
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:")  # two letters or more, so a drive path like C:\\x is not a scheme
 _LIST_ITEM = re.compile(r" *(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
@@ -197,9 +198,14 @@ def _resume_comment(line: str, comment: str, opener: str) -> tuple[str | None, s
     return " " * (end + 3) + line[end + 3:], "", ""  # the text after the close is prose, not a fence
 
 
-def _code_span(line: str, pos: int) -> re.Match | None:
-    """The first code span of ``line`` from ``pos`` whose opening backtick is not escaped."""
-    while (m := _CODE_SPAN.search(line, pos)) is not None:
+def _code_span(line: str, pos: int, scan: CodeSpanScanner | None = None) -> CodeSpan | None:
+    """The first code span of ``line`` from ``pos`` whose opening backtick is not escaped.
+
+    A span is a backtick run closed by one of the same length on the same line. ``scan`` keeps the runs read
+    by an earlier call on the same line (blanking leaves the offsets of the text after ``pos`` as they were).
+    """
+    scan = scan or CodeSpanScanner(line, pos, stop=LINE_BREAK)
+    while (m := scan.find(pos)) is not None:
         if not _escaped(line, m.start()):
             return m
         pos = m.start() + 1
@@ -317,8 +323,9 @@ def _blank_inline(line: str, closes_ahead: bool, pos: int = 0, before: str = "")
     span may close on a later line). A comment opened mid-line with no ``-->`` in its paragraph
     (``closes_ahead`` False) is plain text, as Markdown reads it, so the scan goes on past it.
     """
+    scan = CodeSpanScanner(line, pos, stop=LINE_BREAK)
     while True:
-        code = _code_span(line, pos)
+        code = _code_span(line, pos, scan)
         start = line.find("<!--", pos)
         if code is None and start < 0:
             return line, "", _unpaired_run(line, before)
@@ -469,12 +476,23 @@ def _entry(root: Path, path: Path, archived: bool) -> MemoryEntry:
     return MemoryEntry(rel, text, body, data, archived=archived)
 
 
+#: Files a repository root has and a memory directory does not: read as a store, its README and
+#: AGENTS.md would be linted as memory entries.
+_REPO_MARKERS = (".git", "pyproject.toml", "setup.py", "CMakeLists.txt", "package.json", "Cargo.toml", "go.mod",
+                 "MODULE.bazel", "WORKSPACE", "Makefile")
+
+
 def read_claude_memory(root: str | Path) -> MemoryStore:
     """Read ``root`` as a Claude Code memory directory; no file is written."""
     root = Path(root)
     if not root.is_dir():
         raise MemoryStoreError(f"{root}: not a directory")
     index_path = root / INDEX_NAME
+    if not index_path.is_file():
+        marker = next((m for m in _REPO_MARKERS if (root / m).exists()), None)
+        if marker is not None:
+            raise MemoryStoreError(f"{root}: has {marker} and no {INDEX_NAME}, so it looks like a repository, "
+                                   "not a memory directory; pass the directory that holds the memory files")
     index = _entry(root, index_path, False) if index_path.is_file() else None
     entries = [_entry(root, p, False) for p in sorted(root.glob("*.md")) if p.name != INDEX_NAME and p.is_file()]
     archive = root / ARCHIVE_DIR
