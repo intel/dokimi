@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Optional
 
 from dokimi import llm_cli
-from dokimi.llm import unsupported_sampling_params
+from dokimi.llm import sampling_refusals
 
 
 def check_judge_sampling(provider: str, model: Optional[str], temperature: Optional[float],
@@ -22,8 +22,11 @@ def check_judge_sampling(provider: str, model: Optional[str], temperature: Optio
     llm_cli.check_sampling(provider, temperature, seed)
     if model is None or (temperature is None and seed is None) or llm_cli.backend(provider):
         return
-    bad = unsupported_sampling_params(model, provider, temperature=temperature, seed=seed)
+    bad = sampling_refusals(model, provider, temperature=temperature, seed=seed)
     if bad:
+        requested = {"temperature": temperature, "seed": seed}
+        refused = ", ".join(f"{name}={requested[name]}" for name in bad)
         raise llm_cli.SamplingError(
-            f"{provider} does not support {', '.join(bad)} for model '{model}'. "
-            "Drop the judge option(s); every judgement would otherwise fail.")
+            f"{provider} refuses {refused} for model '{model}'. "
+            f"{'; '.join(bad.values())}. "
+            "Use a supported value or omit the corresponding judge option to use the provider default.")

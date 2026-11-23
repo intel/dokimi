@@ -221,18 +221,30 @@ def unsupported_sampling_params(
     Returns an empty list when the check cannot be performed, so an unknown
     model never blocks a run on this account.
     """
+    return list(sampling_refusals(model, provider, temperature, seed))
+
+
+def sampling_refusals(
+    model: str, provider: str, temperature: Optional[float], seed: Optional[int],
+) -> dict[str, str]:
+    """Return the reason for each refused sampling option."""
     requested = _sampling_kwargs(temperature=temperature, seed=seed)
     if not requested:
-        return []
+        return {}
     if (cli := llm_cli.backend(_canonical(provider))) is not None:
-        return [n for n in requested if n not in cli.supports]
+        return {n: "parameter unsupported" for n in requested if n not in cli.supports}
     litellm, resolved = _litellm(), resolve_model(model, provider)
     try:
         supported = litellm.get_supported_openai_params(model=resolved) or []
-    except Exception:  # noqa: BLE001 - litellm raises many types for an unknown model; [] drops nothing
-        return []
-    return [n for n, v in requested.items() if (supported and n not in supported)
-            or llm_sampling.value_refused(litellm, resolved, provider, n, v)]
+    except Exception:  # noqa: BLE001 - an unknown model does not block the run
+        return {}
+    refusals = {}
+    for name, value in requested.items():
+        if supported and name not in supported:
+            refusals[name] = "parameter unsupported"
+        elif reason := llm_sampling.refusal_reason(litellm, resolved, provider, name, value):
+            refusals[name] = reason
+    return refusals
 
 
 # ── Retry ─────────────────────────────────────────────────────────────────────
