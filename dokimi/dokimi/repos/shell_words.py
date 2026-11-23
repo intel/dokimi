@@ -12,7 +12,6 @@ import re
 import shlex
 from collections.abc import Collection
 
-from .event_format import plain_path
 from .shell_split import substitution_end
 
 _SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
@@ -68,10 +67,19 @@ def _run_name(name: str, via_env: bool) -> str | None:
     return name
 
 
+class _Dir(str):
+    """A directory path whose first ``lock`` components are physical (a ``cd -P`` reached them): a later ``..`` after
+    them stays, for :class:`~dokimi.repos.held_guidance.HeldGuidance` to follow, as bash's physical ``PWD`` has no link
+    to collapse it against; a ``..`` after a name cd took logically collapses it."""
+
+    lock: int
+
+
 def _cd(here: str | None, args: list[str]) -> str | None:
     """The directory after ``cd <args>`` from ``here`` (``None``: unknown). ``cd`` takes a ``..`` by name, as bash
     does (``cd alias/..`` goes to the directory holding ``alias``'s name), unless ``-P`` asks for the physical one,
-    whose ``..`` stays for :class:`~dokimi.repos.held_guidance.HeldGuidance` to follow."""
+    whose ``..`` stays for :class:`~dokimi.repos.held_guidance.HeldGuidance` to follow, and so does a ``..`` of a
+    later ``cd`` that goes back past it (``cd -P alias/.. && cd ..``: a :class:`_Dir`'s physical part)."""
     rest, physical = list(args), False
     while rest and rest[0] in ("-L", "-P", "-e", "-@"):
         option = rest.pop(0)
@@ -80,10 +88,34 @@ def _cd(here: str | None, args: list[str]) -> str | None:
         rest.pop(0)
     if len(rest) != 1 or rest[0] == "-" or rest[0].startswith("~"):
         return None  # home, the previous directory, or something we do not track
-    target, tidy = rest[0], plain_path if physical else posixpath.normpath
+    target = rest[0]
     if target.startswith("/"):
-        return tidy(target)
-    return None if here is None else tidy(posixpath.join(here, target))
+        lead, base, lock = "/", [], 0
+    elif here is None:
+        return None
+    else:
+        lead, base, lock = "/" if here.startswith("/") else "", [p for p in here.split("/") if p not in ("", ".")], getattr(here, "lock", 0)
+    lock = _walk(lead, base, lock, target, physical)
+    path = _Dir(lead + "/".join(base) or ".")
+    path.lock = len(base) if physical else lock
+    return path
+
+
+def _walk(lead: str, base: list[str], lock: int, target: str, physical: bool) -> int:
+    """Append the components of ``target`` to ``base`` (``cd``'s ``..`` as :func:`_cd` says), and return the new count
+    of leading physical components, ``lock``."""
+    for part in target.split("/"):
+        if part in ("", "."):
+            continue
+        if part != ".." or physical:
+            base.append(part)
+        elif len(base) > lock and base[-1] != "..":
+            base.pop()  # a name cd took logically: its ``..`` leaves it
+        elif not (lead and not base):  # at the root a ``..`` stays there
+            base.append(part)
+            lock = len(base)
+        lock = min(lock, len(base))
+    return lock
 
 
 def _runs_dir(outer: str, dirs: Collection[str] = _DIRS, functions: Collection[str] = ()) -> bool:

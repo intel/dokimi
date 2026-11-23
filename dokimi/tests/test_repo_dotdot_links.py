@@ -89,6 +89,26 @@ def test_cd_takes_a_dotdot_by_name_as_bash_does_and_cd_p_follows_the_link(held):
     assert _bash("cd -L -P alias/.. && cat AGENTS.md", held)[0] == ["docs/AGENTS.md"]
 
 
+def test_a_cd_after_cd_p_goes_back_past_the_physical_directory_not_the_name(held):
+    assert _bash("cd -P alias/.. && cd .. && cat AGENTS.md", held)[0] == ["AGENTS.md"]
+    assert _bash("cd -P alias/.. && cd .. && grep warn AGENTS.md", held)[1] == ["AGENTS.md"]
+    assert _bash("cd -P alias && cd .. && cat AGENTS.md", held)[0] == ["docs/AGENTS.md"]
+    assert _bash("cd -P alias && cd .. && cd .. && cat AGENTS.md", held)[0] == ["AGENTS.md"]
+
+
+def test_a_cd_after_cd_p_collapses_only_the_names_it_took_itself(held):
+    assert _bash("cd -P alias/.. && cd nested && cd .. && cat AGENTS.md", held)[0] == ["docs/AGENTS.md"]
+    assert _bash("cd -P alias/.. && cd nested/.. && cat AGENTS.md", held)[0] == ["docs/AGENTS.md"]
+    assert _bash("cd -P alias && cd -L .. && cat AGENTS.md", held)[0] == ["docs/AGENTS.md"]
+
+
+def test_a_cd_goes_on_from_an_absolute_directory_and_not_from_one_not_known():
+    assert shell_reads("cd /w/sub && cd .. && cat AGENTS.md") == ["/w/AGENTS.md"]
+    assert shell_reads("cd /w && cd .. && cat AGENTS.md") == ["/AGENTS.md"]
+    assert shell_reads("cd -P /w/sub && cd .. && cat AGENTS.md") == ["/w/sub/../AGENTS.md"]
+    assert shell_reads("cd - ; cd sub && cat AGENTS.md") == []
+
+
 def test_a_path_through_a_link_without_a_dotdot_is_listed_as_the_agent_wrote_it(held):
     assert _bash("cat dlink/AGENTS.md", held) == (["dlink/AGENTS.md"], [])
     assert _bash("grep warn ./dlink//AGENTS.md", held) == ([], ["dlink/AGENTS.md"])
