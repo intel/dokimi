@@ -245,6 +245,19 @@ def test_a_judge_failure_on_an_answer_is_the_eval_records_error():
     assert answers["answers"][0]["with_docs"]["doc_source"] == "a.md"
 
 
+@pytest.mark.parametrize("chunks, docs", [
+    (["text", {}, {"source": "a.md", "snippet": "s"}], [{"source": "a.md", "snippet": "s"}]),
+    ({"a": 1}, []),
+])
+def test_retrieved_docs_are_the_chunks_the_record_reader_reads(chunks, docs):
+    # records._answer keeps the non-empty objects of a list; a cell of another shape is not a crash.
+    answers, _ = to_binary(_arms(_question(baseline=_cell(), docs={**_cell(), "context_chunks": chunks})))
+    with_docs = answers["answers"][0]["with_docs"]
+    assert with_docs["retrieved_docs"] == docs
+    assert with_docs.get("doc_source") == (docs[0]["source"] if docs else None)
+    assert [d.source for d in read(answers).records[0].answer("with_docs").docs] == [d["source"] for d in docs]
+
+
 def test_a_legacy_inline_evaluation_is_not_a_score_of_the_run():
     # records.arm_scores: an arms run's stored judge is its evaluations list, not arms[name].evaluation.
     legacy = {"evaluation": {"aggregate_score": 70}}

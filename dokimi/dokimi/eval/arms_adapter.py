@@ -147,8 +147,10 @@ def _answers_record(rec: Record, context: Optional[str], baseline: str) -> Dict[
 def _answer(cell: Answer, *, with_docs: bool) -> Dict[str, Any]:
     out = {k: v for k, v in cell.raw.items() if k != "context_chunks"}
     if with_docs:
-        chunks = cell.raw.get("context_chunks") or []
-        out["retrieved_docs"] = list(chunks)
+        # The chunks records.Answer reads as docs: the non-empty objects of a list.
+        raw = cell.raw.get("context_chunks")
+        chunks = [c for c in raw if isinstance(c, Mapping) and c] if isinstance(raw, list) else []
+        out["retrieved_docs"] = chunks
         if chunks:
             out["doc_source"] = chunks[0].get("source", "unknown")
     return out
