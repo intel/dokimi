@@ -611,7 +611,7 @@ RUN_WIDE_STOPS = ("no_price", "permanent_error")
 
 def register(catalog_sub, positive_int) -> None:
     """Add ``catalog novelty``: the corpus sweep, a catalog verb like ``catalog routing``."""
-    from dokimi.commands.novelty import _add_bundle_args, _add_model_args
+    from dokimi.commands.novelty_flags import _add_bundle_args, _add_model_args
     from dokimi.cli_types import positive_usd
     from dokimi.novelty.sweep import RESAMPLES
     from dokimi.novelty.tiers import TIERS
