@@ -47,6 +47,7 @@ import re
 from decimal import Context, Decimal
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from dokimi.code_spans import LINE_BREAK, replace_code_spans
 from dokimi.eval.question_text import require_question_text
 from dokimi.records import RecordLike, records
 
@@ -384,7 +385,6 @@ def _fence_state(lines: Sequence[str], fence: Optional[str]) -> Optional[str]:
     return fence
 
 
-_INLINE_FENCE = re.compile(r"(?<!`)(`{3,})(?!`)(.+?)(?<!`)\1(?!`)")
 _QUOTE_MARK = re.compile(r"[ \t]*>[ \t]?")
 
 
@@ -424,7 +424,7 @@ def _replace_code_blocks(answer: str, replace: Callable[[str], str]) -> str:
         level, rest = _unquote(line, depth if fence is not None else len(line))
         was, fence = fence, _fence_state([rest], fence)
         if was is None and fence is None:
-            out.append(_INLINE_FENCE.sub(lambda m: replace(m.group()), line))
+            out.append(replace_code_spans(line, lambda m: replace(m.group()), min_run=3, stop=LINE_BREAK))
             continue
         if was is None:
             depth = level

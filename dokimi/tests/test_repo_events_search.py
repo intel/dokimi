@@ -619,3 +619,10 @@ def test_a_multi_file_grep_lists_every_file_it_named_when_only_one_showed_a_line
     command = "grep -n visible AGENTS.md docs/AGENTS.md"
     got = _process(_call("a", command), _result("a", "AGENTS.md:1:visible"))
     assert got["guidance_searched"] == ["AGENTS.md", "docs/AGENTS.md"]
+
+
+@pytest.mark.parametrize("command", ["git grep old-token HEAD~1 -- AGENTS.md", "git grep -n old-token HEAD -- AGENTS.md",
+                                     "git grep -e old-token HEAD~1 -- AGENTS.md"])
+def test_git_grep_of_a_revision_does_not_search_the_workspace_file(command):
+    assert shell_walked(command).searched == []
+    assert _process(_call("a", command), _result("a", "HEAD~1:AGENTS.md:1:old-token"))["guidance_searched"] == []
