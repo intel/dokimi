@@ -253,6 +253,7 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("POSIXLY_CORRECT=1 env --unset POSIXLY_CORRECT head AGENTS.md -n 0", []),
     ("POSIXLY_CORRECT=1 env --unset=POSIXLY_CORRECT head AGENTS.md -n 0", []),
     ("POSIXLY_CORRECT=1 env -u OTHER head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("POSIXLY_CORRECT=1 env - head AGENTS.md -n 0", []),  # a lone ``-`` is ``-i``
     ("env -i POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),  # set again after the reset
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):

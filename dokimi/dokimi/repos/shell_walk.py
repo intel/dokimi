@@ -387,10 +387,12 @@ def _posix_set(skipped: list[str]) -> bool:
 
 
 def _env_option(word: str, following: list[str]) -> tuple[bool, str, int]:
-    """What the ``env`` option ``word`` does to the environment: whether it drops all of it (``-i``,
+    """What the ``env`` option ``word`` does to the environment: whether it drops all of it (``-i``, ``-``,
     ``--ignore-environment``), the name it unsets (``-u NAME``, ``-uNAME``, ``--unset=NAME``; else ``""``), and how many
     of the ``following`` word it takes as its value. A word that is no option does none of them."""
-    if not word.startswith("-") or word == "-":
+    if word == "-":  # GNU env: ``-`` is ``-i``
+        return True, "", 0
+    if not word.startswith("-"):
         return False, "", 0
     if word.startswith("--"):
         name, eq, value = word[2:].partition("=")
