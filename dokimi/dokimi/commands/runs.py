@@ -392,7 +392,8 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     rm_p = runs_sub.add_parser(
         "rm",
         help="Remove one run, the artifacts that carry its run_id, or one file under the runs root; "
-             "never anything outside it. Files that are not artifacts and directories stay.",
+             "never anything outside it. A run removes only its artifacts: other files and "
+             "directories stay; a PATH removes that one file, artifact or not.",
     )
     rm_p.add_argument("path", metavar="RUN_ID|PATH",
                       help="A run_id from runs list, or a file: its path as runs list prints it "
