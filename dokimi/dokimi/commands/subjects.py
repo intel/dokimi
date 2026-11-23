@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dokimi import cli_flags, llm_cli
 from dokimi.llm import ANSWER_PROVIDERS
-from dokimi.commands._output import exit_on_unwritable
+from dokimi.commands._output import exit_on_unwritable, write_report_text
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -185,7 +185,7 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         save_artifact("subject_scorecard", scorecard, out_json)
     with exit_on_unwritable(out_md):
         out_md.parent.mkdir(parents=True, exist_ok=True)
-        out_md.write_text(render_subject_scorecard(scorecard), encoding="utf-8")
+        write_report_text(out_md, render_subject_scorecard(scorecard))
     print(f"OK Saved subject scorecard: {out_json}")
     print(f"OK Saved subject report:    {out_md}")
 
@@ -486,7 +486,7 @@ def _run_subject_work(descriptor, args: argparse.Namespace, *, out_dir: Path, ta
         save_artifact("task_runs", artifact, task_runs_path)
     with exit_on_unwritable(task_runs_md):
         task_runs_md.parent.mkdir(parents=True, exist_ok=True)
-        task_runs_md.write_text(render_task_runs_report(artifact), encoding="utf-8")
+        write_report_text(task_runs_md, render_task_runs_report(artifact))
     return {
         "status": "run",
         "tasks": list(descriptor.suite.tasks),

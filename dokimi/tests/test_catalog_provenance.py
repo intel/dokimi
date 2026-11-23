@@ -10,6 +10,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -446,7 +447,9 @@ def test_reading_a_checkout_does_not_run_its_signature_program(tmp_path: Path) -
 
 def test_a_blob_the_clone_lacks_is_said_not_passed_as_full_history(upstream_repo, tmp_path) -> None:
     sha = upstream.blob_sha(V1.encode("utf-8"))
-    (upstream_repo / ".git/objects" / sha[:2] / sha[2:]).unlink()
+    obj = upstream_repo / ".git/objects" / sha[:2] / sha[2:]
+    os.chmod(obj, stat.S_IWRITE)  # git object files are read-only; Windows refuses to unlink them
+    obj.unlink()
     report = _run(_copy_root(tmp_path, {"skills/pdf/SKILL.md": V1}), "--upstream", str(upstream_repo))
     assert report["upstreams"][0]["history"] == "partial"
     assert report["upstreams"][0]["missing_blobs"] == 1
@@ -747,8 +750,8 @@ def test_a_history_path_with_a_non_utf8_byte_keeps_its_name(tmp_path: Path) -> N
     repo = tmp_path / "acme-skills"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
-    rel = os.fsdecode(b"skills/\xff/SKILL.md")
     try:
+        rel = os.fsdecode(b"skills/\xff/SKILL.md")
         _commit(repo, {rel: V1}, "2026-01-01T10:00:00+00:00", "v1")
     except (OSError, UnicodeError, subprocess.CalledProcessError):
         pytest.skip("this file system cannot hold a non-UTF-8 name")

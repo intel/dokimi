@@ -103,7 +103,7 @@ way the readers expect. Substitute your own checkout path.
 ## Content checks: retired model IDs and hidden characters
 
 `catalog check` also reads the text of each loaded skill: its `SKILL.md` and the text
-files beside it (`.md`, `.py`, `.sh`, `.json`, `.yaml`, `.toml` and similar, up to 1 MB;
+files beside it (`.md`, `.py`, `.sh`, `.bash`, `.zsh`, `.ps1`, `.json`, `.yaml`, `.toml`, `.html`, `.csv`, `.ini` and similar, up to 1 MB;
 hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the checkout root
 is checked alone, since its directory is the whole repository. It needs no key and calls no model.
 Two checks, both `warn`:
@@ -298,10 +298,12 @@ with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
 its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
 skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
-half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
+half and shares three words (`description-near-duplicate`). Under a different name, an overlap from 40% up to that line that shares at least three words is a `note` (`similar-skills-exist`) that leaves the state `ok`. The `description-no-when` cue is read in English,
 Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
 of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
-(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
+(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. A word that only states a capability is not a cue:
+Japanese いつ counts only before a use verb, Chinese 耗时, 超时 and 延时 do not count directly before 调用 or 执行 (a comma or 请 between them restores it), and German `beim`
+counts only in the same sentence as a use verb (verwenden, nutzen, ...). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
 `.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
@@ -445,8 +447,9 @@ $ echo $?
 
 A large catalog is easier to scan one skill at a time:
 
-- `--per-skill` reviews each skill alone. The four cross-catalog checks
-  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
+- `--per-skill` reviews each skill alone. The five cross-catalog checks
+  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`,
+  `similar-skills-exist`)
   compare a skill with the others, so they do not run in this mode; every other
   check does. The granularity hints (merge and split candidates) need the whole
   catalog too, so they are not run here; the text output says so in a
@@ -472,6 +475,14 @@ A large catalog is easier to scan one skill at a time:
   and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
   fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
+- `--fail-on-code CODE` (repeatable) exits 1 when a finding with that code is left after
+  `--ignore`, whatever its level: a `note` can fail the scan while its skill's state
+  stays `ok`. `--ignore` filters first, so a code in both is not checked. An unknown
+  code is a usage error, and so is `--kind tasks`, and so is a code this scan never reports:
+  `duplicate`, `name-conflict`, `mirror-drift` and `description-near-duplicate` with `--per-skill`,
+  `link-dead` and `package-not-found` without `--online`. `--strict` keeps its meaning. With
+  `--json` the skill's subject has verdict `fail`. `--resume` applies the current
+  `--fail-on-code` to the rows it keeps, so changing it needs no rescan.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--concurrency N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last

@@ -68,6 +68,34 @@ def test_legacy_id_in_bundled_script_names_the_file_and_line(tmp_path):
     assert message.startswith("scripts/call.py line 1:")
 
 
+_NEW_SUFFIXES = [".bash", ".zsh", ".ps1", ".mjs", ".tsx", ".html", ".xml", ".csv", ".jsonl", ".mdx", ".cfg", ".ini"]
+
+
+@pytest.mark.parametrize("suffix", _NEW_SUFFIXES)
+def test_legacy_id_in_bundled_file_of_a_listed_suffix_is_reported(tmp_path, suffix):
+    """#1090: a retired ID in a bundled file with one of these suffixes is read, as in a ``.py`` file."""
+    name = f"references/m{suffix}"
+    _skill(tmp_path, "sfx", files={name: "model=claude-3-haiku-20240307\n"})
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert message.startswith(f"{name} line 1:")
+
+
+@pytest.mark.parametrize("suffix", _NEW_SUFFIXES)
+def test_current_id_in_bundled_file_of_a_listed_suffix_is_not_reported(tmp_path, suffix):
+    """#1090: the added suffixes do not flag a current model ID."""
+    _skill(tmp_path, "sfx", files={f"references/m{suffix}": "model=claude-opus-4-5\n"})
+
+    assert _messages(tmp_path, "legacy-model-id") == []
+
+
+def test_hidden_character_in_bundled_html_file_is_reported(tmp_path):
+    """#1090: ``hidden-unicode`` reads the same added suffixes."""
+    _skill(tmp_path, "sfx", files={"references/page.html": "a\u202eb\n"})
+
+    assert any("references/page.html" in m for m in _messages(tmp_path, "hidden-unicode"))
+
+
 @pytest.mark.parametrize(
     ("alias", "state", "replacement"),
     [

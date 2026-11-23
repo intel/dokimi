@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""A shell script split into its parts, for :func:`~dokimi.repos.cli_traces.shell_reads`."""
+"""A shell script split into its parts, for :func:`~dokimi.repos.shell_walk.shell_reads`."""
 
 from __future__ import annotations
 

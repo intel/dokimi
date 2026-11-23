@@ -10,8 +10,10 @@ import errno
 import json
 import os
 import secrets
+import shutil
 import stat
-from collections.abc import Callable
+import tempfile
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import IO, Any
 
@@ -37,6 +39,37 @@ def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -
 def write_bytes_atomic(path: Path | str, data: bytes) -> None:
     """:func:`write_text_atomic` for bytes, written as they are."""
     _publish(Path(path), lambda fd: os.fdopen(fd, "wb"), data)
+
+
+def write_chunks_atomic(path: Path | str, chunks: Iterable[bytes]) -> None:
+    """:func:`write_bytes_atomic` for an iterable of byte chunks, taken one at a time and never held together.
+
+    An exception from the iterable removes the tmp file and leaves the file at ``path`` as it was. A symlink at ``path``
+    (dangling or not) is followed, as ``open(path, "w")`` follows it: the tmp file is made beside the link's target, which is replaced, and the link stays;
+    a link into a missing directory raises ``FileNotFoundError`` and makes no directory.
+    A target that is not a plain file (see :func:`write_bytes_in_place_or_atomic`: hard-linked, special, read-only,
+    in a read-only directory, with a ``user.*`` attribute, ...) is written in place, as ``open(path, "w")`` writes it,
+    after every chunk is taken, so an exception from the iterable still leaves it as it was; the chunks wait in a
+    temporary file on disk, not in memory. A plain file takes no second copy: the tmp file beside it is copied into it in place
+    when its name is a mount point (``os.replace`` fails with EBUSY) or root may not set its mode, and a user denied the group of
+    the file it replaces writes it in place.
+    """
+    target = Path(os.path.realpath(path))
+    # A link into a missing directory fails as open(path, "w") fails: the target's directory is not made.
+    taken = iter(chunks)
+    if not (os.path.islink(path) and not target.parent.is_dir()) and _is_plain_writable_file(target):
+        try:
+            # The tmp file beside the target is the only copy: a refusal after it is written, or EBUSY, copies it in place.
+            _publish(target, lambda fd: os.fdopen(fd, "wb"), taken, keep_group=True, copy_in_place=True)
+            return
+        except _OwnerRefused:
+            # Raised before the first chunk is taken, so the chunks are still all to come.
+            pass
+    with tempfile.TemporaryFile() as staged:
+        staged.writelines(taken)
+        staged.seek(0)
+        with open(path, "wb") as handle:
+            shutil.copyfileobj(staged, handle)
 
 
 def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
@@ -126,7 +159,8 @@ def write_json_atomic(path: Path | str, obj: Any) -> None:
     write_bytes_atomic(path, utf8_bytes(text.replace("\n", os.linesep)))
 
 
-def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes, *, keep_group: bool = False) -> None:
+def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iterable[bytes], *, keep_group: bool = False,
+             copy_in_place: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
     old = _existing_stat(path)
@@ -142,14 +176,27 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes, *, ke
                 os.close(fd)
                 raise
         with open_tmp(fd) as handle:
-            handle.write(data)
-        if old is not None:
-            # os.open's mode is cut by the umask, and a change of owner or a write by a user without CAP_FSETID clears set-user-ID and set-group-ID: the mode is restored last.
-            try:
-                os.chmod(tmp, mode)
-            except PermissionError as exc:
-                raise _OwnerRefused(exc.errno, "root may not set the mode of the new file it gave the owner of the file it replaces") from exc
-        os.replace(tmp, path)
+            if isinstance(data, (str, bytes)):
+                handle.write(data)
+            else:
+                handle.writelines(data)
+        try:
+            if old is not None:
+                # os.open's mode is cut by the umask, and a change of owner or a write by a user without CAP_FSETID clears set-user-ID and set-group-ID: the mode is restored last.
+                try:
+                    os.chmod(tmp, mode)
+                except PermissionError as exc:
+                    raise _OwnerRefused(exc.errno, "root may not set the mode of the new file it gave the owner of the file it replaces") from exc
+            os.replace(tmp, path)
+        except OSError as exc:
+            if not copy_in_place or not (isinstance(exc, _OwnerRefused) or exc.errno == errno.EBUSY):
+                raise
+            # The tmp file holds all the data and is the user's own: make it readable, as a write-only destination made it write-only.
+            with contextlib.suppress(OSError):
+                os.chmod(tmp, 0o600)
+            with open(tmp, "rb") as staged, open(path, "wb") as handle:
+                shutil.copyfileobj(staged, handle)
+            tmp.unlink()
     except BaseException:
         with contextlib.suppress(OSError):
             tmp.unlink()
