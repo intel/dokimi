@@ -20,8 +20,8 @@ from dokimi.repos import conformance as cf
 def _tree(tmp_path: Path) -> Path:
     tree = tmp_path / "t"
     (tree / "case" / "sub").mkdir(parents=True)
-    (tree / "case" / "AGENTS.md").write_text("x\n", encoding="utf-8")
-    (tree / "case" / "sub" / "CLAUDE.md").write_text("y\n", encoding="utf-8")
+    (tree / "case" / "AGENTS.md").write_bytes(b"x\n")
+    (tree / "case" / "sub" / "CLAUDE.md").write_bytes(b"y\n")
     return tree
 
 
