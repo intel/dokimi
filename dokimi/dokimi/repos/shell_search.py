@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The files a ``grep``, ``egrep``, ``fgrep``, ``rg`` or ``git grep`` command line searches and shows lines of, for
-``guidance_searched`` (contract §4.1). The walker of :mod:`~dokimi.repos.cli_traces` calls it for each command word it
+``guidance_searched`` (contract §4.1). The walker of :mod:`~dokimi.repos.shell_walk` calls it for each command word it
 follows; the option tables are :mod:`~dokimi.repos.probes`'s."""
 
 from __future__ import annotations

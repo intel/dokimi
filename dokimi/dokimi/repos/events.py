@@ -23,7 +23,7 @@ A command event carries ``output`` when the harness returned one: over
 bytes, and ``output_truncated`` says whether that happened. An event a
 subagent made carries ``agent``: the id of the parent's tool call that started it.
 
-A shell command that only prints files (:func:`~dokimi.repos.cli_traces.shell_reads`) also gives a
+A shell command that only prints files (:func:`~dokimi.repos.shell_walk.shell_reads`) also gives a
 ``read`` event per file, before its ``command`` event: a Codex or Copilot shell command, and
 Claude Code's ``Bash`` tool. Claude Code keeps the shell's directory from one ``Bash`` call to the
 next, so once any call ran a ``cd`` in that shell (not in a subshell, a pipeline or a background
@@ -195,7 +195,7 @@ def _deny(stream: _Stream, tool_id: Any) -> None:
 
 
 def _walk_bash(out: Transcript, stream: _Stream) -> None:
-    """Each Bash call's command walked (:func:`~dokimi.repos.cli_traces.shell_walk`), once every result and denial
+    """Each Bash call's command walked (:func:`~dokimi.repos.shell_walk.shell_walk`), once every result and denial
     is in, in the trace's order, and a read event put before its command event for each file it names. Each call is
     walked alone: Claude Code starts it in a new shell, which keeps the directory but no function an earlier call
     defined (``cat() { echo hi; }``, then ``cat AGENTS.md``, reads the file)."""
