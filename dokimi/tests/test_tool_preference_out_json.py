@@ -43,6 +43,35 @@ def test_cli_refuses_an_unwritable_out_json_before_any_call(monkeypatch, tmp_pat
         assert "Is a directory" in err
 
 
+@pytest.mark.skipif(os.name == "nt", reason="chmod 0444 is not a write block on Windows")
+def test_cli_refuses_a_read_only_out_json_before_any_call(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(a)
+        raise RuntimeError("must not be reached")
+
+    monkeypatch.setattr(llm, "chat_completion", fake)
+    out = tmp_path / "pref.json"
+    out.write_text("{}", encoding="utf-8")
+    out.chmod(0o444)
+    try:
+        if os.access(out, os.W_OK):
+            pytest.skip("chmod 0444 does not block writes here (for example, running as root)")
+        args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                          "--reps", "1", "--factors", "assertive", "--out", str(out)])
+        with pytest.raises(SystemExit) as exc:
+            args.func(args)
+        assert exc.value.code == 2
+        assert calls == []
+        assert f"cannot write {out}: " in capsys.readouterr().err
+    finally:
+        out.chmod(0o644)
+
+
 def test_out_json_check_creates_missing_parents_and_leaves_no_file(tmp_path):
     from dokimi.commands.tools import _check_out_json_writable
 
@@ -54,7 +83,8 @@ def test_out_json_check_creates_missing_parents_and_leaves_no_file(tmp_path):
 
 @pytest.mark.skipif(os.name == "nt", reason="os.replace refuses a read-only destination on Windows, "
                                              "which the POSIX rule pinned here does not model")
-def test_out_json_check_accepts_a_read_only_file_in_a_writable_dir(tmp_path):
+def test_out_json_check_refuses_a_read_only_file_in_a_writable_dir(tmp_path, capsys):
+    # Test-narrowed: renamed from ..._accepts_a_read_only_file_in_a_writable_dir; save_artifact now writes a read-only file in place and raises, so the check refuses it
     from dokimi.commands.tools import _check_out_json_writable
 
     out = tmp_path / "pref.json"
@@ -63,7 +93,11 @@ def test_out_json_check_accepts_a_read_only_file_in_a_writable_dir(tmp_path):
     try:
         if os.access(out, os.W_OK):
             pytest.skip("chmod 0444 does not block writes here (for example, running as root)")
-        _check_out_json_writable(str(out))  # the save replaces the file through its directory
+        with pytest.raises(SystemExit) as exc:
+            _check_out_json_writable(str(out))  # save_artifact writes a read-only file in place and raises PermissionError
+        assert exc.value.code == 2
+        assert f"cannot write {out}: " in capsys.readouterr().err
+        assert out.read_text(encoding="utf-8") == "{}"
     finally:
         out.chmod(0o644)
 

@@ -125,6 +125,8 @@ def _check_out_json_writable(path: str) -> None:
         resolved = _write_target(target)
         if resolved.is_dir():
             raise IsADirectoryError(errno.EISDIR, "Is a directory", path)
+        if resolved.exists() and not os.access(resolved, os.W_OK):  # the save writes a file it cannot replace in place, so it raises
+            raise PermissionError(errno.EACCES, "Permission denied", path)
         tmp = resolved.with_name(f"{resolved.name}.{os.getpid()}.{threading.get_ident()}.tmp")  # a sibling of the target, as the save makes
         with tmp.open("xb"):
             pass

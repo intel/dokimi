@@ -301,13 +301,16 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       (``cli.main`` refuses it before a command runs): nothing is written at ``path`` and the payload
       is kept at ``<name>.rejected`` the same way. ``KeyError`` means ``kind`` is not registered in
       :data:`SCHEMA_VERSIONS`.
-    - The write is atomic (a random-named ``.tmp`` sibling, then ``os.replace``, through
-      :func:`~dokimi.atomic_write.write_bytes_in_place_or_atomic`), so a reader or a crash never
-      sees half a file, and concurrent saves to one path (threads or processes) each publish one
-      whole payload; the last one wins. A file that was there keeps its mode and, where the user
-      may give it, its group; a new file gets the umask mode. A hard-linked, read-only or other
-      special file is written in place, as ``Path.write_bytes`` writes it. A failed write removes
-      its tmp file. Missing parent directories of ``path`` are created.
+    - A new or plain file is written atomically (a random-named ``.tmp`` sibling, then
+      ``os.replace``, through :func:`~dokimi.atomic_write.write_bytes_in_place_or_atomic`), so a
+      reader or a crash never sees half a file, and concurrent saves to one path (threads or
+      processes) each publish one whole payload; the last one wins. A failed write removes its tmp
+      file. A file that was there keeps its mode and, where the user may give it, its group; a new
+      file gets the umask mode. A hard-linked, read-only or other special file is not published by
+      rename: it is written in place, as ``Path.write_bytes`` writes it, so a reader can see it
+      truncated or half written, an interrupted write can destroy the old content, concurrent saves
+      can interleave, and a read-only file raises ``PermissionError`` with its old text kept.
+      Missing parent directories of ``path`` are created.
     - A symlink at ``path`` is kept: the payload replaces the file it resolves to (the tmp file
       sits beside that target, so the rename stays on one filesystem). A dangling link creates
       its target when the target's directory exists; otherwise ``FileNotFoundError`` is raised
