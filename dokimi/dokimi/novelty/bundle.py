@@ -108,6 +108,11 @@ DEFAULT_ROLES = ("reference", "pattern", "script", "template", "trigger", "data"
 SKIP_DIR_NAMES = frozenset({"__pycache__", "node_modules", "build", "dist", ".git",
                             "venv", "env", "virtualenv", "site-packages"})
 
+def _not_content_dir(path: Path) -> bool:
+    """A dot-named entry, or a real directory named in :data:`SKIP_DIR_NAMES`: skipped before it is listed."""
+    return path.name.startswith(".") or (path.name in SKIP_DIR_NAMES and path.is_dir() and not path.is_symlink())
+
+
 #: Prefix of the heading `_stitch` injects before each bundled file. Those headings are
 #: scaffolding, not artifact text, so they are reported as pointer spans rather than
 #: counted as tokens that carry no knowledge.
@@ -340,7 +345,7 @@ def load_bundle(
     if kind == "skill" and root.is_dir():
         order = {"reference": 0, "pattern": 1, "eval": 2}
         entry_file = (entry if entry.is_file() else root / entry_name).resolve()
-        for path in sorted(listed_entries(root)):
+        for path in sorted(listed_entries(root, drop=_not_content_dir)):
             # A directory or dangling symlink is not a file, but it is still recorded below.
             if not path.is_file() and not path.is_symlink():
                 continue

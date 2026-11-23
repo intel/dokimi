@@ -34,6 +34,27 @@ def test_a_subdirectory_that_cannot_be_listed_raises(tmp_path: Path, include_res
     assert [f.path for f in load_bundle(f"skill:{skill}", include_resources=True).files] == ["SKILL.md", "references/a.md"]
 
 
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root lists a mode 111 directory")
+@pytest.mark.parametrize("name", [".git", "venv", "node_modules"])
+@pytest.mark.parametrize("include_resources", [True, False])
+def test_a_directory_that_is_not_content_is_not_listed(tmp_path: Path, name: str, include_resources: bool):
+    skill = _skill(tmp_path)
+    (skill / name).mkdir()
+    (skill / name).chmod(0o111)
+    try:
+        bundle = load_bundle(f"skill:{skill}", include_resources=include_resources)
+    finally:
+        (skill / name).chmod(0o700)
+    assert [f.path for f in bundle.files] == (["SKILL.md", "references/a.md"] if include_resources else ["SKILL.md"])
+
+
+def test_a_file_named_like_a_skipped_directory_is_still_read(tmp_path: Path):
+    skill = _skill(tmp_path)
+    (skill / "references" / "build").write_text("one two\n", encoding="utf-8")
+    assert [f.path for f in load_bundle(f"skill:{skill}", include_resources=True).files] == [
+        "SKILL.md", "references/a.md", "references/build"]
+
+
 def test_a_listable_skill_keeps_its_files_digest_and_words_on_disk(tmp_path: Path):
     skill = _skill(tmp_path)
     (skill / "references" / "deeper").mkdir()

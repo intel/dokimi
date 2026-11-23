@@ -9,15 +9,16 @@ import hashlib
 import os
 import stat
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 from dokimi.utils import _entries, _tracked_modes, file_digest, link_text
 
 
-def listed_entries(root: Path) -> list[Path]:
+def listed_entries(root: Path, drop: Callable[[Path], bool] | None = None) -> list[Path]:
     """Every entry under ``root`` as ``root.rglob("*")`` lists them (directories included, a symlink as itself and not
-    followed), in no set order; a directory that cannot be listed raises its OSError where ``rglob`` skips it."""
-    return _entries(root, (), strict=True)
+    followed), in no set order; a directory that cannot be listed raises its OSError where ``rglob`` skips it. An
+    entry ``drop`` names is left out and, when a directory, not listed, so it cannot raise."""
+    return _entries(root, (), strict=True, drop=drop)
 
 
 def target_digest(target: Path, root_real: Path, modes: Mapping[str, bool] | None, holds: Mapping[Path, bytes]) -> str:
