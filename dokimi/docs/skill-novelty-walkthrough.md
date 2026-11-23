@@ -4,6 +4,7 @@ depends_on:
   - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
   - dokimi/dokimi/commands/novelty_flags.py
+  - dokimi/dokimi/commands/novelty_routing*.py
 ---
 <!--
 Copyright (C) 2026 Intel Corporation
