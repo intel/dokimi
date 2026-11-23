@@ -172,7 +172,8 @@ class History:
         """``(sha, number of parents, subject, author date, body)`` of the newest ``n`` first-parent commits of
         ``rev``, merges included. ``-z`` ends each commit with a NUL and the format puts one between its fields:
         a message holds no NUL."""
-        raw = self._git("log", "-z", "--first-parent", f"--max-count={n}",
+        raw = self._git("log", "--no-color", "--no-decorate", "--no-notes", "--no-show-signature",
+                        "--encoding=UTF-8", "-z", "--first-parent", f"--max-count={n}",
                         "--format=%H%x00%P%x00%s%x00%aI%x00%b", rev, "--").stdout_bytes
         parts = raw.decode("utf-8", "replace").split("\0")
         return [(parts[i], len(parts[i + 1].split()), parts[i + 2], parts[i + 3], parts[i + 4])

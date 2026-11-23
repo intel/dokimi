@@ -92,13 +92,12 @@ def test_each_fix_commit_with_a_test_becomes_a_task_from_its_parent(toy, tmp_pat
     assert t1["source_commit"] == toy["c1"] and t1["source_pr"] == 12
     assert t1["provenance"]["source"].startswith("generated:dokimi-tasks-generate@")
     assert t1["hidden_tests"] == ["tests/test_mul.py"] and t1["left_out_files"] == ["AGENTS.md"]
-    authored = git(toy["root"], "log", "-1", "--format=%aI", toy["c1"])
-    assert t1["public_at"] == authored
+    assert "public_at" not in t1
     assert t1["prompt"].startswith("fix(calc): mul was missing\n\n")  # the (#12) suffix goes
     assert "/pull/12" not in t1["prompt"] and "#3" in t1["prompt"] and t1["prompt_dropped"]["links"] == 1
     assert (out / f"authoring_{toy['c1'][:12]}" / "reference/src/calc.py").read_text() == MUL
     t4 = _task(out, toy["c4"])
-    assert "source_pr" not in t4 and t4["base"] == toy["c3"] and t4["family"] == "feature"
+    assert "source_pr" not in t4 and t4["base"] == toy["c3"] and t4["family"] == "fix"
     # no PR number: a link to a pull request stays, a link to a commit goes
     assert "/commit/abc" not in t4["prompt"] and "https://example.invalid/pull/12 stays" in t4["prompt"]
 
@@ -142,6 +141,7 @@ def test_dry_run_writes_nothing_and_kept_tasks_stay(toy, tmp_path, capsys):
     (["--prs", "p.json"], "--prs is for --from prs"),
     (["--references", "9"], "--references is for --from graph"),
     (["--subject", "("], "is not a regular expression"),
+    (["--subject", "a{4294967296}"], "is not a regular expression"),
     (["--subject", ""], "--subject is empty"),
 ])
 def test_usage_errors(toy, tmp_path, extra, error):
@@ -246,7 +246,7 @@ def test_trailers_stay_out_of_the_prompt(toy, tmp_path):
 def test_a_crlf_message_loses_its_trailers_too():
     from dokimi.repos.replay.authoring_commits import without_trailers
 
-    assert without_trailers("Body.\r\n\r\nSigned-off-by: J <j@x>\r\n(cherry picked from commit 0123abc)\r\n") == "Body."
+    assert without_trailers("Body.\r\n\r\nSigned-off-by:\tJ <j@x>\r\n(cherry picked from commit 0123abc)\r\n") == "Body."
 
 
 def test_two_commits_of_one_pull_request_give_one_task_and_the_dry_run_says_so(toy, tmp_path, capsys):
@@ -260,7 +260,7 @@ def test_two_commits_of_one_pull_request_give_one_task_and_the_dry_run_says_so(t
         _gen(root, out, "--commits", "2", *extra)  # newest first: the second commit is the pull request's task
         printed = capsys.readouterr().out
         assert summary in printed and f"kept authoring_{second[:12]}: authoring_{second[:12]} is this pull" in printed
-        assert first[:12] not in printed.split("\n", 1)[1]
+        assert f"skipped authoring_{first[:12]}" in printed
     assert [p.name for p in out.iterdir()] == [f"authoring_{second[:12]}"]
 
 

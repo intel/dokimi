@@ -8,8 +8,8 @@ whose subject the ``--subject`` pattern matches; a revert, ``fixup!``, ``squash!
 commit is never one. Each is a :class:`.authoring.Change` from its
 parent to itself, titled by its subject and described by the rest of its message, so the
 repository needs no pull request file. A squash-merged pull request's subject ends with
-``(#<n>)``: ``n`` is its number. ``public_at`` is the author date, the earliest time git records
-for the change (a pull request was public from when it was opened, which git does not know).
+``(#<n>)``: ``n`` is its number. A squash merge gives no ``public_at`` because Git does not
+record the PR opening date. Other commits use the author date.
 """
 
 from __future__ import annotations
@@ -18,22 +18,21 @@ import re
 from dataclasses import dataclass
 
 from ..manifest import RepoManifest
-from .authoring import Change, Options, Outcome, kept, task_of_pr, would_write, write
+from .authoring import Change, Options, Outcome, kept, task_of_pr, tasks_by_pr, would_write, write
 from .history import History
 from .merged import Skip
-from .threads import ReplayError
 
 # Words a fix's subject uses (Exp4 on dokimi and oneDAL history: 87 of 267 and 43 of 1500 subjects).
-DEFAULT_SUBJECT = (r"\bfix|\bbug|regress|crash|wrong|incorrect|broken|no longer|\bnever\b|\bhang|\bleak|off-by|"
+DEFAULT_SUBJECT = (r"\b(?:bugfix(?:es)?|fix(?:es|ed|ing)?|bugs?)\b|regress|crash|wrong|incorrect|broken|no longer|\bnever\b|\bhang|\bleak|off-by|"
                    r"mismatch|silently")
 _PR_SUFFIX = re.compile(r"\s*\(#(\d+)\)\s*$")
 # A revert ("Revert \"...", "revert: ...", "Revert fix for ...", "Back out ...") undoes a change: its oracle would undo
 # the fix. fixup!/squash!/amend! commits are halves of another commit.
-_NOT_A_FIX = re.compile(r"^(?:revert\b|back(?:ed)?[ -]out\b|fixup! |squash! |amend! )", re.I)
+_NOT_A_FIX = re.compile(r"^(?:(?:[a-z]+(?:\([^)]*\))?!?:\s*)?)(?:revert\b|back(?:ed)?[ -]out\b|fixup! |squash! |amend! )", re.I)
 # The trailer lines that name people (with their e-mail) or are git's own, with their folded (indented) continuation
 # lines: no part of a description.
 _TRAILER = re.compile(r"^(?:(?:Signed-off|Co-authored|Reviewed|Acked|Tested|Reported|Suggested|Helped)-by|Cc|"
-                      r"Change-Id): .*(?:\n[ \t]+\S.*)*$|^\(cherry picked from commit [0-9a-f]+\)$", re.I | re.M)
+                      r"Change-Id):[ \t]*.*(?:\n[ \t]+\S.*)*$|^\(cherry picked from commit [0-9a-f]+\)$", re.I | re.M)
 
 
 @dataclass(frozen=True)
@@ -66,7 +65,7 @@ def without_trailers(body: str) -> str:
 
 def build_all(h: History, manifest: RepoManifest, commits: list[Commit], opts: Options, *,
               dry_run: bool = False) -> list[Outcome]:
-    claimed: dict[int, str] = {}  # pull request -> the task this run gave it, so --dry-run sees what a run writes
+    claimed = tasks_by_pr(opts.out)  # also tracks proposed tasks in a dry run
     outcomes = []
     for c in commits:
         outcome = build_one(h, manifest, c, opts, dry_run=dry_run, claimed=claimed)
@@ -85,12 +84,12 @@ def build_one(h: History, manifest: RepoManifest, c: Commit, opts: Options, *, d
     number = int(m[1]) if m else None
     other = None
     if number is not None:
-        other = (claimed or {}).get(number) or task_of_pr(opts.out, number)
+        other = claimed.get(number) if claimed is not None else task_of_pr(opts.out, number)
     if other is not None and other != task_id(c.sha):  # one change is one task, whichever source wrote it
-        return Outcome(number, "kept", other, f"{other} is this pull request's task")
+        return Outcome(number, "kept", other, f"{other} is this pull request's task; skipped {task_id(c.sha)}")
     try:
         return (would_write if dry_run else write)(h, manifest, change_of(h, c), opts)
-    except (Skip, ReplayError) as exc:
+    except Skip as exc:
         return Outcome(None, "skipped", task_id(c.sha), reason=str(exc))
 
 
@@ -103,5 +102,7 @@ def change_of(h: History, c: Commit) -> Change:
     number = int(m.group(1)) if m else None
     title = _PR_SUFFIX.sub("", c.subject) if m else c.subject
     fields = {"source_commit": c.sha, **({"source_pr": number} if number is not None else {})}
+    if re.search(DEFAULT_SUBJECT, title, re.I):
+        fields["family"] = "fix"
     return Change(id=task_id(c.sha), number=number, title=title, body=c.body, base=parents[0], target=c.sha,
-                  public_at=c.authored or None, fields=fields)
+                  public_at=(c.authored or None) if number is None else None, fields=fields)

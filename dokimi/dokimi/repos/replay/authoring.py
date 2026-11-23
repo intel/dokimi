@@ -100,19 +100,26 @@ def kept(opts: Options, number: int | None, task_id: str) -> Outcome | None:
     return None
 
 
-def task_of_pr(out: Path, number: int) -> str | None:
-    """The task in ``out`` either source wrote for pull request ``number``: ``authoring_pr<n>`` (``--prs``), or an
-    ``authoring_<sha12>`` whose ``source_pr`` it is (``--from history``, a squash merge). One change is one task."""
-    if (out / f"authoring_pr{number}" / "task.json").exists():
-        return f"authoring_pr{number}"
+def tasks_by_pr(out: Path) -> dict[int, str]:
+    """Index existing authoring tasks once per batch, by their source pull request."""
+    found: dict[int, str] = {}
     for path in sorted(out.glob("authoring_*/task.json")):
+        suffix = path.parent.name.removeprefix("authoring_pr")
+        if suffix.isascii() and suffix.isdecimal():
+            found[int(suffix)] = path.parent.name  # the direct PR task takes precedence
+            continue
         try:
             task = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if isinstance(task, dict) and task.get("source_pr") == number:
-            return path.parent.name
-    return None
+        if isinstance(task, dict) and type(number := task.get("source_pr")) is int:
+            found.setdefault(number, path.parent.name)
+    return found
+
+
+def task_of_pr(out: Path, number: int) -> str | None:
+    """The existing authoring task for pull request ``number``."""
+    return tasks_by_pr(out).get(number)
 
 
 def write(h: History, manifest: RepoManifest, change: Change, opts: Options) -> Outcome:

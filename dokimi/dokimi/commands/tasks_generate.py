@@ -142,7 +142,7 @@ def _generate_history(args: argparse.Namespace) -> None:
     from dokimi.repos.replay.authoring import Options
     from dokimi.repos.replay.authoring_commits import DEFAULT_SUBJECT, build_all, first_parent
     from dokimi.repos.replay.authoring_prompt import DEFAULT_INSTRUCTION
-    from dokimi.repos.source import GitTree
+    from dokimi.repos.source import GitTree, is_shallow
     from dokimi.repos.workspace import source_git_dir
 
     from .repo import _cache_dir, _load_manifest, _parse_source
@@ -152,7 +152,7 @@ def _generate_history(args: argparse.Namespace) -> None:
         if args.subject == "":
             raise InputError("--subject is empty (give '.' for every commit)")
         subject = re.compile(DEFAULT_SUBJECT if args.subject is None else args.subject, re.I)
-    except re.error as exc:
+    except (re.error, OverflowError) as exc:
         raise InputError(f"--subject {args.subject!r} is not a regular expression: {exc}") from None
     source = _parse_source(args)
     if not source.rev:
@@ -167,7 +167,10 @@ def _generate_history(args: argparse.Namespace) -> None:
             raise ValueError(f"{tree.label} is not a git revision")
         manifest = _load_manifest(tree, args)
         opts = Options(out=Path(args.out), max_lines=args.max_lines, instruction=text, force=args.force)
-        h = History(source_git_dir(source, tree, _cache_dir(args)))
+        git_dir = source_git_dir(source, tree, _cache_dir(args))
+        if is_shallow(git_dir):
+            raise InputError("history generation needs a full clone; run git fetch --unshallow")
+        h = History(git_dir)
         commits, n_read, n_merges = first_parent(h, tree.sha, args.commits, subject)
         outcomes = build_all(h, manifest, commits, opts, dry_run=args.dry_run)
     except _errors() as exc:

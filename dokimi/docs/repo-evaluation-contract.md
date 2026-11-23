@@ -1395,7 +1395,8 @@ python cli.py eval tasks generate ~/repo@main --from history --out-dir ~/repo/.a
   `--from prs` keeps PR `n` as the `authoring_<sha12>` whose `source_pr` is `n`; `--force` rewrites
   neither. Two commits with one `(#<n>)` give one task, the newest's, and `--dry-run` says so.
 - `task.json` has `source_commit` in place of `source_url`, `merge_commit` and `head_commit`.
-  `public_at` is the commit's author date (`%aI`), the earliest time git records for the change.
+  `public_at` is the commit’s author date (`%aI`) for commits without a PR suffix. It is omitted for
+  squash merges because Git does not record the PR’s opening date.
   A pull request was public from when it was opened, which git does not know.
 - `--from history` reads `--commits`, `--subject`, `--max-lines`, `--manifest`, `--manifest-file`,
   `--prompt-file` and `--dry-run`. Any other source flag given here (`--index`, `--prs`, `--threads`, ...),
