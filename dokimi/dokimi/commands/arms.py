@@ -607,6 +607,7 @@ class _Partial:
         """Create the file before its first save, so a run started meanwhile with the same stem takes another name."""
         with contextlib.suppress(OSError):  # a directory that cannot be made: the save names the refusal
             self.out_json.parent.mkdir(parents=True, exist_ok=True)  # else a missing one would reserve nothing
+        aliases = []  # names the file system takes for out's own file; kept until the next name is found
         while self._path is None:
             path = self.name()
             try:
@@ -616,8 +617,13 @@ class _Partial:
             except OSError:  # not created: the save that follows fails on it and names the refusal
                 self._created = False
             else:
+                if _same_file(self.out_json, path):  # a folding the name key missed: out's link reaches it now
+                    aliases.append(path)
+                    continue
                 self._created = True
             self._path = path
+        for alias in aliases:
+            alias.unlink(missing_ok=True)
         return self._path
 
     def save(self, output: dict) -> None:
@@ -647,6 +653,14 @@ class _Partial:
     def note(self) -> str:
         """Where the questions this run answered went, for the message of a run that failed before its save."""
         return f" ({self.recorded} answered questions are kept in {self.name()})" if self.recorded else ""
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    """Whether *a* and *b* are one file; ``False`` when either cannot be found."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
 
 
 def _save_arms_output(output: dict, out_json: Path, out_md: Path, partial: _Partial | None = None) -> None:

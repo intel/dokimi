@@ -736,3 +736,19 @@ def test_an_out_linked_to_the_partial_name_in_another_unicode_form_is_passed_ove
     out = tmp_path / "café.json"
     out.symlink_to(unicodedata.normalize("NFD", "CAFÉ.PARTIAL.JSON"))
     assert fresh_partial_destination(out) == tmp_path / "café.partial2.json"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_reserved_name_that_is_out_s_own_file_is_given_up(tmp_path, monkeypatch):
+    # A folding the name key does not know: here the key is blinded, and the identity check after
+    # the exclusive create still sees that out's dangling link now reaches the reserved file.
+    from dokimi.commands import arms as arms_cmd
+    from dokimi.commands import novelty_budget
+
+    monkeypatch.setattr(novelty_budget, "_resolved", lambda path: str(path))
+    out = tmp_path / "arms.json"
+    out.symlink_to("arms.partial.json")
+    partial = arms_cmd._Partial(out)
+    partial.save(_bare_partial(1, "mine"))
+    assert partial.name() == tmp_path / "arms.partial2.json"
+    assert not (tmp_path / "arms.partial.json").exists() and not out.exists()  # the link dangles again
