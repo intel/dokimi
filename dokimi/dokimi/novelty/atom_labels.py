@@ -36,7 +36,10 @@ def _rows(path: Path) -> list[Any]:
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read {path}: {exc}") from exc
     if path.suffix.lower() == ".csv":
-        return list(csv.DictReader(text.splitlines()))
+        try:
+            return list(csv.DictReader(text.splitlines()))
+        except csv.Error as exc:  # a field past csv.field_size_limit(), say
+            raise InputError(f"{path}: not a readable CSV ({exc})") from exc
     rows = []
     for number, line in enumerate(text.splitlines(), 1):
         if line.strip():

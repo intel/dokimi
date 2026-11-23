@@ -13,6 +13,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.novelty.atom_labels import label_shares, load_atom_labels
 from dokimi.utils import InputError
+from tests.cli_refusal import refusal
 from tests.test_novelty_atom_verdicts import _analyze, _run
 from tests.test_novelty_atom_verdicts import mixed_models as _mixed_models
 from tests.test_novelty_atom_verdicts import skill as _skill
@@ -156,3 +157,18 @@ def test_view_prints_the_shares_of_the_labels_joined_to_the_run(tmp_path, skill,
     assert set(rows) == {"setup", "unlabelled", "all"}  # the trailing-slash row matched nothing
     assert rows["all"][0] == "2"
     assert "1 of 2 labels match no atom of" in said.err
+
+
+def test_a_csv_the_parser_refuses_exits_2_without_a_traceback(tmp_path):
+    import csv
+
+    path = tmp_path / "labels.csv"
+    path.write_text("skill,atom_id,label\ns,a1," + "x" * (csv.field_size_limit() + 1) + "\n",
+                    encoding="utf-8")
+    args = build_parser().parse_args(["skill", "novelty", "view", "--novelty", "n.json", "--atoms", "a.json",
+                                      "--atom-verdicts", "v.json", "--atom-labels", str(path)])
+    with refusal() as out:
+        args.func(args)
+    assert out.code == 2
+    assert f"{path}: not a readable CSV" in out.err
+    assert "Traceback" not in out.err
