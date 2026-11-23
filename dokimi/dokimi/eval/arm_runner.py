@@ -33,7 +33,9 @@ from dokimi.eval.arm_summary import (
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
 from dokimi.eval.arm_record import question_record
-from dokimi.eval.arm_stop import Halted, RunStopped, halt_if_stopped, mark_not_asked, stop_question
+from dokimi.eval.arm_stop import (
+    Halted, RunStopped, arm_kinds, halt_if_stopped, mark_not_asked, static_arm_kind, stop_question,
+)
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
@@ -78,16 +80,6 @@ ANSWER_PROMPT_PLAIN = """Answer the following user question. Be specific and inc
 **Answer:**"""
 
 MAX_CONTEXT_CHARS = 15_000
-
-def _static_arm_kind(treatment: Treatment) -> Dict[str, Any]:
-    """The ``arm_kind`` metadata of a treatment whose ``prepare()`` never returned."""
-    t = getattr(treatment, "inner", treatment)  # a plugin wrapper
-    subs = getattr(t, "treatments", None)  # a combined arm
-    if isinstance(subs, list):
-        return {"arm_kind": "combined",
-                "treatments": [{"name": s.name, **_static_arm_kind(s)} for s in subs]}
-    return {"arm_kind": getattr(t, "arm_kind", None)}
-
 
 def _refuse_session_records(recs: Sequence[Record]) -> None:
     """Refuse to judge a session run: its last answer would be scored against its first question."""
@@ -174,6 +166,10 @@ class ArmRunner:
         if self.turn_reminder is not None:
             names += [name + REMINDER_ARM_SUFFIX for name in names]
         return names
+
+    def _arm_kinds(self) -> Dict[str, Dict[str, Any]]:
+        """Each arm's ``arm_kind`` metadata by name, in :attr:`arm_names` order, for the cells of a stop."""
+        return arm_kinds(self.treatments, REMINDER_ARM_SUFFIX if self.turn_reminder is not None else None)
 
     def _run_config(self) -> Dict[str, Any]:
         """Request-shaping settings, recorded so a run stays interpretable later.
@@ -296,7 +292,7 @@ class ArmRunner:
                         reminder=self.turn_reminder,
                     )
         except Halted:  # another question hit a run-wide failure: no further arm of this one is paid for
-            mark_not_asked(arms, self.arm_names)  # the arms the stop never reached; the completed ones are kept
+            mark_not_asked(arms, self._arm_kinds())  # the arms the stop never reached; the completed ones are kept
             partial = question_record(library_name, q, qid, question_text, turns, arms,
                                       grounded_from_topics=self.grounded_from_topics)
             cause = self.stop_error  # set before the stop event (see _process)
@@ -306,7 +302,7 @@ class ArmRunner:
         except Exception as exc:
             if getattr(exc, "run_wide", False) is not True:
                 raise
-            stop_question(arms, self.arm_names, current, exc)  # the record shows where the run stopped
+            stop_question(arms, self._arm_kinds(), current, exc)  # the record shows where the run stopped
             partial = question_record(library_name, q, qid, question_text, turns, arms,
                                       grounded_from_topics=self.grounded_from_topics)
             raise RunStopped(exc, partial) from exc
@@ -330,7 +326,7 @@ class ArmRunner:
             # The arm kind still says what failed, so a failure-counting summary
             # can attribute it (there is no config to read it from).
             return {"error": f"prepare_failed: {exc}", "answer": None,
-                    "metadata": _static_arm_kind(treatment)}
+                    "metadata": static_arm_kind(treatment)}
 
         # Record the treatment material before the answer exists: this is what
         # the arm was given, and the judge needs all of it, not the 200-char
@@ -445,7 +441,7 @@ class ArmRunner:
         except Exception as exc:
             logger.exception("Arm %s prepare() failed", treatment.name)
             return {"error": f"prepare_failed: {exc}", "answer": None,
-                    "metadata": _static_arm_kind(treatment)}
+                    "metadata": static_arm_kind(treatment)}
 
         from dokimi.plugins import take_output_shapers
         shapers, cfg_metadata = take_output_shapers(cfg)
