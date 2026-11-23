@@ -509,7 +509,8 @@ skill in `path`.
 A skill copied from another repository drifts from it: the upstream is updated and the
 copy is not, or the copy is edited and drops the licence. `catalog provenance` matches each
 skill under `--root` to a version of an upstream you name, offline. Dokimi ships no
-upstream list: give it the upstreams yourself.
+upstream list: give it the upstreams yourself. When sources tie, checkouts come before manifests.
+Within each type, the first source listed wins.
 
 - `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. For a blobless clone, fetch the skill history before running Dokimi.
   A full clone sees all reachable history. On linear history the commit count is exact. With parallel branches,

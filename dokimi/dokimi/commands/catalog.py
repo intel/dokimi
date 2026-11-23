@@ -650,11 +650,12 @@ def register(sub, positive_int, eval_sub) -> None:
         scan_p, "upstream", "--upstream", action="append", default=None, metavar="CHECKOUT",
         help="Match each skill to a local git checkout of an upstream (see `catalog provenance`) and add the "
              "upstream-stale, license-dropped-from-upstream and risk-inherited-from-upstream findings. Repeatable; "
-             "nothing is fetched. Not with --per-skill",
+             "ties favor checkouts before manifests, then the first listed within each type. Offline. Not with --per-skill",
     )
     cli_flags.add(
         scan_p, "upstream", "--upstream-manifest", action="append", default=None, metavar="FILE",
-        help="The same as --upstream, for a dokimi.upstream.v1 JSON manifest of one upstream. Repeatable",
+        help="The same as --upstream, for a dokimi.upstream.v1 JSON manifest of one upstream. Repeatable. "
+             "Ties favor checkouts before manifests, then the first listed within each type",
     )
     scan_p.add_argument(
         "--fail-on-code", dest="fail_on", action="append", default=None, metavar="CODE",

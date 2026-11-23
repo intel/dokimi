@@ -136,13 +136,13 @@ def register(catalog_sub) -> None:
     prov_p.add_argument("--root", required=True, help="Local checkout of the skills to match")
     cli_flags.add(
         prov_p, "upstream", "--upstream", action="append", default=None, metavar="CHECKOUT",
-        help="A local git checkout of an upstream (its history gives the versions). Repeatable; the first one "
-             "wins a tie. Nothing is fetched: clone it yourself, full history for an exact count",
+        help="A local git checkout of an upstream (its history gives the versions). Repeatable. Ties favor checkouts before manifests, "
+             "then the first listed within each type. Clone the upstream locally before use",
     )
     cli_flags.add(
         prov_p, "upstream", "--upstream-manifest", action="append", default=None, metavar="FILE",
         help="A JSON manifest of one upstream: {\"schema\": \"dokimi.upstream.v1\", \"name\", \"head\": {commit, date}, "
-             "\"skills\": [{path, content, head?, commit?, date?}]}. Repeatable",
+             "\"skills\": [{path, content, head?, commit?, date?}]}. Repeatable. Ties favor checkouts before manifests, then the first listed within each type",
     )
     prov_p.add_argument(
         "--format", choices=["text", "json"], default="text",
