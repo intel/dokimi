@@ -353,6 +353,10 @@ def test_cli_trace_heredoc_closes_by_the_whole_delimiter_after_a_prefix_line() -
     assert cli_traces._HEREDOC.sub(lambda m: m.group(3), "cat <<AB\necho hi\nA\nrm x\nAB\nls\n") == "cat \nls\n"
 
 
+def test_cli_trace_heredoc_is_closed_by_a_line_with_a_carriage_return() -> None:
+    assert cli_traces._HEREDOC.sub(lambda m: m.group(3), "cat <<EOF\r\nx\r\nEOF\r\nls\r\n") == "cat \r\nls\r\n"
+
+
 def test_split_commands_cuts_an_unclosed_heredoc_whose_body_has_a_prefix_line() -> None:
     assert shell.split_commands("cat <<AB\nsed -i s/x/y/ f\nA\n") == [("cat <<AB", "")]
     assert shell.split_commands("cat <<AB\necho hi\nA\nrm x\nAB\nls\n") == [("cat <<AB", "\n"), ("ls", "\n")]
