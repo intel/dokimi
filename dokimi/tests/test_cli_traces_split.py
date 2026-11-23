@@ -17,7 +17,7 @@ _MOVED = ["shell_reads", "shell_reads_moved", "shell_walk", "shell_walked", "unw
 
 
 def test_cli_traces_is_below_the_growth_cap():
-    """#1065 asks for room in both files: the parsers are 400 lines, 799 with the walker."""
+    """#1065 asks for room in both files: the parsers are 401 lines, 799 with the walker."""
     assert len(_MODULE.read_text(encoding="utf-8").splitlines()) < 600
 
 
@@ -36,6 +36,10 @@ def test_a_wrapper_with_an_unclosed_quote_is_left_as_written():
     assert shell_walk.unwrap_shell("bash -lc 'cat a") == "bash -lc 'cat a"
 
 
+def test_a_command_that_is_no_wrapper_is_left_as_written():
+    assert shell_walk.unwrap_shell("rg foo") == "rg foo"
+
+
 @pytest.mark.parametrize("script", ["env", "time", "env -i", "env --"])
 def test_a_command_prefix_with_no_command_after_it_reads_nothing(script):
     assert shell_walk.shell_reads(script) == []
@@ -49,6 +53,10 @@ def test_the_parsers_stay_in_cli_traces():
 
 def test_the_walker_does_not_import_the_parsers():
     tree = ast.parse(Path(shell_walk.__file__).read_text(encoding="utf-8"))
-    imported = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-    imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom):
+            imported |= {n.module or ""} | {f"{n.module or ''}.{a.name}" for a in n.names}
+        elif isinstance(n, ast.Import):
+            imported |= {a.name for a in n.names}
     assert not [m for m in imported if m.endswith("cli_traces")]
