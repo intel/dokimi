@@ -307,8 +307,7 @@ def check_wording(kind: str, *, source: str, candidate: str, answer: str = "") -
     # inversion "is it fine to run X without Y?" keeps one. A boolean comparison called
     # that unflipped.
     src_claim, cand_claim = _normalise_negations(source), _normalise_negations(text)
-    src_negations = len(_NEGATIONS.findall(_strip_question_phrasing(src_claim)))
-    cand_negations = len(_NEGATIONS.findall(_strip_question_phrasing(cand_claim)))
+    src_negations, cand_negations = _question_negations(src_claim), _question_negations(cand_claim)
     if kind == "reversal":
         if not text.endswith("?"):
             reasons.append("not_a_question")
@@ -334,12 +333,32 @@ def check_wording(kind: str, *, source: str, candidate: str, answer: str = "") -
             reasons.append("polarity_not_flipped")
     elif bool(src_negations) != bool(cand_negations):
         reasons.append("polarity_flipped")
+    if kind == "paraphrase":
+        reasons.extend(_paraphrase_reasons(source, text, answer))
+    return reasons
 
-    if kind == "paraphrase" and answer.strip():
+
+def _paraphrase_reasons(source: str, text: str, answer: str) -> list[str]:
+    """Reasons only a paraphrase can fail: a presumed answer, or the answer leaked."""
+    reasons = []
+    # A paraphrase that presumes the answer ("..., doesn't it?") measures whether the model
+    # resists the presumption, not whether it recalls the fact.
+    if _LEADING_CUES.search(text) and not _LEADING_CUES.search(source):
+        reasons.append("leading_question")
+    if answer.strip():
         leaked = _content_tokens(answer) - _content_tokens(source)
         if leaked and leaked <= _content_tokens(text):
             reasons.append("answer_leak")
     return reasons
+
+
+def _question_negations(claim: str) -> int:
+    """How many negations ``claim`` carries, not counting a question's own phrasing.
+
+    Only a question has any: ``Don't install X as root.`` is an imperative and keeps its negation.
+    """
+    plain = _strip_question_phrasing(claim) if claim.rstrip().endswith("?") else claim
+    return len(_NEGATIONS.findall(plain))
 
 
 def _new_markers(source: str, text: str) -> set[str]:

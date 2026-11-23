@@ -723,7 +723,7 @@ in the same way, so `The skill ships with numbers, doesn't it?` inverts `No numb
 the skill`; `Is it NOT the case that ...?` still counts as a negation. A reversal may run up to 15 words past the 2.5x length cap,
 the size of a leading frame such as `Isn't it true that ... NOT ..., but rather ...?`.
 
-The paraphrase polarity check reads the same way: an opening `Doesn't` and a closing tag are not counted on either side.
+The paraphrase polarity check reads a question the same way: an opening contracted negative auxiliary (`Doesn't`, `Isn't`, `Can't`, `Don't`, ...) and a closing tag are not counted on either side, so `Can't X be deterministic?` passes against `Is X deterministic?`. A sentence that does not end in `?` has no question phrasing, so the imperative `Don't install X as root.` keeps its negation and is `polarity_flipped` against `Should X be installed as root?`. A paraphrase that presumes the answer (`..., doesn't it?`, `Isn't it true that ...?`) while its source does not is rejected as `leading_question`, since a probe on it measures whether the model resists the presumption.
 
 Known gap: the paraphrase polarity check only asks whether a negation is present, so a
 faithful paraphrase that drops one (`Can you run X without root?` to `Is root required to

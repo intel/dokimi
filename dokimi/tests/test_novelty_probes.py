@@ -332,8 +332,8 @@ LEADING_NEGATIVE = "Doesn't the skill ship measured numbers?"
 @pytest.mark.parametrize(
     ("source", "candidate"),
     [
-        (PLAIN_QUESTION, TAGGED_STATEMENT),
         (PLAIN_QUESTION, LEADING_NEGATIVE),
+        ("Is X deterministic?", "Can't X be deterministic?"),
         (TAGGED_STATEMENT, PLAIN_QUESTION),
         (LEADING_NEGATIVE, PLAIN_QUESTION),
     ],
@@ -355,6 +355,29 @@ def test_a_paraphrase_that_adds_or_drops_a_negative_tag_is_not_a_polarity_flip(s
 )
 def test_a_paraphrase_that_flips_a_spelled_out_or_mid_clause_negation_is_still_rejected(source, candidate):
     assert "polarity_flipped" in check_wording("paraphrase", source=source, candidate=candidate)
+
+
+def test_an_imperative_that_opens_with_a_negative_keeps_its_negation():
+    # Only a question has question phrasing: "Don't install X as root." says the opposite.
+    reasons = check_wording(
+        "paraphrase",
+        source="Should the package be installed as root?",
+        candidate="Don't install the package as root.",
+    )
+    assert reasons == ["polarity_flipped"]
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [TAGGED_STATEMENT, "Isn't it true that the skill ships measured numbers?"],
+)
+def test_a_paraphrase_that_presumes_the_answer_is_a_leading_question(candidate):
+    reasons = check_wording("paraphrase", source=PLAIN_QUESTION, candidate=candidate)
+    assert reasons == ["leading_question"]
+
+
+def test_a_paraphrase_of_a_leading_source_may_stay_leading():
+    assert check_wording("paraphrase", source=TAGGED_STATEMENT, candidate=TAGGED_STATEMENT.replace("ships", "includes")) == []
 
 
 def test_a_negative_question_that_restates_the_source_is_still_rejected():
