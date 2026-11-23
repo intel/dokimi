@@ -3,6 +3,7 @@ depends_on:
   - dokimi/dokimi/novelty/**
   - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
+  - dokimi/dokimi/commands/novelty_routing*.py
   - dokimi/dokimi/gate/novelty_gate.py
   - dokimi/dokimi/schemas/novelty.v1.json
 ---
