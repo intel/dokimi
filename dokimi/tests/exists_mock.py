@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """`Path.exists` stand-in for tests whose doc source is only a name (#1086 refuses a missing local path)."""
 
 from __future__ import annotations
