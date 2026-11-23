@@ -772,7 +772,8 @@ def test_a_translation_of_skill_md_at_the_root_is_not_an_unnamed_file(tmp_path, 
     assert "bundle-file-unreferenced" not in _codes(review)
 
 
-@pytest.mark.parametrize("other_file", ["SKILL.notes.md", "notes.ru.md", "SKILL.ru.txt", "SKILL.cli.md", "SKILL.bak.md", "SKILL.md.md"])
+@pytest.mark.parametrize("other_file", ["SKILL.notes.md", "notes.ru.md", "SKILL.ru.txt", "SKILL.cli.md", "SKILL.bak.md", "SKILL.md.md",
+                                       "SKILL.db.md", "SKILL.md-old.md", "SKILL.ru-draft.md"])
 def test_a_file_that_only_looks_like_a_translation_is_still_unnamed(tmp_path, other_file):
     review = _review(tmp_path, "Run `python scripts/build.py`.\n", ["scripts/build.py", other_file])
     [finding] = [f for f in review.findings if f.code == "bundle-file-unreferenced"]
