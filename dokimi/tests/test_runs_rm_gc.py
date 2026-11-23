@@ -17,6 +17,7 @@ import pytest
 from dokimi import cli
 from dokimi.artifacts import save_artifact
 from dokimi.runs import rm
+from dokimi.runs.scan import scan, timestamp
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
 OLD, NEW = "20260901T000000Z-0000000a", "20261101T000000Z-0000000b"
@@ -408,6 +409,14 @@ def test_gc_removes_nothing_while_an_entry_under_the_root_cannot_be_read(
     assert ("1 entry under the runs root results/ could not be read (first: r1/arms.json: not valid "
             "JSON") in err and "so it removes nothing" in err
     assert _left(root) == before
+
+
+def test_gc_keeps_a_run_exactly_as_old_as_the_age_since_it_is_not_older(root):
+    """docs/runs.md: gc removes a run whose newest artifact is *older than* AGE."""
+    cutoff = max(timestamp(a) for a in scan(root).artifacts if a.run_id == OLD)
+
+    assert rm.plan_gc(root, cutoff, {}).runs == []
+    assert [a.run_id for a in rm.plan_gc(root, cutoff + 1, {}).runs[0]] == [OLD, OLD]
 
 
 def test_parse_age_reads_days():
