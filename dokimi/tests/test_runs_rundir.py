@@ -473,6 +473,16 @@ def test_a_stop_inside_the_plans_save_leaves_a_result_exactly_when_the_plan_is_o
     assert _record(run.path)["stop"]["reason"] == "interrupted"
 
 
+def test_a_refused_plan_save_keeps_its_own_error(root, monkeypatch):
+    """dokimi.artifacts.save_artifact: a malformed DOKIMI_RUN_ID is an InputError that says where the payload is
+    kept; write_plan passes that error on, not one of its own."""
+    run = open_run(root)
+    monkeypatch.setenv(RUN_ID_ENV, "bad id!")
+    with pytest.raises(InputError, match=r"payload kept at .*plan\.v1\.json\.rejected"):
+        run.write_plan(_fixture("plan.v1"))
+    assert not (run.path / "plan.v1.json").exists()
+
+
 def test_a_cell_the_plan_lacks_or_a_status_result_v1_lacks_is_refused(root):
     """result.v1: a result "names cells the plan does not have" is invalid, and a status is one of its enum."""
     run = open_run(root)

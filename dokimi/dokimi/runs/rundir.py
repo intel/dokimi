@@ -23,7 +23,7 @@ from types import TracebackType
 from typing import Any, Literal
 
 from dokimi import process, process_hooks
-from dokimi.artifacts import SCHEMA_VERSIONS, is_run_id, run_id, save_artifact, stamp
+from dokimi.artifacts import SCHEMA_VERSIONS, is_run_id, run_id, save_artifact
 from dokimi.runner.plan import STATUSES, completeness, plan_digest
 from dokimi.utils import InputError
 
@@ -136,9 +136,8 @@ class RunDir:
                 written = save_artifact("plan", snapshot, path)
                 self._plan, self._planned = written, planned
             except BaseException:  # a stop after the save published the plan: the run takes it, so its result covers it
-                stamped = stamp("plan", snapshot)
-                if _holds(path, stamped):
-                    self._plan, self._planned = stamped, planned
+                if _holds(path, snapshot):  # by digest, which leaves the envelope out: no run_id() to fail here
+                    self._plan, self._planned = snapshot, planned
                 raise
         return copy.deepcopy(written)  # the caller's copy shares nothing with the run's
 
