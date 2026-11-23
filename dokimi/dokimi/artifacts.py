@@ -313,7 +313,9 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
       With ``ensure_ascii`` false a surrogate pair is joined into its character and a lone
       surrogate stays its ``\\udXXX`` escape, and a pair key beside its character key raises
-      ``ValueError``; ASCII-escaped, a pair stays two escapes and no key check runs.
+      ``ValueError``; ASCII-escaped, a pair stays two escapes and no key check runs. The text is
+      validated as a reader loads it as well, so two ids that become one once a pair is joined are
+      refused like any duplicate id.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
@@ -334,6 +336,7 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
     encoded = json_utf8_bytes(json.dumps(payload, indent=2, ensure_ascii=ensure_ascii))
     try:
         validate_artifact(kind, payload)
+        validate_artifact(kind, json.loads(encoded))  # what a reader gets: a joined pair can make two ids one
     except ArtifactValidationError as exc:
         rejected = path.with_name(path.name + ".rejected")
         try:

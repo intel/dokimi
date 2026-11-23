@@ -10,7 +10,9 @@ import errno
 import json
 import os
 import secrets
+import shutil
 import stat
+import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import IO, Any
@@ -47,16 +49,20 @@ def write_chunks_atomic(path: Path | str, chunks: Iterable[bytes]) -> None:
     a link into a missing directory raises ``FileNotFoundError`` and makes no directory.
     A target that is not a plain file (see :func:`write_bytes_in_place_or_atomic`: hard-linked, special, read-only,
     in a read-only directory, with a ``user.*`` attribute, ...) is written in place, as ``open(path, "w")`` writes it,
-    after every chunk is taken, so an exception from the iterable still leaves it as it was.
+    after every chunk is taken, so an exception from the iterable still leaves it as it was; the chunks wait in a
+    temporary file on disk, not in memory. A file whose name is a mount point (``os.replace`` fails with EBUSY) gets
+    the staged file copied into it in place.
     """
     target = Path(os.path.realpath(path))
     # A link into a missing directory fails as open(path, "w") fails: the target's directory is not made.
     if (os.path.islink(path) and not target.parent.is_dir()) or not _is_plain_writable_file(target):
-        data = list(chunks)
-        with open(path, "wb") as handle:
-            handle.writelines(data)
+        with tempfile.TemporaryFile() as staged:
+            staged.writelines(chunks)
+            staged.seek(0)
+            with open(path, "wb") as handle:
+                shutil.copyfileobj(staged, handle)
         return
-    _publish(target, lambda fd: os.fdopen(fd, "wb"), chunks)
+    _publish(target, lambda fd: os.fdopen(fd, "wb"), chunks, copy_on_busy=True)
 
 
 def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
@@ -146,7 +152,8 @@ def write_json_atomic(path: Path | str, obj: Any) -> None:
     write_bytes_atomic(path, utf8_bytes(text.replace("\n", os.linesep)))
 
 
-def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iterable[bytes], *, keep_group: bool = False) -> None:
+def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iterable[bytes], *, keep_group: bool = False,
+             copy_on_busy: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
     old = _existing_stat(path)
@@ -172,7 +179,14 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iter
                 os.chmod(tmp, mode)
             except PermissionError as exc:
                 raise _OwnerRefused(exc.errno, "root may not set the mode of the new file it gave the owner of the file it replaces") from exc
-        os.replace(tmp, path)
+        try:
+            os.replace(tmp, path)
+        except OSError as exc:
+            if not copy_on_busy or exc.errno != errno.EBUSY:
+                raise
+            with open(tmp, "rb") as staged, open(path, "wb") as handle:
+                shutil.copyfileobj(staged, handle)
+            tmp.unlink()
     except BaseException:
         with contextlib.suppress(OSError):
             tmp.unlink()

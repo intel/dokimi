@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import os
@@ -231,6 +232,45 @@ def test_to_jsonl_holds_one_row_of_output_at_a_time(tmp_path):
 
     assert path.stat().st_size > 8_000_000
     assert peak < 1_000_000
+    assert [p.name for p in tmp_path.iterdir()] == ["rows.jsonl"]
+
+
+def test_to_jsonl_into_a_hard_linked_file_holds_one_row_of_output_at_a_time(tmp_path):
+    """The in-place fallback stages the rows on disk, not in a list (#1020)."""
+    import tracemalloc
+
+    rows = [{"a": "x" * 4096, "i": i} for i in range(2048)]
+    path = tmp_path / "rows.jsonl"
+    path.write_text("stale\n")
+    try:
+        os.link(path, tmp_path / "other.jsonl")
+    except OSError:
+        pytest.skip("no hard links here")
+
+    tracemalloc.start()
+    try:
+        to_jsonl(rows, path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert (tmp_path / "other.jsonl").stat().st_size > 8_000_000
+    assert peak < 1_000_000
+
+
+def test_to_jsonl_into_a_mount_point_copies_the_staged_rows_in_place(tmp_path, monkeypatch):
+    """``os.replace`` onto a mount point fails with EBUSY; the rows are already consumed, so they are copied in place (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    path.write_text("stale\n")
+    inode = path.stat().st_ino
+
+    def busy(src, dst):
+        raise OSError(errno.EBUSY, "Device or resource busy")
+
+    monkeypatch.setattr(os, "replace", busy)
+    to_jsonl([{"a": 1}, {"a": 2}], path)
+
+    assert (path.read_text(), path.stat().st_ino) == ('{"a": 1}\n{"a": 2}\n', inode)
     assert [p.name for p in tmp_path.iterdir()] == ["rows.jsonl"]
 
 

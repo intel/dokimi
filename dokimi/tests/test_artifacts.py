@@ -547,6 +547,20 @@ def test_a_pair_key_beside_its_character_key_is_refused_and_nothing_is_written(t
     assert not out.exists() and not list(tmp_path.glob("*.tmp"))
 
 
+@pytest.mark.parametrize("ensure_ascii", [False, True])
+def test_question_ids_equal_once_a_pair_is_joined_are_refused_and_nothing_is_published(tmp_path, ensure_ascii):
+    """The saved file must load: ids ``\\ud83d\\ude00`` and ``😀`` read back as one id (#1020)."""
+    out = tmp_path / "q.json"
+    out.write_text("old")
+    payload = {"questions": [{"id": chr(0xD83D) + chr(0xDE00), "question": "A"}, {"id": "\U0001F600", "question": "B"}]}
+
+    with pytest.raises(ArtifactValidationError, match="duplicate question ids"):
+        save_artifact("questions", payload, out, ensure_ascii=ensure_ascii)
+
+    assert out.read_text() == "old"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["q.json", "q.json.rejected"]
+
+
 @pytest.mark.parametrize(("value", "loaded", "raw_part"), _SURROGATE_CASES[:2])
 def test_a_rejected_payload_with_a_surrogate_is_kept_as_utf8(tmp_path, value, loaded, raw_part):
     out = tmp_path / "a.json"
