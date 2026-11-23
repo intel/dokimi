@@ -415,7 +415,7 @@ def _tree_with_unlistable(tmp_path: Path, *parts: str) -> tuple[Path, Path]:
 
 
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root lists a mode 111 directory")
-@pytest.mark.parametrize("parts", [("sub",), ("sub", "deeper")])  # a subdirectory, and one under a listable subdirectory
+@pytest.mark.parametrize("parts", [(), ("sub",), ("sub", "deeper")])  # the directory ref itself, a subdirectory, one under a listable subdirectory
 def test_a_subdirectory_that_cannot_be_listed_is_an_error_not_a_smaller_tree(tmp_path: Path, parts: tuple[str, ...]):
     tree, unlistable = _tree_with_unlistable(tmp_path, *parts)
     complete = _digest_ref("tree", base=tmp_path)
