@@ -46,7 +46,7 @@ def _bundle_path(word: str, anchor: bool = True) -> Optional[str]:
     away), with a trailing ``,;:.)`` taken away; an option's value follows its last ``=``. The part
     after ``#`` is an anchor and is dropped unless ``anchor`` is false (``assets/logo#dark.svg``).
     None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no file extension),
-    a placeholder part, or a template variable.
+    a placeholder part, a template variable, or a user-local ``*.local.md`` file.
     """
     text = word.lstrip("(").rstrip(",;:.)").strip("'\"").rstrip(",;:.)")
     if text.startswith("-") and "=" in text:  # an option's value: --config=scripts/x.yaml
