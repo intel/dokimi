@@ -369,6 +369,29 @@ def test_gc_keep_baselines_refuses_when_the_manifest_cannot_be_looked_up(
     assert _left(root) == before
 
 
+@pytest.mark.parametrize("target", ["/nonexistent/share/manifest.json", "manifest.json"])
+def test_gc_keep_baselines_refuses_a_manifest_link_to_nothing(root, monkeypatch, capsys, target):
+    """docs/runs.md: a baseline manifest that cannot be read exits 2 before anything is removed;
+    a dangling link, or one to itself (a loop), is there but cannot be read."""
+    monkeypatch.setattr("sys.argv", ["dokimi", "baseline", "save", "--from-eval",
+                                     "results/r1/eval/onetbb.json", "--name", "main"])
+    cli.main()
+    capsys.readouterr()
+    manifest = Path("baselines/eval/manifest.json")
+    manifest.unlink()
+    try:
+        manifest.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks need privileges on this platform")
+    before = _left(root)
+
+    code, _, err = _run(monkeypatch, capsys, "gc", "--older-than", "30d", "--keep-baselines")
+
+    assert code == 2
+    assert "baselines/eval/manifest.json: a link to nothing" in err
+    assert _left(root) == before
+
+
 def test_gc_keep_baselines_refuses_when_a_baseline_copy_cannot_be_read(root, monkeypatch, capsys):
     manifest = Path("baselines/eval/manifest.json")
     manifest.parent.mkdir(parents=True)

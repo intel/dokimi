@@ -340,10 +340,13 @@ def _baselines_held() -> dict[str, str]:
     from dokimi.commands.baseline import BASELINES_DIR, _baseline_manifest
     manifest = BASELINES_DIR / "manifest.json"
     try:  # _baseline_manifest's Path.exists() reads "no permission" as absent on Python 3.14
-        lookup(manifest)
+        unreachable = lookup(manifest) is None and lookup(manifest, follow_symlinks=False)
     except OSError as exc:
         raise InputError(f"{manifest.as_posix()}: {read_error_reason(exc)}, so the runs the "
                          "baselines hold are not known") from exc
+    if unreachable:  # a dangling link or a link loop: there, but not readable
+        raise InputError(f"{manifest.as_posix()}: a link to nothing, so the runs the baselines "
+                         "hold are not known")
     return baseline_runs(_baseline_manifest()["baselines"])
 
 
