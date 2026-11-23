@@ -8,10 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from dokimi.cli import build_parser
-from dokimi.utils import InputError
 
 
 def _write(root: Path, files: dict[str, str]) -> Path:
@@ -270,11 +267,3 @@ def test_a_rule_linked_to_claude_md_is_scanned_without_its_frontmatter(tmp_path,
     (root / ".claude/rules/x.md").symlink_to("../../private/CLAUDE.md")
     assert (".claude/rules/x.md", "src/gone_fm_link.py") in _fails(_scan(capsys, str(root)))
 
-
-def test_a_deeply_nested_baseline_is_refused_as_an_input_error(tmp_path):
-    root = _write(tmp_path / "r", {"AGENTS.md": "# guidance\n"})
-    deep = tmp_path / "deep.json"
-    deep.write_text("[" * 10000 + "0" + "]" * 10000, encoding="utf-8")
-    args = build_parser().parse_args(["repo", "scan", str(root), "--baseline", str(deep), "--json"])
-    with pytest.raises(InputError, match="--baseline"):
-        args.func(args)

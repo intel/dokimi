@@ -177,8 +177,8 @@ def _credential_providers(args: argparse.Namespace) -> list[str]:
     """The providers whose key or login a run of *args* needs, by the route each call takes (#967).
 
     A CLI backend takes its login whatever the model name says. `vertex_ai/` (ADC) and `bedrock/`
-    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider, but a
-    `file:` AWS_BEARER_TOKEN_BEDROCK that cannot be read is refused; a `gemini/`
+    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider, but a `file:`
+    key of it (read on every call) or AWS_BEARER_TOKEN_BEDROCK that cannot be read is refused; a `gemini/`
     route needs GEMINI_API_KEY or GOOGLE_API_KEY; another provider's route needs that provider's key;
     a route off the table (`azure/`, `ollama/`) needs none when the configured key is unset.
     """

@@ -287,43 +287,43 @@ def test_a_key_file_that_is_not_utf8_is_named_in_the_refusal(tmp_path, monkeypat
     assert code == 2
 
 
-def test_a_vertex_route_refuses_an_unreadable_key_file_of_the_configured_provider(monkeypatch):
-    import argparse
-    from dokimi.commands.benchmark import _credential_providers, _provider_checks
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "file:/nonexistent/key")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
-    args = argparse.Namespace(provider="anthropic", model="vertex_ai/gemini-2.5-pro",
-                              judge_provider="openai", judge_model="")
-    errors, _ = _provider_checks(_credential_providers(args))
-    assert any("/nonexistent/key" in e for e in errors)
+def _preflight_on(tmp_path, monkeypatch, capsys, provider, model):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", provider, "--model", model,
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    return exc.value.code, capsys.readouterr().err
 
 
-def test_a_bedrock_route_refuses_an_unreadable_key_file_of_the_configured_provider(monkeypatch):
-    import argparse
-    from dokimi.commands.benchmark import _credential_providers, _provider_checks
-
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "file:/nonexistent/key")
+@pytest.mark.parametrize("provider, model, key_var", [
+    ("anthropic", "vertex_ai/gemini-2.5-pro", "ANTHROPIC_API_KEY"),
+    ("anthropic", "bedrock/us.anthropic.claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
+    ("google-vertex", "gemini-2.5-pro", "GEMINI_API_KEY"),
+])
+def test_preflight_refuses_an_unreadable_key_file_on_a_keyless_route(
+        provider, model, key_var, tmp_path, monkeypatch, capsys):
+    """#851: every call reads the configured key, so a keyless route still refuses a `file:` it cannot read."""
+    monkeypatch.setenv(key_var, f"file:{tmp_path / 'no-such-key'}")
     monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "valid-token")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
-    args = argparse.Namespace(provider="anthropic", model="bedrock/us.anthropic.claude-sonnet-4-6",
-                              judge_provider="openai", judge_model="gpt-4o")
-    errors, _ = _provider_checks(_credential_providers(args))
-    assert any("/nonexistent/key" in e for e in errors)
+    code, err = _preflight_on(tmp_path, monkeypatch, capsys, provider, model)
+    assert str(tmp_path / "no-such-key") in err
+    assert code == 2
 
 
-def test_a_vertex_route_names_the_configured_provider_only_when_its_key_file_is_unreadable(monkeypatch):
-    from dokimi.commands.benchmark import _keyless_route
+@pytest.mark.parametrize("command", ["run", "batch"])
+def test_run_and_batch_refuse_an_unreadable_key_file_on_a_vertex_route(command, tmp_path, monkeypatch):
+    from dokimi.commands.benchmark import _refuse_missing_credentials
+    from dokimi.utils import InputError
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "file:/nonexistent/key")
-    assert _keyless_route("anthropic", "vertex_ai") == ["anthropic"]
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-readable")
-    assert _keyless_route("anthropic", "vertex_ai") == []
-
-
-def test_a_bedrock_route_with_a_readable_configured_key_ignores_an_unreadable_aws_token(monkeypatch):
-    from dokimi.commands.benchmark import _keyless_route
-
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-readable")
-    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "file:/nonexistent/token")
-    assert _keyless_route("anthropic", "bedrock") == []
+    monkeypatch.setenv("GEMINI_API_KEY", f"file:{tmp_path / 'no-such-key'}")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    args = cli.build_parser().parse_args(
+        ["benchmark", command, "--libraries" if command == "batch" else "--library", "onetbb", "--provider", "google-vertex", "--model", "gemini-2.5-pro",
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")])
+    with pytest.raises(InputError, match="no-such-key"):
+        _refuse_missing_credentials(args)
