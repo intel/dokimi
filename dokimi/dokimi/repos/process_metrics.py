@@ -78,16 +78,22 @@ def parse_counter(name: str, value: Any) -> Counter:
 def _workspace_path(path: str, resolve: Callable[[str], str | None] | None = None) -> str | None:
     """``path`` normalized (``./a``, ``a//b``, ``a/./b``), or None when it is not inside the workspace.
 
-    ``~`` is a home directory, not the repository. A path with a ``..`` is what ``resolve`` makes of it (the workspace's
-    links followed, :meth:`~dokimi.repos.held_guidance.HeldGuidance.resolved`); with none, the ``..`` is collapsed by
-    name, as when the workspace is not known. A path that climbs out of the workspace is None either way."""
+    ``~`` is a home directory, not the repository. In a path with a ``..``, the directories before the last name are what
+    ``resolve`` makes of them (the workspace's links followed, :meth:`~dokimi.repos.held_guidance.HeldGuidance.resolved`)
+    and the last name stays as written, so a guidance link keeps the name the globs match; with no ``resolve``, the ``..``
+    is collapsed by name, as when the workspace is not known. A path that climbs out of the workspace is None either way."""
     if path.startswith("~"):
         return None
     p = PurePosixPath(plain_path(path))
     if p.is_absolute():
         return None
     if ".." in p.parts:
-        p = PurePosixPath(resolve(str(p)) or "..") if resolve else PurePosixPath(posixpath.normpath(p))
+        if not resolve:
+            p = PurePosixPath(posixpath.normpath(p))
+        elif p.name != "..":
+            p = PurePosixPath(resolve(str(p.parent)) or "..") / p.name
+        else:
+            p = PurePosixPath(resolve(str(p)) or "..")
     return None if ".." in p.parts else str(p)
 
 

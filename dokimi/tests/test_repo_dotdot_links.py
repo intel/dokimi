@@ -109,6 +109,37 @@ def test_a_cd_goes_on_from_an_absolute_directory_and_not_from_one_not_known():
     assert shell_reads("cd - ; cd sub && cat AGENTS.md") == []
 
 
+@pytest.fixture
+def held_links(tmp_path):
+    """Guidance supplied by file links: ``AGENTS.md -> docs/guide.md``, ``docs/AGENTS.md -> guide.md``, ``src`` a plain directory."""
+    ws = tmp_path / "workspace"
+    for d in (ws / "docs/nested", ws / "src"):
+        d.mkdir(parents=True)
+    (ws / "docs/guide.md").write_text("warn\n")
+    (ws / "AGENTS.md").symlink_to("docs/guide.md")
+    (ws / "docs/AGENTS.md").symlink_to("guide.md")
+    (ws / "alias").symlink_to("docs/nested", target_is_directory=True)
+    subprocess.run(["git", "init", "-q", str(ws)], check=True)
+    subprocess.run(["git", "-C", str(ws), "add", "-A"], check=True)
+    return held_guidance(tmp_path, parse_manifest(MANIFEST))
+
+
+@pytest.mark.parametrize("command", ["cat AGENTS.md", "cat src/../AGENTS.md", "cd src && cat ../AGENTS.md"])
+def test_a_guidance_file_link_keeps_its_name_after_a_dotdot_in_a_read(command, held_links):
+    assert _bash(command, held_links) == (["AGENTS.md"], [])
+
+
+@pytest.mark.parametrize("command", ["grep warn AGENTS.md", "grep warn src/../AGENTS.md", "cd src && grep warn ../AGENTS.md"])
+def test_a_guidance_file_link_keeps_its_name_after_a_dotdot_in_a_search(command, held_links):
+    assert _bash(command, held_links) == ([], ["AGENTS.md"])
+
+
+def test_a_guidance_file_link_after_a_directory_link_dotdot_is_listed_in_the_directory_the_system_opens(held_links):
+    assert _bash("cat alias/../AGENTS.md", held_links) == (["docs/AGENTS.md"], [])
+    assert _bash("grep warn alias/../AGENTS.md", held_links) == ([], ["docs/AGENTS.md"])
+    assert _bash("cat src/../docs/guide.md", held_links) == ([], [])  # the target is no guidance name
+
+
 def test_a_path_through_a_link_without_a_dotdot_is_listed_as_the_agent_wrote_it(held):
     assert _bash("cat dlink/AGENTS.md", held) == (["dlink/AGENTS.md"], [])
     assert _bash("grep warn ./dlink//AGENTS.md", held) == ([], ["dlink/AGENTS.md"])
