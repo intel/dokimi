@@ -97,7 +97,7 @@ def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
     try:
         base = path.resolve()
         skip = [out.relative_to(base).as_posix() for out in outputs if out.is_relative_to(base)]
-        return tree_digest(path, exclude=skip, tracked={})
+        return tree_digest(path, exclude=skip, strict=True, tracked={})
     except OSError:
         return None
 
