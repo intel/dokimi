@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from dokimi.caching import is_empty_reply
 from dokimi.utils import question_id  # re-exported: callers import it from here
@@ -208,8 +208,9 @@ class ArmRunner:
         questions: List[Dict[str, Any]],
         library_id: Optional[str] = None,
         concurrency: int = 5,
+        on_record: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> List[Dict[str, Any]]:
-        """Answer every question under every arm. Returns one record per question."""
+        """Answer every question under every arm. Returns one record per question; *on_record* gets the records so far, in question order, as each question is done."""
         n = len(questions)
         self.questions_requested = n
         self.stop_error = None
@@ -217,9 +218,18 @@ class ArmRunner:
             # Before any answer is paid for: a question short of follow-ups fails the run.
             check_session_questions(questions, self.session_turns)
         results: Dict[int, Dict[str, Any]] = {}
-        lock = threading.Lock()
-        done = [0]
+        lock, done = threading.Lock(), [0]
         stop = threading.Event()  # set by a run-wide error: questions not yet started are not asked
+
+        def _keep(idx: int, rec: Dict[str, Any]) -> None:  # under the lock
+            results[idx] = rec
+            try:
+                if on_record is not None:
+                    on_record([results[i] for i in sorted(results)])
+            except BaseException:
+                self.stop_error = self.stop_error or RuntimeError("a checkpoint save failed")  # what a worker that sees the stop reads
+                stop.set()  # a failed save: the questions not yet started are not paid for
+                raise
 
         def _process(idx: int, q: Dict[str, Any]) -> None:
             if stop.is_set():
@@ -228,14 +238,14 @@ class ArmRunner:
                 rec = self._answer_question(library_name, library_id, q, stop)
             except RunStopped as exc:
                 # Keep the question's completed arms (and their spend); the run is marked terminated.
-                with lock:  # the cause is set before the event: a worker that sees it reads it
-                    results[idx] = exc.record
-                    self.stop_error = exc.cause
-                stop.set()  # a CLI usage limit or login: the questions not yet started are not asked
+                self.stop_error = exc.cause  # set before the event: a worker that sees it reads it
+                stop.set()  # a usage limit or login: no further arm is asked, not after another question's save
+                with lock:
+                    _keep(idx, exc.record)
                 print(f"Stopped: {exc.cause}", flush=True)
                 return
             with lock:
-                results[idx] = rec
+                _keep(idx, rec)
                 done[0] += 1
                 print(f"[{done[0]}/{n}] {rec['question_id']} OK", flush=True)
 
@@ -289,7 +299,7 @@ class ArmRunner:
             mark_not_asked(arms, self.arm_names)  # the arms the stop never reached; the completed ones are kept
             partial = question_record(library_name, q, qid, question_text, turns, arms,
                                       grounded_from_topics=self.grounded_from_topics)
-            cause = self.stop_error  # set under the lock before the stop event (see _process)
+            cause = self.stop_error  # set before the stop event (see _process)
             if cause is None:
                 raise RuntimeError("the run stopped without a run-wide cause") from None
             raise RunStopped(cause, partial) from None

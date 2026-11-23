@@ -15,6 +15,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.process_io import text_file_bytes
 from dokimi.records import (BASELINE, KNOWLEDGE_INTENT, Record, held_conditions, is_knowledge_run,
                             is_single_condition, records)
 from dokimi.report.eval_report import (
@@ -200,8 +202,7 @@ def write_eval_report(eval_path: str, out_path: str, qa_json_out: Optional[str] 
     directory = os.path.dirname(out_path)
     if directory:
         os.makedirs(directory, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(text)
+    write_bytes_in_place_or_atomic(out_path, text_file_bytes(text))
     _write_qa(eval_path, out_path, qa_json_out, evals, meta, data, cond)
     scored = [s for s in (q.score(cond) for q in evals) if s is not None]
     print(f"✅ Report written to: {out_path}")
