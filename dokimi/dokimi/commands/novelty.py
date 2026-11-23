@@ -463,14 +463,13 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
                              "are reproducible across runs")
 
 
-def _add_cache_dir(parser: argparse.ArgumentParser) -> None:
+def _add_cache_dir(parser: argparse.ArgumentParser, *, reruns_pay_for: str) -> None:
     """The retention memo: read by the commands that adjudicate retention (analyze, shorten)."""
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
                         help="Disk memo of the retention adjudications only, not the model replies: "
                              "a rerun with the same directory replays them at $0. The response cache "
                              "for replies is separate and opt-in (set DOKIMI_RESPONSE_CACHE to a "
-                             "writable directory); without it a rerun pays again for the answer and "
-                             "judge calls.")
+                             f"writable directory); without it a rerun pays again for {reruns_pay_for}.")
 
 
 def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
