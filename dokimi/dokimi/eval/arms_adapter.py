@@ -9,8 +9,9 @@ artifacts (the trust gate, ``report generate`` and ``report eval``, the dashboar
 binary artifacts. ``report model-compare`` reads the arms file itself.
 
 * **Arms.** The run's ``baseline_arm`` is ``without_docs``; its one other arm, the context arm, is
-  ``with_docs``. A run of the baseline arm alone is a knowledge run (``with_docs: null``, ``run_intent:
-  knowledge``). A run with more arms, or with no baseline arm among them, is a :class:`RecordError`.
+  ``with_docs``; it must be a docs arm (``arm_kind`` ``docs`` or ``mcp_doc``). A run of the baseline arm alone
+  is a knowledge run (``with_docs: null``, ``run_intent: knowledge``). A run with more arms, with no baseline arm
+  among them, or whose other arm is not a docs arm, is a :class:`RecordError`.
 * **Answers.** A cell keeps its fields; its ``context_chunks`` become ``retrieved_docs``, and ``doc_source`` is
   the first chunk's source, as the answerer writes it. An errored or empty cell is ``null``, and the record's
   ``error`` names it, as a failed condition is in an answers file.
@@ -37,6 +38,8 @@ from dokimi.records import (
 )
 from dokimi.utils import same_evaluator
 
+#: The ``arm_kind`` of a ``DocTreatment`` arm (``treatments/factory.py``): retrieval into the prompt.
+_DOC_KINDS = frozenset({"docs", "mcp_doc"})
 #: Top-level fields of an arms run that its eval file carries under the same name.
 _JUDGE_FIELDS = ("judge_model", "judge_provider", "judge_temperature", "judge_metrics", "judge_resolved_models")
 
@@ -45,7 +48,7 @@ def to_binary(data: Mapping[str, Any], *, source: str = "<arms>") -> Tuple[Dict[
     """The ``answers.v1`` and ``eval.v1`` payloads of an ``arms.v1`` run; the eval is ``None`` for an unjudged run.
 
     The payloads are what ``save_artifact("answers", ...)`` and ``save_artifact("eval", ...)`` take. Raises
-    :class:`RecordError` for a file that is not ``arms.v1``, or whose arms are not a baseline and at most one more.
+    :class:`RecordError` for a file that is not ``arms.v1``, or whose arms are not a baseline and at most one docs arm.
     """
     if not isinstance(data, Mapping) or data.get("schema_version") != "arms.v1":
         raise RecordError(f"{source}: not an arms.v1 artifact")
@@ -94,7 +97,16 @@ def _binary_arms(run: Run, source: str) -> Tuple[Optional[str], str]:
         raise RecordError(
             f"{source}: arms {list(run.conditions)} with baseline_arm {baseline!r} do not fit answers.v1/eval.v1, "
             "which hold the baseline arm and at most one other")
-    return (others[0] if others else None), baseline
+    if not others:
+        return None, baseline
+    kinds = {kind for r in run if (cell := r.answer(others[0])) is not None
+             and isinstance(kind := (cell.raw.get("metadata") or {}).get("arm_kind"), str) and kind}
+    if not kinds or not kinds <= _DOC_KINDS:
+        # with_docs is what retrieval put in the prompt: another arm would read as a retrieval miss.
+        raise RecordError(
+            f"{source}: arm {others[0]!r} (arm_kind {sorted(kinds) or 'unrecorded'}) is not a docs arm "
+            f"({', '.join(sorted(_DOC_KINDS))}), the one arm with_docs holds")
+    return others[0], baseline
 
 
 def _stop_block(data: Mapping[str, Any]) -> Optional[Dict[str, Any]]:

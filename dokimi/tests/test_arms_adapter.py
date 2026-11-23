@@ -28,7 +28,6 @@ from dokimi.records import RecordError, is_knowledge_run, load, read
 from dokimi.report.stop_note import stop_note
 from tests.answering_stack_parity import QUESTIONS, run_stack_a, run_stack_p
 
-PROJECT = Path(__file__).resolve().parents[1]
 STEM = "fixture-lib.json"
 EMPTY = "q-empty"
 
@@ -269,6 +268,10 @@ def test_method_version_is_carried_and_never_stamped():
     (_arms(_question(baseline=_cell(), docs=_cell(), skill=_cell()), arms=("baseline", "docs", "skill")),
      "hold the baseline arm and at most one other"),
     (_arms(_question(docs=_cell()), arms=("docs",)), "with baseline_arm 'baseline' do not fit"),
+    # A profile arm retrieves nothing: as with_docs every question would read as a retrieval miss.
+    (_arms(_question(baseline=_cell(), profile={**_cell(), "metadata": {"arm_kind": "profile"}}),
+           arms=("baseline", "profile")), r"arm 'profile' \(arm_kind \['profile'\]\) is not a docs arm"),
+    (_arms(_question(baseline=_cell(), docs={"answer": "a"})), r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
 ])
 def test_a_run_with_no_binary_reading_is_refused(data, message):
     # answers.v1/eval.v1 have two conditions, with_docs and without_docs (AGENTS.md, "Persisted formats").
@@ -288,7 +291,7 @@ def test_a_stopped_run_keeps_its_stop_in_both_files():
 
 def test_the_partial_file_of_a_crashed_run_reads_as_incomplete(tmp_path, monkeypatch):
     # docs/evaluating-treatments.md, "While it answers": a crash leaves <out stem>.partial.json, none judged.
-    # Here the run crashes on q2, and q0, q1, q3 are kept.
+    # Here a knowledge run (the baseline arm alone) crashes on q2, and q0, q1, q3 are kept.
     def fake(prompt, model, provider="openai", **kw):
         return "an answer", {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
 
@@ -304,9 +307,8 @@ def test_the_partial_file_of_a_crashed_run_reads_as_incomplete(tmp_path, monkeyp
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": f"q{i}", "question": f"How do I do thing {i}?"} for i in range(4)]),
                          encoding="utf-8")
-    profile = PROJECT / "data" / "agent_profiles" / "concise_expert.md"
     args = build_parser().parse_args([
-        "arms", "run", "--product", "onedal", "--questions", str(questions), "--arms", f"baseline,profile:{profile}",
+        "arms", "run", "--product", "onedal", "--questions", str(questions), "--arms", "baseline",
         "--concurrency", "1", "--out", str(tmp_path / "arms.json"), "--out-md", str(tmp_path / "arms.md")])
     with pytest.raises(RuntimeError, match="boom"):
         args.func(args)
