@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The digest of one entry a repo config subject walks: a file by its content and executable bit, a link by
-its target text. ``repo_config._digest_files`` digests each entry with these."""
+its target text. ``repo_config._digest_files`` digests each entry with these. :func:`listed_entries` lists the entries
+a digest of a tree walks."""
 
 import hashlib
 import os
@@ -10,7 +11,13 @@ import stat
 from pathlib import Path
 from typing import Mapping
 
-from dokimi.utils import _tracked_modes, file_digest, link_text
+from dokimi.utils import _entries, _tracked_modes, file_digest, link_text
+
+
+def listed_entries(root: Path) -> list[Path]:
+    """Every entry under ``root`` as ``root.rglob("*")`` lists them (directories included, a symlink as itself and not
+    followed), in no set order; a directory that cannot be listed raises its OSError where ``rglob`` skips it."""
+    return _entries(root, (), strict=True)
 
 
 def target_digest(target: Path, root_real: Path, modes: Mapping[str, bool] | None, holds: Mapping[Path, bytes]) -> str:
