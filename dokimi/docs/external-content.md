@@ -513,7 +513,8 @@ upstream list: give it the upstreams yourself. When sources tie, checkouts come 
 Within each type, the first source listed wins.
 
 - `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. For a blobless clone, fetch the skill history before running Dokimi.
-  A full clone sees all reachable history. On linear history the commit count is exact. With parallel branches,
+  A full clone reads the history reachable from `HEAD`. Other branch and tag tips are not scanned.
+  On linear history the commit count is exact. With parallel branches,
   the count can include a change on a sibling branch. A shallow clone sees only its own history.
 - `--upstream-manifest FILE` (repeatable) is a JSON file of one upstream, for an upstream that
   is not a git checkout. Its `schema` field is the version-1 upstream schema string shown here:
