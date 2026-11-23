@@ -1,19 +1,27 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""runs subcommand group: the artifacts under the runs root (#278). Reads only; never spends."""
+"""runs subcommand group: the artifacts under the runs root (#278), and removing runs from it
+(#94 R3). Never spends."""
 
 from __future__ import annotations
 
 import argparse
+import sys
+import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from dokimi import cli_flags
 from dokimi.artifacts import INPUT_KINDS, SCHEMA_VERSIONS
+from dokimi.exit_codes import EXIT_INFRA
+from dokimi.runs.rm import Removal, apply, baseline_runs, parse_age, plan_gc, plan_rm
 from dokimi.runs.scan import (
     SKIP_REASONS,
     Artifact,
+    RunsRoot,
     ScanResult,
+    Unreadable,
     by_run,
     plain,
     runs_root,
@@ -206,14 +214,19 @@ def _show_run(root: str, run: ShownRun, as_json: bool) -> None:
         print("\n".join(_run_text(run)))
 
 
-def cmd_runs_show(args: argparse.Namespace) -> None:
-    """One artifact: its kind, schema check, fields, contents and neighbours; or, for a run id,
-    the artifacts of that run. A failed schema check is printed, and the exit code stays 0."""
-    from dokimi import cli_output
+def _existing_root() -> RunsRoot:
     root = runs_root()
     if not root.exists():
         raise InputError(f"no runs root: {plain(root.path.as_posix())}/ does not exist "
                          f"(DOKIMI_RUNS_DIR names another root)")
+    return root
+
+
+def cmd_runs_show(args: argparse.Namespace) -> None:
+    """One artifact: its kind, schema check, fields, contents and neighbours; or, for a run id,
+    the artifacts of that run. A failed schema check is printed, and the exit code stays 0."""
+    from dokimi import cli_output
+    root = _existing_root()
     shown = show_target(root.path, args.path)
     if isinstance(shown, ShownRun):
         _show_run(root.path.as_posix(), shown, args.json)
@@ -223,6 +236,118 @@ def cmd_runs_show(args: argparse.Namespace) -> None:
                              summary={"schema_valid": not shown.errors})
     else:
         print("\n".join(_show_text(shown)))
+
+
+def _first(entries: list[Unreadable]) -> str:
+    return f"first: {plain(entries[0].path.as_posix())}: {plain(entries[0].reason)}"
+
+
+def _left_lines(removal: Removal, of_run: bool) -> list[str]:
+    """What a removal left behind: the entries it could not read, and the files it could not remove."""
+    lines = []
+    if removal.unreadable:
+        why = ", which may belong to it" if of_run else ""
+        lines.append(f"unreadable: {_count(len(removal.unreadable), 'entry', 'entries')} under the "
+                     f"root left in place{why} ({_first(removal.unreadable)})")
+    if removal.not_removed:
+        lines.append(f"not removed: {_count(len(removal.not_removed), 'file')} "
+                     f"({_first(removal.not_removed)})")
+    return lines
+
+
+def _rows(artifacts: list[Artifact], with_run: bool) -> list[str]:
+    table = _table(artifacts, with_run)
+    if any(_untimed(a) for a in artifacts):
+        table.append("* the file's mtime: the artifact records no time")
+    return table
+
+
+def _rm_text(removal: Removal, verb: str) -> list[str]:
+    size = f"{removal.size_bytes:,} bytes"
+    if removal.file is not None:
+        return [f"{verb} {plain(removal.file.as_posix())} ({size})", *_left_lines(removal, False)]
+    run = removal.runs[0]
+    return [f"{verb} run {plain(run[0].run_id or '-')}: {_count(len(run), 'artifact')}, {size}",
+            *_left_lines(removal, True), "", *_rows(run, with_run=False)]
+
+
+def _gc_text(removal: Removal, verb: str, age: str, root: str) -> list[str]:
+    artifacts = [a for run in removal.runs for a in run]
+    lines = [*_rows(artifacts, with_run=True), ""] if artifacts else []
+    if removal.runs:
+        lines.append(f"{verb} {_count(len(removal.runs), 'run')} older than {age} under {root}: "
+                     f"{_count(len(artifacts), 'artifact')}, {removal.size_bytes:,} bytes")
+    else:
+        lines.append(f"no run under {root} to remove: none is older than {age}"
+                     + (" but those a baseline holds" if removal.kept else ""))
+    if removal.kept:
+        lines.append(f"kept {_count(len(removal.kept), 'run')} older than {age} that a baseline holds: "
+                     + ", ".join(f"{plain(r)} ({plain(b)})" for r, b in removal.kept.items()))
+    return lines + _left_lines(removal, False)
+
+
+def _emit_removal(kind: str, removal: Removal, args: argparse.Namespace, extra: dict) -> None:
+    """The ``--json`` document: ``failed`` (exit 5) when a file could not be removed."""
+    from dokimi import cli_output
+    data = {"root": removal.root.as_posix(), "dry_run": args.dry_run, **extra,
+            "runs": _runs_json(removal.runs), "paths": [p.as_posix() for p in removal.paths],
+            "size_bytes": removal.size_bytes,
+            "not_removed": [{"path": u.path.as_posix(), "reason": u.reason} for u in removal.not_removed],
+            "unreadable": [u.to_json() for u in removal.unreadable]}
+    status = _unreadable_status(removal.unreadable)
+    if removal.not_removed:
+        message = f"{_count(len(removal.not_removed), 'file')} could not be removed"
+        status = {"status": "failed", "reason": message,
+                  "error": cli_output.error_object("infra", message)}
+    cli_output.emit_leaf(kind, data, summary={"paths": len(removal.paths), "dry_run": args.dry_run},
+                         **status)
+
+
+def _finish(kind: str, removal: Removal, args: argparse.Namespace, extra: dict, text) -> None:
+    """Remove (unless ``--dry-run``), print, and exit 5 when a file could not be removed (#94 §2.6)."""
+    if not args.dry_run:
+        apply(removal)
+    if args.json:
+        _emit_removal(kind, removal, args, extra)
+    else:
+        print("\n".join(text("would remove" if args.dry_run else "removed")))
+    if removal.not_removed:
+        sys.exit(EXIT_INFRA)
+
+
+def cmd_runs_rm(args: argparse.Namespace) -> None:
+    """The artifacts of one run, or one file under the runs root; never a path outside it."""
+    root = _existing_root()
+    removal = plan_rm(root.path, args.path)
+    run_id = removal.runs[0][0].run_id if removal.runs else None
+    _finish("runs rm", removal, args, {"run_id": run_id},
+            lambda verb: _rm_text(removal, verb))
+
+
+def _baselines_held() -> dict[str, str]:
+    from dokimi.commands.baseline import _baseline_manifest
+    return baseline_runs(_baseline_manifest()["baselines"])
+
+
+def _age(text: str) -> timedelta:
+    try:
+        return parse_age(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def cmd_runs_gc(args: argparse.Namespace) -> None:
+    """The runs whose newest artifact is older than ``--older-than``, bar (with ``--keep-baselines``)
+    the runs a saved baseline holds."""
+    root = runs_root()
+    held = _baselines_held() if args.keep_baselines else {}
+    cutoff = time.time() - args.older_than.total_seconds()
+    removal = plan_gc(root.path, cutoff, held) if root.exists() else Removal(root=root.path)
+    age = f"{args.older_than.days}d"
+    shown_root = plain(root.path.as_posix().rstrip("/") + "/")
+    _finish("runs gc", removal, args, {"older_than": age, "keep_baselines": args.keep_baselines,
+                                      "kept": [{"run_id": r, "baseline": b} for r, b in removal.kept.items()]},
+            lambda verb: _gc_text(removal, verb, age, shown_root))
 
 
 def register(sub: argparse._SubParsersAction, positive_int) -> None:
@@ -259,3 +384,35 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                         help="Print cli_output.v1 on stdout (the artifact's fields, schema errors and "
                              "neighbours under data; for a run_id, the run's artifacts)")
     show_p.set_defaults(func=cmd_runs_show, emits_cli_output=True, cli_kind="runs show")
+
+    rm_p = runs_sub.add_parser(
+        "rm",
+        help="Remove one run, the artifacts that carry its run_id, or one file under the runs root; "
+             "never anything outside it. Files that are not artifacts and directories stay.",
+    )
+    rm_p.add_argument("path", metavar="RUN_ID|PATH",
+                      help="A run_id from runs list, or a file: its path as runs list prints it "
+                           "(relative to the root), or an absolute path inside the root. A symlink "
+                           "is removed itself, never its target")
+    cli_flags.add(rm_p, "dry_run", "--dry-run", action="store_true",
+                  help="List what would be removed; remove nothing")
+    cli_flags.add(rm_p, "output", "--json", action="store_true",
+                  help="Print cli_output.v1 on stdout (the run and the paths removed under data)")
+    rm_p.set_defaults(func=cmd_runs_rm, emits_cli_output=True, cli_kind="runs rm")
+
+    gc_p = runs_sub.add_parser(
+        "gc",
+        help="Remove every run under the runs root whose newest artifact is older than --older-than; "
+             "artifacts with no run_id stay.",
+    )
+    cli_flags.add(gc_p, "retention", "--older-than", metavar="AGE", type=_age, required=True,
+                  help="An age in days, such as 30d: a run whose newest artifact records a time "
+                       "(or, recording none, has an mtime) before then is removed")
+    cli_flags.add(gc_p, "retention", "--keep-baselines", action="store_true",
+                  help="Keep the runs whose run_id a baseline saved by baseline save carries "
+                       "(baselines/eval/manifest.json)")
+    cli_flags.add(gc_p, "dry_run", "--dry-run", action="store_true",
+                  help="List what would be removed; remove nothing")
+    cli_flags.add(gc_p, "output", "--json", action="store_true",
+                  help="Print cli_output.v1 on stdout (the runs removed and kept under data)")
+    gc_p.set_defaults(func=cmd_runs_gc, emits_cli_output=True, cli_kind="runs gc")

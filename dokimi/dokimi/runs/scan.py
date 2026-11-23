@@ -283,13 +283,15 @@ def _is_link(path: Path) -> bool:
         return False
 
 
-def newest_first(artifacts: list[Artifact]) -> list[Artifact]:
-    """By the time the artifact records (its file's mtime when it records none), then path."""
-    def when(artifact: Artifact) -> float:
-        stamp = artifact.recorded_at
-        return stamp.timestamp() if stamp else artifact.mtime
+def timestamp(artifact: Artifact) -> float:
+    """The time the artifact records, in POSIX seconds; its file's mtime when it records none."""
+    stamp = artifact.recorded_at
+    return stamp.timestamp() if stamp else artifact.mtime
 
-    return sorted(artifacts, key=lambda a: (-when(a), a.path.as_posix()))
+
+def newest_first(artifacts: list[Artifact]) -> list[Artifact]:
+    """By :func:`timestamp`, then path."""
+    return sorted(artifacts, key=lambda a: (-timestamp(a), a.path.as_posix()))
 
 
 def scan(root: Path) -> ScanResult:

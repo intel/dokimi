@@ -226,6 +226,14 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--run-id", "--run-ids", "--batch"),
     ),
     Concept(
+        name="retention",
+        help="which runs housekeeping removes and which it keeps",
+        canonical=(
+            Flag("--older-than", "AGE", "text", meaning="runs whose newest artifact is older than AGE (30d)"),
+            Flag("--keep-baselines", kind="flag", meaning="keep the runs a saved baseline holds"),
+        ),
+    ),
+    Concept(
         name="network",
         help="network policy, per phase",
         canonical=(Flag("--network", "[PHASE=]MODE[:hosts]", "text"),),
