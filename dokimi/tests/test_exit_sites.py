@@ -6,8 +6,32 @@
 Kept apart from test_import_architecture.py, which the growth ratchet caps at 1000 lines.
 """
 
+from tests import test_import_architecture
 from tests.exit_site_scan import exit_sites
 from tests.test_import_architecture import _package, exit_problems
+
+
+def test_only_a_module_naming_an_exit_is_scanned_for_exit_sites(tmp_path, monkeypatch):
+    imports = _package(tmp_path, {
+        "dokimi/plain.py": "def f(x):\n    return x + 1\n",
+        "dokimi/direct.py": "import sys\nsys.exit(1)\n",
+        "dokimi/aliased.py": "from sys import exit as bye\nbye(1)\n",
+        "dokimi/raised.py": "raise SystemExit(2)\n",
+        "dokimi/quitter.py": "quit(1)\n",
+        "dokimi/helper.py": "from . import exit_codes as ec\nec.usage_exit('x')\n",
+        "dokimi/commands/run.py": "import sys\nsys.exit(0)\n",
+    })
+    scanned: list[str] = []
+
+    def counting(tree):
+        scanned.append(next(m for m, t in imports.trees.items() if t is tree))
+        return exit_sites(tree)
+
+    monkeypatch.setattr(test_import_architecture, "exit_sites", counting)
+    problems = exit_problems(imports, {})
+    found = ["dokimi.aliased", "dokimi.direct", "dokimi.helper", "dokimi.quitter", "dokimi.raised"]
+    assert sorted(scanned) == found
+    assert [p.split()[0] for p in problems] == found
 
 
 def test_a_process_exit_outside_the_frontend_fails(tmp_path):

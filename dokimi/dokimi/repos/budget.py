@@ -41,11 +41,12 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from functools import partial
-from itertools import combinations
 from typing import Any
 
 from dokimi.repos.rule_frontmatter import _FRONTMATTER, _has_paths, _without_frontmatter
+from dokimi.repos.skill_overlap import candidate_pairs
 from dokimi.repos.source import RepoTree
 from dokimi.skills.listing import listing_description, listing_text_chars
 from dokimi.repos.unlisted_rules import RULES_ENTRY as _RULES_ENTRY, unlisted_rules
@@ -673,11 +674,16 @@ def _near_duplicates(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
     Reports exact duplicates (words[i] == words[j]) always, and partial overlaps (Jaccard >= 0.5)
     only when both descriptions have 3+ meaningful tokens after stop-word removal.
     """
-    taken = [s["name"] for s in skills]
-    label = [s["path"] if taken.count(s["name"]) > 1 else s["name"] for s in skills]
+    taken = Counter(s["name"] for s in skills)
+    label = [s["path"] if taken[s["name"]] > 1 else s["name"] for s in skills]
     words = [set(_WORD.findall(s["description"].lower())) - _STOP for s in skills]
+    order = sorted(range(len(skills)), key=lambda k: (label[k], k))
+    rank = {k: r for r, k in enumerate(order)}
+    # The one list of pairs, as label ranks: candidate_pairs streams, so nothing else holds them all.
+    ranked = sorted((min(rank[i], rank[j]), max(rank[i], rank[j])) for i, j in candidate_pairs(words, DUPLICATE_JACCARD))
     out = []
-    for i, j in combinations(sorted(range(len(skills)), key=lambda k: (label[k], k)), 2):
+    for ri, rj in ranked:
+        i, j = order[ri], order[rj]
         union = words[i] | words[j]
         if not union:
             continue
