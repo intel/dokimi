@@ -7,8 +7,8 @@ A ``docker-null`` cell builds the task image, runs no solve and runs the verifie
 Its status says what the verifier found:
 
 - ``null_fail``: a failed pytest test with no fixture errors, unless a final ``no tests ran``,
-  skip-only or deselect-only summary follows it (``no_verdict``), or a verifier with no pytest summary explicitly graded
-  the start below 1. The check passes.
+  skip-only or deselect-only summary follows it (``no_verdict``). A verifier with no pytest summary
+  also passes the check when it explicitly grades the start below 1.
 - ``null_pass``: the verifier passed on the untouched start, so the tests do not check the task.
 - ``fixture_error``: pytest reported setup or collection errors. A test can error in setup
   because the expected solution is missing.
@@ -69,12 +69,12 @@ def null_status(reward: Optional[float], counts: Optional[Mapping[str, int]], *,
     """The status of one null cell, from the verifier's reward and its pytest counts."""
     if reward is None:
         return NO_VERDICT
+    if counts and counts.get("error"):
+        return FIXTURE_ERROR
     if reward >= 1.0:
         return NULL_PASS
     if counts is None:
         return NULL_FAIL if explicit_reward else NO_VERDICT
-    if counts.get("error"):
-        return FIXTURE_ERROR
     if counts.get("failed"):
         return NULL_FAIL
     return NO_VERDICT
