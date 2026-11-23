@@ -301,11 +301,11 @@ def _started_host(meta_path: Path) -> Any:
 
 
 def _unplace_rowless(missing_by: dict[tuple[str, str, str, str | None], int],
-                     groups: dict[Any, list[dict[str, Any]]]) -> None:
-    """A started missing cell whose host has no finished cell has no row: it counts on no row."""
+                     groups: dict[Any, list[dict[str, Any]]], unplaced: dict[tuple[str, str, str], int]) -> None:
+    """A missing cell whose host has no finished row follows the same placement rule as an unstarted cell."""
     row_keys = {(g[0], _cell_arm(g[1]), _cell_model(g[2]), g[3]) for g in groups}
     for k in [k for k in missing_by if k not in row_keys]:
-        missing_by.pop(k)
+        unplaced[(k[0], k[1], k[2])] += missing_by.pop(k)
 
 
 def _row_missing(missing_by: dict[tuple[str, str, str, str | None], int], unplaced: dict[tuple[str, str, str], int],
@@ -341,7 +341,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
     hosts_of: dict[tuple[str, str, str], int] = defaultdict(int)
     for g in groups:
         hosts_of[(g[0], _cell_arm(g[1]), _cell_model(g[2]))] += 1
-    _unplace_rowless(missing_by, groups)
+    _unplace_rowless(missing_by, groups, unplaced)
     rows = []
     for key in sorted(groups, key=lambda k: (k[0], k[1], k[2], k[3] or "")):
         recs = groups[key]
