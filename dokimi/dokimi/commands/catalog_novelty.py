@@ -545,14 +545,17 @@ def _plan(items: list[_Item], all_items: list[_Item], jsonl: Path, args: argpars
     if args.resume and not args.rerun_changed:
         _refuse_changed_settings(prior, selected, fingerprint)
     kept = resumable(prior, selected, fingerprint, __version__)
-    instances = bundle_instances({item.key: item.sha256 for item in all_items}, prior)
-    for row in kept:
+    current = {item.key: item.sha256 for item in all_items}
+    instances = bundle_instances(current, prior)
+    others = [row for row in prior if row["key"] not in selected]
+    for row in others + kept:
+        if row["key"] not in instances or row.get("skill_sha256") != current[row["key"]]:
+            continue
         if slot := instances.get(row["key"]):
             row["bundle_instance"] = slot
         else:
             row.pop("bundle_instance", None)
     done = {row["key"] for row in kept}
-    others = [row for row in prior if row["key"] not in selected]
     todo = [replace(item, bundle_instance=instances.get(item.key, 0)) for item in items if item.key not in done]
     return kept, todo, others
 

@@ -805,6 +805,24 @@ def test_identical_bundles_discovered_together_stay_distinct_after_a_rename(tmp_
     assert json.loads(report.read_text())["overall"]["n"] == 2
 
 
+def test_limited_resume_refreshes_identical_instances_outside_selection(tmp_path):
+    out, root = tmp_path / "out", _root(tmp_path, ("a", "b"))
+    unnamed = SKILL.replace("name: accel-tuning\n", "")
+    for skill in root.glob("*/SKILL.md"):
+        skill.write_text(unnamed, encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5")
+    (root / "a").rename(root / "c")
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    (root / "b").rename(root / "a")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--limit", "1")
+    (root / "b").mkdir()
+    (root / "b" / "SKILL.md").write_text(unnamed + "\nChanged content.\n", encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--limit", "2")
+    report = tmp_path / "summary.json"
+    _sweep(root, out, "--summary-only", "--summary-out", str(report))
+    assert json.loads(report.read_text())["overall"]["n"] == 3
+
+
 def test_a_version_change_requires_opt_in_before_replacing_paid_rows(tmp_path, monkeypatch):
     from dokimi.commands import catalog_novelty
 
