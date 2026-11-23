@@ -420,6 +420,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.bases import ConfigRefused, check_mcp_configs
     from dokimi.repos.container import DockerError
     from dokimi.repos.harness_profile import load_profile
+    from dokimi.repos.choices import load_candidate_file
     from dokimi.repos.probes import load_probe_file
     from dokimi.repos.runner import AgentOptions, batch_lock, harness_version, run_batch, validate_tasks
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
@@ -434,6 +435,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
         probes = load_probe_file(args.probes) if args.probes else None  # a bad file fails before the containers start
+        candidates = load_candidate_file(args.candidates) if args.candidates else None
         profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         harness_bin = _harness_bin(args.bin or profile.bin)
         arms = pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
@@ -448,7 +450,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
-                                max_turns=args.max_turns, budget_usd=args.budget, probes=probes) for m in args.model]
+                                max_turns=args.max_turns, budget_usd=args.budget, probes=probes, candidates=candidates) for m in args.model]
         _refuse_before_any_cell(ctx, tasks, options[0])
         version = harness_version(ctx, options[0], batch_dir / "_eval")
         for opt in options:
@@ -702,6 +704,9 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     run_p.add_argument("--probes", default=None, metavar="FILE",
                        help="YAML or JSON: target -> probe patterns, over the manifest's `probes` (default: the "
                        "framework's list; contract §4.1)")
+    run_p.add_argument("--candidates", default=None, metavar="FILE",
+                       help="YAML or JSON: candidate id -> install/import/use/remove names; adds choice events "
+                       "(contract §4.1)")
     cli_flags.add(run_p, "spend", "--max-usd-per-cell", type=_usd, default=2.0, dest="budget", metavar="X",
                   help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
     cli_flags.add(run_p, "spend", "--max-usd", type=_usd, default=None, dest="max_batch_usd", metavar="X",

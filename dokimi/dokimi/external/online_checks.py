@@ -30,6 +30,7 @@ from urllib.request import getproxies, proxy_bypass
 
 import httpx
 
+from dokimi.code_spans import iter_code_spans
 from dokimi.external.skill_markdown import outside_fences
 from dokimi.external.validate import Finding, SkillReview
 from dokimi.process_io import joined_pairs
@@ -116,7 +117,7 @@ _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
 # A code span as CommonMark closes it: a run of backticks ends at the next run of the same length. It may run over
 # a line break, but not into the next block: a blank line, a list item, a heading, a table row, a quote or a rule.
 _BLOCK_START = r"\n[ \t]*(?:\n|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|[|><]|(?:[-*_][ \t]*){3,}(?=\n|$))"
-_URL_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!" + _BLOCK_START + r").)*?)(?<!`)\1(?!`)", re.DOTALL)
+_BLOCK_START_RE = re.compile(_BLOCK_START)
 _COMMAND_START = _PIP | {"npm", "npx", "uv", "sudo", "$"}
 _OPERATOR_RE = re.compile(r"[;|&()]+")  # a shell operator ends the words of a command; ``<`` and ``>`` do not (see below)
 _DESCRIPTOR_RE = re.compile(r"\d*[<>]&(?:\d+|-)")  # a descriptor duplication (2>&1, >&2, 2>&-): not a file, not a split
@@ -492,7 +493,7 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
     body = "\n".join(outside_fences(body))  # a fenced block is code: its URLs are an example, not a link to follow
     literal = {m.end() for m in _LITERAL_START_RE.finditer(body)}
     body = body.replace("](", "  ")  # a markdown link's text and its target are both URLs; the length is kept
-    code = [m.span() for m in _URL_CODE_SPAN_RE.finditer(body)]  # a URL in a code span is an example, as in a fence
+    code = [m.span() for m in iter_code_spans(body, stop=_BLOCK_START_RE)]  # a URL in a code span is an example, as in a fence
     for m in _URL_RE.finditer(body):
         if any(start <= m.start() < end for start, end in code):
             continue

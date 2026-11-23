@@ -33,6 +33,7 @@
 --cache-root
 --calls
 --candidate
+--candidates  # repo run's candidate file (repos/choices.py): no registry concept yet; a F1b migration names it
 --catalog
 --checklist
 --claude  # catalog trigger-probe (#217) adds it: backend choice has no registry concept yet
@@ -252,6 +253,8 @@
 --canary  # repo security: a planted fake secret to look for, repeatable (#360)
 --canaries-file  # repo security: the same canaries one per line (#360)
 --atom-verdicts  # skill novelty view (#1005): the per-atom verdicts file `analyze` writes; no registry concept yet
+--atom-labels  # skill novelty view (#1133): the labels file joined to --atom-verdicts; no registry concept yet
 --tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
 --tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet
 --label-host  # host label mode (contract §4.3) has no registry concept yet; F1b moves it with --allow-unsupported
+--fail-on-code  # catalog check (#942): selects finding codes, not the {warn,fail} severity of the fail_on concept

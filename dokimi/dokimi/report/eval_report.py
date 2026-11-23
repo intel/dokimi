@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from dokimi.artifacts import save_artifact
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.process_io import text_file_bytes
 # This module defines a local ``stats()`` helper, hence the ``eval_stats`` alias.
 from dokimi.eval import stats as eval_stats
 from dokimi.records import BASELINE, CONTEXT, Record, RecordError, record, records
@@ -543,8 +545,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     dir_path = os.path.dirname(out_path)
     if dir_path:
         os.makedirs(dir_path, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(report)
+    write_bytes_in_place_or_atomic(out_path, text_file_bytes(report))
 
     # Sidecar JSON: questions + answers + scores
     if qa_json_out is None:

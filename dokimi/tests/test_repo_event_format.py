@@ -139,7 +139,7 @@ def test_the_schema_names_exactly_the_known_kinds():
 
 def test_the_doc_names_every_known_kind_and_the_version_field():
     text = DOCS.read_text(encoding="utf-8")
-    for kind in sorted(KNOWN_KINDS | {"probe"}):  # the runner adds probe events after conversion
+    for kind in sorted(KNOWN_KINDS | {"probe", "choice"}):  # the runner adds probe events after conversion
         assert f"| `{kind}` |" in text, kind
     assert "`v`" in text and "repo_event.v2.json" in text
 
