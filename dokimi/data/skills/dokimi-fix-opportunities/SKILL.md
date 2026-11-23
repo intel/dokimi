@@ -6,7 +6,7 @@ description: Pull the top dokimi findings (report opportunities) into the curren
 
 `report opportunities` ranks stored dokimi findings (novelty artifacts,
 `repo_static.v1` outputs, llms.txt files) into one queue. Each item has a
-`source_key` that stays the same across runs *of the same input paths*, a
+`source_key` that stays the same across runs of the same finding, a
 `quadrant`, and an
 `execution_prompt` written for you.
 
@@ -21,14 +21,15 @@ description: Pull the top dokimi findings (report opportunities) into the curren
 2. **Pick.** Take the first three items (lowest `rank`) whose `quadrant` is
    `act_now`. If none is `act_now`, stop and report that; do not widen the pick.
 3. **Apply.** For each item, follow its `execution_prompt` as the task: the
-   smallest change to the file `target` names (for a novelty item, the skill
-   the artifact was built from), in that file's own conventions. Touch nothing
+   smallest change to the affected file. A repository claim target includes the
+   report path and the repo-relative file after it. Open that file in the source
+   checkout. Verify unresolved claims before editing. A novelty target points
+   to the skill analyzed. Touch nothing
    the prompt does not name. If a fix needs a decision only the user can make,
    skip the item and say why.
-4. **Re-check.** Re-run the command that wrote each input file (same flags,
-   writing to the same path), then rebuild the queue with the input paths
-   spelled exactly as in step 1; the key hashes the path, so `./static.json`
-   or a renamed file changes every key:
+4. **Re-check.** For repository findings, rerun the repository’s `static` entry point. For
+   novelty findings, rerun `skill novelty analyze` with the original settings. For
+   llms.txt findings, use the edited index directly when rebuilding the queue:
 
    ```bash
    python cli.py report opportunities static.json --format json --out after.json
