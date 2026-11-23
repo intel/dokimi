@@ -25,7 +25,7 @@ from dokimi.eval.degrade import _replace_code_blocks
 from dokimi.external.online_checks import _BLOCK_START, _BLOCK_START_RE, _distinct_urls
 from dokimi.external.skill_markdown import code_spans, link_pieces
 from dokimi.memory.store import _blank_inline, _code_span, _escaped
-from tests.growth_timing import GROWTH_LIMIT, growth
+from tests.growth_timing import FACTOR, GROWTH_LIMIT, growth
 
 
 @dataclass(frozen=True)
@@ -267,9 +267,38 @@ def _production(name: str) -> Callable[[str], Any]:
     }[name]
 
 
-@pytest.mark.parametrize("shape", [_runs, _runs_then_pairs, _runs_on_two_lines, _runs_between_pairs])
-@pytest.mark.parametrize("name", NAMES)
+SHAPES = [_runs, _runs_then_pairs, _runs_on_two_lines, _runs_between_pairs]
+# online_checks does a few whole-text passes (splitlines, join, replace) besides the span scan; the text of these
+# shapes grows with k squared, so its time ratio sits near the limit and flakes: it is checked by reads below.
+TIMED = [name for name in NAMES if name != "online_checks"]
+
+
+# Test-narrowed: the online_checks cases of the timing test are counted in test_online_checks_reads_runs_in_linear_work
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("name", TIMED)
 def test_runs_with_no_closer_are_read_in_linear_time(name: str, shape: Callable[[int], str]) -> None:
     _same(name, shape(9))
     ratio, _ = growth(lambda k: partial(_production(name), shape(k)), 25)
     assert ratio < GROWTH_LIMIT
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_online_checks_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch, shape: Callable[[int], str]) -> None:
+    """The URL scan reads each run a bounded number of times: 16x the runs is at most 32x the reads, 256x if a
+    span rescanned them. Counted, not timed: the passes over the characters are not what this guards."""
+    _same("online_checks", shape(9))
+    reads = 0
+    read = _Runs.read
+
+    def counting(self: _Runs) -> bool:
+        nonlocal reads
+        reads += 1
+        return read(self)
+
+    monkeypatch.setattr(_Runs, "read", counting)
+    counts = []
+    for k in (25, 25 * FACTOR):
+        reads = 0
+        _distinct_urls(shape(k))
+        counts.append(reads)
+    assert 0 < counts[0] and counts[1] <= 2 * FACTOR * counts[0], counts
