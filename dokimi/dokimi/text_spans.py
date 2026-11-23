@@ -60,31 +60,27 @@ class HeredocPattern:
     ``full`` is the one regex of the whole heredoc and ``lines`` finds a line of one word (group 1).
     ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line: the newline
     that ends the line is found once for the openers on it. The delimiter word is atomic in both
-    regexes, so a line naming a prefix of it never closes the heredoc (#930). ``gap`` is the number
-    of characters the closing line must start past the end of the opener's line (1 when ``full``
-    wants a body line first).
+    regexes, so a line naming a prefix of it never closes the heredoc (#930). ``unclosed`` is the opener,
+    the rest of its line and everything after it (same groups as ``full``): a heredoc no line closes
+    runs to the end of the input, as in a shell. ``gap`` is the number of characters the closing line
+    must start past the end of the opener's line (1 when ``full`` wants a body line first).
     """
 
     full: re.Pattern[str]
     opener: re.Pattern[str]
     lines: re.Pattern[str]
+    unclosed: re.Pattern[str]
     word: int
     gap: int = 0
 
     def matches(self, text: str) -> Iterator[re.Match[str]]:
-        """The matches of ``full``, but an opener that no line closes is skipped, not rescanned.
+        """The matches of ``full``, then ``unclosed`` for the first opener that no line closes, which ends the scan.
 
         Only a line that is the opener's whole delimiter, starting ``gap`` past the end of the opener's line, closes it.
+        A closing line right after the opener, where ``full`` wants a body line, leaves the opener uncut as it always was.
         The start of the last line of each delimiter is found once; a line that is no opener's delimiter is not kept.
         """
-        openers, start, eol = [], 0, -1
-        while (o := self.opener.search(text, start)) is not None:
-            if o.end() > eol:  # delimiters end in increasing order, so one newline serves every opener before it
-                eol = text.find("\n", o.end())
-                if eol < 0:  # no opener from here on has a line end
-                    break
-            openers.append((o, eol + 1))
-            start = o.start() + 1
+        openers = self._openers(text)
         if not openers:
             return
         last = dict.fromkeys((o.group(self.word) for o, _ in openers), -1)
@@ -95,13 +91,31 @@ class HeredocPattern:
         for o, line_end in openers:
             if o.start() < pos:
                 continue
-            if last[o.group(self.word)] >= line_end + self.gap:
+            closing = last[o.group(self.word)]
+            if closing >= line_end + self.gap:
                 m = self.full.match(text, o.start())
                 assert m is not None  # a closing line past the opener is what ``full`` ends on
                 yield m
                 pos = m.end()
+            elif closing < line_end:
+                m = self.unclosed.match(text, o.start())
+                assert m is not None  # the opener's line has a newline, so ``unclosed`` reaches the end
+                yield m
+                return
             else:
                 pos = o.start() + 1
+
+    def _openers(self, text: str) -> list[tuple[re.Match[str], int]]:
+        """Each opener with the start of the line after its own; an opener whose line has no end is left out."""
+        openers, start, eol = [], 0, -1
+        while (o := self.opener.search(text, start)) is not None:
+            if o.end() > eol:  # delimiters end in increasing order, so one newline serves every opener before it
+                eol = text.find("\n", o.end())
+                if eol < 0:  # no opener from here on has a line end
+                    break
+            openers.append((o, eol + 1))
+            start = o.start() + 1
+        return openers
 
     def sub(self, repl: Callable[[re.Match[str]], str], text: str) -> str:
         """``full.sub(repl, text)``."""

@@ -48,7 +48,7 @@ _PATCH_FILE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.M)
 _CONTINUATION = re.compile(r"\\\n")
 _HEREDOC_DELIMITER = r"<<-?[ \t]*(['\"]?)(\w++)\1"
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
-                          re.compile(r"^[ \t]*(\w+)[ \t]*$", re.M), word=2)
+                          re.compile(r"^[ \t]*(\w+)[ \t]*$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=2)
 _GLOB = re.compile(r"[*?\[]|\{[^\s{}]*(?:,|\.\.)[^\s{}]*\}")  # a pathname or brace expansion, unquoted
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word

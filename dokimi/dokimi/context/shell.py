@@ -35,7 +35,7 @@ _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
 _CASE_HEADER = re.compile(rf"^(?:(?:\(|{_KEYWORDS}(?=\s))\s*)*case\b.*?\bin\b\s*")  # `\(` not `\(+`: a run of `(` splits one way (#932)
 _HEREDOC_DELIMITER = r"<<-?\s*['\"]?(\w++)['\"]?"
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S), re.compile(_HEREDOC_DELIMITER),
-                          re.compile(r"^[^\S\n]*(\w+)[^\S\n]*$", re.M), word=1, gap=1)
+                          re.compile(r"^[^\S\n]*(\w+)[^\S\n]*$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=1, gap=1)
 
 
 class _Scan:

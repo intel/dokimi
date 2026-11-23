@@ -213,8 +213,8 @@ def test_final_answer_scans_unclosed_openers_in_linear_time() -> None:
 
 # cli_traces._HEREDOC and shell.split_commands -------------------------------------------------------------------------
 
-_OLD_CLI_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w++)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
-_OLD_SHELL_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w++)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S)
+_REF_CLI_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w++)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+_REF_SHELL_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w++)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S)
 
 HEREDOC_TABLE = [
     "",
@@ -227,26 +227,31 @@ HEREDOC_TABLE = [
     "<<A\nx\nA\n<<B\ny\nB\nz",
     "<<A\nA\n",
     "<<A\n\nA\n",
-    "<<A\nbody\nB\n",
-    "<<A\nbody",
     "<<A",
-    "A\n<<A\nbody",
-    "B\n<<A\nbody\nB\n",
-    "<<AB\nx\nA\n",
     "<<AB\nx\nAB\nA\n",
     "<<A rest\nx\n  A  \n tail",
     "<<A\nx\nAB\nA\nz",
     "<<'A\nx\nA\n",
-    "<<A\r\nx\r\nA\r\n",
     "<<A\nx\nA \n\n\nB",
     "<<A\nx\n\n  A\n\n",
     "<<\nA\nx\nA\n",
     "echo <<A\n<<B\nx\nB\nA\n",
-    "<<'AB'\nx\nA\n",
     '<<"AB"\nx\nA\nAB\nz',
-    "<<'AB\nx\nA\n",
-    "<<AB'\nx\nA\n",
     "<<A1\nA1\n<<A2\nA2\nx\nA2\n",
+]
+
+# an opener no line closes: its body runs to the end of the input, as in a shell (#930); (text, cli_traces result, shell result)
+UNCLOSED_TABLE = [
+    ("<<A\nbody\nB\n", "", "<<A"),
+    ("<<A\nbody", "", "<<A"),
+    ("A\n<<A\nbody", "A\n", "A\n<<A"),
+    ("B\n<<A\nbody\nB\n", "B\n", "B\n<<A"),
+    ("<<AB\nx\nA\n", "", "<<AB"),
+    ("<<'AB'\nx\nA\n", "", "<<AB"),
+    ("<<AB'\nx\nA\n", "'", "<<AB"),
+    ("<<'AB\nx\nA\n", "<<'AB\nx\nA\n", "<<AB"),
+    ("cat <<AB\nsed -i s/x/y/ f\nA", "cat ", "cat <<AB"),
+    ("cat <<AB\necho hi\nA\nrm x\n", "cat ", "cat <<AB"),
 ]
 
 
@@ -254,8 +259,8 @@ def _cli_heredocs(text: str) -> str:
     return cli_traces._HEREDOC.sub(lambda m: m.group(3), text)
 
 
-def _old_cli_heredocs(text: str) -> str:
-    return _OLD_CLI_HEREDOC.sub(lambda m: m.group(3), text)
+def _ref_cli_heredocs(text: str) -> str:
+    return _REF_CLI_HEREDOC.sub(lambda m: m.group(3), text)
 
 
 def _shell_heredocs(text: str) -> str:
@@ -263,21 +268,37 @@ def _shell_heredocs(text: str) -> str:
 
 
 @pytest.mark.parametrize("text", HEREDOC_TABLE)
-def test_cli_trace_heredocs_are_cut_as_before(text: str) -> None:
-    assert _cli_heredocs(text) == _old_cli_heredocs(text)
+def test_cli_trace_heredocs_match_the_reference_regex(text: str) -> None:
+    assert _cli_heredocs(text) == _ref_cli_heredocs(text)
 
 
 @pytest.mark.parametrize("text", HEREDOC_TABLE)
-def test_shell_heredocs_are_cut_as_before(text: str) -> None:
-    assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text)
+def test_shell_heredocs_match_the_reference_regex(text: str) -> None:
+    assert _shell_heredocs(text) == _REF_SHELL_HEREDOC.sub(r"<<\1\2", text)
 
 
-def test_heredocs_match_the_old_regexes_on_random_scripts() -> None:
+@pytest.mark.parametrize(("text", "cli", "shell_cut"), UNCLOSED_TABLE)
+def test_an_unclosed_heredoc_runs_to_the_end_of_the_input(text: str, cli: str, shell_cut: str) -> None:
+    assert _cli_heredocs(text) == cli
+    assert _shell_heredocs(text) == shell_cut
+
+
+_OPENER = re.compile(r"<<-?\s*['\"]?\w")
+
+
+def test_heredocs_match_the_reference_regex_on_random_scripts_whose_openers_are_all_closed() -> None:
     pieces = ["<<", "<<-", "A", "B", "AB", "'", '"', "\n", "\n", " ", "\t", "\r", "x", "\n  ", "A\n", "B\n", "<<A\n",
               "<<'B'\n", "echo "]
+    compared = 0
     for text in _random_texts(pieces, 4):
-        assert _cli_heredocs(text) == _old_cli_heredocs(text), repr(text)
-        assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text), repr(text)
+        cli, shell_cut = _ref_cli_heredocs(text), _REF_SHELL_HEREDOC.sub(r"<<\1\2", text)
+        if not _OPENER.search(cli):
+            assert _cli_heredocs(text) == cli, repr(text)
+            compared += 1
+        if not _OPENER.search(shell_cut):
+            assert _shell_heredocs(text) == shell_cut, repr(text)
+            compared += 1
+    assert compared > 100
 
 
 def test_cli_trace_heredoc_scans_openers_without_a_closer_in_linear_time() -> None:
@@ -314,31 +335,39 @@ def _long_delimiters_one_closing_length(k: int) -> str:
 
 
 def test_cli_trace_heredoc_scans_long_delimiters_among_closing_lines_of_many_lengths_in_linear_time() -> None:
-    """The growth is set against linear work on a text of the same size: a big text slows both alike (cache misses), copying prefixes only the first."""
+    """The growth is set against linear work on a text of the same size: a big text slows both alike (cache misses), work per opener and delimiter length only the first."""
     def relative() -> float:
         ratio, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_unrelated_closing_lines(k)), 25_000)
         linear, _ = growth(lambda k: partial(_cli_heredocs, _long_delimiters_one_closing_length(k)), 25_000)
         return ratio / linear
 
-    assert any(relative() < 1.3 for _ in range(3))  # copying prefixes: 2.3 in every attempt; a busy host spoils some attempts, and an attempt that passes ends the test
+    assert any(relative() < 1.3 for _ in range(3))  # a busy host spoils some attempts, and an attempt that passes ends the test
 
 
-@pytest.mark.parametrize("text", ["<<ABC\nx\nAB\ny", "AB\n<<ABC\nx\n", "cat <<AB\necho hi\nA\nrm x\n", "<<'AB'\nx\nA\ny"])
-def test_cli_trace_heredoc_is_not_closed_by_a_line_of_a_prefix_of_its_delimiter(text: str) -> None:
-    assert cli_traces._HEREDOC.sub(lambda m: m.group(3), text) == text  # unclosed: nothing is cut (#930)
+@pytest.mark.parametrize(("text", "cut"), [("<<ABC\nx\nAB\ny", ""), ("AB\n<<ABC\nx\n", "AB\n"), ("cat <<AB\necho hi\nA\nrm x\n", "cat "), ("<<'AB'\nx\nA\ny", "")])
+def test_cli_trace_heredoc_is_not_closed_by_a_line_naming_part_of_its_delimiter(text: str, cut: str) -> None:
+    assert cli_traces._HEREDOC.sub(lambda m: m.group(3), text) == cut  # the body runs to the end, not to the prefix line (#930)
 
 
 def test_cli_trace_heredoc_closes_by_the_whole_delimiter_after_a_prefix_line() -> None:
     assert cli_traces._HEREDOC.sub(lambda m: m.group(3), "cat <<AB\necho hi\nA\nrm x\nAB\nls\n") == "cat \nls\n"
 
 
-def test_split_commands_keeps_the_lines_after_a_prefix_line_in_an_unclosed_heredoc() -> None:
-    assert shell.split_commands("cat <<AB\necho hi\nA\nrm x\n") == [("cat <<AB", "\n"), ("echo hi", "\n"), ("A", "\n"), ("rm x", "\n")]
+def test_split_commands_cuts_an_unclosed_heredoc_whose_body_has_a_prefix_line() -> None:
+    assert shell.split_commands("cat <<AB\nsed -i s/x/y/ f\nA\n") == [("cat <<AB", "")]
     assert shell.split_commands("cat <<AB\necho hi\nA\nrm x\nAB\nls\n") == [("cat <<AB", "\n"), ("ls", "\n")]
 
 
+def test_split_commands_keeps_the_commands_before_an_unclosed_heredoc() -> None:
+    assert shell.split_commands("ls\ncat <<AB\nrm x\nA") == [("ls", "\n"), ("cat <<AB", "")]
+
+
+def test_a_heredoc_that_a_line_closes_right_after_its_opener_leaves_the_commands_after_it() -> None:
+    assert shell.split_commands("cat <<A\nA\nrm x\n") == [("cat <<A", "\n"), ("A", "\n"), ("rm x", "\n")]
+
+
 @pytest.mark.parametrize("delimiter", ["EOF", "Z" * 80])
-def test_cli_trace_heredoc_keeps_no_line_that_is_no_prefix_of_a_delimiter_in_memory(delimiter: str) -> None:
+def test_cli_trace_heredoc_keeps_no_line_that_is_no_delimiter_in_memory(delimiter: str) -> None:
     """A closed heredoc of 52000 one-word lines of 80 characters (4.2 MB) took 1.1 GB when every line word was kept, also under an 80-character delimiter (#933 review)."""
     rng = random.Random(0)
     body = "\n".join(rng.randbytes(40).hex() for _ in range(52_000))
@@ -349,14 +378,14 @@ def test_cli_trace_heredoc_keeps_no_line_that_is_no_prefix_of_a_delimiter_in_mem
         peak = tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
-    assert cut == _old_cli_heredocs(text) == "cat  > f\n"
-    assert peak < 40 * len(text)  # the trie held about 250 bytes per character
+    assert cut == _ref_cli_heredocs(text) == "cat  > f\n"
+    assert peak < 40 * len(text)  # keeping every line word took 1.1 GB, 260 bytes per character
 
 
-def test_heredocs_close_by_a_delimiter_in_the_rest_of_an_earlier_opener_line() -> None:
+def test_a_delimiter_in_the_rest_of_an_earlier_opener_line_does_not_close_that_opener() -> None:
     text = "<<A <<LONGER\nx\nLONGER\n"
-    assert _cli_heredocs(text) == _old_cli_heredocs(text)
-    assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text)
+    assert _cli_heredocs(text) == " <<LONGER"
+    assert _shell_heredocs(text) == "<<A <<LONGER"
 
 
 def test_cli_trace_heredoc_scans_many_openers_on_one_line_of_a_closed_heredoc_in_linear_time() -> None:
@@ -369,10 +398,10 @@ def test_split_commands_scans_many_openers_on_one_line_of_a_closed_heredoc_in_li
     _linear(shell.split_commands, lambda k: "cat <<EOF\n" + "<<A " * k + "\nEOF\n", n=20_000)
 
 
-def test_heredocs_with_openers_on_one_line_are_cut_as_before() -> None:
-    for text in ("<<A <<B <<A \nbody\nA\n", "cat <<EOF\n<<A <<A \nEOF\nx", "<<A <<B", "<<A <<B\n", "x <<A <<B \nA\nB\n"):
-        assert _cli_heredocs(text) == _old_cli_heredocs(text), repr(text)
-        assert _shell_heredocs(text) == _OLD_SHELL_HEREDOC.sub(r"<<\1\2", text), repr(text)
+def test_heredocs_with_openers_on_one_line_match_the_reference_regex() -> None:
+    for text in ("<<A <<B <<A \nbody\nA\n", "cat <<EOF\n<<A <<A \nEOF\nx", "<<A <<B", "x <<A <<B \nA\nB\n"):
+        assert _cli_heredocs(text) == _ref_cli_heredocs(text), repr(text)
+        assert _shell_heredocs(text) == _REF_SHELL_HEREDOC.sub(r"<<\1\2", text), repr(text)
 
 
 def test_cli_trace_heredoc_scans_quoted_openers_a_shorter_closing_line_does_not_close_in_linear_time() -> None:
