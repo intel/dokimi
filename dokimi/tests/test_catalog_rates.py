@@ -253,10 +253,17 @@ def test_symlink_then_parent_follows_the_target_repository(tmp_path):
     _repo(tmp_path, "b")
     (tmp_path / "b/sub").mkdir()
     (tmp_path / "a/link").symlink_to(tmp_path / "b/sub", target_is_directory=True)
+    for repo in ("a", "b"):
+        skill = tmp_path / repo / "s2"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(repo, encoding="utf-8")
+    # The OS opens a/s2 on Windows and b/s2 on POSIX. Read through the same path as the catalog.
+    owner = (tmp_path / "a/link/../s2/SKILL.md").read_text(encoding="utf-8")
+    expected = {"a": 0.25, "b": 0.5}[owner]
     tally = RateTally(tmp_path)
     for path, state in [("a/s1", "warn"), ("a/link/../s2", "ok"), ("b/s3", "ok")]:
         tally.add(_row(path, state))
-    assert tally.summary()["states"]["warn"]["repo_rate"] == 0.5
+    assert tally.summary()["states"]["warn"]["repo_rate"] == expected
 
 
 def test_alias_of_root_shares_its_fallback_bucket(tmp_path):
