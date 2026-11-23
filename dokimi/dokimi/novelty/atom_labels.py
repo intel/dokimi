@@ -112,13 +112,14 @@ def label_shares(verdict_rows: Iterable[dict], artifact_ref: str,
 def format_shares(shares: dict) -> str:
     """A plain table: one row per label, then the whole run."""
     head = (f"{'label':<20} {'atoms':>6} {'known':>6} {'new':>6} {'other':>6} "
-            f"{'known%':>7} {'new%':>7}")
-    lines = [f"known/new shares for {shares['artifact_ref']} (atoms with a category)", head]
+            f"{'uncat.':>6} {'known%':>7} {'new%':>7}")
+    lines = [f"known/new shares for {shares['artifact_ref']} "
+             "(over atoms with a category; uncat. have none)", head]
 
     def row(name: str, b: dict) -> str:
         pct = lambda v: "-" if v is None else f"{100 * v:.1f}"  # noqa: E731
         return (f"{name:<20} {b['atoms']:>6} {b['known']:>6} {b['new']:>6} {b['other']:>6} "
-                f"{pct(b['known_share']):>7} {pct(b['new_share']):>7}")
+                f"{b['uncategorised']:>6} {pct(b['known_share']):>7} {pct(b['new_share']):>7}")
 
     lines += [row(name, b) for name, b in shares["by_label"].items()]
     lines.append(row("all", shares["all"]))

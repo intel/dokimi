@@ -102,6 +102,9 @@ def test_the_shares_table_has_a_row_per_label_and_the_whole_run():
     assert [line.split()[0] for line in lines[2:]] == ["api", "setup", "unlabelled", "all"]
     setup = next(line for line in lines if line.startswith("setup"))
     assert setup.split()[-2:] == ["100.0", "0.0"]
+    assert lines[1].split()[5] == "uncat."
+    # a5 has no category: it is shown as uncategorised, not dropped from the table
+    assert next(line for line in lines if line.startswith("all")).split()[1:6] == ["5", "2", "2", "1", "1"]
 
 
 def test_labels_that_match_no_atom_are_reported():
