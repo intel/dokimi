@@ -6,7 +6,9 @@
 read_spool reads back a spooled capture; join_capture joins the head and tail of a capture that was cut.
 """
 
+import json
 import os
+import re
 import sys
 from stat import S_ISFIFO
 import threading
@@ -15,6 +17,8 @@ from contextlib import suppress
 from typing import IO, Protocol
 
 _POSIX = sys.platform != "win32"
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+_ASTRAL = re.compile("[\U00010000-\U0010ffff]")
 
 
 def joined_pairs(text: str) -> str:
@@ -26,6 +30,23 @@ def joined_pairs(text: str) -> str:
 def utf8_bytes(text: str) -> bytes:
     """*text* as UTF-8 with its surrogate pairs joined (:func:`joined_pairs`) and a lone surrogate sent as ``?``."""
     return joined_pairs(text).encode("utf-8", "replace")
+
+
+def json_utf8_bytes(text: str) -> bytes:
+    """JSON *text* (from ``json.dumps(..., ensure_ascii=False)``) as UTF-8 with its surrogate pairs joined and each lone
+    surrogate kept as its ``\\udXXX`` escape, which ``json.loads`` reads back: two object keys never collapse into one.
+    Raises ValueError when joining makes two keys of one object equal (a pair key beside its character): a reader keeps one."""
+    joined = joined_pairs(text)
+    if joined != text:
+        json.loads(joined, object_pairs_hook=_distinct_keys)
+    return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", joined).encode("utf-8")
+
+
+def _distinct_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    keys = [key for key, _ in pairs if _ASTRAL.search(key)]
+    if len(set(keys)) < len(keys):
+        raise ValueError("two object keys are the same once their surrogate pairs are joined; a reader would keep one")
+    return dict(pairs)
 
 
 def text_file_bytes(text: str) -> bytes:

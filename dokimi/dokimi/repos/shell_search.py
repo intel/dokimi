@@ -156,8 +156,11 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
 
     None for a run that prints no line of a file: ``-q``, ``-l``, ``-L`` (not rg's), ``-c``, ``--files`` and the long
     forms, ``--help`` and ``--version`` as options (``grep -e --help f`` searches for the text), a match limit of zero
-    (``-m0``, ``-m +0``). A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
+    (``-m0``, ``-m +0``), and ``git grep`` of a revision (``git grep x HEAD~1 -- f``), which shows an older blob, not the
+    workspace file. A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
     operands, _, flags, limit = search_words(program, args)
+    if program == "git grep" and "--" in args and search_words(program, args[:list(args).index("--")])[0]:
+        return []  # ``git grep x HEAD~1 -- AGENTS.md``: a word before ``--`` is a revision, and the lines are its blob's
     short = _SHORT_NO_LINE.get(program, _SHORT_NO_LINE_DEFAULT)
     if any(f in _SHOWS_NO_LINE or (len(f) == 2 and f[1] in short) for f in flags):
         return []

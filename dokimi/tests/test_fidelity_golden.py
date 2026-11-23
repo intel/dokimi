@@ -255,6 +255,41 @@ def test_golden_round_trip_and_diff(tmp_path):
     assert any(line.startswith(("-", "+")) for line in fd.diff_requests({"model": "<MODEL>", "tools": [1]}, doc["request"]))
 
 
+@pytest.mark.parametrize(("value", "written", "raw_part"), [
+    ("n\ud800", "n\ud800", b"n\\ud800"),
+    (chr(0xD83D) + chr(0xDE00), "\U0001F600", "\U0001F600".encode("utf-8")),
+    ("café", "café", "café".encode("utf-8")),
+])
+def test_write_golden_writes_a_surrogate_as_utf8(tmp_path, value, written, raw_part):
+    """Same layout as before (indent 1, sorted keys, one trailing newline); a lone surrogate stays its escape (#992)."""
+    path = tmp_path / "g" / "bare.json"
+
+    fd.write_golden(path, {"b": value, "a": 1}, version="2.1.318", case="bare")
+
+    raw = path.read_bytes()
+    doc = json.loads(raw.decode("utf-8"))
+    assert doc["request"] == {"a": 1, "b": written}
+    assert raw.index(b'"a": 1') < raw.index(b'"b":')  # sort_keys
+    assert raw_part in raw and raw.endswith(b"}\n") and raw.startswith(b'{\n "_meta"')
+
+
+def test_write_golden_keeps_a_lone_surrogate_key_apart_from_a_question_mark_key(tmp_path):
+    path = tmp_path / "bare.json"
+
+    fd.write_golden(path, {"\ud800": 1, "?": 2}, version="2.1.318", case="bare")
+
+    assert json.loads(path.read_bytes().decode("utf-8"))["request"] == {"\ud800": 1, "?": 2}
+
+
+def test_write_golden_refuses_a_pair_key_beside_its_character_key(tmp_path):
+    path = tmp_path / "bare.json"
+
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        fd.write_golden(path, {chr(0xD83D) + chr(0xDE00): 1, "\U0001F600": 2}, version="2.1.318", case="bare")
+
+    assert not path.exists()
+
+
 def _record_with(text: str, headers: dict | None = None) -> dict:
     body = {"model": "claude-haiku-4-5", "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}]}
     return {"path": "/v1/messages", "headers": headers or {}, "body": body}
