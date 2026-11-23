@@ -237,6 +237,23 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("POSIXLY_CORRECT=1 head -n 0 AGENTS.md", []),
     ("env POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),
     ("LC_ALL=C head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 head - -n 0 AGENTS.md", ["AGENTS.md"]),  # ``-`` is the first operand: -n and 0 are files
+    ("env POSIXLY_CORRECT=1 head - -n 0 AGENTS.md", ["AGENTS.md"]),
+    ("head - -n 0 AGENTS.md", []),
+    ("POSIXLY_CORRECT=1 tail -q -n 0 AGENTS.md -f", []),  # -f is a file name, not follow
+    ("env POSIXLY_CORRECT=1 tail -n 0 AGENTS.md -f", []),
+    ("POSIXLY_CORRECT=1 tail -n 0 --pid 5 AGENTS.md -f", []),
+    ("POSIXLY_CORRECT=1 tail -f -n 0 AGENTS.md", ["AGENTS.md"]),
+    ("tail -n 0 AGENTS.md -f", ["AGENTS.md"]),
+    ("tail -n 0 -- AGENTS.md -f", []),  # after ``--`` -f is a file
+    ("POSIXLY_CORRECT=1 env -i /usr/bin/head AGENTS.md -n 0", []),  # env drops the variable
+    ("POSIXLY_CORRECT=1 env --ignore-environment head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env -u POSIXLY_CORRECT head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env -uPOSIXLY_CORRECT head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env --unset POSIXLY_CORRECT head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env --unset=POSIXLY_CORRECT head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env -u OTHER head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("env -i POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),  # set again after the reset
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads

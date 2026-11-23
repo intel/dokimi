@@ -86,7 +86,11 @@ def _cut_count(program: str, words: list[str], files: bool = False, posix: bool 
     count, i = "10", 1
     while i < len(words):
         word = words[i]
-        if word == "-":  # the input named explicitly
+        if word == "-" or not word.startswith("-"):  # an operand: ``-`` is the input named explicitly, any other a file
+            if files and posix:
+                return count
+            if word != "-" and not files:
+                return None
             i += 1
             continue
         if word == "--":  # the end of the options: only ``-`` may follow
@@ -95,37 +99,38 @@ def _cut_count(program: str, words: list[str], files: bool = False, posix: bool 
             parsed = _cut_long(program, words, i)
         elif re.fullmatch(r"-\d+", word):
             parsed = 1, word[1:]
-        elif word.startswith("-") and len(word) > 1 and word[1] != "-":
-            parsed = _cut_short(program, words, i)
-        elif files:  # a file operand
-            if posix:
-                return count
-            i += 1
-            continue
         else:
-            return None
+            parsed = _cut_short(program, words, i)
         if parsed is None:
             return None
         i, count = i + parsed[0], count if parsed[1] is None else parsed[1]
     return count
 
 
-def _follows(words: list[str]) -> bool:
+def _follows(words: list[str], posix: bool = False) -> bool:
     """Whether a ``tail`` word list asks to follow its files (``-f``, ``-qf``, ``--follow``, ``--fo``; not ``-nf``, where
-    ``f`` is the value), before ``--``: it prints what is appended later, whatever its count."""
-    for word in words[1:]:
+    ``f`` is the value), before ``--``: it prints what is appended later, whatever its count. ``posix``: the options end
+    at the first operand (``-`` too), so a later ``-f`` is a file name."""
+    i = 1
+    while i < len(words):
+        word = words[i]
         if word == "--":
             return False
+        if not word.startswith("-") or word == "-":  # an operand
+            if posix:
+                return False
+            i += 1
+            continue
         if word.startswith("--"):
             name = word[2:].partition("=")[0]
             if name and "follow".startswith(name):
                 return True
-        elif word.startswith("-"):
-            for c in word[1:]:
-                if c in "ncs":
-                    break
-                if c == "f":
-                    return True
+            parsed = _cut_long("tail", words, i)
+        else:
+            if "f" in re.match(r"-[^ncs]*", word).group():  # type: ignore[union-attr]
+                return True
+            parsed = _cut_short("tail", words, i)
+        i += parsed[0] if parsed else 1
     return False
 
 
@@ -137,7 +142,7 @@ def prints_nothing(program: str, args: Sequence[str], posix: bool = False) -> bo
         return False
     words = [program, *args]
     match = re.fullmatch(_COUNT, _cut_count(program, words, files=True, posix=posix) or "")
-    if match is None or (program == "tail" and _follows(words)):
+    if match is None or (program == "tail" and _follows(words, posix)):
         return False
     sign, digits = match.groups()
     return not any(int(c) for c in digits) and sign != ("-" if program == "head" else "+")

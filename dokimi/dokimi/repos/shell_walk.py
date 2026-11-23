@@ -309,7 +309,7 @@ class _Walk:
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        posix = any(w.startswith("POSIXLY_CORRECT=") for w in before[:len(before) - len(words)])  # ``POSIXLY_CORRECT=1 head``
+        posix = _posix_set(before[:len(before) - len(words)])  # ``POSIXLY_CORRECT=1 head``
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
@@ -370,6 +370,40 @@ class _Walk:
 
     def resolve(self, f: str) -> str:
         return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
+
+
+def _posix_set(skipped: list[str]) -> bool:
+    """Whether ``POSIXLY_CORRECT`` is set for the command after the wrapper words ``skipped``, in order: ``NAME=value`` sets
+    it, ``env -i`` (``--ignore-environment``) or ``env -u POSIXLY_CORRECT`` (``--unset``) drops what was set before."""
+    posix, i = False, 0
+    while i < len(skipped):
+        word, i = skipped[i], i + 1
+        if word.startswith("POSIXLY_CORRECT="):
+            posix = True
+        else:
+            reset, unset, taken = _env_option(word, skipped[i:i + 1])
+            posix, i = posix and not reset and unset != "POSIXLY_CORRECT", i + taken
+    return posix
+
+
+def _env_option(word: str, following: list[str]) -> tuple[bool, str, int]:
+    """What the ``env`` option ``word`` does to the environment: whether it drops all of it (``-i``,
+    ``--ignore-environment``), the name it unsets (``-u NAME``, ``-uNAME``, ``--unset=NAME``; else ``""``), and how many
+    of the ``following`` word it takes as its value. A word that is no option does none of them."""
+    if not word.startswith("-") or word == "-":
+        return False, "", 0
+    if word.startswith("--"):
+        name, eq, value = word[2:].partition("=")
+        if name and "unset".startswith(name):
+            return False, value or (following[0] if following else ""), 0 if eq else 1
+        return len(name) >= 8 and "ignore-environment".startswith(name), "", 0
+    reset = False
+    for at, c in enumerate(word[1:], 1):  # a cluster: ``-i0``; ``u``, ``C`` and ``S`` take the rest of the word or the next
+        reset |= c == "i"
+        if c in "uCS":
+            given = word[at + 1:] or (following[0] if following else "")
+            return reset, given if c == "u" else "", 0 if word[at + 1:] else 1
+    return reset, "", 0
 
 
 def _in_own_shell(outer: str, after: str) -> bool:
