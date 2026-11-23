@@ -248,8 +248,9 @@ CONCEPTS: tuple[Concept, ...] = (
     ),
     Concept(
         name="timeout",
-        help="time limit in seconds",
-        canonical=(Flag("--timeout", "SEC", "int"),),
+        help="time limits, per phase",
+        # F1b adds the phase prefix (#94 §2.4). Current repo leaves parse whole seconds.
+        canonical=(Flag("--timeout", "[PHASE=]SEC", "int"),),
         banned=("--grade-timeout", "--build-timeout"),
     ),
     Concept(
