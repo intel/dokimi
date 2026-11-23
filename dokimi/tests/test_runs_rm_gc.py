@@ -223,6 +223,29 @@ def test_a_file_that_cannot_be_removed_is_named_and_exits_5(root, monkeypatch, c
 # gc
 
 
+@pytest.mark.parametrize("refused, headline", [
+    ({"answers"}, "removed 1 run older than 30d under results/: 1 of 2 artifacts, {size:,} bytes"),
+    ({"answers", "eval"}, "removed 1 run older than 30d under results/: 0 of 2 artifacts, 0 bytes"),
+])
+def test_gc_counts_the_selected_runs_and_only_the_artifacts_removed(
+        root, monkeypatch, capsys, refused, headline):
+    real = Path.unlink
+
+    def refuse(self, missing_ok=False):
+        if self.parent.name in refused:
+            raise PermissionError(13, "Permission denied", str(self))
+        real(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    size = (root / "r1" / "eval" / "onetbb.json").stat().st_size
+
+    code, out, _ = _run(monkeypatch, capsys, "gc", "--older-than", "30d")
+
+    assert code == 5
+    assert headline.format(size=size) in out.splitlines()
+    assert f"not removed: {len(refused)} file" in out
+
+
 def test_gc_removes_the_runs_older_than_the_age_and_nothing_without_a_run_id(
         root, monkeypatch, capsys):
     code, out, _ = _run(monkeypatch, capsys, "gc", "--older-than", "30d")

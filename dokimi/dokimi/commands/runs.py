@@ -262,25 +262,31 @@ def _rows(artifacts: list[Artifact], with_run: bool) -> list[str]:
     return table
 
 
+def _artifacts(removed: int, removal: Removal) -> str:
+    """``2 artifacts``; ``1 of 2 artifacts`` when some could not be removed."""
+    if not removal.not_removed:
+        return _count(removed, "artifact")
+    return f"{removed} of {_count(removed + len(removal.not_removed), 'artifact')}"
+
+
 def _rm_text(removal: Removal, verb: str, run_id: str | None) -> list[str]:
     size = f"{removal.size_bytes:,} bytes"
     if run_id is None:
         head = f"{verb} {plain(removal.file.as_posix())} ({size})" if removal.file else f"{verb} nothing"
         return [head, *_left_lines(removal, False)]
     run = removal.runs[0] if removal.runs else []
-    count = _count(len(run), "artifact")
-    if removal.not_removed:
-        count = f"{len(run)} of {_count(len(run) + len(removal.not_removed), 'artifact')}"
-    lines = [f"{verb} run {plain(run_id)}: {count}, {size}", *_left_lines(removal, True)]
+    lines = [f"{verb} run {plain(run_id)}: {_artifacts(len(run), removal)}, {size}",
+             *_left_lines(removal, True)]
     return lines + (["", *_rows(run, with_run=False)] if run else [])
 
 
-def _gc_text(removal: Removal, verb: str, age: str, root: str) -> list[str]:
+def _gc_text(removal: Removal, verb: str, age: str, root: str, selected: int) -> list[str]:
+    """``selected`` is the count of runs selected before any was removed."""
     artifacts = [a for run in removal.runs for a in run]
     lines = [*_rows(artifacts, with_run=True), ""] if artifacts else []
-    if removal.runs:
-        lines.append(f"{verb} {_count(len(removal.runs), 'run')} older than {age} under {root}: "
-                     f"{_count(len(artifacts), 'artifact')}, {removal.size_bytes:,} bytes")
+    if selected:
+        lines.append(f"{verb} {_count(selected, 'run')} older than {age} under {root}: "
+                     f"{_artifacts(len(artifacts), removal)}, {removal.size_bytes:,} bytes")
     else:
         lines.append(f"no run under {root} to remove: none is older than {age}"
                      + (" but those a baseline holds" if removal.kept else ""))
@@ -349,9 +355,10 @@ def cmd_runs_gc(args: argparse.Namespace) -> None:
     removal = plan_gc(root.path, cutoff, held) if root.exists() else Removal(root=root.path)
     age = f"{args.older_than.days}d"
     shown_root = plain(root.path.as_posix().rstrip("/") + "/")
+    selected = len(removal.runs)  # apply drops a run none of whose files could be removed
     _finish("runs gc", removal, args, {"older_than": age, "keep_baselines": args.keep_baselines,
                                       "kept": [{"run_id": r, "baseline": b} for r, b in removal.kept.items()]},
-            lambda verb: _gc_text(removal, verb, age, shown_root))
+            lambda verb: _gc_text(removal, verb, age, shown_root, selected))
 
 
 def register(sub: argparse._SubParsersAction, positive_int) -> None:
