@@ -302,12 +302,14 @@ class _Walk:
         conditional = negated = False
         while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
             words, conditional, negated = words[1:], True, negated or words[0] == "!"
+        before = words
         words, via_env, chdir, bypassed = _command_words(words, timed, self.functions)
         if not words:
             return []
         name = _run_name(words[0], via_env)
         if name is None:
             return []
+        posix = any(w.startswith("POSIXLY_CORRECT=") for w in before[:len(before) - len(words)])  # ``POSIXLY_CORRECT=1 head``
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
@@ -318,13 +320,13 @@ class _Walk:
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
                 self.here, self.shell_moved, self.moved = _cd(self.here, words[1:]), True, True
         elif not negated:  # ``! cat f`` inverts the exit, which no longer says f was printed (nor ``! grep``, searched)
-            return self.shown(name, words[1:], chdir)
+            return self.shown(name, words[1:], chdir, posix)
         return []
 
-    def shown(self, name: str, args: list[str], chdir: bool) -> list[str]:
+    def shown(self, name: str, args: list[str], chdir: bool, posix: bool = False) -> list[str]:
         """The files a printing command prints, or a search shows lines of, as a path list (:class:`Searched` for a search)."""
         if name in _PRINTERS:
-            return self.printed(name, args, chdir)
+            return self.printed(name, args, chdir, posix)
         search = search_program(name, args)
         return self.searching(*search, chdir) if search else []
 
@@ -341,11 +343,12 @@ class _Walk:
         search = search_program(name, words[1:]) if name and (bypassed or words[0] not in self.functions) else None
         return self.searching(*search, chdir) if search else []
 
-    def printed(self, name: str, args: list[str], chdir: bool) -> list[str]:
-        """The files a printing command reads; ``unknown`` counts those it names at a directory not known."""
+    def printed(self, name: str, args: list[str], chdir: bool, posix: bool = False) -> list[str]:
+        """The files a printing command reads; ``unknown`` counts those it names at a directory not known. ``posix``: the
+        command is run with ``POSIXLY_CORRECT`` set."""
         if _asks_for_help(args):  # ``cat --help AGENTS.md`` prints the help and opens no file
             return []
-        if prints_nothing(name, args):  # ``head -n 0 AGENTS.md`` exits 0 and prints no line
+        if prints_nothing(name, args, posix):  # ``head -n 0 AGENTS.md`` exits 0 and prints no line
             return []
         files = sed_files(args) if name == "sed" else _print_files(name, args)
         known = self.named(files, chdir)

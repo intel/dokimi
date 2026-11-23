@@ -224,6 +224,19 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("tail -c 10 AGENTS.md", ["AGENTS.md"]),
     ("head AGENTS.md", ["AGENTS.md"]),
     ("cat AGENTS.md", ["AGENTS.md"]),
+    ("head -x AGENTS.md", ["AGENTS.md"]),                 # an unknown option: the count is not known
+    ("tail -f -n 0 AGENTS.md", ["AGENTS.md"]),            # follows: prints what is appended
+    ("tail -fn 0 AGENTS.md", ["AGENTS.md"]),
+    ("tail --follow -n 0 AGENTS.md", ["AGENTS.md"]),
+    ("tail --fo=descriptor -c 0 AGENTS.md", ["AGENTS.md"]),
+    ("tail -f -n 0 --pid=123 AGENTS.md", ["AGENTS.md"]),
+    ("tail -n 0 --pid=123 AGENTS.md", []),
+    ("head -n " + "0" * 4301 + " AGENTS.md", []),           # more digits than int() reads
+    ("head -n " + "0" * 4300 + "1 AGENTS.md", ["AGENTS.md"]),
+    ("POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),  # the options end at the first file
+    ("POSIXLY_CORRECT=1 head -n 0 AGENTS.md", []),
+    ("env POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("LC_ALL=C head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads

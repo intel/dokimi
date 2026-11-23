@@ -79,9 +79,10 @@ def _cut_short(program: str, words: list[str], i: int) -> _Parsed:
     return 1, None
 
 
-def _cut_count(program: str, words: list[str], files: bool = False) -> str | None:
+def _cut_count(program: str, words: list[str], files: bool = False, posix: bool = False) -> str | None:
     """The count of lines (or bytes) a ``head`` or ``tail`` word list passes on, 10 by default; None when an option is
-    unknown, ``--help`` or ``--version``, or a word is a file the command reads instead of its input (unless ``files``)."""
+    unknown, ``--help`` or ``--version``, or a word is a file the command reads instead of its input (unless ``files``,
+    where ``posix`` ends the options at the first file, as ``POSIXLY_CORRECT`` does)."""
     count, i = "10", 1
     while i < len(words):
         word = words[i]
@@ -97,6 +98,8 @@ def _cut_count(program: str, words: list[str], files: bool = False) -> str | Non
         elif word.startswith("-") and len(word) > 1 and word[1] != "-":
             parsed = _cut_short(program, words, i)
         elif files:  # a file operand
+            if posix:
+                return count
             i += 1
             continue
         else:
@@ -107,16 +110,37 @@ def _cut_count(program: str, words: list[str], files: bool = False) -> str | Non
     return count
 
 
-def prints_nothing(program: str, args: Sequence[str]) -> bool:
+def _follows(words: list[str]) -> bool:
+    """Whether a ``tail`` word list asks to follow its files (``-f``, ``-qf``, ``--follow``, ``--fo``; not ``-nf``, where
+    ``f`` is the value), before ``--``: it prints what is appended later, whatever its count."""
+    for word in words[1:]:
+        if word == "--":
+            return False
+        if word.startswith("--"):
+            name = word[2:].partition("=")[0]
+            if name and "follow".startswith(name):
+                return True
+        elif word.startswith("-"):
+            for c in word[1:]:
+                if c in "ncs":
+                    break
+                if c == "f":
+                    return True
+    return False
+
+
+def prints_nothing(program: str, args: Sequence[str], posix: bool = False) -> bool:
     """Whether ``head`` or ``tail`` with ``args`` (files too) has a count that prints no byte or line: ``head -n 0``,
-    ``-c 0``, ``-0``, ``--lines=0``, ``-n +0``, ``tail -n -0``. ``head -n -0`` and ``tail -n +0`` print all of it."""
+    ``-c 0``, ``-0``, ``--lines=0``, ``-n +0``, ``tail -n -0``. ``head -n -0`` and ``tail -n +0`` print all of it, and
+    ``tail -f`` prints what is appended. ``posix``: ``POSIXLY_CORRECT`` is set, so the options end at the first file."""
     if program not in _CUT_FLAGS:
         return False
-    match = re.fullmatch(_COUNT, _cut_count(program, [program, *args], files=True) or "")
-    if match is None:
+    words = [program, *args]
+    match = re.fullmatch(_COUNT, _cut_count(program, words, files=True, posix=posix) or "")
+    if match is None or (program == "tail" and _follows(words)):
         return False
     sign, digits = match.groups()
-    return not int(digits) and sign != ("-" if program == "head" else "+")
+    return not any(int(c) for c in digits) and sign != ("-" if program == "head" else "+")
 
 
 def cuts_lines(stage: str, functions: Container[str] = ()) -> bool:
