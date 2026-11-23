@@ -15,7 +15,7 @@ The framework counts what every repository asks of a trace:
 - ``guidance_read``: the sorted workspace paths of ``read`` events (a read tool, or a shell command that only
   prints files, ``cat`` / ``head`` / ``tail`` / ``nl`` / ``sed -n``; a pipe, ``grep`` or ``rg`` is not one) not
   denied that the manifest's guidance globs match; a path outside the workspace (absolute, or with ``..``) is
-  no repository file. ``repo run`` keeps only the guidance files the workspace held as the agent started (``is_guidance``
+  no repository file, and a ``..`` after a link is followed as the system does (``resolve``). ``repo run`` keeps only the guidance files the workspace held as the agent started (``is_guidance``
   tells them): a multi-file read (``cat a missing``) keeps its reads, as its exit does not say which file failed;
 - ``guidance_searched``: the sorted workspace paths, under the same rules as ``guidance_read``, in the ``searched`` list of
   a ``command`` event not denied (a ``grep``, ``egrep``, ``fgrep``, ``rg`` or ``git grep`` that showed lines of the file) or of
@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from dokimi.repos.event_format import TOOL_KINDS
+from dokimi.repos.event_format import TOOL_KINDS, plain_path
 
 COUNTER_FIELDS = ("text", "output", "any")
 
@@ -75,30 +75,37 @@ def parse_counter(name: str, value: Any) -> Counter:
         raise ValueError(f"process_metrics/{name}: not a valid regex: {exc}") from exc
 
 
-def _workspace_path(path: str) -> str | None:
+def _workspace_path(path: str, resolve: Callable[[str], str | None] | None = None) -> str | None:
     """``path`` normalized (``./a``, ``a//b``, ``a/./b``), or None when it is not inside the workspace.
 
-    A ``..`` that stays inside (``src/../AGENTS.md``) is resolved; ``~`` is a home directory, not the repository."""
+    ``~`` is a home directory, not the repository. A path with a ``..`` is what ``resolve`` makes of it (the workspace's
+    links followed, :meth:`~dokimi.repos.held_guidance.HeldGuidance.resolved`); with none, the ``..`` is collapsed by
+    name, as when the workspace is not known. A path that climbs out of the workspace is None either way."""
     if path.startswith("~"):
         return None
-    p = PurePosixPath(posixpath.normpath(path))
-    if p.is_absolute() or ".." in p.parts:
+    p = PurePosixPath(plain_path(path))
+    if p.is_absolute():
         return None
-    return str(p)
+    if ".." in p.parts:
+        p = PurePosixPath(resolve(str(p)) or "..") if resolve else PurePosixPath(posixpath.normpath(p))
+    return None if ".." in p.parts else str(p)
 
 
 def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[str], bool],
-                    counters: Mapping[str, Counter] | None = None, unknown_reads: int = 0) -> dict[str, Any]:
-    """The ``process`` object of ``result.json`` for one run's events; ``is_guidance`` tells a guidance path."""
+                    counters: Mapping[str, Counter] | None = None, unknown_reads: int = 0,
+                    resolve: Callable[[str], str | None] | None = None) -> dict[str, Any]:
+    """The ``process`` object of ``result.json`` for one run's events; ``is_guidance`` tells a guidance path.
+
+    ``resolve`` follows the links of the workspace for a path with a ``..`` in it (see :func:`_workspace_path`)."""
     events = list(events)
     commands = [e for e in events if e.get("kind") == "command"]
     # A read that failed (rc 1: the file does not exist) read no guidance.
     reads = {w for e in events if e.get("kind") == "read" and e.get("path") and not e.get("denied")
-             and e.get("rc") in (0, None) and (w := _workspace_path(str(e["path"]))) is not None}
+             and e.get("rc") in (0, None) and (w := _workspace_path(str(e["path"]), resolve)) is not None}
     # A search that failed as one search of one file, or that a relative path after a shell move left unknown, has no
     # ``searched`` (the converter drops it); a refused command searched nothing.
     searched = {w for e in events if e.get("searched") and not e.get("denied") for p in e["searched"]
-                if (w := _workspace_path(str(p))) is not None}
+                if (w := _workspace_path(str(p), resolve)) is not None}
     return {
         "tool_calls": sum(e.get("kind") in TOOL_KINDS for e in events),
         "commands": len(commands),

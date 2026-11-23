@@ -12,6 +12,7 @@ import re
 import shlex
 from collections.abc import Collection
 
+from .event_format import plain_path
 from .shell_split import substitution_end
 
 _SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
@@ -68,18 +69,21 @@ def _run_name(name: str, via_env: bool) -> str | None:
 
 
 def _cd(here: str | None, args: list[str]) -> str | None:
-    """The directory after ``cd <args>`` from ``here`` (``None``: unknown)."""
-    rest = list(args)
+    """The directory after ``cd <args>`` from ``here`` (``None``: unknown). ``cd`` takes a ``..`` by name, as bash
+    does (``cd alias/..`` goes to the directory holding ``alias``'s name), unless ``-P`` asks for the physical one,
+    whose ``..`` stays for :class:`~dokimi.repos.held_guidance.HeldGuidance` to follow."""
+    rest, physical = list(args), False
     while rest and rest[0] in ("-L", "-P", "-e", "-@"):
-        rest.pop(0)
+        option = rest.pop(0)
+        physical = option == "-P" or (physical and option != "-L")  # the last of -L and -P decides
     if rest and rest[0] == "--":
         rest.pop(0)
     if len(rest) != 1 or rest[0] == "-" or rest[0].startswith("~"):
         return None  # home, the previous directory, or something we do not track
-    target = rest[0]
+    target, tidy = rest[0], plain_path if physical else posixpath.normpath
     if target.startswith("/"):
-        return posixpath.normpath(target)
-    return None if here is None else posixpath.normpath(posixpath.join(here, target))
+        return tidy(target)
+    return None if here is None else tidy(posixpath.join(here, target))
 
 
 def _runs_dir(outer: str, dirs: Collection[str] = _DIRS, functions: Collection[str] = ()) -> bool:
