@@ -18,7 +18,8 @@ def _litellm_reason(text: str) -> str:
     if text.startswith("litellm."):
         text = text.partition(": ")[2]
     reason = text.split(" To drop unsupported params", 1)[0].strip()
-    return reason if reason.endswith(".") else reason + "."
+    # no final period: a message adds its own, and a refusal clause wraps the reason in parentheses
+    return reason.rstrip(".") or "the provider does not take this value"
 
 
 def refusal_reason(litellm: Any, resolved: str, provider: str, name: str, value: Any) -> str | None:

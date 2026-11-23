@@ -760,7 +760,30 @@ def test_a_refusal_reason_is_litellms_reason_without_its_class_or_drop_params_ad
                               "`litellm.drop_params = True`.")
 
     assert refusal_reason(FakeLitellm, "bedrock/m", "amazon-bedrock", "temperature", 0.0) == (
-        "m does not support temperature=0.0. Only temperature=1 is supported.")
+        "m does not support temperature=0.0. Only temperature=1 is supported")
+
+
+def test_a_value_refusal_error_ends_its_sentence_once(monkeypatch):
+    from dokimi.eval import judge_sampling
+    from dokimi.llm_cli import SamplingError
+    from dokimi.llm_sampling import _litellm_reason
+
+    reason = _litellm_reason("litellm.UnsupportedParamsError: m does not support temperature=0.0. "
+                             "Only temperature=1 is supported. To drop unsupported params, set "
+                             "`litellm.drop_params = True`.")
+    monkeypatch.setattr(judge_sampling, "sampling_refusals", lambda *a, **k: {"temperature": reason})
+    with pytest.raises(SamplingError) as exc:
+        judge_sampling.check_judge_sampling("amazon-bedrock", "m", 0.0, None)
+    message = str(exc.value)
+    assert "Only temperature=1 is supported. Use a supported value" in message
+    assert ".." not in message
+
+
+def test_a_litellm_reason_with_no_text_is_still_a_reason():
+    from dokimi.llm_sampling import _litellm_reason
+
+    assert _litellm_reason("litellm.UnsupportedParamsError: . To drop unsupported params, set x.") == (
+        "the provider does not take this value")
 
 
 def test_an_unknown_model_refuses_no_value_either(monkeypatch):

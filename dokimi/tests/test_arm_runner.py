@@ -477,9 +477,10 @@ def test_build_output_records_judge_temperature_and_prompt_digest(monkeypatch):
     _patch_llm(monkeypatch, [])
     runner = ArmRunner([BaselineTreatment()])
     records = runner.run("oneTBB", QUESTIONS[:1], concurrency=1)
-    judge = Judge(model="m1", provider="amazon-bedrock", temperature=0.0)
+    # a route that takes temperature=1: litellm's value check refuses a made-up id at any temperature
+    judge = Judge(model="us.anthropic.claude-haiku-5-5", provider="amazon-bedrock", temperature=1.0)
     out = runner.build_output("oneTBB", records, [], judge=judge)
-    assert (out["judge_temperature"], out["judge_prompt_sha256"]) == (0.0, JUDGE_PROMPT_SHA256)
+    assert (out["judge_temperature"], out["judge_prompt_sha256"]) == (1.0, JUDGE_PROMPT_SHA256)
     one = JudgePanel(judges=[JudgeConfig(role="technical_expert", model="m1", provider="amazon-bedrock")])
     two = JudgePanel(judges=[JudgeConfig(role="doc_reviewer", model="m1", provider="amazon-bedrock")])
     assert len({one.prompt_sha256, two.prompt_sha256, JUDGE_PROMPT_SHA256}) == 3
