@@ -321,14 +321,16 @@ def test_dataset_card_contents():
     assert "Rows:** 5" in card
 
 
-def test_export_card_for_an_ordinary_name_is_the_dataset_card_text(tmp_path):
+@pytest.mark.parametrize("linesep", ["\n", "\r\n"])
+def test_export_card_for_an_ordinary_name_is_the_dataset_card_text(tmp_path, monkeypatch, linesep):
+    monkeypatch.setattr(os, "linesep", linesep)
     src = tmp_path / "q.json"
     src.write_text(json.dumps({"schema_version": "questions.v1", "questions": [{"id": "q1", "text": "x"}]}))
     primary = export_artifact("questions", src, tmp_path / "out", fmt="jsonl")
     columns = sorted(json.loads(primary.read_text(encoding="utf-8")))
     expected = dataset_card("questions", src, 1, columns, source_version="questions.v1")
     assert "Exported from `q.json` (questions.v1)." in expected
-    assert (tmp_path / "out" / "README.md").read_bytes() == expected.encode("utf-8")
+    assert (tmp_path / "out" / "README.md").read_bytes() == expected.replace("\n", linesep).encode("utf-8")
 
 
 @pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
