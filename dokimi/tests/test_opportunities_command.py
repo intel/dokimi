@@ -16,7 +16,7 @@ STATIC = {"schema": "repo_static.v1", "claims": [
     {"file": "AGENTS.md", "line": 3, "status": "ok"},
 ]}
 NOVELTY = {"artifact": {"ref": "skill:acme"}, "model": "m1",
-           "paired": {"lenient": {"degraded": 2, "redundant": 0, "still_missing": 0, "n_paired": 4}}}
+           "paired": {"lenient": {"degraded": 0.5, "redundant": 0, "still_missing": 0, "n_paired": 4}}}
 
 
 @pytest.fixture
@@ -78,3 +78,18 @@ def test_build_reads_catalog_and_judge_validity_files(tmp_path):
     doc = cmd.build([str(cat), str(jv)])
     assert [i["kind"] for i in doc["inputs"]] == ["catalog_eval", "judge_validity"]
     assert {i["kind"] for i in doc["items"]} == {"catalog-check", "judge-validity"}
+
+
+def test_markdown_link_at_start_is_not_json(tmp_path):
+    path = tmp_path / "llms.txt"
+    path.write_text("[Start](start.md)\n", encoding="utf-8-sig")
+    assert cmd.build([str(path)])["inputs"][0]["kind"] == "llms_txt"
+
+
+@pytest.mark.parametrize("data", [b"\xff", b'{"schema":"repo_static.v1","claims":null}',
+                                  b'{"paired":{"lenient":{"degraded":-0.5,"n_paired":4}}}'])
+def test_invalid_input_names_the_path(tmp_path, data):
+    path = tmp_path / "evidence.json"
+    path.write_bytes(data)
+    with pytest.raises(InputError, match="evidence.json"):
+        cmd.build([str(path)])

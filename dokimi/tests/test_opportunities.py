@@ -6,7 +6,7 @@ from dokimi import llms_txt, opportunities as opp
 NOVELTY = {
     "artifact": {"kind": "skill", "ref": "skill:skills/acme"},
     "model": "m1",
-    "paired": {"lenient": {"added": 10, "redundant": 20, "degraded": 4, "still_missing": 6,
+    "paired": {"lenient": {"added": 0.25, "redundant": 0.5, "degraded": 0.1, "still_missing": 0.15,
                            "n_paired": 40}},
 }
 STATIC = {"schema": "repo_static.v1", "claims": [
@@ -32,11 +32,12 @@ def test_zero_counts_produce_no_opportunity():
 
 
 def test_repo_claims_group_failures_per_file():
-    [one] = opp.from_repo_static(STATIC, target="acme")
+    one, unresolved = opp.from_repo_static(STATIC, target="acme")
+    assert unresolved.next_action.startswith("Verify")
     assert one.target == "acme:AGENTS.md"
-    assert one.evidence["lines"] == [9, 12]
-    assert one.impact == 0.5
-    assert "9, 12" in one.next_action
+    assert one.evidence["lines"] == [9]
+    assert one.impact == 0.25
+    assert "9" in one.next_action
 
 
 def test_rank_puts_high_impact_cheap_fixes_first():
@@ -46,7 +47,7 @@ def test_rank_puts_high_impact_cheap_fixes_first():
     assert [r["rank"] for r in ranked] == list(range(1, len(ranked) + 1))
     quads = [opp.QUADRANTS.index(r["quadrant"]) for r in ranked]
     assert quads == sorted(quads)
-    assert ranked[0]["kind"] == "repo-claim"  # impact 0.5, effort low
+    assert ranked[0]["kind"] == "discovery"  # impact 0.4, effort low
     assert ranked[-1]["evidence"].get("outcome") == "still_missing"  # 0.15, medium effort
 
 
@@ -58,9 +59,9 @@ def test_source_key_is_stable_and_distinguishes_targets():
 
 
 def test_execution_prompt_names_target_problem_and_action():
-    [one] = opp.from_repo_static(STATIC, target="acme")
+    one, _ = opp.from_repo_static(STATIC, target="acme")
     prompt = one.as_dict()["execution_prompt"]
-    assert "acme:AGENTS.md" in prompt and "2 failing claims" in prompt and "line" in prompt
+    assert "acme:AGENTS.md" in prompt and "1 failing claims" in prompt and "line" in prompt
 
 
 def test_markdown_table_honours_top():
@@ -111,3 +112,27 @@ def test_a_valid_judge_gives_no_item_and_a_failed_one_does():
     assert opp.from_judge_validity(ok) == []
     [item] = opp.from_judge_validity(bad)
     assert item.impact == 1.0 and "swap" in item.next_action and "fails" in item.title
+
+
+def test_failed_judge_uses_variant_accuracy_and_ranks_first():
+    failed = {"summary": {"judge": "j", "passed": False, "conclusive": True,
+                          "gate_accuracy": 0.92, "min_accuracy": 0.8,
+                          "per_variant": {"swap": {"gate_accuracy": 0.4}}}}
+    fixes = opp.from_judge_validity(failed) + opp.from_llms_txt(llms_txt.check("no title"))
+    assert opp.rank(fixes)[0]["kind"] == "judge-validity"
+    assert "swap (0.40)" in fixes[0].why
+    assert "0.92" not in fixes[0].why
+
+
+def test_catalog_wide_errors_are_actionable():
+    [fix] = opp.from_catalog_eval({"root": "catalog", "problems": [
+        {"code": "empty", "level": "error", "message": "Empty catalog", "path": "."},
+    ]})
+    assert fix.target == "catalog"
+    assert fix.why == "Empty catalog"
+
+
+def test_repo_claim_identity_ignores_the_report_name():
+    first = opp.from_repo_static(STATIC, target="run1.json", repository="acme")
+    second = opp.from_repo_static(STATIC, target="run2.json", repository="acme")
+    assert [item.source_key for item in first] == [item.source_key for item in second]
