@@ -123,6 +123,9 @@ def _row_problem(row: Any) -> Optional[str]:
         return "unknown status"
     if not isinstance(row.get("key"), str) or not isinstance(row.get("name"), str):
         return "`key` and `name` must be strings"
+    slot = row.get("bundle_instance", 0)
+    if type(slot) is not int or slot < 0:
+        return "`bundle_instance` must be a nonnegative integer"
     if not _is_number(row.get("usd")):
         return "`usd` must be a number"
     if row["status"] == "ok" and not ("new_lenient" in row and (row["new_lenient"] is None
@@ -194,11 +197,44 @@ def group_stats(rows: list[dict], *, resamples: int = RESAMPLES) -> dict[str, An
     }
 
 
+def bundle_instances(current: Mapping[str, Optional[str]], prior: list[dict]) -> dict[str, int]:
+    """Keep coexisting keys with the same digest distinct and reuse a missing key's slot on a rename.
+
+    Slots are local to a digest. Older rows and the ordinary single-bundle case use slot zero.
+    Match known keys first, so a newly renamed key cannot take a still-present sibling's slot.
+    """
+    history: dict[str, dict[str, int]] = {}
+    for row in prior:
+        digest = row.get("skill_sha256")
+        if digest:
+            history.setdefault(digest, {})[row["key"]] = row.get("bundle_instance", 0)
+    groups: dict[str, list[str]] = {}
+    for key, digest in current.items():
+        if digest:
+            groups.setdefault(digest, []).append(key)
+    instances: dict[str, int] = {}
+    for digest, keys in groups.items():
+        known = history.get(digest, {})
+        used: set[int] = set()
+        for key in keys:
+            if key in known and known[key] not in used:
+                instances[key] = known[key]
+                used.add(known[key])
+        free = 0
+        for key in keys:
+            if key not in instances:
+                while free in used:
+                    free += 1
+                instances[key] = free
+                used.add(free)
+    return instances
+
+
 def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
               resamples: int = RESAMPLES) -> dict[str, Any]:
     """Counts by status, the spend, and the measure with bootstrap CIs overall and per stratum.
 
-    Only ``ok`` rows with a measure are summarised, one per ``skill_sha256`` (the last): an identical
+    Only ``ok`` rows with a measure are summarised, one per digest and coexisting bundle instance (the last): an identical
     bundle moved to another directory or renamed is measured once. ``partial`` and ``error`` rows are
     counted and the spend of every row, including each copy's paid row, is in ``usd``. With *strata*
     the per-stratum table is given, else only ``overall``.
@@ -211,8 +247,9 @@ def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
         elif row.get("skill_sha256") is None:  # no digest: no way to tell it is the same skill
             latest[(None, index)] = row
         else:
-            latest.pop(row["skill_sha256"], None)
-            latest[row["skill_sha256"]] = row
+            identity = (row["skill_sha256"], row.get("bundle_instance", 0))
+            latest.pop(identity, None)
+            latest[identity] = row
     counts["ok"] = len(latest)
     measured = [r for r in latest.values() if r["new_lenient"] is not None]
     summary: dict[str, Any] = {
