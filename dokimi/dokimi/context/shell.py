@@ -32,6 +32,7 @@ _NO_COMMAND = re.compile(r"^(?:(?:for|select|fi|done|esac|in|function)\b|\}(?=[\
 # `perl -Mstrict` is not an edit.
 _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
              "perl": re.compile(r"^-[pnalw0-9]*i[^-\s]*$")}
+_CASE_HEADER = re.compile(rf"^(?:(?:\(|{_KEYWORDS}(?=\s))\s*)*case\b.*?\bin\b\s*")  # `\(` not `\(+`: a run of `(` splits one way (#932)
 _HEREDOC_DELIMITER = r"<<-?\s*['\"]?(\w++)['\"]?"
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S), re.compile(_HEREDOC_DELIMITER),
                           re.compile(r"^[^\S\n]*(\w+)[^\S\n]*$", re.M), word=1, gap=1)
@@ -130,7 +131,7 @@ def _drop_case_labels(parts: list[tuple[str, str]]) -> list[tuple[str, str]]:
     depth, label_next = 0, False
     for seg, sep in parts:
         text = seg.strip()
-        if header := re.match(rf"^(?:(?:\(+|{_KEYWORDS}(?=\s))\s*)*case\b.*?\bin\b\s*", text):
+        if header := _CASE_HEADER.match(text):
             depth, label_next, text = depth + 1, True, text[header.end():]
         if depth and re.match(r"^esac\b", text):
             depth, label_next = depth - 1, False

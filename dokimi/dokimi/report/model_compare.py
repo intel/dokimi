@@ -35,10 +35,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dokimi import atomic_write, process_io
 from dokimi.records import Record, arm_answers, arm_names, arm_scores, read
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import finite_delta, stats as arm_stats
 from dokimi.report import fmt
+from dokimi.report.compare_limits import no_delta_limitation
 from dokimi.utils import InputError, read_json_input
 
 try:
@@ -679,9 +681,8 @@ def generate_combined_report(
                                         correction,
                                         pool_replicates=pool_replicates)
 
-    output = "\n".join(lines)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(out_path).write_text(output, encoding="utf-8")
+    atomic_write.write_bytes_in_place_or_atomic(Path(out_path), process_io.text_file_bytes("\n".join(lines)))
     print(f"OK Report written to {out_path}")
 
 
@@ -703,9 +704,10 @@ def generate_section_report(
     rather than individual samples of one configuration.
     """
     raw_scores = {run_id: extract_scores(data, force_treatment_arm=treatment_arm, where=f"run '{run_id}', ") for run_id, data in runs}
-    replicate_note: list[str] = []
-    if pool_replicates:
-        runs, run_ids, raw_scores, replicate_note = _pool_section(runs, run_ids, raw_scores)
+    paired = any(s.get("delta") is not None for sc in raw_scores.values() for s in sc)  # before pooling drops pairs
+    declared = {treatment_arm} if treatment_arm else {a for _, d in runs for a in scored_arms(d) | non_baseline_arms(d)}  # pre-pooling
+    pooled = _pool_section(runs, run_ids, raw_scores) if pool_replicates else (runs, run_ids, raw_scores, [])
+    runs, run_ids, raw_scores, replicate_note = pooled
     common_questions, all_run_scores = _common_scores(raw_scores, run_ids)
 
     # The arm that was actually scored, taken from the extracted records rather than the
@@ -724,7 +726,7 @@ def generate_section_report(
 
     lines = _pooling_lines(replicate_note) + _models_compared_lines(runs, all_run_scores, common_questions)
     if not has_treatment:
-        lines += _BASELINE_ONLY_LIMITATION
+        lines += no_delta_limitation(runs, scored | declared, paired, pool_replicates)
     lines += _resource_usage_lines(runs, bool(replicate_note))
     lines += _overall_summary_lines(run_ids, summary_stats, arm_label)
     lines += _significance_lines(run_ids, all_run_scores, has_treatment, correction)
@@ -812,34 +814,6 @@ def _models_compared_lines(
         "",
     ]
 
-
-_BASELINE_ONLY_LIMITATION = [
-    "> **⚠️ Report Limitation:** These runs contain only **baseline arm** (no treatment comparison).",
-    "> ",
-    "> **Missing from this report:**",
-    "> - Context-arm vs Baseline delta analysis",
-    "> - Statistical significance tests",
-    "> - Head-to-head winner comparisons",
-    "> ",
-    "> **Available in this report:**",
-    "> - Absolute baseline quality scores per model",
-    "> - Resource usage metrics (cost, tokens, latency)",
-    "> - Model ranking by absolute baseline quality",
-    "> ",
-    "> **To generate full comparison with delta analysis, add a treatment arm:**",
-    "> ```bash",
-    "> dokimi arms run \\",
-    ">   --product oneTBB --questions questions/oneTBB.json \\",
-    ">   --arms \"baseline,docs\" \\",
-    ">   --judge \\",
-    ">   --judge-model claude-sonnet-5-5",
-    "> ```",
-    "> ",
-    "> Treatment arm options: `docs` (Context7 documentation), `skill:<path>` (local skill), `agent` (agentic doc retrieval).",
-    "> ",
-    "> See: `docs/benchmarking-and-comparison.md#treatment-arm-comparison`",
-    "",
-]
 
 #: Resource-usage columns after the cost: the cost-summary field and its cell format.
 _RESOURCE_CELLS = (("prompt_tokens", "{:,}"), ("completion_tokens", "{:,}"), ("total_tokens", "{:,}"),

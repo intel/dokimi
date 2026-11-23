@@ -778,14 +778,15 @@ def _copilot_result(out: Transcript, call: _Derived, data: dict[str, Any]) -> No
     failed = data.get("success") is False
     for event in events:
         if event["kind"] == "edit" and data.get("success") is not None:
-            # a failed edit changed nothing: rc 1, so it is no useful result
             event["rc"] = 0 if data.get("success") else 1
         if event["kind"] != "command":
             continue
         shell = data.get("shellExecution") or {}
         code = shell.get("exitCode") if isinstance(shell, dict) else None
-        event["rc"] = code if isinstance(code, int) else (None if data.get("success") is None
-                                                          else 0 if data.get("success") else 1)
+        event["rc"] = code if type(code) is int else None
+        if event["rc"] is None and isinstance(data.get("success"), bool):
+            event["rc"] = 0 if data["success"] else 1
+            event["rc_from"] = "success"
         failed = _failed_read(str(event["text"]), event["rc"])
         result = data.get("result") or {}
         output = result.get("content") if isinstance(result, dict) else None

@@ -17,6 +17,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from dokimi.artifacts import ArtifactValidationError
+from tests.waiting import poll_until
 
 # question_id 1.5 is neither a string nor an integer: answers.v1 and eval.v1 reject it
 
@@ -30,10 +31,8 @@ def _hold_q0_until_rejected(out, qid, concurrency):
     deterministic: only the two questions already in flight can be paid for."""
     if concurrency > 1 and qid == "q0":
         rejected = out.with_name(out.name + ".rejected")
-        deadline = time.time() + 5
-        while not rejected.exists() and time.time() < deadline:
-            time.sleep(0.01)
-        time.sleep(0.2)
+        poll_until(rejected.exists, 5, interval=0.01)
+        time.sleep(0.2)  # timing-ok: the time a run that went on would use to start a queued question
 
 
 def _answers_run(tmp_path, concurrency):

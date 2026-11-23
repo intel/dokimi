@@ -389,7 +389,7 @@ def _trace_problem(path: Path) -> Optional[str]:
 
 #: The runner's ``trace_errors`` entries that drop no trace line: a failed turn or error event (cli_traces), a
 #: num_turns that is no integer (events), a failed process metric or probe match (runner). Every other is a dropped line.
-_NO_LOST_LINE = ("process metrics failed", "probe matching failed", "turn.failed: ", "error: ", "result num_turns ")
+_NO_LOST_LINE = ("process metrics failed", "probe matching failed", "choice matching failed", "turn.failed: ", "error: ", "result num_turns ")
 _KEPT_ERRORS = 5  # repos/runner.py writes trace_errors=transcript.errors[:5]
 
 
