@@ -16,9 +16,9 @@ follow the Agent Skills spec:
 - ``description`` is at most 1024 characters (``error``). A missing or empty
   description is a load error, raised by the loader.
 - The frontmatter is valid YAML (``frontmatter-parse``, ``error``).
-- A frontmatter key that neither the spec nor Claude Code names is a ``warn``
-  (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`), and so is an ``allowed-tools``
-  name that is no Claude Code tool (``allowed-tools-unknown``). An ``allowed-tools`` that grants
+- A frontmatter key that neither the spec nor Claude Code names is a ``note``
+  (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`). An ``allowed-tools``
+  name that is no Claude Code tool is a ``warn`` (``allowed-tools-unknown``). An ``allowed-tools`` that grants
   ``Bash`` for every command (``Bash`` with no pattern, or ``Bash(*)``) is a ``warn``
   (``allowed-tools-unrestricted-bash``); its message names a ``pipe-to-shell`` or
   ``permission-bypass-flag`` hit in the same skill. A body over 500 lines or about
@@ -114,7 +114,7 @@ NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 # The frontmatter keys the Agent Skills spec defines, then the ones Claude Code reads on top of it.
-# Any other key is a typo or a field no harness reads (``frontmatter-unknown-key``).
+# Any other key is a typo or a field no harness reads (``frontmatter-unknown-key``, a note: it changes no state).
 FRONTMATTER_KEYS = frozenset(
     {
         "name", "description", "license", "allowed-tools", "metadata", "compatibility",
@@ -316,7 +316,7 @@ def _frontmatter_findings(
     if unknown_keys:
         findings.append(
             Finding(
-                "warn",
+                "note",
                 "frontmatter-unknown-key",
                 f"frontmatter has {', '.join(map(repr, unknown_keys))}, which no spec or Claude Code "
                 "field is named; a typo, or a field no harness reads",

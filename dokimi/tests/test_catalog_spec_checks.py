@@ -55,6 +55,17 @@ def test_unknown_frontmatter_key_is_a_note_that_names_the_key(tmp_path):
     assert "'color'" in finding.message
 
 
+def test_an_unknown_frontmatter_key_alone_leaves_the_skill_in_state_ok(tmp_path):
+    # a note never changes the state: a skill whose only finding is a non-spec key reads as ok
+    from dokimi.external.findings import state_of
+
+    _skill(tmp_path, "color-skill", extra="color: red\n")
+    findings = _findings(tmp_path)["color-skill"]
+
+    assert "frontmatter-unknown-key" in {f.code for f in findings}
+    assert state_of(findings) == "ok"
+
+
 def test_spec_and_claude_code_keys_are_not_unknown(tmp_path):
     extra = (
         "license: MIT\nmetadata:\n  owner: team\ncompatibility: any\n"

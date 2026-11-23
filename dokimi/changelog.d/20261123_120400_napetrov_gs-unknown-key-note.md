@@ -1,0 +1,3 @@
+### Changed
+
+- **`frontmatter-unknown-key` is a `note`, not a `warn`** — a frontmatter key that neither the Agent Skills spec nor Claude Code names (`tags`, `author`, `category`, ...) may be a field a harness reads, so it is information, not a defect. A `note` never changes the skill's state, so a skill whose only finding is such a key now reads `ok` where it read `warn`; `--strict` no longer fails on it, and `--ignore frontmatter-unknown-key` is not needed to keep it quiet. The catalog's `warn` count drops by those skills. `--fail-on-code frontmatter-unknown-key` still exits 1 on it. The code, its message and the other checks are unchanged. (`info` is not a level here: `error`, `warn` and `note` are.)
