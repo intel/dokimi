@@ -201,15 +201,18 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
   directory) is read, and a run whose `run_id` a copy carries is kept and named. A
   copy saved before the envelope holds no run. A copy that cannot be read exits 2
   before anything is removed, since the run it holds is not known.
+- An entry under the root that cannot be read may be the newest artifact of a run,
+  so while one is there `runs gc` removes nothing and exits 2, naming the first. `runs
+  rm RUN_ID` removes the run and leaves such an entry in place, counted as `runs list`
+  counts it.
 - `--dry-run` prints the same lines, `would remove` in place of `removed`, and
-  removes nothing. An entry under the root that could not be read is left in place
-  and counted, as `runs list` counts it.
+  removes nothing.
 - `--json` prints one `cli_output.v1` document (`kind` `runs rm` or `runs gc`)
   with `root`, `dry_run`, `runs` (as in `runs list --json`), `paths`,
   `size_bytes`, `not_removed` and `unreadable` under `data`; `runs rm` adds
   `run_id` (`null` for a file), `runs gc` adds `older_than`, `keep_baselines` and
   `kept` (each `run_id` with its `baseline`). `status` is `partial` when
-  `unreadable` is not empty.
+  `unreadable` is not empty (`runs rm RUN_ID` only).
 - A file that cannot be removed (no permission) is named, the others are still
   removed, and the command exits 5 (`status` `failed`, `error.code` `infra`).
 
@@ -224,5 +227,5 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 | `runs show RUN_ID`: nothing of that name and no artifact under the root with that `run_id` (the error counts the entries that could not be read), or a root that cannot be listed | 2 |
 | `runs rm`, `runs gc`: removed, or listed with `--dry-run`; nothing to remove; `runs gc` when `results/` does not exist | 0 |
 | `runs rm`: no root, a directory, a missing file, a path outside the root, or a `run_id` no artifact carries | 2 |
-| `runs gc`: no `--older-than`, an age that is not days (`30d`), or with `--keep-baselines` a baseline manifest or copy that cannot be read | 2 |
+| `runs gc`: no `--older-than`, an age that is not days (`30d`), an entry under the root that cannot be read, or with `--keep-baselines` a baseline manifest or copy that cannot be read | 2 |
 | `runs rm`, `runs gc`: a file that could not be removed | 5 |

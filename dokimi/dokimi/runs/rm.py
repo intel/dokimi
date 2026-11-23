@@ -107,9 +107,19 @@ def baseline_runs(entries: list[dict]) -> dict[str, str]:
 
 def plan_gc(root: Path, cutoff: float, held: Mapping[str, str]) -> Removal:
     """The runs under ``root`` whose newest artifact is older than ``cutoff`` (POSIX seconds),
-    bar those in ``held`` (run_id -> baseline name), which are named in ``kept``."""
+    bar those in ``held`` (run_id -> baseline name), which are named in ``kept``.
+
+    Raises ``InputError`` when an entry under the root cannot be read: it may be a newer artifact
+    of a run that would otherwise go, so nothing is selected (docs/runs.md).
+    """
     result = scan(root)
-    removal = Removal(root=root, unreadable=result.unreadable)
+    if result.unreadable:
+        first, n = result.unreadable[0], len(result.unreadable)
+        raise InputError(f"{n} {'entry' if n == 1 else 'entries'} under the runs root "
+                         f"{plain(root.as_posix())}/ could not be read (first: "
+                         f"{plain(first.path.as_posix())}: {plain(first.reason)}); one may belong "
+                         "to a run gc would remove, so it removes nothing")
+    removal = Removal(root=root)
     for run in by_run(result.artifacts):
         run_id = run[0].run_id
         if run_id is None or max(timestamp(a) for a in run) >= cutoff:

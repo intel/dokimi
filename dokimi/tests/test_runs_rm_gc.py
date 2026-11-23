@@ -310,16 +310,21 @@ def test_gc_of_a_missing_default_root_removes_nothing_and_exits_0(tmp_path, monk
     assert (code, out) == (0, "no run under results/ to remove: none is older than 0d\n")
 
 
-def test_gc_leaves_an_unreadable_entry_and_says_so(root, monkeypatch, capsys):
-    (root / "broken.json").write_text('{"schema_version": "eval.v1", "evaluations": [',
-                                      encoding="utf-8")
+@pytest.mark.parametrize("dry_run", [(), ("--dry-run",)])
+def test_gc_removes_nothing_while_an_entry_under_the_root_cannot_be_read(
+        root, monkeypatch, capsys, dry_run):
+    # the old run's newest artifact, unreadable: the run must not lose its older eval
+    monkeypatch.setenv("DOKIMI_RUN_ID", OLD)
+    save_artifact("arms", {**_fixture("arms.v1"), "generated_at": _days_ago(1)}, root / "r1" / "arms.json")
+    (root / "r1" / "arms.json").write_text('{"schema_version": "arms.v1", "arms": [', encoding="utf-8")
+    before = _left(root)
 
-    code, out, _ = _run(monkeypatch, capsys, "gc", "--older-than", "30d", "--json")
+    code, _, err = _run(monkeypatch, capsys, "gc", "--older-than", "30d", *dry_run)
 
-    doc = json.loads(out)
-    assert (code, doc["status"]) == (0, "partial")
-    assert [u["path"] for u in doc["data"]["unreadable"]] == ["broken.json"]
-    assert (root / "broken.json").exists()
+    assert code == 2
+    assert ("1 entry under the runs root results/ could not be read (first: r1/arms.json: not valid "
+            "JSON") in err and "so it removes nothing" in err
+    assert _left(root) == before
 
 
 def test_parse_age_reads_days():
