@@ -719,17 +719,21 @@ def test_copilot_json_to_events():
     assert t.reads() == {"AGENTS.md", "sub/AGENTS.md"}
 
 
-@pytest.mark.parametrize(("done", "rc"), [({"success": True}, 0), ({"success": False}, 1), ({}, None)],
-                         ids=["success", "failure", "unknown"])
+@pytest.mark.parametrize(("done", "rc"), [({"shellExecution": {"exitCode": 0}}, 0),
+                                          ({"shellExecution": {"exitCode": 1}, "success": True}, 1),
+                                          ({"success": True}, 0), ({"success": False}, 1), ({}, None)],
+                         ids=["exit-0", "exit-code-wins-over-success", "success-without-code", "failure-without-code",
+                              "unknown"])
 def test_copilot_command_exit_code_falls_back_to_success(done, rc):
-    """Without `shellExecution.exitCode` the rc comes from `success`; with neither it stays unknown."""
     raw = _jsonl(
         {"type": "tool.execution_start",
          "data": {"toolCallId": "a", "toolName": "bash", "arguments": {"command": "make"}}},
         {"type": "tool.execution_complete", "data": {"toolCallId": "a", **done}},
     )
     t = convert("copilot-json", raw, None)
-    assert [e["rc"] for e in t.events if e["kind"] == "command"] == [rc]
+    event, = (e for e in t.events if e["kind"] == "command")
+    assert event["rc"] == rc
+    assert event.get("rc_from") == ("success" if "success" in done and "shellExecution" not in done else None)
 
 
 @pytest.mark.parametrize(("command", "done", "reads"), [
