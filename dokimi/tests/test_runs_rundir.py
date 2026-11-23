@@ -149,6 +149,22 @@ def test_a_run_directory_the_root_does_not_let_us_make_is_refused(root):
         root.chmod(0o700)
 
 
+@pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0, reason="POSIX modes, not as root")
+@pytest.mark.parametrize("mode", [0o500, 0o300], ids=["not-writable", "not-listable"])
+def test_an_empty_output_directory_we_may_not_write_or_list_is_refused(root, tmp_path, mode):
+    """docs/run-directories.md: "So is a directory that cannot be made": an empty output directory where
+    run.json cannot be created, or whose entries cannot be listed."""
+    out = tmp_path / "out"
+    out.mkdir()
+    out.chmod(mode)
+    try:
+        with pytest.raises(InputError, match=f"cannot make run directory {out}: Permission denied"):
+            open_run(root, out_dir=out)
+    finally:
+        out.chmod(0o700)
+    assert os.listdir(out) == []
+
+
 def test_a_name_with_an_output_directory_is_refused(root, tmp_path):
     """docs/run-directories.md: "A name together with an output directory is refused"."""
     with pytest.raises(InputError, match="give one of them"):

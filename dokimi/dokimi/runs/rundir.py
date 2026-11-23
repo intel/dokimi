@@ -69,21 +69,21 @@ def _claim(path: Path, *, empty_ok: bool) -> None:
     ``run.json`` exclusively: the file, not the directory, decides which run owns it."""
     taken = f"run directory {path} already exists: a run never writes into another run's directory"
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:  # a file where a parent directory should be, no permission
-        raise InputError(f"cannot make run directory {path}: {exc.strerror or exc}") from exc
-    try:
-        path.mkdir()
-    except FileExistsError:
-        if not (empty_ok and path.is_dir() and not any(path.iterdir())):
-            raise InputError(taken) from None
+        path.parent.mkdir(parents=True, exist_ok=True)  # a parent that is a file raises FileExistsError here
     except OSError as exc:
         raise InputError(f"cannot make run directory {path}: {exc.strerror or exc}") from exc
     try:
+        try:
+            path.mkdir()
+        except FileExistsError:
+            if not (empty_ok and path.is_dir() and not any(path.iterdir())):
+                raise InputError(taken) from None
         with open(path / RUN_FILE, "x", encoding="utf-8"):
             pass
     except FileExistsError:
         raise InputError(taken) from None
+    except OSError as exc:  # no permission to make, list or write the directory
+        raise InputError(f"cannot make run directory {path}: {exc.strerror or exc}") from exc
 
 
 class RunDir:
