@@ -280,7 +280,7 @@ are common, so `--strict` does not fail on them. A code span that names a file
 under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
 `examples/`, `resources/`), alone or inside a command such as
 `python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
-have that file. A code span that is the label of a link to a URL (`[`examples/a.py`](https://...)`) is the link's text and is not checked.
+have that file. A code span that is the label of an inline link to a URL (`[`examples/a.py`](https://...)`) or of a full reference to one (`[`examples/a.py`][ref]`) is the link's text and is not checked; one in a shortcut or collapsed reference (`[`examples/a.py`]`, `[`examples/a.py`][]`) is still checked.
 Folders, flat names, placeholders (`scripts/<name>.py`)
 and repo-root paths such as `src/app.py` are not checked, and
 neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
