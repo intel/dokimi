@@ -128,10 +128,11 @@ class RunDir:
         """
         with self._lock:  # held across the save, so a finish in another thread sees the plan or none
             self._running()
-            written = save_artifact("plan", plan, self.artifact_path("plan"))
-            self._plan = copy.deepcopy(written)  # what plan.v1.json holds, whatever the caller does to its dicts
-            self._planned = dict.fromkeys(c["cell_id"] for c in self._plan["cells"])
-        return written
+            snapshot = copy.deepcopy(plan)  # before the save: a stop then finds the plan on disk and here, or neither
+            planned = dict.fromkeys(c["cell_id"] for c in snapshot["cells"])
+            written = save_artifact("plan", snapshot, self.artifact_path("plan"))
+            self._plan, self._planned = written, planned
+        return copy.deepcopy(written)  # the caller's copy shares nothing with the run's
 
     def _running(self) -> None:
         if self._record["status"] != "running":

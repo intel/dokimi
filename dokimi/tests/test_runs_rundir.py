@@ -406,6 +406,22 @@ def test_a_plan_changed_by_the_caller_after_its_save_does_not_change_the_result(
     assert _record(run.path)["status"] == "complete"
 
 
+def test_a_stop_while_the_plan_is_copied_leaves_no_plan_without_a_result(root, monkeypatch):
+    """docs/run-directories.md: a run with a plan has "result.v1.json"; a stop that lands while the plan is
+    taken in leaves no plan.v1.json behind for a result to miss."""
+    def interrupted(value):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        with open_run(root) as run:
+            monkeypatch.setattr(rundir.copy, "deepcopy", interrupted)
+            run.write_plan(_fixture("plan.v1"))
+    monkeypatch.undo()
+
+    assert sorted(os.listdir(run.path)) == ["run.json"]
+    assert _record(run.path)["artifacts"] == []
+
+
 def test_a_cell_the_plan_lacks_or_a_status_result_v1_lacks_is_refused(root):
     """result.v1: a result "names cells the plan does not have" is invalid, and a status is one of its enum."""
     run = open_run(root)
