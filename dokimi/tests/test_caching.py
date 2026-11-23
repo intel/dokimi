@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import hashlib
 
@@ -233,6 +233,24 @@ def test_a_replayed_hit_reports_the_recorded_cost_and_latency(monkeypatch, tmp_p
     assert usage.latency_sec == 1.5
     assert usage.cost_usd == 0.002
     assert usage.prompt_tokens == 11
+
+
+@pytest.mark.parametrize(("text", "written", "stored"), [
+    ("n\ud800", "n\\ud800", "n\ud800"),
+    (chr(0xD83D) + chr(0xDE00), "\U0001F600", "\U0001F600"),
+    ("café", "café", "café"),
+])
+def test_a_surrogate_in_a_completion_is_stored_as_utf8_and_read_back(monkeypatch, tmp_path, text, written, stored):
+    """A lone surrogate stays its escape and a pair is joined, so the write never raises and a hit replays the text (#989)."""
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+
+    caching.store_response("k" * 8, text, _usage())
+
+    raw = (tmp_path / ("k" * 8 + ".json")).read_bytes()
+    expected = json.dumps({"text": "@@", "usage": asdict(_usage())}, ensure_ascii=False).replace("@@", written)
+    assert raw == expected.encode("utf-8")  # no indent, no trailing newline
+    assert caching.load_response("k" * 8)[0] == stored
+    assert not caching.response_store_failed(tmp_path)
 
 
 def test_key_is_insensitive_to_dict_order_but_not_to_content():

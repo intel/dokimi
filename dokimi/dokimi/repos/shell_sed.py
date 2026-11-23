@@ -1,14 +1,14 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The files a ``sed -n`` command prints, for :func:`~dokimi.repos.cli_traces.shell_reads`: its options and script are read
+"""The files a ``sed -n`` command prints, for :func:`~dokimi.repos.shell_walk.shell_reads`: its options and script are read
 here (``-n``, ``-e``, ``-f``, an in-place edit, a script that only prints lines)."""
 
 from __future__ import annotations
 
 import re
 
-_PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?)?\s*p\s*")  # ``p``, ``5p``, ``1,80p``, ``$p``: prints, writes nothing
+_PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*)?p\s*")  # ``p``, ``5p``, ``1,80p``, ``$p``: prints, writes nothing
 
 
 class _SedScan:

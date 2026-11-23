@@ -55,8 +55,9 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar
 
-from dokimi.atomic_write import write_text_atomic
+from dokimi.atomic_write import write_bytes_atomic
 from dokimi.metrics.usage import UsageRecord
+from dokimi.process_io import json_utf8_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -449,8 +450,8 @@ def store_response(key: str, text: str, usage: UsageRecord) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         # Atomic within a directory, so concurrent arms cannot observe a
         # half-written entry; the tmp name is per pid and thread.
-        write_text_atomic(directory / f"{key}.json",
-                          json.dumps({"text": text, "usage": asdict(usage)}, ensure_ascii=False))
+        entry = json.dumps({"text": text, "usage": asdict(usage)}, ensure_ascii=False)
+        write_bytes_atomic(directory / f"{key}.json", json_utf8_bytes(entry))
     except OSError as exc:
         _failed_stores.add(directory)
         logger.warning("Could not write response cache entry: %s", exc)

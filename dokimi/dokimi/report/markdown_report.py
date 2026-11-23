@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.process_io import text_file_bytes
+
 
 def _summary_lines(summary: dict) -> list[str]:
     """Render run summary lines in a consistent fixed-precision format."""
@@ -42,7 +45,7 @@ def write_run_report(run_data: dict, path: Path) -> None:
             f"- {d['path']}: score={d['score']:.4f} cov={d['coverage']:.4f} "
             f"fresh={d['freshness_lite']:.4f} read={d['readability']:.4f} chunks={d['chunks']}"
         )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_bytes_in_place_or_atomic(path, text_file_bytes("\n".join(lines) + "\n"))
 
 
 def write_compare_report(compare_data: dict, path: Path) -> None:
@@ -91,4 +94,4 @@ def write_compare_report(compare_data: dict, path: Path) -> None:
         for m in reg["metrics"]:
             lines.append(f"{severity_emoji[m['severity']]} **{m['metric']}:** {m['delta']:+.4f} ({m['severity']})")
     
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_bytes_in_place_or_atomic(path, text_file_bytes("\n".join(lines) + "\n"))
