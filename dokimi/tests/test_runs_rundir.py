@@ -432,6 +432,10 @@ def test_a_cell_the_plan_lacks_or_a_status_result_v1_lacks_is_refused(root):
         run.record_cell("c-0000000000000000", "pass")
     with pytest.raises(ValueError, match="'passed' is not a result.v1 status"):
         run.record_cell(_ids()[0], "passed")
+    run.finish("incomplete")
+    with pytest.raises(ValueError, match="already ended: incomplete"):
+        run.record_cell(_ids()[0], "pass")  # the result is written: the cell would never reach it
+    assert {c["status"] for c in load_artifact("result", run.path / "result.v1.json")["cells"]} == {"not_run"}
 
 
 SIGNALS = [s for s in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGHUP", None)) if s]

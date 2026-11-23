@@ -143,11 +143,13 @@ class RunDir:
         """Give a planned cell its ``result.v1`` status; a later call for the cell replaces it.
 
         Raises:
-            ValueError: ``status`` is not a ``result.v1`` status, or the plan has no such cell.
+            ValueError: ``status`` is not a ``result.v1`` status, the plan has no such cell, or the
+                run has already ended (its result is written).
         """
         if status not in STATUSES:
             raise ValueError(f"{status!r} is not a result.v1 status: {', '.join(STATUSES)}")
         with self._lock:
+            self._running()
             if cell_id not in self._planned:
                 raise ValueError(f"cell {cell_id!r} is not in the plan of run {self.path}")
             self._cells[cell_id] = {"cell_id": cell_id, "status": status, "model": model, "detail": detail}
