@@ -574,23 +574,28 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
 
     if args.atom_labels and not args.atom_verdicts:
         raise InputError("--atom-labels needs --atom-verdicts: the labels are joined to its atoms")
-    shares_text = None
+    labels = None
     if args.atom_labels:
-        from dokimi.artifacts import load_artifact
-        from dokimi.novelty.atom_labels import (format_shares, label_shares, load_atom_labels,
-                                                unmatched_note)
+        from dokimi.novelty.atom_labels import load_atom_labels
 
-        record = load_artifact("novelty_atoms", Path(args.atom_verdicts))
         labels = load_atom_labels(args.atom_labels)
-        note = unmatched_note(record["atoms"], record["artifact_ref"], labels)
-        if note:
-            print(f"WARNING: {note}", file=sys.stderr)
-        shares_text = format_shares(label_shares(record["atoms"], record["artifact_ref"], labels))
     artifact, atoms, spans, saved = load_view_inputs(args.novelty, args.atoms)
     warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # The artifact carries aggregates only: without the atom verdicts a rebuilt view cannot
     # colour by outcome. Say so instead of implying the colours mean more than they do.
     outcomes, categories = load_atom_verdicts(args.atom_verdicts, artifact, atoms, saved)
+    shares_text = None
+    if labels is not None:
+        from dokimi.novelty.atom_labels import format_shares, label_shares, unmatched_note
+
+        # After load_atom_verdicts, which checked the file; an --atoms atom it has no category for
+        # (or no row) is uncategorised
+        rows = [{"id": atom.id, "category": (categories or {}).get(atom.id)} for atom in atoms]
+        ref = artifact["artifact"]["ref"]
+        note = unmatched_note(rows, ref, labels)
+        if note:
+            print(f"WARNING: {note}", file=sys.stderr)
+        shares_text = format_shares(label_shares(rows, ref, labels))
     attributions = attribute_spans(spans, atoms, outcomes=outcomes, categories=categories)
     render = render_annotated_html if args.format == "html" else render_annotated_markdown
     title = f"{artifact['artifact']['ref']} × {artifact['model']}"
