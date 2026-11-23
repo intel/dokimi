@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -229,6 +230,12 @@ def match_summary(match: dict[str, Any]) -> str:
     missed = [f"{f['field']} missing" for f in match["fields"] if f["met"] is False]
     undecided = [f"{f['field']} unknown" for f in match["fields"] if f["met"] is None]
     return ", ".join(missed + undecided) or "nothing unmet"
+
+
+def log_labelled(matches: dict[str, dict[str, Any]], log: Callable[[str], None]) -> None:
+    for task_id, match in matches.items():
+        if match["met"] is not True:
+            log(f"{task_id}: host {match['fingerprint']} is labelled, not blocked: {match_summary(match)}")
 
 
 def _match_fields(need: HostRequirements, facts: dict[str, Any]) -> list[dict[str, Any]]:

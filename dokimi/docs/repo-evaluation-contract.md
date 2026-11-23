@@ -830,6 +830,8 @@ report's `met` is false if any field is, else null if any is undecided, else tru
 are checked against the grading container's CPU view, as in §3, not against the host's collectors,
 which only enter the fingerprint. `repo report` groups rows by `host_fingerprint` and notes a
 labelled miss ("labelled, unmet: cpu_flags.avx512f"). Without the flag, cells are not run on a host that misses the requirements, but results still carry `host_fingerprint` and `repo report` still splits rows by it.
+A missing cell counts on its host’s row when one exists. Otherwise it counts on the sole row for
+its task, arm and model, or only in the batch total when there are zero or multiple such rows.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
 directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` (or, without the flag, a `$DOKIMI_REPO_CACHE`) that is not a usable directory and on a `--cache-root` or `--cache NAME=PATH` that is not one; a

@@ -89,7 +89,7 @@ from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
 from .held_guidance import held_guidance
-from .host import fingerprint_id, match_report, match_summary, probe_host, unmet, validate_tasks
+from .host import fingerprint_id, log_labelled, match_report, probe_host, unmet, validate_tasks
 from .manifest import match_glob, scratch_name
 from .process_metrics import process_metrics
 from .workspace import OVERLAY_ARM, PrepError, Task, parse_arm, prepare_workspace
@@ -466,12 +466,6 @@ def _verdicts(ctx: EvalContext, tasks: list[Task], host: dict[str, Any], label_h
     return {t.id: suite.get(t.id) or unmet(t, host) for t in tasks}, {}
 
 
-def _log_labelled(matches: dict[str, dict[str, Any]], log) -> None:
-    for task_id, match in matches.items():
-        if match["met"] is not True:
-            log(f"{task_id}: host {match['fingerprint']} is labelled, not blocked: {match_summary(match)}")
-
-
 def _run_unsupported(batch_dir: Path, name: str, cell: tuple[Task, str, AgentOptions, int], reason: str, verdict: Any,
                      host: Any, state: dict[str, Any], lock: threading.Lock, log: Callable[[str], None]) -> None:
     """Mark a cell of an unsupported task as not run, and count it."""
@@ -514,7 +508,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     probe_failed = _probe_failed(batch_dir, cells, verdicts)
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
-    _log_labelled(matches, log)
+    log_labelled(matches, log)
     _clear_unsupported_markers(batch_dir, cells, unsupported)
     lock = threading.Lock()
     # The cap counts what earlier invocations of this batch spent (under the batch lock the caller holds), and
