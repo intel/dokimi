@@ -723,3 +723,22 @@ def test_refusal_clause_names_the_value_refusal_with_litellms_reason():
     assert refusal_clause({"seed": NAME_REFUSAL}) == "seed"
     assert refusal_clause({"temperature": "only temperature=1 is supported"}) == (
         "temperature (only temperature=1 is supported)")
+
+
+def test_refusal_clause_gives_each_value_refusal_its_own_option():
+    from dokimi.llm_sampling import NAME_REFUSAL, refusal_clause
+
+    assert refusal_clause({"temperature": "only temperature=1 is supported", "seed": NAME_REFUSAL}) == (
+        "temperature (only temperature=1 is supported), seed")
+
+
+def test_a_name_refusal_error_does_not_show_the_internal_reason(monkeypatch):
+    from dokimi.eval import judge_sampling
+    from dokimi.llm_sampling import NAME_REFUSAL
+    from dokimi.llm_cli import SamplingError
+
+    monkeypatch.setattr(judge_sampling, "sampling_refusals", lambda *a, **k: {"seed": NAME_REFUSAL})
+    with pytest.raises(SamplingError) as exc:
+        judge_sampling.check_judge_sampling("anthropic", "claude-sonnet", None, 7)
+    assert "refuses seed=7 for model 'claude-sonnet'" in str(exc.value)
+    assert NAME_REFUSAL not in str(exc.value)

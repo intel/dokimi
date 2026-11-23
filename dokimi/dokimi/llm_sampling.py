@@ -64,7 +64,6 @@ def refusals_for_route(requested: dict, provider: str, *, cli: Any, load: Callab
 
 
 def refusal_clause(refused: dict[str, str]) -> str:
-    """The refused options for an error message: their names, then litellm's reason for each value refusal."""
-    names = ", ".join(refused)
-    reasons = [reason for reason in refused.values() if reason != NAME_REFUSAL]
-    return f"{names} ({'; '.join(reasons)})" if reasons else names
+    """The refused options for an error message, each with litellm's reason when it is a value refusal."""
+    return ", ".join(f"{name} ({reason})" if reason != NAME_REFUSAL else name
+                     for name, reason in refused.items())

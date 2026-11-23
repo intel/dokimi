@@ -9,6 +9,7 @@ from typing import Optional
 
 from dokimi import llm_cli
 from dokimi.llm import sampling_refusals
+from dokimi.llm_sampling import NAME_REFUSAL
 
 
 def check_judge_sampling(provider: str, model: Optional[str], temperature: Optional[float],
@@ -26,7 +27,9 @@ def check_judge_sampling(provider: str, model: Optional[str], temperature: Optio
     if bad:
         requested = {"temperature": temperature, "seed": seed}
         refused = ", ".join(f"{name}={requested[name]}" for name in bad)
+        reasons = [reason for reason in bad.values() if reason != NAME_REFUSAL]
+        why = "; ".join(reasons) or "the provider does not take this option"
         raise llm_cli.SamplingError(
             f"{provider} refuses {refused} for model '{model}'. "
-            f"{'; '.join(bad.values())}. "
+            f"{why}. "
             "Use a supported value or omit the corresponding judge option to use the provider default.")
