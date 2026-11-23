@@ -29,7 +29,7 @@ def has_late_frontmatter(lines: list[str]) -> bool:
 
 
 # A YAML key at the start of a line: ``title: x``, ``  name: x``, ``"name": x``, ``{name: x``, ``- name: x``.
-YAML_KEY_RE = re.compile(r"""\s*(?:-\s+)?[{\[]?\s*["']?[\w][\w.-]*["']?\s*:""")
+YAML_KEY_RE = re.compile(r"""\s*(?:-\s+)?(?:[{\[]\s*)?["']?[\w][\w.-]*["']?\s*:""")
 
 
 FLOW_OPENER_RE = re.compile(r"[\[{](?![^\]\n]*\](?:\(|\[|:))")  # a flow collection, not a link ``[text](url)``, ``[text][ref]`` or ``[ref]: url``

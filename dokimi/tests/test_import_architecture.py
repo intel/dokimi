@@ -30,6 +30,7 @@ cannot pass silently.
 from __future__ import annotations
 
 import ast
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -80,6 +81,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
         "dokimi.atomic_write", "dokimi.provenance", "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
         "dokimi.judge_rule", "dokimi.text_spans",
+        "dokimi.code_spans",
         # Token/cost record the LLM chokepoint fills; it lives under metrics/ but
         # depends on nothing and is read by every LLM caller.
         "dokimi.metrics.usage",
@@ -164,11 +166,14 @@ def _module_name(path: Path, root: Path) -> str:
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
 
 
-def _typing_guard_names(tree: ast.Module) -> tuple[set[str], set[str]]:
-    """Names bound to ``TYPE_CHECKING`` and to the ``typing`` module in this file."""
+_ImportNode = ast.Import | ast.ImportFrom
+
+
+def _typing_guard_names(imports: Iterable[_ImportNode]) -> tuple[set[str], set[str]]:
+    """Names bound to ``TYPE_CHECKING`` and to the ``typing`` module by these imports."""
     flags: set[str] = set()
     modules: set[str] = set()
-    for node in ast.walk(tree):
+    for node in imports:
         if isinstance(node, ast.ImportFrom) and node.module == "typing" and not node.level:
             flags |= {a.asname or a.name for a in node.names if a.name == "TYPE_CHECKING"}
         elif isinstance(node, ast.Import):
@@ -183,20 +188,29 @@ def _guarded_by_type_checking(test: ast.expr, flags: set[str], modules: set[str]
             and isinstance(test.value, ast.Name) and test.value.id in modules)
 
 
-def _kinds(tree: ast.Module) -> dict[int, str]:
-    """``id(node) -> kind`` for every import that is not at module level."""
-    kinds: dict[int, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for inner in ast.walk(node):
-                kinds.setdefault(id(inner), LAZY)
-    flags, modules = _typing_guard_names(tree)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.If) and _guarded_by_type_checking(node.test, flags, modules):
-            for stmt in node.body:
-                for inner in ast.walk(stmt):
-                    kinds[id(inner)] = TYPING
-    return kinds
+def _import_kinds(tree: ast.Module) -> list[tuple[_ImportNode, str]]:
+    """Every import of ``tree`` with its kind, in the order ``ast.walk`` meets them.
+
+    One walk of the tree: an import inside a function is lazy, one in the body of an ``if TYPE_CHECKING:``
+    (at any depth) is type-only, which wins over lazy, and any other is a module-level import.
+    """
+    found: list[tuple[_ImportNode, bool, tuple[ast.expr, ...]]] = []
+    queue: deque[tuple[ast.AST, bool, tuple[ast.expr, ...]]] = deque([(tree, False, ())])
+    while queue:
+        node, lazy, guards = queue.popleft()
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            found.append((node, lazy, guards))
+            continue
+        lazy = lazy or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        if isinstance(node, ast.If):
+            queue.extend((stmt, lazy, (*guards, node.test)) for stmt in node.body)
+            queue.extend((stmt, lazy, guards) for stmt in node.orelse)
+        else:  # an import is a statement: no expression holds one, so none is entered
+            queue.extend((child, lazy, guards) for child in ast.iter_child_nodes(node)
+                         if not isinstance(child, ast.expr))
+    flags, modules = _typing_guard_names(node for node, _, _ in found)
+    return [(node, TYPING if any(_guarded_by_type_checking(g, flags, modules) for g in guards)
+             else LAZY if lazy else MODULE) for node, lazy, guards in found]
 
 
 def _owner_module(name: str, modules: frozenset[str]) -> str | None:
@@ -232,13 +246,9 @@ def build_imports(root: Path, package: str = PACKAGE) -> Imports:
     external: dict[str, dict[str, int]] = {}
     for mod, tree in trees.items():
         here = mod if paths[mod].name == "__init__.py" else mod.rpartition(".")[0]
-        kinds = _kinds(tree)
         out = edges.setdefault(mod, {})
         ext = external.setdefault(mod, {})
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.Import, ast.ImportFrom)):
-                continue
-            kind = kinds.get(id(node), MODULE)
+        for node, kind in _import_kinds(tree):
             for target in _import_targets(node, here, modules):
                 if target != package and not target.startswith(package + "."):
                     ext.setdefault(target.partition(".")[0], node.lineno)
@@ -418,9 +428,29 @@ def spawn_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
 EXIT_BASELINE: dict[str, tuple[int, str]] = {}
 
 
+def _may_end_process(tree: ast.Module) -> bool:
+    """Whether any name in ``tree`` contains ``exit`` or ``quit``, in any case.
+
+    Every exit site names ``exit``, ``quit``, ``_exit``, ``usage_exit`` or ``SystemExit``, directly or in
+    the import or assignment that aliases it, so a module without such a name has none and is not scanned.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            name = node.id
+        elif isinstance(node, ast.Attribute):
+            name = node.attr
+        elif isinstance(node, ast.alias):
+            name = node.name
+        else:
+            continue
+        if "exit" in name.lower() or "quit" in name.lower():
+            return True
+    return False
+
+
 def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
                   helper: str = EXIT_HELPER) -> list[str]:
-    counts = {m: exit_sites(t) for m, t in imports.trees.items()
+    counts = {m: exit_sites(t) if _may_end_process(t) else [] for m, t in imports.trees.items()
               if layer_of(m) != "frontend" and m != helper}
     problems = []
     for mod, lines in sorted(counts.items()):
@@ -598,6 +628,28 @@ def test_stronger_edge_kind_wins_for_duplicate_imports(tmp_path):
         imports = _package(root, {"dokimi/a.py": a_src, "dokimi/b.py": "from dokimi import a\n"})
         assert imports.edges["dokimi.a"]["dokimi.b"][0] == LAZY
         assert strongly_connected(imports) == [frozenset({"dokimi.a", "dokimi.b"})]
+
+
+def test_an_import_is_module_lazy_or_type_only_by_where_it_sits(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": (
+            "from typing import TYPE_CHECKING\n"
+            "from dokimi import m1\n"
+            "try:\n    from dokimi import m2\nexcept ImportError:\n    from dokimi import m3\n"
+            "def f(x=1):\n    from dokimi import m4\n"
+            "    if TYPE_CHECKING:\n        from dokimi import m5\n"
+            "    else:\n        from dokimi import m6\n"
+            "    with open(x):\n        import dokimi.m7\n"
+            "class C:\n    def g(self):\n        def h():\n            from dokimi import m8\n"
+            "if TYPE_CHECKING:\n    from dokimi import m9\n"
+            "    def k():\n        from dokimi import m10\n"
+            "else:\n    from dokimi import m11\n"
+            "async def j():\n    from dokimi import m12\n"),
+        **{f"dokimi/m{i}.py": "" for i in range(1, 13)},
+    })
+    kinds = {dst.removeprefix("dokimi."): kind for dst, (kind, _) in imports.edges["dokimi.a"].items()}
+    assert kinds == {"m1": MODULE, "m2": MODULE, "m3": MODULE, "m4": LAZY, "m5": TYPING, "m6": LAZY,
+                     "m7": LAZY, "m8": LAZY, "m9": TYPING, "m10": TYPING, "m11": MODULE, "m12": LAZY}
 
 
 def test_a_stale_layer_or_banned_baseline_entry_is_reported():

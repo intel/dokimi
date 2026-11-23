@@ -411,6 +411,8 @@ Top level: `artifact_ref`, `ref_digest` (the artifact revision), `model`, `with_
 
 `skill novelty view --novelty novelty.json --atoms novelty.atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. Pass the `novelty.atoms.json` of the same run: atom ids hash the statement, so an `atoms.json` from a separate `skill novelty atoms` call holds the same ids only when the extractor worded every atom the same. It exits 2 when the file's `artifact_ref`, `ref_digest`, `model`, `run_id` or `analysis_digest` differs from the `--novelty` artifact's (a `novelty.json` with no `run_id` differs from a file that has one; `analysis_digest` is the digest of the `novelty.json` payload without `schema_version`, `run_id` and `dokimi_version`, so two analyses that share a `DOKIMI_RUN_ID` still differ), or when it names an atom `--atoms` does not hold or cites other `span_ids` for an atom than `--atoms` does (an atoms file extracted again from an edited source keeps the ids and moves the spans). It also exits 2 when the `--atoms` file's `bundle.measured_digest` differs from the `--novelty` artifact's `ref_digest`; an atoms file that records no such digest is not checked against it.
 
+Add `--atom-labels labels.csv` (it needs `--atom-verdicts`) to see the known and new shares per label of your own. The file has one row per atom: `skill` (the artifact ref, its `skill:` prefix optional), `atom_id` (the `id` of an atom of `--atoms`, as in the verdicts file) and `label`; it is JSON lines, or CSV with a header when the name ends in `.csv`. An atom with no label row is counted under `unlabelled`, and labels that match no atom of the run are counted in a `WARNING`. `known` is a category starting `known_`, `new` one starting `novel_`, `other` the rest (`scaffolding`, `harmful_conflicting`); the shares are over the atoms that have a category, and `uncat.` counts the atoms with none: the probed atoms that got no category and, in a capped run, the atoms of `--atoms` outside the sample (a label on one of those raises no warning). The table is printed after the view is saved; nothing is written back to the artifacts.
+
 ### 2. Span attribution — where in the file
 
 Each span of the artifact is annotated with the atoms it carries, their outcome, and its token cost,
@@ -979,7 +981,9 @@ more per call as well as in calls. Before the first call the run prints that cou
 (`all-vs-all: --model makes N model calls, one per query and repeat, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
-fewer calls than the printed count.
+fewer calls than the printed count. The response cache is opt-in: without `DOKIMI_RESPONSE_CACHE`
+set to a writable directory nothing is stored, and a rerun pays for every call again. Set it for
+research runs and for any run you may repeat. `--cache-dir` keeps only the retention verdicts.
 
 **A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary; with AWS: "Unable to locate credentials", a missing config profile or an expired SSO session, whichever class litellm wraps it in) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries. `skill novelty atoms`, `probe` and `analyze` and `skill shorten` stop the same way at the first such error in an atom extraction call, the faithfulness check, a probe wording, an answer, a grade, a value or conflict batch or a retention adjudication, and keep what they paid for as they do at the cap, with `"reason": "permanent_error"`; a refusal, an unparseable reply or a request one item makes too long is still one failed item.
 
@@ -1536,7 +1540,8 @@ rewrites one file, so with a bundle-derived atom set it scores only the entry po
 and says so.
 
 And the retention oracle runs retrieval → NLI locally, escalating to an LLM only for the
-ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
+ambiguous band, with a disk memo of its verdicts (`--cache-dir`, keyed on (atom, text); the
+response cache is `DOKIMI_RESPONSE_CACHE`, also opt-in). Full sweeps stay opt-in
 (`--all-atoms`).
 
 The cache key carries a version (`retention-cache-v6`). Entries written before failed

@@ -21,8 +21,8 @@ from pathlib import Path
 
 from dokimi import cli_flags
 from dokimi.commands.catalog_scan import (
-    ROW_STATES, is_plain_markdown, listing_failed, listing_total, not_checked, row_ignore, ok_text, plain_note, print_skill_row, skill_row, skipped_note,
-    unrestricted_and_risky,
+    ROW_STATES, fail_on_reason, fails_on_finding, is_plain_markdown, listing_failed, listing_total, not_checked, row_ignore,
+    ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
 )
 from dokimi.utils import InputError
 
@@ -33,6 +33,14 @@ def _print_strict_reasons(rows: list, strict: bool) -> None:
 
     for row in rows if strict else []:
         reason = catalog_scan.strict_reason(row)
+        if reason is not None:
+            print(reason)
+
+
+def _print_fail_on_reasons(rows: list, fail_on: frozenset[str]) -> None:
+    """Print the ``fail-on-code:`` line of each row with a finding selected by --fail-on-code (#942)."""
+    for row in rows:
+        reason = fail_on_reason(row, fail_on)
         if reason is not None:
             print(reason)
 
@@ -61,6 +69,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     unchecked = 0
     failed = False
     ignore = row_ignore(args)
+    fail_on = frozenset(args.fail_on or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
         if only is not None and skill.name != only:
             continue
@@ -69,10 +78,11 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         plain += is_plain_markdown(row)
         unchecked += not_checked(row)
         report["skills"].append(row)
-        # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
+        # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict;
+        # a finding selected by --fail-on-code (#942) fails whatever its level.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
         load_failed = row["error"] is not None  # None for a skill_format exemption, decided before --ignore (skill_row)
-        if load_failed or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
+        if load_failed or unreadable or fails_on_finding(row, fail_on) or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
@@ -84,6 +94,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         for row in report["skills"]:
             print_skill_row(row)
         _print_strict_reasons(report["skills"], args.strict)
+        _print_fail_on_reasons(report["skills"], frozenset(args.fail_on or ()))
         _print_online(online)
         print()
     report["listing"] = {"chars": listing_total(report["skills"])}
@@ -182,13 +193,37 @@ def _refuse_json_conflicts(args: argparse.Namespace) -> None:
         raise InputError("--jsonl writes one row per skill to a file, so --json would carry none; drop one of them")
 
 
+def _refuse_unknown_codes(args: argparse.Namespace, codes: tuple) -> None:
+    """Raise InputError when --ignore or --fail-on-code (#942) names a code that is not a finding code."""
+    for flag, given in (("--ignore", args.ignore), ("--fail-on-code", args.fail_on)):
+        unknown = sorted(set(given or ()) - set(codes))
+        if unknown:
+            raise InputError(f"{flag} {', '.join(unknown)}: not a finding code; the codes are {', '.join(codes)}")
+
+
+# Codes only the whole-catalog scan reports, and the codes only --online reports: a gate on one the scan
+# does not check would read "not checked" as a pass.
+CROSS_CATALOG_CODES = ("description-near-duplicate", "duplicate", "mirror-drift", "name-conflict")
+ONLINE_CODES = ("link-dead", "package-not-found")
+
+
+def _refuse_unchecked_fail_on(args: argparse.Namespace) -> None:
+    """Raise InputError when --fail-on-code names a code this scan mode never reports."""
+    given = set(args.fail_on or ())
+    cross = sorted(given & set(CROSS_CATALOG_CODES))
+    if cross and args.per_skill:
+        raise InputError(f"--fail-on-code {', '.join(cross)}: --per-skill does not run the cross-catalog checks, "
+                         "so the code is never reported; drop --per-skill")
+    online = sorted(given & set(ONLINE_CODES))
+    if online and not args.online:
+        raise InputError(f"--fail-on-code {', '.join(online)}: only --online reports it; add --online")
+
+
 def _check_scan_flags(args: argparse.Namespace) -> None:
     """Raise InputError on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
     from dokimi.external.validate import FINDING_CODES
 
-    unknown = sorted(set(args.ignore or ()) - set(FINDING_CODES))
-    if unknown:
-        raise InputError(f"--ignore {', '.join(unknown)}: not a finding code; the codes are {', '.join(FINDING_CODES)}")
+    _refuse_unknown_codes(args, FINDING_CODES)
     if "frontmatter-parse" in (args.ignore or ()):
         # The skill did not load, so its state is error whatever is ignored: refuse rather than hide the cause.
         raise InputError("--ignore frontmatter-parse: a skill whose frontmatter is not valid YAML does not load, "
@@ -210,9 +245,12 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         # Each worker would open its own connections and cache, and --resume would keep rows that no network check made.
         raise InputError("--online checks the whole catalog at once and does not combine with --per-skill")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
-                                 or args.jobs is not None or args.online or args.ignore or args.listing_budget):
-        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --concurrency, --resume, --online and "
+                                 or args.jobs is not None or args.online or args.ignore or args.fail_on
+                                 or args.listing_budget):
+        # --fail-on-code (#942) reads skill findings, so like --ignore it has no meaning for tasks.
+        raise InputError("--per-skill, --skip-nested, --ignore, --fail-on-code, --jsonl, --concurrency, --resume, --online and "
                          "--listing-budget apply to skills; drop them or use --kind skills|all")
+    _refuse_unchecked_fail_on(args)
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
@@ -255,14 +293,17 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
     """The cli_output.v1 document of `catalog check --json`: one subject per skill and per task, with its findings.
 
     A subject's verdict is ``fail`` when it alone fails the exit: a skill that does not load, or with
-    --strict one in ``error`` or granting unrestricted Bash with a risky command; else ``pass``.
+    --strict one in ``error`` or granting unrestricted Bash with a risky command, or any skill with a
+    finding selected by --fail-on-code; else ``pass``.
     """
     from dokimi import cli_output
 
     subjects = []
+    fail_on = frozenset(args.fail_on or ())
     for row in report["skills"]:
         file = f"{row['relpath']}/SKILL.md" if row.get("relpath") else row.get("path")
         bad = bool(row["error"]) or any(f["code"] == "unreadable" for f in row["findings"]) or (
+            fails_on_finding(row, fail_on)) or (
             args.strict and (row["state"] == "error" or unrestricted_and_risky(row)))
         findings = [cli_output.finding(f["level"], f["code"], f["message"], file, script=f.get("script")) for f in row["findings"]]
         if row["error"]:
@@ -278,13 +319,14 @@ def _emit_check(args: argparse.Namespace, report: dict, failed: bool) -> None:
         # The cap is on the whole listing, not on one skill: its own subject, so the warning and, with --strict, the
         # failure have a name (#966).
         message = f"the skill listing is {listing['chars']} characters, over the --listing-budget of {listing['budget']}"
-        subjects.append({"subject": "catalog:listing", "verdict": "fail" if args.strict else "pass",
+        subjects.append({"subject": "catalog:listing", "verdict": "fail" if args.strict or "listing-over-budget" in (args.fail_on or ()) else "pass",
                          "findings": [cli_output.finding("warn", "listing-over-budget", message, None)]})
     counts = {state: sum(r["state"] == state for r in report["skills"]) for state in ROW_STATES}
     reason = None
     if failed:
         n = sum(s["verdict"] == "fail" for s in subjects)
-        reason = f"{n} subject(s) fail" + (" under --strict" if args.strict else "") if n else "nothing to scan"
+        gates = [flag for flag, on in (("--strict", args.strict), ("--fail-on-code", args.fail_on)) if on]
+        reason = f"{n} subject(s) fail" + (f" under {' and '.join(gates)}" if gates else "") if n else "nothing to scan"
     cli_output.emit_leaf("catalog check", report, verdict="fail" if failed else "pass", reason=reason,
                          summary={"skills": counts, "tasks": len(report["tasks"])}, subjects=subjects)
 
@@ -571,7 +613,7 @@ def register(sub, positive_int, eval_sub) -> None:
     scan_p.add_argument(
         "--per-skill", action="store_true",
         help="Review each skill alone: the cross-catalog checks (duplicate, name-conflict, "
-             "mirror-drift, description-near-duplicate) do not fire between skills",
+             "mirror-drift, description-near-duplicate, similar-skills-exist) do not fire between skills",
     )
     scan_p.add_argument(
         "--skip-nested", action="store_true",
@@ -582,6 +624,11 @@ def register(sub, positive_int, eval_sub) -> None:
         "--ignore", action="append", default=None, metavar="CODE",
         help="Leave the findings with this code out of the scan: they are not printed, and they "
              "do not set the state or --strict's exit. Repeatable; an unknown code is a usage error",
+    )
+    scan_p.add_argument(
+        "--fail-on-code", dest="fail_on", action="append", default=None, metavar="CODE",
+        help="Exit 1 when a finding with this code is left after --ignore, whatever its level. "
+             "Repeatable; an unknown code is a usage error",
     )
     scan_p.add_argument(
         "--jsonl", metavar="PATH",
@@ -654,6 +701,7 @@ def register(sub, positive_int, eval_sub) -> None:
     ts_p.add_argument("--out", required=True, help="Output JSON path")
     ts_p.set_defaults(func=cmd_catalog_trigger_set)
 
-    from dokimi.commands import catalog_probe
+    from dokimi.commands import catalog_probe, catalog_provenance
 
     catalog_probe.register(catalog_sub, positive_int)
+    catalog_provenance.register(catalog_sub)
