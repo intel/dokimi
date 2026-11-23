@@ -18,7 +18,7 @@ from dokimi.repos.arms import tree_sha256
 def _skill(tmp_path: Path) -> Path:
     skill = tmp_path / "skill"
     (skill / "sub" / "deeper").mkdir(parents=True)
-    (skill / "SKILL.md").write_text("skill\n", encoding="utf-8")
+    (skill / "SKILL.md").write_bytes(b"skill\n")
     (skill / "sub" / "b.txt").write_text("b", encoding="utf-8")
     (skill / "sub" / "deeper" / "c.txt").write_text("c", encoding="utf-8")
     return skill
