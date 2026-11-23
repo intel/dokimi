@@ -87,7 +87,8 @@ itself). The handler kills the child process groups, then stops the run's
 block (`dokimi.process_hooks`); the record is written, and the signal is
 delivered again, so the process exits as it did before (status 143 for SIGTERM
 under the CLI). Only a run opened on the main thread is stopped this way, and a
-signal the process ignores stays ignored.
+signal the process ignores stays ignored. A run a signal stopped is recorded
+`terminated` even when code in its block caught the stop.
 
 ## In code
 

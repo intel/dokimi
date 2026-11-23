@@ -192,7 +192,10 @@ class RunDir:
             process_hooks.remove(self._on_signal)
         try:
             if self.status == "running":
-                if exc is None:
+                if self._signal is not None:  # also when the block caught the ShuttingDown
+                    self._end("incomplete", {"reason": "terminated",
+                                             "detail": f"{signal.Signals(self._signal).name}: the run stops"})
+                elif exc is None:
                     self.finish("complete" if self._measured() else "incomplete")
                 else:
                     self._end(*_ending(exc))

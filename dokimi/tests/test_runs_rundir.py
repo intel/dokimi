@@ -305,6 +305,25 @@ def test_a_signal_is_recorded_through_the_process_handler_then_delivered_again(r
     assert [c["status"] for c in cells] == ["pass", *["not_run"] * 5]
 
 
+@pytest.mark.parametrize("measured", [True, False])
+def test_a_signal_the_block_caught_still_ends_the_run_terminated(root, handlers, measured):
+    """docs/run-directories.md: a run that gets SIGTERM is "incomplete", "terminated", even when code in the
+    block catches the ShuttingDown and the block ends normally."""
+    signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    process.install_signal_handlers([signal.SIGTERM])
+    with open_run(root, name="n") as run:
+        run.write_plan(_fixture("plan.v1"))
+        for cid in _ids() if measured else _ids()[:1]:
+            run.record_cell(cid, "pass")
+        try:
+            signal.raise_signal(signal.SIGTERM)
+        except process.ShuttingDown:
+            pass
+    record = _record(run.path)
+    assert (record["status"], record["stop"]) == ("incomplete", {"reason": "terminated",
+                                                                 "detail": "SIGTERM: the run stops"})
+
+
 def test_a_signal_while_a_child_is_being_registered_stops_the_run_once_it_is(root, handlers, monkeypatch):
     """dokimi.process defers a signal that lands inside _spawn until the child is in _live, so the
     child is killed; the run's stop waits with it."""
