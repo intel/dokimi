@@ -69,8 +69,9 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   and counts what it skipped, `cli.py runs show` checks one against its schema
   or lists one run. No LLM call.
 - [run-directories.md](run-directories.md) — a run's own directory: `run.json`,
-  its plan, its result and its artifacts together, and the result a stopped run
-  (signal, Ctrl-C, spend cap) still leaves. No command writes one yet.
+  its plan, its result and its artifacts together, and what a stopped run
+  (signal, Ctrl-C, spend cap) still leaves: `run.json` says `incomplete`, and a
+  run with a plan has its result. No command writes one yet.
 - [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
   preflight, run, then pin the question set so runs stay comparable.
 - [benchmarking-and-comparison.md](benchmarking-and-comparison.md) — how to
