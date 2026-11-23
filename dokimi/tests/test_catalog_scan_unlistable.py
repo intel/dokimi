@@ -8,13 +8,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from dokimi.commands.catalog_scan import skill_dir_digest
+from dokimi import __version__
+from dokimi.commands.catalog_scan import _load_prior, skill_dir_digest
 from dokimi.utils import tree_digest
 
 
@@ -41,6 +43,17 @@ def test_a_skill_with_a_subdirectory_that_cannot_be_listed_has_no_digest(tmp_pat
     finally:
         (skill / "sub").chmod(0o700)
     assert skill_dir_digest(_entry(skill)) == complete
+
+
+@pytest.mark.parametrize(("digest", "kept"), [(None, False), ("abc", True)])
+def test_resume_keeps_a_prior_row_only_when_its_digest_is_a_digest(tmp_path: Path, digest: str | None, kept: bool):
+    row = {"name": "skill", "relpath": "skill", "state": "ok", "error": None, "findings": [], "content_sha256": None,
+           "skill_sha256": digest, "listing_chars": 1, "listing_name": "skill", "ignored": [],
+           "dokimi_version": __version__}
+    jsonl = tmp_path / "scan.jsonl"
+    jsonl.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    rows, dirty = _load_prior(jsonl, {"skill": digest}, frozenset())
+    assert (rows == [row], dirty) == (kept, not kept)
 
 
 def test_a_listable_skill_digests_as_the_non_strict_walk_did(tmp_path: Path):
