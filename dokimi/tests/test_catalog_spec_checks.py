@@ -47,6 +47,7 @@ def _message(root, name: str, code: str) -> str:
 
 # ---- frontmatter-unknown-key -------------------------------------------------------
 
+# Test-narrowed: test_unknown_frontmatter_key_is_a_warn_that_names_the_key asserted the warn level; this asserts the note.
 def test_unknown_frontmatter_key_is_a_note_that_names_the_key(tmp_path):
     _skill(tmp_path, "color-skill", extra="color: red\n")
 
