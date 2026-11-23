@@ -704,3 +704,22 @@ def test_unparseable_replies_are_never_cached_end_to_end(cache_dir, fake_llm):
     assert not list(cache_dir.glob("*.json"))
     assert ask_parsed(llm.ask, "p", lambda t: t if t.startswith("{") else None)[0] == "{}"
     assert len(fake_llm.requests) == 4  # a live call, not a replay
+
+
+def test_sampling_refusals_never_block_when_litellm_will_not_load(monkeypatch):
+    # litellm missing or broken is "the check cannot run", as an unknown model is: no refusal, no raise.
+    from dokimi import llm
+
+    def will_not_load():
+        raise ImportError("litellm is not installed")
+
+    monkeypatch.setattr(llm, "_litellm", will_not_load)
+    assert llm.sampling_refusals("m", "openai", 0.0, None) == {}
+
+
+def test_refusal_clause_names_the_value_refusal_with_litellms_reason():
+    from dokimi.llm_sampling import NAME_REFUSAL, refusal_clause
+
+    assert refusal_clause({"seed": NAME_REFUSAL}) == "seed"
+    assert refusal_clause({"temperature": "only temperature=1 is supported"}) == (
+        "temperature (only temperature=1 is supported)")

@@ -115,8 +115,8 @@ def test_run_matrix_checks_every_cell_before_the_first_is_paid_for(monkeypatch, 
     from dokimi.eval.arms_run import run_matrix
     from dokimi.eval.cells import MatrixCellDescriptor
 
-    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params",
-                        lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
+    monkeypatch.setattr("dokimi.llm.sampling_refusals",
+                        lambda model, provider, **kw: {"seed": "parameter unsupported"} if model == "m-bad" else {})
     monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: None)
     cells = [MatrixCellDescriptor("ok", "m-ok", "openai", "arms-runner"),
              MatrixCellDescriptor("bad", "m-bad", "openai", "arms-runner")]
@@ -133,8 +133,8 @@ def test_check_matrix_names_the_first_cell_whose_sampling_the_provider_refuses(m
     from dokimi.eval.arms_run import check_matrix
     from dokimi.eval.cells import MatrixCellDescriptor
 
-    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params",
-                        lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
+    monkeypatch.setattr("dokimi.llm.sampling_refusals",
+                        lambda model, provider, **kw: {"seed": "parameter unsupported"} if model == "m-bad" else {})
     monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: None)
     cells = [MatrixCellDescriptor("ok", "m-ok", "openai", "arms-runner"),
              MatrixCellDescriptor("bad", "m-bad", "openai", "arms-runner")]
@@ -167,3 +167,16 @@ def test_an_unresolved_doc_library_id_is_logged_and_the_name_is_used(monkeypatch
         lib_id = arms_run.resolve_doc_library_id([DocTreatment(object(), name="docs", top_k=3)], "react")
     assert lib_id == "react"
     assert [r.exc_info is not None for r in caplog.records if "not resolved" in r.getMessage()] == [True]
+
+
+def test_a_value_refusal_names_litellms_reason_in_the_answer_preflight(monkeypatch):
+    from dokimi.eval.arms_run import check_sampling_support
+
+    reason = "us.anthropic.claude-haiku-5-5 does not support temperature=0.0. Only temperature=1 is supported"
+    monkeypatch.setattr("dokimi.llm.sampling_refusals", lambda *a, **k: {"temperature": reason})
+    cfg = ArmsRunConfig(product="demo", model="us.anthropic.claude-haiku-5-5",
+                        provider="amazon-bedrock", temperature=0.0)
+
+    with pytest.raises(ValueError, match=r"does not support temperature \(us\.anthropic\.claude-haiku-5-5 "
+                                         r"does not support temperature=0\.0"):
+        check_sampling_support(cfg)

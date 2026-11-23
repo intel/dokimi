@@ -9,7 +9,7 @@ without an import cycle.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 
 def refusal_reason(litellm: Any, resolved: str, provider: str, name: str, value: Any) -> str | None:
@@ -34,16 +34,37 @@ def refusal_reason(litellm: Any, resolved: str, provider: str, name: str, value:
     return None
 
 
-def provider_refusals(litellm: Any, resolved: str, provider: str, requested: dict[str, Any]) -> dict[str, str]:
-    """Return the reason for each sampling option refused on this route."""
-    try:
-        supported = litellm.get_supported_openai_params(model=resolved) or []
-    except Exception:  # noqa: BLE001 - an unknown model does not block the run
+NAME_REFUSAL = "parameter unsupported"
+
+
+def refusals_for_route(requested: dict, provider: str, *, cli: Any, load: Callable[[], Any],
+                       resolve: Callable[[], str]) -> dict[str, str]:
+    """Each requested option the route refuses, with its reason; ``load`` and ``resolve`` run inside the check.
+
+    A CLI backend takes only the names it lists. Anything that stops the check from running (litellm
+    will not load, an unknown model) refuses nothing.
+    """
+    if not requested:
         return {}
-    refusals = {}
+    if cli is not None:
+        return {name: NAME_REFUSAL for name in requested if name not in cli.supports}
+    try:
+        litellm = load()
+        resolved = resolve()
+        supported = litellm.get_supported_openai_params(model=resolved) or []
+    except Exception:  # noqa: BLE001 - an unknown model, or litellm that will not load, does not block the run
+        return {}
+    refused = {}
     for name, value in requested.items():
         if supported and name not in supported:
-            refusals[name] = "parameter unsupported"
+            refused[name] = NAME_REFUSAL
         elif reason := refusal_reason(litellm, resolved, provider, name, value):
-            refusals[name] = reason
-    return refusals
+            refused[name] = reason
+    return refused
+
+
+def refusal_clause(refused: dict[str, str]) -> str:
+    """The refused options for an error message: their names, then litellm's reason for each value refusal."""
+    names = ", ".join(refused)
+    reasons = [reason for reason in refused.values() if reason != NAME_REFUSAL]
+    return f"{names} ({'; '.join(reasons)})" if reasons else names

@@ -511,8 +511,8 @@ def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
 
-    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params",
-                        lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
+    monkeypatch.setattr("dokimi.llm.sampling_refusals",
+                        lambda model, provider, **kw: {"seed": "parameter unsupported"} if model == "m-bad" else {})
     monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
     ran = []
     monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **kw: ran.append(1))

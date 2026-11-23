@@ -208,7 +208,7 @@ def test_a_judge_whose_sampling_probe_fails_exits_1_before_any_judgement(tmp_pat
 
 def test_a_judge_the_provider_table_refuses_exits_2_with_no_call(tmp_path, routed, monkeypatch, capsys):
     # A refusal from the static table is an input refusal: no request is sent, so exit 2.
-    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params", lambda *a, **k: ["temperature"])
+    monkeypatch.setattr("dokimi.llm.sampling_refusals", lambda *a, **k: {"temperature": "parameter unsupported"})
     with refusal() as exc:
         _run([*_reliability_argv("cross-judge", tmp_path, tmp_path / "out.json"), "--judge-temperature", "0"])
     assert exc.code == 2

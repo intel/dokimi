@@ -225,14 +225,12 @@ def unsupported_sampling_params(
 
 
 def sampling_refusals(
-    model: str, provider: str, temperature: Optional[float], seed: Optional[int],
+    model: str, provider: str, temperature: Optional[float] = None, seed: Optional[int] = None,
 ) -> dict[str, str]:
-    requested = _sampling_kwargs(temperature=temperature, seed=seed)
-    if not requested:
-        return {}
-    if (cli := llm_cli.backend(_canonical(provider))) is not None:
-        return {n: "parameter unsupported" for n in requested if n not in cli.supports}
-    return llm_sampling.provider_refusals(_litellm(), resolve_model(model, provider), provider, requested)
+    """Return the reason for each refused sampling option."""
+    return llm_sampling.refusals_for_route(
+        _sampling_kwargs(temperature=temperature, seed=seed), provider,
+        cli=llm_cli.backend(_canonical(provider)), load=_litellm, resolve=lambda: resolve_model(model, provider))
 
 
 # ── Retry ─────────────────────────────────────────────────────────────────────
