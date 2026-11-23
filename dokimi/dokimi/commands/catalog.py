@@ -697,6 +697,7 @@ def register(sub, positive_int, eval_sub) -> None:
     ts_p.add_argument("--out", required=True, help="Output JSON path")
     ts_p.set_defaults(func=cmd_catalog_trigger_set)
 
-    from dokimi.commands import catalog_probe
+    from dokimi.commands import catalog_probe, catalog_provenance
 
     catalog_probe.register(catalog_sub, positive_int)
+    catalog_provenance.register(catalog_sub)
