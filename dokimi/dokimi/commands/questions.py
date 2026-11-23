@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import errno
 import hashlib
 import json
 import sys
@@ -282,26 +281,6 @@ def print_validation_stats(stats: Dict[str, Any]) -> None:
         print(f"  ⚠ Deduplication did NOT run{reason} — duplicates were kept")
 
 
-def _require_local_doc_source(doc_source: str) -> None:
-    """#1086: a `local:<path>` or `okf:<path>` source whose path is missing is an input error, not default seed topics."""
-    prefix = next((p for p in ("local:", "okf:") if doc_source.startswith(p)), None)
-    if prefix is None:
-        return
-    local_path = doc_source[len(prefix):]
-    path = Path(local_path)
-    try:
-        found = path.exists()
-        if not found:
-            path.stat()  # Python 3.14 `exists` answers False for any OSError; `stat` raises the real one
-    except (ValueError, OSError) as exc:
-        if not isinstance(exc, ValueError) and exc.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG):
-            raise InputError(f"--doc-source {doc_source}: cannot read {local_path}: {exc}") from exc
-        found = False
-    if not found:
-        # Issue #1086: exit 2 with the path named, not exit 0 with default seed topics.
-        raise InputError(f"--doc-source {doc_source}: path does not exist: {local_path}")
-
-
 def cmd_questions_generate(args: argparse.Namespace) -> None:
     """Generate questions from personas and seed topics."""
     from dokimi.commands.answers import _load_runtime_config
@@ -330,11 +309,12 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
         doc_source = getattr(args, "doc_source", "context7")
         from dokimi.mcp.factory import (
             create_doc_source_client,
+            require_local_doc_source,
             resolve_library_id_for_product,
         )
         mcp_client = create_doc_source_client(doc_source)
         # #1086: a missing local path would otherwise fall back to default seed topics and exit 0.
-        _require_local_doc_source(doc_source)
+        require_local_doc_source(doc_source)
         context7_id = getattr(args, "context7_id", None)
         if context7_id:
             print(f"Using explicit Context7 library ID: {context7_id}")

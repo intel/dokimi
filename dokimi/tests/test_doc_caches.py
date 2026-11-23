@@ -315,15 +315,15 @@ def test_generate_refuses_a_missing_path_outside_the_exists_stand_in(tmp_path, m
     args = argparse.Namespace(
         product="oneTBB", personas=str(personas), topics=None, doc_source="local:/other", context7_id=None,
         top_k=3, provider="openai", model="m", count=1, validate=False, output=None)
-    with pytest.raises(InputError, match="path does not exist: /other"):
+    with pytest.raises(InputError, match="path does not exist: local:/other"):
         cmd.cmd_questions_generate(args)
 
 
 def test_doc_source_guard_accepts_the_stand_in_prefix_and_refuses_other_paths(monkeypatch):
-    """#1086: `_require_local_doc_source` passes `/docs/caf\u00e9` under the stand-in and refuses `/other`."""
-    from dokimi.commands.questions import _require_local_doc_source
+    """#1086: `require_local_doc_source` passes `/docs/caf\u00e9` under the stand-in and refuses `/other`."""
+    from dokimi.mcp.factory import require_local_doc_source
 
     monkeypatch.setattr(Path, "exists", exists_for_prefix(lambda self: False, "/docs"))
-    _require_local_doc_source("local:/docs/caf\u00e9")
-    with pytest.raises(InputError, match="path does not exist: /other"):
-        _require_local_doc_source("okf:/other")
+    require_local_doc_source("local:/docs/caf\u00e9")
+    with pytest.raises(InputError, match="path does not exist: okf:/other"):
+        require_local_doc_source("okf:/other")
