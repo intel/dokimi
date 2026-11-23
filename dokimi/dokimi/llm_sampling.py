@@ -32,3 +32,18 @@ def refusal_reason(litellm: Any, resolved: str, provider: str, name: str, value:
     except Exception:  # noqa: BLE001 - a probe failure must not block a run
         return None
     return None
+
+
+def provider_refusals(litellm: Any, resolved: str, provider: str, requested: dict[str, Any]) -> dict[str, str]:
+    """Return the reason for each sampling option refused on this route."""
+    try:
+        supported = litellm.get_supported_openai_params(model=resolved) or []
+    except Exception:  # noqa: BLE001 - an unknown model does not block the run
+        return {}
+    refusals = {}
+    for name, value in requested.items():
+        if supported and name not in supported:
+            refusals[name] = "parameter unsupported"
+        elif reason := refusal_reason(litellm, resolved, provider, name, value):
+            refusals[name] = reason
+    return refusals

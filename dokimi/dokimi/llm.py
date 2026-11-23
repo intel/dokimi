@@ -227,24 +227,12 @@ def unsupported_sampling_params(
 def sampling_refusals(
     model: str, provider: str, temperature: Optional[float], seed: Optional[int],
 ) -> dict[str, str]:
-    """Return the reason for each refused sampling option."""
     requested = _sampling_kwargs(temperature=temperature, seed=seed)
     if not requested:
         return {}
     if (cli := llm_cli.backend(_canonical(provider))) is not None:
         return {n: "parameter unsupported" for n in requested if n not in cli.supports}
-    litellm, resolved = _litellm(), resolve_model(model, provider)
-    try:
-        supported = litellm.get_supported_openai_params(model=resolved) or []
-    except Exception:  # noqa: BLE001 - an unknown model does not block the run
-        return {}
-    refusals = {}
-    for name, value in requested.items():
-        if supported and name not in supported:
-            refusals[name] = "parameter unsupported"
-        elif reason := llm_sampling.refusal_reason(litellm, resolved, provider, name, value):
-            refusals[name] = reason
-    return refusals
+    return llm_sampling.provider_refusals(_litellm(), resolve_model(model, provider), provider, requested)
 
 
 # ── Retry ─────────────────────────────────────────────────────────────────────
