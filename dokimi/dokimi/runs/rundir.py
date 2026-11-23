@@ -4,8 +4,8 @@
 """A run's own directory: ``run.json``, its plan, its result and its artifacts together (#94 R2).
 
 :func:`open_run` makes the directory and writes ``run.json`` (``run.v1``) with status ``running``.
-Used as a context manager, the :class:`RunDir` records how the run ended. On a stop (SIGTERM,
-``KeyboardInterrupt``, the spend cap, a run-wide CLI failure) it writes ``result.v1.json`` with
+Used as a context manager, the :class:`RunDir` records how the run ended. On a stop (SIGTERM or
+SIGHUP, ``KeyboardInterrupt``, the spend cap, a run-wide CLI failure) it writes ``result.v1.json`` with
 ``not_run`` on every planned cell that has no status, and ``run.json`` says ``incomplete``; any
 other exception makes it ``failed``. Layout and rules: ``docs/run-directories.md``.
 """
@@ -17,10 +17,10 @@ import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from types import FrameType, TracebackType
+from types import TracebackType
 from typing import Any, Literal
 
-from dokimi import process
+from dokimi import process, process_hooks
 from dokimi.artifacts import SCHEMA_VERSIONS, is_run_id, run_id, save_artifact
 from dokimi.runner.plan import STATUSES, completeness, plan_digest
 from dokimi.utils import InputError
@@ -96,8 +96,7 @@ class RunDir:
         self._cells: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()  # _end asks artifact_path for the result under it
         self._hooked = False
-        self._previous: Any = None  # the SIGTERM handler __enter__ replaced
-        self._terminated = False
+        self._signal: int | None = None  # the terminating signal that stopped the block
 
     @property
     def status(self) -> str:
@@ -173,27 +172,24 @@ class RunDir:
         save_artifact("run", {**self._record, "artifacts": listed}, self.path / RUN_FILE)
 
     def __enter__(self) -> RunDir:
-        """On the main thread, until the block ends, a SIGTERM kills the child process groups as
-        the CLI's handler does, then raises :class:`dokimi.process.ShuttingDown` in the block."""
-        if threading.current_thread() is not threading.main_thread():
-            return self
-        previous = signal.getsignal(signal.SIGTERM)
-        if previous not in (signal.SIG_IGN, None):  # None: a handler not set from Python, which cannot be put back
-            self._previous, self._hooked = previous, True
-            signal.signal(signal.SIGTERM, self._on_term)
+        """On the main thread, until the block ends, the terminating-signal handler of
+        :mod:`dokimi.process` (the CLI installs it) raises :class:`dokimi.process.ShuttingDown` in
+        the block once it has killed the child process groups (:mod:`dokimi.process_hooks`)."""
+        if threading.current_thread() is threading.main_thread():
+            process_hooks.add(self._on_signal)
+            self._hooked = True
         return self
 
-    def _on_term(self, signum: int, frame: FrameType | None) -> None:
-        process.kill_children()
-        self._terminated = True
-        raise process.ShuttingDown("SIGTERM: the run stops")
+    def _on_signal(self, signum: int) -> None:
+        self._signal = signum
+        raise process.ShuttingDown(f"{signal.Signals(signum).name}: the run stops")
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None,
                  tb: TracebackType | None) -> None:
-        """Record how the run ended, then hand a SIGTERM back to the handler it replaced, so the
-        process exits as it would have without the run directory."""
+        """Record how the run ended, then deliver a signal that stopped it again, so the
+        process ends as it would have without the run directory."""
         if self._hooked:
-            signal.signal(signal.SIGTERM, self._previous)
+            process_hooks.remove(self._on_signal)
         try:
             if self.status == "running":
                 if exc is None:
@@ -201,8 +197,8 @@ class RunDir:
                 else:
                     self._end(*_ending(exc))
         finally:
-            if self._terminated:
-                signal.raise_signal(signal.SIGTERM)
+            if self._signal is not None:
+                signal.raise_signal(self._signal)
 
 
 def _ending(exc: BaseException) -> tuple[Status, dict[str, str | None]]:

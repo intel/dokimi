@@ -69,7 +69,7 @@ ends; while the run runs it is empty.
 | --- | --- | --- | --- |
 | finishes with every planned cell measured | `complete` | - | every cell's status |
 | finishes with cells left unmeasured | `incomplete` | - | the cells left are `not_run` |
-| gets SIGTERM | `incomplete` | `terminated` | the cells left are `not_run` |
+| gets SIGTERM or SIGHUP | `incomplete` | `terminated` | the cells left are `not_run` |
 | gets Ctrl-C (`KeyboardInterrupt`) | `incomplete` | `interrupted` | the cells left are `not_run` |
 | hits its `--max-usd` cap, or a call with no price | `incomplete` | `spend_cap`, `no_price` | the cells left are `not_run` |
 | stops on a run-wide CLI failure (a usage limit, no login) | `incomplete` | `run_stopped` | the cells left are `not_run` |
@@ -81,11 +81,13 @@ says why in its `detail`. `result.v1` has no status of its own;
 `runner.plan.completeness` reads a result with `not_run` cells as incomplete, and
 a run is refused `complete` while a planned cell has no measured status.
 
-On SIGTERM the child process groups are killed first, as the CLI's own handler
-does, then the record is written, then the signal goes back to the handler that
-was there before. So the process exits as it did before (status 143 under the
-CLI). Only the main thread can take the signal; a SIGTERM the process ignores
-stays ignored, and SIGHUP is not caught.
+A signal is recorded through the CLI's own handler for SIGTERM and SIGHUP
+(`dokimi.process.install_signal_handlers`; a library caller installs it
+itself). The handler kills the child process groups, then stops the run's
+block (`dokimi.process_hooks`); the record is written, and the signal is
+delivered again, so the process exits as it did before (status 143 for SIGTERM
+under the CLI). Only a run opened on the main thread is stopped this way, and a
+signal the process ignores stays ignored.
 
 ## In code
 

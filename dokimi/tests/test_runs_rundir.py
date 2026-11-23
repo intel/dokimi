@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi import cli, process
+from dokimi import cli, process, process_hooks
 from dokimi.artifacts import RUN_ID_ENV, load_artifact, save_artifact
 from dokimi.eval.arm_stop import RunStopped
 from dokimi.novelty.client import SpendCapReached
@@ -267,55 +267,79 @@ def test_a_cell_the_plan_lacks_or_a_status_result_v1_lacks_is_refused(root):
         run.record_cell(_ids()[0], "passed")
 
 
+SIGNALS = [s for s in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGHUP", None)) if s]
+
+
 @pytest.fixture
-def restore_sigterm(monkeypatch):
-    """The process's SIGTERM handler and ``process._closing`` (``kill_children`` sets it) put back."""
-    monkeypatch.setattr(process, "_closing", False)
-    before = signal.getsignal(signal.SIGTERM)
+def handlers():
+    """The SIGTERM and SIGHUP handlers put back after the test."""
+    before = {signum: signal.getsignal(signum) for signum in SIGNALS}
     yield
-    signal.signal(signal.SIGTERM, before)
+    for signum, handler in before.items():
+        signal.signal(signum, handler)
 
 
-def test_sigterm_in_the_block_writes_the_record_then_reaches_the_handler_it_replaced(root, restore_sigterm):
-    """docs/run-directories.md: on SIGTERM "the record is written, then the signal goes back to the handler
-    that was there before"."""
+@pytest.mark.parametrize("signum", SIGNALS, ids=lambda signum: signal.Signals(signum).name)
+def test_a_signal_is_recorded_through_the_process_handler_then_delivered_again(root, handlers, signum):
+    """docs/run-directories.md: the handler "kills the child process groups, then stops the run's block
+    (dokimi.process_hooks); the record is written, and the signal is delivered again"."""
     seen: list[str] = []
 
     def previous(signum, frame):
         seen.append(_record(root / "n")["status"])
 
-    signal.signal(signal.SIGTERM, previous)
-    with pytest.raises(process.ShuttingDown):
+    signal.signal(signum, previous)
+    process.install_signal_handlers([signum])
+    with pytest.raises(process.ShuttingDown, match=f"{signal.Signals(signum).name}: the run stops"):
         with open_run(root, name="n") as run:
             run.write_plan(_fixture("plan.v1"))
             run.record_cell(_ids()[0], "pass")
-            assert signal.getsignal(signal.SIGTERM) != previous
-            signal.raise_signal(signal.SIGTERM)
+            signal.raise_signal(signum)
 
     assert seen == ["incomplete"]
-    assert signal.getsignal(signal.SIGTERM) is previous
-    assert _record(run.path)["stop"]["reason"] == "terminated"
+    assert process._closing is False  # the earlier handler returned: run() starts processes again
+    assert process_hooks._hooks == []
+    assert _record(run.path)["stop"] == {"reason": "terminated",
+                                         "detail": f"{signal.Signals(signum).name}: the run stops"}
     cells = load_artifact("result", run.path / "result.v1.json")["cells"]
     assert [c["status"] for c in cells] == ["pass", *["not_run"] * 5]
 
 
-def test_an_ignored_sigterm_stays_ignored(root, restore_sigterm):
-    """docs/run-directories.md: "a SIGTERM the process ignores stays ignored"."""
+def test_a_signal_while_a_child_is_being_registered_stops_the_run_once_it_is(root, handlers, monkeypatch):
+    """dokimi.process defers a signal that lands inside _spawn until the child is in _live, so the
+    child is killed; the run's stop waits with it."""
+    signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    process.install_signal_handlers([signal.SIGTERM])
+    monkeypatch.setattr(process._spawning, "active", True, raising=False)
+    monkeypatch.setattr(process._spawning, "deferred", [], raising=False)
+    with pytest.raises(process.ShuttingDown):
+        with open_run(root, name="n") as run:
+            signal.raise_signal(signal.SIGTERM)
+            assert (run.status, len(process._spawning.deferred)) == ("running", 1)
+            process._spawning.active = False
+            process._replay_deferred_signals()
+    assert _record(run.path)["stop"]["reason"] == "terminated"
+
+
+def test_an_ignored_sigterm_stays_ignored(root, handlers):
+    """docs/run-directories.md: "a signal the process ignores stays ignored"."""
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    process.install_signal_handlers([signal.SIGTERM])
     with open_run(root) as run:
-        assert signal.getsignal(signal.SIGTERM) == signal.SIG_IGN
+        signal.raise_signal(signal.SIGTERM)
     assert run.status == "complete"
 
 
-def test_a_run_opened_off_the_main_thread_records_its_stop_too(root, restore_sigterm):
-    """signal.signal works only on the main thread: a worker's run leaves the handler alone."""
-    before = signal.getsignal(signal.SIGTERM)
+def test_a_run_opened_off_the_main_thread_records_its_stop_too(root):
+    """docs/run-directories.md: "Only a run opened on the main thread is stopped this way": a worker's run
+    adds no hook, and records its own stops."""
     caught: list[BaseException] = []
+    hooks: list[list] = []
 
     def work():
         try:
             with open_run(root, name="t") as run:
-                assert signal.getsignal(signal.SIGTERM) == before
+                hooks.append(list(process_hooks._hooks))
                 run.write_plan(_fixture("plan.v1"))
                 raise SpendCapReached("cap")
         except SpendCapReached as exc:
@@ -325,7 +349,7 @@ def test_a_run_opened_off_the_main_thread_records_its_stop_too(root, restore_sig
     worker.start()
     worker.join()
 
-    assert len(caught) == 1
+    assert (len(caught), hooks) == (1, [[]])
     assert _record(root / "t")["stop"] == {"reason": "spend_cap", "detail": "cap"}
 
 
