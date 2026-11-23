@@ -39,7 +39,7 @@ SKIPPED_NAMES = frozenset({"__init__.py", "conftest.py", "requirements.txt", "ag
 SKIPPED_DIRS = frozenset({"tests", "test", "__tests__", "evals"})
 TEST_STEM = re.compile(r"test_.*|.*_test|.*\.(?:test|spec)")  # test_build.py, build_test.py, build.test.js
 # A translation of SKILL.md at the skill root (SKILL.ru.md, SKILL.zh-CN.md): the same instructions, so no file to browse to.
-LOCALIZED_SKILL = re.compile(r"skill\.[a-z]{2,3}(?:[-_][a-z0-9]{2,8})?\.md", re.I)
+LOCALIZED_SKILL = re.compile(r"skill\.(?!md\.)[a-z]{2}(?:[-_][a-z0-9]{2,8})?\.md", re.I)  # ISO 639-1: ref, bak are not
 WALK_MAX_FILES = 2000  # a skill with more files is a checkout, not a bundle: it is not checked
 EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
