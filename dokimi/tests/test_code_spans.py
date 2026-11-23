@@ -19,7 +19,8 @@ from typing import Any
 
 import pytest
 
-from dokimi.code_spans import LINE_BREAK, CodeSpan, CodeSpanScanner, _Runs, find_code_span, iter_code_spans, replace_code_spans
+from dokimi import code_spans as code_spans_module
+from dokimi.code_spans import LINE_BREAK, CodeSpan, CodeSpanScanner, _Runs, iter_code_spans, replace_code_spans
 from dokimi.eval.degrade import _replace_code_blocks
 from dokimi.external.online_checks import _BLOCK_START, _BLOCK_START_RE, _distinct_urls
 from dokimi.external.skill_markdown import code_spans, link_pieces
@@ -65,7 +66,7 @@ def _same(name: str, text: str) -> None:
     assert [_new(site, s) for s in iter_code_spans(text, **site.options)] == want, repr(text)
     for pos in {0, 1, len(text) // 2, len(text)}:
         old = site.old.search(text, pos)
-        new = find_code_span(text, pos, **site.options)
+        new = CodeSpanScanner(text, pos, **site.options).find(pos)
         assert (old and _old(site, old)) == (new and _new(site, new)), (text, pos)
     swapped = replace_code_spans(text, lambda s: "<" + s.group(1) + ">", **site.options)
     assert swapped == site.old.sub(lambda m: "<" + m.group(1) + ">", text), repr(text)
@@ -146,8 +147,8 @@ def test_a_url_in_a_code_span_stops_at_a_block_start(body: str, urls: list[str])
 
 
 def test_a_run_cut_by_the_start_position_opens_no_span() -> None:
-    assert find_code_span("``a``", 1) is None
-    assert find_code_span("``a`` `b`", 1).group(2) == "b"  # type: ignore[union-attr]
+    assert CodeSpanScanner("``a``", 1).find(1) is None
+    assert CodeSpanScanner("``a`` `b`", 1).find(1).group(2) == "b"  # type: ignore[union-attr]
     assert [s.group(2) for s in code_spans("\\``a`` `b`")] == ["b"]  # the escaped run is skipped whole
 
 
@@ -164,11 +165,34 @@ def test_the_stop_ends_the_body_and_a_closer_may_start_on_it() -> None:
 
 
 def test_a_span_has_three_groups() -> None:
-    span = find_code_span("``a``", 0)
+    span = CodeSpanScanner("``a``").find(0)
     assert span is not None
     assert (span.group(), span.group(1), span.group(2)) == ("``a``", "``", "a")
-    with pytest.raises(IndexError):
-        span.group(3)
+    for index in (3, -1):
+        with pytest.raises(IndexError):
+            span.group(index)
+
+
+def test_a_search_that_goes_back_finds_the_same_span_again() -> None:
+    scanner = CodeSpanScanner("`a` ``b`` `c`")
+    spans = [scanner.find(pos) for pos in (0, 4, 10, 4, 0, 11)]
+    assert [s.group(2) for s in spans if s] == ["a", "b", "c", "b", "a"]
+    assert spans[-1] is None
+
+
+def test_sequential_spans_are_found_without_a_binary_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+    bisect = code_spans_module.bisect_left
+
+    def counting(*args: Any, **kwargs: Any) -> int:
+        nonlocal calls
+        calls += 1
+        return bisect(*args, **kwargs)
+
+    monkeypatch.setattr(code_spans_module, "bisect_left", counting)
+    text = "word `a` and ``b`` and `c` " * 200
+    assert len(list(iter_code_spans(text))) == 600
+    assert calls == 0
 
 
 def _runs(k: int) -> str:

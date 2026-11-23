@@ -45,7 +45,7 @@ class CodeSpan:
             self.text[self.begin:self.body_begin],
             self.text[self.body_begin:self.body_end],
         )
-        return groups[index]
+        return groups[index if index >= 0 else len(groups)]
 
 
 class _Runs:
@@ -58,6 +58,7 @@ class _Runs:
         self.lens: list[int] = []
         self._by_len: dict[int, list[int]] = {}  # length -> indexes of the runs read so far
         self._edge = (len(text) + 1, 0)  # (a position, the first stop at or after it): a query between them reuses it
+        self._heads: dict[int, int] = {}  # length -> where the last closer search of that length ended
 
     def read(self) -> bool:
         """Read the next run; False when there is none."""
@@ -82,12 +83,18 @@ class _Runs:
 
     def closer(self, n: int, body: int) -> int | None:
         """The start of the first run of ``n`` backticks from ``body`` on, if it starts at or before the stop."""
-        limit, same = self.limit(body), self._by_len[n]
+        limit, same, starts = self.limit(body), self._by_len[n], self.starts
+        h = self._heads.get(n, 0)
+        if h and starts[same[h - 1]] >= body:
+            h = bisect_left(same, body, 0, h, key=starts.__getitem__)  # a search that goes back: seek
         while True:
-            h = bisect_left(same, body, key=self.starts.__getitem__)
+            while h < len(same) and starts[same[h]] < body:
+                h += 1  # a search that goes on: the head moves on from where the last one ended
             if h < len(same):
-                return self.starts[same[h]] if self.starts[same[h]] <= limit else None
-            if self.starts[-1] > limit or not self.read():
+                self._heads[n] = h
+                return starts[same[h]] if starts[same[h]] <= limit else None
+            if starts[-1] > limit or not self.read():
+                self._heads[n] = h
                 return None  # past the stop no later run can close it, and the text may end
 
 
@@ -104,23 +111,29 @@ class CodeSpanScanner:
     ) -> None:
         self.text, self.min_run, self.not_after = text, min_run, not_after
         self._runs = _Runs(text, pos, stop)
+        self._next = 0  # the index of the first run not yet taken as an opener: the next search starts there
 
-    def find(self, pos: int = 0) -> CodeSpan | None:
+    def find(self, pos: int) -> CodeSpan | None:
         """The first code span whose opening run starts at or after ``pos``, like ``pattern.search(text, pos)``."""
         runs, text = self._runs, self.text
-        while (not runs.starts or runs.starts[-1] < pos) and runs.read():
-            pass
-        i = bisect_left(runs.starts, pos)
+        i = self._next
+        if i and runs.starts[i - 1] >= pos:
+            i = bisect_left(runs.starts, pos, 0, i)  # a search that goes back: seek
         while True:
-            while i >= len(runs.starts):
+            while i < len(runs.starts) and runs.starts[i] < pos:
+                i += 1  # a search that goes on: move on from the last opener
+            if i >= len(runs.starts):
                 if not runs.read():
+                    self._next = i
                     return None
+                continue
             begin, n = runs.starts[i], runs.lens[i]
             i += 1
             if n < self.min_run or (self.not_after and begin > 0 and text[begin - 1] in self.not_after):
                 continue
             closer = runs.closer(n, begin + n)
             if closer is not None:
+                self._next = i
                 return CodeSpan(text, begin, begin + n, closer, closer + n)
 
 
@@ -136,13 +149,6 @@ def iter_code_spans(
     while (span := scanner.find(pos)) is not None:
         yield span
         pos = span.end()
-
-
-def find_code_span(
-    text: str, pos: int = 0, *, min_run: int = 1, stop: re.Pattern[str] | None = None, not_after: str = "",
-) -> CodeSpan | None:
-    """The first code span of ``text`` from ``pos`` (see :func:`iter_code_spans`), like ``pattern.search(text, pos)``."""
-    return CodeSpanScanner(text, pos, min_run=min_run, stop=stop, not_after=not_after).find(pos)
 
 
 def replace_code_spans(
