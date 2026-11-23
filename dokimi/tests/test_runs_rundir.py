@@ -473,6 +473,34 @@ def test_a_stop_inside_the_plans_save_leaves_a_result_exactly_when_the_plan_is_o
     assert _record(run.path)["stop"]["reason"] == "interrupted"
 
 
+@pytest.mark.parametrize("published", [True, False], ids=["after-publishing", "before-publishing"])
+def test_a_stop_inside_a_second_plans_save_leaves_the_result_of_the_plan_on_disk(root, monkeypatch, published):
+    """docs/run-directories.md: a result is "tied to its plan by plan_digest": when a second write_plan is
+    stopped, the result is for whichever plan plan.v1.json holds, the earlier one if the new one never got there."""
+    first = _fixture("plan.v1")
+    second = {**_fixture("plan.v1"), "cells": first["cells"][:2], "budget": {**first["budget"], "cells": 2}}
+    real = rundir.save_artifact
+
+    def second_stopped(kind, data, path, **kw):
+        if kind == "plan" and len(data["cells"]) == 2:
+            if published:
+                real(kind, data, path, **kw)
+            raise KeyboardInterrupt
+        return real(kind, data, path, **kw)
+
+    monkeypatch.setattr(rundir, "save_artifact", second_stopped)
+    with pytest.raises(KeyboardInterrupt):
+        with open_run(root) as run:
+            run.write_plan(first)
+            run.record_cell(_ids()[0], "pass")
+            run.write_plan(second)
+
+    found = completeness(load_artifact("plan", run.path / "plan.v1.json"),
+                         load_artifact("result", run.path / "result.v1.json"))
+    assert found.state == "incomplete"  # not invalid: the result matches the plan on disk
+    assert found.planned == (2 if published else 6)
+
+
 def test_a_refused_plan_save_keeps_its_own_error(root, monkeypatch):
     """dokimi.artifacts.save_artifact: a malformed DOKIMI_RUN_ID is an InputError that says where the payload is
     kept; write_plan passes that error on, not one of its own."""
