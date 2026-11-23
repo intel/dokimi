@@ -712,3 +712,15 @@ def test_a_reserved_file_that_held_a_save_stays_when_a_later_save_fails(tmp_path
         partial.save(_bare_partial(2, "lost"))
     kept = json.loads((tmp_path / "demo.partial.json").read_text(encoding="utf-8"))
     assert kept["answers"][0]["arms"]["baseline"]["answer"] == "kept"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_an_out_linked_to_the_partial_name_in_another_case_is_passed_over(tmp_path):
+    # On a case-insensitive file system (macOS) ARMS.PARTIAL.JSON is arms.partial.json, so the
+    # partial file must not take that name; on Linux the name passed over only costs a number.
+    from dokimi.commands.novelty_budget import fresh_partial_destination, partial_destination
+
+    out = tmp_path / "arms.json"
+    out.symlink_to("ARMS.PARTIAL.JSON")
+    assert fresh_partial_destination(out) == tmp_path / "arms.partial2.json"
+    assert partial_destination(out) == tmp_path / "arms.partial2.json"

@@ -26,9 +26,14 @@ def partial_destination(out: Path) -> Path:
     holds a partial result, so a stopped run never replaces a finished one. The sidecar rules are
     the routing report's (a symlink is not followed, a FIFO is not read). A name that is the file
     ``out`` resolves to (a symlinked ``out``, dangling or not) is passed over: the save of ``out``
-    would land in it."""
-    target = os.path.realpath(out)
-    return next(p for p in _partial_destinations(Path(out)) if os.path.realpath(p) != target)
+    would land in it. The names are compared case-folded, as a case-insensitive file system sees them."""
+    target = _resolved(out)
+    return next(p for p in _partial_destinations(Path(out)) if _resolved(p) != target)
+
+
+def _resolved(path: Path) -> str:
+    """``path`` as the file system finds it: a dangling link keeps its target's case, which macOS ignores."""
+    return os.path.realpath(path).casefold()
 
 
 def fresh_partial_destination(out: Path) -> Path:
@@ -36,9 +41,9 @@ def fresh_partial_destination(out: Path) -> Path:
     (a symlink counts), so a run never replaces the checkpoint an earlier crashed run left, whatever
     its ``--out`` spelling. A name that is the file ``out`` resolves to is passed over as in
     :func:`partial_destination`."""
-    target = os.path.realpath(out)
+    target = _resolved(out)
     return next(p for p in _partial_destinations(Path(out))
-                if os.path.realpath(p) != target and not os.path.lexists(p))
+                if _resolved(p) != target and not os.path.lexists(p))
 
 
 def partial_write(out: Path, write: Callable[[Path], object]) -> Path:
