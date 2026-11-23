@@ -44,7 +44,7 @@ NOTE = ("Candidates for ablation, not verdicts: a candidate is a rule the sessio
 _GLOB = re.compile(r"[*?\[]")
 _RULE_KINDS = frozenset({"sentence", "list_item", "table_row"})
 # the GFM delimiter row (``| --- | :-: |``) under a table's header row: column titles are no rule
-_TABLE_DELIMITER = re.compile(r"\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*")
+_TABLE_DELIMITER = re.compile(r"\s*(?:\|\s*)?:?-+:?(?:\s*\|\s*:?-+:?)*\s*(?:\|\s*)?")  # each whitespace run is written once (#1074)
 _BACKTICK = re.compile(r"`([^`\n]+)`")
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
 _PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$|^\.[A-Za-z][\w-]*$")  # a bare dotfile (``.gitignore``) is a path too

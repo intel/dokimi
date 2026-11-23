@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-_PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?)?\s*p\s*")  # ``p``, ``5p``, ``1,80p``, ``$p``: prints, writes nothing
+_PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*)?p\s*")  # ``p``, ``5p``, ``1,80p``, ``$p``: prints, writes nothing
 
 
 class _SedScan:

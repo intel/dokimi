@@ -29,7 +29,7 @@ _MD_REF_DEF = re.compile(  # a definition: label, destination, then nothing or a
     r"(?:[ \t]+[\"'(](?:\\.|\\$|[^\\])*)?\s*$")
 _MD_LABEL = re.compile(r"\[([^\[\]\n]+)\]")
 _LABEL_ACROSS_LINES = re.compile(r"\[([^\[\]]+)\]")  # used on two joined lines: a label may wrap a line break
-_EMPTY_LINK = re.compile(r"\]\(\s*(?:<>)?\s*\)")  # [t]() is an inline link with an empty destination
+_EMPTY_LINK = re.compile(r"\]\(\s*(?:<>\s*)?\)")  # [t]() is an inline link with an empty destination
 _ENTITY = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")  # a reference ends in a semicolon
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
