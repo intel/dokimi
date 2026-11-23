@@ -27,7 +27,7 @@ _PROTECTION_RULES: list[tuple[str, re.Pattern[str]]] = [
         r"\b(do not|don't|never|must not|cannot|can't|avoid|no longer|"
         r"unsupported|not supported|deprecated|instead of|rather than)\b", re.I)),
     ("version_gate", re.compile(
-        r"(\bv?\d+\.\d+(\.\d+)?\b|\bsince\b|\bas of\b|\brequires?\b\s+\S*\s*\d|"
+        r"(\bv?\d+\.\d+(\.\d+)?\b|\bsince\b|\bas of\b|\brequires?\b\s+(?:\S+\s*)?\d|"
         r"\bonly (?:on|in|with)\b|\bfrom\s+\d|\b(?:>=|<=|>|<)\s*\d)", re.I)),
     ("ordering", re.compile(
         r"\b(before|after|first|then|finally|prerequisite|precede|follow(?:ed|s) by|"

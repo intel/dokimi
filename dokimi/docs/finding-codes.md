@@ -27,6 +27,8 @@ changelog. The `message` text is for people and may be reworded, so do not match
 - `note`: information only; it never changes the state.
 
 `--ignore CODE` leaves the findings with that code out of the state and the exit code.
+`--fail-on-code CODE` does the opposite: the scan exits 1 when a finding with that code is left
+after `--ignore`, at any level.
 Three codes cannot be ignored (`catalog check` refuses the flag): ignoring them would hide why
 a skill does not load, or make the whole-catalog and `--per-skill` exits disagree.
 They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
@@ -72,6 +74,7 @@ The CLI never emits `not-loaded` (only `review_skill_dir` does), so `--ignore no
 | `script-crlf` | warn | a bundled script has CRLF line endings | yes |
 | `script-lint` | note | a bundled script has a lint finding | yes |
 | `script-syntax` | warn | a bundled script does not parse | yes |
+| `similar-skills-exist` | note | the description overlaps a differently named skill's (Jaccard similarity at least 0.4 and below 0.5, at least 3 shared words); the state stays `ok` | yes |
 | `unreadable` | error | SKILL.md exists but the OS will not read it | no |
 | `unsupported-skill-format` | note | the skill is under a host directory dokimi holds no spec for (`.kiro`, `.cursor`, ...); the frontmatter and description checks were skipped, an unloaded file was not read | yes |
 
