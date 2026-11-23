@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dokimi import atomic_write, process_io
 from dokimi.records import Record, arm_answers, arm_names, arm_scores, read
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import finite_delta, stats as arm_stats
@@ -680,9 +681,8 @@ def generate_combined_report(
                                         correction,
                                         pool_replicates=pool_replicates)
 
-    output = "\n".join(lines)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(out_path).write_text(output, encoding="utf-8")
+    atomic_write.write_bytes_in_place_or_atomic(Path(out_path), process_io.text_file_bytes("\n".join(lines)))
     print(f"OK Report written to {out_path}")
 
 
