@@ -28,6 +28,8 @@ issue, not a pull request, does nothing. A bot account has no collaborator permi
 
 ## How the jobs are split
 
+Keep secrets and model keys out of `checks`. Pull request code can access the runner's Actions cache credentials even with `contents: read`. Review the head before invoking the workflow and pin it with `/dokimi run <sha>`.
+
 The trigger is `issue_comment`, which runs in the base repository's context, so the
 example keeps the write token away from pull request code:
 

@@ -11,13 +11,9 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.issue.number }}
-  cancel-in-progress: false
-
 jobs:
   gate:
-    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/dokimi')
+    if: github.event.issue.pull_request
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write  # the reply to a refused commenter and the reaction
@@ -32,6 +28,11 @@ jobs:
   checks:
     needs: gate
     if: needs.gate.outputs.run == 'true'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    outputs:
+      findings: ${{ steps.upload.outputs.artifact-id }}
     runs-on: ubuntu-latest
     permissions:
       contents: read  # no write token near pull request code
@@ -52,7 +53,8 @@ jobs:
         run: |
           mkdir -p -- "$OUT/opportunities"
           if [ -f llms.txt ]; then cp -- llms.txt "$OUT/opportunities/llms.txt"; fi
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: dokimi-opportunities
           path: ${{ steps.setup.outputs.out-dir }}/opportunities
@@ -66,7 +68,7 @@ jobs:
       pull-requests: write  # the opportunities comment
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
-        continue-on-error: true  # a check that wrote nothing leaves no artifact
+        if: needs.checks.outputs.findings != ''
         with:
           name: dokimi-opportunities
           path: ${{ runner.temp }}/opportunities

@@ -55,7 +55,6 @@ runs:
           exit 1
         fi
         marker='<!-- dokimi-opportunities -->'
-        zw=$'\u200b'  # zero-width space
         body="$RUNNER_TEMP/dokimi-opportunities-comment.md"
         table="$RUNNER_TEMP/dokimi-opportunities.md"
         shopt -s nullglob
@@ -68,11 +67,21 @@ runs:
           dokimi report opportunities --format markdown --top-n "$TOP_N" --out "$table" -- "${files[@]}" || status=$?
           [ "$status" -eq 0 ] || echo "_\`dokimi report opportunities\` failed (exit $status); see the [run]($RUN_URL)._" > "$table"
         fi
-        # A comment body is capped at 65,536 characters.
-        { echo "$marker"; echo "## dokimi opportunities"; echo
-          if [ -n "$SHA" ]; then echo "For commit \`$SHA\` ([run]($RUN_URL))."; echo; fi
-          # The table quotes text from the pull request's files: no forged marker, no mentions.
-          head -c 60000 -- "$table" | sed -e "s/<!--/<!${zw}--/g" -e "s/@/@${zw}/g"; } > "$body"
+        # Escape before applying the byte limit and preserve whole UTF-8 characters.
+        python - "$table" "$body" "$marker" <<'PYTHON'
+        import os
+        import sys
+        from pathlib import Path
+
+        table, body, marker = sys.argv[1:]
+        header = marker + "\n## dokimi opportunities\n\n"
+        if sha := os.environ["SHA"]:
+            header += f"For commit `{sha}` ([run]({os.environ['RUN_URL']})).\n\n"
+        content = Path(table).read_text(encoding="utf-8")
+        content = content.replace("<!--", "<!\u200b--").replace("@", "@\u200b")
+        capped = content.encode("utf-8")[:60000 - len(header.encode("utf-8"))]
+        Path(body).write_text(header + capped.decode("utf-8", errors="ignore"), encoding="utf-8")
+        PYTHON
         cat -- "$table" >> "$GITHUB_STEP_SUMMARY"
         if [ "$GH_TOKEN" = "$DEFAULT_TOKEN" ]; then
           me='github-actions[bot]'
@@ -88,7 +97,7 @@ runs:
           echo "::warning title=dokimi opportunities::the comment lookup failed; the table is in the job summary"
           exit "$status"
         }
-        id=$(printf '%s\n' "$ids" | head -n1)
+        id=${ids%%$'\n'*}
         if [ -n "$id" ]; then
           gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$body" >/dev/null ||
             echo "::warning title=dokimi opportunities::the comment could not be updated"

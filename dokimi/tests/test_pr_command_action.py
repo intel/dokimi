@@ -39,6 +39,10 @@ exit 0
 FAKE_DOKIMI = r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DOKIMI_LOG"
 out=""; while [ $# -gt 0 ]; do [ "$1" = --out ] && out="$2"; shift; done
+if [ -n "${FAKE_TABLE:-}" ]; then
+  cp -- "$FAKE_TABLE" "$out"
+  exit 0
+fi
 printf '| # | title |\n|---|---|\n| 1 | ping @someone <!-- dokimi-opportunities --> |\n' > "$out"
 """
 
@@ -219,3 +223,20 @@ def test_a_malformed_commit_does_nothing(tmp_path: Path, body: str) -> None:
     r, out = _gate(tmp_path, body=body)
     assert (r.returncode, out) == (0, {"run": "false"})
     assert (tmp_path / "gh.log").read_text(encoding="utf-8") == ""
+
+
+def test_long_comment_still_recognizes_first_line(tmp_path: Path) -> None:
+    result, outputs = _gate(tmp_path, "  /dokimi run\n" + "é" * 40000)
+    assert result.returncode == 0, result.stderr
+    assert outputs["run"] == "true"
+
+
+def test_escaping_precedes_utf8_comment_limit(tmp_path: Path) -> None:
+    table = tmp_path / "table.md"
+    table.write_text("@alice <!-- title --!> ✨" * 5000, encoding="utf-8")
+    result, _ = _comment(tmp_path, {"llms.txt": "# x\n"}, FAKE_TABLE=str(table), LC_ALL="C")
+    assert result.returncode == 0, result.stderr
+    body = (tmp_path / "body.md").read_bytes()
+    assert len(body) <= 60000
+    assert body.decode("utf-8").count("<!--") == 1
+    assert "@alice" not in body.decode("utf-8")

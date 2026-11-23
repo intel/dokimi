@@ -6,7 +6,7 @@ from dokimi import llms_txt, opportunities as opp
 NOVELTY = {
     "artifact": {"kind": "skill", "ref": "skill:skills/acme"},
     "model": "m1",
-    "paired": {"lenient": {"added": 10, "redundant": 20, "degraded": 4, "still_missing": 6,
+    "paired": {"lenient": {"added": 0.25, "redundant": 0.5, "degraded": 0.1, "still_missing": 0.15,
                            "n_paired": 40}},
 }
 STATIC = {"schema": "repo_static.v1", "claims": [
@@ -32,11 +32,11 @@ def test_zero_counts_produce_no_opportunity():
 
 
 def test_repo_claims_group_failures_per_file():
-    [one] = opp.from_repo_static(STATIC, target="acme")
+    one, _ = opp.from_repo_static(STATIC, target="acme")
     assert one.target == "acme:AGENTS.md"
-    assert one.evidence["lines"] == [9, 12]
-    assert one.impact == 0.5
-    assert "9, 12" in one.next_action
+    assert one.evidence["lines"] == [9]
+    assert one.impact == 0.25
+    assert "9" in one.next_action
 
 
 def test_rank_puts_high_impact_cheap_fixes_first():
@@ -46,7 +46,7 @@ def test_rank_puts_high_impact_cheap_fixes_first():
     assert [r["rank"] for r in ranked] == list(range(1, len(ranked) + 1))
     quads = [opp.QUADRANTS.index(r["quadrant"]) for r in ranked]
     assert quads == sorted(quads)
-    assert ranked[0]["kind"] == "repo-claim"  # impact 0.5, effort low
+    assert ranked[0]["kind"] == "discovery"  # impact 0.4, effort low
     assert ranked[-1]["evidence"].get("outcome") == "still_missing"  # 0.15, medium effort
 
 
@@ -58,9 +58,9 @@ def test_source_key_is_stable_and_distinguishes_targets():
 
 
 def test_execution_prompt_names_target_problem_and_action():
-    [one] = opp.from_repo_static(STATIC, target="acme")
+    one, _ = opp.from_repo_static(STATIC, target="acme")
     prompt = one.as_dict()["execution_prompt"]
-    assert "acme:AGENTS.md" in prompt and "2 failing claims" in prompt and "line" in prompt
+    assert "acme:AGENTS.md" in prompt and "1 failing claims" in prompt and "line" in prompt
 
 
 def test_markdown_table_honours_top():
@@ -88,3 +88,8 @@ def test_llms_txt_key_survives_a_change_in_h1_count():
     keys = [opp.from_llms_txt(llms_txt.check(f"# A\n{extra}\n> s\n"))[0].source_key
             for extra in ("# B", "# B\n# C")]
     assert keys[0] == keys[1]
+
+
+def test_novelty_probe_can_supply_its_reference_as_a_string():
+    artifact = {**NOVELTY, "artifact": "skill:skills/acme"}
+    assert {item.target for item in opp.from_novelty(artifact)} == {"skill:skills/acme"}

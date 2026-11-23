@@ -11,28 +11,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
 from dokimi import llms_txt, opportunities
+from dokimi.artifacts import schema_errors
 from dokimi.utils import InputError
+
+from ._output import save_artifact_or_exit, write_text_or_exit
 
 
 def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
     try:
-        text = Path(path).read_text(encoding="utf-8")
-    except OSError as e:
+        text = Path(path).read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as e:
         raise InputError(f"{path}: {e}") from e
     try:
         data = json.loads(text)
     except ValueError as e:
-        if path.endswith(".json") or text.lstrip()[:1] in ("{", "["):
+        if Path(path).suffix.lower() == ".json" or text.lstrip().startswith("{") or (
+            text.lstrip().startswith("[") and not re.match(r"\[[^\n\]]+\]\(", text.lstrip())
+        ):
             raise InputError(f"{path}: not valid JSON ({e})") from e
         return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text), target=path)
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
-        return "repo_static", opportunities.from_repo_static(data, target=path)
+        if errors := schema_errors("repo_static.v1", data):
+            raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
+        return "repo_static", opportunities.from_repo_static(
+            data, target=path, repository=str(data.get("repo") or "repository"))
     if isinstance(data, dict) and isinstance(data.get("paired"), dict):
-        return "novelty", opportunities.from_novelty(data)
+        try:
+            return "novelty", opportunities.from_novelty(data)
+        except InputError as exc:
+            raise InputError(f"{path}: {exc}") from exc
     raise InputError(f"{path}: not a novelty artifact, a repo_static.v1 output or an llms.txt file")
 
 
@@ -47,7 +59,7 @@ def build(paths: list[str]) -> dict:
 
 
 def cmd_report_opportunities(args: argparse.Namespace) -> None:
-    from dokimi.artifacts import save_artifact, stamp, validate_artifact
+    from dokimi.artifacts import stamp, validate_artifact
 
     doc = build(args.inputs)
     if args.format == "json":
@@ -56,12 +68,13 @@ def cmd_report_opportunities(args: argparse.Namespace) -> None:
         text = json.dumps(doc, indent=2) + "\n"
     else:
         text = opportunities.render_markdown(doc["items"], top=args.top_n)
-    if args.out and args.format == "json":
-        save_artifact("opportunities", doc, args.out)
-    elif args.out:
-        Path(args.out).write_text(text, encoding="utf-8")
-    else:
+    if not args.out:
         sys.stdout.write(text)
+        return
+    if args.format == "json":
+        save_artifact_or_exit("opportunities", doc, Path(args.out))
+    else:
+        write_text_or_exit(Path(args.out), text)
 
 
 def register(report_sub, positive_int) -> None:

@@ -3,7 +3,7 @@
 
 """Turn stored dokimi evidence into a ranked queue of fixes an agent can pick up.
 
-A prototype (docs/proposals/lightsage-inspired-features.md at the repository root). Each
+Each
 opportunity carries impact, effort, a quadrant, a stable ``source_key`` (the same problem
 keeps its key across runs) and an ``execution_prompt`` that a coding agent can act on.
 Inputs are dicts already on disk: a novelty artifact, a repo_static output, llms.txt findings.
@@ -34,11 +34,12 @@ class Opportunity:
     effort: str
     evidence: dict = field(default_factory=dict)
     identity: str = ""  # what stays fixed across runs; the title (with counts) when empty
+    identity_target: str | None = None
 
     @property
     def source_key(self) -> str:
         ident = self.identity or self.title
-        return hashlib.sha256(f"{self.kind}|{self.target}|{ident}".encode()).hexdigest()[:16]
+        return hashlib.sha256(f"{self.kind}|{self.identity_target or self.target}|{ident}".encode()).hexdigest()[:16]
 
     @property
     def quadrant(self) -> str:
@@ -58,6 +59,7 @@ class Opportunity:
     def as_dict(self) -> dict:
         data = asdict(self)
         del data["identity"]
+        del data["identity_target"]
         return {**data, "source_key": self.source_key, "quadrant": self.quadrant,
                 "execution_prompt": self.execution_prompt()}
 
@@ -69,8 +71,17 @@ def _share(count: int, total: int) -> float:
 def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunity]:
     """Degraded, still-missing and redundant atoms of one novelty artifact, as fixes."""
     paired = artifact.get("paired", {}).get(scoring, {})
+    if not isinstance(paired, dict):
+        raise InputError(f"novelty paired.{scoring} must be an object")
     total = paired.get("n_paired", 0)
-    target = artifact.get("artifact", {}).get("ref", "?")
+    if type(total) is not int or total < 0:
+        raise InputError("novelty n_paired must be a nonnegative integer")
+    ref = artifact.get("artifact", {})
+    if isinstance(ref, dict):
+        ref = ref.get("ref", "?")
+    if not isinstance(ref, str):
+        raise InputError("novelty artifact reference must be a string")
+    target = ref
     model = artifact.get("model", "?")
     plans = (
         ("degraded", "high-severity", "the context makes the model wrong where it was right",
@@ -82,36 +93,45 @@ def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunit
     )
     found = []
     for outcome, kind, why, action, effort, weight in plans:
-        n = paired.get(outcome, 0)
-        if n:
+        rate = paired.get(outcome, 0)
+        if type(rate) not in (float, int) or not 0 <= rate <= 1:
+            raise InputError(f"novelty {outcome} must be a rate between 0 and 1")
+        counts = paired.get("counts", {})
+        if not isinstance(counts, dict):
+            raise InputError("novelty counts must be an object")
+        count = counts.get(outcome, round(rate * total))
+        if type(count) is not int or not 0 <= count <= total:
+            raise InputError(f"novelty {outcome} count must be between 0 and n_paired")
+        if rate:
             found.append(Opportunity(
-                kind=kind, title=f"{n} {outcome.replace('_', ' ')} atoms for {model}",
+                kind=kind, title=f"{count} {outcome.replace('_', ' ')} paired probes for {model}",
                 why=why + ".", next_action=action, target=target,
-                impact=min(1.0, round(weight * _share(n, total), 3)), effort=effort,
-                evidence={"outcome": outcome, "n": n, "n_paired": total, "scoring": scoring},
+                impact=min(1.0, round(weight * rate, 3)), effort=effort,
+                evidence={"outcome": outcome, "n": count, "rate": rate, "n_paired": total, "scoring": scoring},
                 identity=f"{model}|{outcome}|{scoring}",
             ))
     return found
 
 
-def from_repo_static(doc: dict, *, target: str = "repository") -> list[Opportunity]:
+def from_repo_static(doc: dict, *, target: str = "repository", repository: str | None = None) -> list[Opportunity]:
     """Failed and unresolved repository claims, grouped per file."""
     claims = doc.get("claims", [])
-    bad: dict[str, list[dict]] = {}
+    bad: dict[tuple[str, str], list[dict]] = {}
     for claim in claims:
-        if claim.get("status", "").split("_")[0] in ("fail", "unresolved"):
+        status = claim.get("status", "").split("_")[0]
+        if status in ("fail", "unresolved"):
             if "file" not in claim or "line" not in claim:
                 raise InputError(f"{target}: a failing claim has no file or line")
-            bad.setdefault(claim["file"], []).append(claim)
+            bad.setdefault((claim["file"], status), []).append(claim)
     return [Opportunity(
-        kind="repo-claim", title=f"{len(rows)} failing claims in {path}",
+        kind="repo-claim", title=f"{len(rows)} {'failing' if status == 'fail' else 'unresolved'} claims in {path}",
         why="guidance that names a missing command, path or link misleads the agent.",
-        next_action="Fix or delete each claim at lines "
-                    + ", ".join(str(r["line"]) for r in rows) + ".",
+        next_action=("Fix or delete each claim at lines " if status == "fail" else
+                     "Verify each unresolved claim at lines ") + ", ".join(str(r["line"]) for r in rows) + ".",
         target=f"{target}:{path}", impact=_share(len(rows), len(claims)), effort="low",
         evidence={"lines": [r["line"] for r in rows], "statuses": sorted({r["status"] for r in rows})},
-        identity=path,
-    ) for path, rows in sorted(bad.items())]
+        identity=f"{path}|{status}", identity_target=repository,
+    ) for (path, status), rows in sorted(bad.items())]
 
 
 def from_llms_txt(findings: list[Finding], *, target: str = "llms.txt") -> list[Opportunity]:
@@ -120,7 +140,7 @@ def from_llms_txt(findings: list[Finding], *, target: str = "llms.txt") -> list[
         kind="discovery", title=f.message, why="agents read llms.txt before choosing a tool.",
         next_action=f.fix, target=target, impact=0.4 if f.severity == "fail" else 0.2,
         effort="low", evidence={"check": f.check, "line": f.line},
-        identity=f.message if f.check == "links" else f.check,
+        identity=f.identity or (f.message if f.check == "links" else f.check),
     ) for f in findings]
 
 

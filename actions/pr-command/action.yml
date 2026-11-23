@@ -62,7 +62,8 @@ runs:
           exit 0
         fi
         # The first line, trimmed, must be the command: a comment that quotes it later does not run.
-        first=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r')
+        first=${BODY%%$'\n'*}
+        first=${first%$'\r'}
         first="${first#"${first%%[![:space:]]*}"}"
         first="${first%"${first##*[![:space:]]}"}"
         # The command alone, or the command, one space-separated commit and nothing else.
