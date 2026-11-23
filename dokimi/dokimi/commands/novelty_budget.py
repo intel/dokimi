@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import sys
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
@@ -24,8 +25,27 @@ from dokimi.commands.novelty_routing_report import _partial_destinations
 def partial_destination(out: Path) -> Path:
     """The first of ``<stem>.partial.json``, ``<stem>.partial2.json``, ... that is free or already
     holds a partial result, so a stopped run never replaces a finished one. The sidecar rules are
-    the routing report's (a symlink is not followed, a FIFO is not read)."""
-    return next(_partial_destinations(Path(out)))
+    the routing report's (a symlink is not followed, a FIFO is not read). A name that is the file
+    ``out`` resolves to (a symlinked ``out``, dangling or not) is passed over: the save of ``out``
+    would land in it. The names are compared by :func:`_resolved`'s key, case and Unicode form aside."""
+    target = _resolved(out)
+    return next(p for p in _partial_destinations(Path(out)) if _resolved(p) != target)
+
+
+def _resolved(path: Path) -> str:
+    """A comparison key for the file ``path`` resolves to: NFC and case-folded, since a dangling link keeps
+    its target's spelling and macOS file systems ignore both case and normalization form."""
+    return unicodedata.normalize("NFC", os.path.realpath(path)).casefold()
+
+
+def fresh_partial_destination(out: Path) -> Path:
+    """The first of ``<stem>.partial.json``, ``<stem>.partial2.json``, ... where nothing is yet
+    (a symlink counts), so a run never replaces the checkpoint an earlier crashed run left, whatever
+    its ``--out`` spelling. A name that is the file ``out`` resolves to is passed over as in
+    :func:`partial_destination`."""
+    target = _resolved(out)
+    return next(p for p in _partial_destinations(Path(out))
+                if _resolved(p) != target and not os.path.lexists(p))
 
 
 def partial_write(out: Path, write: Callable[[Path], object]) -> Path:
