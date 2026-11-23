@@ -3,7 +3,7 @@
 
 """#1103: ``skill_dir_digest`` is None for a skill directory with a subdirectory it cannot list, not a digest of a smaller tree.
 
-``skill_sha256`` of a catalog row is None then, and ``--resume`` (which compares digests) rescans the skill.
+``skill_sha256`` of a catalog row is None then.
 """
 
 from __future__ import annotations
