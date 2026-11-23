@@ -306,6 +306,54 @@ def test_a_finish_whose_record_is_not_written_leaves_the_run_running_for_the_sto
     assert (record["status"], record["stop"]) == ("incomplete", {"reason": "interrupted", "detail": None})
 
 
+def test_a_stop_while_a_normal_end_is_written_is_recorded_as_that_stop(root, monkeypatch):
+    """docs/run-directories.md: Ctrl-C gives "incomplete", "interrupted", also when it lands while the run's
+    end is written after the block ended normally."""
+    real, fired = rundir.save_artifact, []
+
+    def interrupted_once(kind, data, path, **kw):
+        if kind == "result" and not fired:
+            fired.append(kind)
+            raise KeyboardInterrupt
+        return real(kind, data, path, **kw)
+
+    monkeypatch.setattr(rundir, "save_artifact", interrupted_once)
+    with pytest.raises(KeyboardInterrupt):
+        with open_run(root) as run:
+            run.write_plan(_fixture("plan.v1"))
+            run.record_cell(_ids()[0], "pass")
+
+    record = _record(run.path)
+    assert (record["status"], record["stop"]) == ("incomplete", {"reason": "interrupted", "detail": None})
+    assert [c["status"] for c in load_artifact("result", run.path / "result.v1.json")["cells"]] == \
+        ["pass", *["not_run"] * 5]
+
+
+def test_a_signal_while_a_normal_end_is_written_is_recorded_then_delivered_again(root, handlers, monkeypatch):
+    """docs/run-directories.md: "the record is written, and the signal is delivered again", also when the
+    signal lands while the end of a block that ended normally is written."""
+    seen: list[str] = []
+    signal.signal(signal.SIGTERM, lambda signum, frame: seen.append(_record(root / "n")["status"]))
+    process.install_signal_handlers([signal.SIGTERM])
+    real, fired = rundir.save_artifact, []
+
+    def signalled_once(kind, data, path, **kw):
+        if kind == "result" and not fired:
+            fired.append(kind)
+            signal.raise_signal(signal.SIGTERM)
+        return real(kind, data, path, **kw)
+
+    monkeypatch.setattr(rundir, "save_artifact", signalled_once)
+    with pytest.raises(process.ShuttingDown):
+        with open_run(root, name="n") as run:
+            run.write_plan(_fixture("plan.v1"))
+
+    assert seen == ["incomplete"]
+    assert _record(run.path)["stop"]["reason"] == "terminated"
+    assert (run.path / "result.v1.json").exists()
+    assert process_hooks._hooks == []
+
+
 def test_a_run_ends_once(root):
     """docs/run-directories.md: "A run ends once: a second finish is refused"."""
     run = open_run(root)

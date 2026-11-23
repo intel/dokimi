@@ -205,20 +205,32 @@ class RunDir:
                  tb: TracebackType | None) -> None:
         """Record how the run ended, then deliver a signal that stopped it again, so the
         process ends as it would have without the run directory."""
-        if self._hooked:
-            process_hooks.remove(self._on_signal)
         try:
-            if self.status == "running":
-                if self._signal is not None:  # also when the block caught the ShuttingDown
-                    self._end("incomplete", {"reason": "terminated",
-                                             "detail": f"{signal.Signals(self._signal).name}: the run stops"})
-                elif exc is None:
-                    self.finish("complete" if self._measured() else "incomplete")
-                else:
-                    self._end(*_ending(exc))
+            try:
+                if self.status == "running":
+                    self._end(*self._how_ended(exc))
+            except BaseException as late:  # a stop while the end is written (the hook is still on)
+                self._unhook()
+                if self.status == "running":
+                    self._end(*self._how_ended(late))
+                raise
         finally:
+            self._unhook()
             if self._signal is not None:
                 signal.raise_signal(self._signal)
+
+    def _how_ended(self, exc: BaseException | None) -> tuple[Status, dict[str, str | None] | None]:
+        if self._signal is not None:  # also when the block caught the ShuttingDown
+            return "incomplete", {"reason": "terminated",
+                                  "detail": f"{signal.Signals(self._signal).name}: the run stops"}
+        if exc is None:
+            return ("complete" if self._measured() else "incomplete"), None
+        return _ending(exc)
+
+    def _unhook(self) -> None:
+        if self._hooked:
+            process_hooks.remove(self._on_signal)
+            self._hooked = False
 
 
 def _ending(exc: BaseException) -> tuple[Status, dict[str, str | None]]:
