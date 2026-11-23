@@ -104,6 +104,9 @@ class ArmsRunConfig:
     judge_context: str = JUDGE_CONTEXT_ARM
 
     def __post_init__(self) -> None:
+        if self.judge_context != JUDGE_CONTEXT_ARM and not self.judge:
+            raise ValueError(f"--judge-context {self.judge_context} needs --judge: with no judge there is "
+                             "nothing to withhold, and the answers artifact would keep the withheld text")
         if self.judge_model is JUDGE_MODEL_FOR_PROVIDER:
             # The shared rule (judge_rule.default_judge): not the answerer's family, on the judge's provider.
             # A CLI answerer with the provider left out judges on its CLI, as ``arms run --provider claude-cli`` does.

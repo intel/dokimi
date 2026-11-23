@@ -420,7 +420,7 @@ def _add_judge_context(parser) -> None:
                   choices=["arm", "baseline"],
                   help="What the judge is shown about each arm's treatment material. arm (default): the "
                        "arm's own material. baseline: no material on any arm, the context a baseline arm's "
-                       "judge sees, so every arm is judged on one context. Answers are unchanged. Applies with --judge")
+                       "judge sees, so every arm is judged on one context. Answers are unchanged. Needs --judge")
 
 
 def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False) -> None:

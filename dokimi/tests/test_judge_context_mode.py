@@ -79,9 +79,22 @@ def test_an_unknown_judge_context_mode_is_refused(demo_skill):
 
 def test_the_flag_defaults_to_the_arm_material_and_reaches_the_runner(fake_answers):
     assert ArmsRunConfig(product="oneTBB").judge_context == "arm"
-    config = ArmsRunConfig(product="oneTBB", judge_context="baseline")
+    config = ArmsRunConfig(product="oneTBB", judge=True, judge_context="baseline")
     prepared = prepare_arms(config, ["baseline"], QUESTIONS)
     assert prepared.runner.judge_context_mode == "baseline"
+
+
+def test_a_withheld_run_without_a_judge_is_refused():
+    # Without a judge nothing is scored, and the answers artifact would keep the withheld text in
+    # place of the material, so a later arm-context judge of it would have none.
+    with pytest.raises(ValueError, match="needs --judge"):
+        ArmsRunConfig(product="oneTBB", judge_context="baseline")
+
+
+def test_the_flag_without_judge_exits_before_any_answer():
+    command = ["arms", "run", "--arms", "baseline", "--product", "oneTBB", "--questions", "q.json"]
+    with pytest.raises(ValueError, match="needs --judge"):
+        run_config_from_args(build_parser().parse_args(command + ["--judge-context", "baseline"]))
 
 
 @pytest.mark.parametrize("command", [
@@ -92,7 +105,8 @@ def test_the_flag_is_on_arms_run_and_matrix_run(command):
     base = ["--product", "oneTBB", "--questions", "q.json"]
     default = run_config_from_args(build_parser().parse_args(command + base))
     assert default.judge_context == "arm"
-    given = run_config_from_args(build_parser().parse_args(command + base + ["--judge-context", "baseline"]))
+    given = run_config_from_args(build_parser().parse_args(
+        command + base + ["--judge", "--judge-context", "baseline"]))
     assert given.judge_context == "baseline"
 
 
