@@ -743,3 +743,10 @@ def test_1092_unclosed_labels_after_thematic_breaks_are_read_in_linear_time():
     started = time.monotonic()
     assert link_pieces(lines) == ([], [])
     assert time.monotonic() - started < 10
+
+
+def test_1092_labels_that_are_only_code_spans_are_different_keys(tmp_path):
+    """#1092: `[`b`]` is its own definition (a file), not the first `[`a`]` (a URL), so its label is checked."""
+    body = "[`a`]: https://example.com\n[`b`]: examples/b.py\n\n[`examples/c.py`][`b`]\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'examples/c.py'"]

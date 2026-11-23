@@ -319,8 +319,14 @@ def _balanced(destination: str) -> bool:
     return depth == 0
 
 
-def _reference_definitions(masked: str, found: dict[str, bool]) -> None:
-    """Add to ``found`` the reference definitions of the paragraph ``masked``: label (case-folded, spaces collapsed)
+def _label_key(paragraph: str, m: re.Match[str]) -> str:
+    """The key of the label in group 1 of ``m``, a match in the masked ``paragraph``: its text as written (a code span
+    in it is not blanked, so two labels that are only code spans differ), case-folded, spaces collapsed."""
+    return " ".join(paragraph[m.start(1) : m.end(1)].casefold().split())
+
+
+def _reference_definitions(paragraph: str, masked: str, found: dict[str, bool]) -> None:
+    """Add to ``found`` the reference definitions of ``paragraph``, masked as ``masked``: label (:func:`_label_key`)
     -> whether the destination is a URL. A definition cannot interrupt a paragraph, so only those at its start
     count, one after the other. A thematic break starts a new block, so a definition may follow one after prose.
     The first definition of a label decides, as in CommonMark."""
@@ -329,7 +335,7 @@ def _reference_definitions(masked: str, found: dict[str, bool]) -> None:
         if rule := _THEMATIC_BREAK_RE.match(masked, pos):  # a break (or a setext underline) ends the block before it
             pos, block_start = rule.end(), True
         elif block_start and (m := _DEFINITION_RE.match(masked, pos)) and _balanced(m.group(2)):
-            found.setdefault(" ".join(m.group(1).casefold().split()), _is_uri_destination(m.group(2)))
+            found.setdefault(_label_key(paragraph, m), _is_uri_destination(m.group(2)))
             pos = m.end()
         else:
             eol = masked.find("\n", pos)
@@ -346,9 +352,10 @@ def _is_image(masked: str, open_at: int) -> bool:
     return slashes % 2 == 0
 
 
-def _link_closes(masked: str, definitions: dict[str, bool]) -> tuple[list[tuple[int, bool]], str]:
+def _link_closes(paragraph: str, masked: str, definitions: dict[str, bool]) -> tuple[list[tuple[int, bool]], str]:
     """The ``(index of "]", destination is a URL)`` of each inline, reference, collapsed and shortcut link in ``masked``,
-    and ``masked`` with the destinations and titles of the inline links blanked (their text is literal)."""
+    and ``masked`` with the destinations and titles of the inline links blanked (their text is literal). ``paragraph``
+    is ``masked`` as written, for the reference keys."""
     closes: list[tuple[int, bool]] = []
     chars = list(masked)
     consumed = 0
@@ -366,28 +373,27 @@ def _link_closes(masked: str, definitions: dict[str, bool]) -> tuple[list[tuple[
     literal = "".join(chars)
     pairs = _bracket_pairs(literal)
     for ref in _REFERENCE_RE.finditer(literal):
-        key = " ".join(ref.group(1).casefold().split())
+        key = _label_key(paragraph, ref)
         if ref.start() in pairs and key in definitions:  # an undefined reference is plain text, not a link
             closes.append((ref.start(), definitions[key]))
     for short in _SHORT_REFERENCE_RE.finditer(literal):
-        if short.end() - 1 in inline_closes or " ".join(short.group(1).casefold().split()) not in definitions:
+        if short.end() - 1 in inline_closes or _label_key(paragraph, short) not in definitions:
             continue
         full = _FULL_REFERENCE_RE.match(literal, short.end())
-        if full and " ".join(full.group(1).casefold().split()) in definitions:
+        if full and _label_key(paragraph, full) in definitions:
             continue  # ``[a][b]`` with ``b`` defined is the full reference, counted above; else ``[a]`` stands alone
         closes.append((short.start(1) + len(short.group(1)), False))  # a link, never a label read here
     return closes, literal
 
 
-def _external_labels(masked: str, definitions: dict[str, bool]) -> list[tuple[int, int]]:
+def _external_labels(paragraph: str, masked: str, definitions: dict[str, bool]) -> list[tuple[int, int]]:
     """The ``(start, end)`` of each link label in ``masked`` whose destination has a URL scheme (``https:``, ``mailto:``).
 
     The destination is inline, or a reference whose first definition in ``definitions`` has one. A code span in such a
     label is the link's text, not a file of the skill. A label that holds another link (an image is fine) is
     no link, as links do not nest. ``masked`` has its code spans blanked to the same length, so offsets match.
-    A collapsed (``[a][]``) or shortcut reference is not read as a label (its label is its key, blanked when it holds
-    a code span), but one with a definition inside a label counts as a link there."""
-    closes, literal = _link_closes(masked, definitions)
+    A collapsed (``[a][]``) or shortcut reference is not read as a label (its label is its key), but one with a definition inside a label counts as a link there."""
+    closes, literal = _link_closes(paragraph, masked, definitions)
     pairs = _bracket_pairs(literal)
     link_starts = sorted(pairs[c] for c, _ in closes if c in pairs and not _is_image(literal, pairs[c]))
     found: list[tuple[int, int]] = []
@@ -433,10 +439,10 @@ def link_pieces(lines: list[str]) -> tuple[list[str], list[str]]:
     paragraphs = _paragraphs(lines)
     maskeds = [_unlinked_brackets(CODE_SPAN_RE.sub(lambda m: " " * len(m.group()), p)) for p in paragraphs]
     definitions: dict[str, bool] = {}
-    for masked in maskeds:
-        _reference_definitions(masked, definitions)
     for paragraph, masked in zip(paragraphs, maskeds, strict=True):
-        labels = _merged(_external_labels(masked, definitions))
+        _reference_definitions(paragraph, masked, definitions)
+    for paragraph, masked in zip(paragraphs, maskeds, strict=True):
+        labels = _merged(_external_labels(paragraph, masked, definitions))
         label_starts = [a for a, _ in labels]
         for m in CODE_SPAN_RE.finditer(paragraph):
             text = m.group(2).replace("\n", " ").strip()
