@@ -796,6 +796,14 @@ def test_identical_bundles_discovered_together_stay_distinct_after_a_rename(tmp_
     assert summary["overall"]["n"] == 2
     assert summary["usd"] == pytest.approx(sum(row["usd"] for row in rows))
 
+    # Restore the earlier pair of names in a new combination, reusing two paid rows.
+    (root / "b").rename(root / "a")
+    (root / "z").rename(root / "c")
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    (root / "a").rename(root / "b")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--summary-out", str(report))
+    assert json.loads(report.read_text())["overall"]["n"] == 2
+
 
 def test_a_version_change_requires_opt_in_before_replacing_paid_rows(tmp_path, monkeypatch):
     from dokimi.commands import catalog_novelty

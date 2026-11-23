@@ -547,8 +547,10 @@ def _plan(items: list[_Item], all_items: list[_Item], jsonl: Path, args: argpars
     kept = resumable(prior, selected, fingerprint, __version__)
     instances = bundle_instances({item.key: item.sha256 for item in all_items}, prior)
     for row in kept:
-        if instances.get(row["key"]):
-            row["bundle_instance"] = instances[row["key"]]
+        if slot := instances.get(row["key"]):
+            row["bundle_instance"] = slot
+        else:
+            row.pop("bundle_instance", None)
     done = {row["key"] for row in kept}
     others = [row for row in prior if row["key"] not in selected]
     todo = [replace(item, bundle_instance=instances.get(item.key, 0)) for item in items if item.key not in done]
