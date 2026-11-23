@@ -38,9 +38,8 @@ SKIPPED_STEMS = frozenset({"license", "licence", "readme", "changelog", "notice"
 SKIPPED_NAMES = frozenset({"__init__.py", "conftest.py", "requirements.txt", "agents.md", "claude.md"})
 SKIPPED_DIRS = frozenset({"tests", "test", "__tests__", "evals"})
 TEST_STEM = re.compile(r"test_.*|.*_test|.*\.(?:test|spec)")  # test_build.py, build_test.py, build.test.js
-# A translation of SKILL.md at the skill root (SKILL.ru.md, SKILL.zh-CN.md): the same instructions, so no file to browse
-# to. ``skill.<ISO 639-1 code>``, then at most two subtags (``zh-CN``, ``pt_BR``, ``zh-Hant-TW``); ``SKILL.db.md`` and
-# ``SKILL.md-old.md`` are not translations.
+# A root translation of SKILL.md (SKILL.ru.md, SKILL.zh-CN.md) holds the same instructions: no file to browse to.
+# ``skill.<ISO 639-1 code>``, then at most two subtags (``zh-CN``, ``pt_BR``); ``SKILL.db.md`` is not one.
 LANGUAGE_CODES = frozenset(
     """
     aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch co cr cs cu cv cy da
