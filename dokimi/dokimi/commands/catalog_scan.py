@@ -15,6 +15,7 @@ another dokimi version wrote (``dokimi_version``).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections import Counter
@@ -28,34 +29,37 @@ from dokimi.utils import InputError
 
 
 def _listing_source(entry):
-    """``(file, meta, body, directory name)`` of the SKILL.md ``repo budget`` would read for the entry, None when it cannot be read
-    or resolves outside the catalog root."""
+    """``(file, meta, body, directory name, at root)`` of the SKILL.md ``repo budget`` would read for the entry, None when
+    it is not named ``SKILL.md``, cannot be read or resolves outside the catalog root. The directory name and ``at root`` are
+    those of the directory the skill is listed in, not of a symlink target."""
     from dokimi.utils import parse_frontmatter
 
     if entry.path is None:
         return None
     try:
         listed = entry.skill.path if entry.skill is not None else entry.path if entry.path.is_file() else entry.path / "SKILL.md"
+        if listed.name != "SKILL.md":
+            return None
         file = listed.resolve(strict=True)
-        if not file.is_file() or not file.is_relative_to(entry.source_root.resolve()):
+        root = entry.source_root.resolve()
+        if not file.is_file() or not file.is_relative_to(root):
             return None
         meta, body = parse_frontmatter(file.read_text(encoding="utf-8"))
     except (OSError, ValueError, RuntimeError):
         return None
     # The default name is the directory the skill is listed in, not the one a symlinked SKILL.md points into.
-    return file, meta if isinstance(meta, dict) else {}, body, Path(os.path.normpath(listed.parent)).name
+    return file, meta if isinstance(meta, dict) else {}, body, Path(os.path.normpath(listed.parent)).name, listed.parent.resolve() == root
 
 
-def _name_fits_spec(read, entry) -> bool:
+def _name_fits_spec(read) -> bool:
     """Whether the declared name breaks no name rule (``name-format``, ``name-mismatch``): a skill that also fails those is
     not listed once its description is added, so the missing-description fallback does not charge it."""
     from dokimi.external.validate import NAME_MAX, NAME_PATTERN
 
-    file, meta, _, dir_name = read
+    _, meta, _, dir_name, at_root = read
     declared = str(meta.get("name") or "").strip()
     if not declared:
         return True
-    at_root = file.parent == entry.source_root.resolve()
     return bool(NAME_PATTERN.fullmatch(declared)) and len(declared) <= NAME_MAX and (at_root or declared == dir_name)
 
 
@@ -73,7 +77,7 @@ def listing_preview(entry, source=None) -> Optional[dict]:
     source = source or _listing_source(entry)
     if source is None:
         return None
-    _, meta, body, dir_name = source
+    _, meta, body, dir_name, _ = source
     description = listing_description(meta, body)
     if not description:
         return None
@@ -108,11 +112,16 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     read = _listing_source(skill)
     preview = listing_preview(skill, read)
     listing_chars = listed_chars(review)
+    listing_name = skill.skill.name if skill.skill is not None else None
+    content_sha256 = review.content_sha256 if review else None
     hidden = read is not None and str(read[1].get("disable-model-invocation", "")).strip().lower() in ("1", "true", "yes", "on")
     if (listing_chars is None and preview is not None and not skill.loaded and not exempt
-            and _name_fits_spec(read, skill)
+            and _name_fits_spec(read)
             and "missing a 'description'" in (skill.error or "") and not hidden):
         listing_chars = preview["listing_chars"]  # Claude Code lists a skill without ``description`` by its body's first line (#943, #1087)
+        # It never loaded, so the listing total groups it by the name it would be listed under and its SKILL.md digest.
+        listing_name = str(read[1].get("name") or "").strip() or read[3]
+        content_sha256 = hashlib.sha256(read[0].read_bytes()).hexdigest()
     kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
     state = "error" if not skill.loaded and not exempt else state_of(kept)
     if not skill.loaded and exempt and state == "ok":
@@ -126,13 +135,13 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "state": state,
         "error": None if exempt else skill.error,
         "disable_model_invocation": bool(review and review.disable_model_invocation),
-        "content_sha256": review.content_sha256 if review else None,
+        "content_sha256": content_sha256,
         "skill_sha256": skill_dir_digest(skill, outputs),
         "dokimi_version": __version__,
         "duplicate_of": review.duplicate_of if review else None,
         "listing_chars": listing_chars,
         "listing": preview,
-        "listing_name": skill.skill.name if skill.skill is not None else None,
+        "listing_name": listing_name,
         "ignored": sorted(ignore),
         "findings": [{"level": f.level, "code": f.code, "message": f.message, **({"script": f.script} if f.script else {})}
                      for f in kept],

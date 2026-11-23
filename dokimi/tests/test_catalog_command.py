@@ -551,3 +551,53 @@ def test_catalog_check_symlinked_skill_md_is_named_by_its_own_directory(tmp_path
     row = _check_rows(tmp_path, capsys)["alias"]
     assert row["listing"]["listing_chars"] == len("alias") + len("Sort logs.")
     assert row["listing_chars"] == len("alias") + len("Sort logs.")
+
+
+def _check_report(root: Path, capsys) -> dict:
+    args = build_parser().parse_args(["catalog", "check", "--root", str(root), "--kind", "skills", "--format", "json"])
+    try:
+        args.func(args)
+    except SystemExit:
+        pass
+    return json.loads(capsys.readouterr().out)
+
+
+def _write_quiet(path: Path, body: str = "Sort logs.") -> None:
+    path.mkdir(parents=True)
+    (path / "SKILL.md").write_text(f"---\nname: quiet\n---\n{body}\n", encoding="utf-8")
+
+
+def test_catalog_check_counts_a_mirror_without_description_once(tmp_path, capsys):
+    """#1087, docs/catalog-jsonl.md `listing`: byte-identical copies of a skill charged for a missing `description` are one entry."""
+    _write_quiet(tmp_path / "skills" / "quiet")
+    _write_quiet(tmp_path / "plugins" / "x" / "skills" / "quiet")
+    report = _check_report(tmp_path, capsys)
+    assert [row["listing_chars"] for row in report["skills"]] == [15, 15]
+    assert report["listing"]["chars"] == 15
+
+
+def test_catalog_check_drops_conflicting_names_without_description(tmp_path, capsys):
+    """#1087, docs/catalog-jsonl.md `listing`: a name whose copies differ is left out of the total, charged fallback rows included."""
+    _write_quiet(tmp_path / "skills" / "quiet")
+    _write_quiet(tmp_path / "plugins" / "x" / "skills" / "quiet", "Sort other logs.")
+    assert _check_report(tmp_path, capsys)["listing"]["chars"] == 0
+
+
+def test_catalog_check_manifest_entry_must_name_skill_md(tmp_path, capsys):
+    """#1087: a `catalog_path` naming `README.md` is not a skill file, so it has no preview and no charge."""
+    (tmp_path / "skills" / "quiet").mkdir(parents=True)
+    (tmp_path / "skills" / "quiet" / "README.md").write_text("---\nname: quiet\n---\nSort logs.\n", encoding="utf-8")
+    (tmp_path / "skills.yaml").write_text(
+        "skills:\n  - name: quiet\n    catalog_path: skills/quiet/README.md\n", encoding="utf-8")
+    row = _check_rows(tmp_path, capsys)["quiet"]
+    assert (row["listing"], row["listing_chars"]) == (None, None)
+
+
+def test_catalog_check_name_mismatch_is_read_from_the_listed_directory(tmp_path, capsys):
+    """#1087: a `SKILL.md` symlinked to a root-level file is not at the root, so a declared name that is not its directory fails `name-mismatch` and is not charged."""
+    (tmp_path / "entry.md").write_text("---\nname: other\n---\nSort logs.\n", encoding="utf-8")
+    (tmp_path / "skills" / "quiet").mkdir(parents=True)
+    (tmp_path / "skills" / "quiet" / "SKILL.md").symlink_to("../../entry.md")
+    row = next(iter(_check_rows(tmp_path, capsys).values()))
+    assert row["listing_chars"] is None
+    assert row["listing"]["listing_chars"] == len("other") + len("Sort logs.")
