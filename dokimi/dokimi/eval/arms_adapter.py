@@ -9,10 +9,12 @@ artifacts (the trust gate, ``report generate`` and ``report eval``, the dashboar
 binary artifacts. ``report model-compare`` reads the arms file itself.
 
 * **Arms.** The run's ``baseline_arm`` is ``without_docs``; its one other arm, the context arm, is
-  ``with_docs``; it must be a docs arm (``arm_kind`` ``docs`` or ``mcp_doc``). A run stopped before that arm
-  answered records no kind for it; it is taken as the docs arm, and its ``with_docs`` is ``null``. A run of the baseline arm alone
-  is a knowledge run (``with_docs: null``, ``run_intent: knowledge``). A run with more arms, with no baseline arm
-  among them, or whose other arm is not a docs arm, is a :class:`RecordError`.
+  ``with_docs``; it must be a docs arm (``arm_kind`` ``docs`` or ``mcp_doc``). In a stopped run (a
+  ``terminated`` or ``partial`` block), an arm the stop reached before it answered records no kind: it is taken
+  as the docs arm, with ``with_docs: null``. A non-docs arm stopped that early cannot be told apart, and
+  converts too. A run of the baseline arm alone is a knowledge run (``with_docs: null``, ``run_intent:
+  knowledge``). A run with more arms, with no baseline arm among them, or whose other arm is not a docs arm,
+  is a :class:`RecordError`.
 * **Answers.** A cell keeps its fields; its ``context_chunks`` become ``retrieved_docs``, and ``doc_source`` is
   the first chunk's source, as the answerer writes it. An errored or empty cell is ``null``, and the record's
   ``error`` names it, as a failed condition is in an answers file.
@@ -55,9 +57,9 @@ def to_binary(data: Mapping[str, Any], *, source: str = "<arms>") -> Tuple[Dict[
         raise RecordError(f"{source}: not an arms.v1 artifact")
     # Read past records.read's refusal of a partial file: its stop block says what it is.
     run = read({k: v for k, v in data.items() if k != "partial"}, source=source)
-    context, baseline = _binary_arms(run, source)
-    intent = KNOWLEDGE_INTENT if context is None else PAIRED_INTENT
     stop = _stop_block(data)
+    context, baseline = _binary_arms(run, source, stopped=stop is not None)
+    intent = KNOWLEDGE_INTENT if context is None else PAIRED_INTENT
     answers = [_answers_record(r, context, baseline) for r in run]
     answers_out: Dict[str, Any] = {
         **_present(data, "generated_at", "method_version"),
@@ -90,7 +92,7 @@ def to_binary(data: Mapping[str, Any], *, source: str = "<arms>") -> Tuple[Dict[
     }
 
 
-def _binary_arms(run: Run, source: str) -> Tuple[Optional[str], str]:
+def _binary_arms(run: Run, source: str, *, stopped: bool) -> Tuple[Optional[str], str]:
     """``(context arm or None, baseline arm)``: the two conditions an answers file has room for."""
     baseline = run.baseline
     others = [c for c in run.conditions if c != baseline]
@@ -106,7 +108,7 @@ def _binary_arms(run: Run, source: str) -> Tuple[Optional[str], str]:
     # A run stopped before the arm answered has only stop cells, which record no kind (arm_stop.py): all
     # with_docs gets from it is null, which no reader can misread, so the arm is taken as the docs arm.
     answered = any(not is_empty_reply(cell.text) for cell in cells)
-    if kinds - _DOC_KINDS or (not kinds and answered):
+    if kinds - _DOC_KINDS or (not kinds and (answered or not stopped)):
         # with_docs is what retrieval put in the prompt: another arm would read as a retrieval miss.
         raise RecordError(
             f"{source}: arm {others[0]!r} (arm_kind {sorted(kinds) or 'unrecorded'}) is not a docs arm "

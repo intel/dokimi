@@ -387,6 +387,10 @@ def test_the_partial_file_of_a_run_killed_before_its_first_question_has_no_recor
     (_arms(_question(**_stopped()), _question("q2", baseline=_cell(),
                                               docs={"error": "x", "answer": None, "metadata": {"arm_kind": "skill"}})),
      r"arm 'docs' \(arm_kind \['skill'\]\) is not a docs arm"),
+    # A run that never stopped: a kind-less unanswered arm is not a stop's, and could be any arm.
+    (_arms(_question(baseline=_cell(), docs={"error": "prepare_failed: x", "answer": None, "metadata": {}})),
+     r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
+    (_arms(_question(baseline=_cell())), r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
 ])
 def test_a_stopped_run_is_still_refused_when_its_arm_is_not_docs(data, message):
     with pytest.raises(RecordError, match=message):
