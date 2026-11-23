@@ -19,7 +19,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Iterator, Mapping, Optional
 
 from dokimi import process
 from dokimi.docker_cmd import Docker
@@ -29,9 +29,10 @@ from dokimi.utils import retry_writable
 REWARD_FILES = ("reward.json", "reward.txt")
 
 _REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D+([01](?:\.\d+)?)", re.IGNORECASE)
-# In a reward file the whole number after a label, never a prefix of it (atomic): `reward: 10`, `1e3/20` are none.
+# In a reward file: the whole token after a label, and what follows it (`1 / 20`, `1 of 20` are a count).
 _FILE_REWARD_RE = re.compile(
-    r"(?:reward|score|pass[_ -]?rate)\D*?((?>[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?))(?![\d/%]|\.\d)", re.IGNORECASE)
+    r"(?:reward|score|pass[_ -]?rate)\D*?([-+]?\d\S*)(\s*/|\s+(?:out\s+)?of\b)?", re.IGNORECASE)
+_NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?", re.IGNORECASE)
 
 
 def reward_in_file(name: str, data: bytes) -> float:
@@ -180,7 +181,14 @@ def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
         if value is not None and 0.0 <= value <= 1.0:
             return value
     if reward_file:  # the first labelled number in [0, 1], as the old pattern skipped `score: 75`
-        labelled = (float(m.group(1)) for m in _FILE_REWARD_RE.finditer(text))
-        return next((v for v in labelled if 0.0 <= v <= 1.0), None)
+        return next((v for v in _labelled_numbers(text) if 0.0 <= v <= 1.0), None)
     match = _REWARD_RE.search(text)
     return float(match.group(1)) if match else None
+
+
+def _labelled_numbers(text: str) -> Iterator[float]:
+    """Each label's token that is a number in full once a closing `.`, `,`, `;` or bracket is cut."""
+    for match in _FILE_REWARD_RE.finditer(text):
+        token = match.group(1).rstrip(".,;:)]}")
+        if match.group(2) is None and _NUMBER_RE.fullmatch(token):
+            yield float(token)
