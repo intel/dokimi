@@ -161,6 +161,8 @@ _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
 # An exception covers one observed value on one leaf. Its reason explains the difference from the registry.
 ExceptionValue = str | bool | frozenset[str] | None
 MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
+    ("dokimi catalog trigger-probe", "--timeout", "type"): ("float",
+        "The probe accepts fractional seconds per run."),
     ("dokimi catalog routing-compare", "--arm", "choices"): (frozenset({"lexical", "model"}),
         "Selects a built-in comparison arm by name. The registry accepts [NAME=]REF."),
     ("dokimi eval triggers generate", "--fail-on", "choices"): (frozenset({"warn"}),
@@ -577,6 +579,7 @@ def test_a_tuple_metavar_is_compared_as_one_text():
 
 
 @pytest.mark.parametrize(("path", "option", "aspect", "changed"), [
+    (("catalog", "trigger-probe"), "--timeout", "type", str),
     (("repo", "budget"), "--fail-on", "choices", ("warn", "bogus")),
     (("eval", "tasks", "generate"), "--from", "choices", ("graph", "prs")),
     (("repo", "reach"), "--from", "metavar", "OTHER_FILE"),

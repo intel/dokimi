@@ -248,8 +248,8 @@ CONCEPTS: tuple[Concept, ...] = (
     ),
     Concept(
         name="timeout",
-        help="time limits, per phase",
-        canonical=(Flag("--timeout", "[PHASE=]SEC", "text"),),
+        help="time limit in seconds",
+        canonical=(Flag("--timeout", "SEC", "int"),),
         banned=("--grade-timeout", "--build-timeout"),
     ),
     Concept(
