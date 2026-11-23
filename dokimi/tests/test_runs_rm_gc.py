@@ -341,6 +341,34 @@ def test_gc_keep_baselines_keeps_the_run_a_saved_baseline_holds(root, monkeypatc
     assert "r1/eval/onetbb.json" not in _left(root)
 
 
+@pytest.mark.parametrize("exists_hides_it", [False, True])
+def test_gc_keep_baselines_refuses_when_the_manifest_cannot_be_looked_up(
+        root, monkeypatch, capsys, exists_hides_it):
+    """docs/runs.md: a baseline manifest that cannot be read exits 2 before anything is removed."""
+    monkeypatch.setattr("sys.argv", ["dokimi", "baseline", "save", "--from-eval",
+                                     "results/r1/eval/onetbb.json", "--name", "main"])
+    cli.main()
+    capsys.readouterr()
+    before = _left(root)
+    real_stat = os.stat
+
+    def no_search(path, *args, **kwargs):
+        if Path(path).as_posix().endswith("baselines/eval/manifest.json"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", no_search)
+    if exists_hides_it:  # Path.exists() on Python 3.14 reads "no permission" as absent
+        monkeypatch.setattr(Path, "exists", lambda self, **kw: not self.as_posix().endswith(
+            "manifest.json") and os.path.exists(self))
+
+    code, _, err = _run(monkeypatch, capsys, "gc", "--older-than", "30d", "--keep-baselines")
+
+    assert code == 2
+    assert "baselines/eval/manifest.json: cannot read: Permission denied" in err
+    assert _left(root) == before
+
+
 def test_gc_keep_baselines_refuses_when_a_baseline_copy_cannot_be_read(root, monkeypatch, capsys):
     manifest = Path("baselines/eval/manifest.json")
     manifest.parent.mkdir(parents=True)

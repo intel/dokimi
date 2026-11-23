@@ -23,7 +23,9 @@ from dokimi.runs.scan import (
     ScanResult,
     Unreadable,
     by_run,
+    lookup,
     plain,
+    read_error_reason,
     runs_root,
     scan,
     select,
@@ -335,7 +337,13 @@ def cmd_runs_rm(args: argparse.Namespace) -> None:
 
 
 def _baselines_held() -> dict[str, str]:
-    from dokimi.commands.baseline import _baseline_manifest
+    from dokimi.commands.baseline import BASELINES_DIR, _baseline_manifest
+    manifest = BASELINES_DIR / "manifest.json"
+    try:  # _baseline_manifest's Path.exists() reads "no permission" as absent on Python 3.14
+        lookup(manifest)
+    except OSError as exc:
+        raise InputError(f"{manifest.as_posix()}: {read_error_reason(exc)}, so the runs the "
+                         "baselines hold are not known") from exc
     return baseline_runs(_baseline_manifest()["baselines"])
 
 
