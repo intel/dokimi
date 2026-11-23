@@ -7,14 +7,13 @@ from __future__ import annotations
 
 import errno
 import os
-import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
 
 from dokimi.cli import build_parser
-from repo_eval_fixture import FakeRunner, fake_harness, make_repo
+from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
 from tests.cli_refusal import refusal
 
 CLOSING = "pass a directory the build caches can be kept in"
@@ -178,7 +177,7 @@ def test_a_cache_root_that_is_a_file_is_refused_when_the_manifest_declares_no_ca
     data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     data["image"]["caches"] = []
     manifest.write_text(yaml.safe_dump(data), encoding="utf-8")
-    subprocess.run(["git", "-C", str(setup["root"]), "commit", "-qam", "no caches"], check=True)
+    git(setup["root"], "commit", "-qam", "no caches")  # with a test identity: a CI runner has none
     blocker = _file(setup["tmp"])
     exc = _invoke(setup, command, "--cache-root", str(blocker))
     assert exc.code == 2 and f"--cache-root {blocker} is not a directory; {CLOSING}" in exc.err

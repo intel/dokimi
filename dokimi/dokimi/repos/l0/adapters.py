@@ -496,13 +496,17 @@ def _check_load(scan: Scan, file: str, line: int, args: str, snippet: str) -> No
                  + ("; it binds names in a form not read here" if other else ""), snippet)
 
 
+_BZL_BINDING = re.compile(  # ``def f(``, or ``x = ...`` / ``x, y = ...``: each whitespace run is written once (#1074)
+    r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*(?:,\s*)?=(?!=)", re.M)
+
+
 def _bzl_public(text: str) -> tuple[set[str], bool]:
     """The public top-level names of a ``.bzl`` file (``def x(``, ``x = ...``, ``x, _y = ...``), and whether it also
     binds names in a form not read here (``(x, y) = ...``, ``[x] = ...``)."""
     masked_text = _TOKEN.sub(lambda m: re.sub(r"[^\n]", " ", m.group()) if m.lastgroup in ("str", "comment")
                              else m.group(), text)  # a docstring or a comment binds nothing
     names: set[str] = set()
-    for m in re.finditer(r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*,?\s*=(?!=)", masked_text, re.M):
+    for m in _BZL_BINDING.finditer(masked_text):
         names.update(n for n in re.split(r"\s*,\s*", m.group(1) or m.group(2)) if n and not n.startswith("_"))
     return names, re.search(r"^[(\[][^\n]*\)?\]?\s*=(?!=)", masked_text, re.M) is not None
 
