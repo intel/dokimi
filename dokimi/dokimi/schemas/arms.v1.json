@@ -58,7 +58,7 @@
       ]
     },
     "judge_context": {
-      "description": "Protocol for what the judge was shown about each arm's treatment material. treatment_material.v1 when every score saw the stored material; treatment_material.v1+snippet_fallback when only some did (pools with nothing). Absent when every score used the 200-char report snippets — the protocol of runs judged before the stamp existed.",
+      "description": "Protocol for what the judge was shown about each arm's treatment material. treatment_material.v1 when every score saw the stored material; treatment_material.withheld.v1 when the run was judged with --judge-context baseline (the judge saw no material on any arm; pools only with other withheld runs); treatment_material.v1+snippet_fallback when only some did (pools with nothing). Absent when every score used the 200-char report snippets — the protocol of runs judged before the stamp existed.",
       "type": "string"
     },
     "judge_context_sources": {

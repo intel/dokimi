@@ -57,9 +57,8 @@ SOURCE_SNIPPET_FALLBACK = "snippet_fallback"
 #: back to snippets. It equals neither protocol, so it pools with nothing.
 PROTOCOL_MIXED = PROTOCOL + "+snippet_fallback"
 
-#: ``judge_context`` of a run judged with ``--judge-context baseline``: the judge was shown no
-#: material on any arm. It is not the protocol :data:`PROTOCOL` measured, so it pools only with
-#: other withheld runs.
+#: ``judge_context`` of a run judged with ``--judge-context baseline``: the judge saw no material on any arm.
+#: Not the protocol :data:`PROTOCOL` measured, so it pools only with other withheld runs.
 PROTOCOL_WITHHELD = "treatment_material.withheld.v1"
 
 #: The ``--judge-context`` values. ``arm`` (the default) shows each arm its own material;
@@ -79,7 +78,8 @@ def stamp_for(sources: Iterable[Optional[str]], *, withheld: bool = False) -> Op
     protocol unstamped runs used before the stamp existed, so leaving it off
     lets the run pool with them, which is correct. A mix -> :data:`PROTOCOL_MIXED`,
     which pools with nothing. Scores without a source (none were judged) do not
-    count either way; a run with no counted scores keeps :data:`PROTOCOL`.
+    count either way; a run with no counted scores keeps :data:`PROTOCOL`, or
+    :data:`PROTOCOL_WITHHELD` when *withheld*.
 
     Measured before this existed: a question set without ids, one with
     duplicated ids, and an answers file judged in a new process all produced
@@ -91,6 +91,7 @@ def stamp_for(sources: Iterable[Optional[str]], *, withheld: bool = False) -> Op
     if seen == {SOURCE_STORED, SOURCE_SNIPPET_FALLBACK}:
         return PROTOCOL_MIXED
     return PROTOCOL_WITHHELD if withheld else PROTOCOL
+
 
 #: Cap on the injected part when the caller does not pass the answerer's own cap.
 #: Matches ``arm_runner.MAX_CONTEXT_CHARS``; ``ArmRunner`` passes that constant

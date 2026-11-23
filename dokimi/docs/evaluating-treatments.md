@@ -75,8 +75,9 @@ fallback gives the mixed stamp. To compare with an older run, written before
 `judge_materials`, run answering and judging again: re-judging that file sees only
 the snippets.
 
-To measure how much the material itself moves the judge, run with
-`--judge-context baseline` (on `arms run` or `arms matrix-run`). The judge is then
+To measure how much the material itself moves the judge, run with `--judge`
+and `--judge-context baseline` (on `arms run` or `arms matrix-run`); without a judge
+the flag has no effect. The judge is then
 shown no material on any arm, the context a baseline arm's judge sees, so every
 arm is judged on one context. The answering path is unchanged. The output is
 stamped `treatment_material.withheld.v1`, which pools only with other withheld
