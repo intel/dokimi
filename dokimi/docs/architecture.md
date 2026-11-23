@@ -154,7 +154,9 @@ spec, and what each arm is *named* — is `treatments/specs.py`.
 `eval/arm_runner.py` generates and judges answers for every arm and reports
 per-arm deltas vs a baseline. `eval/arms_run.py` runs it from an `ArmsRunConfig`,
 the one typed run configuration `arms run`, `arms matrix-run` (one per cell) and
-`subjects run` build from their flags. `dokimi/plugins.py` adds runtime plugins that
+`subjects run` build from their flags. `eval/arms_adapter.py` reads a run of a
+baseline and one other arm as the `answers.v1`/`eval.v1` files of the pipeline, so their
+readers take it unchanged (#228 step 4). `dokimi/plugins.py` adds runtime plugins that
 modify every arm inside one run (`plugin:caveman`): a plugin changes the system
 prompt before the model runs or reshapes the answer after it. Entry point:
 `python cli.py arms run`. Details in
