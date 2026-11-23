@@ -44,7 +44,7 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 # A Setext underline: `=` for a level 1 heading, `-` (two or more, a lone `-` is a list item) for level 2.
 _SETEXT = re.compile(r"^ {0,3}(=+|-{2,})\s*$")
 _INDENTED = re.compile(r"^(?: {4}|\t)")
-_COMMENT_OPEN = re.compile(r"^\s*<!--")
+_COMMENT_OPEN = re.compile(r"^ {0,3}<!--")
 _QUOTE = re.compile(r"^ {0,3}>")
 # A thematic break made of `*` or `_` (`---` is read as a Setext underline or a rule by `_SETEXT`).
 _BREAK = re.compile(r"^ {0,3}([*_])(?:[ \t]*\1){2,}\s*$")
@@ -52,7 +52,11 @@ _BREAK = re.compile(r"^ {0,3}([*_])(?:[ \t]*\1){2,}\s*$")
 _CODE = r"(?<!`)(`+)(?!`)(?:(?!\n[ \t\r]*\n)[\s\S])+?(?<!`)\1(?!`)"
 _CODE_SPAN = re.compile(_CODE)
 # A closed comment, or an inline code span (matched first when it starts first, so a literal `<!--` in it opens nothing).
-_COMMENT = re.compile(rf"{_CODE}|<!--.*?-->", re.S)
+# `<!-->` and `<!--->` are complete comments.
+_COMMENT = re.compile(rf"{_CODE}|<!--(?:-?>|.*?-->)", re.S)
+# A sentence ends before a comment: the text so far ends in terminal punctuation and what follows starts a sentence.
+_ENDS = re.compile(r"[.!?:]\s*$")
+_STARTS = re.compile(r"\s*[A-Z`\-*\d]")
 
 
 def _blank_comments(text: str, fill: str) -> str:
@@ -64,7 +68,7 @@ _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 # Sentence split on terminal punctuation followed by whitespace + a capital/backtick.
 # Deliberately crude: over-splitting costs a little attribution granularity, while a
 # heavyweight tokenizer would add a dependency for no measured gain.
-_SENTENCE = re.compile(r"(?<=[.!?:])\s+(?=[A-Z`\-*\d])")
+_SENTENCE = re.compile(r"(?<=[.!?:])\s+(?=(?:\0+\s*)?[A-Z`\-*\d])")  # \0 is a masked comment: look past it
 
 
 @dataclass
@@ -207,8 +211,9 @@ def _comment_end(lines: list[str], i: int) -> int:
     """Index after the line that closes the comment opened on line ``i``, or -1. Text after ``-->`` moves to its own line."""
     for n in range(i, len(lines)):
         body = lines[n].split("<!--", 1)[-1] if n == i else lines[n]
-        if "-->" in body:
-            cut = len(lines[n]) - len(body) + body.index("-->") + 3
+        short = n == i and body.startswith((">", "->"))  # `<!-->` and `<!--->` close at once
+        if short or "-->" in body:
+            cut = len(lines[n]) - len(body) + (body.index(">") + 1 if short else body.index("-->") + 3)
             cut += len(lines[n][cut:]) - len(lines[n][cut:].lstrip(" \t"))  # blanks stay with the comment
             if lines[n][cut:].strip():
                 lines[n:n + 1] = [lines[n][:cut], lines[n][cut:]]
@@ -231,12 +236,13 @@ def _close_comment(lines: list[str], i: int, j: int) -> int:
 
 
 def _mask(text: str) -> str:
-    """``text`` with each closed comment and the inside of each code span blanked to ``_`` (same length).
+    """``text`` with each closed comment blanked to ``\\0`` and the inside of each code span to ``_`` (same length).
 
     A sentence cut never falls in either; the first character of a code span stays, so a cut before it holds.
+    A cut falls before a comment when the text after the comment starts a sentence.
     """
     return _COMMENT.sub(lambda m: m.group()[0] + "_" * (len(m.group()) - 1) if m.group().startswith("`")
-                        else "_" * len(m.group()), text)
+                        else "\0" * len(m.group()), text)
 
 
 def _list_item_end(lines: list[str], i: int, close: bool = True) -> int:
@@ -247,6 +253,13 @@ def _list_item_end(lines: list[str], i: int, close: bool = True) -> int:
             and lines[j].startswith((" ", "\t")):
         j += 1
     return _close_comment(lines, i, j) if close else j
+
+
+def _joined(items: list[tuple[str, str, int]], n: int) -> bool:
+    """``items[n]`` and ``items[n + 2]`` are two parts of one sentence cut by the comment ``items[n + 1]``."""
+    before, between, after = items[n:n + 3]
+    return (between[0] == "comment" and after[0] != "comment"
+            and not (_ENDS.search(before[1]) and _STARTS.match(after[1])))
 
 
 def _emit_pieces(kind: str, chunk: str, start: int, hidden_from: int, emit) -> None:
@@ -279,29 +292,33 @@ def _emit_pieces(kind: str, chunk: str, start: int, hidden_from: int, emit) -> N
     for n, (item_kind, text, at) in enumerate(items):
         # A sentence cut by comments is one rule: every part is read as the whole (``Never <!-- c --> ever <!-- d --> do``).
         lo = hi = n
-        while lo >= 2 and items[lo - 1][0] == "comment" and items[lo - 2][0] != "comment":
+        while lo >= 2 and _joined(items, lo - 2):
             lo -= 2
-        while hi + 2 < len(items) and items[hi + 1][0] == "comment" and items[hi + 2][0] != "comment":
+        while hi + 2 < len(items) and _joined(items, hi):
             hi += 2
         whole = " ".join(it[1] for it in items[lo:hi + 1] if it[0] != "comment") if item_kind != "comment" else text
         emit(item_kind, text, start + at, whole)
 
 
-def _scaffold(lines: list[str], i: int, spans: list[Span]) -> tuple[str, int, int] | None:
+def _scaffold(lines: list[str], i: int, spans: list[Span], in_list: bool) -> tuple[str, int, int] | None:
     """The Markdown block that starts at line ``i`` and is not prose, as ``(kind, end line, heading level)``, or ``None``.
 
     A ``#`` heading, an indented code block (after a blank line, and not the continuation of a list item), an
     HTML comment that closes, or a Setext heading. A comment closing mid-line splits that line (in place) in two.
+    ``in_list``: the line is inside a list item. A line directly under a list item continues it and underlines
+    into no heading.
     """
     line = lines[i]
     atx = _HEADING.match(line)
     if atx:
         return "heading", i + 1, len(atx.group(1))
-    if _INDENTED.match(line) and (i == 0 or not lines[i - 1].strip()) and not (spans and spans[-1].kind == "list_item"):
+    if _INDENTED.match(line) and (i == 0 or not lines[i - 1].strip()) and not in_list:
         return "code", _block_end(lines, i, _INDENTED.match), 0
     if _COMMENT_OPEN.match(line):
         end = _comment_end(lines, i)
         return ("comment", end, 0) if end >= 0 else None
+    if spans and spans[-1].kind == "list_item" and i > 0 and lines[i - 1].strip():
+        return None
     return _setext(lines, i)
 
 
@@ -319,6 +336,7 @@ def segment(text: str) -> list[Span]:
     lines = text.splitlines(keepends=True)
     offset = 0
     i = 0
+    in_list = False  # inside a list item: indented lines are its content until a line that is not indented
     after_comment = -1  # the line holding the text that followed a closing ``-->``: prose, whatever it starts with
 
     def emit(kind: str, chunk: str, start: int, read: str | None = None) -> None:
@@ -366,7 +384,8 @@ def segment(text: str) -> list[Span]:
             continue
 
         n_lines = len(lines)
-        scaffold = None if prose_only else _scaffold(lines, i, spans)
+        in_list = in_list and line.startswith((" ", "\t"))
+        scaffold = None if prose_only else _scaffold(lines, i, spans, in_list)
         if scaffold:
             kind, end, level = scaffold
             if len(lines) > n_lines:
@@ -386,6 +405,7 @@ def segment(text: str) -> list[Span]:
 
         if not prose_only and _LIST_ITEM.match(line):
             # A list item continues over indented follow-on lines.
+            in_list = True
             end = _list_item_end(lines, i)
             chunk = "".join(lines[i:end])
             _emit_pieces("list_item", chunk, start, len("".join(lines[i:_list_item_end(lines, i, False)])), emit)

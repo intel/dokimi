@@ -347,3 +347,43 @@ def test_a_rule_cut_by_two_comments_keeps_its_protection_on_every_part():
         spans = [s for s in segment(text) if s.kind != "comment"]
         assert [s.text for s in spans] == [f"{prefix}Never", "ever", "delete production data."]
         assert [s.protection for s in spans] == [("negation",)] * 3
+
+
+def test_a_comment_between_two_sentences_does_not_carry_protection_to_the_next():
+    """#973: `Never delete data. <!-- n --> Restart the service.` is two sentences; only the first is a prohibition."""
+    for prefix in ("", "- "):
+        # a list item is one span, so only the comment that outruns it separates the two
+        for text in ((f"{prefix}Never delete data. <!-- n --> Restart the service.\n",) * (not prefix)
+                     + (f"{prefix}Never delete data. <!-- note\n\n--> Restart the service.\n",)):
+            spans = [s for s in segment(text) if s.kind != "comment"]
+            assert spans[0].text == f"{prefix}Never delete data.", text
+            assert spans[-1].text.endswith("Restart the service."), text
+            assert [s.protection for s in spans] == [("negation",), ()], text
+
+
+def test_the_second_indented_paragraph_of_a_list_item_is_content_not_code():
+    """#973: `    Never skip `make lint`.` after a list item's first continuation paragraph is a sentence, not `code`."""
+    spans = segment("1. Step one\n\n    Run `make test` first.\n\n    Never skip `make lint`.\n")
+    assert [(s.kind, s.protection) for s in spans] == [
+        ("list_item", ()), ("sentence", ("ordering",)), ("sentence", ("negation",))]
+
+
+def test_a_line_continuing_a_list_item_above_dashes_is_no_setext_heading():
+    """#973: `without `approval`.` directly under `- Never run `deploy`` continues the item; `---` opens no heading."""
+    spans = segment("- Never run `deploy`\nwithout `approval`.\n---\n\nKeep `CHANGELOG.md` current.\n")
+    assert "heading" not in [s.kind for s in spans]
+    assert spans[-1].heading_path == ()
+
+
+def test_the_short_comments_close_at_once():
+    """#973: `<!-->` and `<!--->` are complete comments, so the rule below them is not inside one."""
+    for opener in ("<!-->", "<!--->"):
+        spans = segment(f"{opener}\nNever delete data.\n<!-- y -->\n")
+        assert [(s.kind, s.text) for s in spans] == [
+            ("comment", opener), ("sentence", "Never delete data."), ("comment", "<!-- y -->")]
+
+
+def test_an_indented_comment_does_not_break_the_paragraph_it_continues():
+    """#973: `    <!-- x -->` (four spaces) is paragraph text, so `more\\n---` underlines the whole paragraph."""
+    spans = segment("Text\n    <!-- x -->\nmore\n---\n")
+    assert [s.kind for s in spans] == ["heading"]
