@@ -47,11 +47,11 @@ def _message(root, name: str, code: str) -> str:
 
 # ---- frontmatter-unknown-key -------------------------------------------------------
 
-def test_unknown_frontmatter_key_is_a_warn_that_names_the_key(tmp_path):
+def test_unknown_frontmatter_key_is_a_note_that_names_the_key(tmp_path):
     _skill(tmp_path, "color-skill", extra="color: red\n")
 
     [finding] = [f for f in _findings(tmp_path)["color-skill"] if f.code == "frontmatter-unknown-key"]
-    assert finding.level == "warn"
+    assert finding.level == "note"  # a non-spec key may be a field a harness reads: information, not a defect
     assert "'color'" in finding.message
 
 
