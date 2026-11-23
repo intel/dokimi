@@ -13,6 +13,7 @@ other exception makes it ``failed``. Layout and rules: ``docs/run-directories.md
 from __future__ import annotations
 
 import copy
+import json
 import signal
 import sys
 import threading
@@ -22,7 +23,7 @@ from types import TracebackType
 from typing import Any, Literal
 
 from dokimi import process, process_hooks
-from dokimi.artifacts import SCHEMA_VERSIONS, is_run_id, run_id, save_artifact
+from dokimi.artifacts import SCHEMA_VERSIONS, is_run_id, run_id, save_artifact, stamp
 from dokimi.runner.plan import STATUSES, completeness, plan_digest
 from dokimi.utils import InputError
 
@@ -128,10 +129,17 @@ class RunDir:
         """
         with self._lock:  # held across the save, so a finish in another thread sees the plan or none
             self._running()
-            snapshot = copy.deepcopy(plan)  # before the save: a stop then finds the plan on disk and here, or neither
+            snapshot = copy.deepcopy(plan)
             planned = dict.fromkeys(c["cell_id"] for c in snapshot["cells"])
-            written = save_artifact("plan", snapshot, self.artifact_path("plan"))
-            self._plan, self._planned = written, planned
+            path = self.artifact_path("plan")
+            try:
+                written = save_artifact("plan", snapshot, path)
+                self._plan, self._planned = written, planned
+            except BaseException:  # a stop after the save published the plan: the run takes it, so its result covers it
+                stamped = stamp("plan", snapshot)
+                if _holds(path, stamped):
+                    self._plan, self._planned = stamped, planned
+                raise
         return copy.deepcopy(written)  # the caller's copy shares nothing with the run's
 
     def _running(self) -> None:
@@ -235,6 +243,14 @@ class RunDir:
         if self._hooked:
             process_hooks.remove(self._on_signal)
             self._hooked = False
+
+
+def _holds(path: Path, plan: dict[str, Any]) -> bool:
+    """Whether the file at ``path`` is ``plan`` (by its digest): a save of it got as far as publishing."""
+    try:
+        return plan_digest(json.loads(path.read_text(encoding="utf-8"))) == plan_digest(plan)
+    except (OSError, ValueError, AttributeError):  # missing, not JSON, or not an object: not this plan
+        return False
 
 
 def _ending(exc: BaseException) -> tuple[Status, dict[str, str | None]]:

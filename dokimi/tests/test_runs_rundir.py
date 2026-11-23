@@ -444,6 +444,35 @@ def test_a_stop_while_the_plan_is_copied_leaves_no_plan_without_a_result(root, m
     assert _record(run.path)["artifacts"] == []
 
 
+@pytest.mark.parametrize("published", [True, False], ids=["after-publishing", "before-publishing"])
+def test_a_stop_inside_the_plans_save_leaves_a_result_exactly_when_the_plan_is_on_disk(root, monkeypatch,
+                                                                                       published):
+    """docs/run-directories.md: a run with a plan has "result.v1.json": a stop that lands in the save once
+    plan.v1.json is published (os.replace done, the save not returned) still leaves the result."""
+    real = rundir.save_artifact
+
+    def stopped(kind, data, path, **kw):
+        if kind == "plan":
+            if published:
+                real(kind, data, path, **kw)
+            raise KeyboardInterrupt
+        return real(kind, data, path, **kw)
+
+    monkeypatch.setattr(rundir, "save_artifact", stopped)
+    with pytest.raises(KeyboardInterrupt):
+        with open_run(root) as run:
+            run.write_plan(_fixture("plan.v1"))
+
+    files = sorted(os.listdir(run.path))
+    if published:
+        assert files == ["plan.v1.json", "result.v1.json", "run.json"]
+        result = load_artifact("result", run.path / "result.v1.json")
+        assert completeness(load_artifact("plan", run.path / "plan.v1.json"), result).missing == tuple(_ids())
+    else:
+        assert files == ["run.json"]
+    assert _record(run.path)["stop"]["reason"] == "interrupted"
+
+
 def test_a_cell_the_plan_lacks_or_a_status_result_v1_lacks_is_refused(root):
     """result.v1: a result "names cells the plan does not have" is invalid, and a status is one of its enum."""
     run = open_run(root)
