@@ -29,9 +29,10 @@ from dokimi.utils import retry_writable
 REWARD_FILES = ("reward.json", "reward.txt")
 
 _REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D+([01](?:\.\d+)?)", re.IGNORECASE)
-# In a reward file: the whole token after a label, and what follows it (`1 / 20`, `1 of 20` are a count).
-_FILE_REWARD_RE = re.compile(
-    r"(?:reward|score|pass[_ -]?rate)\D*?([-+]?\d\S*)(\s*/|\s+(?:out\s+)?of\b)?", re.IGNORECASE)
+# In a reward file: the token after a label, up to a separator (`reward=0.5;n=3`); `1.e3`, `1_000` stay whole.
+_FILE_REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D*?([-+]?\d[\w.+-]*)", re.IGNORECASE)
+# What may follow it and make it no reward: a thousands comma, a percent, a fraction, a count.
+_NOT_A_REWARD_RE = re.compile(r",\d|%|\s*/|\s+(?:out\s+)?of\s+\d", re.IGNORECASE)
 _NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?", re.IGNORECASE)
 
 
@@ -187,8 +188,8 @@ def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
 
 
 def _labelled_numbers(text: str) -> Iterator[float]:
-    """Each label's token that is a number in full once a closing `.`, `,`, `;` or bracket is cut."""
+    """Each label's token that is a number in full (a sentence's closing period cut) and not a count."""
     for match in _FILE_REWARD_RE.finditer(text):
-        token = match.group(1).rstrip(".,;:)]}")
-        if match.group(2) is None and _NUMBER_RE.fullmatch(token):
+        token = match.group(1).rstrip(".")
+        if _NUMBER_RE.fullmatch(token) and not _NOT_A_REWARD_RE.match(text, match.end()):
             yield float(token)
