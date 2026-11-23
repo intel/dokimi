@@ -9,7 +9,8 @@ artifacts (the trust gate, ``report generate`` and ``report eval``, the dashboar
 binary artifacts. ``report model-compare`` reads the arms file itself.
 
 * **Arms.** The run's ``baseline_arm`` is ``without_docs``; its one other arm, the context arm, is
-  ``with_docs``; it must be a docs arm (``arm_kind`` ``docs`` or ``mcp_doc``). A run of the baseline arm alone
+  ``with_docs``; it must be a docs arm (``arm_kind`` ``docs`` or ``mcp_doc``), unless it has no answer and no
+  kind at all (a run stopped before the arm answered). A run of the baseline arm alone
   is a knowledge run (``with_docs: null``, ``run_intent: knowledge``). A run with more arms, with no baseline arm
   among them, or whose other arm is not a docs arm, is a :class:`RecordError`.
 * **Answers.** A cell keeps its fields; its ``context_chunks`` become ``retrieved_docs``, and ``doc_source`` is
@@ -99,9 +100,12 @@ def _binary_arms(run: Run, source: str) -> Tuple[Optional[str], str]:
             "which hold the baseline arm and at most one other")
     if not others:
         return None, baseline
-    kinds = {kind for r in run if (cell := r.answer(others[0])) is not None
-             and isinstance(kind := (cell.raw.get("metadata") or {}).get("arm_kind"), str) and kind}
-    if not kinds or not kinds <= _DOC_KINDS:
+    cells = [cell for r in run if (cell := r.answer(others[0])) is not None]
+    kinds = {kind for cell in cells
+             if isinstance(kind := (cell.raw.get("metadata") or {}).get("arm_kind"), str) and kind}
+    # A stopped run's error cells record no kind (arm_stop.py); with no answer either, nothing can be misread.
+    answered = any(not is_empty_reply(cell.text) for cell in cells)
+    if kinds - _DOC_KINDS or (not kinds and answered):
         # with_docs is what retrieval put in the prompt: another arm would read as a retrieval miss.
         raise RecordError(
             f"{source}: arm {others[0]!r} (arm_kind {sorted(kinds) or 'unrecorded'}) is not a docs arm "

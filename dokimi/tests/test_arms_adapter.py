@@ -316,6 +316,31 @@ def test_a_stopped_run_keeps_its_stop_in_both_files():
     assert stop_note(evaluation)[0].startswith("> **Stopped early**: usage limit. 1 of 4 questions")
 
 
+@pytest.mark.parametrize("kind", ["docs", "mcp_doc"])
+def test_a_docs_or_mcp_arm_is_with_docs(kind):
+    # The two kinds DocTreatment stamps (treatments/factory.py: docs:, mcp:).
+    cell = {**_cell(chunks=[{"source": "a.md", "snippet": "s"}]), "metadata": {"arm_kind": kind}}
+    answers, _ = to_binary(_arms(_question(baseline=_cell(), docs=cell)))
+    assert read(answers).records[0].retrieval_hit is True
+
+
+def test_a_run_stopped_on_its_first_question_converts_with_its_stop():
+    # The cells arm_stop.stop_question writes record no arm_kind; with no answer, docs reads as nothing.
+    from dokimi.eval.arm_stop import stop_question
+
+    cells: Dict[str, Any] = {}
+    stop_question(cells, ["baseline", "docs"], "baseline", RuntimeError("usage limit"))
+    stop = {"reason": "usage limit", "questions_requested": 4, "questions_recorded": 1}
+    answers, evaluation = to_binary(_arms(_question(**cells), terminated=stop, evaluations=[_scores(
+        baseline={"error": cells["baseline"]["error"]}, docs={"error": cells["docs"]["error"]})]))
+    [a], [e] = answers["answers"], evaluation["evaluations"]
+    assert answers["terminated"] == evaluation["run_metadata"]["terminated"] == stop
+    assert (a["with_docs"], a["without_docs"]) == (None, None)
+    assert a["error"] == ("docs: not_asked: the run stopped before this arm; "
+                          "baseline: generation_failed: usage limit")
+    assert (e["with_docs"], e["without_docs"], e["delta"], e["retrieval_hit"]) == (None, None, None, None)
+
+
 def test_the_partial_file_of_a_crashed_run_reads_as_incomplete(tmp_path, monkeypatch):
     # docs/evaluating-treatments.md, "While it answers": a crash leaves <out stem>.partial.json, none judged.
     # Here a knowledge run (the baseline arm alone) crashes on q2, and q0, q1, q3 are kept.
