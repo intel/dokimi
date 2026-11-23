@@ -85,6 +85,20 @@ def test_rm_a_run_id_removes_its_artifacts_and_leaves_other_files_and_directorie
     assert (root / "r1" / "answers").is_dir()
 
 
+def test_rm_a_run_id_says_an_unreadable_entry_may_belong_to_the_run_and_leaves_it(
+        root, monkeypatch, capsys):
+    (root / "r1" / "broken.json").write_text('{"schema_version": "eval.v1", "evaluations": [',
+                                             encoding="utf-8")
+
+    code, out, _ = _run(monkeypatch, capsys, "rm", OLD)
+
+    assert code == 0
+    assert out.splitlines()[1] == ("unreadable: 1 entry under the root left in place, which may "
+                                   "belong to it (first: r1/broken.json: not valid JSON: "
+                                   "Expecting value at line 1)")
+    assert (root / "r1" / "broken.json").exists()
+
+
 def test_rm_dry_run_lists_the_run_and_removes_nothing(root, monkeypatch, capsys):
     before = _left(root)
 
@@ -214,6 +228,9 @@ def test_gc_removes_the_runs_older_than_the_age_and_nothing_without_a_run_id(
     code, out, _ = _run(monkeypatch, capsys, "gc", "--older-than", "30d")
 
     assert code == 0
+    table = out.split("\n\n")[0].splitlines()
+    assert table[0].split()[:2] == ["RUN", "SCHEMA"]
+    assert [row.split()[0] for row in table[1:]] == [OLD, OLD]
     assert "removed 1 run older than 30d under results/: 2 artifacts, " in out
     assert _left(root) == ["arms/onetbb.json", "pre.json", "r1/eval/onetbb.md",
                            "r1/questions/demo.json"]
