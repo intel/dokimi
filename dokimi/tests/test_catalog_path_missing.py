@@ -731,3 +731,15 @@ def test_1089_a_definition_with_an_escaped_bracket_in_its_label_names_its_file(t
     body = "Read [guide][g\\]].\n\n[g\\]]: references/missing.md\n"
     review, _ = _review(tmp_path, body)
     assert "link-missing" in _codes(review)
+
+
+def test_1092_unclosed_labels_after_thematic_breaks_are_read_in_linear_time():
+    """#1092: an unclosed `[` after each `---` must not scan the rest of the paragraph for its `]`."""
+    import time
+
+    from dokimi.external.skill_markdown import link_pieces
+
+    lines = ["---", "[x"] * 40000
+    started = time.monotonic()
+    assert link_pieces(lines) == ([], [])
+    assert time.monotonic() - started < 10

@@ -37,8 +37,9 @@ _FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 _REFERENCE_RE = re.compile(r"\]\[([^\]]+)\]")
 # A reference definition at the start of a block: label, destination, and a title that may start on the destination's
 # line or the next and span lines. A title that never closes is no title, and text after it makes it no definition.
+# The label is at most 999 characters, as in CommonMark, so an unclosed one does not scan the rest of the paragraph.
 _DEFINITION_RE = re.compile(
-    r"""[ ]{0,3}\[(?!\^)([^\]]+)\]:[ \t]*\n?[ \t]*(<[^<>\n]*>|\S+)"""
+    r"""[ ]{0,3}\[(?!\^)([^\]]{1,999})\]:[ \t]*\n?[ \t]*(<[^<>\n]*>|\S+)"""
     r"""(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:"[^"]*"|'[^']*'|\([^()]*\)))?[ \t]*(?:\n|$)"""
 )
 # A thematic break line (``---``, ``* * *``, ``___``), with its line end.
