@@ -132,10 +132,15 @@ def plan_gc(root: Path, cutoff: float, held: Mapping[str, str]) -> Removal:
 
 
 def apply(removal: Removal) -> None:
-    """Remove every path of ``removal``; one that cannot be removed goes to ``not_removed``.
-    A path already gone counts as removed."""
+    """Remove every path of ``removal``; one that cannot be removed moves from the plan to
+    ``not_removed``, so ``paths`` and ``size_bytes`` are then what was removed. A path already
+    gone counts as removed."""
     for path in removal.paths:
         try:
             (removal.root / path).unlink(missing_ok=True)
         except OSError as exc:
             removal.not_removed.append(Unreadable(path, f"cannot remove: {exc.strerror or exc}"))
+    failed = {u.path for u in removal.not_removed}
+    removal.runs = [left for run in removal.runs if (left := [a for a in run if a.path not in failed])]
+    if removal.file in failed:
+        removal.file, removal.file_bytes = None, 0

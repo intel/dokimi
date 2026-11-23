@@ -208,13 +208,16 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 - `--dry-run` prints the same lines, `would remove` in place of `removed`, and
   removes nothing.
 - `--json` prints one `cli_output.v1` document (`kind` `runs rm` or `runs gc`)
-  with `root`, `dry_run`, `runs` (as in `runs list --json`), `paths`,
-  `size_bytes`, `not_removed` and `unreadable` under `data`; `runs rm` adds
+  with `root`, `dry_run`, `runs` (as in `runs list --json`), `paths` and
+  `size_bytes` (what was removed, or with `--dry-run` would be), `not_removed` and
+  `unreadable` under `data`; `runs rm` adds
   `run_id` (`null` for a file), `runs gc` adds `older_than`, `keep_baselines` and
   `kept` (each `run_id` with its `baseline`). `status` is `partial` when
   `unreadable` is not empty (`runs rm RUN_ID` only).
 - A file that cannot be removed (no permission) is named, the others are still
-  removed, and the command exits 5 (`status` `failed`, `error.code` `infra`).
+  removed (`removed run ...: 1 of 2 artifacts`; it is in `not_removed`, not in `runs`,
+  `paths` or `size_bytes`), and the command exits 5 (`status` `failed`, `error.code`
+  `infra`).
 
 ## Exit codes
 

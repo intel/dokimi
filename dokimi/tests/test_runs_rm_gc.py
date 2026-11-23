@@ -183,9 +183,12 @@ def test_a_file_that_cannot_be_removed_is_named_and_exits_5(root, monkeypatch, c
         real(self, missing_ok=missing_ok)
 
     monkeypatch.setattr(Path, "unlink", refuse)
+    size = (root / "r1" / "eval" / "onetbb.json").stat().st_size
 
     code, out, _ = _run(monkeypatch, capsys, "rm", OLD)
     assert code == 5
+    assert out.splitlines()[0] == f"removed run {OLD}: 1 of 2 artifacts, {size:,} bytes"
+    assert "r1/answers/onetbb.json" not in out.split("\n\n")[1]  # the table lists what went
     assert "not removed: 1 file (first: r1/answers/onetbb.json: cannot remove: Permission denied)" in out
     assert not (root / "r1" / "eval" / "onetbb.json").exists()  # the others still go
 
@@ -195,6 +198,12 @@ def test_a_file_that_cannot_be_removed_is_named_and_exits_5(root, monkeypatch, c
     assert (code, doc["status"], doc["error"]["code"]) == (5, "failed", "infra")
     assert doc["data"]["not_removed"] == [{"path": "r2/answers/onetbb.json",
                                            "reason": "cannot remove: Permission denied"}]
+    assert (doc["data"]["paths"], doc["data"]["size_bytes"], doc["summary"]["paths"]) == ([], 0, 0)
+    assert _run(monkeypatch, capsys, "rm", "r2/answers/onetbb.json")[1].startswith("removed nothing\n")
+    monkeypatch.setenv("DOKIMI_RUN_ID", "r3")
+    save_artifact("eval", _fixture("eval.v1"), root / "r3" / "answers" / "onetbb.json")
+    data = json.loads(_run(monkeypatch, capsys, "rm", "r3", "--json")[1])["data"]
+    assert (data["runs"], data["paths"], len(data["not_removed"])) == ([], [], 1)
 
 
 # gc

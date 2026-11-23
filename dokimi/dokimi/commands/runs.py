@@ -262,13 +262,17 @@ def _rows(artifacts: list[Artifact], with_run: bool) -> list[str]:
     return table
 
 
-def _rm_text(removal: Removal, verb: str) -> list[str]:
+def _rm_text(removal: Removal, verb: str, run_id: str | None) -> list[str]:
     size = f"{removal.size_bytes:,} bytes"
-    if removal.file is not None:
-        return [f"{verb} {plain(removal.file.as_posix())} ({size})", *_left_lines(removal, False)]
-    run = removal.runs[0]
-    return [f"{verb} run {plain(run[0].run_id or '-')}: {_count(len(run), 'artifact')}, {size}",
-            *_left_lines(removal, True), "", *_rows(run, with_run=False)]
+    if run_id is None:
+        head = f"{verb} {plain(removal.file.as_posix())} ({size})" if removal.file else f"{verb} nothing"
+        return [head, *_left_lines(removal, False)]
+    run = removal.runs[0] if removal.runs else []
+    count = _count(len(run), "artifact")
+    if removal.not_removed:
+        count = f"{len(run)} of {_count(len(run) + len(removal.not_removed), 'artifact')}"
+    lines = [f"{verb} run {plain(run_id)}: {count}, {size}", *_left_lines(removal, True)]
+    return lines + (["", *_rows(run, with_run=False)] if run else [])
 
 
 def _gc_text(removal: Removal, verb: str, age: str, root: str) -> list[str]:
@@ -321,7 +325,7 @@ def cmd_runs_rm(args: argparse.Namespace) -> None:
     removal = plan_rm(root.path, args.path)
     run_id = removal.runs[0][0].run_id if removal.runs else None
     _finish("runs rm", removal, args, {"run_id": run_id},
-            lambda verb: _rm_text(removal, verb))
+            lambda verb: _rm_text(removal, verb, run_id))
 
 
 def _baselines_held() -> dict[str, str]:
