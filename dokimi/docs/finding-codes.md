@@ -72,6 +72,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `script-crlf` | warn | a bundled script has CRLF line endings | yes |
 | `script-lint` | note | a bundled script has a lint finding | yes |
 | `script-syntax` | warn | a bundled script does not parse | yes |
+| `similar-skills-exist` | note | the description overlaps a differently named skill's (Jaccard similarity at least 0.4 and below 0.5, at least 3 shared words); the state stays `ok` | yes |
 | `unreadable` | error | SKILL.md exists but the OS will not read it | no |
 | `unsupported-skill-format` | note | the skill is under a host directory dokimi holds no spec for (`.kiro`, `.cursor`, ...); the frontmatter and description checks were skipped, an unloaded file was not read | yes |
 

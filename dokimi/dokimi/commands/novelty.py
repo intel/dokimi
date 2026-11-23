@@ -572,11 +572,30 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
+    if args.atom_labels and not args.atom_verdicts:
+        raise InputError("--atom-labels needs --atom-verdicts: the labels are joined to its atoms")
+    labels = None
+    if args.atom_labels:
+        from dokimi.novelty.atom_labels import load_atom_labels
+
+        labels = load_atom_labels(args.atom_labels)
     artifact, atoms, spans, saved = load_view_inputs(args.novelty, args.atoms)
     warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # The artifact carries aggregates only: without the atom verdicts a rebuilt view cannot
     # colour by outcome. Say so instead of implying the colours mean more than they do.
     outcomes, categories = load_atom_verdicts(args.atom_verdicts, artifact, atoms, saved)
+    shares_text = None
+    if labels is not None:
+        from dokimi.novelty.atom_labels import format_shares, label_shares, unmatched_note
+
+        # After load_atom_verdicts, which checked the file; an --atoms atom it has no category for
+        # (or no row) is uncategorised
+        rows = [{"id": atom.id, "category": (categories or {}).get(atom.id)} for atom in atoms]
+        ref = artifact["artifact"]["ref"]
+        note = unmatched_note(rows, ref, labels)
+        if note:
+            print(f"WARNING: {note}", file=sys.stderr)
+        shares_text = format_shares(label_shares(rows, ref, labels))
     attributions = attribute_spans(spans, atoms, outcomes=outcomes, categories=categories)
     render = render_annotated_html if args.format == "html" else render_annotated_markdown
     title = f"{artifact['artifact']['ref']} × {artifact['model']}"
@@ -584,6 +603,8 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     write_report_text(out, render(attributions, title=title))
     print(f"OK Saved annotated view: {out}")
     print(colour_note(args.atom_verdicts))
+    if shares_text:
+        print(shares_text)
 
 
 def _bundle_from_args(args: argparse.Namespace):
@@ -649,7 +670,10 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
     cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=unit_interval, nargs="+", default=[0.75, 0.5],
                   dest="budgets", help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
-                        help="Disk cache for retention adjudications")
+                        help="Disk memo of retention adjudications only (not model replies). The "
+                             "response cache is separate and opt-in: set DOKIMI_RESPONSE_CACHE to a "
+                             "writable directory. Research or a rerun should set it; without it a rerun "
+                             "pays for every call again.")
     parser.add_argument("--seed", type=int, default=0,
                         help="Seed for the shuffled control and random selection, so both "
                              "are reproducible across runs")
