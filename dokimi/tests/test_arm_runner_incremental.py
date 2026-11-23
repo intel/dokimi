@@ -724,3 +724,15 @@ def test_an_out_linked_to_the_partial_name_in_another_case_is_passed_over(tmp_pa
     out.symlink_to("ARMS.PARTIAL.JSON")
     assert fresh_partial_destination(out) == tmp_path / "arms.partial2.json"
     assert partial_destination(out) == tmp_path / "arms.partial2.json"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_an_out_linked_to_the_partial_name_in_another_unicode_form_is_passed_over(tmp_path):
+    # APFS and HFS+ also ignore the normalization form: an NFD target of an NFC out is the same file.
+    import unicodedata
+
+    from dokimi.commands.novelty_budget import fresh_partial_destination
+
+    out = tmp_path / "café.json"
+    out.symlink_to(unicodedata.normalize("NFD", "CAFÉ.PARTIAL.JSON"))
+    assert fresh_partial_destination(out) == tmp_path / "café.partial2.json"

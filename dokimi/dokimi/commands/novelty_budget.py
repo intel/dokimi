@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import sys
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
@@ -26,14 +27,15 @@ def partial_destination(out: Path) -> Path:
     holds a partial result, so a stopped run never replaces a finished one. The sidecar rules are
     the routing report's (a symlink is not followed, a FIFO is not read). A name that is the file
     ``out`` resolves to (a symlinked ``out``, dangling or not) is passed over: the save of ``out``
-    would land in it. The names are compared case-folded, as a case-insensitive file system sees them."""
+    would land in it. The names are compared by :func:`_resolved`'s key, case and Unicode form aside."""
     target = _resolved(out)
     return next(p for p in _partial_destinations(Path(out)) if _resolved(p) != target)
 
 
 def _resolved(path: Path) -> str:
-    """``path`` as the file system finds it: a dangling link keeps its target's case, which macOS ignores."""
-    return os.path.realpath(path).casefold()
+    """A comparison key for the file ``path`` resolves to: NFC and case-folded, since a dangling link keeps
+    its target's spelling and macOS file systems ignore both case and normalization form."""
+    return unicodedata.normalize("NFC", os.path.realpath(path)).casefold()
 
 
 def fresh_partial_destination(out: Path) -> Path:
