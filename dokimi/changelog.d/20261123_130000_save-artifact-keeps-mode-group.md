@@ -1,0 +1,3 @@
+### Fixed
+
+- **`save_artifact` keeps the mode and group of the file it replaces** — a save over a file with mode `0640` in a supplementary group gave the new file the umask mode and the user's primary group, because the tmp file was a new inode. The payload is now published through `dokimi.atomic_write.write_bytes_in_place_or_atomic`: a plain file keeps its mode and, where the user may give it, its group; a new file still gets the umask mode; a hard-linked, read-only or other special file is written in place, as `Path.write_bytes` writes it; a symlink at the path stays and the file it resolves to is replaced.
