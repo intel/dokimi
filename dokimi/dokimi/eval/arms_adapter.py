@@ -10,7 +10,7 @@ binary artifacts. ``report model-compare`` reads the arms file itself.
 
 * **Arms.** The run's ``baseline_arm`` is ``without_docs``; its one other arm, the context arm, is
   ``with_docs``; it must be a docs arm (``arm_kind`` ``docs`` or ``mcp_doc``). A run stopped before that arm
-  answered records no kind for it, and is refused too. A run of the baseline arm alone
+  answered records no kind for it; it is taken as the docs arm, and its ``with_docs`` is ``null``. A run of the baseline arm alone
   is a knowledge run (``with_docs: null``, ``run_intent: knowledge``). A run with more arms, with no baseline arm
   among them, or whose other arm is not a docs arm, is a :class:`RecordError`.
 * **Answers.** A cell keeps its fields; its ``context_chunks`` become ``retrieved_docs``, and ``doc_source`` is
@@ -103,12 +103,10 @@ def _binary_arms(run: Run, source: str) -> Tuple[Optional[str], str]:
     cells = [cell for r in run if (cell := r.answer(others[0])) is not None]
     kinds = {kind for cell in cells
              if isinstance(kind := (cell.raw.get("metadata") or {}).get("arm_kind"), str) and kind}
-    if not kinds and not any(not is_empty_reply(cell.text) for cell in cells):
-        # The cells of a run-wide stop record no arm_kind (arm_stop.py): what the arm was is unknown.
-        raise RecordError(
-            f"{source}: arm {others[0]!r} records no arm_kind: the run stopped before the arm ran, so it is not "
-            "known to be a docs arm, the one arm with_docs holds")
-    if not kinds or kinds - _DOC_KINDS:
+    # A run stopped before the arm answered has only stop cells, which record no kind (arm_stop.py): all
+    # with_docs gets from it is null, which no reader can misread, so the arm is taken as the docs arm.
+    answered = any(not is_empty_reply(cell.text) for cell in cells)
+    if kinds - _DOC_KINDS or (not kinds and answered):
         # with_docs is what retrieval put in the prompt: another arm would read as a retrieval miss.
         raise RecordError(
             f"{source}: arm {others[0]!r} (arm_kind {sorted(kinds) or 'unrecorded'}) is not a docs arm "

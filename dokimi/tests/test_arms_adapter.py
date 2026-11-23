@@ -350,8 +350,8 @@ def test_a_run_stopped_after_its_docs_arm_answered_converts_with_its_stop():
     assert evaluation["evaluations"][0]["delta"] == 20.0
 
 
-def test_an_arms_run_stopped_before_its_docs_arm_answered_is_refused(monkeypatch):
-    # ArmRunner's stop: a usage limit on q1's baseline, so no cell says what the docs arm is.
+def test_an_arms_run_stopped_before_its_docs_arm_answered_converts_with_its_stop(monkeypatch):
+    # ArmRunner's stop: a usage limit on q1's baseline. No cell names the docs arm, and none holds an answer.
     from dokimi import llm_cli
     from dokimi.eval.arm_runner import ArmRunner
     from dokimi.treatments.arms import BaselineTreatment, DocTreatment
@@ -362,17 +362,34 @@ def test_an_arms_run_stopped_before_its_docs_arm_answered_is_refused(monkeypatch
     monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", usage_limit)
     runner = ArmRunner([BaselineTreatment(), DocTreatment(None, reranker=Mock())], model="m", provider="openai")
     records = runner.run("lib", [{"id": "q1", "question": "How?"}], concurrency=1)
-    with pytest.raises(RecordError, match="arm 'docs' records no arm_kind: the run stopped before the arm ran"):
-        to_binary(runner.build_output("lib", records))
+    judge = Mock(model="j", provider="openai", spec=["model", "provider", "score_answer"])
+    output = runner.build_output("lib", records, evaluations=runner.judge(judge, "lib", records), judge=judge)
+    stop = {"reason": "usage limit exceeded", "questions_requested": 1, "questions_recorded": 1}
+    answers, evaluation = to_binary({**output, "terminated": stop})
+    [a], [e] = answers["answers"], evaluation["evaluations"]
+    assert answers["terminated"] == evaluation["run_metadata"]["terminated"] == stop
+    assert (a["with_docs"], a["without_docs"], answers["run_intent"]) == (None, None, "paired")
+    assert (e["with_docs"], e["without_docs"], e["delta"], e["retrieval_hit"]) == (None, None, None, None)
+    judge.score_answer.assert_not_called()  # stop cells are never judged
 
 
-@pytest.mark.parametrize("data", [
-    _arms(_question(**_stopped())),
-    # The partial file of a run killed before its first question: no cell at all.
-    {**_arms(arms=("baseline", "docs")), "partial": {"questions_requested": 4, "questions_recorded": 0}},
+def test_the_partial_file_of_a_run_killed_before_its_first_question_has_no_record():
+    partial = {**_arms(arms=("baseline", "docs")), "partial": {"questions_requested": 4, "questions_recorded": 0}}
+    answers, evaluation = to_binary(partial)
+    assert (answers["answers"], answers["terminated"], evaluation) == (
+        [], {"questions_requested": 4, "questions_recorded": 0}, None)
+
+
+@pytest.mark.parametrize("data, message", [
+    # An arm that answered and names no kind, or a stopped arm whose other cells name a non-docs kind.
+    (_arms(_question(**_stopped()), _question("q2", baseline=_cell(), docs={"answer": "a"})),
+     r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
+    (_arms(_question(**_stopped()), _question("q2", baseline=_cell(),
+                                              docs={"error": "x", "answer": None, "metadata": {"arm_kind": "skill"}})),
+     r"arm 'docs' \(arm_kind \['skill'\]\) is not a docs arm"),
 ])
-def test_a_run_with_no_cell_naming_its_arm_is_refused(data):
-    with pytest.raises(RecordError, match="records no arm_kind: the run stopped before the arm ran"):
+def test_a_stopped_run_is_still_refused_when_its_arm_is_not_docs(data, message):
+    with pytest.raises(RecordError, match=message):
         to_binary(data)
 
 
