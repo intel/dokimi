@@ -274,13 +274,14 @@ def test_to_jsonl_into_a_mount_point_copies_the_staged_rows_in_place(tmp_path, m
     assert [p.name for p in tmp_path.iterdir()] == ["rows.jsonl"]
 
 
-def test_to_jsonl_writes_equal_plain_keys_beside_a_surrogate_pair(tmp_path):
-    """Only keys holding a character above U+FFFF can be made equal by joining a pair: ``1`` and ``"1"`` are not refused (#1020)."""
+def test_to_jsonl_refuses_an_integer_key_beside_its_string_and_writes_no_file(tmp_path):
+    """``json.dumps`` writes ``{"1": "a", "1": "b"}`` and a reader keeps one entry: refused, as a pair key beside its character is (#1066)."""
     path = tmp_path / "rows.jsonl"
 
-    to_jsonl([{1: "a", "1": "b", "x": chr(0xD83D) + chr(0xDE00)}], path)
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([{1: "a", "1": "b", "x": chr(0xD83D) + chr(0xDE00)}], path)
 
-    assert path.read_bytes() == '{"1": "a", "1": "b", "x": "\U0001F600"}\n'.encode()
+    assert not path.exists()
 
 
 def test_export_answers_artifact_jsonl(tmp_path):
