@@ -245,6 +245,20 @@ def test_a_judge_failure_on_an_answer_is_the_eval_records_error():
     assert answers["answers"][0]["with_docs"]["doc_source"] == "a.md"
 
 
+def test_a_legacy_inline_evaluation_is_not_a_score_of_the_run():
+    # records.arm_scores: an arms run's stored judge is its evaluations list, not arms[name].evaluation.
+    legacy = {"evaluation": {"aggregate_score": 70}}
+    _, evaluation = to_binary(_arms(_question(baseline={**_cell(), **legacy}, docs={**_cell(), **legacy}),
+                                    evaluations=[]))
+    assert evaluation is not None
+    [e] = evaluation["evaluations"]
+    assert (e["with_docs"], e["without_docs"], e["delta"]) == (None, None, None)  # was a KeyError on "aggregate"
+    _, evaluation = to_binary(_arms(_question(baseline=_cell(), docs={**_cell(), **legacy}),
+                                    evaluations=[_scores(baseline={"aggregate": 60.0})]))
+    [e] = evaluation["evaluations"]
+    assert (e["with_docs"], e["without_docs"]["aggregate"], e["delta"]) == (None, 60.0, None)
+
+
 def test_a_baseline_only_run_reads_as_a_knowledge_run():
     # An arms file of the baseline arm alone is a knowledge run (records.is_knowledge_run).
     answers, evaluation = to_binary(_arms(

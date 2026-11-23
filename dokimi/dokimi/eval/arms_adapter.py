@@ -33,8 +33,8 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from dokimi.caching import is_empty_reply
 from dokimi.eval.diagnoser import diagnose
 from dokimi.records import (
-    BASELINE, CONTEXT, KNOWLEDGE_INTENT, PAIRED_INTENT, Answer, Record, RecordError, Run, knowledge_only, read,
-    record,
+    BASELINE, CONTEXT, KNOWLEDGE_INTENT, PAIRED_INTENT, Answer, Record, RecordError, Run, arm_scores, knowledge_only,
+    read, record,
 )
 from dokimi.utils import same_evaluator
 
@@ -160,7 +160,8 @@ def _eval_record(rec: Record, answers: Dict[str, Any], context: Optional[str], b
     out: Dict[str, Any] = _question_fields(binary)
     errors: List[str] = []
     for condition, arm in ((CONTEXT, context), (BASELINE, baseline)):
-        score = rec.scores.get(arm) if arm is not None else None
+        # The run's evaluations list only, not a legacy inline arms[name].evaluation (records.arm_scores).
+        score = arm_scores(rec).get(arm) if arm is not None else None
         judged = binary.answer(condition) is not None
         if score is not None and score.aggregate is None and judged:
             # An answer the arms judge failed on; an unjudged errored answer is the answers file's error.
