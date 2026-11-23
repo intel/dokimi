@@ -973,6 +973,7 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
     arms_run.run_arms(run_config_from_args(args), ["baseline"], QUESTIONS[:1])
     Judge(model="claude-sonnet-5-5", provider="amazon-bedrock", temperature=1.0).llm.invoke("p")
 
+    # A set, not a list: the run and the judge each check the route, and a repeated local check is cheap.
     assert {m for m in checked if m.startswith("bedrock/")} == {route}
     assert sent == [(route, 1.0), (route, 1.0)]
 

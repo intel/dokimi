@@ -12,6 +12,15 @@ from __future__ import annotations
 from typing import Any, Callable
 
 
+def _litellm_reason(text: str) -> str:
+    """litellm's reason alone: its ``litellm.<Error>: `` prefix and its advice to set a litellm
+    global (dokimi never sets it) are dropped."""
+    if text.startswith("litellm."):
+        text = text.partition(": ")[2]
+    reason = text.split(" To drop unsupported params", 1)[0].strip()
+    return reason if reason.endswith(".") else reason + "."
+
+
 def refusal_reason(litellm: Any, resolved: str, provider: str, name: str, value: Any) -> str | None:
     """The reason when litellm (passed in; dokimi.llm owns the import) refuses this value on this route.
 
@@ -28,7 +37,7 @@ def refusal_reason(litellm: Any, resolved: str, provider: str, name: str, value:
         litellm.get_optional_params(model=bare, custom_llm_provider=route or provider,
                                     **{name: value})
     except litellm.UnsupportedParamsError as exc:
-        return str(exc)
+        return _litellm_reason(str(exc))
     except Exception:  # noqa: BLE001 - a probe failure must not block a run
         return None
     return None
@@ -52,11 +61,13 @@ def refusals_for_route(requested: dict, provider: str, *, cli: Any, load: Callab
         litellm = load()
         resolved = resolve()
         supported = litellm.get_supported_openai_params(model=resolved) or []
+        if not supported:  # litellm lists nothing for this model: the check cannot run, so nothing is refused
+            return {}
     except Exception:  # noqa: BLE001 - an unknown model, or litellm that will not load, does not block the run
         return {}
     refused = {}
     for name, value in requested.items():
-        if supported and name not in supported:
+        if name not in supported:
             refused[name] = NAME_REFUSAL
         elif reason := refusal_reason(litellm, resolved, provider, name, value):
             refused[name] = reason
