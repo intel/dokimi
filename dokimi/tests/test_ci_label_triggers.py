@@ -125,6 +125,9 @@ def test_the_seed_job_runs_on_schedule_and_dispatch_only_under_a_seed_it_passes_
     assert _ci()["jobs"]["test-seeds"]["timeout-minutes"] <= 30
     runs = [str(step.get("run", "")) for step in _ci()["jobs"]["test-seeds"]["steps"]]
     assert any("pytest" in run and "-n auto" in run and '--randomly-seed="$SEED"' in run for run in runs)
+    assert any("GITHUB_RUN_NUMBER" in run and "SEED=" in run and "GITHUB_ENV" in run for run in runs)
+    checkout = _ci()["jobs"]["test-seeds"]["steps"][0]
+    assert checkout["uses"].startswith("actions/checkout@") and checkout["with"]["ref"] == "main"
 
 
 def test_a_push_to_a_pr_supersedes_its_run_and_a_main_push_keeps_its_own():
