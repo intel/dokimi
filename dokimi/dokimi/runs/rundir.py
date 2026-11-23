@@ -120,11 +120,20 @@ class RunDir:
 
     def write_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
         """Save ``plan`` (``plan.v1``) as the run's plan, whose cells a stop marks ``not_run``;
-        return what was written."""
-        written = save_artifact("plan", plan, self.artifact_path("plan"))
-        with self._lock:
+        return what was written.
+
+        Raises:
+            ValueError: the run has already ended (its result would not cover the plan).
+        """
+        with self._lock:  # held across the save, so a finish in another thread sees the plan or none
+            self._running()
+            written = save_artifact("plan", plan, self.artifact_path("plan"))
             self._plan, self._planned = written, dict.fromkeys(c["cell_id"] for c in written["cells"])
         return written
+
+    def _running(self) -> None:
+        if self._record["status"] != "running":
+            raise ValueError(f"run {self.path} has already ended: {self._record['status']}")
 
     def record_cell(self, cell_id: str, status: str, *, model: str | None = None,
                     detail: str | None = None) -> None:
@@ -151,8 +160,7 @@ class RunDir:
 
     def _end(self, status: Status, stop: dict[str, str | None] | None) -> None:
         with self._lock:
-            if self._record["status"] != "running":
-                raise ValueError(f"run {self.path} has already ended: {self._record['status']}")
+            self._running()
             if self._plan is not None:
                 result = self._result(self._plan, stop)
                 if status == "complete" and not completeness(self._plan, result).complete:

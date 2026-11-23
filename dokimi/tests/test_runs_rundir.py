@@ -315,6 +315,33 @@ def test_a_run_ends_once(root):
     assert _record(run.path)["status"] == "failed"
 
 
+def test_a_plan_is_saved_under_the_runs_lock_and_refused_once_the_run_ended(root, monkeypatch):
+    """docs/run-directories.md: "result.v1.json ... when it has a plan": a finish in another thread cannot
+    end the run between the plan's save and its taking effect, and an ended run takes no plan."""
+    run = open_run(root)
+    real = rundir.save_artifact
+    held: list[bool] = []
+
+    def saving(kind, data, path, **kw):
+        if kind == "plan":
+            worker = threading.Thread(target=lambda: held.append(run._lock.acquire(blocking=False)))
+            worker.start()
+            worker.join()
+        return real(kind, data, path, **kw)
+
+    monkeypatch.setattr(rundir, "save_artifact", saving)
+    run.write_plan(_fixture("plan.v1"))
+    assert held == [False]  # another thread cannot take the lock while the plan is saved
+    run.finish("incomplete")
+    assert (run.path / "result.v1.json").exists()
+
+    ended = open_run(root / "other")
+    ended.finish("failed")
+    with pytest.raises(ValueError, match="already ended: failed"):
+        ended.write_plan(_fixture("plan.v1"))
+    assert not (ended.path / "plan.v1.json").exists()
+
+
 def test_a_cell_the_plan_lacks_or_a_status_result_v1_lacks_is_refused(root):
     """result.v1: a result "names cells the plan does not have" is invalid, and a status is one of its enum."""
     run = open_run(root)
