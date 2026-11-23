@@ -79,9 +79,9 @@ def _cut_short(program: str, words: list[str], i: int) -> _Parsed:
     return 1, None
 
 
-def _cut_count(program: str, words: list[str]) -> str | None:
+def _cut_count(program: str, words: list[str], files: bool = False) -> str | None:
     """The count of lines (or bytes) a ``head`` or ``tail`` word list passes on, 10 by default; None when an option is
-    unknown, ``--help`` or ``--version``, or a word is a file the command reads instead of its input."""
+    unknown, ``--help`` or ``--version``, or a word is a file the command reads instead of its input (unless ``files``)."""
     count, i = "10", 1
     while i < len(words):
         word = words[i]
@@ -89,19 +89,34 @@ def _cut_count(program: str, words: list[str]) -> str | None:
             i += 1
             continue
         if word == "--":  # the end of the options: only ``-`` may follow
-            return count if all(w == "-" for w in words[i + 1:]) else None
+            return count if files or all(w == "-" for w in words[i + 1:]) else None
         if word.startswith("--"):
             parsed = _cut_long(program, words, i)
         elif re.fullmatch(r"-\d+", word):
             parsed = 1, word[1:]
         elif word.startswith("-") and len(word) > 1 and word[1] != "-":
             parsed = _cut_short(program, words, i)
+        elif files:  # a file operand
+            i += 1
+            continue
         else:
             return None
         if parsed is None:
             return None
         i, count = i + parsed[0], count if parsed[1] is None else parsed[1]
     return count
+
+
+def prints_nothing(program: str, args: Sequence[str]) -> bool:
+    """Whether ``head`` or ``tail`` with ``args`` (files too) has a count that prints no byte or line: ``head -n 0``,
+    ``-c 0``, ``-0``, ``--lines=0``, ``-n +0``, ``tail -n -0``. ``head -n -0`` and ``tail -n +0`` print all of it."""
+    if program not in _CUT_FLAGS:
+        return False
+    match = re.fullmatch(_COUNT, _cut_count(program, [program, *args], files=True) or "")
+    if match is None:
+        return False
+    sign, digits = match.groups()
+    return not int(digits) and sign != ("-" if program == "head" else "+")
 
 
 def cuts_lines(stage: str, functions: Container[str] = ()) -> bool:

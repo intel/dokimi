@@ -53,6 +53,12 @@ def test_an_absolute_path_inside_the_workspace_is_made_relative():
     assert _reads(_events(_call("a", "head -n 40 /ws/sub/AGENTS.md"), _result("a"))) == ["sub/AGENTS.md"]
 
 
+@pytest.mark.parametrize("command,reads", [("head -n 0 AGENTS.md", []), ("tail -c 0 AGENTS.md", []),
+                                           ("head -n -0 AGENTS.md", ["AGENTS.md"]), ("tail -n 1 AGENTS.md", ["AGENTS.md"])])
+def test_a_head_or_tail_that_prints_no_line_gives_no_read_event(command, reads):
+    assert _reads(_events(_call("a", command), _result("a", ""))) == reads
+
+
 def test_a_failed_cat_of_one_file_is_no_read():
     events = _events(_call("a", "cat AGENTS.md"), _result("a", "cat: AGENTS.md: No such file or directory", True))
     assert events == [{"t": 5.0, "kind": "command", "text": "cat AGENTS.md", "rc": 1,

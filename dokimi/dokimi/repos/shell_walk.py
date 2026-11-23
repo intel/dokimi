@@ -23,7 +23,7 @@ from dokimi.text_spans import HeredocPattern
 
 from .shell_functions import Functions, define
 from .shell_redirects import bare, masked, without_stderr
-from .shell_search import Searched, cuts_lines, passes_through, search_program, searched_files
+from .shell_search import Searched, cuts_lines, passes_through, prints_nothing, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _loses, _run_name, _runs_dir,
@@ -344,6 +344,8 @@ class _Walk:
     def printed(self, name: str, args: list[str], chdir: bool) -> list[str]:
         """The files a printing command reads; ``unknown`` counts those it names at a directory not known."""
         if _asks_for_help(args):  # ``cat --help AGENTS.md`` prints the help and opens no file
+            return []
+        if prints_nothing(name, args):  # ``head -n 0 AGENTS.md`` exits 0 and prints no line
             return []
         files = sed_files(args) if name == "sed" else _print_files(name, args)
         known = self.named(files, chdir)

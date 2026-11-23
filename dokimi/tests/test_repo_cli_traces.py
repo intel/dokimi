@@ -201,6 +201,34 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     assert shell_reads(f"{cmd} {option} 5 a") == ["a"]
 
 
+@pytest.mark.parametrize("command,reads", [
+    ("head -n 0 AGENTS.md", []),
+    ("head -c 0 AGENTS.md", []),
+    ("head -0 AGENTS.md", []),
+    ("head --lines=0 AGENTS.md", []),
+    ("head --bytes=0 AGENTS.md", []),
+    ("head -n +0 AGENTS.md", []),
+    ("head -n0 AGENTS.md", []),
+    ("tail -n -0 AGENTS.md", []),
+    ("tail -c 0 AGENTS.md", []),
+    ("tail --bytes=0 AGENTS.md", []),
+    ("head -n 0 a b", []),
+    ("head AGENTS.md -n 0", []),
+    ("head -n 0 -n 5 AGENTS.md", ["AGENTS.md"]),         # the last count counts
+    ("head -n -0 AGENTS.md", ["AGENTS.md"]),              # all but the last 0 lines: every line
+    ("tail -n +0 AGENTS.md", ["AGENTS.md"]),              # from line 0: every line
+    ("head -n 5 AGENTS.md", ["AGENTS.md"]),
+    ("head -5 AGENTS.md", ["AGENTS.md"]),
+    ("tail -n 1 AGENTS.md", ["AGENTS.md"]),
+    ("tail -n +3 AGENTS.md", ["AGENTS.md"]),
+    ("tail -c 10 AGENTS.md", ["AGENTS.md"]),
+    ("head AGENTS.md", ["AGENTS.md"]),
+    ("cat AGENTS.md", ["AGENTS.md"]),
+])
+def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
+    assert shell_reads(command) == reads
+
+
 @pytest.mark.parametrize("command", [
     '{ cd "$D"; } && cat a',
     '{ builtin cd "$D"; cat a; }',
