@@ -98,7 +98,7 @@ class RunDir:
         self._record = record
         self._kinds: dict[str, str] = {}  # kind -> path relative to the directory
         self._plan: dict[str, Any] | None = None
-        self._planned: list[str] = []
+        self._planned: dict[str, None] = {}  # the plan's cell ids, in its order
         self._cells: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()  # _end asks artifact_path for the result under it
         self._hooked = False
@@ -123,7 +123,7 @@ class RunDir:
         return what was written."""
         written = save_artifact("plan", plan, self.artifact_path("plan"))
         with self._lock:
-            self._plan, self._planned = written, [c["cell_id"] for c in written["cells"]]
+            self._plan, self._planned = written, dict.fromkeys(c["cell_id"] for c in written["cells"])
         return written
 
     def record_cell(self, cell_id: str, status: str, *, model: str | None = None,
@@ -171,7 +171,7 @@ class RunDir:
     def _result(self, plan: dict[str, Any], stop: dict[str, str | None] | None) -> dict[str, Any]:
         left = f"the run stopped before this cell ({stop['reason']})" if stop else None
         cells = [self._cells.get(cid) or {"cell_id": cid, "status": "not_run", "model": None, "detail": left}
-                 for cid in dict.fromkeys(self._planned)]
+                 for cid in self._planned]
         return {"generated_at": _now(), "plan_digest": plan_digest(plan), "cells": cells}
 
     def _save(self, record: dict[str, Any]) -> None:
