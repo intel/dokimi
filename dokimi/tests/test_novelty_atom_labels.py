@@ -115,3 +115,18 @@ def test_labels_that_match_no_atom_are_reported():
     assert unmatched_note(_rows(), REF, labels).startswith(
         "2 of 3 labels match no atom of skill:skills/accel-tuning")
     assert unmatched_note(_rows(), REF, {("skills/accel-tuning", "a1"): "setup"}) is None
+
+
+def test_a_csv_with_a_utf8_bom_loads(tmp_path):
+    path = tmp_path / "labels.csv"
+    path.write_text("\ufeffskill,atom_id,label\nskills/accel-tuning,a1,setup\n", encoding="utf-8")
+    assert load_atom_labels(path) == {("skills/accel-tuning", "a1"): "setup"}
+
+
+def test_a_missing_or_undecodable_labels_file_is_an_input_error(tmp_path):
+    with pytest.raises(InputError, match="cannot read"):
+        load_atom_labels(tmp_path / "absent.csv")
+    path = tmp_path / "labels.jsonl"
+    path.write_bytes(b"\xff\xfe not utf-8\n")
+    with pytest.raises(InputError, match="cannot read"):
+        load_atom_labels(path)

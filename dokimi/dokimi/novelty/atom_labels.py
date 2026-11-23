@@ -30,7 +30,11 @@ def skill_name(ref: str) -> str:
 
 
 def _rows(path: Path) -> list[Any]:
-    text = path.read_text(encoding="utf-8")
+    try:
+        # utf-8-sig: a CSV saved as "CSV UTF-8" by Excel starts with a BOM
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InputError(f"cannot read {path}: {exc}") from exc
     if path.suffix.lower() == ".csv":
         return list(csv.DictReader(text.splitlines()))
     rows = []
