@@ -59,7 +59,7 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
     _claim(path, empty_ok=out_dir is not None)
     run = RunDir(path, {"name": name, "argv": sys.argv[1:], "started_at": _now(), "finished_at": None,
                         "status": "running", "stop": None})
-    run._save()
+    run._save(run._record)
     return run
 
 
@@ -153,8 +153,9 @@ class RunDir:
                     raise ValueError(f"run {self.path} is not complete: planned cells have no measured "
                                      "status (result.v1)")
                 save_artifact("result", result, self.artifact_path("result"))
-            self._record.update(status=status, finished_at=_now(), stop=stop)
-            self._save()
+            ended = {**self._record, "status": status, "finished_at": _now(), "stop": stop}
+            self._save(ended)
+            self._record = ended  # only once on disk: a failed write leaves the run running, to be recorded again
 
     def _measured(self) -> bool:
         """Whether every planned cell has a measured status (a run with no plan has none to measure)."""
@@ -167,9 +168,9 @@ class RunDir:
                  for cid in dict.fromkeys(self._planned)]
         return {"generated_at": _now(), "plan_digest": plan_digest(plan), "cells": cells}
 
-    def _save(self) -> None:
+    def _save(self, record: dict[str, Any]) -> None:
         listed = [{"kind": kind, "path": rel} for kind, rel in self._kinds.items() if (self.path / rel).is_file()]
-        save_artifact("run", {**self._record, "artifacts": listed}, self.path / RUN_FILE)
+        save_artifact("run", {**record, "artifacts": listed}, self.path / RUN_FILE)
 
     def __enter__(self) -> RunDir:
         """On the main thread, until the block ends, the terminating-signal handler of

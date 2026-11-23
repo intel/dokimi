@@ -22,6 +22,7 @@ from dokimi.artifacts import RUN_ID_ENV, load_artifact, save_artifact
 from dokimi.eval.arm_stop import RunStopped
 from dokimi.novelty.client import SpendCapReached
 from dokimi.runner.plan import completeness
+from dokimi.runs import rundir
 from dokimi.runs.rundir import open_run
 from dokimi.utils import InputError
 
@@ -246,6 +247,24 @@ def test_complete_is_refused_while_a_planned_cell_has_no_measured_status(root):
     assert (_record(run.path)["status"], run.status) == ("incomplete", "incomplete")
 
 
+def test_a_finish_whose_record_is_not_written_leaves_the_run_running_for_the_stop(root, monkeypatch):
+    """docs/run-directories.md: "a block that raises records the stop": a finish interrupted while it
+    writes run.json is not taken as the end of the run."""
+    real = rundir.save_artifact
+
+    def fails_on_the_end(kind, data, path, **kw):
+        if kind == "run" and data["status"] == "complete":
+            raise KeyboardInterrupt
+        return real(kind, data, path, **kw)
+
+    monkeypatch.setattr(rundir, "save_artifact", fails_on_the_end)
+    with pytest.raises(KeyboardInterrupt):
+        with open_run(root) as run:
+            run.finish("complete")
+    record = _record(run.path)
+    assert (record["status"], record["stop"]) == ("incomplete", {"reason": "interrupted", "detail": None})
+
+
 def test_a_run_ends_once(root):
     """docs/run-directories.md: "A run ends once: a second finish is refused"."""
     run = open_run(root)
@@ -375,6 +394,7 @@ def test_a_run_opened_off_the_main_thread_records_its_stop_too(root):
 _UNDER_THE_CLI = """
 import json, signal, sys
 from dokimi import process
+from dokimi.runs import rundir
 from dokimi.runs.rundir import open_run
 process.install_signal_handlers()  # as dokimi.cli.main does
 with open_run(sys.argv[1], name="t") as run:
