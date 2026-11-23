@@ -63,6 +63,18 @@ def _rx(text: str) -> re.Pattern[str]:
     return re.compile(text, re.IGNORECASE)
 
 
+_GIT_OPTS = r"(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*"
+_GIT_PUSH = r"\bgit\s+" + _GIT_OPTS + r"push\b"
+
+
+def _after_first_opener(opener: str, closers: str) -> re.Pattern[str]:
+    """``opener .* (closers)`` on one line, tried from the line's first opener only (#1116).
+
+    A later opener finds its closer only where the first one does, so a line with many openers and no closer fails once, not once per opener.
+    """
+    return _rx(r"(?m:^)(?:(?!" + opener + r")[^\n])*" + opener + r"[^\n]*(?:" + closers + r")")
+
+
 #: A shell word that is an absolute path.
 _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
 #: A shell word that starts at the home directory: ``~``, ``$HOME`` or ``${HOME}``.
@@ -115,10 +127,12 @@ COMMAND_RULES: tuple[Rule, ...] = (
              r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
-         _rx(r"\bdocker\s+(?:container\s+)?(?:run|create)\b.*(?:--privileged|--pid[= ]host|--net(?:work)?[= ]host|"
+         _after_first_opener(
+             r"\bdocker\s+(?:container\s+)?(?:run|create)\b",
+             r"--privileged|--pid[= ]host|--net(?:work)?[= ]host|"
              # the host root, quoted or not, and the Docker socket (host control, as --privileged gives) as a bind
              r"-v\s*[\"']?/:|--volume[= ][\"']?/:|(?:-v|--volume|--mount)[= ]?\s*[\"']?[^\s\"']*docker\.sock|"
-             r"--mount[= ](?:\S*,)?(?:source|src)=/(?:,|\s|[\"']|$)|nsenter\b)")),
+             r"--mount[= ](?:\S*,)?(?:source|src)=/(?:,|\s|[\"']|$)|nsenter\b")),
     # git's global options (`-C dir`, `-c k=v`, `--git-dir=x`) may come before the subcommand; a short flag may be
     # one of several (`-fu`); `+ref` is a force push; `-n` is --no-verify for commit (for push it is a dry run)
     Rule("history-rewrite", "high", "force push or hard reset",
@@ -128,7 +142,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
          # a short flag cluster may end in `-m` or `-F` (`-nm msg`), so the `n` need not be the last letter
          _rx(r"\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*(?:commit\b[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)"
              r"|--no-verify\b)"
-             r"|push\b.*--no-verify\b)")),
+             r")|" + _after_first_opener(_GIT_PUSH, r"--no-verify\b").pattern)),
     Rule("secret-read", "high", "credential store read, by a command or a read tool (the finding's source says which)",
          # a name ends at a separator, an operator or the end (`.awsome` is no `.aws`); `.env` at whitespace, a quote, an operator or the end
          # `.env` is not cut at `/`, so a venv's `.env/bin` is no hit; the runner's HOME is /eval/run/home
