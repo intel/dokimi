@@ -273,6 +273,28 @@ def test_a_block_that_ends_normally_is_complete_only_when_every_planned_cell_is_
     assert result["cells"][-1]["status"] == last
 
 
+def test_a_cell_recorded_while_a_normal_end_is_decided_cannot_split_status_and_result(root, monkeypatch):
+    """docs/run-directories.md: "complete when every planned cell has a measured status, else incomplete": the
+    status is chosen from the cells the written result holds, even when a cell changes meanwhile."""
+    real, fired = rundir.completeness, []
+
+    def cell_changes_meanwhile(plan, result):
+        if not fired:
+            fired.append(True)
+            run.record_cell(_ids()[0], "infra_error")  # a worker's late update, after the cells were read
+        return real(plan, result)
+
+    with open_run(root) as run:
+        run.write_plan(_fixture("plan.v1"))
+        for cid in _ids():
+            run.record_cell(cid, "pass")
+        monkeypatch.setattr(rundir, "completeness", cell_changes_meanwhile)
+
+    saved = completeness(load_artifact("plan", run.path / "plan.v1.json"),
+                         load_artifact("result", run.path / "result.v1.json"))
+    assert (_record(run.path)["status"], _record(run.path)["stop"]) == (saved.state, None)
+
+
 def test_complete_is_refused_while_a_planned_cell_has_no_measured_status(root):
     """docs/run-directories.md: "a run is refused complete while a planned cell has no measured status"."""
     run = open_run(root)

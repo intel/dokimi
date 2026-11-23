@@ -163,23 +163,24 @@ class RunDir:
         """
         self._end(status, None)
 
-    def _end(self, status: Status, stop: dict[str, str | None] | None) -> None:
+    def _end(self, status: Status | None, stop: dict[str, str | None] | None) -> None:
+        """``status`` None: ``complete`` or ``incomplete`` by the cells, decided under the lock that
+        also writes the result, so a cell recorded meanwhile cannot make the two disagree."""
         with self._lock:
             self._running()
+            measured = True  # a run with no plan has no cell to measure
             if self._plan is not None:
                 result = self._result(self._plan, stop)
-                if status == "complete" and not completeness(self._plan, result).complete:
+                measured = completeness(self._plan, result).complete
+                if status == "complete" and not measured:
                     raise ValueError(f"run {self.path} is not complete: planned cells have no measured "
                                      "status (result.v1)")
                 save_artifact("result", result, self.artifact_path("result"))
+            if status is None:
+                status = "complete" if measured else "incomplete"
             ended = {**self._record, "status": status, "finished_at": _now(), "stop": stop}
             self._save(ended)
             self._record = ended  # only once on disk: a failed write leaves the run running, to be recorded again
-
-    def _measured(self) -> bool:
-        """Whether every planned cell has a measured status (a run with no plan has none to measure)."""
-        with self._lock:
-            return self._plan is None or completeness(self._plan, self._result(self._plan, None)).complete
 
     def _result(self, plan: dict[str, Any], stop: dict[str, str | None] | None) -> dict[str, Any]:
         left = f"the run stopped before this cell ({stop['reason']})" if stop else None
@@ -222,12 +223,12 @@ class RunDir:
             if self._signal is not None:
                 signal.raise_signal(self._signal)
 
-    def _how_ended(self, exc: BaseException | None) -> tuple[Status, dict[str, str | None] | None]:
+    def _how_ended(self, exc: BaseException | None) -> tuple[Status | None, dict[str, str | None] | None]:
         if self._signal is not None:  # also when the block caught the ShuttingDown
             return "incomplete", {"reason": "terminated",
                                   "detail": f"{signal.Signals(self._signal).name}: the run stops"}
         if exc is None:
-            return ("complete" if self._measured() else "incomplete"), None
+            return None, None  # by the cells (_end)
         return _ending(exc)
 
     def _unhook(self) -> None:
