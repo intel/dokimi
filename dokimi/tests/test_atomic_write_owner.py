@@ -16,7 +16,12 @@ from pathlib import Path
 import pytest
 
 from dokimi import atomic_write
-from dokimi.atomic_write import _keep_owner_and_group, write_bytes_atomic, write_bytes_in_place_or_atomic
+from dokimi.atomic_write import (
+    _keep_owner_and_group,
+    write_bytes_atomic,
+    write_bytes_in_place_or_atomic,
+    write_chunks_atomic,
+)
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "geteuid") or not hasattr(os, "fchown"), reason="needs POSIX owners")
 
@@ -244,6 +249,29 @@ def test_root_denied_the_mode_of_the_new_file_does_not_replace_a_file_atomically
     with pytest.raises(PermissionError):
         write_bytes_atomic(target, b"new")
     assert target.read_bytes() == b"old"
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def _chunks_taken_once():
+    yield b"new\n"
+    yield b"rows\n"
+
+
+def test_chunks_are_written_in_place_when_root_may_not_chown(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_denied_chown(monkeypatch)
+    write_chunks_atomic(target, _chunks_taken_once())
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new\nrows\n", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_chunks_are_written_in_place_when_root_may_not_set_the_mode(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_chowned_but_denied_chmod(monkeypatch)
+    write_chunks_atomic(target, _chunks_taken_once())
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new\nrows\n", before)
     assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
 

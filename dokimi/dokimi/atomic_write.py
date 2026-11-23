@@ -55,14 +55,25 @@ def write_chunks_atomic(path: Path | str, chunks: Iterable[bytes]) -> None:
     """
     target = Path(os.path.realpath(path))
     # A link into a missing directory fails as open(path, "w") fails: the target's directory is not made.
-    if (os.path.islink(path) and not target.parent.is_dir()) or not _is_plain_writable_file(target):
-        with tempfile.TemporaryFile() as staged:
-            staged.writelines(chunks)
-            staged.seek(0)
-            with open(path, "wb") as handle:
-                shutil.copyfileobj(staged, handle)
-        return
-    _publish(target, lambda fd: os.fdopen(fd, "wb"), chunks, copy_on_busy=True)
+    taken = iter(chunks)
+    with tempfile.TemporaryFile() as staged:
+        if not (os.path.islink(path) and not target.parent.is_dir()) and _is_plain_writable_file(target):
+            try:
+                _publish(target, lambda fd: os.fdopen(fd, "wb"), _tee(taken, staged), copy_on_busy=True)
+                return
+            except _OwnerRefused:
+                pass
+        staged.writelines(taken)
+        staged.seek(0)
+        with open(path, "wb") as handle:
+            shutil.copyfileobj(staged, handle)
+
+
+def _tee(chunks: Iterable[bytes], staged: IO[bytes]) -> Iterable[bytes]:
+    """Yield each chunk after writing it to ``staged``, so a refused publish can be written in place without taking the chunks again."""
+    for chunk in chunks:
+        staged.write(chunk)
+        yield chunk
 
 
 def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
