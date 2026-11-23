@@ -275,6 +275,30 @@ def test_chunks_are_written_in_place_when_root_may_not_set_the_mode(tmp_path, mo
     assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
 
+def test_chunks_of_a_plain_file_need_no_temporary_file(tmp_path, monkeypatch):
+    """The ordinary path writes the tmp file beside the target only: a full or missing system temporary directory does not fail it (#1020)."""
+    target = _report(tmp_path)
+
+    def full(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(atomic_write.tempfile, "TemporaryFile", full)
+    write_chunks_atomic(target, _chunks_taken_once())
+    assert target.read_bytes() == b"new\nrows\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_chunks_are_written_in_place_when_a_user_is_denied_the_group(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_denied_group_only(monkeypatch)
+    monkeypatch.setattr(os, "geteuid", lambda: 1)
+    monkeypatch.setattr(atomic_write, "_is_plain_writable_file", lambda path: True)
+    write_chunks_atomic(target, _chunks_taken_once())
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new\nrows\n", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
 def _replace_busy(monkeypatch):
     """``os.replace`` as the kernel answers it for a file that is a mount point."""
 
@@ -290,6 +314,18 @@ def test_a_report_that_is_a_mount_point_is_written_in_place(tmp_path, monkeypatc
     _replace_busy(monkeypatch)
     write_bytes_in_place_or_atomic(target, b"new")
     assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0, reason="root reads a write-only file")
+def test_chunks_into_a_write_only_mount_point_are_copied_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    target.chmod(0o200)
+    before = target.stat().st_ino
+    _replace_busy(monkeypatch)
+    write_chunks_atomic(target, _chunks_taken_once())
+    target.chmod(0o600)
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new\nrows\n", before)
     assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
 
