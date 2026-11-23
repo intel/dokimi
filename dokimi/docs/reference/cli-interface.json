@@ -1764,6 +1764,7 @@
             "view": {
               "allow_abbrev": true,
               "params": [
+                {"key": "--atom-labels", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
                 {"key": "--atom-verdicts", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
                 {"key": "--atoms", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": true, "type": null},
                 {"key": "--format", "action": "_StoreAction", "choices": ["'html'", "'md'"], "const": null, "default": "html", "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
