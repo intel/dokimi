@@ -12,6 +12,7 @@ other exception makes it ``failed``. Layout and rules: ``docs/run-directories.md
 
 from __future__ import annotations
 
+import copy
 import signal
 import sys
 import threading
@@ -128,7 +129,8 @@ class RunDir:
         with self._lock:  # held across the save, so a finish in another thread sees the plan or none
             self._running()
             written = save_artifact("plan", plan, self.artifact_path("plan"))
-            self._plan, self._planned = written, dict.fromkeys(c["cell_id"] for c in written["cells"])
+            self._plan = copy.deepcopy(written)  # what plan.v1.json holds, whatever the caller does to its dicts
+            self._planned = dict.fromkeys(c["cell_id"] for c in self._plan["cells"])
         return written
 
     def _running(self) -> None:

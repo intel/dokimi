@@ -342,6 +342,22 @@ def test_a_plan_is_saved_under_the_runs_lock_and_refused_once_the_run_ended(root
     assert not (ended.path / "plan.v1.json").exists()
 
 
+def test_a_plan_changed_by_the_caller_after_its_save_does_not_change_the_result(root):
+    """result.v1: plan_digest is the digest of the plan the run was given, plan.v1.json; a caller that
+    changes the dict it passed in, or the one write_plan returned, does not change it."""
+    given = _fixture("plan.v1")
+    with open_run(root) as run:
+        written = run.write_plan(given)
+        given["budget"]["cells"] = 99
+        written["budget"]["cells"] = 98
+        for cid in _ids():
+            run.record_cell(cid, "pass")
+
+    saved = load_artifact("plan", run.path / "plan.v1.json")
+    assert completeness(saved, load_artifact("result", run.path / "result.v1.json")).state == "complete"
+    assert _record(run.path)["status"] == "complete"
+
+
 def test_a_cell_the_plan_lacks_or_a_status_result_v1_lacks_is_refused(root):
     """result.v1: a result "names cells the plan does not have" is invalid, and a status is one of its enum."""
     run = open_run(root)
