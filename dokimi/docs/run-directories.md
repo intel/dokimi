@@ -109,4 +109,5 @@ with open_run(runs_root().path, name="nightly-7") as run:
 A block that ends normally finishes the run unless it called
 `run.finish(status)` itself: `complete` when every planned cell has a measured
 status, else `incomplete`. A block that raises records the stop and lets the
-exception go on. A run ends once: a second `finish` is refused.
+exception go on. A run ends once: a second `finish`, or a `write_plan` or
+`record_cell` after the end, is refused.
