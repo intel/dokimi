@@ -150,6 +150,7 @@ HAS_WHEN = [
     pytest.param("いつこのリポジトリのリリース前の設定ファイル検証にこのスキルを使うか。", id="ja-itsu-long-object-tsukau"),
     pytest.param("いつ適用するか", id="ja-itsu-tekiyou"),
     pytest.param("いつこれを利用する？", id="ja-itsu-riyou"),
+    pytest.param("いつこのスキルを使おうか？", id="ja-itsu-tsukaou"),
 ]
 
 # No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
