@@ -13,6 +13,11 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.novelty.atom_labels import label_shares, load_atom_labels
 from dokimi.utils import InputError
+from tests.test_novelty_atom_verdicts import _analyze, _run
+from tests.test_novelty_atom_verdicts import mixed_models as _mixed_models
+from tests.test_novelty_atom_verdicts import skill as _skill
+
+skill, mixed_models = _skill, _mixed_models  # the atom verdicts tests' fixtures, under their names
 
 REF = "skill:skills/accel-tuning"
 
@@ -130,3 +135,24 @@ def test_a_missing_or_undecodable_labels_file_is_an_input_error(tmp_path):
     path.write_bytes(b"\xff\xfe not utf-8\n")
     with pytest.raises(InputError, match="cannot read"):
         load_atom_labels(path)
+
+
+def test_view_prints_the_shares_of_the_labels_joined_to_the_run(tmp_path, skill, mixed_models, capsys):
+    out_dir = _analyze(tmp_path, skill)
+    sidecar = json.loads((out_dir / "novelty.atom_verdicts.json").read_text(encoding="utf-8"))
+    first, second = sidecar["atoms"]
+    labels = tmp_path / "labels.csv"
+    labels.write_text(f"skill,atom_id,label\n{sidecar['artifact_ref']},{first['id']},setup\n"
+                      f"{sidecar['artifact_ref']}/,{second['id']},api\n", encoding="utf-8")
+    capsys.readouterr()
+
+    _run("skill", "novelty", "view", "--novelty", str(out_dir / "novelty.json"), "--atoms",
+         str(out_dir / "novelty.atoms.json"), "--atom-verdicts", str(out_dir / "novelty.atom_verdicts.json"),
+         "--atom-labels", str(labels), "--format", "md", "--out", str(tmp_path / "v.md"))
+    said = capsys.readouterr()
+
+    rows = {line.split()[0]: line.split()[1:] for line in said.out.splitlines()[-3:]}
+    assert said.out.splitlines()[-4].startswith("label ")
+    assert set(rows) == {"setup", "unlabelled", "all"}  # the trailing-slash row matched nothing
+    assert rows["all"][0] == "2"
+    assert "1 of 2 labels match no atom of" in said.err
