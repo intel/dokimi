@@ -124,6 +124,31 @@ def test_an_output_directory_that_holds_anything_is_refused(root, tmp_path):
     assert afile.read_text(encoding="utf-8") == "mine"
 
 
+def test_a_run_directory_whose_parent_is_a_file_is_refused(tmp_path, monkeypatch):
+    """docs/run-directories.md: "So is a directory that cannot be made: a runs root or a parent of the
+    output directory that is a file"."""
+    monkeypatch.setenv(RUN_ID_ENV, "r-1")
+    afile = tmp_path / "a-file"
+    afile.write_text("mine", encoding="utf-8")
+
+    for root, out_dir in ((afile, None), (tmp_path / "results", afile / "out"), (afile / "deeper", None)):
+        with pytest.raises(InputError, match="cannot make run directory"):
+            open_run(root, out_dir=out_dir)
+    assert afile.read_text(encoding="utf-8") == "mine"
+
+
+@pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0, reason="POSIX modes, not as root")
+def test_a_run_directory_the_root_does_not_let_us_make_is_refused(root):
+    """docs/run-directories.md: "So is a directory that cannot be made"."""
+    root.mkdir()
+    root.chmod(0o500)
+    try:
+        with pytest.raises(InputError, match="cannot make run directory .*Permission denied"):
+            open_run(root)
+    finally:
+        root.chmod(0o700)
+
+
 def test_a_name_with_an_output_directory_is_refused(root, tmp_path):
     """docs/run-directories.md: "A name together with an output directory is refused"."""
     with pytest.raises(InputError, match="give one of them"):

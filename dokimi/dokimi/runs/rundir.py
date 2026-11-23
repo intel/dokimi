@@ -47,7 +47,8 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
     Raises:
         InputError: ``name`` is not one path segment of a run id's characters; ``name`` and
             ``out_dir`` are both given (a name is unique only under the root); the directory
-            exists (for ``out_dir``: and is not an empty directory) or another run claimed it.
+            exists (for ``out_dir``: and is not an empty directory) or another run claimed it;
+            the directory cannot be made (a parent is a file, no permission).
     """
     if name is not None and not is_run_id(name):
         raise InputError(f"run name {name!r}: 1-128 letters, digits, '.', '_' or '-', starting with a "
@@ -67,12 +68,17 @@ def _claim(path: Path, *, empty_ok: bool) -> None:
     """Create ``path`` (or take an empty directory there when ``empty_ok``), then create its
     ``run.json`` exclusively: the file, not the directory, decides which run owns it."""
     taken = f"run directory {path} already exists: a run never writes into another run's directory"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:  # a file where a parent directory should be, no permission
+        raise InputError(f"cannot make run directory {path}: {exc.strerror or exc}") from exc
     try:
         path.mkdir()
     except FileExistsError:
         if not (empty_ok and path.is_dir() and not any(path.iterdir())):
             raise InputError(taken) from None
+    except OSError as exc:
+        raise InputError(f"cannot make run directory {path}: {exc.strerror or exc}") from exc
     try:
         with open(path / RUN_FILE, "x", encoding="utf-8"):
             pass
