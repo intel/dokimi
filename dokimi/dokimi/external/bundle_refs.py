@@ -51,7 +51,8 @@ LANGUAGE_CODES = frozenset(
     tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu
     """.split()
 )
-LOCALIZED_SKILL = re.compile(r"skill\.([a-z]{2})(?:[-_](?:[a-z]{4}|[a-z]{2}|[0-9]{3})){0,2}\.md", re.I)
+# A subtag is a script (Hant, Latn: Title case), a region (two letters) or a number; a lowercase word is not one.
+LOCALIZED_SKILL = re.compile(r"skill\.([a-z]{2})(?:[-_](?:(?-i:[A-Z][a-z]{3})|[a-z]{2}|[0-9]{3})){0,2}\.md", re.I)
 
 
 def _is_localized_skill(name: str) -> bool:
