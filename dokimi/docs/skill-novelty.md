@@ -981,7 +981,9 @@ more per call as well as in calls. Before the first call the run prints that cou
 (`all-vs-all: --model makes N model calls, one per query and repeat, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
-fewer calls than the printed count.
+fewer calls than the printed count. The response cache is opt-in: without `DOKIMI_RESPONSE_CACHE`
+set to a writable directory nothing is stored, and a rerun pays for every call again. Set it for
+research runs and for any run you may repeat. `--cache-dir` keeps only the retention verdicts.
 
 **A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary; with AWS: "Unable to locate credentials", a missing config profile or an expired SSO session, whichever class litellm wraps it in) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries. `skill novelty atoms`, `probe` and `analyze` and `skill shorten` stop the same way at the first such error in an atom extraction call, the faithfulness check, a probe wording, an answer, a grade, a value or conflict batch or a retention adjudication, and keep what they paid for as they do at the cap, with `"reason": "permanent_error"`; a refusal, an unparseable reply or a request one item makes too long is still one failed item.
 
@@ -1479,7 +1481,8 @@ rewrites one file, so with a bundle-derived atom set it scores only the entry po
 and says so.
 
 And the retention oracle runs retrieval → NLI locally, escalating to an LLM only for the
-ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
+ambiguous band, with a disk memo of its verdicts (`--cache-dir`, keyed on (atom, text); the
+response cache is `DOKIMI_RESPONSE_CACHE`, also opt-in). Full sweeps stay opt-in
 (`--all-atoms`).
 
 The cache key carries a version (`retention-cache-v6`). Entries written before failed
