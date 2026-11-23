@@ -105,7 +105,7 @@ def _judging(run: dict) -> dict:
 
 def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
     """What makes two runs of one item a poor retest: the same seed, another model or judge,
-    changed content, calls replayed from the response cache, or settings that differ beyond the seed."""
+    calls replayed from the response cache, or settings that differ beyond the seed."""
     config_a, config_b = _dict(a.get("run_config")), _dict(b.get("run_config"))
     seed = config_a.get("seed")
     warnings = []
@@ -113,10 +113,6 @@ def _pair_warnings(ref: str, a: dict, b: dict) -> list[str]:
         warnings.append(f"{ref}: both runs used seed {seed}; a retest needs another seed")
     if a.get("model") != b.get("model"):
         warnings.append(f"{ref}: the runs used different models ({a.get('model')} and {b.get('model')})")
-    digest_a, digest_b = _dict(a.get("artifact")).get("ref_digest"), _dict(b.get("artifact")).get("ref_digest")
-    if digest_a != digest_b:
-        warnings.append(f"{ref}: the content changed between the runs (ref_digest {digest_a} and "
-                        f"{digest_b}); they measure different items")
     judging_a, judging_b = _judging(a), _judging(b)
     judged = [key for key in judging_a if judging_a[key] != judging_b[key]]
     if judged:
@@ -145,11 +141,12 @@ def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> 
     """Pair the two runs item by item.
 
     Returns ``pairs`` (ref, first, second, seeds, models), ``unmatched`` (refs in one run
-    only), ``unscored`` (refs with no usable score in one run or the other) and ``warnings``
+    only), ``unscored`` (refs without comparable scores) and ``warnings``
     for a retest that does not vary what it should: the same seed, another model, calls
     replayed from the response cache, or a ``run_config`` that differs beyond the seed.
     """
     pairs, unmatched, unscored, warnings = [], [], [], []
+    unusable_scores = []
     for ref in sorted(first.keys() | second.keys()):
         if ref not in first or ref not in second:
             unmatched.append(ref)
@@ -160,7 +157,17 @@ def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> 
                 "partial" in run or run.get("status") == "partial" for run in (a, b))
                 or _unprobed(a, scoring) or _unprobed(b, scoring)):
             unscored.append(ref)
+            unusable_scores.append(ref)
             continue
+        digest_a = _dict(a.get("artifact")).get("ref_digest")
+        digest_b = _dict(b.get("artifact")).get("ref_digest")
+        if digest_a != digest_b:
+            if digest_a and digest_b:
+                unscored.append(ref)
+                warnings.append(f"{ref}: excluded because the content changed between runs "
+                                f"(ref_digest {digest_a} and {digest_b})")
+                continue
+            warnings.append(f"{ref}: one run has no ref_digest to verify that the content matches")
         warnings.extend(_pair_warnings(ref, a, b))
         config_a, config_b = _dict(a.get("run_config")), _dict(b.get("run_config"))
         pairs.append(
@@ -176,10 +183,10 @@ def pair_runs(first: dict[str, dict], second: dict[str, dict], scoring: str) -> 
         warnings.append(
             f"{len(unmatched)} item(s) appear in one run only and are left out: {_named(unmatched)}"
         )
-    if unscored:
+    if unusable_scores:
         warnings.append(
-            f"{len(unscored)} item(s) have no usable {scoring} score, no probed atom or a partial run: "
-            f"{_named(unscored)}"
+            f"{len(unusable_scores)} item(s) have no usable {scoring} score, no probed atom or a partial run: "
+            f"{_named(unusable_scores)}"
         )
     return {"pairs": pairs, "unmatched": unmatched, "unscored": unscored, "warnings": warnings}
 

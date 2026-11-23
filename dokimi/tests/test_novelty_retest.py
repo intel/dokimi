@@ -397,13 +397,29 @@ def test_a_ref_that_is_not_a_string_is_refused_as_bad_input(tmp_path):
         load_runs(tmp_path)
 
 
-def test_changed_content_between_the_runs_is_not_read_as_noise():
-    first = _artifact("skill:/s/a", 0.5, seed=0)
-    second = _artifact("skill:/s/a", 0.6, seed=2)
-    first["artifact"]["ref_digest"] = "aaa"
+def test_changed_content_is_excluded_from_the_persisted_floor(tmp_path):
+    first = {ref: _artifact(ref, 0.25) for ref in ("stable-a", "stable-b", "edited")}
+    second = {ref: _artifact(ref, 0.25, seed=2) for ref in first}
+    first["edited"]["artifact"]["ref_digest"] = "aaa"
+    second["edited"]["artifact"]["ref_digest"] = "bbb"
+    second["edited"]["k0"]["lenient"] = 1.0
+    _run_retest(tmp_path, _write_runs(tmp_path / "a", first), _write_runs(tmp_path / "b", second),
+                "--out-dir", str(tmp_path / "out"))
+    report = json.loads((tmp_path / "out" / "retest.json").read_text())
+    assert report["floor"] == 0
+    assert report["n_items"] == 2
+    assert report["unscored"] == ["edited"]
+    assert [row["ref"] for row in report["items"]] == ["stable-a", "stable-b"]
+    assert any("edited" in warning and "content changed" in warning for warning in report["warnings"])
+
+
+def test_a_legacy_run_without_a_digest_still_pairs_by_ref():
+    first = _artifact("a", 0.1)
+    second = _artifact("a", 0.2, seed=2)
     second["artifact"]["ref_digest"] = "bbb"
-    text = " ".join(pair_runs({"skill:/s/a": first}, {"skill:/s/a": second}, "lenient")["warnings"])
-    assert "content changed" in text
+    paired = pair_runs({"a": first}, {"a": second}, "lenient")
+    assert [row["ref"] for row in paired["pairs"]] == ["a"]
+    assert any("no ref_digest" in warning for warning in paired["warnings"])
 
 
 def test_the_same_content_digest_gives_no_warning():

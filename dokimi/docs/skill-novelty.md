@@ -1181,12 +1181,15 @@ statistics are over `k0.lenient` by default (`--scoring strict` for the strict o
   the floor. They are listed in `retest.json`.
 
 Items that appear in one run only, have no usable score, or are partial runs are left out and
-named as warnings (the first five by ref, the rest counted). Warnings also name a retest that
+named as warnings (the first five by ref, the rest counted). When both runs record an
+`artifact.ref_digest` and the digests differ, the runs measured different content. The ref is
+listed in `unscored` and excluded from the floor and all other retest statistics. Runs without
+a digest still pair by ref. A warning names the ref when only one run has a digest.
+Warnings also name a retest that
 does not vary what it should:
 
 - the same seed, or another model;
 - another judge: `judge_model`;
-- changed content: `artifact.ref_digest` differs, so the runs measured different text;
 - calls served from the response cache: `cost.replayed_calls` above zero in either run. A
   replayed answer is the baseline's answer again, so the floor shrinks toward zero;
 - a `run_config` that differs in any key other than `seed` (`max_atoms`, `arms`, `paraphrases`,
