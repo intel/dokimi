@@ -153,7 +153,13 @@ def patch_files(patch: str) -> tuple[list[str], list[str]]:
 
 def test_directives(repo: str, test_patch: str) -> list[str]:
     """Upstream ``get_test_directives``: the test files to run, Django as dotted modules."""
-    found = re.findall(r"diff --git a/.* b/(.*)", test_patch)
+    found: list[str] = []
+    for line in test_patch.split("\n"):
+        # ``diff --git a/.* b/(.*)`` per line, in one pass (https://github.com/intel/dokimi/issues/927).
+        opener = line.find("diff --git a/")
+        closer = line.rfind(" b/")
+        if opener >= 0 and closer >= opener + len("diff --git a/"):
+            found.append(line[closer + len(" b/"):])
     found = [d for d in found if not d.endswith(_NON_TEST_EXTS)]
     if repo != "django/django":
         return found

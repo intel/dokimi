@@ -105,8 +105,11 @@ def parse_seaborn(log: str) -> StatusMap:
 
 def parse_sympy(log: str) -> StatusMap:
     found: StatusMap = {}
-    for match in re.findall(r"(_*) (.*)\.py:(.*) (_*)", log):
-        found[f"{match[1]}.py:{match[2]}"] = "FAILED"
+    for line in log.split("\n"):
+        # Upstream's ``(_*) (.*)\.py:(.*) (_*)`` per line, in one pass (https://github.com/intel/dokimi/issues/927).
+        first, last = line.find(" "), line.rfind(" ")
+        if first >= 0 and line.rfind(".py:", first + 1, last) >= 0:
+            found[line[first + 1:last]] = "FAILED"
     endings = {" E": "ERROR", " F": "FAILED", " ok": "PASSED"}
     for line in log.split("\n"):
         line = line.strip()
