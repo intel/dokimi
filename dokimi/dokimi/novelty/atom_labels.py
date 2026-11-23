@@ -13,6 +13,7 @@ change.
 from __future__ import annotations
 
 import csv
+import io
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -22,6 +23,7 @@ from dokimi.utils import InputError
 
 FIELDS = ("skill", "atom_id", "label")
 UNLABELLED = "unlabelled"
+RESERVED = frozenset({"all", UNLABELLED})  # the view's own bucket names
 
 
 def skill_name(ref: str) -> str:
@@ -35,30 +37,40 @@ def _rows(path: Path) -> list[Any]:
         text = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read {path}: {exc}") from exc
+    # Split on \n only (the CSV reader and JSON both allow U+2028 and friends inside a value).
     if path.suffix.lower() == ".csv":
         try:
-            return list(csv.DictReader(text.splitlines()))
+            return list(csv.DictReader(io.StringIO(text, newline="")))
         except csv.Error as exc:  # a field past csv.field_size_limit(), say
             raise InputError(f"{path}: not a readable CSV ({exc})") from exc
     rows = []
-    for number, line in enumerate(text.splitlines(), 1):
+    for number, line in enumerate(text.split("\n"), 1):
         if line.strip():
             try:
-                rows.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise InputError(f"{path}: line {number} is not JSON ({exc.msg})") from exc
+            if not isinstance(row, dict):
+                raise InputError(f"{path}: line {number} is not a JSON object")
+            rows.append(row)
     return rows
 
 
 def load_atom_labels(path: str | Path) -> dict[tuple[str, str], str]:
-    """``{(skill name, atom id): label}``. A row missing a field, or an atom with two labels, is
-    refused."""
+    """``{(skill name, atom id): label}``. A file with no rows, a row missing a field, a label the
+    view reserves for its own buckets, or an atom with two labels is refused."""
     path = Path(path)
+    rows = _rows(path)
+    if not rows:
+        raise InputError(f"{path}: no label rows")
     labels: dict[tuple[str, str], str] = {}
-    for number, row in enumerate(_rows(path), 1):
-        values = [str(row.get(f) or "").strip() if isinstance(row, dict) else "" for f in FIELDS]
+    for number, row in enumerate(rows, 1):
+        values = ["" if row.get(f) is None else str(row.get(f)).strip() for f in FIELDS]
         if not all(values):
             raise InputError(f"{path}: row {number} needs non-empty {', '.join(FIELDS)}")
+        if values[2] in RESERVED:
+            raise InputError(f"{path}: row {number}: label {values[2]!r} is reserved for the view's own "
+                             f"buckets ({', '.join(sorted(RESERVED))}); use another label")
         key = (skill_name(values[0]), values[1])
         if labels.get(key, values[2]) != values[2]:
             raise InputError(f"{path}: atom {key[1]} of {key[0]} has two labels "

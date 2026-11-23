@@ -60,6 +60,7 @@ def register_skill(skill_sub, positive_int) -> None:
     """Add `skill novelty` (analyze, atoms, probe, ground, items, view) and `skill shorten` (#94 M2)."""
     from dokimi.commands.novelty import (
         _add_bundle_args,
+        _add_cache_dir,
         _add_common,
         _add_model_args,
         cmd_novelty_analyze,
@@ -85,6 +86,7 @@ def register_skill(skill_sub, positive_int) -> None:
     )
     _add_common(analyze_p, positive_int)
     _add_model_args(analyze_p, positive_int)
+    _add_cache_dir(analyze_p)
     analyze_p.add_argument("--out-dir", default=None, dest="out_dir")
     cli_flags.add(analyze_p, "output", "--out", default=None, dest="out_json")
     analyze_p.add_argument("--view-format", default="html", choices=["html", "md"],
@@ -197,6 +199,7 @@ def register_skill(skill_sub, positive_int) -> None:
         "shorten", help="Score shortening candidates on tokens/knowledge/value/protection/routing"
     )
     _add_common(shorten_p, positive_int)
+    _add_cache_dir(shorten_p)
     shorten_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
     # Same model as the retention oracle inside `analyze` (its extractor, i.e. the judge):
     # adjudications are cached per model, and a different one would score other verdicts.

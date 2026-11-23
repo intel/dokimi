@@ -359,10 +359,12 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
-    if args.atom_labels and not args.atom_verdicts:
+    if args.atom_labels is not None and not args.atom_labels.strip():
+        raise InputError("--atom-labels needs a file path")
+    if args.atom_labels is not None and not args.atom_verdicts:
         raise InputError("--atom-labels needs --atom-verdicts: the labels are joined to its atoms")
     labels = None
-    if args.atom_labels:
+    if args.atom_labels is not None:
         from dokimi.novelty.atom_labels import load_atom_labels
 
         labels = load_atom_labels(args.atom_labels)
@@ -456,14 +458,19 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
                              "--atoms, every atom in the file, not only the cap's sample")
     cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=unit_interval, nargs="+", default=[0.75, 0.5],
                   dest="budgets", help="Target token fractions for shortening candidates")
-    parser.add_argument("--cache-dir", default=None, dest="cache_dir",
-                        help="Disk memo of retention adjudications only (not model replies). The "
-                             "response cache is separate and opt-in: set DOKIMI_RESPONSE_CACHE to a "
-                             "writable directory. Research or a rerun should set it; without it a rerun "
-                             "pays for every call again.")
     parser.add_argument("--seed", type=int, default=0,
                         help="Seed for the shuffled control and random selection, so both "
                              "are reproducible across runs")
+
+
+def _add_cache_dir(parser: argparse.ArgumentParser) -> None:
+    """The retention memo: read by the commands that adjudicate retention (analyze, shorten)."""
+    parser.add_argument("--cache-dir", default=None, dest="cache_dir",
+                        help="Disk memo of the retention adjudications only, not the model replies: "
+                             "a rerun with the same directory replays them at $0. The response cache "
+                             "for replies is separate and opt-in (set DOKIMI_RESPONSE_CACHE to a "
+                             "writable directory); without it a rerun pays again for the answer and "
+                             "judge calls.")
 
 
 def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:

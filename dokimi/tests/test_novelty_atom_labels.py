@@ -172,3 +172,56 @@ def test_a_csv_the_parser_refuses_exits_2_without_a_traceback(tmp_path):
     assert out.code == 2
     assert f"{path}: not a readable CSV" in out.err
     assert "Traceback" not in out.err
+
+
+@pytest.mark.parametrize("name", ["all", "unlabelled"])
+def test_a_label_named_like_a_view_bucket_is_refused(tmp_path, name):
+    path = tmp_path / "labels.jsonl"
+    path.write_text(json.dumps({"skill": "s", "atom_id": "a1", "label": name}) + "\n", encoding="utf-8")
+    with pytest.raises(InputError, match=f"label '{name}' is reserved"):
+        load_atom_labels(path)
+
+
+def test_label_zero_is_a_label_not_a_missing_one(tmp_path):
+    jsonl = tmp_path / "labels.jsonl"
+    jsonl.write_text('{"skill": "s", "atom_id": "a1", "label": 0}\n', encoding="utf-8")
+    csv_file = tmp_path / "labels.csv"
+    csv_file.write_text("skill,atom_id,label\ns,a1,0\n", encoding="utf-8")
+    assert load_atom_labels(jsonl) == {("s", "a1"): "0"}
+    assert load_atom_labels(csv_file) == {("s", "a1"): "0"}
+
+
+def test_a_csv_quoted_newline_and_a_unicode_line_separator_stay_in_their_row(tmp_path):
+    path = tmp_path / "labels.csv"
+    path.write_text('skill,atom_id,label\ns,a1,"two\nlines"\ns,a2,"x y"\n', encoding="utf-8")
+    assert load_atom_labels(path) == {("s", "a1"): "two\nlines", ("s", "a2"): "x y"}
+
+
+def test_a_jsonl_string_with_a_unicode_line_separator_loads(tmp_path):
+    path = tmp_path / "labels.jsonl"
+    path.write_text('{"skill": "s", "atom_id": "a1", "label": "x y"}\n', encoding="utf-8")
+    assert load_atom_labels(path) == {("s", "a1"): "x y"}
+
+
+def test_a_jsonl_line_that_is_not_an_object_names_its_line(tmp_path):
+    path = tmp_path / "labels.jsonl"
+    path.write_text('{"skill": "s", "atom_id": "a1", "label": "x"}\n[1, 2]\n', encoding="utf-8")
+    with pytest.raises(InputError, match="line 2 is not a JSON object"):
+        load_atom_labels(path)
+
+
+@pytest.mark.parametrize("name", ["labels.jsonl", "labels.csv"])
+def test_an_empty_labels_file_is_refused(tmp_path, name):
+    path = tmp_path / name
+    path.write_text("\n" if name.endswith(".jsonl") else "skill,atom_id,label\n", encoding="utf-8")
+    with pytest.raises(InputError, match="no label rows"):
+        load_atom_labels(path)
+
+
+def test_an_empty_atom_labels_flag_is_refused_not_ignored(capsys):
+    from dokimi.commands.novelty import cmd_novelty_view
+
+    args = argparse.Namespace(novelty="n.json", atoms="a.json", atom_verdicts="v.json", atom_labels="",
+                              format="html", out=None)
+    with pytest.raises(InputError, match="--atom-labels needs a file path"):
+        cmd_novelty_view(args)
