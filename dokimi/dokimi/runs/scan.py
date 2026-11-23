@@ -39,14 +39,14 @@ _HEAD = re.compile(rb'\A\s*\{\s*"schema_version"\s*:\s*"([^"\\\x00-\x1f]{1,100})
 _ABSENT = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
 
 
-def lookup(path: Path | str) -> os.stat_result | None:
-    """``os.stat(path)`` (symlinks followed), or ``None`` when nothing is there.
+def lookup(path: Path | str, follow_symlinks: bool = True) -> os.stat_result | None:
+    """``os.stat(path, follow_symlinks=...)``, or ``None`` when nothing is there.
 
     Raises ``OSError`` for any other error, such as no permission to search a parent: on
     Python 3.14 ``Path.exists()`` returns ``False`` for that, and the reason is lost.
     """
     try:
-        return os.stat(path)
+        return os.stat(path, follow_symlinks=follow_symlinks)
     except OSError as exc:
         if exc.errno in _ABSENT or is_symlink_loop(exc):
             return None

@@ -25,13 +25,12 @@ from dokimi.runs.scan import (
     Artifact,
     Unreadable,
     by_run,
-    inside,
     plain,
     read_error_reason,
     scan,
     timestamp,
 )
-from dokimi.runs.show import find_run, pick
+from dokimi.runs.show import contained, find_run
 from dokimi.utils import InputError
 
 _AGE = re.compile(r"(\d{1,5})d")
@@ -70,22 +69,10 @@ def parse_age(text: str) -> timedelta:
 def _one_file(root: Path, address: str) -> Removal:
     """The file ``address`` names under ``root``, as ``runs show`` reads a path; a symlink is
     itself the file (its target is never removed). Raises ``InputError`` for anything else."""
-    real_root = os.path.realpath(root)
-    label, shown_root = plain(address), plain(root.as_posix())
-    try:
-        path = pick(root, address)
-        entry = os.path.join(os.path.realpath(path.parent), path.name)
-        if not inside(real_root, entry):
-            where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
-            raise InputError(f"{label} {where} the runs root {shown_root}/")
-        found = os.lstat(entry)
-    except FileNotFoundError as exc:
-        raise InputError(f"no file {label} under the runs root {shown_root}/") from exc
-    except OSError as exc:
-        raise InputError(f"{label}: {read_error_reason(exc)}") from exc
+    _, entry, found = contained(root, address, follow_last=False)
     if stat.S_ISDIR(found.st_mode):
-        raise InputError(f"{label} is a directory; runs rm takes a run_id or one file")
-    return Removal(root=root, file=Path(os.path.relpath(entry, real_root)),
+        raise InputError(f"{plain(address)} is a directory; runs rm takes a run_id or one file")
+    return Removal(root=root, file=Path(os.path.relpath(entry, os.path.realpath(root))),
                    file_bytes=found.st_size)
 
 

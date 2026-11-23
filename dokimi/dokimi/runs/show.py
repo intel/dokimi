@@ -62,6 +62,31 @@ def pick(root: Path, address: str) -> Path:
     return next((p for p in candidates if lookup(p)), candidates[0])
 
 
+def contained(root: Path, address: str, follow_last: bool) -> tuple[Path, str, os.stat_result]:
+    """The path ``address`` names (:func:`pick`), the real path it is checked as, and its stat.
+
+    The real path must lie inside the resolved root: the whole path resolved, or with
+    ``follow_last`` False only its directories, so a final symlink is the entry itself (its
+    stat not followed). Raises ``InputError`` when it lies outside, is missing or cannot be
+    looked up.
+    """
+    real_root = os.path.realpath(root)
+    label, shown_root = plain(address), plain(root.as_posix())  # for messages only
+    try:  # lookup raises for a directory that cannot be searched, on every Python
+        path = pick(root, address)
+        real = (os.path.realpath(path) if follow_last
+                else os.path.join(os.path.realpath(path.parent), path.name))
+        if not inside(real_root, real):
+            where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
+            raise InputError(f"{label} {where} the runs root {shown_root}/")
+        found = lookup(path if follow_last else real, follow_symlinks=follow_last)
+    except OSError as exc:
+        raise InputError(f"{label}: {read_error_reason(exc)}") from exc
+    if found is None:
+        raise InputError(f"no file {label} under the runs root {shown_root}/")
+    return path, real, found
+
+
 def resolve(root: Path, address: str) -> tuple[Path, Path]:
     """The file ``address`` names, and the root its path is relative to (both absolute).
 
@@ -69,26 +94,16 @@ def resolve(root: Path, address: str) -> tuple[Path, Path]:
     working-directory path; once symlinks are resolved it must lie inside the resolved root, so
     nothing outside the root is read. Raises ``InputError`` otherwise.
     """
-    real_root = os.path.realpath(root)
-    label, shown_root = plain(address), plain(root.as_posix())  # for messages only
-    try:  # lookup raises for a directory that cannot be searched, on every Python
-        path = pick(root, address)
-        if not inside(real_root, os.path.realpath(path)):
-            where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
-            raise InputError(f"{label} {where} the runs root {shown_root}/")
-        found = lookup(path)
-        if found is None:
-            raise InputError(f"no file {label} under the runs root {shown_root}/")
-        if stat.S_ISDIR(found.st_mode):
-            raise InputError(f"{label} is a directory; runs show takes one artifact file")
-        if not stat.S_ISREG(found.st_mode):
-            raise InputError(f"{label} is not a regular file")
-    except OSError as exc:
-        raise InputError(f"{label}: {read_error_reason(exc)}") from exc
+    path, real, found = contained(root, address, follow_last=True)
+    label = plain(address)
+    if stat.S_ISDIR(found.st_mode):
+        raise InputError(f"{label} is a directory; runs show takes one artifact file")
+    if not stat.S_ISREG(found.st_mode):
+        raise InputError(f"{label} is not a regular file")
     spelled, base = path.absolute(), root.absolute()  # not abspath: `link/..` must stay as opened
     if ".." not in spelled.parts + base.parts and inside(root, spelled):  # the name list prints
         return spelled, base
-    return Path(os.path.realpath(path)), Path(real_root)
+    return Path(real), Path(os.path.realpath(root))
 
 
 def _version(path: Path, address: str) -> str:
