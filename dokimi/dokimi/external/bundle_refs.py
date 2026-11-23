@@ -12,7 +12,7 @@ scripts, not by the agent. A file is named when ``SKILL.md`` holds its path rela
 its file name, or the path of a folder above it named alone (``references/`` covers every file under
 it; ``references/a.md`` covers only ``a.md``), case ignored; a named document is read too, so the
 files it names count as named, unless it is a changelog, contributing or notice file, which names
-nothing here. Licence, readme and changelog files, ``AGENTS.md``, ``__init__.py`` and other
+nothing here. Licence, readme and changelog files, a translation of ``SKILL.md`` at the root (``SKILL.ru.md``), ``AGENTS.md``, ``__init__.py`` and other
 ``_``-prefixed helpers, tests, hidden and vendored folders, and a nested skill's folder are left out
 of the count; a document in a test or hidden folder that ``SKILL.md`` names is still read. A skill at
 the root of a scanned checkout is not checked, since its bundle is the rest of that checkout.
@@ -38,6 +38,8 @@ SKIPPED_STEMS = frozenset({"license", "licence", "readme", "changelog", "notice"
 SKIPPED_NAMES = frozenset({"__init__.py", "conftest.py", "requirements.txt", "agents.md", "claude.md"})
 SKIPPED_DIRS = frozenset({"tests", "test", "__tests__", "evals"})
 TEST_STEM = re.compile(r"test_.*|.*_test|.*\.(?:test|spec)")  # test_build.py, build_test.py, build.test.js
+# A translation of SKILL.md at the skill root (SKILL.ru.md, SKILL.zh-CN.md): the same instructions, so no file to browse to.
+LOCALIZED_SKILL = re.compile(r"skill\.[a-z]{2,3}(?:[-_][a-z0-9]{2,8})?\.md", re.I)
 WALK_MAX_FILES = 2000  # a skill with more files is a checkout, not a bundle: it is not checked
 EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
@@ -90,7 +92,8 @@ def _walk(skill_dir: Path, *, counted: bool, failed: list[OSError]) -> list[str]
                 or suffix.lower() not in COUNTED_SUFFIXES
                 or (here == skill_dir and name == "SKILL.md")
                 or (counted and (
-                    name.startswith("_")  # a private helper (``_common.py``) scripts import
+                    (here == skill_dir and LOCALIZED_SKILL.fullmatch(name) is not None)  # SKILL.ru.md: a translation
+                    or name.startswith("_")  # a private helper (``_common.py``) scripts import
                     or stem.lower() in SKIPPED_STEMS
                     or name.lower() in SKIPPED_NAMES
                     or TEST_STEM.fullmatch(stem.lower())
