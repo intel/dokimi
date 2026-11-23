@@ -452,8 +452,9 @@ def _branch_commit(root: Path, branch: str, files: dict[str, str], subject: str,
 
 def _merge_at(root: Path, branch: str, files: dict[str, str], subject: str, authored: str, committed: str) -> str:
     """A merge of ``branch`` into HEAD, its result edited (or its conflict resolved) to hold ``files``."""
-    subprocess.run(["git", "-C", str(root), "merge", "-q", "--no-ff", "--no-commit", branch],
-                   capture_output=True)  # a conflict exits 1: ``files`` resolves it
+    subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-ff",
+                    "--no-commit", branch], capture_output=True)  # a conflict exits 1: ``files`` resolves it;
+    # git merge wants an identity even with --no-commit, and a CI runner has none
     return _commit_at(root, files, subject, authored, committed)
 
 

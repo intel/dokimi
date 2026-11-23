@@ -5,13 +5,16 @@
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
 
-from dokimi.datasets_export import dataset_card, export_artifact, flatten
+from dokimi.datasets_export import dataset_card, export_artifact, flatten, to_jsonl
 
 from tests.cli_refusal import refusal
 
@@ -59,6 +62,225 @@ def test_export_jsonl(tmp_path):
     assert len(lines) == 2
     assert json.loads(lines[0])["library"] == "oneTBB"
     assert (out / "README.md").exists()
+
+
+@pytest.mark.parametrize(("value", "written", "loaded"), [
+    ("n\ud800", "n\\ud800", "n\ud800"),
+    (chr(0xD83D) + chr(0xDE00), "\U0001F600", "\U0001F600"),
+    ("café", "café", "café"),
+])
+def test_to_jsonl_writes_a_surrogate_as_utf8(tmp_path, value, written, loaded):
+    """One JSON object per line; a lone surrogate stays its escape, a pair is joined, ``é`` is not escaped (#990)."""
+    path = tmp_path / "out" / "rows.jsonl"
+
+    to_jsonl([{"a": value}, {"a": "x"}], path)
+
+    raw = path.read_bytes()
+    assert raw == ('{"a": "' + written + '"}\n{"a": "x"}\n').encode("utf-8")
+    assert [json.loads(line)["a"] for line in raw.decode("utf-8").splitlines()] == [loaded, "x"]
+
+
+def test_to_jsonl_keeps_a_lone_surrogate_key_apart_from_a_question_mark_key(tmp_path):
+    path = tmp_path / "rows.jsonl"
+
+    to_jsonl([{"\ud800": 1, "?": 2}], path)
+
+    assert json.loads(path.read_bytes().decode("utf-8")) == {"\ud800": 1, "?": 2}
+
+
+def test_to_jsonl_refuses_a_pair_key_beside_its_character_key(tmp_path):
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([{chr(0xD83D) + chr(0xDE00): 1, "\U0001F600": 2}], tmp_path / "rows.jsonl")
+
+
+def test_a_refused_to_jsonl_leaves_the_existing_file_and_creates_none(tmp_path):
+    """The rows are serialised before the destination is opened, so a refusal in a later row cuts nothing (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    path.write_bytes(b'{"kept": 1}\n')
+    bad = {chr(0xD83D) + chr(0xDE00): 1, "\U0001F600": 2}
+
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([{"a": 1}, bad], path)
+    with pytest.raises(TypeError):
+        to_jsonl([{"a": 1}, {"a": object()}], path)
+    fresh = tmp_path / "new" / "rows.jsonl"
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([bad], fresh)
+
+    assert path.read_bytes() == b'{"kept": 1}\n'
+    assert not fresh.exists()
+
+
+@pytest.mark.skipif(not hasattr(Path, "symlink_to"), reason="no symlinks")
+@pytest.mark.parametrize("target_exists", [True, False])
+def test_to_jsonl_writes_through_a_symlink_and_keeps_it(tmp_path, target_exists):
+    """``open(path, "w")`` followed a link at the destination; the atomic publish replaces the target, not the link (#1020)."""
+    shared = tmp_path / "shared" / "shared.jsonl"
+    shared.parent.mkdir()
+    if target_exists:
+        shared.write_text("stale\n")
+    link = tmp_path / "rows.jsonl"
+    try:
+        link.symlink_to(Path("shared") / "shared.jsonl")
+    except OSError:
+        pytest.skip("symlinks need a privilege here")
+
+    to_jsonl([{"a": 1}], link)
+
+    assert link.is_symlink()
+    assert shared.read_text() == '{"a": 1}\n'
+    assert sorted(p.name for p in shared.parent.iterdir()) == ["shared.jsonl"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["rows.jsonl", "shared"]
+
+
+@pytest.mark.skipif(not hasattr(Path, "symlink_to"), reason="no symlinks")
+def test_to_jsonl_refuses_a_link_into_a_missing_directory(tmp_path):
+    """``open(path, "w")`` raised on it; the missing directory of the link's target is not made (#1020)."""
+    link = tmp_path / "rows.jsonl"
+    try:
+        link.symlink_to(Path("missing") / "shared.jsonl")
+    except OSError:
+        pytest.skip("symlinks need a privilege here")
+
+    with pytest.raises(FileNotFoundError):
+        to_jsonl([{"a": 1}], link)
+
+    assert not (tmp_path / "missing").exists()
+    assert link.is_symlink()
+
+
+def test_to_jsonl_rewrites_a_hard_linked_file_in_place(tmp_path):
+    """Like ``open(path, "w")``, the other name sees the rows; a refused row still leaves both names as they were (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    path.write_text("stale\n")
+    other = tmp_path / "other.jsonl"
+    try:
+        os.link(path, other)
+    except OSError:
+        pytest.skip("no hard links here")
+
+    with pytest.raises(TypeError):
+        to_jsonl([{"a": 1}, {"a": object()}], path)
+    assert other.read_text() == "stale\n"
+
+    to_jsonl([{"a": 1}], path)
+
+    assert other.read_text() == '{"a": 1}\n'
+    assert os.path.samefile(path, other)
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="no extended attributes")
+def test_to_jsonl_keeps_a_user_xattr_of_the_destination(tmp_path):
+    """A new inode would drop ``user.dataset``; the file is rewritten in place instead (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    path.write_text("stale\n")
+    try:
+        os.setxattr(path, "user.dataset", b"sample")
+    except OSError:
+        pytest.skip("user xattrs are not supported here")
+
+    to_jsonl([{"a": 1}], path)
+
+    assert path.read_text() == '{"a": 1}\n'
+    assert os.getxattr(path, "user.dataset") == b"sample"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no FIFOs")
+def test_to_jsonl_writes_into_a_fifo_and_keeps_it(tmp_path):
+    """``open(path, "w")`` wrote into a FIFO; replacing it with a regular file would lose the reader's rows (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    os.mkfifo(path)
+    reader = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        to_jsonl([{"a": 1}], path)
+        assert os.read(reader, 100) == b'{"a": 1}\n'
+    finally:
+        os.close(reader)
+
+    assert stat.S_ISFIFO(path.lstat().st_mode)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes into a read-only directory")
+def test_to_jsonl_rewrites_a_writable_file_in_a_read_only_directory(tmp_path):
+    """A tmp sibling cannot be made there, but ``open(path, "w")`` needs only the file's write bit (#1020)."""
+    out = tmp_path / "out"
+    out.mkdir()
+    path = out / "rows.jsonl"
+    path.write_text("stale\n")
+    out.chmod(0o555)
+    try:
+        to_jsonl([{"a": 1}], path)
+    finally:
+        out.chmod(0o755)
+
+    assert path.read_text() == '{"a": 1}\n'
+
+
+def test_to_jsonl_holds_one_row_of_output_at_a_time(tmp_path):
+    """The output is encoded row by row into a tmp file, so memory is bounded by a row, not the export (#1020)."""
+    import tracemalloc
+
+    rows = [{"a": "x" * 4096, "i": i} for i in range(2048)]
+    path = tmp_path / "rows.jsonl"
+
+    tracemalloc.start()
+    try:
+        to_jsonl(rows, path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert path.stat().st_size > 8_000_000
+    assert peak < 1_000_000
+    assert [p.name for p in tmp_path.iterdir()] == ["rows.jsonl"]
+
+
+def test_to_jsonl_into_a_hard_linked_file_holds_one_row_of_output_at_a_time(tmp_path):
+    """The in-place fallback stages the rows on disk, not in a list (#1020)."""
+    import tracemalloc
+
+    rows = [{"a": "x" * 4096, "i": i} for i in range(2048)]
+    path = tmp_path / "rows.jsonl"
+    path.write_text("stale\n")
+    try:
+        os.link(path, tmp_path / "other.jsonl")
+    except OSError:
+        pytest.skip("no hard links here")
+
+    tracemalloc.start()
+    try:
+        to_jsonl(rows, path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert (tmp_path / "other.jsonl").stat().st_size > 8_000_000
+    assert peak < 1_000_000
+
+
+def test_to_jsonl_into_a_mount_point_copies_the_staged_rows_in_place(tmp_path, monkeypatch):
+    """``os.replace`` onto a mount point fails with EBUSY; the rows are already consumed, so they are copied in place (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    path.write_text("stale\n")
+    inode = path.stat().st_ino
+
+    def busy(src, dst):
+        raise OSError(errno.EBUSY, "Device or resource busy")
+
+    monkeypatch.setattr(os, "replace", busy)
+    to_jsonl([{"a": 1}, {"a": 2}], path)
+
+    assert (path.read_text(), path.stat().st_ino) == ('{"a": 1}\n{"a": 2}\n', inode)
+    assert [p.name for p in tmp_path.iterdir()] == ["rows.jsonl"]
+
+
+def test_to_jsonl_writes_equal_plain_keys_beside_a_surrogate_pair(tmp_path):
+    """Only keys holding a character above U+FFFF can be made equal by joining a pair: ``1`` and ``"1"`` are not refused (#1020)."""
+    path = tmp_path / "rows.jsonl"
+
+    to_jsonl([{1: "a", "1": "b", "x": chr(0xD83D) + chr(0xDE00)}], path)
+
+    assert path.read_bytes() == '{"1": "a", "1": "b", "x": "\U0001F600"}\n'.encode()
 
 
 def test_export_answers_artifact_jsonl(tmp_path):

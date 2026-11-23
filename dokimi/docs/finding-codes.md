@@ -27,6 +27,8 @@ changelog. The `message` text is for people and may be reworded, so do not match
 - `note`: information only; it never changes the state.
 
 `--ignore CODE` leaves the findings with that code out of the state and the exit code.
+`--fail-on-code CODE` does the opposite: the scan exits 1 when a finding with that code is left
+after `--ignore`, at any level.
 Three codes cannot be ignored (`catalog check` refuses the flag): ignoring them would hide why
 a skill does not load, or make the whole-catalog and `--per-skill` exits disagree.
 They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
@@ -47,7 +49,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `duplicate` | warn | the SKILL.md is identical to another copy; the copy is counted twice | yes |
 | `frontmatter-parse` | error | the frontmatter is not valid YAML | no |
 | `frontmatter-unknown-key` | warn | the frontmatter has a key the spec does not define | yes |
-| `hidden-unicode` | warn | a bidi control, Unicode tag or stray zero-width character in SKILL.md or a bundled text file | yes |
+| `hidden-unicode` | warn | a bidi control or mark, Unicode tag, soft hyphen, invisible format character, variation selector, blank filler or stray zero-width character in SKILL.md or a bundled text file | yes |
 | `install-unpinned` | warn | a bundled script installs a package without a pinned version | yes |
 | `legacy-model-id` | warn | a model ID its vendor has retired or deprecated | yes |
 | `link-dead` | warn | `--online`: a URL in SKILL.md answers 404 or 410; a host that does not resolve counts too (not when an environment proxy carries the URL), once any other probe of the run got an answer (a PyPI or npm lookup counts too, including one that answers 404) | yes |
@@ -70,6 +72,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `script-crlf` | warn | a bundled script has CRLF line endings | yes |
 | `script-lint` | note | a bundled script has a lint finding | yes |
 | `script-syntax` | warn | a bundled script does not parse | yes |
+| `similar-skills-exist` | note | the description overlaps a differently named skill's (Jaccard similarity at least 0.4 and below 0.5, at least 3 shared words); the state stays `ok` | yes |
 | `unreadable` | error | SKILL.md exists but the OS will not read it | no |
 | `unsupported-skill-format` | note | the skill is under a host directory dokimi holds no spec for (`.kiro`, `.cursor`, ...); the frontmatter and description checks were skipped, an unloaded file was not read | yes |
 

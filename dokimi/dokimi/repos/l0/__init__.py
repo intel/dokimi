@@ -111,10 +111,15 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     unscanned += [f"build file not scanned: {f}: {why}" for f, why in unread.items()]
     warnings += unscanned
     reasons += unscanned  # every warning that makes the scan incomplete, in the order of `warnings`
-    warnings += not_counted
+    # a skipped build input is read only by the Bazel adapter: it is a reason only when that adapter is on
+    bazel = [w for path, w in zip(getattr(tree, "skipped_paths", ()), getattr(tree, "skipped", ()), strict=True)
+             if "bazel" in scan.adapters and _is_build_input(path) and w not in not_counted]
+    warnings += not_counted + tuple(bazel)
     warnings += scan_config["errors"]
-    reasons += not_counted
+    reasons += not_counted + tuple(bazel)
     reasons += scan_config["errors"]  # a broken scan.toml drops the repository's settings: the scan is incomplete
+    # any other path the tree could not look at stays a warning, so the report does not hide it (#959 review of #1028)
+    warnings += [w for w in getattr(tree, "skipped", ()) if w not in warnings]
     sha = getattr(tree, "sha", None)
     return {
         "repo": {"id": manifest.id, "tree": tree.label, "sha": sha, "manifest": manifest.path},

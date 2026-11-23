@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import sys
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
@@ -24,8 +25,27 @@ from dokimi.commands.novelty_routing_report import _partial_destinations
 def partial_destination(out: Path) -> Path:
     """The first of ``<stem>.partial.json``, ``<stem>.partial2.json``, ... that is free or already
     holds a partial result, so a stopped run never replaces a finished one. The sidecar rules are
-    the routing report's (a symlink is not followed, a FIFO is not read)."""
-    return next(_partial_destinations(Path(out)))
+    the routing report's (a symlink is not followed, a FIFO is not read). A name that is the file
+    ``out`` resolves to (a symlinked ``out``, dangling or not) is passed over: the save of ``out``
+    would land in it. The names are compared by :func:`_resolved`'s key, case and Unicode form aside."""
+    target = _resolved(out)
+    return next(p for p in _partial_destinations(Path(out)) if _resolved(p) != target)
+
+
+def _resolved(path: Path) -> str:
+    """A comparison key for the file ``path`` resolves to: NFC and case-folded, since a dangling link keeps
+    its target's spelling and macOS file systems ignore both case and normalization form."""
+    return unicodedata.normalize("NFC", os.path.realpath(path)).casefold()
+
+
+def fresh_partial_destination(out: Path) -> Path:
+    """The first of ``<stem>.partial.json``, ``<stem>.partial2.json``, ... where nothing is yet
+    (a symlink counts), so a run never replaces the checkpoint an earlier crashed run left, whatever
+    its ``--out`` spelling. A name that is the file ``out`` resolves to is passed over as in
+    :func:`partial_destination`."""
+    target = _resolved(out)
+    return next(p for p in _partial_destinations(Path(out))
+                if _resolved(p) != target and not os.path.lexists(p))
 
 
 def partial_write(out: Path, write: Callable[[Path], object]) -> Path:
@@ -222,3 +242,29 @@ def print_run_estimate(args: argparse.Namespace, settings, text: str, estimate_u
     low = " (a low projection for this size)" if n_tokens > FITTED_TOKENS_MAX else ""
     print(f"Expected ~${usd:.2f}{low} for this run at list prices ({label}); {cap}",
           file=sys.stderr)
+
+
+def print_estimate_only(args: argparse.Namespace, settings, text: str, estimate_usd) -> None:
+    """The ``--estimate-only`` output of ``analyze``: the projection as JSON, and what it rests on."""
+    from dokimi.novelty.tiers import FITTED_TOKENS_MAX
+
+    estimate, n_tokens = run_estimate(args, settings, text, estimate_usd)
+    # Every arm but the baseline is priced as carrying the artifact; a placebo of another
+    # length is not read.
+    if n_tokens > FITTED_TOKENS_MAX:
+        estimate["usd_extrapolated"] = True
+        print(f"expected_usd extrapolates: the artifact has {n_tokens} tokens and the "
+              f"profiles were fitted on artifacts up to {FITTED_TOKENS_MAX}; the projection "
+              "ran low as the artifact grew", file=sys.stderr)
+    print(json.dumps(estimate, indent=2))
+    print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
+          "measured shape; batch sizes and retries move the real figure.",
+          file=sys.stderr)
+    if args.max_usd is None:
+        print(
+            "expected_usd prices the calls by role at list prices, from a token profile "
+            "fitted on measured runs: a longer artifact or longer answers cost more, and "
+            "a model with no price gives null. Pass --max-usd to stop the run at a "
+            "dollar figure.",
+            file=sys.stderr,
+        )

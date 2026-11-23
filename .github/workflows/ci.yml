@@ -344,6 +344,13 @@ jobs:
           else
             pytest -n auto --outcomes --outcomes-report=outcomes-result.json --journeys-report=journeys-result.json
           fi
+      # Test files this PR adds or changes run 20 times under -n auto, seeds 1-20, at most 10 files (#1035).
+      # Coverage leg only: it has the history to diff. No test file changed: nothing runs.
+      - name: Repeat changed tests
+        if: github.event_name == 'pull_request' && matrix.coverage
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python scripts/repeat_changed_tests.py --base "origin/$BASE_REF" --head HEAD
       # Coverage of the lines this PR changes, not of the whole tree: the total
       # moves too little per PR to gate on, an untested new function does not.
       # Below 20 measurable changed lines one missed line swings the percentage
@@ -478,6 +485,43 @@ jobs:
         env:
           DOKIMI_REQUIRE_RAGAS: '1'
         run: pytest -q -n auto
+
+  # Whole suite on the lock under four fresh random seeds a week, to find order dependence before it fails a PR.
+  # Schedule and dispatch only: https://github.com/intel/dokimi/issues/1059
+  test-seeds:
+    name: Tests (seed ${{ matrix.leg }})
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
+      - name: Install deps
+        run: pip install --no-deps --require-hashes -r requirements.lock.txt
+      # A new seed each run: fixed ones would shuffle the same order every week.
+      - name: Pick the seed
+        env:
+          LEG: ${{ matrix.leg }}
+        run: |
+          seed=$((GITHUB_RUN_NUMBER * 10 + LEG))
+          echo "SEED=$seed" >> "$GITHUB_ENV"
+          echo "seed $seed: replay with pytest -n auto --randomly-seed=$seed"
+          echo "Seed $seed. Replay: \`pytest -n auto --randomly-seed=$seed\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Run tests
+        run: pytest -n auto -q --randomly-seed="$SEED"
 
   # Installs the built package with a fresh resolve of its dependency ranges, not
   # the lock: the floor version checks what `pip install dokimi` gives a 3.11 user.

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""A shell command's words, for :func:`~dokimi.repos.cli_traces.shell_reads`: the command word past what comes before
+"""A shell command's words, for :func:`~dokimi.repos.shell_walk.shell_reads`: the command word past what comes before
 it (``NAME=value``, a redirection, ``builtin``, ``command``, ``time``, ``env``), whether it runs a directory builtin, and
 the ``case ... esac`` a part opens or closes."""
 
