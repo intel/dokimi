@@ -132,7 +132,7 @@ def parse_trace(raw: str) -> ContextTrace:
     by_message: dict[str, dict[str, Any]] = {}  # message id -> its call
     names: dict[str, str] = {}  # tool_use id -> tool name
     seen: dict[tuple[Any, str, str], str] = {}  # signature -> tool_use id of its latest call
-    dormant: set[str] = set()  # message ids whose blocks so far were all zero: no call yet
+    dormant: dict[str, int] = {}  # message id -> line of its first block, while all its blocks were zero: no call yet
     for n, line in enumerate(raw.split(chr(10)), 1):
         if not line.strip():
             continue
@@ -144,16 +144,17 @@ def parse_trace(raw: str) -> ContextTrace:
         if not isinstance(rec, dict):
             continue
         try:
-            _apply(out, rec, by_message, names, seen, dormant)
+            _apply(out, rec, by_message, names, seen, dormant, n)
         except (AttributeError, TypeError, ValueError, OverflowError, RecursionError) as exc:  # valid JSON of an unexpected shape
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     for i, call in enumerate(out.calls):
         call["i"] = i
+        del call["line"]
     return out
 
 
 def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[str, Any]],
-           names: dict[str, str], seen: dict[tuple[Any, str, str], str], dormant: set[str]) -> None:
+           names: dict[str, str], seen: dict[tuple[Any, str, str], str], dormant: dict[str, int], line: int) -> None:
     kind, subtype = rec.get("type"), rec.get("subtype")
     agent = rec.get("parent_tool_use_id")
     if kind == "system" and subtype == "init":
@@ -179,7 +180,7 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
         message = rec.get("message") or {}
         usage = message.get("usage")
         if isinstance(usage, dict):
-            _add_call(out, _call(usage, agent, rec.get("timestamp")), message.get("id"), by_message, dormant)
+            _add_call(out, _call(usage, agent, rec.get("timestamp"), line), message.get("id"), by_message, dormant)
         for block in _content(rec):
             if block.get("type") != "tool_use":
                 continue
@@ -213,20 +214,24 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
 
 
 def _add_call(out: ContextTrace, call: dict[str, Any], key: Any, by_message: dict[str, dict[str, Any]],
-              dormant: set[str]) -> None:
+              dormant: dict[str, int]) -> None:
     """Add one block's call, or fold it into the call its message id already has."""
     if key and key in by_message:
         _merge(by_message[key], call)  # a later block of the same call: same prompt, fuller output
         if key in dormant and any(by_message[key][k] for k in _PARTS):
-            dormant.discard(key)
-            out.calls.append(by_message[key])
+            first = dormant.pop(key)  # the call sits where its first block was, not where it became real
+            at = sum(c["line"] < first for c in out.calls)
+            out.calls.insert(at, by_message[key])
+            for compaction in out.compactions:
+                if compaction["after_call"] >= at:
+                    compaction["after_call"] += 1
     elif any(call[k] for k in _PARTS):  # an all-zero block carries no call yet
         out.calls.append(call)
         if key:
             by_message[key] = call
     elif key:
         by_message[key] = call  # keep what it reported for a later block of the same id
-        dormant.add(key)
+        dormant[key] = call["line"]
 
 
 def _merge(call: dict[str, Any], later: dict[str, Any]) -> None:
@@ -240,7 +245,7 @@ def _merge(call: dict[str, Any], later: dict[str, Any]) -> None:
     call["prompt_tokens"] = call["new_tokens"] + call["cache_read_tokens"]
 
 
-def _call(usage: dict[str, Any], agent: Any, at: Any) -> dict[str, Any]:
+def _call(usage: dict[str, Any], agent: Any, at: Any, line: int) -> dict[str, Any]:
     fresh = int(usage.get("input_tokens") or 0)
     created = int(usage.get("cache_creation_input_tokens") or 0)
     read = int(usage.get("cache_read_input_tokens") or 0)
@@ -248,6 +253,7 @@ def _call(usage: dict[str, Any], agent: Any, at: Any) -> dict[str, Any]:
     known = not _PROMPT_FIELDS.isdisjoint(reported)  # no prompt count reported: the prompt is unknown, not 0
     return {
         "agent": agent,
+        "line": line,  # trace line of the first block; dropped once the calls are numbered
         "at": at,  # the message's timestamp, as the trace has it; the first block's
         "prompt_tokens": fresh + created + read if known else None,
         "new_tokens": fresh + created if known else None,

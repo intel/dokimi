@@ -505,3 +505,17 @@ def test_all_zero_blocks_of_one_id_make_no_call(tmp_path, capsys):
         _assistant("m1", {"input_tokens": 0}),
         _assistant("m1", {"input_tokens": 0}))
     assert row["calls"] == 0
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_a_call_that_becomes_real_keeps_its_first_block_position():
+    """#1088: m1 opens all zero, m2 follows, m1 gets output later: m1 is still the first call, and a compaction stays after m2."""
+    trace = parse_trace(_jsonl(
+        _assistant("m1", {"input_tokens": 0}),
+        _assistant("m2", {"input_tokens": 300}),
+        {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto"}},
+        _assistant("m1", {"output_tokens": 7})))
+    assert [c["prompt_tokens"] for c in trace.calls] == [0, 300]
+    assert [c["i"] for c in trace.calls] == [0, 1]
+    assert all("line" not in c for c in trace.calls)
+    assert trace.compactions[0]["after_call"] == 1
