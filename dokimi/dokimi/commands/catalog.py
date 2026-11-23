@@ -609,7 +609,7 @@ def register(sub, positive_int, eval_sub) -> None:
     scan_p.add_argument(
         "--per-skill", action="store_true",
         help="Review each skill alone: the cross-catalog checks (duplicate, name-conflict, "
-             "mirror-drift, description-near-duplicate) do not fire between skills",
+             "mirror-drift, description-near-duplicate, similar-skills-exist) do not fire between skills",
     )
     scan_p.add_argument(
         "--skip-nested", action="store_true",
@@ -697,6 +697,7 @@ def register(sub, positive_int, eval_sub) -> None:
     ts_p.add_argument("--out", required=True, help="Output JSON path")
     ts_p.set_defaults(func=cmd_catalog_trigger_set)
 
-    from dokimi.commands import catalog_probe
+    from dokimi.commands import catalog_probe, catalog_provenance
 
     catalog_probe.register(catalog_sub, positive_int)
+    catalog_provenance.register(catalog_sub)
