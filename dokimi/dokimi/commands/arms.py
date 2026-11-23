@@ -337,6 +337,7 @@ def register(sub, positive_int) -> None:
                             help=JUDGE_MODEL_HELP)
     arms_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                             choices=JUDGE_PROVIDERS)
+    _add_judge_context(arms_run_p)
     arms_run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
                             help="Docs to retrieve before reranking, for doc/MCP arms (default: 5)")
     arms_run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
@@ -413,6 +414,15 @@ def register(sub, positive_int) -> None:
     plugin_delta_p.set_defaults(func=cmd_arms_plugin_delta)
 
 
+def _add_judge_context(parser) -> None:
+    # Literal choices, as the stdlib-only CLI registration needs; ArmRunner checks the same values.
+    cli_flags.add(parser, "judge-context", "--judge-context", default="arm", dest="judge_context",
+                  choices=["arm", "baseline"],
+                  help="What the judge is shown about each arm's treatment material. arm (default): the "
+                       "arm's own material. baseline: no material on any arm, the context a baseline arm's "
+                       "judge sees, so every arm is judged on one context. Answers are unchanged")
+
+
 def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False) -> None:
     parser.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     parser.add_argument("--questions", required=True, help="Path to questions JSON file")
@@ -454,6 +464,7 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
                         help=JUDGE_MODEL_HELP)
     parser.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                         choices=JUDGE_PROVIDERS)
+    _add_judge_context(parser)
     parser.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
                         help="Docs to retrieve before reranking, for doc/MCP arms (default: 5)")
     parser.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")

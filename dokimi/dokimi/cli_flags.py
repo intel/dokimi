@@ -120,6 +120,12 @@ CONCEPTS: tuple[Concept, ...] = (
                         meaning="neutral says the text may be irrelevant (the placebo-abstention control)"),),
     ),
     Concept(
+        name="judge-context",
+        help="what the judge is shown about an arm's treatment material",
+        canonical=(Flag("--judge-context", "{arm,baseline}", "choice",
+                        meaning="baseline shows the judge no material on any arm, the context a baseline arm's judge sees"),),
+    ),
+    Concept(
         name="cell",
         help="one cell of a matrix",
         canonical=(Flag("--cell", "k=v,...", "text", repeatable=True),),

@@ -28,6 +28,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model, refuse_task_harness
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
+from dokimi.eval.judge_context import JUDGE_CONTEXT_ARM
 from dokimi.eval.question_text import EmptyQuestionError
 from dokimi.judge_rule import JudgeIsAnswerer, default_judge
 from dokimi.llm_cli import backend as cli_backend
@@ -98,6 +99,9 @@ class ArmsRunConfig:
     session_turns: int | None = None
     turn_reminder: str | None = None
     concurrency: int = 5
+    #: What the judge is shown about the treatment material: ``arm`` (each arm's own material, the default)
+    #: or ``baseline`` (no material on any arm, as a baseline arm's judge sees it).
+    judge_context: str = JUDGE_CONTEXT_ARM
 
     def __post_init__(self) -> None:
         if self.judge_model is JUDGE_MODEL_FOR_PROVIDER:
@@ -483,6 +487,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
         seed=config.seed,
         session_turns=config.session_turns,
         turn_reminder=config.turn_reminder,
+        judge_context_mode=config.judge_context,
     )
     return PreparedArms(runner=runner, judge=judge, library_id=library_id)
 

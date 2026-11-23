@@ -57,13 +57,25 @@ SOURCE_SNIPPET_FALLBACK = "snippet_fallback"
 #: back to snippets. It equals neither protocol, so it pools with nothing.
 PROTOCOL_MIXED = PROTOCOL + "+snippet_fallback"
 
+#: ``judge_context`` of a run judged with ``--judge-context baseline``: the judge was shown no
+#: material on any arm. It is not the protocol :data:`PROTOCOL` measured, so it pools only with
+#: other withheld runs.
+PROTOCOL_WITHHELD = "treatment_material.withheld.v1"
 
-def stamp_for(sources: Iterable[Optional[str]]) -> Optional[str]:
+#: The ``--judge-context`` values. ``arm`` (the default) shows each arm its own material;
+#: ``baseline`` shows every arm the rendering of no material, which is what a baseline arm's judge sees.
+JUDGE_CONTEXT_ARM = "arm"
+JUDGE_CONTEXT_BASELINE = "baseline"
+JUDGE_CONTEXT_MODES = (JUDGE_CONTEXT_ARM, JUDGE_CONTEXT_BASELINE)
+
+
+def stamp_for(sources: Iterable[Optional[str]], *, withheld: bool = False) -> Optional[str]:
     """The ``judge_context`` stamp a judged run has actually earned.
 
     The stamp says what the judge was shown, so it has to follow the per-score
     sources rather than the code path that ran. Every score on stored material
-    -> :data:`PROTOCOL`. Every score on snippets -> ``None``: that is exactly the
+    -> :data:`PROTOCOL`, or :data:`PROTOCOL_WITHHELD` when *withheld* (the judge was
+    shown no material on any arm). Every score on snippets -> ``None``: that is exactly the
     protocol unstamped runs used before the stamp existed, so leaving it off
     lets the run pool with them, which is correct. A mix -> :data:`PROTOCOL_MIXED`,
     which pools with nothing. Scores without a source (none were judged) do not
@@ -78,7 +90,7 @@ def stamp_for(sources: Iterable[Optional[str]]) -> Optional[str]:
         return None
     if seen == {SOURCE_STORED, SOURCE_SNIPPET_FALLBACK}:
         return PROTOCOL_MIXED
-    return PROTOCOL
+    return PROTOCOL_WITHHELD if withheld else PROTOCOL
 
 #: Cap on the injected part when the caller does not pass the answerer's own cap.
 #: Matches ``arm_runner.MAX_CONTEXT_CHARS``; ``ArmRunner`` passes that constant
