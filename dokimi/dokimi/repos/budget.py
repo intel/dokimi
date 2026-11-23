@@ -107,6 +107,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     ``guidance.imports`` is null) no guidance file's ``@`` imports are followed."""
     imports = partial(_followed_imports, tree, max_depth=import_max_depth, follow=follow_imports, rules=rules)
     files = tree.files()
+    skipped = list(getattr(tree, "skipped", []))  # a listed path the tree could not look at
     names = set(guidance_names)
     # under .claude/rules a file is a rule whatever its name (a rules/CLAUDE.md is not guidance), when
     # the harness reads rules; otherwise it is an ordinary file of the profile's guidance names
@@ -166,7 +167,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # An unscoped nested rule loads for any work in its subtree, so a cut import of it there skips nothing.
     # A path-scoped rule, or one imported from outside its subtree, does not load with its importer: still named.
     nested_unscoped = _nested_unscoped(tree, files) if rules else set()
-    warnings = unreadable_warnings + _cut_warnings(tree, cut_start, cut_lazy, loaded, nested_unscoped,
+    warnings = skipped + unreadable_warnings + _cut_warnings(tree, cut_start, cut_lazy, loaded, nested_unscoped,
                                                    import_max_depth)
     warnings += _off_warnings([e["path"] for e in entries if e["when"] == "off"], displaced, root_claude_for_off)
     warnings += _skill_warnings(skills)

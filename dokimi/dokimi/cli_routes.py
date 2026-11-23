@@ -115,6 +115,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("catalog", "show"), FREE),
     Leaf(("catalog", "intents"), FREE),
     Leaf(("catalog", "check"), FREE),
+    Leaf(("catalog", "provenance"), FREE),
     Leaf(("catalog", "eval"), FREE),
     Leaf(("catalog", "formats"), FREE),
     Leaf(("catalog", "trigger-probe"), PAID),

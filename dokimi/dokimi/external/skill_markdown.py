@@ -12,13 +12,22 @@ block rules (fences, blockquotes, list items, paragraphs) and the link-destinati
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from typing import Optional
 
+from dokimi.code_spans import CodeSpan, iter_code_spans, replace_code_spans
 from dokimi.repos.l0.markdown import split as split_markdown
 
-# A code span of any run length, across lines of a paragraph: its text is literal (a backslash escapes
-# nothing in it), so no link is read inside one. Group 2 is the text.
-CODE_SPAN_RE = re.compile(r"(?<![\\`])(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+
+def code_spans(text: str) -> Iterator[CodeSpan]:
+    """The code spans of ``text``, of any run length, across lines: a run after a backslash opens none (#1073).
+
+    The text of a span is literal (a backslash escapes nothing in it), so no link is read inside one.
+    Group 2 of a span is the text.
+    """
+    return iter_code_spans(text, not_after="\\")
+
+
 # Brackets and the backslashes that may escape them, in order (_unlinked_brackets).
 BRACKET_RE = re.compile(r"\\\\|\\[\[\]]|[\[\]]")
 
@@ -244,11 +253,11 @@ def link_pieces(lines: list[str]) -> tuple[list[str], list[str]]:
     targets: dict[str, None] = {}
     spans: dict[str, None] = {}
     for paragraph in _paragraphs(lines):
-        for m in CODE_SPAN_RE.finditer(paragraph):
+        for m in code_spans(paragraph):
             text = m.group(2).replace("\n", " ").strip()
             if text:
                 spans[text] = None
-        masked = _unlinked_brackets(CODE_SPAN_RE.sub(lambda m: " " * len(m.group()), paragraph))
+        masked = _unlinked_brackets(replace_code_spans(paragraph, lambda m: " " * len(m.group()), not_after="\\"))
         for target in _inline_destinations(masked):
             targets[target] = None
         for line in _join_label_lines(masked.split("\n")):
