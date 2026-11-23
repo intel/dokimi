@@ -38,7 +38,8 @@ description: Pull the top dokimi findings (report opportunities) into the curren
 5. **Report** one row per picked item: `source_key`, title, what you changed,
    and whether the key is gone from `after.json`. A key still present is
    *not fixed*, whatever the edit looked like; if its `evidence` lists fewer
-   lines than before, say *partly fixed*. List keys that appear only in
+   lines than before, say *partly fixed*. For indistinguishable repeated rows, compare
+   the number of occurrences of that key as well. List keys that appear only in
    `after.json` as possible regressions and check each against your diff
    (novelty re-runs call a model and vary between runs).
 

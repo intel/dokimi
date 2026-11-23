@@ -47,7 +47,7 @@ def test_when_not_heading_does_not_satisfy_when_to_use():
 
 def test_missing_negative_positioning_is_a_warning():
     text = GOOD.replace("## When not to use", "## Limits")
-    assert _checks(text) == {"when_not_to_use"}
+    assert [(f.check, f.severity) for f in llms_txt.check(text)] == [("when_not_to_use", "warn")]
 
 
 def test_undescribed_list_link_is_flagged_with_its_line():

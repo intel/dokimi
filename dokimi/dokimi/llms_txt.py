@@ -3,8 +3,7 @@
 
 """Static checks of an ``llms.txt`` file: the agent-facing index of a docs site.
 
-A prototype (docs/proposals/lightsage-inspired-features.md at the repository root):
-no network and no LLM. It checks the structure the llms.txt convention asks for and the
+This check uses no network or LLM. It checks the structure the llms.txt convention asks for and the
 positioning sections agents use to decide when a tool applies and when it does not.
 """
 
