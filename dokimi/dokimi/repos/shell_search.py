@@ -160,12 +160,16 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
     workspace file. Without ``--``, git needs the repository to distinguish a revision from a path; this parser returns
     such operands as paths. A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
     operands, _, flags, limit = search_words(program, args)
-    if program == "git grep" and "--" in args and search_words(program, args[:list(args).index("--")])[0]:
-        return []  # ``git grep x HEAD~1 -- AGENTS.md``: a word before ``--`` is a revision, and the lines are its blob's
     short = _SHORT_NO_LINE.get(program, _SHORT_NO_LINE_DEFAULT)
     if any(f in _SHOWS_NO_LINE or (len(f) == 2 and f[1] in short) for f in flags):
         return []
     digits = limit[1:] if limit is not None and limit.startswith("+") else limit  # strtoimax and Rust's parse take a leading +
     if "--help" in flags or "--version" in flags or (digits is not None and digits.isdecimal() and not any(int(c) for c in digits)):
         return []
+    if program == "git grep" and "--" in args:  # words before ``--`` are revisions: it searches their trees, not the workspace
+        after = len(args) - list(args).index("--") - 1
+        head = operands[: max(len(operands) - after, 0)]  # before ``--``; the words after it are paths
+        if any(o not in ("(", ")") for o in head):
+            return []
+        operands = operands[len(head):]  # grouping words of the expression name no file
     return [o for o in operands if o != "-"]
