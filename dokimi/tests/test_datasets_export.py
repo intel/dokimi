@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -318,6 +319,27 @@ def test_dataset_card_contents():
     assert "Schema version:** questions.v2" in card
     assert "Source schema version" not in card
     assert "Rows:** 5" in card
+
+
+def test_export_card_for_an_ordinary_name_is_the_dataset_card_text(tmp_path):
+    src = tmp_path / "q.json"
+    src.write_text(json.dumps({"schema_version": "questions.v1", "questions": [{"id": "q1", "text": "x"}]}))
+    primary = export_artifact("questions", src, tmp_path / "out", fmt="jsonl")
+    columns = sorted(json.loads(primary.read_text(encoding="utf-8")))
+    expected = dataset_card("questions", src, 1, columns, source_version="questions.v1")
+    assert "Exported from `q.json` (questions.v1)." in expected
+    assert (tmp_path / "out" / "README.md").read_bytes() == expected.encode("utf-8")
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+def test_export_card_names_a_non_utf8_input_with_a_question_mark(tmp_path):
+    """#1100: a lone surrogate (a non-UTF-8 byte of the input's name) is a ``?`` in the card, not a UnicodeEncodeError."""
+    src = tmp_path / os.fsdecode(b"q\xff.json")
+    src.write_text(json.dumps({"questions": []}))
+    out = tmp_path / "out"
+    primary = export_artifact("questions", src, out, fmt="jsonl", validate=False)
+    assert primary.exists()
+    assert "Exported from `q?.json`" in (out / "README.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(not HAS_DATASETS, reason="datasets not installed")
