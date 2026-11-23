@@ -477,7 +477,6 @@ def test_build_output_records_judge_temperature_and_prompt_digest(monkeypatch):
     _patch_llm(monkeypatch, [])
     runner = ArmRunner([BaselineTreatment()])
     records = runner.run("oneTBB", QUESTIONS[:1], concurrency=1)
-    # a route that takes temperature=1: litellm's value check refuses a made-up id at any temperature
     judge = Judge(model="us.anthropic.claude-haiku-5-5", provider="amazon-bedrock", temperature=1.0)
     out = runner.build_output("oneTBB", records, [], judge=judge)
     assert (out["judge_temperature"], out["judge_prompt_sha256"]) == (1.0, JUDGE_PROMPT_SHA256)
@@ -974,7 +973,6 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
     arms_run.run_arms(run_config_from_args(args), ["baseline"], QUESTIONS[:1])
     Judge(model="claude-sonnet-5-5", provider="amazon-bedrock", temperature=1.0).llm.invoke("p")
 
-    # A set, not a list: the run and the judge each check the route, and a repeated local check is cheap.
     assert {m for m in checked if m.startswith("bedrock/")} == {route}
     assert sent == [(route, 1.0), (route, 1.0)]
 
