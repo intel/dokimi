@@ -64,9 +64,9 @@ def _rx(text: str) -> re.Pattern[str]:
 
 
 _NL = r"[^\S\n]"  # whitespace but the newline
-# The argument of `-C` is never `git` or a path ending in `/git`: that `git` starts the same opener from there, so a chain of
-# `git -C git -C a/git ...` is read from its first `git` once, not from every one (#1116).
-_ARG = r"(?!(?:\S*/)?git\s)[^\s-]\S*"
+# The argument of `-C` never holds a `git` word that ends it (`git`, `a/git`, `a.git`, `core.foo=git`): that `git` starts the same opener from there, so a chain of
+# `git -C a.git -C core.foo=git ...` is read from its first `git` once, not from every one (#1116).
+_ARG = r"(?!\S*\bgit\s)[^\s-]\S*"
 _GIT_OPT = r"(?:-[Cc]\s+" + _ARG + r"\s+|-\S+\s+)"
 _GIT_OPT_NO_NL = r"(?:-[Cc]" + _NL + r"+" + _ARG + _NL + r"+|-\S+" + _NL + r"+)"
 # an option with a newline in one of its gaps

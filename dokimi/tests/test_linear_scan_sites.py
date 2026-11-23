@@ -342,6 +342,11 @@ SECURITY_TABLE = [
     "git -C a/git -C b/git push --no-verify",
     "git -C a/git\npush --no-verify",
     "git -C /usr/bin/git -c x\npush --no-verify",
+    "git -C a.git push --no-verify",
+    "git -c core.foo=git push --no-verify",
+    "git -C a.git\npush --no-verify",
+    "git -c core.foo=git\npush --no-verify",
+    "git -C a.git\npush",
 ]
 
 
@@ -392,6 +397,9 @@ def test_security_rules_scan_a_line_of_openers_in_linear_time(rule: str, shape: 
         lambda n: "git\n-C " * n + "git\npush",
         lambda n: "git -C a/" * n + "git\npush",
         lambda n: "git\n-C a/" * n + "git\npush",
+        lambda n: "git -C a." * n + "git\npush",
+        lambda n: "git -c core.foo=" * n + "git\npush",
+        lambda n: "git\n-c core.foo=" * n + "git\npush",
     ],
 )
 def test_overlapping_git_openers_are_scanned_in_linear_time(shape: Callable[[int], str]) -> None:
