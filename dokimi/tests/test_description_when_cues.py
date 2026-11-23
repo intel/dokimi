@@ -151,6 +151,10 @@ HAS_WHEN = [
     pytest.param("いつ適用するか", id="ja-itsu-tekiyou"),
     pytest.param("いつこれを利用する？", id="ja-itsu-riyou"),
     pytest.param("いつこのスキルを使おうか？", id="ja-itsu-tsukaou"),
+    pytest.param("适用于编写 PRD、记录产品需求、准备功能规格，或评审现有 PRD。", id="zh-shiyongyu-activity-list"),
+    pytest.param("適用於撰寫 PRD、記錄產品需求，或審閱既有 PRD。", id="zh-hant-shiyongyu-activity-list"),
+    pytest.param("当 Agent 执行特定操作（文件修改、代码生成）前后自动触发检查。", id="zh-dang-qianhou-zidong-chufa"),
+    pytest.param("当请求到达前后自动调用本技能。", id="zh-dang-qianhou-zidong-diaoyong"),
 ]
 
 # No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
@@ -188,6 +192,7 @@ NO_WHEN = [
     pytest.param("同时调用多个 API 的封装库。", id="zh-tongshi-diaoyong-not-when"),
     pytest.param("定时调用接口的监控工具。", id="zh-dingshi-diaoyong-not-when"),
     pytest.param("支持多种使用场景的格式工具。", id="zh-shiyong-changjing-noun-not-when"),
+    pytest.param("当前后端分离的项目使用同一套配置。", id="zh-dangqianhou-duanfenli-not-when"),
     pytest.param("요청 시스템을 구축합니다.", id="ko-yeongcheong-siseutem-not-when"),
     pytest.param("ブラウザで起動するビューアです。", id="ja-browser-kidou-not-when"),
     pytest.param("该工具在当天的备份后执行清理。", id="zh-dangtian-not-when"),
