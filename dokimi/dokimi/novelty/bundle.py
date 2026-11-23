@@ -60,6 +60,7 @@ from dokimi.metrics.bundle_coverage import (  # noqa: F401
     exclusion_kind,
     named_exclusions,
 )
+from dokimi.digest_entries import listed_entries
 from dokimi.utils import key_bytes
 
 from .answer_key import ABSENT, AnswerKeyRecord, parse_answer_key, shown
@@ -339,7 +340,7 @@ def load_bundle(
     if kind == "skill" and root.is_dir():
         order = {"reference": 0, "pattern": 1, "eval": 2}
         entry_file = (entry if entry.is_file() else root / entry_name).resolve()
-        for path in sorted(root.rglob("*")):
+        for path in sorted(listed_entries(root)):
             # A directory or dangling symlink is not a file, but it is still recorded below.
             if not path.is_file() and not path.is_symlink():
                 continue
