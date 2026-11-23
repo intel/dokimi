@@ -71,7 +71,7 @@ def _exact_rank(version: "Version") -> tuple:
 
 
 def _tokens(text: str) -> frozenset[str]:
-    """The lowercase ASCII words of ``text``. The same words the corpus study measured the 0.8 threshold on."""
+    """Lowercase Unicode words of ``text``. The corpus study measured the 0.8 threshold on ASCII words."""
     return frozenset(_WORDS.findall(text.lower()))
 
 
