@@ -194,6 +194,11 @@ def test_summarize_measures_a_skill_moved_to_another_directory_once_and_keeps_it
     assert summary_lines(summary)[0].startswith("# novelty sweep: 3 measured")
 
 
+def test_summarize_counts_each_ok_row_without_a_digest_on_its_own():
+    rows = [dict(_ok("a", 0.2, name="same"), skill_sha256=None), dict(_ok("b", 0.4, name="same"), skill_sha256=None)]
+    assert summarize(rows, resamples=50)["overall"]["n"] == 2
+
+
 def test_summarize_splits_the_measure_by_stratum_and_names_the_unassigned():
     rows = [_ok("ops/deploy", 0.2), _ok("review", 0.6), _ok("misc", 0.5)]
     summary = summarize(rows, {"ops/deploy": "ops", "review": "dev"}, resamples=200)
