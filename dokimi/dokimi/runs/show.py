@@ -54,12 +54,13 @@ class Shown:
     siblings_error: str | None = None
 
 
-def pick(root: Path, address: str) -> Path:
+def pick(root: Path, address: str, follow_symlinks: bool = True) -> Path:
     """The path ``address`` is read as: the first of ``root/address`` and ``address`` (from the
-    working directory) that exists, else ``root/address``. Raises ``OSError`` as :func:`lookup`.
+    working directory) that exists, else ``root/address``; with ``follow_symlinks`` False a
+    symlink exists whatever its target. Raises ``OSError`` as :func:`lookup`.
     """
     candidates = [root / address, Path(address)]
-    return next((p for p in candidates if lookup(p)), candidates[0])
+    return next((p for p in candidates if lookup(p, follow_symlinks)), candidates[0])
 
 
 def contained(root: Path, address: str, follow_last: bool) -> tuple[Path, str, os.stat_result]:
@@ -73,7 +74,7 @@ def contained(root: Path, address: str, follow_last: bool) -> tuple[Path, str, o
     real_root = os.path.realpath(root)
     label, shown_root = plain(address), plain(root.as_posix())  # for messages only
     try:  # lookup raises for a directory that cannot be searched, on every Python
-        path = pick(root, address)
+        path = pick(root, address, follow_symlinks=follow_last)
         real = (os.path.realpath(path) if follow_last
                 else os.path.join(os.path.realpath(path.parent), path.name))
         if not inside(real_root, real):

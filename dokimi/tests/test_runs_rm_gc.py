@@ -165,6 +165,40 @@ def test_rm_of_a_symlink_removes_the_link_and_never_its_target(root, monkeypatch
     assert target.read_text(encoding="utf-8") == "{}"
 
 
+@pytest.mark.parametrize("address", ["link.json", "results/link.json"])
+def test_rm_removes_a_dangling_symlink_however_its_path_is_spelled(root, monkeypatch, capsys,
+                                                                   tmp_path, address):
+    try:
+        (root / "link.json").symlink_to(tmp_path / "gone.json")
+    except OSError:
+        pytest.skip("symlinks need privileges on this platform")
+
+    code, out, _ = _run(monkeypatch, capsys, "rm", address)
+
+    assert (code, out.split(" (")[0]) == (0, "removed link.json")
+    assert not os.path.lexists(root / "link.json")
+
+
+def test_rm_removes_a_symlink_whose_target_cannot_be_looked_up(root, monkeypatch, capsys, tmp_path):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    try:
+        (root / "link.json").symlink_to(locked / "x.json")
+    except OSError:
+        pytest.skip("symlinks need privileges on this platform")
+    real_stat = os.stat
+
+    def no_search(path, *args, follow_symlinks=True, **kwargs):
+        if follow_symlinks and str(path).endswith("link.json"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_stat(path, *args, follow_symlinks=follow_symlinks, **kwargs)
+
+    monkeypatch.setattr(os, "stat", no_search)
+
+    assert _run(monkeypatch, capsys, "rm", "results/link.json")[0] == 0
+    assert not os.path.lexists(root / "link.json")
+
+
 def test_rm_needs_a_runs_root(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)
