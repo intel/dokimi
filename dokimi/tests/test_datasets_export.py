@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -128,6 +130,73 @@ def test_to_jsonl_writes_through_a_symlink_and_keeps_it(tmp_path, target_exists)
     assert shared.read_text() == '{"a": 1}\n'
     assert sorted(p.name for p in shared.parent.iterdir()) == ["shared.jsonl"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["rows.jsonl", "shared"]
+
+
+def test_to_jsonl_rewrites_a_hard_linked_file_in_place(tmp_path):
+    """Like ``open(path, "w")``, the other name sees the rows; a refused row still leaves both names as they were (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    path.write_text("stale\n")
+    other = tmp_path / "other.jsonl"
+    try:
+        os.link(path, other)
+    except OSError:
+        pytest.skip("no hard links here")
+
+    with pytest.raises(TypeError):
+        to_jsonl([{"a": 1}, {"a": object()}], path)
+    assert other.read_text() == "stale\n"
+
+    to_jsonl([{"a": 1}], path)
+
+    assert other.read_text() == '{"a": 1}\n'
+    assert os.path.samefile(path, other)
+
+
+@pytest.mark.skipif(not hasattr(os, "setxattr"), reason="no extended attributes")
+def test_to_jsonl_keeps_a_user_xattr_of_the_destination(tmp_path):
+    """A new inode would drop ``user.dataset``; the file is rewritten in place instead (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    path.write_text("stale\n")
+    try:
+        os.setxattr(path, "user.dataset", b"sample")
+    except OSError:
+        pytest.skip("user xattrs are not supported here")
+
+    to_jsonl([{"a": 1}], path)
+
+    assert path.read_text() == '{"a": 1}\n'
+    assert os.getxattr(path, "user.dataset") == b"sample"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no FIFOs")
+def test_to_jsonl_writes_into_a_fifo_and_keeps_it(tmp_path):
+    """``open(path, "w")`` wrote into a FIFO; replacing it with a regular file would lose the reader's rows (#1020)."""
+    path = tmp_path / "rows.jsonl"
+    os.mkfifo(path)
+    reader = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        to_jsonl([{"a": 1}], path)
+        assert os.read(reader, 100) == b'{"a": 1}\n'
+    finally:
+        os.close(reader)
+
+    assert stat.S_ISFIFO(path.lstat().st_mode)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes into a read-only directory")
+def test_to_jsonl_rewrites_a_writable_file_in_a_read_only_directory(tmp_path):
+    """A tmp sibling cannot be made there, but ``open(path, "w")`` needs only the file's write bit (#1020)."""
+    out = tmp_path / "out"
+    out.mkdir()
+    path = out / "rows.jsonl"
+    path.write_text("stale\n")
+    out.chmod(0o555)
+    try:
+        to_jsonl([{"a": 1}], path)
+    finally:
+        out.chmod(0o755)
+
+    assert path.read_text() == '{"a": 1}\n'
 
 
 def test_to_jsonl_holds_one_row_of_output_at_a_time(tmp_path):
