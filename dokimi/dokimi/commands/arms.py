@@ -116,8 +116,12 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     """Run every cell in a matrix.cells descriptor and write a rollup."""
     out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
+    try:
+        config = run_config_from_args(args)
+    except ValueError as exc:  # a refused combination of flags: exit 2, as arms run reports it
+        raise InputError(str(exc)) from exc
     run_matrix(
-        run_config_from_args(args), arms=args.arms, questions=args.questions,
+        config, arms=args.arms, questions=args.questions,
         matrix_cells=args.matrix_cells, out_dir=out_dir,
         out_json=Path(args.out_json) if args.out_json else None,
         out_md=Path(args.out_md) if args.out_md else None,

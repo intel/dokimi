@@ -91,6 +91,17 @@ def test_a_withheld_run_without_a_judge_is_refused():
         ArmsRunConfig(product="oneTBB", judge_context="baseline")
 
 
+def test_matrix_run_refuses_the_flag_without_judge_as_an_input_error(capsys):
+    from dokimi.commands.arms import cmd_arms_matrix_run
+    from dokimi.utils import InputError
+
+    args = build_parser().parse_args(["arms", "matrix-run", "--arms", "baseline", "--product", "oneTBB",
+                                      "--questions", "q.json", "--matrix-cells", "cells.json",
+                                      "--judge-context", "baseline"])
+    with pytest.raises(InputError, match="needs --judge"):
+        cmd_arms_matrix_run(args)
+
+
 def test_the_flag_without_judge_exits_before_any_answer():
     command = ["arms", "run", "--arms", "baseline", "--product", "oneTBB", "--questions", "q.json"]
     with pytest.raises(ValueError, match="needs --judge"):
