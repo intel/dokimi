@@ -13,7 +13,8 @@ Graders and probes read only these events, never a harness-specific trace:
     {"t": 4.0,  "kind": "probe",   "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}
 
 A ``probe`` event follows the ``command`` event of a command that asks the host for its facts, one per
-pattern it matches (:mod:`dokimi.repos.probes`, contract §4.1).
+pattern it matches (:mod:`dokimi.repos.probes`, contract §4.1). A ``choice`` event follows the ``command`` or
+``edit`` event of an install, import, use or removal of a named candidate (:mod:`dokimi.repos.choices`).
 
 ``t`` is seconds since the first timestamped trace line, or ``null`` when the
 format has no timestamps. Paths inside the workspace are made relative to it.
@@ -41,6 +42,7 @@ Token counts cover the same scope as ``cost_usd``: summed over ``modelUsage``
 
 from __future__ import annotations
 
+from collections import Counter
 import json
 import re
 from dataclasses import dataclass, field
@@ -278,6 +280,24 @@ def _deny_read(read: dict[str, Any], unknown: bool) -> None:
         del read["path"]
 
 
+def _added_text(args: Any) -> str:
+    """The text an edit tool adds: the new side of each replacement, or the whole file of a write (choices.py)."""
+    if not isinstance(args, dict):
+        return ""
+    if isinstance(args.get("edits"), list):  # MultiEdit
+        return "\n".join(_added_text(edit) for edit in args["edits"] if isinstance(edit, dict))
+    if isinstance(args.get("new_string"), str):
+        old = Counter(str(args.get("old_string", "")).splitlines())
+        added = []
+        for line in args["new_string"].splitlines():
+            if old[line]:
+                old[line] -= 1
+            else:
+                added.append(line)
+        return "\n".join(added)
+    return str(args.get("content") or args.get("new_source") or "")
+
+
 def _absolute(path: str) -> bool:
     """Whether a tool's ``path`` is absolute as :func:`~dokimi.repos.transcript._from_cwd` reads it: POSIX or Windows
     (``C:/ws/f``, ``C:\\ws\\f``, ``\\\\host\\share\\f``), a shell's ``cd`` does not change what it names."""
@@ -295,6 +315,8 @@ def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: st
         stream.relative_greps.add(id(event))
     if block.get("name") in _AGENT_TOOLS:
         out.subagent_calls = (out.subagent_calls or 0) + 1
+    if block.get("name") in _EDIT_TOOLS:
+        out.added_text.append((event, _added_text(block.get("input"))))
     out.events.append(event)
     if block.get("id"):
         stream.by_id[block["id"]] = event

@@ -447,3 +447,212 @@ def test_a_powershell_assignment_without_spaces_is_skipped():
 
 def test_a_command_with_an_unbalanced_quote_is_still_probed():
     assert _matched('nproc "unterminated') == ["nproc"]
+
+
+def _probes(command: str) -> list[str]:
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    return [e["pattern"] for e in events if e["kind"] == "probe"]
+
+
+@pytest.mark.parametrize("command", [
+    "cat <<'EOF' > script.sh\nnproc\nEOF",
+    "cat <<-EOF > script.sh\n\tnproc\n\tEOF",
+    "echo '$(nproc)'",
+    "echo '`nproc`'",
+    "echo \\$(nproc)",
+    "echo '|' nproc",
+    "grep -e /proc/cpuinfo README",
+    "grep /proc/cpuinfo README",
+    "rg -e /proc/cpuinfo README",
+    "sed -n /proc/cpuinfo README",
+    "python -c 'print(\"os.cpu_count()\")'",
+    "python -c '# os.cpu_count()\nprint(1)'",
+    "python -c 'x = os.cpu_count'",
+    "echo \\| nproc",
+    "cat README > /etc/os-release",
+    "cat README >> /etc/os-release",
+    "cat README 2>/etc/os-release",
+    "grep --regexp /proc/cpuinfo README",
+    "grep --regexp=/proc/cpuinfo README",
+    "grep -f patterns README /proc/cpuinfo.bak",
+    "cat <<'EOF'\n$(nproc)\nEOF",
+    "true || nproc",
+    ": || nproc",
+    "python tool.py -c 'import os; os.cpu_count()'",
+])
+def test_text_the_shell_does_not_run_gives_no_probe(command):
+    assert _probes(command) == []
+
+
+@pytest.mark.parametrize(("command", "found"), [
+    ("make -j$(nproc --ignore=$(printf 1))", ["nproc"]),
+    ("sudo -n bash -c 'nproc'", ["nproc"]),
+    ("time bash -lc 'nproc'", ["nproc"]),
+    ("cat <<EOF\n$(nproc)\nEOF", ["nproc"]),
+    ("cat <<EOF # the cores\n$(nproc)\nEOF", ["nproc"]),
+    ("cat <<EOF > cfg  # note\n$(nproc)\nEOF", ["nproc"]),
+    ("cat <<EOF\nthe cores: `nproc`\nEOF", ["nproc"]),
+    ("cat < /etc/os-release", ["/etc/os-release"]),
+    ("cat README > out.txt < /etc/os-release", ["/etc/os-release"]),
+    ("grep -f patterns /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep '>' /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("false || nproc", ["nproc"]),
+    ("grep '1'>/dev/null /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep 1>/dev/null cores /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep \"<\" /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep --file patterns /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("sed -f script.sed /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep -n cores /proc/cpuinfo 2>/dev/null", ["/proc/cpuinfo"]),
+    ('make -j"$(nproc)"', ["nproc"]),
+    ("make -j`nproc`", ["nproc"]),
+    ("bash <<EOF\nnproc\nEOF", ["nproc"]),
+    ("sudo -n nproc", ["nproc"]),
+    ("nice -n 5 nproc", ["nproc"]),
+    ("sudo -u root nproc", ["nproc"]),
+    ("time -p nproc", ["nproc"]),
+    ("sudo nohup nproc", ["nproc"]),
+    ("exec nproc", ["nproc"]),
+    ("command nproc", ["nproc"]),
+    ("C:\\Windows\\System32\\nproc.exe", ["nproc"]),
+    ("grep -n cores /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("head -n 3 /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("sed -n 1,3p /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep -e cores /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("wc -l /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("tac /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("less /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("python -c 'import os\nprint(os.cpu_count())'", ["py:os.cpu_count"]),
+    ("python -c 'print(f\"{os.cpu_count()}\")'", ["py:os.cpu_count"]),
+    ("python3.11 -c 'import os; os.cpu_count()'", ["py:os.cpu_count"]),
+    ("nvidia-smi | grep GPU", ["nvidia-smi"]),
+])
+def test_commands_the_shell_runs_give_their_probe(command, found):
+    assert _probes(command) == found
+
+
+def test_pattern_stages_must_be_consecutive():
+    config = probes_for({"cpu": ("sysctl -a | grep machdep.cpu",)})
+    def patterns(text):
+        return [e["pattern"] for e in with_probes([{"kind": "command", "text": text}], config) if e["kind"] == "probe"]
+    assert patterns("sysctl -a '|' grep machdep.cpu") == []
+    assert patterns("sysctl -a | head | grep machdep.cpu") == []
+    assert patterns("sysctl -a | grep machdep.cpu") == ["sysctl -a | grep machdep.cpu"]
+
+
+def test_a_python_probe_needs_a_call_on_a_name_boundary():
+    assert _probes("python -c 'x = myos.cpu_count()'") == []
+    assert _probes("python -c 'x = a.os.cpu_count()'") == []
+    assert _probes("python -c 'os.cpu_count()'") == ["py:os.cpu_count"]
+
+
+@pytest.mark.parametrize("command, patterns", [
+    ("true || false || nproc", []),  # ``||`` after a success skips the rest of the chain
+    ("true || false && nproc", ["nproc"]),  # ``&&`` after a skipped part runs its own command
+    ("false || nproc", ["nproc"]),
+    ("true || cat <<EOF\n$(nproc)\nEOF", []),  # an unquoted heredoc's substitution runs with its command
+    ("cat <<EOF\n$(nproc)\nEOF", ["nproc"]),
+    ("echo \\\\| nproc", ["nproc"]),  # ``\\`` is a backslash: the pipe after it is real
+    ("echo \"a\\\\\" | nproc", ["nproc"]),  # inside double quotes too: the closing quote is found, the pipe is real
+    ("echo \\| nproc", []),
+    ("cat >$(printf /tmp/probe.log) /etc/os-release", ["/etc/os-release"]),  # the file is the operand, not the target
+    ("cat <<-EOF\n\tEOF\nnproc", ["nproc"]),  # ``<<-`` takes a tab-indented terminator: the body ends there
+    ("cat <<-EOF\n  EOF\nnproc\nEOF", []),  # a space does not indent a ``<<-`` terminator: nproc is data
+])
+def test_the_shell_structure_decides_which_probe_runs(command, patterns):
+    assert _probes(command) == patterns
+
+
+def _probed(text: str, **event: object) -> list[tuple[str, str]]:
+    from dokimi.repos.probes import probes_for, with_probes
+
+    events = [{"t": 0.0, "kind": "command", "text": text, "rc": 0, **event}]
+    return [(e["target"], e["pattern"]) for e in with_probes(events, probes_for(None)) if e["kind"] == "probe"]
+
+
+@pytest.mark.parametrize("text, event", [
+    ("nproc", {"denied": True}),  # a denied command ran nothing
+    ("true || echo skipped || nproc", {}),
+    ("command -v nproc", {}),  # ``command -v`` only looks the program up
+    ("sudo -V nproc", {}),
+    ("sudo --help nproc", {}),  # ``--help`` prints text and runs nothing
+    ("false && nproc", {}),
+    ("exit 0; nproc", {}),
+    ("exec true && nproc", {}),  # exec replaces the shell: nothing after it runs
+    ("cat <<EOF\n EOF\nnproc\nEOF", {}),  # a leading space does not end an unquoted heredoc
+    ("echo $((nproc + 1))", {}),  # arithmetic, not a command substitution
+    ("pip --version > list", {}),  # a redirection target is no pattern word
+])
+def test_a_command_that_runs_nothing_probed_gives_no_probe(text, event):
+    assert not [p for p in _probed(text, **event) if p[0] == "cpu" or p[1] in ("pip list",)]
+
+
+@pytest.mark.parametrize("text", ["exec -l && nproc", "exec </dev/null; nproc", "exec <&-; nproc", "env FOO=1 nproc", "echo \"<<EOF\"\nnproc\nEOF",
+                                  "cat <<EOF\n$(nproc)\nEOF", "cd repo || exit 1; nproc", "(exit 0); nproc",
+                                  "cd repo || { echo missing; exit 1; }; nproc", "if [ ! -d x ]; then\n  exit 1\nfi\nnproc"])
+def test_a_command_that_runs_the_probe_gives_the_probe(text):
+    assert ("cpu", "nproc") in _probed(text)
+
+
+def test_env_runs_its_program_not_an_env_probe():
+    assert ("env", "env") not in _probed("env FOO=1 python train.py")
+    assert ("env", "env") not in _probed("env -i python train.py")
+    assert ("env", "env") in _probed("env | grep X")
+    assert ("env", "env") in _probed("env > f")
+    assert ("env", "printenv") in _probed("printenv")
+
+
+@pytest.mark.parametrize("program", ["exit 0", "exec true"])
+def test_pipeline_termination_leaves_the_parent_running(program):
+    assert _probes(f"{program} | cat; nproc") == ["nproc"]
+
+
+@pytest.mark.parametrize("conditional", ["false || exit 1", "true && exit 0"])
+def test_a_known_condition_runs_its_shell_exit(conditional):
+    assert _probes(f"{conditional}; nproc") == []
+
+
+def test_a_later_substitution_does_not_cancel_an_earlier_exit():
+    assert _probes("exit 0; echo $(date); nproc") == []
+
+
+def test_multiple_heredocs_are_consumed_in_order():
+    assert _probes("cat <<A <<B\nignored\nA\nnproc\nB") == []
+
+
+@pytest.mark.parametrize("invocation", ["bash -c 'cat'", "bash --help", "sh script.sh"])
+def test_a_shell_with_its_own_script_treats_stdin_as_data(invocation):
+    assert _probes(f"{invocation} <<'EOF'\nnproc\nEOF") == []
+
+
+@pytest.mark.parametrize(("script", "expected"), [
+    ("cat <<<EOF\nnproc", ["nproc"]), ("# later: cat <<EOF\nnproc", ["nproc"]),
+    ("echo $((1 << n))\nnproc", ["nproc"]), ("cat <<\\EOF\nnproc\nEOF", []),
+    ("cat <<'my-eof'\nnproc\nmy-eof", []),
+    ("python -c '\nprint(1 << 2)\n'\nnproc", ["nproc"]),
+    ("cat <<2\nnproc\n2", []),
+])
+def test_only_a_real_heredoc_masks_its_body(script, expected):
+    assert _probes(script) == expected
+
+
+@pytest.mark.parametrize("text", ["stdbuf -oL nproc", "stdbuf -o L nproc", "doas -u user nproc",
+                                  "timeout 3 nproc", "uv run python -W default -c 'import os; os.cpu_count()'",
+                                  "bash -o pipefail -c nproc"])
+def test_probe_follows_a_launcher_to_its_program(text):
+    assert _probes(text)
+
+
+@pytest.mark.parametrize("text", ["bash --norc <<'EOF'\nnproc\nEOF", "bash -l <<'EOF'\nnproc\nEOF", "bash --noprofile <<'EOF'\nnproc\nEOF"])
+def test_a_heredoc_fed_to_bash_with_an_option_runs_its_body(text):
+    out = with_probes([{"t": 1.0, "kind": "command", "text": text, "rc": 0}], probes_for())
+    assert [e for e in out if e.get("kind") == "probe" and e.get("target") == "cpu"]
+
+
+def test_a_backgrounded_exit_does_not_end_the_scan():
+    out = with_probes([{"t": 1.0, "kind": "command", "text": "exit 0 & nproc", "rc": 0}], probes_for())
+    assert [e for e in out if e.get("kind") == "probe" and e.get("target") == "cpu"]
+
+
+def test_a_command_substitution_inside_arithmetic_runs_its_command():
+    out = with_probes([{"t": 1.0, "kind": "command", "text": "echo $(( $(nproc) + 1 ))", "rc": 0}], probes_for())
+    assert [e["pattern"] for e in out if e.get("kind") == "probe" and e.get("target") == "cpu"] == ["nproc"]
