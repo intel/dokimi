@@ -449,7 +449,7 @@ def _hf_rows(node: ast.Call, base: Path, imp: Optional[Imported] = None) -> list
 
 
 _DOC_SECTION = re.compile(r"^\s*(?:Args|Arguments|Parameters|Returns|Return|Yields|Raises|Examples?|Notes?|"
-                          r"Attributes|See Also|Keyword Args)\s*:?\s*$|^\s*-{3,}\s*$", re.I)
+                          r"Attributes|See Also|Keyword Args)\s*(?::\s*)?$|^\s*-{3,}\s*$", re.I)
 
 
 def _doc_summary(doc: str) -> str:

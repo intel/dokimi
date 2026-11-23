@@ -404,6 +404,42 @@ def test_a_directory_that_can_be_listed_but_not_searched_is_an_error_not_an_empt
         skill_dir.chmod(0o700)
 
 
+def _tree_with_unlistable(tmp_path: Path, *parts: str) -> tuple[Path, Path]:
+    """A directory ``tree`` of ``a.txt`` and ``sub/b.txt`` (``sub/deeper/c.txt`` too when *parts* names it); returns it and the dir to chmod."""
+    tree = tmp_path / "tree"
+    (tree / "sub" / "deeper").mkdir(parents=True)
+    (tree / "a.txt").write_text("a")
+    (tree / "sub" / "b.txt").write_text("b")
+    (tree / "sub" / "deeper" / "c.txt").write_text("c")
+    return tree, tree.joinpath(*parts)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root lists a mode 111 directory")
+@pytest.mark.parametrize("parts", [(), ("sub",), ("sub", "deeper")])  # the directory ref itself, a subdirectory, one under a listable subdirectory
+def test_a_subdirectory_that_cannot_be_listed_is_an_error_not_a_smaller_tree(tmp_path: Path, parts: tuple[str, ...]):
+    tree, unlistable = _tree_with_unlistable(tmp_path, *parts)
+    complete = _digest_ref("tree", base=tmp_path)
+    unlistable.chmod(0o111)
+    try:
+        with pytest.raises(PermissionError, match=unlistable.name):
+            _digest_ref("tree", base=tmp_path)
+        with pytest.raises(PermissionError, match=unlistable.name):
+            _digest_arm_spec("skill:./tree", base=tmp_path)
+    finally:
+        unlistable.chmod(0o700)
+    assert _digest_ref("tree", base=tmp_path) == complete
+
+
+def test_a_symlink_to_a_directory_adds_nothing_to_a_directory_digest(tmp_path: Path):
+    tree, _ = _tree_with_unlistable(tmp_path, "sub")
+    before = _digest_ref("tree", base=tmp_path)
+    try:
+        (tree / "link").symlink_to(tree / "sub", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available")
+    assert _digest_ref("tree", base=tmp_path) == before
+
+
 @pytest.mark.parametrize("error", [errno.ELOOP, errno.ENOTDIR])  # a symlink loop, a parent that is a file
 def test_a_loop_or_a_file_parent_reads_as_naming_nothing(tmp_path: Path, monkeypatch, error):
     _refuse(monkeypatch, OSError(error, os.strerror(error)))

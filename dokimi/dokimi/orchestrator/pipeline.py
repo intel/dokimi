@@ -9,6 +9,8 @@ import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.process_io import text_file_bytes
 from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K,
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
@@ -793,6 +795,6 @@ class EvaluationPipeline:
         )
         
         # Save report
-        self.report_path.write_text(report, encoding="utf-8")
+        write_bytes_in_place_or_atomic(self.report_path, text_file_bytes(report))
         
         return report
