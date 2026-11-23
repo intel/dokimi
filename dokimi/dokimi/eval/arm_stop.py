@@ -5,7 +5,7 @@
 keeps a cell for every arm: the arm that hit the error, the arms it completed, and ``not_asked`` for the rest."""
 
 import threading
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 
 class Halted(Exception):
@@ -28,35 +28,14 @@ class RunStopped(Exception):
         self.record = record
 
 
-def static_arm_kind(treatment: Any) -> Dict[str, Any]:
-    """The ``arm_kind`` metadata of a treatment whose ``prepare()`` never returned."""
-    t = getattr(treatment, "inner", treatment)  # a plugin wrapper
-    subs = getattr(t, "treatments", None)  # a combined arm
-    if isinstance(subs, list):
-        return {"arm_kind": "combined",
-                "treatments": [{"name": s.name, **static_arm_kind(s)} for s in subs]}
-    return {"arm_kind": getattr(t, "arm_kind", None)}
+def stop_question(arms: Dict[str, Any], arm_names: Sequence[str], current: str, exc: Exception) -> None:
+    """Fill the stopped question's cells in place: ``current`` is the arm the error hit."""
+    arms[current] = {"error": f"generation_failed: {exc}", "answer": None, "metadata": {}}
+    mark_not_asked(arms, arm_names)
 
 
-def arm_kinds(treatments: Sequence[Any], reminder_suffix: Optional[str]) -> Dict[str, Dict[str, Any]]:
-    """Each arm's :func:`static_arm_kind` by name, a session's reminder arms (*reminder_suffix*) after the others."""
-    kinds = {t.name: static_arm_kind(t) for t in treatments}
-    if reminder_suffix is not None:
-        kinds.update({name + reminder_suffix: kind for name, kind in list(kinds.items())})
-    return kinds
-
-
-def stop_question(arms: Dict[str, Any], kinds: Mapping[str, Dict[str, Any]], current: str, exc: Exception) -> None:
-    """Fill the stopped question's cells in place: ``current`` is the arm the error hit.
-
-    *kinds* maps every arm name to its ``arm_kind`` metadata, so a stopped cell still says what arm it is.
-    """
-    arms[current] = {"error": f"generation_failed: {exc}", "answer": None, "metadata": dict(kinds.get(current, {}))}
-    mark_not_asked(arms, kinds)
-
-
-def mark_not_asked(arms: Dict[str, Any], kinds: Mapping[str, Dict[str, Any]]) -> None:
+def mark_not_asked(arms: Dict[str, Any], arm_names: Sequence[str]) -> None:
     """An arm the stop never reached says so, as every record has every arm."""
-    for name, kind in kinds.items():
+    for name in arm_names:
         arms.setdefault(name, {"error": "not_asked: the run stopped before this arm", "answer": None,
-                               "metadata": dict(kind)})
+                               "metadata": {}})
