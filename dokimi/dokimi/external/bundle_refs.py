@@ -38,8 +38,27 @@ SKIPPED_STEMS = frozenset({"license", "licence", "readme", "changelog", "notice"
 SKIPPED_NAMES = frozenset({"__init__.py", "conftest.py", "requirements.txt", "agents.md", "claude.md"})
 SKIPPED_DIRS = frozenset({"tests", "test", "__tests__", "evals"})
 TEST_STEM = re.compile(r"test_.*|.*_test|.*\.(?:test|spec)")  # test_build.py, build_test.py, build.test.js
-# A translation of SKILL.md at the skill root (SKILL.ru.md, SKILL.zh-CN.md): the same instructions, so no file to browse to.
-LOCALIZED_SKILL = re.compile(r"skill\.(?!md\.)[a-z]{2}(?:[-_][a-z0-9]{2,8})?\.md", re.I)  # ISO 639-1: ref, bak are not
+# A translation of SKILL.md at the skill root (SKILL.ru.md, SKILL.zh-CN.md): the same instructions, so no file to browse
+# to. ``skill.<ISO 639-1 code>``, then at most two subtags (``zh-CN``, ``pt_BR``, ``zh-Hant-TW``); ``SKILL.db.md`` and
+# ``SKILL.md-old.md`` are not translations.
+LANGUAGE_CODES = frozenset(
+    """
+    aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch co cr cs cu cv cy da
+    de dv dz ee el en eo es et eu fa ff fi fj fo fr fy ga gd gl gn gu gv ha he hi ho hr ht hu hy hz
+    ia id ie ig ii ik io is it iu ja jv ka kg ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li ln
+    lo lt lu lv mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi
+    pl ps pt qu rm rn ro ru rw sa sc sd se sg si sk sl sm sn so sq sr ss st su sv sw ta te tg th ti
+    tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu
+    """.split()
+)
+LOCALIZED_SKILL = re.compile(r"skill\.([a-z]{2})(?:[-_](?:[a-z]{4}|[a-z]{2}|[0-9]{3})){0,2}\.md", re.I)
+
+
+def _is_localized_skill(name: str) -> bool:
+    match = LOCALIZED_SKILL.fullmatch(name)
+    return match is not None and match.group(1).lower() in LANGUAGE_CODES
+
+
 WALK_MAX_FILES = 2000  # a skill with more files is a checkout, not a bundle: it is not checked
 EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
@@ -92,7 +111,7 @@ def _walk(skill_dir: Path, *, counted: bool, failed: list[OSError]) -> list[str]
                 or suffix.lower() not in COUNTED_SUFFIXES
                 or (here == skill_dir and name == "SKILL.md")
                 or (counted and (
-                    (here == skill_dir and LOCALIZED_SKILL.fullmatch(name) is not None)  # SKILL.ru.md: a translation
+                    (here == skill_dir and _is_localized_skill(name))  # SKILL.ru.md: a translation
                     or name.startswith("_")  # a private helper (``_common.py``) scripts import
                     or stem.lower() in SKIPPED_STEMS
                     or name.lower() in SKIPPED_NAMES
