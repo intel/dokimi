@@ -332,6 +332,13 @@ SECURITY_TABLE = [
     "git -C push\npush --no-verify",
     "git push\ngit\npush a\n--no-verify",
     "docker run safe; docker\nrun safe\n--privileged",
+    "git -C git\npush --no-verify",
+    "git -C git -C git\npush --no-verify",
+    "git\n-C a/git push --no-verify",
+    "git -C\na/git push --no-verify",
+    "ls -C git\npush --no-verify",
+    "git -C a/git\n-c git push --no-verify",
+    "git -C git\npush",
 ]
 
 
@@ -346,7 +353,7 @@ def test_security_rules_match_the_old_patterns_on_random_command_lines() -> None
               "git", "push", "--no-verify", ";", "&&", "|", "\n", "x", "-c", "a=b", "-C", "--mount", "--net=host",
               "docker run", "docker container create", "git push", "git -c a=b push", "--privileged", "--no-verify",
               "docker\nrun", "docker container\ncreate", "docker\n container run", "git\npush", "git -c\na=b push",
-              "git -c a=b\npush", "git\n-x push"]
+              "git -c a=b\npush", "git\n-x push", "-C git", "-c a/git", "git -C git", "-C\ngit"]
     rng = random.Random(1116)
     texts = [" ".join(rng.choice(pieces) for _ in range(rng.randint(0, 12))) for _ in range(CASES)]
     hits = {rule: 0 for rule in _SECURITY_OLD}
@@ -373,3 +380,15 @@ def test_security_rules_match_the_old_patterns_on_random_command_lines() -> None
 )
 def test_security_rules_scan_a_line_of_openers_in_linear_time(rule: str, shape: Callable[[int], str]) -> None:
     _linear(partial(_security_search, rule), shape, n=200)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        lambda n: "git -C " * n + "git\npush",
+        lambda n: "git\n-C " * n + "git\npush",
+    ],
+)
+def test_overlapping_git_openers_are_scanned_in_linear_time(shape: Callable[[int], str]) -> None:
+    # the push alternative alone: the commit alternative of hook-bypass is a separate scan of the same chain
+    _linear(security._PUSH_NO_VERIFY.search, shape, n=200)

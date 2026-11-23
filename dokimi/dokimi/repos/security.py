@@ -64,10 +64,13 @@ def _rx(text: str) -> re.Pattern[str]:
 
 
 _NL = r"[^\S\n]"  # whitespace but the newline
-_GIT_OPT = r"(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)"
-_GIT_OPT_NO_NL = r"(?:-[Cc]" + _NL + r"+[^\s-]\S*" + _NL + r"+|-\S+" + _NL + r"+)"
+# The argument of `-C` is never the word `git`: that `git` starts the same opener from there, so a chain of
+# `git -C git -C git ...` is read from its first `git` once, not from every one (#1116).
+_ARG = r"(?!git\s)[^\s-]\S*"
+_GIT_OPT = r"(?:-[Cc]\s+" + _ARG + r"\s+|-\S+\s+)"
+_GIT_OPT_NO_NL = r"(?:-[Cc]" + _NL + r"+" + _ARG + _NL + r"+|-\S+" + _NL + r"+)"
 # an option with a newline in one of its gaps
-_GIT_OPT_NL = (r"(?:-[Cc]" + _NL + r"*\n\s*[^\s-]\S*\s+|-[Cc]" + _NL + r"+[^\s-]\S*" + _NL + r"*\n\s*|-\S+" + _NL + r"*\n\s*)")
+_GIT_OPT_NL = (r"(?:-[Cc]" + _NL + r"*\n\s*" + _ARG + r"\s+|-[Cc]" + _NL + r"+" + _ARG + _NL + r"*\n\s*|-\S+" + _NL + r"*\n\s*)")
 _GIT_PUSH = r"\bgit\s+" + _GIT_OPT + r"*push\b"
 _GIT_PUSH_ACROSS_LINES = (r"\bgit(?:" + _NL + r"*\n\s*" + _GIT_OPT + r"*|" + _NL + r"+" + _GIT_OPT_NO_NL + r"*" + _GIT_OPT_NL + _GIT_OPT + r"*)push\b")
 _DOCKER_RUN = r"\bdocker\s+(?:container\s+)?(?:run|create)\b"
@@ -83,6 +86,8 @@ def _after_first_opener(opener: str, across_lines: str, closers: str) -> re.Patt
     first = r"(?m:^)(?:(?!" + opener + r")[^\n])*" + opener
     return _rx(r"(?:" + first + r"|" + across_lines + r")[^\n]*(?:" + closers + r")")
 
+
+_PUSH_NO_VERIFY = _after_first_opener(_GIT_PUSH, _GIT_PUSH_ACROSS_LINES, r"--no-verify\b")
 
 #: A shell word that is an absolute path.
 _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
@@ -151,7 +156,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
          # a short flag cluster may end in `-m` or `-F` (`-nm msg`), so the `n` need not be the last letter
          _rx(r"\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*(?:commit\b[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)"
              r"|--no-verify\b)"
-             r")|" + _after_first_opener(_GIT_PUSH, _GIT_PUSH_ACROSS_LINES, r"--no-verify\b").pattern)),
+             r")|" + _PUSH_NO_VERIFY.pattern)),
     Rule("secret-read", "high", "credential store read, by a command or a read tool (the finding's source says which)",
          # a name ends at a separator, an operator or the end (`.awsome` is no `.aws`); `.env` at whitespace, a quote, an operator or the end
          # `.env` is not cut at `/`, so a venv's `.env/bin` is no hit; the runner's HOME is /eval/run/home
