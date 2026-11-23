@@ -35,7 +35,7 @@ def cmd_skill_check(args: argparse.Namespace) -> None:
     cmd_catalog_scan(argparse.Namespace(
         root=args.root, kind="skills", strict=args.strict, format=args.format,
         tasks_subdir="evaluation/harbor/tasks", per_skill=False, skip_nested=False,
-        jsonl=None, jobs=None, resume=False, online=False, ignore=None, only=args.skill))
+        jsonl=None, jobs=None, resume=False, online=False, ignore=None, fail_on=None, only=args.skill))
 
 
 def register_check(skill_sub) -> None:
@@ -185,6 +185,10 @@ def register_skill(skill_sub, positive_int) -> None:
                              "novelty analyze`: colours spans by the measured outcome and category "
                              "of each atom. Refused when it is another analysis's or names atoms "
                              "--atoms does not hold")
+    view_p.add_argument("--atom-labels", default=None, dest="atom_labels", metavar="FILE",
+                        help="Your labels per atom, JSON lines or CSV (.csv) with skill, atom_id "
+                             "and label columns; joined to --atom-verdicts, prints the known and new "
+                             "shares per label. Nothing is written back")
     view_p.add_argument("--format", default="html", choices=["html", "md"])
     view_p.add_argument("--out", default=None)
     view_p.set_defaults(func=cmd_novelty_view)

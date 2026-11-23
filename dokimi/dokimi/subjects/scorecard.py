@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import os
 import re
 import stat
 from datetime import datetime, timezone
@@ -228,6 +229,11 @@ def _digest_ref(ref: str | None, *, base: Path) -> str | None:
     return _digest_ref_kind(ref, base=base)[0]
 
 
+def _raise(error: OSError) -> None:
+    """``os.walk``'s ``onerror``: a directory it cannot list is an error, as ``rglob`` would skip it silently."""
+    raise error
+
+
 def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]:
     """The digest of *ref* and a tag for what it named: ``f`` a file, ``d`` a directory, ``t`` neither."""
     if not ref:
@@ -243,7 +249,8 @@ def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]
         kind = b"d"
         h.update(b"d")
         # POSIX names, ordered by their parts as utils.tree_digest does, so the same tree digests the same on Windows
-        for child in sorted((p for p in path.rglob("*") if _is_file(p)), key=lambda p: p.relative_to(path).parts):
+        files = [Path(top, name) for top, _, names in os.walk(path, onerror=_raise) for name in names]
+        for child in sorted((p for p in files if _is_file(p)), key=lambda p: p.relative_to(path).parts):
             h.update(_field(child.relative_to(path).as_posix()))
             h.update(hashlib.sha256(child.read_bytes()).digest())
     else:

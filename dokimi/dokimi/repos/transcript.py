@@ -49,6 +49,7 @@ class Transcript:
     dropped_lines: int = 0  # trace lines that did not parse or were of no known shape: their events are missing
     init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
     answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
+    added_text: list[tuple[dict[str, Any], str]] = field(default_factory=list)  # edit event, the text it adds (choices.py)
     start_record: dict[str, Any] = field(default_factory=dict)  # the start-up record as printed (run_context reads it)
     final_record: dict[str, Any] = field(default_factory=dict)  # the closing record as printed (run_context reads it)
     stop_reasons: list[str] = field(default_factory=list)  # ``stop_reason`` of each main-thread reply that carried one

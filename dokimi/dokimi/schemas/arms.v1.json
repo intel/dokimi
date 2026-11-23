@@ -98,6 +98,15 @@
     "total_questions": {
       "type": "integer"
     },
+    "partial": {
+      "type": "object",
+      "required": ["questions_requested", "questions_recorded"],
+      "description": "Present only in <out stem>.partial.json, the file an arms run rewrites after each answered question until it saves its output whole (and then removes): what a killed or crashed run had paid for. answers holds the questions done, none judged (no evaluations or summary). Readers of arms files refuse it (issue #228 step 4).",
+      "properties": {
+        "questions_requested": {"type": "integer", "minimum": 0},
+        "questions_recorded": {"type": "integer", "minimum": 0}
+      }
+    },
     "answers": {
       "type": "array",
       "description": "One record per question: answers[].arms.<arm> is that arm's answer. A single-turn answer the model gave carries replayed (boolean): true when the response cache (DOKIMI_RESPONSE_CACHE) served it instead of a model call, a repeat of an earlier run's answer rather than a fresh sample. Error cells (no answer, never cached), session and agentic answers (which never go through the cache) and files written before the flag have no replayed (issue #370)."

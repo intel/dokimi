@@ -31,6 +31,7 @@ from dokimi.repos.events import convert
 from dokimi.repos.transcript import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
 from tests.pid_state import describe, wait_until_gone
+from tests.waiting import poll_until
 from dokimi.repos.reach import (
     ReachError,
     SeededFile,
@@ -644,7 +645,7 @@ def test_reach_timeout_kills_the_harness_process_tree(tmp_path, monkeypatch, mod
     payload = _reach(tmp_path, monkeypatch, mode=mode, kinds=("root",), timeout_s=1)
     assert time.monotonic() - start < 10
     assert payload["scenarios"][0]["error"].startswith(error)
-    time.sleep(3)  # the helper would have written its marker by now
+    time.sleep(3)  # timing-ok: an absence has no event to wait for; the helper would have written its marker by now
     assert not (tmp_path / "grandchild-alive").exists()
     assert not list((tmp_path / "work").iterdir())
 
@@ -664,11 +665,11 @@ def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
     pid_file = tmp_path / "linger.pids"
     pids: list[int] = []
     try:
-        deadline = time.monotonic() + 60
-        while not pid_file.is_file():
+        def started() -> bool:
             assert cli.poll() is None, cli.stderr.read().decode() if cli.stderr else ""
-            assert time.monotonic() < deadline, "the harness never started"
-            time.sleep(0.05)
+            return pid_file.is_file()
+
+        assert poll_until(started, 60, interval=0.05), "the harness never started"
         pids = [int(p) for p in pid_file.read_text().split()]
         cli.send_signal(signal.SIGTERM)
         assert cli.wait(timeout=30) == -signal.SIGTERM
