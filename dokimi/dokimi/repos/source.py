@@ -131,16 +131,29 @@ def _parts(text: str) -> list[str]:
     return text.replace("\\", "/").split("/") if os.sep == "\\" else text.split("/")
 
 
+def _is_link(path: Path) -> bool:
+    """A symlink, or on Windows a junction: both send the walk somewhere else."""
+    return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+
+
+def _link_target(path: Path) -> str:
+    text = os.readlink(path)
+    return text[4:] if os.name == "nt" and text.startswith("\\\\?\\") else text
+
+
 def _inside(root: Path, text: str) -> str:
     """The absolute ``text`` as a path relative to ``root``, kept as text so that a link farther along the
-    chain is still walked: by its own words when it lies under ``root``, else by where the file system lands."""
+    chain is still walked: by its own words when it lies under ``root``, else from the shortest leading part
+    that the file system lands under ``root`` (a checkout alias), with the rest of the text left unconsumed."""
     lexical = Path(text)  # not normalised: a ``..`` after a link goes up from the link's target
     if lexical.is_relative_to(root):
         return lexical.relative_to(root).as_posix()
-    landed = Path(os.path.realpath(text))
-    if not landed.is_relative_to(root):
-        raise SourceArgumentError(f"path escapes the repository: {text}")
-    return landed.relative_to(root).as_posix()
+    parts = lexical.parts
+    for i in range(1, len(parts) + 1):
+        landed = Path(os.path.realpath(Path(*parts[:i])))
+        if landed.is_relative_to(root):
+            return "/".join([landed.relative_to(root).as_posix(), *parts[i:]])
+    raise SourceArgumentError(f"path escapes the repository: {text}")
 
 
 def _walk_links(root: Path, path: str) -> Path:
@@ -163,12 +176,12 @@ def _walk_links(root: Path, path: str) -> Path:
             continue
         walked.append(part)
         here = root.joinpath(*walked)
-        if not here.is_symlink():
+        if not _is_link(here):
             continue
         hops += 1
         if hops > 40:
             raise _LinkLoop(f"too many levels of symbolic links: {path}")
-        text = os.readlink(here)
+        text = _link_target(here)
         if os.path.isabs(text):
             text = _inside(root, text)
             walked = []

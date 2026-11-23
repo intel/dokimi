@@ -116,11 +116,12 @@ def test_an_absolute_link_to_a_link_that_leaves_and_returns_escapes(tmp_path):
 
 def test_an_absolute_path_through_a_link_goes_up_from_the_links_target(tmp_path):
     """#1084: ``link/..`` in an absolute path or link text ascends from the target of ``link``, as in a checkout."""
-    root = _repo(tmp_path, {"link": "sub", "outer.txt": "<root>/link/../f.txt"})
+    root = _repo(tmp_path, {"link": "sub/deep", "outer.txt": "<root>/link/../f.txt"})
+    (root / "sub" / "deep").mkdir()
     (root / "f.txt").write_text("root", encoding="utf-8")
     (root / "sub" / "f.txt").write_text("sub", encoding="utf-8")
-    assert WorkTree(root).read_text(str(root / "link" / ".." / "f.txt")) == "root"
-    assert WorkTree(root).read_text("outer.txt") == "root"
+    assert WorkTree(root).read_text(str(root / "link" / ".." / "f.txt")) == "sub"
+    assert WorkTree(root).read_text("outer.txt") == "sub"
 
 
 @pytest.mark.skipif(os.sep == "\\", reason="a backslash separates components on Windows")
@@ -131,3 +132,29 @@ def test_a_backslash_in_a_link_text_is_a_filename_character(tmp_path):
     (root / "a" / "b.txt").write_text("nested", encoding="utf-8")
     (root / "a\\b.txt").write_text("literal", encoding="utf-8")
     assert WorkTree(root).read_text("link") == "literal"
+
+
+def test_a_checkout_alias_does_not_hide_a_leave_and_return_link(tmp_path):
+    """#1084: ``alias -> repo`` is resolved without consuming the link text after it."""
+    root = _repo(tmp_path, {"inner.yaml": "../repo/real.yaml"})
+    os.symlink(root, tmp_path / "alias")
+    os.symlink(str(tmp_path / "alias" / "inner.yaml"), root / "outer.yaml")
+    tree = WorkTree(root)
+    for path in (str(tmp_path / "alias" / "inner.yaml"), "outer.yaml"):
+        with pytest.raises(SourceArgumentError, match="path escapes the repository"):
+            tree.resolve(path)
+    assert tree.read_text(str(tmp_path / "alias" / "real.yaml")) == "version: 1\n"
+
+
+def test_a_junction_out_of_the_tree_escapes(tmp_path, monkeypatch):
+    """A Windows junction is not a symlink: it is followed by its target, which must lie under the root."""
+    root = _repo(tmp_path, {})
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("s", encoding="utf-8")
+    (root / "external").mkdir()
+    real_readlink = os.readlink
+    monkeypatch.setattr(Path, "is_junction", lambda self: self.name == "external", raising=False)
+    monkeypatch.setattr(os, "readlink", lambda p: str(outside) if Path(p).name == "external" else real_readlink(p))
+    with pytest.raises(SourceArgumentError, match="path escapes the repository"):
+        WorkTree(root).read_text("external/secret.txt")
