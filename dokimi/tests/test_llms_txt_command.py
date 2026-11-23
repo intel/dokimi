@@ -81,3 +81,17 @@ def test_a_missing_path_is_an_input_error(tmp_path, monkeypatch, capsys):
 def test_token_budget_must_be_positive(tmp_path, monkeypatch, bad):
     (tmp_path / "llms.txt").write_text(GOOD, encoding="utf-8")
     assert _main(monkeypatch, [str(tmp_path), "--token-budget", bad]) == 2
+
+
+def test_json_input_error_uses_the_command_envelope(tmp_path, monkeypatch, capsys):
+    assert _main(monkeypatch, [str(tmp_path), "--json"]) == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "docs llms-txt"
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_utf8_bom_does_not_hide_the_title(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "llms.txt"
+    path.write_text(GOOD, encoding="utf-8-sig")
+    assert _main(monkeypatch, [str(path)]) == 0
+    assert "(0 fail, 0 warn)" in capsys.readouterr().out
