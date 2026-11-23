@@ -310,3 +310,20 @@ def test_a_bedrock_route_refuses_an_unreadable_key_file_of_the_configured_provid
                               judge_provider="openai", judge_model="gpt-4o")
     errors, _ = _provider_checks(_credential_providers(args))
     assert any("/nonexistent/key" in e for e in errors)
+
+
+def test_a_vertex_route_names_the_configured_provider_only_when_its_key_file_is_unreadable(monkeypatch):
+    from dokimi.commands.benchmark import _keyless_route
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "file:/nonexistent/key")
+    assert _keyless_route("anthropic", "vertex_ai") == ["anthropic"]
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-readable")
+    assert _keyless_route("anthropic", "vertex_ai") == []
+
+
+def test_a_bedrock_route_with_a_readable_configured_key_ignores_an_unreadable_aws_token(monkeypatch):
+    from dokimi.commands.benchmark import _keyless_route
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-readable")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "file:/nonexistent/token")
+    assert _keyless_route("anthropic", "bedrock") == []
