@@ -577,10 +577,14 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     shares_text = None
     if args.atom_labels:
         from dokimi.artifacts import load_artifact
-        from dokimi.novelty.atom_labels import format_shares, label_shares, load_atom_labels
+        from dokimi.novelty.atom_labels import (format_shares, label_shares, load_atom_labels,
+                                                unmatched_note)
 
         record = load_artifact("novelty_atoms", Path(args.atom_verdicts))
         labels = load_atom_labels(args.atom_labels)
+        note = unmatched_note(record["atoms"], record["artifact_ref"], labels)
+        if note:
+            print(f"WARNING: {note}", file=sys.stderr)
         shares_text = format_shares(label_shares(record["atoms"], record["artifact_ref"], labels))
     artifact, atoms, spans, saved = load_view_inputs(args.novelty, args.atoms)
     warn_unread(spans, "they render as `unread`, not as text that carries nothing")

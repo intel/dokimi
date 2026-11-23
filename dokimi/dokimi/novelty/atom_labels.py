@@ -60,6 +60,19 @@ def load_atom_labels(path: str | Path) -> dict[tuple[str, str], str]:
     return labels
 
 
+def unmatched_note(verdict_rows: Iterable[dict], artifact_ref: str,
+                   labels: dict[tuple[str, str], str]) -> str | None:
+    """A warning when some labels name no atom of the run, else None: a wrong ``skill`` or
+    ``atom_id`` would otherwise only read as atoms nobody labelled."""
+    skill = skill_name(artifact_ref)
+    seen = {(skill, str(row["id"])) for row in verdict_rows}
+    missed = sum(key not in seen for key in labels)
+    if not missed:
+        return None
+    return (f"{missed} of {len(labels)} labels match no atom of {artifact_ref}: check their skill "
+            f"and atom_id; their atoms are counted as {UNLABELLED}")
+
+
 def _finish(bucket: dict) -> dict:
     atoms = bucket["atoms"]
     return {**bucket,

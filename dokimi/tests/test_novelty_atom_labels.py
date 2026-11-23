@@ -102,3 +102,13 @@ def test_the_shares_table_has_a_row_per_label_and_the_whole_run():
     assert [line.split()[0] for line in lines[2:]] == ["api", "setup", "unlabelled", "all"]
     setup = next(line for line in lines if line.startswith("setup"))
     assert setup.split()[-2:] == ["100.0", "0.0"]
+
+
+def test_labels_that_match_no_atom_are_reported():
+    from dokimi.novelty.atom_labels import unmatched_note
+
+    labels = {("skills/accel-tuning", "a1"): "setup", ("skills/accel-tuning/", "a2"): "api",
+              ("skills/accel-tuning", "typo"): "api"}
+    assert unmatched_note(_rows(), REF, labels).startswith(
+        "2 of 3 labels match no atom of skill:skills/accel-tuning")
+    assert unmatched_note(_rows(), REF, {("skills/accel-tuning", "a1"): "setup"}) is None
