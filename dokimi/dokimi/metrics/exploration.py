@@ -212,6 +212,8 @@ def _parse_loose(text: str) -> CitationSet:
     citations: list[Citation] = []
     for opener, path, start, end in _loose_citations(text):
         cite = _citation(path, start, end)
+        if cite is None:
+            continue
         if opener in _WRAPPERS and _WRAPPERS[opener] in path:
             cite = replace(cite, path=normalize_path(opener + path))
         citations.append(cite)
@@ -265,16 +267,20 @@ def _parse_one(token: str) -> Optional[Citation]:
     return _citation_from_match(m)
 
 
-def _citation_from_match(m: "re.Match[str]") -> Citation:
+def _citation_from_match(m: "re.Match[str]") -> Optional[Citation]:
     return _citation(m.group("path"), m.group("start"), m.group("end"))
 
 
-def _citation(raw_path: str, start: Optional[str], end: Optional[str]) -> Citation:
+def _citation(raw_path: str, start: Optional[str], end: Optional[str]) -> Optional[Citation]:
+    """The citation, or ``None`` when a line number has too many digits for ``int()``."""
     path = normalize_path(raw_path)
     if start is None:
         return Citation(path=path)
-    start_i = int(start)
-    end_i = int(end) if end is not None else start_i
+    try:
+        start_i = int(start)
+        end_i = int(end) if end is not None else start_i
+    except ValueError:
+        return None
     if end_i < start_i:
         start_i, end_i = end_i, start_i
     return Citation(path=path, start=start_i, end=end_i)
