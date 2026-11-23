@@ -132,6 +132,22 @@ def test_to_jsonl_writes_through_a_symlink_and_keeps_it(tmp_path, target_exists)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["rows.jsonl", "shared"]
 
 
+@pytest.mark.skipif(not hasattr(Path, "symlink_to"), reason="no symlinks")
+def test_to_jsonl_refuses_a_link_into_a_missing_directory(tmp_path):
+    """``open(path, "w")`` raised on it; the missing directory of the link's target is not made (#1020)."""
+    link = tmp_path / "rows.jsonl"
+    try:
+        link.symlink_to(Path("missing") / "shared.jsonl")
+    except OSError:
+        pytest.skip("symlinks need a privilege here")
+
+    with pytest.raises(FileNotFoundError):
+        to_jsonl([{"a": 1}], link)
+
+    assert not (tmp_path / "missing").exists()
+    assert link.is_symlink()
+
+
 def test_to_jsonl_rewrites_a_hard_linked_file_in_place(tmp_path):
     """Like ``open(path, "w")``, the other name sees the rows; a refused row still leaves both names as they were (#1020)."""
     path = tmp_path / "rows.jsonl"

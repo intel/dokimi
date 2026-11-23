@@ -43,13 +43,15 @@ def write_chunks_atomic(path: Path | str, chunks: Iterable[bytes]) -> None:
     """:func:`write_bytes_atomic` for an iterable of byte chunks, taken one at a time and never held together.
 
     An exception from the iterable removes the tmp file and leaves the file at ``path`` as it was. A symlink at ``path``
-    (dangling or not) is followed, as ``open(path, "w")`` follows it: the tmp file is made beside the link's target, which is replaced, and the link stays.
+    (dangling or not) is followed, as ``open(path, "w")`` follows it: the tmp file is made beside the link's target, which is replaced, and the link stays;
+    a link into a missing directory raises ``FileNotFoundError`` and makes no directory.
     A target that is not a plain file (see :func:`write_bytes_in_place_or_atomic`: hard-linked, special, read-only,
     in a read-only directory, with a ``user.*`` attribute, ...) is written in place, as ``open(path, "w")`` writes it,
     after every chunk is taken, so an exception from the iterable still leaves it as it was.
     """
     target = Path(os.path.realpath(path))
-    if not _is_plain_writable_file(target):
+    # A link into a missing directory fails as open(path, "w") fails: the target's directory is not made.
+    if (os.path.islink(path) and not target.parent.is_dir()) or not _is_plain_writable_file(target):
         data = list(chunks)
         with open(path, "wb") as handle:
             handle.writelines(data)
