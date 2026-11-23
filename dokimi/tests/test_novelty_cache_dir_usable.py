@@ -230,3 +230,12 @@ def test_analyze_refuses_a_cache_dir_that_is_a_file_before_any_call(tmp_path, mo
     assert out.code == 2
     assert f"--cache-dir {cache} is not a directory" in out.err
     assert not (tmp_path / "out").exists()
+
+
+def test_analyze_help_says_the_response_cache_is_opt_in_and_what_a_rerun_costs(capsys):
+    # --cache-dir keeps retention verdicts only; the response cache is DOKIMI_RESPONSE_CACHE, opt-in.
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["skill", "novelty", "analyze", "--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    assert "DOKIMI_RESPONSE_CACHE" in text and "opt-in" in text
+    assert "pays for every call again" in text

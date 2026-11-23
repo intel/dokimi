@@ -324,7 +324,8 @@ next release.
   digests taken before the agent starts; see `docs/repo-evaluation-contract.md` §4.9.
 - `dokimi/repos/events.py` — converts a harness trace to the
   `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
-  Copilot JSON converters and the parser of the files a shell command prints
+  Copilot JSON converters, and `dokimi/repos/shell_walk.py` the walker of the
+  files a shell command prints, which they call
   (`dokimi/repos/shell_split.py` splits the command into its parts, and
   `dokimi/repos/shell_words.py` finds a part's command word and the
   directory builtins it runs, and `dokimi/repos/shell_functions.py` the

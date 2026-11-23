@@ -156,6 +156,15 @@ and how to check it loads before spending money on a run.
 Without `--judge` the command only generates answers (cheap, no judge calls).
 Outputs default to `results/arms/<product>.{json,md}` (ignored by git).
 
+While it answers, the run keeps the questions done so far in `<out stem>.partial.json` beside
+the `--out` file, rewritten after each question and removed once the whole run is saved. A run
+killed or crashed before that save leaves it behind: an `arms.v1` file with a `partial` block
+(`questions_requested`, `questions_recorded`) and the answers paid for, none judged. It never
+replaces a file (a name that holds one, finished, left by a crashed run or taken by a run going on at the
+same time, is passed over for `<out stem>.partial2.json`),
+and the commands that read arms files refuse it. There is no resume: rerun the command.
+`arms matrix-run` keeps one per cell, `cells/<cell>.partial.json`.
+
 Example Caveman plugin cell:
 
 ```bash
