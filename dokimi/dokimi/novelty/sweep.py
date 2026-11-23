@@ -56,7 +56,7 @@ def has_measure(measured: Mapping[str, Any]) -> bool:
 
 
 def make_row(*, key: str, name: str, path: str, skill_sha256: Optional[str], status: str,
-             settings: dict, version: str, usd: float = 0.0, calls: int = 0,
+             settings: dict, version: str, bundle_instance: int = 0, usd: float = 0.0, calls: int = 0,
              reason: Optional[str] = None, message: Optional[str] = None,
              measured: Optional[dict] = None, novelty_json: Optional[str] = None) -> dict:
     """One skill's row: its identity and digest, what the run paid, and its measure when it has one."""
@@ -69,6 +69,8 @@ def make_row(*, key: str, name: str, path: str, skill_sha256: Optional[str], sta
         "tokens": None, "known_lenient": None, "new_lenient": None, "new_strict": None,
         "n_paired": None,
     }
+    if bundle_instance:
+        row["bundle_instance"] = bundle_instance
     if measured is not None:
         row.update(measured)
     return row
@@ -215,18 +217,25 @@ def bundle_instances(current: Mapping[str, Optional[str]], prior: list[dict]) ->
     instances: dict[str, int] = {}
     for digest, keys in groups.items():
         known = history.get(digest, {})
-        used: set[int] = set()
-        for key in keys:
-            if key in known and known[key] not in used:
-                instances[key] = known[key]
-                used.add(known[key])
-        free = 0
-        for key in keys:
-            if key not in instances:
-                while free in used:
-                    free += 1
-                instances[key] = free
-                used.add(free)
+        instances.update(_instance_slots(keys, known))
+    return instances
+
+
+def _instance_slots(keys: list[str], known: dict[str, int]) -> dict[str, int]:
+    """Reserve historical slots for keys still present, then fill unused slots for new keys."""
+    instances: dict[str, int] = {}
+    used: set[int] = set()
+    for key in keys:
+        if key in known and known[key] not in used:
+            instances[key] = known[key]
+            used.add(known[key])
+    free = 0
+    for key in keys:
+        if key not in instances:
+            while free in used:
+                free += 1
+            instances[key] = free
+            used.add(free)
     return instances
 
 

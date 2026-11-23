@@ -371,12 +371,9 @@ def _review_one(item: _Item, *, args: argparse.Namespace, run_cap: "SpendCap", p
     cap = NestedSpendCap(limit_usd=per_skill, parent=run_cap, hard_stop=hard_stop)
 
     def row(status: str, **fields: Any) -> dict:
-        result = make_row(key=item.key, name=item.name, path=str(item.skill_md),
-                        skill_sha256=item.sha256, status=status, settings=fingerprint,
+        return make_row(key=item.key, name=item.name, path=str(item.skill_md),
+                        skill_sha256=item.sha256, bundle_instance=item.bundle_instance, status=status, settings=fingerprint,
                         version=__version__, usd=cap.spent_usd, calls=cap.calls, **fields)
-        if item.bundle_instance:
-            result["bundle_instance"] = item.bundle_instance
-        return result
 
     novelty_json = out_dir / _dirname(item.key) / "novelty.json"
     if (refusal := _refuse_to_run(item, novelty_json)) is not None:
