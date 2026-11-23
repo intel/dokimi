@@ -191,6 +191,17 @@ def test_label_zero_is_a_label_not_a_missing_one(tmp_path):
     assert load_atom_labels(csv_file) == {("s", "a1"): "0"}
 
 
+@pytest.mark.parametrize("value", ["false", "[]", "{}"])
+def test_a_json_boolean_list_or_object_is_no_label_or_key_value(tmp_path, value):
+    path = tmp_path / "labels.jsonl"
+    path.write_text(f'{{"skill": "s", "atom_id": "a1", "label": {value}}}\n', encoding="utf-8")
+    with pytest.raises(InputError, match="needs non-empty"):
+        load_atom_labels(path)
+    path.write_text(f'{{"skill": {value}, "atom_id": "a1", "label": "x"}}\n', encoding="utf-8")
+    with pytest.raises(InputError, match="needs non-empty"):
+        load_atom_labels(path)
+
+
 def test_a_csv_quoted_newline_and_a_unicode_line_separator_stay_in_their_row(tmp_path):
     path = tmp_path / "labels.csv"
     path.write_text('skill,atom_id,label\ns,a1,"two\nlines"\ns,a2,"x y"\n', encoding="utf-8")

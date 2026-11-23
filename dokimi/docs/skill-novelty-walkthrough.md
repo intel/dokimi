@@ -204,8 +204,8 @@ Re-run step 5 against the shortened artifact with the **same** `atoms.json` — 
 key, so the two runs are comparable — and compare `added` between the two `probe` outputs.
 
 One run per side is not enough to read that difference. Paraphrase and reversal wordings
-are generated afresh on every `probe` run (`--cache-dir` caches only retention
-adjudication), so two identical runs differ too: on one skill, with the same atoms and the
+are generated afresh on every `probe` run (`probe` takes no `--cache-dir`; `analyze` caches only
+its retention adjudication), so two identical runs differ too: on one skill, with the same atoms and the
 same models, `added` came out 0.9333 in one run and 0.8667 in the other, and the fidelity
 check dropped 3 of 15 reversals in one and 14 of 15 in the other. That spread was the same
 size as the change the shortening edit produced on the same skill. Run each side at least

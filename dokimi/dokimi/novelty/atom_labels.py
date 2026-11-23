@@ -56,6 +56,14 @@ def _rows(path: Path) -> list[Any]:
     return rows
 
 
+def _text(value: Any) -> str:
+    """A field as text. A string or a number is kept (label 0 is a label); a boolean, a list or an
+    object is no value, so it reads as a missing field."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return ""
+    return str(value).strip()
+
+
 def load_atom_labels(path: str | Path) -> dict[tuple[str, str], str]:
     """``{(skill name, atom id): label}``. A file with no rows, a row missing a field, a label the
     view reserves for its own buckets, or an atom with two labels is refused."""
@@ -65,7 +73,7 @@ def load_atom_labels(path: str | Path) -> dict[tuple[str, str], str]:
         raise InputError(f"{path}: no label rows")
     labels: dict[tuple[str, str], str] = {}
     for number, row in enumerate(rows, 1):
-        values = ["" if row.get(f) is None else str(row.get(f)).strip() for f in FIELDS]
+        values = [_text(row.get(f)) for f in FIELDS]
         if not all(values):
             raise InputError(f"{path}: row {number} needs non-empty {', '.join(FIELDS)}")
         if values[2] in RESERVED:
