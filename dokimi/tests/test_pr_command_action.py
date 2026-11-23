@@ -185,6 +185,7 @@ def test_example_workflow_permissions_and_pins() -> None:
     assert jobs["gate"]["permissions"] == {"pull-requests": "write"}
     assert jobs["checks"]["permissions"] == {"contents": "read"}
     assert jobs["comment"]["permissions"] == {"pull-requests": "write"}
+    assert jobs["comment"]["if"] == "needs.gate.outputs.run == 'true' && needs.checks.result == 'success'"
     checkout = jobs["checks"]["steps"][0]
     assert checkout["with"] == {"ref": "${{ needs.gate.outputs.head-sha }}", "persist-credentials": False}
     # The jobs holding a write token never check out the pull request.

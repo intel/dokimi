@@ -81,3 +81,17 @@ def test_invalid_input_names_the_path(tmp_path, data):
     path.write_bytes(data)
     with pytest.raises(InputError, match="evidence.json"):
         cmd.build([str(path)])
+
+
+def test_repeated_input_is_read_once(inputs):
+    assert cmd.build([*inputs, inputs[-1]]) == cmd.build(inputs)
+
+
+def test_llms_identity_survives_staging_in_another_directory(tmp_path):
+    first, second = (tmp_path / name / "llms.txt" for name in ("run-1", "run-2"))
+    for path in (first, second):
+        path.parent.mkdir()
+        path.write_text("prose only\n", encoding="utf-8")
+    a, b = (cmd.build([str(path)]) for path in (first, second))
+    assert a["inputs"] != b["inputs"]
+    assert a["items"] == b["items"]

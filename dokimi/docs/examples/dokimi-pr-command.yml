@@ -62,7 +62,7 @@ jobs:
 
   comment:
     needs: [gate, checks]
-    if: always() && needs.gate.outputs.run == 'true'
+    if: needs.gate.outputs.run == 'true' && needs.checks.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write  # the opportunities comment

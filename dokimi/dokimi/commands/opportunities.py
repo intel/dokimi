@@ -34,7 +34,7 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
             text.lstrip().startswith("[") and not re.match(r"\[[^\n\]]+\]\(", text.lstrip())
         ):
             raise InputError(f"{path}: not valid JSON ({e})") from e
-        return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text), target=path)
+        return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text))
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
         if errors := schema_errors("repo_static.v1", data):
             raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
@@ -51,7 +51,7 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
 def build(paths: list[str]) -> dict:
     """The ``opportunities.v1`` payload (without its envelope) for these input files."""
     inputs, items = [], []
-    for path in paths:
+    for path in dict.fromkeys(paths):
         kind, found = _read(path)
         inputs.append({"path": path, "kind": kind})
         items.extend(found)

@@ -15,11 +15,14 @@ Copy [examples/dokimi-pr-command.yml](examples/dokimi-pr-command.yml) to
 and replace the `Run the checks` step with yours. Each check writes its findings file to
 the top level of `$OUT/opportunities`: a novelty artifact, a `repo_static.v1` document or
 an `llms.txt` file (`*.json` and `*.txt` are read; anything else is left out).
+`dokimi report opportunities` accepts those same three inputs and reads each supplied
+path once. Malformed or unsupported JSON exits with status 2.
 
 ## Who can run it
 
 Only someone with `write` or `admin` permission on the repository (`maintain` counts as
-`write`). `actions/pr-command` reads the permission from
+`write` in the legacy `permission` field and appears as `maintain` in `role_name`).
+`actions/pr-command` reads the permission from
 `GET /repos/{owner}/{repo}/collaborators/{login}/permission`; a failed lookup counts as no
 permission. Anyone else gets one reply saying the command needs write permission, and no
 check runs. The command must be the comment's whole first line (spaces around it are
