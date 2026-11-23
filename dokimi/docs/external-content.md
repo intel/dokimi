@@ -308,7 +308,7 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 (`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
 `.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
 path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
-finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files, a root translation of `SKILL.md` (`SKILL.ru.md`, `SKILL.zh-CN.md`),
 `_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
 not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no `warn`; it gives a
 `note` (`bundle-file-unchecked`) that says why, when the search cannot see every name: a bundle over 2000 files, more than 50 named
