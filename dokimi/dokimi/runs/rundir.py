@@ -5,8 +5,8 @@
 
 :func:`open_run` makes the directory and writes ``run.json`` (``run.v1``) with status ``running``.
 Used as a context manager, the :class:`RunDir` records how the run ended. On a stop (SIGTERM or
-SIGHUP, ``KeyboardInterrupt``, the spend cap, a run-wide CLI failure) it writes ``result.v1.json`` with
-``not_run`` on every planned cell that has no status, and ``run.json`` says ``incomplete``; any
+SIGHUP, ``KeyboardInterrupt``, the spend cap, a run-wide CLI failure) ``run.json`` says ``incomplete``
+and, when the run has a plan, ``result.v1.json`` has ``not_run`` on every planned cell left; any
 other exception makes it ``failed``. Layout and rules: ``docs/run-directories.md``.
 """
 
