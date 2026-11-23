@@ -33,9 +33,9 @@ _NO_COMMAND = re.compile(r"^(?:(?:for|select|fi|done|esac|in|function)\b|\}(?=[\
 _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
              "perl": re.compile(r"^-[pnalw0-9]*i[^-\s]*$")}
 _CASE_HEADER = re.compile(rf"^(?:(?:\(|{_KEYWORDS}(?=\s))\s*)*case\b.*?\bin\b\s*")  # `\(` not `\(+`: a run of `(` splits one way (#932)
-_HEREDOC_DELIMITER = r"<<-?\s*['\"]?(\w++)['\"]?"
+_HEREDOC_DELIMITER = r"(?<!<)<<-?\s*['\"]?([^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)['\"]?"  # a whole shell word; not ``<<<``, a here-string
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S), re.compile(_HEREDOC_DELIMITER),
-                          re.compile(r"^[^\S\n]*(\w+)[^\S\n]*$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=1, gap=1)
+                          re.compile(r"^[^\S\n]*([^\s;&|<>()'\"\\]+)[^\S\n]*$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=1, gap=1)
 
 
 class _Scan:

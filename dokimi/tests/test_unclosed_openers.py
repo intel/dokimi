@@ -213,8 +213,8 @@ def test_final_answer_scans_unclosed_openers_in_linear_time() -> None:
 
 # cli_traces._HEREDOC and shell.split_commands -------------------------------------------------------------------------
 
-_REF_CLI_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w++)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
-_REF_SHELL_HEREDOC = re.compile(r"<<-?\s*['\"]?(\w++)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S)
+_REF_CLI_HEREDOC = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)(\w++)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+_REF_SHELL_HEREDOC = re.compile(r"(?<!<)<<-?\s*['\"]?(\w++)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S)
 
 HEREDOC_TABLE = [
     "",
@@ -364,6 +364,19 @@ def test_split_commands_cuts_an_unclosed_heredoc_whose_body_has_a_prefix_line() 
 
 def test_split_commands_keeps_the_commands_before_an_unclosed_heredoc() -> None:
     assert shell.split_commands("ls\ncat <<AB\nrm x\nA") == [("ls", "\n"), ("cat <<AB", "")]
+
+
+@pytest.mark.parametrize("delimiter", ["EOF-END", "EOF.d", "a-b-c", "EOF/END", "EOF+1", "EOF:x"])
+def test_a_delimiter_of_more_than_word_characters_is_closed_by_its_whole_line_and_the_commands_after_it_stay(delimiter: str) -> None:
+    text = f"cat <<{delimiter}\nbody\n{delimiter}\nsed -i s/x/y/ f\n"
+    assert shell.split_commands(text) == [(f"cat <<{delimiter}", "\n"), ("sed -i s/x/y/ f", "\n")]
+    assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
+
+
+@pytest.mark.parametrize("text", ["cat <<<word\nsed -i s/x/y/ f\n", "cat <<<'a b' > f\nsed -i s/x/y/ f\n", "cat <<<$X\nsed -i s/x/y/ f\n"])
+def test_a_here_string_is_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
+    assert _cli_heredocs(text) == text
 
 
 def test_a_heredoc_that_a_line_closes_right_after_its_opener_leaves_the_commands_after_it() -> None:
