@@ -32,7 +32,7 @@ from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _com
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
 _CONTINUATION = re.compile(r"\\\n")
-_HEREDOC_DELIMITER = r"(?<!<)<<-?[ \t]*(['\"]?)([^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)\1"  # a whole shell word; not ``<<<``, a here-string
+_HEREDOC_DELIMITER = r"(?<!<)<<-?[ \t]*(['\"]?)([^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)(?!['\"]?\\)\1"  # a whole shell word (``<<EOF\-END`` opens nothing); not ``<<<``, a here-string
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t\r]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
                           re.compile(r"^[ \t]*([^\s;&|<>()'\"\\]+)[ \t\r]*$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=2)
 _GLOB = re.compile(r"[*?\[]|\{[^\s{}]*(?:,|\.\.)[^\s{}]*\}")  # a pathname or brace expansion, unquoted

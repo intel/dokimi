@@ -373,6 +373,13 @@ def test_a_delimiter_of_more_than_word_characters_is_closed_by_its_whole_line_an
     assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
 
 
+@pytest.mark.parametrize("opener", ["cat <<EOF\\-END", "cat <<EOF\\-END > f", "cat <<'EOF'\\-END", "cat <<EOF\\\\-END"])
+def test_a_delimiter_word_that_is_only_partly_read_opens_no_heredoc_and_the_closing_line_and_commands_after_it_stay(opener: str) -> None:
+    text = f"{opener}\nbody\nEOF-END\nsed -i s/x/y/ f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
+    assert _cli_heredocs(text) == text
+
+
 @pytest.mark.parametrize("text", ["cat <<<word\nsed -i s/x/y/ f\n", "cat <<<'a b' > f\nsed -i s/x/y/ f\n", "cat <<<$X\nsed -i s/x/y/ f\n"])
 def test_a_here_string_is_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
     assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
