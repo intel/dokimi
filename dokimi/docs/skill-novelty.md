@@ -1294,8 +1294,9 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
 - **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
   sweep with no model call. `--summary-out FILE` also writes it as JSON. A file whose `ok`
   rows were measured under different settings or dokimi versions (a `--resume --limit` with a changed
-  `--model`) is refused: one interval would pool two models' shares. A skill moved to another
-  directory (same name, same files) is measured once, by its last `ok` row; the spend counts every row.
+  `--model`) is refused: one interval would pool two models' shares. An identical bundle (same
+  files, so the same digest) is counted once, by its last `ok` row, even if it was moved to another directory or
+  renamed; the spend counts every row, so both paid rows of a renamed skill are in the cost.
 - **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
   byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
   are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names

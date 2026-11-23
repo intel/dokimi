@@ -184,7 +184,7 @@ def test_summarize_counts_every_status_but_measures_only_ok_rows():
 
 
 def test_summarize_measures_a_skill_moved_to_another_directory_once_and_keeps_its_spend():
-    rows = [_ok("old/deploy", 0.2, usd=0.3, name="deploy"), _ok("review", 0.6, usd=0.2),
+    rows = [_ok("old/deploy", 0.2, usd=0.3, name="deploy"), _ok("review", 0.6, usd=0.2, digest="d3"),
             _ok("new/deploy", 0.4, usd=0.3, name="deploy"), _ok("other/deploy", 0.5, name="deploy", digest="d2")]
     summary = summarize(rows, resamples=200)
     assert summary["counts"]["ok"] == 3
@@ -194,13 +194,23 @@ def test_summarize_measures_a_skill_moved_to_another_directory_once_and_keeps_it
     assert summary_lines(summary)[0].startswith("# novelty sweep: 3 measured")
 
 
+def test_summarize_counts_an_identical_bundle_once_under_a_new_name_and_keeps_both_spend_records():
+    rows = [_ok("old/deploy", 0.2, usd=0.3, name="deploy"), _ok("new/deployer", 0.4, usd=0.3, name="deployer")]
+    summary = summarize(rows, resamples=200)
+    assert summary["counts"]["ok"] == 1
+    assert summary["overall"]["n"] == 1
+    assert summary["overall"]["new_lenient"]["mean"] == pytest.approx(0.4)  # the last row
+    assert summary["usd"] == pytest.approx(0.6)  # both paid rows
+    assert summary_lines(summary)[0].startswith("# novelty sweep: 1 measured")
+
+
 def test_summarize_counts_each_ok_row_without_a_digest_on_its_own():
     rows = [dict(_ok("a", 0.2, name="same"), skill_sha256=None), dict(_ok("b", 0.4, name="same"), skill_sha256=None)]
     assert summarize(rows, resamples=50)["overall"]["n"] == 2
 
 
 def test_summarize_splits_the_measure_by_stratum_and_names_the_unassigned():
-    rows = [_ok("ops/deploy", 0.2), _ok("review", 0.6), _ok("misc", 0.5)]
+    rows = [_ok("ops/deploy", 0.2, digest="d4"), _ok("review", 0.6, digest="d5"), _ok("misc", 0.5, digest="d6")]
     summary = summarize(rows, {"ops/deploy": "ops", "review": "dev"}, resamples=200)
     assert set(summary["strata"]) == {"dev", "ops", UNASSIGNED}
     assert summary["strata"]["dev"]["n"] == 1

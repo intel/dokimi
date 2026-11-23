@@ -198,20 +198,21 @@ def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
               resamples: int = RESAMPLES) -> dict[str, Any]:
     """Counts by status, the spend, and the measure with bootstrap CIs overall and per stratum.
 
-    Only ``ok`` rows with a measure are summarised, one per ``(name, skill_sha256)`` (the last), so a
-    skill moved to another directory is measured once; ``partial`` and ``error`` rows are counted and
-    the spend of every row is in ``usd``. With *strata* the per-stratum table is given, else only ``overall``.
+    Only ``ok`` rows with a measure are summarised, one per ``skill_sha256`` (the last): an identical
+    bundle moved to another directory or renamed is measured once. ``partial`` and ``error`` rows are
+    counted and the spend of every row, including each copy's paid row, is in ``usd``. With *strata*
+    the per-stratum table is given, else only ``overall``.
     """
     counts = {status: 0 for status in STATUSES}
-    latest: dict[tuple, dict] = {}
+    latest: dict[object, dict] = {}
     for index, row in enumerate(rows):
         if row["status"] != "ok":
             counts[row["status"]] += 1
         elif row.get("skill_sha256") is None:  # no digest: no way to tell it is the same skill
             latest[(None, index)] = row
         else:
-            latest.pop((row["name"], row["skill_sha256"]), None)
-            latest[(row["name"], row["skill_sha256"])] = row
+            latest.pop(row["skill_sha256"], None)
+            latest[row["skill_sha256"]] = row
     counts["ok"] = len(latest)
     measured = [r for r in latest.values() if r["new_lenient"] is not None]
     summary: dict[str, Any] = {
