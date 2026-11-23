@@ -320,6 +320,18 @@ SECURITY_TABLE = [
     "git pushx --no-verify",
     "xgit push --no-verify",
     "git push -n",
+    "docker run safe; docker\nrun --privileged",
+    "git push safe; git\npush --no-verify",
+    "docker run safe; docker container\nrun --privileged",
+    "docker run safe; docker\ncontainer run --net=host",
+    "docker run safe; docker \n create -v /:/h x",
+    "git push safe; git\n-c a=b push --no-verify",
+    "git push safe; git -c\na=b push --no-verify",
+    "git push safe; git -c a=b\npush --no-verify",
+    "git push safe; git -x\npush --no-verify",
+    "git -C push\npush --no-verify",
+    "git push\ngit\npush a\n--no-verify",
+    "docker run safe; docker\nrun safe\n--privileged",
 ]
 
 
@@ -332,7 +344,9 @@ def test_security_rules_read_a_line_as_the_old_pattern_did(rule: str, text: str)
 def test_security_rules_match_the_old_patterns_on_random_command_lines() -> None:
     pieces = ["docker", "run", "create", "container", "--privileged", "-v", "/:", "docker.sock", "nsenter",
               "git", "push", "--no-verify", ";", "&&", "|", "\n", "x", "-c", "a=b", "-C", "--mount", "--net=host",
-              "docker run", "docker container create", "git push", "git -c a=b push", "--privileged", "--no-verify"]
+              "docker run", "docker container create", "git push", "git -c a=b push", "--privileged", "--no-verify",
+              "docker\nrun", "docker container\ncreate", "docker\n container run", "git\npush", "git -c\na=b push",
+              "git -c a=b\npush", "git\n-x push"]
     rng = random.Random(1116)
     texts = [" ".join(rng.choice(pieces) for _ in range(rng.randint(0, 12))) for _ in range(CASES)]
     hits = {rule: 0 for rule in _SECURITY_OLD}
@@ -350,6 +364,11 @@ def test_security_rules_match_the_old_patterns_on_random_command_lines() -> None
         ("container-escape", lambda n: "docker run " * n),
         ("container-escape", lambda n: "docker run a " * n),
         ("hook-bypass", lambda n: "git push " * n),
+        ("container-escape", lambda n: "docker\nrun " * n),
+        ("container-escape", lambda n: "docker container\n" * n),
+        ("hook-bypass", lambda n: "git\npush " * n),
+        ("hook-bypass", lambda n: "git -a -b\n" * n),
+        ("hook-bypass", lambda n: "git " + "-a " * n),
     ],
 )
 def test_security_rules_scan_a_line_of_openers_in_linear_time(rule: str, shape: Callable[[int], str]) -> None:

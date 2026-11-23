@@ -63,16 +63,25 @@ def _rx(text: str) -> re.Pattern[str]:
     return re.compile(text, re.IGNORECASE)
 
 
-_GIT_OPTS = r"(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*"
-_GIT_PUSH = r"\bgit\s+" + _GIT_OPTS + r"push\b"
+_NL = r"[^\S\n]"  # whitespace but the newline
+_GIT_OPT = r"(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)"
+_GIT_OPT_NO_NL = r"(?:-[Cc]" + _NL + r"+[^\s-]\S*" + _NL + r"+|-\S+" + _NL + r"+)"
+# an option with a newline in one of its gaps
+_GIT_OPT_NL = (r"(?:-[Cc]" + _NL + r"*\n\s*[^\s-]\S*\s+|-[Cc]" + _NL + r"+[^\s-]\S*" + _NL + r"*\n\s*|-\S+" + _NL + r"*\n\s*)")
+_GIT_PUSH = r"\bgit\s+" + _GIT_OPT + r"*push\b"
+_GIT_PUSH_ACROSS_LINES = (r"\bgit(?:" + _NL + r"*\n\s*" + _GIT_OPT + r"*|" + _NL + r"+" + _GIT_OPT_NO_NL + r"*" + _GIT_OPT_NL + _GIT_OPT + r"*)push\b")
+_DOCKER_RUN = r"\bdocker\s+(?:container\s+)?(?:run|create)\b"
+_DOCKER_RUN_ACROSS_LINES = (r"\bdocker(?:" + _NL + r"*\n\s*(?:container\s+)?|" + _NL + r"+container" + _NL + r"*\n\s*)(?:run|create)\b")
 
 
-def _after_first_opener(opener: str, closers: str) -> re.Pattern[str]:
+def _after_first_opener(opener: str, across_lines: str, closers: str) -> re.Pattern[str]:
     """``opener .* (closers)`` on one line, tried from the line's first opener only (#1116).
 
     A later opener finds its closer only where the first one does, so a line with many openers and no closer fails once, not once per opener.
+    An opener with a newline in its whitespace ends on a later line than where it starts, so ``across_lines`` (the same opener, newline required) is tried from each place it starts: two of them never end on one line.
     """
-    return _rx(r"(?m:^)(?:(?!" + opener + r")[^\n])*" + opener + r"[^\n]*(?:" + closers + r")")
+    first = r"(?m:^)(?:(?!" + opener + r")[^\n])*" + opener
+    return _rx(r"(?:" + first + r"|" + across_lines + r")[^\n]*(?:" + closers + r")")
 
 
 #: A shell word that is an absolute path.
@@ -128,7 +137,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
          _after_first_opener(
-             r"\bdocker\s+(?:container\s+)?(?:run|create)\b",
+             _DOCKER_RUN, _DOCKER_RUN_ACROSS_LINES,
              r"--privileged|--pid[= ]host|--net(?:work)?[= ]host|"
              # the host root, quoted or not, and the Docker socket (host control, as --privileged gives) as a bind
              r"-v\s*[\"']?/:|--volume[= ][\"']?/:|(?:-v|--volume|--mount)[= ]?\s*[\"']?[^\s\"']*docker\.sock|"
@@ -142,7 +151,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
          # a short flag cluster may end in `-m` or `-F` (`-nm msg`), so the `n` need not be the last letter
          _rx(r"\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*(?:commit\b[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)"
              r"|--no-verify\b)"
-             r")|" + _after_first_opener(_GIT_PUSH, r"--no-verify\b").pattern)),
+             r")|" + _after_first_opener(_GIT_PUSH, _GIT_PUSH_ACROSS_LINES, r"--no-verify\b").pattern)),
     Rule("secret-read", "high", "credential store read, by a command or a read tool (the finding's source says which)",
          # a name ends at a separator, an operator or the end (`.awsome` is no `.aws`); `.env` at whitespace, a quote, an operator or the end
          # `.env` is not cut at `/`, so a venv's `.env/bin` is no hit; the runner's HOME is /eval/run/home
