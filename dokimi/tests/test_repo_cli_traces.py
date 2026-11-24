@@ -32,7 +32,7 @@ from dokimi.repos.events import convert
     ("cd sub && cat AGENTS.md", ["sub/AGENTS.md"]),  # regression: cd changes cwd for following commands
     ("cd sub && cd inner && cat AGENTS.md", ["sub/inner/AGENTS.md"]),  # successive cds compose
     ("cat ./AGENTS.md", ["AGENTS.md"]),                   # dot components are normalised
-    ("cd sub && cat ../AGENTS.md", ["AGENTS.md"]),
+    ("cd sub && cat ../AGENTS.md", ["sub/../AGENTS.md"]),  # sub may be a link: HeldGuidance resolves the ``..``
     ("cd - && cat X", []),                                # the previous directory is not tracked
     ("cd missing || cat X", []),                          # runs in an unknown directory
     ("cd /abs && cat X", ["/abs/X"]),
@@ -368,7 +368,7 @@ def test_only_a_directory_builtin_in_this_shell_loses_the_directory_after_a_late
 
 def test_shell_reads_start_in_the_given_directory():
     assert shell_reads("cat AGENTS.md", "sub") == ["sub/AGENTS.md"]
-    assert shell_reads("cd inner && cat ../x", "sub") == ["sub/x"]
+    assert shell_reads("cd inner && cat ../x", "sub") == ["sub/inner/../x"]
     assert shell_reads("cat /ws/a", "sub") == ["/ws/a"]
     assert shell_reads("{ cd x && cat f; }", "sub") == ["sub/x/f"]
 
@@ -546,12 +546,12 @@ def test_copilot_native_tool_paths_start_in_the_given_directory():
                                                ("apply_patch", patch), ("view", {"path": "/ws/x.md"})])))
     events = convert("copilot-json", raw, "/ws", "sub").events
     assert [(e["kind"], e["path"]) for e in events] == [
-        ("read", "sub/AGENTS.md"), ("edit", "b.py"), ("edit", "sub/c.py"), ("read", "x.md")]
+        ("read", "sub/AGENTS.md"), ("edit", "sub/../b.py"), ("edit", "sub/c.py"), ("read", "x.md")]
     assert convert("copilot-json", raw, "/ws").events[0]["path"] == "AGENTS.md"
     # a Windows CLI names a relative path with backslashes
     win = _jsonl({"type": "tool.execution_start",
                   "data": {"toolCallId": "w", "toolName": "view", "arguments": {"path": "..\\AGENTS.md"}}})
-    assert convert("copilot-json", win, "/ws", "sub").events[0]["path"] == "AGENTS.md"
+    assert convert("copilot-json", win, "/ws", "sub").events[0]["path"] == "sub/../AGENTS.md"
 
 
 @pytest.mark.parametrize(("path", "cwd", "want"), [

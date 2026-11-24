@@ -312,9 +312,10 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
     - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
       people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
       With ``ensure_ascii`` false a surrogate pair is joined into its character and a lone
-      surrogate stays its ``\\udXXX`` escape, and a pair key beside its character key raises
-      ``ValueError``; ASCII-escaped, a pair stays two escapes and no key check runs. The text is
-      validated as a reader loads it as well, so two ids that become one once a pair is joined are
+      surrogate stays its ``\\udXXX`` escape; ASCII-escaped, a pair stays two escapes, which a reader
+      joins. Either way ``ValueError`` is raised, and nothing is written, when an object would hold
+      two equal keys once read back (a pair key beside its character key, or ``{1: .., "1": ..}``).
+      The text is validated as a reader loads it as well, so two ids that become one once a pair is joined are
       refused like any duplicate id.
     """
     if kind not in SCHEMA_VERSIONS:

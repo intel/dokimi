@@ -17,7 +17,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from dokimi.process_io import utf8_bytes
-from dokimi.repos.event_format import EVENT_VERSION
+from dokimi.repos.event_format import EVENT_VERSION, plain_path
 
 OUTPUT_LIMIT = 8192
 OUTPUT_KEEP = 4096
@@ -64,7 +64,8 @@ class Transcript:
 
     def reads(self) -> set[str]:
         """The paths the agent was shown (:func:`shown_read`); a refused or failed read stays in the events only."""
-        return {e["path"] for e in self.events if shown_read(e) and e.get("path")}
+        # a ``..`` is taken by name: no workspace here to follow a link (``HeldGuidance`` does that for ``guidance_read``)
+        return {posixpath.normpath(e["path"]) for e in self.events if shown_read(e) and e.get("path")}
 
     def events_jsonl(self, events: list[dict[str, Any]] | None = None) -> str:
         return "".join(json.dumps({**e, "v": EVENT_VERSION}, sort_keys=True) + "\n"
@@ -113,7 +114,7 @@ def _from_cwd(path: str, cwd: str) -> str:
     if not cwd or path.startswith("/") or win.is_absolute() or drive_letter:
         return path
     # a Windows CLI separates with backslashes, which posixpath keeps as part of a name
-    return posixpath.normpath(posixpath.join(cwd, win.as_posix()))
+    return plain_path(posixpath.join(cwd, win.as_posix()))
 
 
 def _parse_time(value: Any) -> datetime | None:
