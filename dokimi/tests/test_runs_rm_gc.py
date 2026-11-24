@@ -529,7 +529,7 @@ def test_gc_names_a_file_replaced_after_selection_and_exits_0(root, monkeypatch,
         assert (data["changed"], data["paths"]) == (["r1/eval/onetbb.json"], ["r1/answers/onetbb.json"])
     else:
         assert "removed 1 run older than 30d under results/: 1 of 2 artifacts, " in out
-        assert "kept: 1 file replaced since it was selected (first: r1/eval/onetbb.json)" in out
+        assert "left in place: 1 file replaced since selected (first: r1/eval/onetbb.json)" in out
     assert (root / "r1" / "eval" / "onetbb.json").exists()
 
 

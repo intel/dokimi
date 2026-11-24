@@ -252,7 +252,7 @@ def _left_lines(removal: Removal, of_run: bool) -> list[str]:
         lines.append(f"unreadable: {_count(len(removal.unreadable), 'entry', 'entries')} under the "
                      f"root left in place{why} ({_first(removal.unreadable)})")
     if removal.changed:
-        lines.append(f"kept: {_count(len(removal.changed), 'file')} replaced since it was selected "
+        lines.append(f"left in place: {_count(len(removal.changed), 'file')} replaced since selected "
                      f"(first: {plain(removal.changed[0].as_posix())})")
     if removal.not_removed:
         lines.append(f"not removed: {_count(len(removal.not_removed), 'file')} "

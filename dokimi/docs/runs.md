@@ -207,8 +207,8 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
   counts it.
 - A file is removed only while it holds what was selected: its device, inode, mtime
   and size, as the scan read it (as `runs rm PATH` looked it up). A file a writer
-  replaced since (a new run saved at the same path) stays, is named (`kept: 1 file
-  replaced since it was selected`), and the exit code stays 0. A replacement in the
+  replaced since (a new run saved at the same path) stays, is named (`left in place: 1
+  file replaced since selected`), and the exit code stays 0. A replacement in the
   instant between that check and the unlink is not caught: nothing locks the root.
 - `--dry-run` prints the same lines, `would remove` in place of `removed`, and
   removes nothing.
