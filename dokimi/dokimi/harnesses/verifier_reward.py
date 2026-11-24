@@ -30,10 +30,10 @@ REWARD_FILES = ("reward.json", "reward.txt")
 
 _REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D+([01](?:\.\d+)?)", re.IGNORECASE)
 # In a reward file: the token after a label, up to a separator (`reward=0.5;n=3`); `1.e3`, `1_000` stay whole.
-_FILE_REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D*?([-+]?\d[\w.+-]*)", re.IGNORECASE)
+_FILE_REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D*?([-+]?\.?\d[\w.+-]*)", re.IGNORECASE)
 # What may follow it on its line and make it no reward: a thousands comma, a percent, a fraction, a count.
 _NOT_A_REWARD_RE = re.compile(r",\d|[ \t]*[%/]|[ \t]+(?:out[ \t]+)?of[ \t]+\d", re.IGNORECASE)
-_NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?", re.IGNORECASE)
+_NUMBER_RE = re.compile(r"[-+]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?", re.IGNORECASE)
 
 
 def reward_in_file(name: str, data: bytes) -> float:
