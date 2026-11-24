@@ -25,10 +25,9 @@ from pathlib import Path
 
 from dokimi.artifacts import is_run_id
 from dokimi.atomic_write import write_text_atomic
-from dokimi.runs.scan import BASELINES_DIR, Unreadable, plain, read_error_reason, scan
+from dokimi.runs.scan import BASELINE_POINTERS, Unreadable, plain, read_error_reason, scan
 from dokimi.utils import InputError
 
-STORE = BASELINES_DIR
 LOCK = ".lock"
 _SEGMENT = r"[A-Za-z0-9][A-Za-z0-9._@-]*"
 _NAME = re.compile(rf"{_SEGMENT}(?:/{_SEGMENT})*")
@@ -63,7 +62,7 @@ def _name_of(file_name: str) -> str:
 
 
 def store(root: Path) -> Path:
-    return root / STORE
+    return root / BASELINE_POINTERS
 
 
 @contextlib.contextmanager
@@ -136,7 +135,7 @@ class Listing:
 
 
 def _entry(directory: Path, file_name: str) -> Pointer | Unreadable:
-    where = Path(STORE) / file_name
+    where = Path(BASELINE_POINTERS) / file_name
     name = _name_of(file_name)
     try:
         check_name(name)

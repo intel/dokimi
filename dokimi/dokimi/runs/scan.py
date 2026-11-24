@@ -31,7 +31,7 @@ from dokimi.utils import InputError, is_symlink_loop
 ENV_VAR = "DOKIMI_RUNS_DIR"
 DEFAULT_ROOT = Path("results")
 #: The baseline pointers (:mod:`dokimi.runs.baseline`): not artifacts, so the scan does not walk it.
-BASELINES_DIR = ".baselines"
+BASELINE_POINTERS = ".baselines"
 #: ``save_artifact`` writes ``{"schema_version": "<kind>.vN", ...`` with ``indent=2``.
 HEAD_BYTES = 256
 _HEAD = re.compile(rb'\A\s*\{\s*"schema_version"\s*:\s*"([^"\\\x00-\x1f]{1,100})"')
@@ -327,7 +327,7 @@ def scan(root: Path) -> ScanResult:
         linked = {d for d in dirnames if _is_link(base / d)}
         result.skipped["linked_directory"] += len(linked)
         dirnames[:] = sorted(d for d in dirnames if d not in linked
-                             and not (d == BASELINES_DIR and base == root))
+                             and not (d == BASELINE_POINTERS and base == root))
         for name in sorted(filenames):
             _scan_file(result, base / name, real_root)
     result.artifacts = newest_first(result.artifacts)
