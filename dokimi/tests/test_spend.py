@@ -233,3 +233,12 @@ def test_the_cap_counts_one_call_per_record_whatever_its_row_says():
 def test_a_row_claiming_more_priced_calls_than_it_has_hides_no_other_unpriced_call():
     over = UsageRecord(n_calls=1, cost_known_calls=2, cost_usd=0.25)
     assert Spend.of([over, UNPRICED]).usd is None
+
+
+def test_the_cap_refuses_the_call_after_spend_reaches_the_limit_exactly():
+    cap = SpendCap(limit_usd=0.5)
+    cap.record(PRICED, "a")
+    cap.before_call("b")
+    cap.record(PRICED, "b")
+    with pytest.raises(SpendCapReached, match=r"spend cap reached: \$0\.50 of \$0\.50 after 2 calls"):
+        cap.before_call("c")
