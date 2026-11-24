@@ -58,6 +58,7 @@ class UsageRecord:
         ``cost_usd`` stays ``None`` only if *both* operands are ``None`` (one
         priced + one unpriced call yields the priced subtotal, not ``None``).
         ``model``/``provider`` are taken from whichever operand has them.
+        ``replayed`` holds only when both rows are replayed.
         """
         if other == 0:  # identity element, so sum([...]) works
             return self
@@ -201,8 +202,9 @@ def roll_up_by_role(records: "Iterable[UsageRecord]") -> dict:
     main). A bucket's cost is its priced calls' sum, ``None`` when none is
     priced; the full-system cost is ``None`` unless every call of both is
     priced, so an unpriced subagent never reads as free. A replayed row adds no
-    tokens and no cost (:mod:`dokimi.spend`); a sum of a paid and a replayed row
-    is not replayed (``__add__`` keeps no count of it), so pass each call's row.
+    tokens and no cost (:mod:`dokimi.spend`). A sum of a paid and a replayed row
+    keeps both rows' tokens and dollars, drops the replayed mark and keeps one
+    role (``__add__``), so pass each call's row.
     """
     records = list(records)
     main = Spend.of(r for r in records if r.role != "subagent")
