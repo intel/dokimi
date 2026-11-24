@@ -83,6 +83,7 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   much a name, wording or list position moves a model's choice
   (`cli.py tools preference`).
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
+- [product-experiment-replay.md](product-experiment-replay.md) — replay a frozen product experiment and its verifier evidence
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
 - [knowledge-runs.md](knowledge-runs.md) — ask one question set of one agent
