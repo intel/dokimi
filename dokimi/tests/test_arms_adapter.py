@@ -54,6 +54,9 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
 EMPTY_D2: Tuple[Tuple[str, Any, Any], ...] = (
     ("with_docs.answer", "[FALLBACK: No relevant documentation found]", "Call parallel_for over a blocked_range."),
     ("retrieval_hit", False, False),
+    # The baseline answer, as the record reader and the report eval Q&A read it: the same on both.
+    ("without_docs.answer", ("Call parallel_for over a blocked_range.",) * 2,
+     ("Call parallel_for over a blocked_range.",) * 2),
     ("scores", (None, 60.0), (60.0, 60.0)),
     ("delta", None, 0.0),
     ("diagnosis", "empty_retrieval", "docs_helped"),
@@ -187,16 +190,29 @@ def test_every_reader_reads_the_adapted_run_as_the_pipelines_own(tmp_path, provi
 
 def test_q_empty_differs_only_as_parity_d2_pins_it(tmp_path, provider_calls):
     p_run, a_run, _ = _stacks(tmp_path, provider_calls)
-    got = {}
-    for side, run in (("P", p_run), ("A", a_run)):
-        subset = _subset(run, tmp_path / f"{side}-empty", [EMPTY])
-        seen = _observe(subset)
-        [answer] = load(subset / "answers" / STEM)
-        [(_, w, wo, delta, _, hit, label)] = seen["records.scores"]
-        [q] = seen["dashboard.questions"]
-        got[side] = {"with_docs.answer": answer.answer("with_docs").text, "retrieval_hit": hit, "scores": (w, wo),
-                     "delta": delta, "diagnosis": label, "dashboard.unjudged_miss": q["unjudged_miss"]}
+    got = {side: _empty_fields(_subset(run, tmp_path / f"{side}-empty", [EMPTY]))
+           for side, run in (("P", p_run), ("A", a_run))}
     assert [(k, got["P"][k], got["A"][k]) for k, *_ in EMPTY_D2] == list(EMPTY_D2)
+    # Negative control: a changed adapted baseline answer shows in that row, and only there.
+    path = tmp_path / "A-empty" / "answers" / STEM
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["answers"][0]["without_docs"]["answer"] = "Call parallel_for over a range."
+    path.write_text(json.dumps(data), encoding="utf-8")
+    changed = _empty_fields(tmp_path / "A-empty")
+    assert [k for k in changed if changed[k] != got["A"][k]] == ["without_docs.answer"]
+
+
+def _empty_fields(run: Path) -> Dict[str, Any]:
+    """What the readers make of q-empty, alone in *run*'s files."""
+    seen = _observe(run)
+    [answer] = load(run / "answers" / STEM)
+    [(_, w, wo, delta, _, hit, label)] = seen["records.scores"]
+    [q] = seen["dashboard.questions"]
+    [qa] = seen["report_eval.qa_records"]
+    baseline = answer.answer("without_docs")
+    return {"with_docs.answer": answer.answer("with_docs").text, "retrieval_hit": hit,
+            "without_docs.answer": (baseline.text if baseline else None, qa["without_docs_answer"]),
+            "scores": (w, wo), "delta": delta, "diagnosis": label, "dashboard.unjudged_miss": q["unjudged_miss"]}
 
 
 def test_model_compare_reads_the_arms_run_as_the_adapted_eval(tmp_path, provider_calls):
