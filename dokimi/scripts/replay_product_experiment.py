@@ -218,7 +218,7 @@ def run(args):
     for row in json.loads(runs.read_text(encoding="utf-8"))["results"]:
         case = inputs[row["task"]]
         evidence = Path(row["output_dir"]) / "evidence.json"
-        error = row["metrics"].get("solver_error")
+        error = row["metrics"].get("error") or row["metrics"].get("solver_error")
         relative_evidence = evidence.relative_to(root).as_posix() if evidence.exists() else None
         controls = case.get("controls")
         control = controls[row["repeat"] - 1] if controls else None

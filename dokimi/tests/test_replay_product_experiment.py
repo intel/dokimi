@@ -42,3 +42,20 @@ def test_suite_without_product_is_rejected_with_a_clear_error(tmp_path):
     args = argparse.Namespace(skill_fixture=False, controls=None, evaluator_root=None)
     with pytest.raises(ValueError, match="product-named"):
         rpe.materialize_tasks(args, tmp_path, prompts)
+
+
+def test_harness_error_is_an_infrastructure_error(tmp_path, monkeypatch):
+    out = tmp_path / "replay"
+
+    def fake_run(cmd, **_):
+        rpe.write_json(Path(cmd[cmd.index("--out") + 1]), {"results": [{
+            "task": "unicode-key", "harness": "with-skill", "repeat": 1, "passed": False,
+            "elapsed_sec": 0.0, "output_dir": str(tmp_path / "missing"),
+            "metrics": {"error": "harness failed"}, "reward": None}]})
+        return argparse.Namespace(returncode=1)
+
+    monkeypatch.setattr(rpe.subprocess, "run", fake_run)
+    rpe.run(argparse.Namespace(out=out, suite=None, skill_fixture=True, skill_file=None))
+    cell = json.loads((out / "response.json").read_text())["cells"][0]
+    assert cell["status"] == "infrastructure_error"
+    assert cell["error"] == "harness failed"
