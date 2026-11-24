@@ -36,8 +36,8 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
         if errors := schema_errors("repo_static.v1", data):
             raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
-        return "repo_static", opportunities.from_repo_static(
-            data, target=path, repository=str(data.get("repo") or "repository"))
+        repository = str(data.get("repo") or Path(path).resolve().parent)
+        return "repo_static", opportunities.from_repo_static(data, target=path, repository=repository)
     if isinstance(data, dict) and isinstance(data.get("paired"), dict):
         try:
             return "novelty", opportunities.from_novelty(data)

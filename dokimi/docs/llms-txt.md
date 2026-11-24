@@ -29,6 +29,9 @@ dokimi docs llms-txt site/ --token-budget 4000
 | `when_not_to_use` | warn | A `## When not to use` section naming the alternative |
 | `size` | warn | At most `--token-budget` estimated tokens (default 2000) |
 
+Fenced examples and HTML comments do not satisfy the structure checks. Their text still counts
+toward the token budget.
+
 ## Output and exit code
 
 Text output is one tab-separated row per finding (`severity, check, file:line, message, fix`;

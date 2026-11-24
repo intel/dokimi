@@ -81,3 +81,22 @@ def test_invalid_input_names_the_path(tmp_path, data):
     path.write_bytes(data)
     with pytest.raises(InputError, match="evidence.json"):
         cmd.build([str(path)])
+
+
+def test_anonymous_repo_keys_use_the_report_directory(tmp_path):
+    paths = [tmp_path / name / "static.json" for name in ("first", "second")]
+    for path in paths:
+        path.parent.mkdir()
+        path.write_text(json.dumps(STATIC), encoding="utf-8")
+    first, second = [cmd.build([str(path)])["items"][0]["source_key"] for path in paths]
+    assert first != second
+    renamed = paths[0].rename(paths[0].with_name("other.json"))
+    assert cmd.build([str(renamed)])["items"][0]["source_key"] == first
+
+
+@pytest.mark.parametrize("doc", [{"paired": {}}, {**NOVELTY, "artifact": None}])
+def test_missing_novelty_evidence_is_an_input_error(tmp_path, doc):
+    path = tmp_path / "novelty.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(InputError, match="novelty.json"):
+        cmd.build([str(path)])
