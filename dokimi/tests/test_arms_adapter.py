@@ -234,8 +234,8 @@ def _arms(*records: Dict[str, Any], arms=("baseline", "docs"), evaluations=None,
     return out
 
 
-def _cell(answer="an answer", chunks=None) -> Dict[str, Any]:
-    return {"answer": answer, "context_chunks": chunks or [], "metadata": {"arm_kind": "docs"}}
+def _cell(answer="an answer", chunks=None, kind="docs") -> Dict[str, Any]:
+    return {"answer": answer, "context_chunks": chunks or [], "metadata": {"arm_kind": kind}}
 
 
 def _question(qid="q1", **arms) -> Dict[str, Any]:
@@ -250,7 +250,7 @@ def test_a_failed_cell_is_a_null_condition_named_in_the_error_and_judged_nowhere
     # As the answerer writes a failed condition: null, with the record's error (eval/answerer.py).
     failed = {"error": "generation_failed: boom", "answer": None, "metadata": {"arm_kind": "docs"}}
     answers, evaluation = to_binary(_arms(
-        _question(baseline=_cell(), docs=failed),
+        _question(baseline=_cell(kind="baseline"), docs=failed),
         evaluations=[_scores(baseline={"aggregate": 60.0}, docs={"error": "generation_failed: boom"})]))
     [a], [e] = answers["answers"], evaluation["evaluations"]
     assert (a["with_docs"], a["error"]) == (None, "docs: generation_failed: boom")
@@ -262,7 +262,7 @@ def test_a_failed_cell_is_a_null_condition_named_in_the_error_and_judged_nowhere
 def test_a_judge_failure_on_an_answer_is_the_eval_records_error():
     # As the judge writes a failed judgement: no score, the record's error (eval/judge.py evaluate_answers).
     answers, evaluation = to_binary(_arms(
-        _question(baseline=_cell(), docs=_cell(chunks=[{"source": "a.md", "snippet": "text"}])),
+        _question(baseline=_cell(kind="baseline"), docs=_cell(chunks=[{"source": "a.md", "snippet": "text"}])),
         evaluations=[_scores(baseline={"aggregate": 60.0}, docs={"error": "judge broke"})]))
     [e] = evaluation["evaluations"]
     assert (e["with_docs"], e["delta"], e["error"], e["retrieval_hit"]) == (None, None, "docs: judge broke", True)
@@ -275,7 +275,7 @@ def test_a_judge_failure_on_an_answer_is_the_eval_records_error():
 ])
 def test_retrieved_docs_are_the_chunks_the_record_reader_reads(chunks, docs):
     # records._answer keeps the non-empty objects of a list; a cell of another shape is not a crash.
-    answers, _ = to_binary(_arms(_question(baseline=_cell(), docs={**_cell(), "context_chunks": chunks})))
+    answers, _ = to_binary(_arms(_question(baseline=_cell(kind="baseline"), docs={**_cell(), "context_chunks": chunks})))
     with_docs = answers["answers"][0]["with_docs"]
     assert with_docs["retrieved_docs"] == docs
     assert with_docs.get("doc_source") == (docs[0]["source"] if docs else None)
@@ -285,12 +285,12 @@ def test_retrieved_docs_are_the_chunks_the_record_reader_reads(chunks, docs):
 def test_a_legacy_inline_evaluation_is_not_a_score_of_the_run():
     # records.arm_scores: an arms run's stored judge is its evaluations list, not arms[name].evaluation.
     legacy = {"evaluation": {"aggregate_score": 70}}
-    _, evaluation = to_binary(_arms(_question(baseline={**_cell(), **legacy}, docs={**_cell(), **legacy}),
+    _, evaluation = to_binary(_arms(_question(baseline={**_cell(kind="baseline"), **legacy}, docs={**_cell(), **legacy}),
                                     evaluations=[]))
     assert evaluation is not None
     [e] = evaluation["evaluations"]
     assert (e["with_docs"], e["without_docs"], e["delta"]) == (None, None, None)  # was a KeyError on "aggregate"
-    _, evaluation = to_binary(_arms(_question(baseline=_cell(), docs={**_cell(), **legacy}),
+    _, evaluation = to_binary(_arms(_question(baseline=_cell(kind="baseline"), docs={**_cell(), **legacy}),
                                     evaluations=[_scores(baseline={"aggregate": 60.0})]))
     [e] = evaluation["evaluations"]
     assert (e["with_docs"], e["without_docs"]["aggregate"], e["delta"]) == (None, 60.0, None)
@@ -299,7 +299,7 @@ def test_a_legacy_inline_evaluation_is_not_a_score_of_the_run():
 def test_a_baseline_only_run_reads_as_a_knowledge_run():
     # An arms file of the baseline arm alone is a knowledge run (records.is_knowledge_run).
     answers, evaluation = to_binary(_arms(
-        _question(baseline=_cell()), arms=("baseline",), evaluations=[_scores(baseline={"aggregate": 70.0})]))
+        _question(baseline=_cell(kind="baseline")), arms=("baseline",), evaluations=[_scores(baseline={"aggregate": 70.0})]))
     run = read(answers)
     assert (answers["run_intent"], answers["answers"][0]["with_docs"]) == ("knowledge", None)
     assert is_knowledge_run(run.records, run.meta)
@@ -308,25 +308,28 @@ def test_a_baseline_only_run_reads_as_a_knowledge_run():
 
 def test_method_version_is_carried_and_never_stamped():
     # #228 step 2: the stamp says which method answered; arms.v1 has none yet (parity row artifact.method_version).
-    with_version = to_binary(_arms(_question(baseline=_cell(), docs=_cell()), evaluations=[], method_version=4))
+    with_version = to_binary(_arms(_question(baseline=_cell(kind="baseline"), docs=_cell()), evaluations=[], method_version=4))
     assert [part["method_version"] for part in with_version] == [4, 4]
-    without = to_binary(_arms(_question(baseline=_cell(), docs=_cell()), evaluations=[]))
+    without = to_binary(_arms(_question(baseline=_cell(kind="baseline"), docs=_cell()), evaluations=[]))
     assert all("method_version" not in part for part in without)
 
 
 @pytest.mark.parametrize("data, message", [
     ({"schema_version": "answers.v1", "answers": []}, "not an arms.v1 artifact"),
-    (_arms(_question(baseline=_cell(), docs=_cell(), skill=_cell()), arms=("baseline", "docs", "skill")),
+    (_arms(_question(baseline=_cell(kind="baseline"), docs=_cell(), skill=_cell()), arms=("baseline", "docs", "skill")),
      "hold the baseline arm and at most one other"),
     (_arms(_question(docs=_cell()), arms=("docs",)), "with baseline_arm 'baseline' do not fit"),
     # A profile arm retrieves nothing: as with_docs every question would read as a retrieval miss.
-    (_arms(_question(baseline=_cell(), profile={**_cell(), "metadata": {"arm_kind": "profile"}}),
+    (_arms(_question(baseline=_cell(kind="baseline"), profile={**_cell(), "metadata": {"arm_kind": "profile"}}),
            arms=("baseline", "profile")), r"arm 'profile' \(arm_kind \['profile'\]\) is not a docs arm"),
-    (_arms(_question(baseline=_cell(), docs={"answer": "a"})), r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
+    (_arms(_question(baseline=_cell(kind="baseline"), docs={"answer": "a"})), r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
+    # --baseline-arm docs with an mcp arm: without_docs would hold a docs answer.
+    (_arms(_question(docs=_cell(), mcp=_cell(kind="mcp_doc")), arms=("docs", "mcp"), baseline_arm="docs"),
+     r"baseline_arm 'docs' \(arm_kind \['docs'\]\) is not a baseline arm"),
     # A session's answer is its last turn's (ArmRunner refuses to judge it, arm_runner._refuse_session_records).
-    ({**_arms(_question(baseline=_cell()), arms=("baseline",)), "session": {"turns": 2, "turn_reminder": None}},
+    ({**_arms(_question(baseline=_cell(kind="baseline")), arms=("baseline",)), "session": {"turns": 2, "turn_reminder": None}},
      "a session run"),
-    (_arms({**_question(baseline=_cell()), "session_turns": 2}, arms=("baseline",)), "a session run"),
+    (_arms({**_question(baseline=_cell(kind="baseline")), "session_turns": 2}, arms=("baseline",)), "a session run"),
 ])
 def test_a_run_with_no_binary_reading_is_refused(data, message):
     # answers.v1/eval.v1 have two conditions, with_docs and without_docs (AGENTS.md, "Persisted formats").
@@ -337,7 +340,7 @@ def test_a_run_with_no_binary_reading_is_refused(data, message):
 def test_a_stopped_run_keeps_its_stop_in_both_files():
     # A shortened run is not read as a whole one (#895): the report's stop note reads either file.
     stop = {"reason": "usage limit", "questions_requested": 4, "questions_recorded": 1}
-    answers, evaluation = to_binary(_arms(_question(baseline=_cell(), docs=_cell()), evaluations=[],
+    answers, evaluation = to_binary(_arms(_question(baseline=_cell(kind="baseline"), docs=_cell()), evaluations=[],
                                           terminated=stop))
     assert evaluation is not None
     assert answers["terminated"] == evaluation["run_metadata"]["terminated"] == stop
@@ -348,7 +351,7 @@ def test_a_stopped_run_keeps_its_stop_in_both_files():
 def test_a_docs_or_mcp_arm_is_with_docs(kind):
     # The two kinds DocTreatment stamps (treatments/factory.py: docs:, mcp:).
     cell = {**_cell(chunks=[{"source": "a.md", "snippet": "s"}]), "metadata": {"arm_kind": kind}}
-    answers, _ = to_binary(_arms(_question(baseline=_cell(), docs=cell)))
+    answers, _ = to_binary(_arms(_question(baseline=_cell(kind="baseline"), docs=cell)))
     assert read(answers).records[0].retrieval_hit is True
 
 
@@ -366,7 +369,7 @@ def test_a_run_stopped_after_its_docs_arm_answered_converts_with_its_stop():
     cells = _stopped()
     stop = {"reason": "usage limit", "questions_requested": 4, "questions_recorded": 2}
     answers, evaluation = to_binary(_arms(
-        _question(baseline=_cell(), docs=_cell()), _question("q2", **cells), terminated=stop,
+        _question(baseline=_cell(kind="baseline"), docs=_cell()), _question("q2", **cells), terminated=stop,
         evaluations=[_scores(baseline={"aggregate": 60.0}, docs={"aggregate": 80.0}),
                      _scores("q2", baseline={"error": cells["baseline"]["error"]}, docs={"error": cells["docs"]["error"]})]))
     a, e = answers["answers"][1], evaluation["evaluations"][1]
@@ -410,15 +413,15 @@ def test_the_partial_file_of_a_run_killed_before_its_first_question_has_no_recor
 
 @pytest.mark.parametrize("data, message", [
     # An arm that answered and names no kind, or a stopped arm whose other cells name a non-docs kind.
-    (_arms(_question(**_stopped()), _question("q2", baseline=_cell(), docs={"answer": "a"})),
+    (_arms(_question(**_stopped()), _question("q2", baseline=_cell(kind="baseline"), docs={"answer": "a"})),
      r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
-    (_arms(_question(**_stopped()), _question("q2", baseline=_cell(),
+    (_arms(_question(**_stopped()), _question("q2", baseline=_cell(kind="baseline"),
                                               docs={"error": "x", "answer": None, "metadata": {"arm_kind": "skill"}})),
      r"arm 'docs' \(arm_kind \['skill'\]\) is not a docs arm"),
     # A run that never stopped: a kind-less unanswered arm is not a stop's, and could be any arm.
-    (_arms(_question(baseline=_cell(), docs={"error": "prepare_failed: x", "answer": None, "metadata": {}})),
+    (_arms(_question(baseline=_cell(kind="baseline"), docs={"error": "prepare_failed: x", "answer": None, "metadata": {}})),
      r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
-    (_arms(_question(baseline=_cell())), r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
+    (_arms(_question(baseline=_cell(kind="baseline"))), r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
 ])
 def test_a_stopped_run_is_still_refused_when_its_arm_is_not_docs(data, message):
     with pytest.raises(RecordError, match=message):

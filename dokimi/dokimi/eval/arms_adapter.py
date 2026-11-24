@@ -8,13 +8,14 @@ artifacts (the trust gate, ``report generate`` and ``report eval``, the dashboar
 ``eval score``) stay as they are. :func:`to_binary` is the bridge: a pure function from an arms run to the two
 binary artifacts. ``report model-compare`` reads the arms file itself.
 
-* **Arms.** The run's ``baseline_arm`` is ``without_docs``; its one other arm, the context arm, is
-  ``with_docs``; it must be a docs arm (``arm_kind`` ``docs`` or ``mcp_doc``). In a stopped run (a
-  ``terminated`` or ``partial`` block), an arm the stop reached before it answered records no kind: it is taken
-  as the docs arm, with ``with_docs: null``. A non-docs arm stopped that early cannot be told apart, and
-  converts too. A run of the baseline arm alone is a knowledge run (``with_docs: null``, ``run_intent:
-  knowledge``). A run with more arms, with no baseline arm among them, or whose other arm is not a docs arm,
-  is a :class:`RecordError`, and so is a session run (``session_turns``), whose answers are the last turn's.
+* **Arms.** The run's ``baseline_arm`` is ``without_docs``; it must be a baseline arm (``arm_kind`` ``baseline``,
+  or none recorded). Its one other arm, the context arm, is ``with_docs``; it must be a docs arm (``arm_kind``
+  ``docs`` or ``mcp_doc``). In a stopped run (a ``terminated`` or ``partial`` block), an arm the stop reached
+  before it answered records no kind: it is taken as the docs arm, with ``with_docs: null``. A non-docs arm
+  stopped that early cannot be told apart, and converts too. A run of the baseline arm alone is a knowledge run
+  (``with_docs: null``, ``run_intent: knowledge``). A run with more arms, with no baseline arm among them, with
+  a baseline arm of another kind, or whose other arm is not a docs arm, is a :class:`RecordError`, and so is a
+  session run (``session_turns``), whose answers are the last turn's.
 * **Answers.** A cell keeps its fields; its ``context_chunks`` become ``retrieved_docs``, and ``doc_source`` is
   the first chunk's source, as the answerer writes it. An errored or empty cell is ``null``, and the record's
   ``error`` names it, as a failed condition is in an answers file.
@@ -105,11 +106,14 @@ def _binary_arms(run: Run, source: str, *, stopped: bool) -> Tuple[Optional[str]
         raise RecordError(
             f"{source}: arms {list(run.conditions)} with baseline_arm {baseline!r} do not fit answers.v1/eval.v1, "
             "which hold the baseline arm and at most one other")
+    base_kinds = _cells_and_kinds(run, baseline)[1]
+    if base_kinds - {"baseline"}:
+        # A --baseline-arm docs run would read as docs against no docs (BaselineTreatment records "baseline").
+        raise RecordError(f"{source}: baseline_arm {baseline!r} (arm_kind {sorted(base_kinds)}) is not a baseline "
+                          "arm, the one arm without_docs holds")
     if not others:
         return None, baseline
-    cells = [cell for r in run if (cell := r.answer(others[0])) is not None]
-    kinds = {kind for cell in cells
-             if isinstance(kind := (cell.raw.get("metadata") or {}).get("arm_kind"), str) and kind}
+    cells, kinds = _cells_and_kinds(run, others[0])
     # A run stopped before the arm answered has only stop cells, which record no kind (arm_stop.py): all
     # with_docs gets from it is null, which no reader can misread, so the arm is taken as the docs arm.
     answered = any(not is_empty_reply(cell.text) for cell in cells)
@@ -119,6 +123,13 @@ def _binary_arms(run: Run, source: str, *, stopped: bool) -> Tuple[Optional[str]
             f"{source}: arm {others[0]!r} (arm_kind {sorted(kinds) or 'unrecorded'}) is not a docs arm "
             f"({', '.join(sorted(_DOC_KINDS))}), the one arm with_docs holds")
     return others[0], baseline
+
+
+def _cells_and_kinds(run: Run, arm: str) -> Tuple[List[Answer], set[str]]:
+    """The cells *arm* holds, and the ``arm_kind`` values they record (a stop cell records none)."""
+    cells = [cell for r in run if (cell := r.answer(arm)) is not None]
+    return cells, {kind for cell in cells
+                   if isinstance(kind := (cell.raw.get("metadata") or {}).get("arm_kind"), str) and kind}
 
 
 def _stop_block(data: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
