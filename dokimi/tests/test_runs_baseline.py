@@ -337,6 +337,36 @@ def test_gc_keep_baselines_keeps_the_run_a_pointer_holds(root, monkeypatch, caps
     assert _pointer(root, "skill/a@main") == A + "\n"
 
 
+LOCK_REFUSED = "Error: results/.baselines/: cannot lock: not a directory\n"
+
+
+@pytest.mark.parametrize("argv, message", [
+    (["gc", "--older-than", "0d", "--keep-baselines"], LOCK_REFUSED),
+    (["baseline", "save", "main", A], LOCK_REFUSED),
+    (["baseline", "rm", "main"], "Error: no baseline main under the runs root results/\n"),
+])
+def test_a_baselines_store_that_is_a_file_exits_2_and_changes_nothing(
+        root, monkeypatch, capsys, argv, message):
+    # docs/runs.md, Exit codes: a .baselines/ that cannot be locked or listed is an input error
+    (root / ".baselines").write_text("", encoding="utf-8")
+
+    assert _run(monkeypatch, capsys, *argv)[::2] == (2, message)
+    assert (root / "a" / "eval.json").exists() and (root / "b" / "arms.json").exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0,
+                    reason="root writes into a read-only directory; Windows has no such mode")
+def test_gc_keep_baselines_in_a_store_where_no_lock_can_be_made_exits_2(root, monkeypatch, capsys):
+    (root / ".baselines").mkdir(mode=0o555)
+    try:
+        code, _, err = _run(monkeypatch, capsys, "gc", "--older-than", "0d", "--keep-baselines")
+    finally:
+        (root / ".baselines").chmod(0o755)
+
+    assert (code, err) == (2, "Error: results/.baselines/: cannot lock: Permission denied\n")
+    assert (root / "b" / "arms.json").exists()
+
+
 def test_gc_keep_baselines_removes_nothing_while_a_pointer_cannot_be_read(root, monkeypatch, capsys):
     (root / ".baselines").mkdir()
     (root / ".baselines" / "main").write_text("", encoding="utf-8")

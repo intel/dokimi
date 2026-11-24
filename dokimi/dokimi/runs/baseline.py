@@ -68,11 +68,17 @@ def store(root: Path) -> Path:
 @contextlib.contextmanager
 def locked(root: Path) -> Iterator[None]:
     """Hold ``<root>/.baselines/.lock`` (made, with the directory, if missing; ``root`` must
-    exist), waiting while another process holds it."""
+    exist), waiting while another process holds it. Raises ``InputError`` when the store or its
+    lock cannot be made or taken (a file at ``.baselines``, no permission)."""
     directory = store(root)
-    directory.mkdir(exist_ok=True)
-    with open(directory / LOCK, "a+b") as fh:
-        _lock(fh.fileno())
+    with contextlib.ExitStack() as stack:
+        try:
+            directory.mkdir(exist_ok=True)
+            fh = stack.enter_context(open(directory / LOCK, "a+b"))
+            _lock(fh.fileno())  # ENOLCK on a file system that does not lock
+        except OSError as exc:
+            reason = "not a directory" if isinstance(exc, FileExistsError) else exc.strerror or str(exc)
+            raise InputError(f"{plain(directory.as_posix())}/: cannot lock: {reason}") from exc
         try:
             yield
         finally:
