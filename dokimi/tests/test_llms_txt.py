@@ -86,3 +86,9 @@ def test_inline_backticks_do_not_open_a_fence():
 
 def test_html_comments_do_not_satisfy_structure_checks():
     assert {"title", "links"} <= _checks(f"<!--\n{GOOD}\n-->")
+
+
+def test_inline_code_comment_delimiter_keeps_following_links():
+    text = GOOD.replace('## Docs', '## Docs\n\nWrite `<!--` to begin a comment.')
+    assert text != GOOD
+    assert llms_txt.check(text) == []

@@ -103,6 +103,9 @@ def _link_findings(lines: list[str]) -> list[Finding]:
             and not re.match(r"\s*:\s*\S", lines[i - 1][end:])]
 
 
+_COMMENT_OR_CODE = re.compile(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)|<!--")
+
+
 def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
     parts: list[str] = []
     while line:
@@ -112,9 +115,13 @@ def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
                 return "".join(parts), True
             in_comment = False
         else:
-            visible, opened, line = line.partition("<!--")
-            parts.append(visible)
-            in_comment = bool(opened)
+            opening = next((mark for mark in _COMMENT_OR_CODE.finditer(line) if mark[0] == "<!--"), None)
+            if opening is None:
+                parts.append(line)
+                break
+            parts.append(line[:opening.start()])
+            line = line[opening.end():]
+            in_comment = True
     return "".join(parts), in_comment
 
 
