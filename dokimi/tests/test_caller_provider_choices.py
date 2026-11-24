@@ -35,7 +35,8 @@ CALLER_FLAGS = [
 LLM_FLAGS = [
     "eval questions analyze", "eval questions review", "eval score panel", "arms run",
     "arms matrix-run", "subjects run", "skill novelty analyze", "skill novelty atoms",
-    "skill novelty probe", "skill shorten", "skill routing", "catalog routing", "tools preference",
+    "skill novelty probe", "skill shorten", "skill routing", "catalog routing", "catalog novelty",
+    "tools preference",
 ]
 
 
