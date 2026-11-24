@@ -88,7 +88,7 @@ from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
-from .held_guidance import held_guidance
+from .held_guidance import HeldGuidance, held_guidance
 from .host import probe_host, unmet, validate_tasks
 from .manifest import match_glob, scratch_name
 from .process_metrics import process_metrics
@@ -378,7 +378,8 @@ def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]], unknown_
     (a multi-file read cannot say which file failed). None: any path the globs match."""
     globs = ctx.manifest.guidance_globs
     return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs) and (held is None or path in held),
-                           ctx.manifest.process_metrics, unknown_reads)
+                           ctx.manifest.process_metrics, unknown_reads,
+                           held.resolved if isinstance(held, HeldGuidance) else None)
 
 
 def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str],

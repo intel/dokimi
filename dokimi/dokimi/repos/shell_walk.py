@@ -21,6 +21,7 @@ from typing import NamedTuple
 
 from dokimi.text_spans import HeredocPattern
 
+from .event_format import plain_path
 from .shell_functions import Functions, define
 from .shell_redirects import bare, masked, without_stderr
 from .shell_search import Searched, cuts_lines, passes_through, search_program, searched_files
@@ -141,7 +142,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     # is input, not commands
     script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub("", script))
     known: Functions = {}
-    walk = _Walk(posixpath.normpath(cwd) if cwd else "", define(known, script), known)
+    walk = _Walk(plain_path(cwd) if cwd else "", define(known, script), known)
     for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
         if _ungrouped(part).strip():  # the ``}`` that closes a group has no exit of its own: the group's last command's
@@ -364,7 +365,7 @@ class _Walk:
         return [self.resolve(f) for f in files if f.startswith("/") or (self.here is not None and not chdir)]
 
     def resolve(self, f: str) -> str:
-        return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
+        return plain_path(f if f.startswith("/") else posixpath.join(self.here or "", f))
 
 
 def _in_own_shell(outer: str, after: str) -> bool:
