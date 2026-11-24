@@ -72,6 +72,11 @@ class Spend:
         return self.calls - self.unpriced_calls
 
     @property
+    def known_usd(self) -> float | None:
+        """The priced calls' dollars, for a report that shows them with ``priced_calls``; ``None`` with none."""
+        return round(self.spent_usd, 6) if self.priced_calls else None
+
+    @property
     def usd(self) -> float | None:
         """The dollar total; ``None`` with no call, or with any paid call unpriced."""
         return round(self.spent_usd, 6) if self.calls and not self.unpriced_calls else None

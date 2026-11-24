@@ -138,12 +138,12 @@ class UsageRecord:
 
     @property
     def priced_calls(self) -> int:
-        """Number of LLM calls whose dollar cost is represented in ``cost_usd``."""
+        """Number of LLM calls whose dollar cost is represented in ``cost_usd``; none when it is ``None``."""
+        if self.cost_usd is None:
+            return 0
         if self.cost_known_calls:
             return self.cost_known_calls
-        if self.cost_usd is not None and self.n_calls > 0:
-            return self.n_calls
-        return 0
+        return max(self.n_calls, 0)
 
     def with_latency(self, latency_sec: float, ttft_sec: Optional[float] = None) -> "UsageRecord":
         """Return a copy with latency/TTFT filled in (extraction-time helper)."""
