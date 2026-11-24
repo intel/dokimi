@@ -350,6 +350,28 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("export POSIXLY_CORRECT=1; unset -vz POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
     ("export POSIXLY_CORRECT=1; export -zn POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
     ("export -z POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 <<<ignored; head AGENTS.md -n 0", ["AGENTS.md"]),  # a here-string is one redirect
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT <<<x; head AGENTS.md -n 0", []),  # and it cannot fail to open
+    ("if true; then export POSIXLY_CORRECT=1; fi; head AGENTS.md -n 0", ["AGENTS.md"]),  # a branch may not run: both states
+    ("if true; then export POSIXLY_CORRECT=1; fi; head -n 0 AGENTS.md", []),
+    ("if false; then export POSIXLY_CORRECT=1; fi; head -n 0 AGENTS.md", []),
+    ("export POSIXLY_CORRECT=1; if true; then unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT+=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # NAME+=value assigns an unset variable
+    ("POSIXLY_CORRECT+=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("POSIXLY_CORRECT+=1 head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export -n POSIXLY_CORRECT+=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export -n POSIXLY_CORRECT+=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # unset takes names, not assignments
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT+; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # declare and typeset export with -x
+    ("typeset -gx POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("declare POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("declare -f POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("declare -x POSIXLY_CORRECT=1; declare -n POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("set -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # allexport exports what is set after it
+    ("set -o allexport; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("set -a; head -n 0 AGENTS.md", []),
+    ("set -e; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads

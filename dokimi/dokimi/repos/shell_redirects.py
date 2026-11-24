@@ -18,10 +18,10 @@ _HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?>&\d+(?=\s|$|[;&|])|(?<!
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
 # any redirect with its target: ``>f``, ``>>f``, ``2>f``, ``&>f``, ``>&2``, ``<f``; the operator may be glued to the
 # word before it (``export X=1>f``), but a descriptor number or ``&`` only starts a word
-_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])(?:\d+|&))?(?:>>?|<>?)&?[ \t]*[^\s;&|<>()]+")
+_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])(?:\d+|&))?(?:>>?|<<<|<>?)&?[ \t]*[^\s;&|<>()]+")
 # a redirect that cannot fail to open: to /dev/null, or a copy of or close of a standard descriptor (``2>&1``, ``<&-``);
-# a copy of another one (``2>&9``) fails when it is not open
-_SAFE_REDIRECT = re.compile(r"(?:\d+|&)?(?:>>?|<>?)(?:&[ \t]*(?:[0-2]|-)|[ \t]*/dev/null)")
+# a copy of another one (``2>&9``) fails when it is not open; a here-string (``<<<word``) opens no file
+_SAFE_REDIRECT = re.compile(r"(?:\d+|&)?(?:>>?|<>?)(?:&[ \t]*(?:[0-2]|-)|[ \t]*/dev/null)|\d*<<<.+")
 
 
 def bare(part: str) -> str:

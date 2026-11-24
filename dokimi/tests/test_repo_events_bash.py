@@ -70,7 +70,13 @@ def test_an_absolute_path_inside_the_workspace_is_made_relative():
                                            ("export POSIXLY_CORRECT=1; true && { false; } || unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
                                            ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT </missing; head AGENTS.md -n 0", ["AGENTS.md"]),
                                            ("X=1 export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
-                                           ("time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"])])
+                                           ("time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1 <<<ignored; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("if true; then export POSIXLY_CORRECT=1; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT+=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("set -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"])])
 def test_a_head_or_tail_that_prints_no_line_gives_no_read_event(command, reads):
     assert _reads(_events(_call("a", command), _result("a", ""))) == reads
 
