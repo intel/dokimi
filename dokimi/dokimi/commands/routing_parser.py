@@ -3,13 +3,13 @@
 
 """The argparse leaves of `skill routing` and `catalog routing` (#94 M3).
 
-Both leaves take the same routing options; `cmd_routing` in `dokimi.commands.novelty` runs them.
+Both leaves take the same routing options; `cmd_routing` in `dokimi.commands.novelty_routing` runs them.
 """
 
 from __future__ import annotations
 
 from dokimi import cli_flags
-from dokimi.commands.novelty import cmd_routing, cmd_skill_routing
+from dokimi.commands.novelty_routing import cmd_routing, cmd_skill_routing
 from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
 from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
