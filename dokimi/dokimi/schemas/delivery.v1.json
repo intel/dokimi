@@ -2,14 +2,167 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$comment": "Copyright (C) 2026 Intel Corporation. SPDX-License-Identifier: Apache-2.0",
   "type": "object",
-  "required": ["schema_version", "identity", "mode", "observations", "summary", "date", "run_id", "dokimi_version"],
+  "required": [
+    "schema_version",
+    "identity",
+    "mode",
+    "observations",
+    "summary",
+    "date",
+    "run_id",
+    "dokimi_version",
+    "reproduce",
+    "required"
+  ],
   "properties": {
-    "schema_version": {"const": "delivery.v1"}, "mode": {"enum": ["release", "scan"]},
-    "identity": {"type": "object", "required": ["manifest", "artifact", "profile", "catalog", "image", "version"]},
-    "observations": {"type": "array", "items": {"type": "object", "required": ["task", "origin", "identity", "arm", "outcome", "evidence"], "properties": {"outcome": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]}}}},
-    "summary": {"type": "object"}, "date": {"type": "string"}, "run_id": {"type": "string"}, "dokimi_version": {"type": "string"}
+    "schema_version": {
+      "const": "delivery.v1"
+    },
+    "mode": {
+      "enum": [
+        "release",
+        "scan"
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "manifest",
+        "artifact",
+        "profile",
+        "catalog",
+        "image",
+        "version"
+      ]
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "task",
+          "origin",
+          "identity",
+          "arm",
+          "outcome",
+          "evidence",
+          "repeat",
+          "sources_supplied",
+          "observed_reads",
+          "reason"
+        ],
+        "properties": {
+          "outcome": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "INCONCLUSIVE"
+            ]
+          },
+          "repeat": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task": {
+            "type": "string"
+          },
+          "arm": {
+            "enum": [
+              "release",
+              "A",
+              "B"
+            ]
+          },
+          "origin": {
+            "enum": [
+              "contract",
+              "scan"
+            ]
+          },
+          "evidence": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "sources_supplied": {
+            "type": "array"
+          },
+          "observed_reads": {
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object"
+    },
+    "date": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "dokimi_version": {
+      "type": "string"
+    },
+    "reproduce": {
+      "type": "string"
+    },
+    "required": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    }
   },
-  "if": {"properties": {"mode": {"const": "release"}}},
-  "then": {"properties": {"summary": {"required": ["verdict", "checks"], "properties": {"verdict": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]}}}}},
-  "else": {"properties": {"summary": {"required": ["A", "B", "partial"]}}}
+  "if": {
+    "properties": {
+      "mode": {
+        "const": "release"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "summary": {
+        "required": [
+          "verdict",
+          "checks"
+        ],
+        "properties": {
+          "verdict": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "INCONCLUSIVE"
+            ]
+          }
+        }
+      },
+      "required": {
+        "minItems": 1
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "summary": {
+        "required": [
+          "A",
+          "B",
+          "partial"
+        ],
+        "properties": {
+          "partial": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
 }
