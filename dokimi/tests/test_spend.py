@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import itertools
 
+import pytest
+
 from dokimi.eval import Judge
 from dokimi.eval.arm_runner import ArmRunner
 from dokimi.eval.arm_summary import cost_summary
 from dokimi.metrics.usage import UsageRecord, roll_up_by_role
 from dokimi.novelty.client import LLMClient, roll_up_cost
+from dokimi.spend import Spend, SpendCap, SpendCapReached
 from dokimi.treatments import BaselineTreatment
 
 PRICED = UsageRecord(prompt_tokens=10, completion_tokens=2, total_tokens=12,
@@ -195,3 +198,22 @@ def test_the_role_roll_up_leaves_a_replayed_call_out_and_an_empty_bucket_complet
         "main_agent_cost": 0.25, "subagent_cost": None, "full_system_cost": 0.25,
         "full_system_cost_complete": True,
     }
+
+
+# ── the rule itself: dokimi.spend ───────────────────────────────────────────────────────
+
+def test_a_call_in_flight_when_another_stopped_the_cap_is_still_recorded():
+    """``--concurrency``: only the unpriced call raises; the run's next call is refused."""
+    cap = SpendCap(limit_usd=5.0)
+    with pytest.raises(SpendCapReached, match="no price is known for a"):
+        cap.record(UNPRICED, "a")
+    cap.record(PRICED, "b")
+    assert (cap.calls, cap.spent_usd, cap.usd) == (2, 0.25, None)
+    with pytest.raises(SpendCapReached, match="the run stopped on a call with no known price"):
+        cap.before_call("c")
+
+
+def test_a_row_that_counts_priced_calls_without_a_price_is_unpriced():
+    row = UsageRecord(n_calls=2, cost_known_calls=2)
+    spend = Spend.of([PRICED, row])
+    assert (spend.calls, spend.priced_calls, spend.known_usd, spend.usd) == (3, 1, 0.25, None)
