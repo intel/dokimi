@@ -682,12 +682,19 @@ def test_read_skill_leaves_out_the_skills_own_evals_directory(tmp_path):
     assert skipped == []
 
 
-def test_read_skill_still_reads_an_evals_directory_below_the_root_and_a_file_named_evals(tmp_path):
+def test_read_skill_still_reads_an_evals_directory_below_the_root(tmp_path):
     (tmp_path / "references" / "evals").mkdir(parents=True)
     (tmp_path / "SKILL.md").write_text("benign\n", encoding="utf-8")
     (tmp_path / "references" / "evals" / "notes.md").write_text("notes", encoding="utf-8")
-    (tmp_path / "evals").write_text("a file, not a directory", encoding="utf-8")
-    assert sorted(read_skill(tmp_path)) == ["SKILL.md", "evals", "references/evals/notes.md"]
+    assert sorted(read_skill(tmp_path)) == ["SKILL.md", "references/evals/notes.md"]
+
+
+def test_read_skill_leaves_out_a_root_file_named_evals_as_the_plugin_copy_does(tmp_path):
+    (tmp_path / "SKILL.md").write_text("benign\n", encoding="utf-8")
+    (tmp_path / "evals").write_text("held-out answer", encoding="utf-8")
+    skipped: list[str] = []
+    assert read_skill(tmp_path, skipped=skipped) == {"SKILL.md": "benign\n"}
+    assert skipped == []
 
 
 def test_read_skill_with_only_an_evals_directory_has_no_text_to_check(tmp_path):
