@@ -173,8 +173,8 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     return out, walk
 
 
-_PosixStates = frozenset[tuple[bool, bool]]
-_POSIX_OFF: _PosixStates = frozenset({(False, False)})
+_PosixStates = frozenset[tuple[bool, bool, bool]]  # (set in this shell, exported, the allexport option is on)
+_POSIX_OFF: _PosixStates = frozenset({(False, False, False)})
 _LITERAL_EXIT = {"true": True, ":": True, "false": False}  # the commands whose exit the walker knows
 _POSIX_ASSIGN = ("POSIXLY_CORRECT=", "POSIXLY_CORRECT+=")  # an assignment word of the variable, appending or not
 _STATE_BUILTINS = ("export", "unset", "set", "declare", "typeset")  # the builtins that change whether it is set or exported
@@ -212,6 +212,7 @@ class _Walk:
         self.last_exit: bool | None = None  # the last command was ``true``/``:`` (True) or ``false`` (False): else not known
         self.ran: bool | None = True  # whether the part being walked runs (None: not known), see :meth:`runs`
         self.gates: list[bool | None] = []  # for each open brace group, whether it runs: the group is one command of its list
+        self.bodies: list[bool] = []  # for each open ``if`` / loop, whether its ``then`` / ``do`` body began: its commands may not run
 
     def runs(self, op: str) -> bool | None:
         """Whether the command after the operator ``op`` runs: not when the list or brace group holding it was skipped
@@ -223,11 +224,25 @@ class _Walk:
         gate = self.gates[-1] if self.gates else True
         if own is False or gate is False:
             return False
-        return None if own is None or gate is None else True
+        return None if own is None or gate is None or any(self.bodies) else True
+
+    def track_bodies(self, part: str) -> None:
+        """The ``if`` / ``while`` / ``until`` / ``for`` / ``select`` that ``part`` opens and the ``fi`` / ``done`` that closes one;
+        after its ``then`` or ``do`` a construct's body is every command up to its end, each of which may not run (:attr:`bodies`)."""
+        for word in part.split():
+            if word in ("if", "while", "until", "for", "select"):
+                self.bodies.append(False)
+            elif word in ("then", "do") and self.bodies:
+                self.bodies[-1] = True
+            elif word in ("fi", "done") and self.bodies:
+                self.bodies.pop()
+            elif word not in ("else", "elif", "!", "{", "time"):
+                break
 
     def track_state(self, part: str, words: list[str], after: str) -> None:
         """The state a command of ``part`` sets (:meth:`track_posix`), also when a redirect leaves it no ``words``
         (``export POSIXLY_CORRECT=1 >/dev/null``: the redirect changes no variable); no command: its exit is not known."""
+        self.track_bodies(part)
         unredirected = without_redirects(part)
         state_words = words or (self.words(unredirected, after) if unredirected != part else [])
         if state_words == ["}"]:  # the ``}`` that closes a group has no exit of its own: the group's last command's
@@ -372,7 +387,7 @@ class _Walk:
         if name is None:
             return []
         skipped = before[:len(before) - len(words)]  # ``POSIXLY_CORRECT=1 head``
-        posix = frozenset(_posix_set(skipped, is_set and exported) for is_set, exported in self.posix)
+        posix = frozenset(_posix_set(skipped, is_set and exported) for is_set, exported, _ in self.posix)
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
@@ -435,40 +450,52 @@ class _Walk:
         return plain_path(f if f.startswith("/") else posixpath.join(self.here or "", f))
 
 
-def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool], timed: bool = False) -> _PosixStates:
+def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool, bool], timed: bool = False) -> _PosixStates:
     """The states ``state`` (``POSIXLY_CORRECT`` set in this shell, marked for export: the command gets it when both) may be
     in after the command ``words`` ran in it: a lone ``POSIXLY_CORRECT=1`` (or ``+=``) sets it, ``export NAME[=value]`` marks
     it for export (a bare ``export NAME`` too before it has a value), ``export -n NAME[=value]`` assigns the value and drops
-    the mark, ``declare -x`` and ``typeset -x`` export, ``declare NAME=value`` sets, ``set -a`` marks what is set after it
-    (and may not, since ``set +a`` ends it: both states), and ``unset NAME`` drops both (``unset NAME=1`` is refused).
+    the mark, ``declare -x`` and ``typeset -x`` export, ``declare NAME=value`` sets, ``set -a`` exports what is assigned after it
+    (until ``set +a``, also past an ``unset``), and ``unset NAME`` drops both (``unset NAME=1`` is refused).
     ``export -f`` and ``unset -f`` name functions, so they leave it. ``builtin`` and ``command``
     (with ``--`` or ``command -p``) before ``export`` or ``unset`` run the builtin; a function of that name shadows it otherwise.
     ``NAME=value`` words and the ``time`` keyword (``timed``) before the command are skipped (``X=1 export P=1``,
     ``time export P=1`` run it here); ``env`` or /usr/bin/time before it run a child, which changes nothing here."""
-    name, is_set, exported = "POSIXLY_CORRECT", *state
+    name, is_set, exported, allexport = "POSIXLY_CORRECT", *state
     if all(_ASSIGN.match(w) for w in words):
-        return frozenset({(is_set or any(w.startswith(_POSIX_ASSIGN) for w in words), exported)})
+        valued = any(w.startswith(_POSIX_ASSIGN) for w in words)
+        return frozenset({(is_set or valued, exported or (allexport and valued), allexport)})
     words = _builtin_run(words, functions, timed)
     if not words:
         return frozenset({state})
     builtin = words[0]
     flags, operands = _builtin_options(words[1:])
-    if builtin == "set":  # ``set -a``: later assignments are exported; it may be turned off again, so both states stay
-        allexport = "allexport" in operands or any(w.startswith("-") and not w.startswith("--") and "a" in w for w in words[1:])
-        return frozenset({state, (is_set, True)} if allexport else {state})
+    if builtin == "set":  # ``set -a``: what is assigned after it is exported, whether or not it was unset in between
+        return frozenset({(is_set, exported, _allexport(words[1:], allexport))})
     if set(flags) - set({"export": "fnp", "unset": "fnv"}.get(builtin, _DECLARE_FLAGS)):  # an option it refuses: no change
         return frozenset({state})
     names = operands if builtin == "unset" else [w.partition("=")[0].removesuffix("+") for w in operands]  # ``unset NAME=1`` fails
     if "f" in flags or name not in names:
         return frozenset({state})
     if builtin == "unset":
-        return frozenset({(False, False)})
+        return frozenset({(False, False, allexport)})
     valued = any(w.startswith(_POSIX_ASSIGN) for w in operands)
     if "n" in flags:
-        return frozenset({(is_set or valued, False)})
-    if builtin != "export" and "x" not in flags:  # ``declare NAME=1`` sets it in this shell and exports nothing
-        return frozenset({(is_set or valued, exported)})
-    return frozenset({(True, True) if valued else (is_set, True)})
+        return frozenset({(is_set or valued, False, allexport)})
+    if builtin != "export" and "x" not in flags:  # ``declare NAME=1`` sets it in this shell, and exports it only under allexport
+        return frozenset({(is_set or valued, exported or (allexport and valued), allexport)})
+    return frozenset({(True, True, allexport) if valued else (is_set, True, allexport)})
+
+
+def _allexport(args: list[str], current: bool) -> bool:
+    """Whether the allexport option is on after ``set args``: ``-a`` and ``-o allexport`` turn it on, ``+a`` and
+    ``+o allexport`` off, the last one wins; the options end at the first word that is no option, or at ``--``."""
+    on, i = current, 0
+    while i < len(args) and args[i][:1] in ("-", "+") and len(args[i]) > 1 and args[i] != "--":
+        letters, sign, i = args[i][1:], args[i][0] == "-", i + 1
+        on = sign if "a" in letters else on
+        if "o" in letters and args[i:i + 1] == ["allexport"]:
+            on, i = sign, i + 1
+    return on
 
 
 def _builtin_run(words: list[str], functions: Functions, timed: bool) -> list[str]:

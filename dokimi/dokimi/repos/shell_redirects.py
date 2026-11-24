@@ -22,6 +22,7 @@ _REDIRECT = re.compile(r"(?:(?<![^\s;&|(])(?:\d+|&))?(?:>>?|<<<|<>?)&?[ \t]*[^\s
 # a redirect that cannot fail to open: to /dev/null, or a copy of or close of a standard descriptor (``2>&1``, ``<&-``);
 # a copy of another one (``2>&9``) fails when it is not open; a here-string (``<<<word``) opens no file
 _SAFE_REDIRECT = re.compile(r"(?:\d+|&)?(?:>>?|<>?)(?:&[ \t]*(?:[0-2]|-)|[ \t]*/dev/null)|\d*<<<.+")
+_FD_COPY = re.compile(r"(?:\d+|&)?[<>]+&[ \t]*(\d+|-)")  # a copy of a descriptor, or a close (``-``): its source in group 1
 
 
 def bare(part: str) -> str:
@@ -52,8 +53,26 @@ def without_redirects(part: str) -> str:
 def may_fail_redirect(part: str) -> bool:
     """Whether ``part`` has a redirect that may fail to open (``</missing``, ``>dir/f``), so its command may not run: any
     but one to ``/dev/null`` or a standard descriptor (:data:`_SAFE_REDIRECT`)."""
-    text = masked(part)
-    return any(not _SAFE_REDIRECT.fullmatch(m.group()) for m in _REDIRECT.finditer(text))
+    closed: set[str] = set()  # the descriptors a ``N>&-`` before has closed: a copy of one fails (``1>&- 2>&1``)
+    for m in _REDIRECT.finditer(masked(part)):
+        text = m.group()
+        if not _SAFE_REDIRECT.fullmatch(text):
+            return True
+        fd = _redirected_fd(text)
+        copy = _FD_COPY.fullmatch(text)
+        if copy and copy[1] in closed:
+            return True
+        if copy and copy[1] == "-":
+            closed.add(fd)
+        else:
+            closed -= {fd, "2"} if text.startswith("&") else {fd}  # ``&>`` opens both
+    return False
+
+
+def _redirected_fd(redirect: str) -> str:
+    """The descriptor ``redirect`` opens or closes: its number, else 0 for ``<`` and 1 for ``>`` or ``&>``."""
+    digits = re.match(r"\d+", redirect)
+    return digits.group() if digits else "0" if redirect.lstrip("&")[:1] == "<" else "1"
 
 
 def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:

@@ -372,6 +372,26 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("set -o allexport; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
     ("set -a; head -n 0 AGENTS.md", []),
     ("set -e; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("set -a; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # allexport outlives an unset
+    ("set -a; export -n POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("set -a; set +a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # and ends with ``+a``
+    ("set -a; set +o allexport; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("set -a; set -o allexport; set +a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("set -a; set -e; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),  # a copy of a closed descriptor fails
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>&1 1>&-; head AGENTS.md -n 0", []),  # the copy came first
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 1>/dev/null 2>&1; head AGENTS.md -n 0", []),  # reopened
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>&- 1>&2; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } 1>&- 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; if false; then :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),  # the whole body
+    ("export POSIXLY_CORRECT=1; if false; then :; else :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; for f in a; do :; unset POSIXLY_CORRECT; done; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; while false; do :; unset POSIXLY_CORRECT; done; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; if [ -f \"$X\" ]; then :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; if false; then :; fi; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # after ``fi``
+    ("export POSIXLY_CORRECT=1; while false; do :; done; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; if true; then if false; then :; fi; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; if true; then if false; then :; fi; fi; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads

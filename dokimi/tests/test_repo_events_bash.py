@@ -76,7 +76,10 @@ def test_an_absolute_path_inside_the_workspace_is_made_relative():
                                            ("export POSIXLY_CORRECT+=1; head AGENTS.md -n 0", ["AGENTS.md"]),
                                            ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
                                            ("declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
-                                           ("set -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"])])
+                                           ("set -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("set -a; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; if false; then :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"])])
 def test_a_head_or_tail_that_prints_no_line_gives_no_read_event(command, reads):
     assert _reads(_events(_call("a", command), _result("a", ""))) == reads
 
