@@ -40,7 +40,7 @@ The text on stdout is only the counts. A run killed midway keeps the whole lines
 | `error` | string or null | the load error, when the skill did not load |
 | `disable_model_invocation` | boolean | the skill sets `disable-model-invocation: true`, so the description-quality checks skip it; the frontmatter length limit still applies |
 | `content_sha256` | string or null | digest of the SKILL.md text; null when there is no review |
-| `skill_sha256` | string or null | digest of every file in the skill's directory (the scan's own output files excluded); used by `--resume` |
+| `skill_sha256` | string or null | digest of every file in the skill's directory (the scan's own output files excluded); null when the directory or a subdirectory cannot be read; used by `--resume` |
 | `dokimi_version` | string | the dokimi version that wrote the row; `--resume` redoes rows from another version |
 | `listing_chars` | integer or null | characters of the skill's entry in the routing field's listing (`name: description`, then ` - when_to_use` when it is not empty; the description and `when_to_use` count at most 1,536 characters); null when the skill is not listed (it does not load, has a spec error other than a long description, or sets `disable-model-invocation`). `--resume` redoes a row without it |
 | `listing_name` | string or null | the name the routing field knows the skill by: the loaded `SKILL.md` name, which can differ from `name` (a manifest alias); null when the skill did not load. The listing total groups copies by it. `--resume` redoes a row without it |

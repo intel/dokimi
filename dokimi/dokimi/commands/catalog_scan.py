@@ -97,7 +97,7 @@ def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
     try:
         base = path.resolve()
         skip = [out.relative_to(base).as_posix() for out in outputs if out.is_relative_to(base)]
-        return tree_digest(path, exclude=skip, tracked={})
+        return tree_digest(path, exclude=skip, strict=True, tracked={})
     except OSError:
         return None
 
@@ -341,7 +341,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                 if row is None:
                     continue
                 key = _row_key(row)
-                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing_name" in row and row["skill_sha256"] == selected[key]
+                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing_name" in row and selected[key] is not None and row["skill_sha256"] == selected[key]
                         and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:

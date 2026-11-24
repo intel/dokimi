@@ -10,8 +10,10 @@ erase the prompt an earlier one recorded. The prompt the model saw on that call 
 
     prompt_tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
 
-so the first call's prompt is everything loaded before the agent did anything (system prompt,
-tool schemas, memory files, skill listing, the task), and the series after it is how the
+and it is ``None`` when no block of the call reported any of the three (a call with only
+``output_tokens`` has an unknown prompt, not a zero one). The prompt is summed from the merged
+parts, so blocks that each carry only some of the counts still add up. The first call's prompt
+is everything loaded before the agent did anything (system prompt, tool schemas, memory files, skill listing, the task), and the series after it is how the
 history grew. ``new_tokens`` (input + cache creation) is what the call added beyond the cached
 prefix. Each call also keeps its parts (``input_tokens``, ``cache_read_tokens``, ``cache_write_tokens``) and
 its message timestamp (``at``): the per-turn events of ``events.jsonl`` read them (:mod:`dokimi.repos.turn_events`).
@@ -39,9 +41,9 @@ from dokimi.utils import InputError, refuse_device
 
 # Tools whose call can change what a later identical call returns; one ends every earlier repeat.
 MUTATING = frozenset({"Bash", "Edit", "MultiEdit", "NotebookEdit", "Write"})
-TOKEN_FIELDS = ("prompt_tokens", "new_tokens", "output_tokens", "input_tokens", "cache_read_tokens",
-                "cache_write_tokens")  # the counts of one call
 _USAGE_FIELDS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+_PROMPT_FIELDS = frozenset(("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+_PARTS = ("output_tokens", "input_tokens", "cache_read_tokens", "cache_write_tokens")  # the counts a call is built from
 
 
 class TraceError(ValueError):
@@ -78,18 +80,20 @@ class ContextTrace:
     def summary(self, window: int | None = None) -> dict[str, Any]:
         """The numbers a comparison reads; ``window`` (tokens) adds how full the peak got."""
         main = self.main_calls()
-        prompts = [c["prompt_tokens"] for c in main]
+        prompts = [c["prompt_tokens"] for c in main if c["prompt_tokens"] is not None]
         peak = max(prompts, default=None)
+        first = main[0]["prompt_tokens"] if main else None
+        last = main[-1]["prompt_tokens"] if main else None
         top = sorted(self.tools.items(), key=lambda kv: -kv[1].result_chars)
         return {
             "harness_version": self.harness_version,
             "model": self.model,
             "calls": len(main),
             "subagent_calls": len(self.calls) - len(main),
-            "first_prompt_tokens": prompts[0] if prompts else None,
+            "first_prompt_tokens": first,
             "peak_prompt_tokens": peak,
-            "final_prompt_tokens": prompts[-1] if prompts else None,
-            "growth_tokens": peak - prompts[0] if prompts and peak is not None else None,
+            "final_prompt_tokens": last,
+            "growth_tokens": peak - first if first is not None and peak is not None else None,
             "output_tokens": sum(c["output_tokens"] for c in self.calls),
             "peak_fill": round(peak / window, 4) if window and peak is not None else None,
             "compactions": len(self.compactions),
@@ -128,6 +132,7 @@ def parse_trace(raw: str) -> ContextTrace:
     by_message: dict[str, dict[str, Any]] = {}  # message id -> its call
     names: dict[str, str] = {}  # tool_use id -> tool name
     seen: dict[tuple[Any, str, str], str] = {}  # signature -> tool_use id of its latest call
+    dormant: dict[str, int] = {}  # message id -> line of its first block, while all its blocks were zero: no call yet
     for n, line in enumerate(raw.split(chr(10)), 1):
         if not line.strip():
             continue
@@ -139,16 +144,20 @@ def parse_trace(raw: str) -> ContextTrace:
         if not isinstance(rec, dict):
             continue
         try:
-            _apply(out, rec, by_message, names, seen)
+            _apply(out, rec, by_message, names, seen, dormant, n)
         except (AttributeError, TypeError, ValueError, OverflowError, RecursionError) as exc:  # valid JSON of an unexpected shape
             out.errors.append(f"line {n}: unexpected shape ({exc})")
+    for compaction in out.compactions:
+        at = compaction.pop("line")
+        compaction["after_call"] = sum(c["line"] < at for c in out.calls) - 1
     for i, call in enumerate(out.calls):
         call["i"] = i
+        del call["line"]
     return out
 
 
 def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[str, Any]],
-           names: dict[str, str], seen: dict[tuple[Any, str, str], str]) -> None:
+           names: dict[str, str], seen: dict[tuple[Any, str, str], str], dormant: dict[str, int], line: int) -> None:
     kind, subtype = rec.get("type"), rec.get("subtype")
     agent = rec.get("parent_tool_use_id")
     if kind == "system" and subtype == "init":
@@ -167,21 +176,15 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
             "trigger": meta.get("trigger"),
             "pre_tokens": meta.get("pre_tokens", meta.get("preTokens")),
             "post_tokens": meta.get("post_tokens"),  # newer CLIs only
-            "after_call": len(out.calls) - 1,
+            "after_call": len(out.calls) - 1,  # settled from "line" once every call is placed
             "at": rec.get("timestamp"),
+            "line": line,
         })
     elif kind == "assistant":
         message = rec.get("message") or {}
         usage = message.get("usage")
         if isinstance(usage, dict):
-            call = _call(usage, agent, rec.get("timestamp"))
-            key = message.get("id")
-            if key and key in by_message:
-                _merge(by_message[key], call)  # a later block of the same call: same prompt, fuller output
-            elif any(call[k] for k in TOKEN_FIELDS):  # an all-zero block carries no call
-                out.calls.append(call)
-                if key:
-                    by_message[key] = call
+            _add_call(out, _call(usage, agent, rec.get("timestamp"), line), message.get("id"), by_message, dormant)
         for block in _content(rec):
             if block.get("type") != "tool_use":
                 continue
@@ -214,23 +217,47 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
         out.is_error = bool(rec.get("is_error"))
 
 
+def _add_call(out: ContextTrace, call: dict[str, Any], key: Any, by_message: dict[str, dict[str, Any]],
+              dormant: dict[str, int]) -> None:
+    """Add one block's call, or fold it into the call its message id already has."""
+    if key and key in by_message:
+        _merge(by_message[key], call)  # a later block of the same call: same prompt, fuller output
+        if key in dormant and any(by_message[key][k] for k in _PARTS):
+            first = dormant.pop(key)  # the call sits where its first block was, not where it became real
+            at = sum(c["line"] < first for c in out.calls)
+            out.calls.insert(at, by_message[key])
+    elif any(call[k] for k in _PARTS):  # an all-zero block carries no call yet
+        out.calls.append(call)
+        if key:
+            by_message[key] = call
+    elif key:
+        by_message[key] = call  # keep what it reported for a later block of the same id
+        dormant[key] = call["line"]
+
+
 def _merge(call: dict[str, Any], later: dict[str, Any]) -> None:
     """Fold a later block into its call; the call keeps its thread and its largest counts."""
-    for k in TOKEN_FIELDS:
+    for k in _PARTS:
         call[k] = max(call[k], later[k])
     call["reported"] = sorted({*call["reported"], *later["reported"]})
+    if _PROMPT_FIELDS.isdisjoint(call["reported"]):
+        return
+    call["new_tokens"] = call["input_tokens"] + call["cache_write_tokens"]
+    call["prompt_tokens"] = call["new_tokens"] + call["cache_read_tokens"]
 
 
-def _call(usage: dict[str, Any], agent: Any, at: Any) -> dict[str, Any]:
+def _call(usage: dict[str, Any], agent: Any, at: Any, line: int) -> dict[str, Any]:
     fresh = int(usage.get("input_tokens") or 0)
     created = int(usage.get("cache_creation_input_tokens") or 0)
     read = int(usage.get("cache_read_input_tokens") or 0)
     reported = [k for k in _USAGE_FIELDS if usage.get(k) is not None]  # a zero above may be an absent count
+    known = not _PROMPT_FIELDS.isdisjoint(reported)  # no prompt count reported: the prompt is unknown, not 0
     return {
         "agent": agent,
+        "line": line,  # trace line of the first block; dropped once the calls are numbered
         "at": at,  # the message's timestamp, as the trace has it; the first block's
-        "prompt_tokens": fresh + created + read,
-        "new_tokens": fresh + created,
+        "prompt_tokens": fresh + created + read if known else None,
+        "new_tokens": fresh + created if known else None,
         "output_tokens": int(usage.get("output_tokens") or 0),
         "input_tokens": fresh,
         "cache_read_tokens": read,
