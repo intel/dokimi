@@ -23,7 +23,7 @@ from dokimi.text_spans import HeredocPattern
 
 from .event_format import plain_path
 from .shell_functions import Functions, define
-from .shell_redirects import bare, masked, may_fail_redirect, without_redirects, without_stderr
+from .shell_redirects import bare, closed_fds, copied_fds, masked, may_fail_redirect, without_redirects, without_stderr
 from .shell_search import Searched, cuts_lines, passes_through, prints_nothing, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
@@ -179,6 +179,7 @@ _LITERAL_EXIT = {"true": True, ":": True, "false": False}  # the commands whose 
 _POSIX_ASSIGN = ("POSIXLY_CORRECT=", "POSIXLY_CORRECT+=")  # an assignment word of the variable, appending or not
 _STATE_BUILTINS = ("export", "unset", "set", "declare", "typeset")  # the builtins that change whether it is set or exported
 _DECLARE_FLAGS = "Aagilprtux"  # the options of declare and typeset that leave the variable a variable
+_DECLARE_OFF = "gilntux"  # the attributes ``declare +x`` can remove (not readonly or array: those it refuses)
 _Spot = tuple[str | None, bool, bool, _PosixStates]  # (here, shell_moved, moved, posix): what a subshell's end restores
 
 
@@ -211,6 +212,7 @@ class _Walk:
         self.posix = _POSIX_OFF
         self.last_exit: bool | None = None  # the last command was ``true``/``:`` (True) or ``false`` (False): else not known
         self.ran: bool | None = True  # whether the part being walked runs (None: not known), see :meth:`runs`
+        self.copies: list[set[str]] = []  # for each open brace group, the descriptors its commands copy (``2>&1``)
         self.gates: list[bool | None] = []  # for each open brace group, whether it runs: the group is one command of its list
         self.bodies: list[bool] = []  # for each open ``if`` / loop, whether its ``then`` / ``do`` body began: its commands may not run
 
@@ -243,6 +245,8 @@ class _Walk:
         """The state a command of ``part`` sets (:meth:`track_posix`), also when a redirect leaves it no ``words``
         (``export POSIXLY_CORRECT=1 >/dev/null``: the redirect changes no variable); no command: its exit is not known."""
         self.track_bodies(part)
+        for copied in self.copies:
+            copied |= copied_fds(part)
         unredirected = without_redirects(part)
         state_words = words or (self.words(unredirected, after) if unredirected != part else [])
         if state_words == ["}"]:  # the ``}`` that closes a group has no exit of its own: the group's last command's
@@ -339,6 +343,7 @@ class _Walk:
     def open_group(self, before_brace: str, mark: int) -> None:
         piped = bool(_PIPE.search(before_brace))
         self.groups.append((self.spot(), piped, (mark, self.unknown, self.passthru), (self.list_start, self.listed)))
+        self.copies.append(set())  # the descriptors the commands of the group copy
         self.gates.append(self.ran)  # ``false && { :; unset X; }``: every command of the group is skipped
         if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
             self.here = None
@@ -346,7 +351,12 @@ class _Walk:
     def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
         before, piped, (mark, unknown, passthru), (self.list_start, self.listed) = self.groups.pop()
         self.gates.pop()
-        if may_fail_redirect(redirects):  # ``{ unset X; } </missing``: bash opens it first, and runs no body when that fails
+        copied = self.copies.pop()
+        for outer in self.copies:  # ``{ { :; } 2>&1; } 1>&-``
+            outer |= copied_fds(redirects)
+        # ``{ unset X; } </missing``: bash opens it first, and runs no body when that fails; so when it closes a descriptor
+        # a command of the body copies (``{ unset X 2>&1; } 1>&-``)
+        if may_fail_redirect(redirects) or closed_fds(redirects) & copied:
             self.posix |= before[3]
             self.last_exit = None
         if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _stdout_after_stderr(redirects):
@@ -462,25 +472,25 @@ def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool
     ``time export P=1`` run it here); ``env`` or /usr/bin/time before it run a child, which changes nothing here."""
     name, is_set, exported, allexport, readonly = "POSIXLY_CORRECT", *state
     if all(_ASSIGN.match(w) for w in words):
-        valued = any(w.startswith(_POSIX_ASSIGN) for w in words)
+        valued = any(w.startswith(_POSIX_ASSIGN) for w in words) and not readonly  # a readonly variable refuses a value
         return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly)})
     words = _builtin_run(words, functions, timed)
     if not words:
         return frozenset({state})
     builtin = words[0]
-    flags, operands = _builtin_options(words[1:])
+    flags, plus, operands = _builtin_options(words[1:], builtin in ("declare", "typeset"))
     if builtin == "set":  # ``set -a``: what is assigned after it is exported, whether or not it was unset in between
         return frozenset({(is_set, exported, _allexport(words[1:], allexport), readonly)})
-    if set(flags) - set({"export": "fnp", "unset": "fnv"}.get(builtin, _DECLARE_FLAGS)):  # an option it refuses: no change
+    if set(flags) - set({"export": "fnp", "unset": "fnv"}.get(builtin, _DECLARE_FLAGS)) or set(plus) - set(_DECLARE_OFF):  # an option it refuses: no change
         return frozenset({state})
     names = operands if builtin == "unset" else [w.partition("=")[0].removesuffix("+") for w in operands]  # ``unset NAME=1`` fails
     if "f" in flags or name not in names:
         return frozenset({state})
     if builtin == "unset":  # a readonly variable is not unset
         return frozenset({state if readonly else (False, False, allexport, False)})
+    valued = any(w.startswith(_POSIX_ASSIGN) for w in operands) and not readonly  # a readonly variable refuses a value
     readonly = readonly or "r" in flags  # ``declare -r NAME``
-    valued = any(w.startswith(_POSIX_ASSIGN) for w in operands)
-    if "n" in flags:
+    if "n" in flags or "x" in plus:  # ``declare +x NAME`` drops the mark, as ``export -n``
         return frozenset({(is_set or valued, False, allexport, readonly)})
     if builtin != "export" and "x" not in flags:  # ``declare NAME=1`` sets it in this shell, and exports it only under allexport
         return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly)})
@@ -527,16 +537,19 @@ def _wrapped(words: list[str]) -> list[str] | None:
     return rest[1:] or None if rest[:1] == ["--"] else rest or None
 
 
-def _builtin_options(args: list[str]) -> tuple[str, list[str]]:
-    """The option letters before the operands of ``export`` or ``unset``, and the operands: options end at the first
-    word that is no option, or at ``--``."""
-    flags, i = "", 0
-    while i < len(args) and args[i].startswith("-") and args[i] != "-":
+def _builtin_options(args: list[str], signed: bool = False) -> tuple[str, str, list[str]]:
+    """The option letters before the operands of ``export`` or ``unset`` (``-x``), those that ``signed`` options turn off
+    (``declare +x``), and the operands: options end at the first word that is no option, or at ``--``."""
+    flags, plus, i = "", "", 0
+    while i < len(args) and (args[i].startswith("-") and args[i] != "-" or signed and args[i].startswith("+") and len(args[i]) > 1):
         i += 1
         if args[i - 1] == "--":
             break
-        flags += args[i - 1][1:]
-    return flags, args[i:]
+        if args[i - 1][0] == "+":
+            plus += args[i - 1][1:]
+        else:
+            flags += args[i - 1][1:]
+    return flags, plus, args[i:]
 
 
 def _posix_set(skipped: list[str], exported: bool = False) -> bool:

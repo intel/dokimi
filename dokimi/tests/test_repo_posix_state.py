@@ -1,0 +1,34 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The ``POSIXLY_CORRECT`` state the shell walker keeps for a ``head`` or ``tail`` with a zero count: closed
+descriptors of a brace group, ``declare +x`` and a readonly name. No LLM."""
+
+from __future__ import annotations
+
+import pytest
+
+from dokimi.repos.cli_traces import shell_reads
+
+
+@pytest.mark.parametrize("command, reads", [
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT 2>&1; } 1>&-; head AGENTS.md -n 0", ["AGENTS.md"]),  # the group closed stdout first
+    ("export POSIXLY_CORRECT=1; { { unset POSIXLY_CORRECT 2>&1; }; } 1>&-; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; { { unset POSIXLY_CORRECT; } 2>&1; } 1>&-; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT 2>&1; } 2>&-; head AGENTS.md -n 0", []),  # it closed another descriptor
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } 1>&-; head AGENTS.md -n 0", []),  # and nothing in it copies stdout
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT 2>&1; } 1>&- 1>/dev/null; head AGENTS.md -n 0", []),  # reopened
+    ("export POSIXLY_CORRECT=1; declare +x POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # ``+x`` drops the export mark
+    ("export POSIXLY_CORRECT=1; typeset +x POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; declare +x OTHER; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; declare +x POSIXLY_CORRECT; declare -x POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; declare -g +x POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; declare +r POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # an option it refuses
+    ("declare -r POSIXLY_CORRECT; export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # a readonly name has no value to export
+    ("declare -r POSIXLY_CORRECT; POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("declare -r POSIXLY_CORRECT; declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("declare -r POSIXLY_CORRECT; export -n POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("declare -rx POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # declared with its value
+])
+def test_shell_reads_follows_posixly_correct_through_group_closures_declare_and_readonly(command, reads):
+    assert shell_reads(command) == reads

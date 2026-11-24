@@ -69,6 +69,25 @@ def may_fail_redirect(part: str) -> bool:
     return False
 
 
+def copied_fds(part: str) -> set[str]:
+    """The descriptors ``part`` copies (``2>&1``: ``1``), which fail when a group around it has closed one."""
+    copies = (_FD_COPY.fullmatch(m.group()) for m in _REDIRECT.finditer(masked(part)))
+    return {c[1] for c in copies if c and c[1] != "-"}
+
+
+def closed_fds(redirects: str) -> set[str]:
+    """The descriptors ``redirects`` (a group's, after its ``}``) leave closed, each later redirect reopening its own."""
+    closed: set[str] = set()
+    for m in _REDIRECT.finditer(masked(redirects)):
+        fd = _redirected_fd(m.group())
+        copy = _FD_COPY.fullmatch(m.group())
+        if copy and copy[1] == "-":
+            closed.add(fd)
+        else:
+            closed -= {fd, "2"} if m.group().startswith("&") else {fd}
+    return closed
+
+
 def _redirected_fd(redirect: str) -> str:
     """The descriptor ``redirect`` opens or closes: its number, else 0 for ``<`` and 1 for ``>`` or ``&>``."""
     digits = re.match(r"\d+", redirect)
