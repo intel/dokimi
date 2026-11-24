@@ -13,6 +13,7 @@ this module does not import them.
 
 from __future__ import annotations
 
+import itertools
 import posixpath
 import re
 import shlex
@@ -159,6 +160,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         walk.track_groups(bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
         if in_subshell:  # a subshell: its reads are not tracked
             walk.last_exit = None
+            walk.track_substituted(outer, after)  # ``export POSIXLY_CORRECT=$(date)``: the export is in this shell
             if _runs_dir(outer, walk.dirs, walk.functions):  # ``cd $(dirname f)``: the cd is outside the parentheses
                 walk.lose(_in_own_shell(outer, after))
             continue
@@ -173,8 +175,9 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     return out, walk
 
 
-_PosixStates = frozenset[tuple[bool, bool, bool, bool]]  # (set in this shell, exported, allexport is on, readonly)
-_POSIX_OFF: _PosixStates = frozenset({(False, False, False, False)})
+_PosixState = tuple[bool, bool, bool, bool, bool]  # (set in this shell, exported, allexport is on, readonly, an array)
+_PosixStates = frozenset[_PosixState]
+_POSIX_OFF: _PosixStates = frozenset({(False, False, False, False, False)})
 _LITERAL_EXIT = {"true": True, ":": True, "false": False}  # the commands whose exit the walker knows
 _POSIX_ASSIGN = ("POSIXLY_CORRECT=", "POSIXLY_CORRECT+=")  # an assignment word of the variable, appending or not
 _STATE_BUILTINS = ("export", "unset", "set", "declare", "typeset")  # the builtins that change whether it is set or exported
@@ -213,7 +216,7 @@ class _Walk:
         self.last_exit: bool | None = None  # the last command was ``true``/``:`` (True) or ``false`` (False): else not known
         self.ran: bool | None = True  # whether the part being walked runs (None: not known), see :meth:`runs`
         self.copies: list[set[str]] = []  # for each open brace group, the descriptors its commands copy (``2>&1``)
-        self.passed: list[set[tuple[bool, bool, bool, bool]]] = []  # for each open brace group, every state it was in so far
+        self.passed: list[set[_PosixState]] = []  # for each open brace group, every state it was in so far
         self.gates: list[bool | None] = []  # for each open brace group, whether it runs: the group is one command of its list
         self.bodies: list[bool] = []  # for each open ``if`` / loop, whether its ``then`` / ``do`` body began: its commands may not run
 
@@ -250,6 +253,7 @@ class _Walk:
             copied |= copied_fds(part)
         unredirected = without_redirects(part)
         state_words = words or (self.words(unredirected, after) if unredirected != part else [])
+        state_words = state_words or _expanded_words(unredirected)  # ``export POSIXLY_CORRECT="$X"``: set, whatever $X is
         if state_words == ["}"]:  # the ``}`` that closes a group has no exit of its own: the group's last command's
             return
         body = state_words
@@ -259,6 +263,18 @@ class _Walk:
             self.track_posix(body, after, _time_keyword(part), may_fail_redirect(part) or body != state_words)
         else:
             self.last_exit = None
+
+    def track_substituted(self, outer: str, after: str) -> None:
+        """The state a command sets whose word holds a substitution (``export POSIXLY_CORRECT=$(date)``): the substitution
+        is a part in a subshell, and ``outer`` is the command without it, which runs in this shell."""
+        body = _expanded_words(outer)
+        while body[:1] == ["{"]:
+            body = body[1:]
+        words = body
+        while words and words[0] in _KEYWORDS:  # ``then export P=$(x)``: the branch may not run
+            words = words[1:]
+        if words:
+            self.track_posix(words, after, _time_keyword(outer), words != body)
 
     def track_posix(self, words: list[str], after: str, timed: bool = False, perhaps: bool = False) -> None:
         """``POSIXLY_CORRECT`` after a command of this shell (not a job, ``after`` is ``&``; a pipeline's parts have no
@@ -401,7 +417,7 @@ class _Walk:
         if name is None:
             return []
         skipped = before[:len(before) - len(words)]  # ``POSIXLY_CORRECT=1 head``
-        posix = frozenset(_posix_set(skipped, is_set and exported) for is_set, exported, _, _ in self.posix)
+        posix = frozenset(_posix_set(skipped, is_set and exported and not array) for is_set, exported, _, _, array in self.posix)
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
@@ -464,7 +480,7 @@ class _Walk:
         return plain_path(f if f.startswith("/") else posixpath.join(self.here or "", f))
 
 
-def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool, bool, bool], timed: bool = False) -> _PosixStates:
+def _posix_after(words: list[str], functions: Functions, state: _PosixState, timed: bool = False) -> _PosixStates:
     """The states ``state`` (``POSIXLY_CORRECT`` set in this shell, marked for export: the command gets it when both) may be
     in after the command ``words`` ran in it: a lone ``POSIXLY_CORRECT=1`` (or ``+=``) sets it, ``export NAME[=value]`` marks
     it for export (a bare ``export NAME`` too before it has a value), ``export -n NAME[=value]`` assigns the value and drops
@@ -473,18 +489,21 @@ def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool
     ``export -f`` and ``unset -f`` name functions, so they leave it. ``builtin`` and ``command``
     (with ``--`` or ``command -p``) before ``export`` or ``unset`` run the builtin; a function of that name shadows it otherwise.
     ``NAME=value`` words and the ``time`` keyword (``timed``) before the command are skipped (``X=1 export P=1``,
-    ``time export P=1`` run it here); ``env`` or /usr/bin/time before it run a child, which changes nothing here."""
-    name, is_set, exported, allexport, readonly = "POSIXLY_CORRECT", *state
+    ``time export P=1`` run it here); ``env`` or /usr/bin/time before it run a child, which changes nothing here.
+    ``POSIXLY_CORRECT=1 export POSIXLY_CORRECT`` keeps the prefixed value. An array (``declare -a``) is never in the
+    environment, whatever exports it, until it is unset. A word that expands (``export POSIXLY_CORRECT="$X"``) is read as written."""
+    name, is_set, exported, allexport, readonly, array = "POSIXLY_CORRECT", *state
     if all(_ASSIGN.match(w) for w in words):
         valued = any(w.startswith(_POSIX_ASSIGN) for w in words) and not readonly  # a readonly variable refuses a value
-        return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly)})
+        return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly, array)})
+    prefix = list(itertools.takewhile(_ASSIGN.match, words))
     words = _builtin_run(words, functions, timed)
     if not words:
         return frozenset({state})
     builtin = words[0]
     flags, plus, operands = _builtin_options(words[1:], builtin in ("declare", "typeset"))
     if builtin == "set":  # ``set -a``: what is assigned after it is exported, whether or not it was unset in between
-        return frozenset({(is_set, exported, _allexport(words[1:], allexport), readonly)})
+        return frozenset({(is_set, exported, _allexport(words[1:], allexport), readonly, array)})
     if builtin in ("declare", "typeset") and "p" in flags:  # ``declare -p NAME`` shows it, whatever other options come with it
         return frozenset({state})
     if set(flags) - set({"export": "fnp", "unset": "fnv"}.get(builtin, _DECLARE_FLAGS)) or set(plus) - set(_DECLARE_OFF):  # an option it refuses: no change
@@ -493,14 +512,16 @@ def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool
     if "f" in flags or name not in names:
         return frozenset({state})
     if builtin == "unset":  # a readonly variable is not unset
-        return frozenset({state if readonly else (False, False, allexport, False)})
-    valued = any(w.startswith(_POSIX_ASSIGN) for w in operands) and not readonly  # a readonly variable refuses a value
+        return frozenset({state if readonly else (False, False, allexport, False, False)})
+    kept = builtin == "export" and any(w.startswith(_POSIX_ASSIGN) for w in prefix)  # ``P=1 export P`` keeps the value
+    valued = (kept or any(w.startswith(_POSIX_ASSIGN) for w in operands)) and not readonly  # a readonly variable refuses a value
     readonly = readonly or "r" in flags  # ``declare -r NAME``
+    array = array or bool(set(flags) & set("aA"))
     if "n" in flags or "x" in plus:  # ``declare +x NAME`` drops the mark, as ``export -n``
-        return frozenset({(is_set or valued, False, allexport, readonly)})
+        return frozenset({(is_set or valued, False, allexport, readonly, array)})
     if builtin != "export" and "x" not in flags:  # ``declare NAME=1`` sets it in this shell, and exports it only under allexport
-        return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly)})
-    return frozenset({(True, True, allexport, readonly) if valued else (is_set, True, allexport, readonly)})
+        return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly, array)})
+    return frozenset({(True, True, allexport, readonly, array) if valued else (is_set, True, allexport, readonly, array)})
 
 
 def _allexport(args: list[str], current: bool) -> bool:
@@ -611,6 +632,18 @@ def _computed(part: str) -> bool:
     if re.search(r"[|<>]", unquoted):
         return True
     return bool(_GLOB.search(re.sub(r"\\.", "", unquoted)))  # an escaped ``\*`` is a literal
+
+
+def _expanded_words(part: str) -> list[str]:
+    """The words of ``part`` with each expansion (``$X``, backticks) left as written, for the state a command sets
+    (:func:`_posix_after`: a variable is set whatever its value); none for a pipeline, which runs in subshells."""
+    unquoted = re.sub(r'"[^"]*"', '""', re.sub(r"'[^']*'", "''", part))
+    if re.search(r"[|<>]", unquoted):
+        return []
+    try:
+        return shlex.split(part)
+    except ValueError:
+        return []
 
 
 def _asks_for_help(args: list[str]) -> bool:
