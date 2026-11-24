@@ -193,3 +193,15 @@ def test_the_readers_that_know_no_workspace_still_take_a_dotdot_by_name():
 def test_without_held_guidance_a_dotdot_is_collapsed_by_name_as_before():
     events = [{"kind": "read", "path": "src/../AGENTS.md", "rc": 0}, {"kind": "read", "path": "a/../../AGENTS.md", "rc": 0}]
     assert process_metrics(events, lambda p: p.endswith("AGENTS.md"))["guidance_read"] == ["AGENTS.md"]
+
+
+def test_a_path_ending_in_a_dotdot_is_what_the_workspace_resolves_it_to_or_no_file():
+    links = {"alias/..": "docs", "gone/..": None}
+    events = [{"kind": "read", "path": p, "rc": 0} for p in ("alias/..", "gone/..")]
+    got = process_metrics(events, lambda p: True, resolve=lambda p: links[p])
+    assert got["guidance_read"] == ["docs"]
+
+
+def test_a_cd_dotdot_at_the_root_stays_at_the_root():
+    assert shell_reads("cd / && cd .. && cat AGENTS.md") == ["/AGENTS.md"]
+    assert shell_reads("cd /w && cd .. && cd .. && cat AGENTS.md") == ["/AGENTS.md"]
