@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import posixpath
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -328,7 +329,7 @@ def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: st
         if e.get("kind") == "tool" and e.get("name") == "Skill":
             name = str(e.get("skill") or "").split(":")[-1]  # a plugin skill is plugin:name
         elif e.get("kind") == "read":
-            parts = PurePosixPath(str(e.get("path") or "")).parts
+            parts = PurePosixPath(posixpath.normpath(str(e.get("path") or ""))).parts
             if len(parts) == 4 and "/".join(parts[:2]) == SKILLS_DIR and parts[3] == "SKILL.md":
                 name = parts[2]
         if name in installed and name not in used:
