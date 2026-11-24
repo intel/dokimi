@@ -29,6 +29,13 @@ from dokimi.repos.cli_traces import shell_reads
     ("declare -r POSIXLY_CORRECT; declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
     ("declare -r POSIXLY_CORRECT; export -n POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", []),
     ("declare -rx POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # declared with its value
+    ("{ export POSIXLY_CORRECT=1; command unset POSIXLY_CORRECT 2>&1; } 1>&-; head AGENTS.md -n 0", ["AGENTS.md"]),  # the export ran, the copy failed
+    ("{ export POSIXLY_CORRECT=1; { command unset POSIXLY_CORRECT 2>&1; }; } 1>&-; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("{ export POSIXLY_CORRECT=1; command unset POSIXLY_CORRECT; } 1>&-; head AGENTS.md -n 0", []),  # nothing in it copies stdout
+    ("{ export POSIXLY_CORRECT=1; command unset POSIXLY_CORRECT 2>&1; } 2>&-; head AGENTS.md -n 0", []),  # it closed another descriptor
+    ("export POSIXLY_CORRECT=1; declare -p +x POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # ``-p`` only shows it
+    ("export POSIXLY_CORRECT=1; typeset +x -p POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("declare -p -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_follows_posixly_correct_through_group_closures_declare_and_readonly(command, reads):
     assert shell_reads(command) == reads

@@ -213,6 +213,7 @@ class _Walk:
         self.last_exit: bool | None = None  # the last command was ``true``/``:`` (True) or ``false`` (False): else not known
         self.ran: bool | None = True  # whether the part being walked runs (None: not known), see :meth:`runs`
         self.copies: list[set[str]] = []  # for each open brace group, the descriptors its commands copy (``2>&1``)
+        self.passed: list[set[tuple[bool, bool, bool, bool]]] = []  # for each open brace group, every state it was in so far
         self.gates: list[bool | None] = []  # for each open brace group, whether it runs: the group is one command of its list
         self.bodies: list[bool] = []  # for each open ``if`` / loop, whether its ``then`` / ``do`` body began: its commands may not run
 
@@ -270,6 +271,8 @@ class _Walk:
         if ran is not False:
             after_it = frozenset(s for state in self.posix for s in _posix_after(words, self.functions, state, timed))
             self.posix = after_it if ran else self.posix | after_it
+            for seen in self.passed:
+                seen |= self.posix
             shadowed = words[0] in self.functions  # ``true() { false; }``: the function runs, its exit is not known
             self.last_exit = None if shadowed or not ran else _LITERAL_EXIT.get(" ".join(words))
 
@@ -344,6 +347,7 @@ class _Walk:
         piped = bool(_PIPE.search(before_brace))
         self.groups.append((self.spot(), piped, (mark, self.unknown, self.passthru), (self.list_start, self.listed)))
         self.copies.append(set())  # the descriptors the commands of the group copy
+        self.passed.append(set(self.posix))
         self.gates.append(self.ran)  # ``false && { :; unset X; }``: every command of the group is skipped
         if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
             self.here = None
@@ -351,13 +355,13 @@ class _Walk:
     def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
         before, piped, (mark, unknown, passthru), (self.list_start, self.listed) = self.groups.pop()
         self.gates.pop()
-        copied = self.copies.pop()
+        copied, passed = self.copies.pop(), self.passed.pop()
         for outer in self.copies:  # ``{ { :; } 2>&1; } 1>&-``
             outer |= copied_fds(redirects)
         # ``{ unset X; } </missing``: bash opens it first, and runs no body when that fails; so when it closes a descriptor
-        # a command of the body copies (``{ unset X 2>&1; } 1>&-``)
+        # a command of the body copies (``{ unset X 2>&1; } 1>&-``), that command fails and the ones before it ran
         if may_fail_redirect(redirects) or closed_fds(redirects) & copied:
-            self.posix |= before[3]
+            self.posix |= before[3] | (passed if closed_fds(redirects) & copied else set())
             self.last_exit = None
         if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _stdout_after_stderr(redirects):
             del out[mark:]
@@ -481,6 +485,8 @@ def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool
     flags, plus, operands = _builtin_options(words[1:], builtin in ("declare", "typeset"))
     if builtin == "set":  # ``set -a``: what is assigned after it is exported, whether or not it was unset in between
         return frozenset({(is_set, exported, _allexport(words[1:], allexport), readonly)})
+    if builtin in ("declare", "typeset") and "p" in flags:  # ``declare -p NAME`` shows it, whatever other options come with it
+        return frozenset({state})
     if set(flags) - set({"export": "fnp", "unset": "fnv"}.get(builtin, _DECLARE_FLAGS)) or set(plus) - set(_DECLARE_OFF):  # an option it refuses: no change
         return frozenset({state})
     names = operands if builtin == "unset" else [w.partition("=")[0].removesuffix("+") for w in operands]  # ``unset NAME=1`` fails
