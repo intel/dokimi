@@ -274,7 +274,8 @@ saved baseline skill/a@main -> 20261029T140211Z-3f9a0c1e (1 artifact); before: 2
   `--json` then has `status` `partial`; the exit code stays 0. `--json` lists
   `name`, `run_id` and `saved_at` of each under `data.baselines`.
 - **`runs baseline rm NAME`** removes the pointer; the run stays (`runs rm RUN_ID`
-  removes a run). A baseline that does not exist exits 2.
+  removes a run). A baseline that does not exist exits 2, and so does a name that
+  matches a saved one only in case (`rm MAIN` beside `main`): it removes nothing.
 - **On disk** a baseline is the file `.baselines/<NAME>` under the root, with `/`
   in the name written `%2F` (`.baselines/skill%2Fa@main`), holding one line: the
   `run_id`. `SAVED` is its mtime. A save replaces the file in one step, and saves and

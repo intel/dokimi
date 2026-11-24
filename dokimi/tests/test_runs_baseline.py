@@ -230,6 +230,19 @@ def test_rm_of_a_baseline_that_does_not_exist_exits_2(root, monkeypatch, capsys)
     assert _pointer(root, "main") == A + "\n"
 
 
+def test_rm_of_a_name_that_differs_only_in_case_removes_nothing(root, monkeypatch, capsys):
+    # save refuses such a name (docs/runs.md, "Names"); rm must not remove main for MAIN, which a
+    # case-insensitive file system (Windows, macOS) opens as one file: _read stands in for that here
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+    monkeypatch.setattr(baseline, "_read", lambda path: A)
+
+    code, _, err = _run(monkeypatch, capsys, "baseline", "rm", "MAIN")
+
+    assert (code, err) == (2, "Error: no baseline MAIN under the runs root results/ (baseline main "
+                              "differs only in case)\n")
+    assert _pointer(root, "main") == A + "\n"
+
+
 def test_without_a_runs_root_list_is_empty_and_save_and_rm_exit_2(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)

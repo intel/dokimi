@@ -270,11 +270,15 @@ def remove(root: Path, name: str) -> str | None:
     if not store(root).is_dir():
         raise missing
     with locked(root):
+        if _file_name(name) not in os.listdir(store(root)):  # Windows and macOS would open main for MAIN
+            other = _same_but_case(store(root), name)
+            raise InputError(str(missing) + (f" (baseline {plain(other)} differs only in case)"
+                                             if other else ""))
         try:
             held = _read(path)
         except (OSError, UnicodeDecodeError):
             held = ""  # removed all the same: a pointer that cannot be read points nowhere
-        if held is None:
+        if held is None:  # removed since the listing by a process that did not lock
             raise missing
         path.unlink()
     return held if is_run_id(held) else None
