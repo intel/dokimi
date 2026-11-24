@@ -177,11 +177,13 @@ def test_two_processes_that_expect_the_same_run_keep_one_winner(root, monkeypatc
                   root / "c" / "arms.json")
     monkeypatch.delenv("DOKIMI_RUN_ID")
     baseline.save(root, "main", A, None)
-    with _cli(root, *(["baseline", "save", "main", run, "--expect-previous", A] for run in (B, C))) as procs:
-        with baseline.locked(root):
+    with contextlib.ExitStack() as lock:
+        lock.enter_context(baseline.locked(root))  # before they start, so neither can save first
+        with _cli(root, *(["baseline", "save", "main", run, "--expect-previous", A] for run in (B, C))) as procs:
             _wait_on_the_lock(root, 2)
-        results = {run: proc.communicate(timeout=60) + (proc.returncode,)
-                   for run, proc in zip((B, C), procs, strict=True)}
+            lock.close()
+            results = {run: proc.communicate(timeout=60) + (proc.returncode,)
+                       for run, proc in zip((B, C), procs, strict=True)}
 
     codes = sorted(code for _, _, code in results.values())
     assert codes == [0, 4], results
@@ -194,11 +196,13 @@ def test_gc_keep_baselines_removes_while_it_holds_the_lock(root):
     """docs/runs.md, --keep-baselines: gc holds the baselines' lock while it removes, so it waits for
     a save that holds it, and a save waits for gc."""
     baseline.save(root, "main", A, None)
-    with _cli(root, ["gc", "--older-than", "0d", "--keep-baselines"]) as (gc,):
-        with baseline.locked(root):
+    with contextlib.ExitStack() as lock:
+        lock.enter_context(baseline.locked(root))  # before gc starts, so it cannot take the lock first
+        with _cli(root, ["gc", "--older-than", "0d", "--keep-baselines"]) as (gc,):
             _wait_on_the_lock(root, 1)
             assert (root / "b" / "arms.json").exists()  # nothing removed before gc has the lock
-        out, err = gc.communicate(timeout=60)
+            lock.close()
+            out, err = gc.communicate(timeout=60)
 
     assert gc.returncode == 0, err
     assert f"kept 1 run older than 0d that a baseline holds: {A} (main)" in out
