@@ -215,7 +215,7 @@ def test_generate_exits_2_when_a_local_doc_source_name_is_too_long(tmp_path, mon
     assert capsys.readouterr().err.startswith("Error: ")
 
 
-def testrequire_local_doc_source_reports_a_permission_error_as_unreadable(monkeypatch):
+def test_require_local_doc_source_reports_a_permission_error_as_unreadable(monkeypatch):
     """#1086: `local:/restricted/docs` under a directory denying search exists; it is not `path does not exist`."""
     from pathlib import Path
 
@@ -231,7 +231,7 @@ def testrequire_local_doc_source_reports_a_permission_error_as_unreadable(monkey
     assert "does not exist" not in str(exc.value)
 
 
-def testrequire_local_doc_source_reports_a_denied_directory_when_exists_answers_false(tmp_path, monkeypatch):
+def test_require_local_doc_source_reports_a_denied_directory_when_exists_answers_false(tmp_path, monkeypatch):
     """#1086: Python 3.14 `Path.exists` returns False on a denied directory; the guard still says unreadable."""
     import os
     from pathlib import Path
