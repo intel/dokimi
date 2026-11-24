@@ -111,6 +111,19 @@ def test_a_refused_matrix_cell_is_named_and_no_cell_is_answered(tmp_path, provid
     assert provider_calls.calls == []
 
 
+def test_a_value_refusal_names_litellms_reason_in_the_answer_preflight(monkeypatch):
+    from dokimi.eval.arms_run import check_sampling_support
+
+    reason = "us.anthropic.claude-haiku-5-5 does not support temperature=0.0. Only temperature=1 is supported"
+    monkeypatch.setattr("dokimi.llm.sampling_refusals", lambda *a, **k: {"temperature": reason})
+    cfg = ArmsRunConfig(product="demo", model="us.anthropic.claude-haiku-5-5",
+                        provider="amazon-bedrock", temperature=0.0)
+
+    with pytest.raises(ValueError, match=r"does not support temperature \(us\.anthropic\.claude-haiku-5-5 "
+                                         r"does not support temperature=0\.0"):
+        check_sampling_support(cfg)
+
+
 def test_run_matrix_checks_every_cell_before_the_first_is_paid_for(monkeypatch, provider_calls):
     from dokimi.eval.arms_run import run_matrix
     from dokimi.eval.cells import MatrixCellDescriptor
@@ -167,16 +180,3 @@ def test_an_unresolved_doc_library_id_is_logged_and_the_name_is_used(monkeypatch
         lib_id = arms_run.resolve_doc_library_id([DocTreatment(object(), name="docs", top_k=3)], "react")
     assert lib_id == "react"
     assert [r.exc_info is not None for r in caplog.records if "not resolved" in r.getMessage()] == [True]
-
-
-def test_a_value_refusal_names_litellms_reason_in_the_answer_preflight(monkeypatch):
-    from dokimi.eval.arms_run import check_sampling_support
-
-    reason = "us.anthropic.claude-haiku-5-5 does not support temperature=0.0. Only temperature=1 is supported"
-    monkeypatch.setattr("dokimi.llm.sampling_refusals", lambda *a, **k: {"temperature": reason})
-    cfg = ArmsRunConfig(product="demo", model="us.anthropic.claude-haiku-5-5",
-                        provider="amazon-bedrock", temperature=0.0)
-
-    with pytest.raises(ValueError, match=r"does not support temperature \(us\.anthropic\.claude-haiku-5-5 "
-                                         r"does not support temperature=0\.0"):
-        check_sampling_support(cfg)
