@@ -9,11 +9,11 @@ import hashlib
 import json
 import math
 import re
+import shlex
 import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-import shlex
 
 from dokimi import docker_cmd, llm_cli, process
 from dokimi.container_policy import ContainerPolicy
@@ -142,10 +142,11 @@ def attempt(
                 digest("\n".join(supplied).encode()), task["fixture"]["default"]
             )
         if not isinstance(answer, dict) or not isinstance(answer.get("script"), str):
-            row["evidence"] = {"reason": "agent returned no executable answer"}
-            return "FAIL"
-        script = answer["script"]
-        row["claimed_success"] = answer.get("claimed_success")
+            row["agent_error"] = "agent returned no executable answer"
+            script = "exit 64"
+        else:
+            script = answer["script"]
+            row["claimed_success"] = answer.get("claimed_success")
     budget = task["timeout"]
     if type(budget) is not int or budget <= 0:
         raise ValueError("timeout must be a positive integer")
@@ -184,7 +185,7 @@ def attempt(
     row["evidence"].update(verifier_exit=grade.returncode, verifier_stderr=grade.stderr)
     if grade.returncode not in (0, 10):
         raise ValueError(f"verifier failed with exit {grade.returncode}: {grade.stderr}")
-    return "PASS" if grade.ok else "FAIL"
+    return "PASS" if grade.ok and not row.get("agent_error") else "FAIL"
 
 
 def collect(

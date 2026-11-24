@@ -5,6 +5,8 @@
 
 A release engineer can test an RC using just the installer, binary or wheel, a pinned runtime image, and a consumer project. A separate AX operator can run the same consumer and verifier with external documentation. Both commands take JSON files from a content checkout. The content owner controls executable install scripts, contract checks and verifiers. Import third-party material as text.
 
+The offline report renders Markdown. Redirect it to a file to attach it to an RC or AX review.
+
 ## Try the consumer fixture
 
 From the `dokimi/` project directory, with Docker available, create the external pack once. The image ID includes the operating system and every preinstalled dependency. On CI, preload that exact image. The demo expects Linux x86-64.
@@ -51,7 +53,7 @@ To promote a finding, reproduce it against the intended RC, identify the promise
 {"A":{"score":10.0,"coverage":[2,2],"false_success":[0,2]},"B":{"score":0.0,"coverage":[2,2],"false_success":[2,2]},"partial":false}
 ```
 
-Each arm first averages measured repeats per scenario, then scenarios per group. Its score is ten times the sum of group means weighted by normalized predeclared group weights. A working runner with a wrong agent answer scores zero on that attempt. Missing evidence leaves coverage below plan and the arm score null. Coverage counts measured/planned. False success counts rejected claims/all measured claims. Without any claims the counts are `[0,0]`. No scan score gates a release.
+Each arm first averages measured repeats per scenario, then scenarios per group. Its score is ten times the sum of group means weighted by normalized predeclared group weights. A working runner with a wrong agent answer scores zero on that attempt. Missing evidence leaves coverage below plan and the arm score null. Coverage counts measured/planned. False success counts rejected claims/all claims. `unverified_claims` counts claims whose verifier result is missing. Without any claims the counts are `[0,0]`. No scan score gates a release.
 
 Use independent workflows in the product repository. These job excerpts assume a prepared runner with Dokimi installed, the pinned image preloaded and the external content checkout under `$PACK`. In branch protection require only `delivery-release`. A release verdict maps PASS to 0, FAIL to 1 and INCONCLUSIVE to 3. A partial scan exits 3 in its own workflow. Archive JSON even after a nonzero exit.
 

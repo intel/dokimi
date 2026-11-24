@@ -36,7 +36,10 @@ def evaluate(required: list[str], identity: dict, observations: list[dict]) -> d
 
 
 def score(groups: dict, tasks: dict, repeats: int, rows: list[dict], arm: str) -> dict:
-    observed = claimed = false = 0
+    observed = 0
+    claims = [r for r in rows if r["arm"] == arm and r.get("claimed_success") is True]
+    rejected = sum((r.get("evidence") or {}).get("verifier_exit") == 10 for r in claims)
+    unknown = sum((r.get("evidence") or {}).get("verifier_exit") not in (0, 10) for r in claims)
     details = {}
     total_score = 0.0
     for group, weight in groups.items():
@@ -53,9 +56,6 @@ def score(groups: dict, tasks: dict, repeats: int, rows: list[dict], arm: str) -
             successes = sum(r["outcome"] == "PASS" for r in attempts)
             counts[name] = {"successes": successes, "measured": len(attempts), "planned": repeats}
             observed += len(attempts)
-            claims = [r for r in attempts if r.get("claimed_success") is True]
-            claimed += len(claims)
-            false += sum(r["outcome"] == "FAIL" for r in claims)
             if attempts:
                 rates.append(successes / len(attempts))
         normalized = weight / sum(groups.values())
@@ -67,7 +67,8 @@ def score(groups: dict, tasks: dict, repeats: int, rows: list[dict], arm: str) -
         "score": total_score if observed == planned else None,
         "coverage": [observed, planned],
         "groups": details,
-        "false_success": [false, claimed],
+        "false_success": [rejected, len(claims)],
+        "unverified_claims": unknown,
     }
 
 

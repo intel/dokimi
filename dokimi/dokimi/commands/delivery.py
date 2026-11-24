@@ -3,12 +3,12 @@
 """CLI for release contracts and AX scans."""
 
 import argparse
-import json
 from pathlib import Path
 
 from dokimi import artifacts, cli_output
 from dokimi.gate.delivery import evaluate
 from dokimi.harnesses.delivery import run
+from dokimi.report.delivery import render
 from dokimi.utils import InputError
 
 
@@ -46,15 +46,7 @@ def command(args: argparse.Namespace) -> None:
             )
         )
     else:
-        print(f"{data['mode']} | {data['identity']['profile']} | {data['date']}")
-        print(json.dumps(summary, indent=2))
-        for row in data["observations"]:
-            print(
-                f"{row['task']} {row['arm']} #{row['repeat']}: {row['outcome']} | {row.get('owner', '')}"
-            )
-            if row.get("reason"):
-                print(row["reason"])
-        print(data["reproduce"])
+        print(render(data), end="")
     if verdict == "FAIL":
         raise SystemExit(1)
     if verdict == "INCONCLUSIVE" or summary.get("partial"):

@@ -13,6 +13,8 @@ SPDX-License-Identifier: Apache-2.0
 
 # Coding Harnesses And Task Runs
 
+For a pinned binary or installer with an external consumer and hidden stdin, see [delivery contracts and AX replay](delivery.md).
+
 Executable task runs measure whether an agent can do the work, not only answer
 questions about an API. The `tasks run` command runs executable task
 directories through named harnesses, records operation telemetry, and compares

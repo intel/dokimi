@@ -11,6 +11,7 @@ import pytest
 
 from dokimi import process
 from dokimi.harnesses import delivery
+from dokimi.report.delivery import render
 from dokimi.gate.delivery import evaluate, score
 from tests.fixtures.delivery.build import build
 
@@ -176,6 +177,10 @@ def test_live_adapter_and_offline_report(pack, monkeypatch, capsys):
         assert envelope["status"] == "partial" and envelope["data"]["summary"]["A"]["score"] == 10
         assert envelope["data"]["summary"]["B"]["score"] is None
         assert envelope["cost"]["spent_usd"] == 0.02
+        report = render(envelope["data"])
+        assert (
+            "provider unavailable" in report and "partial" in report and "article author" in report
+        )
         monkeypatch.setattr(
             llm, "llm_call_with_usage", lambda *a, **k: pytest.fail("report called a model")
         )
@@ -219,6 +224,7 @@ def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):
     args.func(args)
     record = json.loads(capsys.readouterr().out)["data"]
     assert record["summary"]["verdict"] == "PASS"
+    assert "binary-double · PASS" in render(record)
     record["observations"][0]["origin"] = "scan"
     out.write_text(json.dumps(record))
     args = parse_args(["delivery", "report", str(out), "--json"])
@@ -226,3 +232,15 @@ def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):
         args.func(args)
     assert exc.value.code == 3
     assert json.loads(capsys.readouterr().out)["verdict"] == "inconclusive"
+
+
+def test_claim_without_grader_is_visible(pack, monkeypatch):
+    pack.mode = "scan"
+
+    def run_container(image, script, mounts, *a, **kw):
+        return process.reply(returncode=0 if mounts else 2)
+
+    monkeypatch.setattr(delivery, "container", run_container)
+    stats = delivery.run(pack)["summary"]["B"]
+    assert stats["false_success"] == [0, 2] and stats["unverified_claims"] == 2
+    assert stats["score"] is None
