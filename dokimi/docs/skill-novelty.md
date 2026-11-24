@@ -3,6 +3,8 @@ depends_on:
   - dokimi/dokimi/novelty/**
   - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
+  - dokimi/dokimi/commands/novelty_flags.py
+  - dokimi/dokimi/commands/novelty_routing*.py
   - dokimi/dokimi/gate/novelty_gate.py
   - dokimi/dokimi/schemas/novelty.v1.json
 ---
@@ -410,6 +412,8 @@ Read it in this order:
 Top level: `artifact_ref`, `ref_digest` (the artifact revision), `model`, `with_arm` and `conflicts` (the pairs, as `a`, `b`, `why` with atom ids). To check the grader, filter the rows on `outcome.lenient` and `category`, for example `redundant` outcomes with category `known_inert`, and read each row's `statement` and `span_ids` against the spans. The file is always written, so a file left by an earlier run into the same output is replaced.
 
 `skill novelty view --novelty novelty.json --atoms novelty.atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. Pass the `novelty.atoms.json` of the same run: atom ids hash the statement, so an `atoms.json` from a separate `skill novelty atoms` call holds the same ids only when the extractor worded every atom the same. It exits 2 when the file's `artifact_ref`, `ref_digest`, `model`, `run_id` or `analysis_digest` differs from the `--novelty` artifact's (a `novelty.json` with no `run_id` differs from a file that has one; `analysis_digest` is the digest of the `novelty.json` payload without `schema_version`, `run_id` and `dokimi_version`, so two analyses that share a `DOKIMI_RUN_ID` still differ), or when it names an atom `--atoms` does not hold or cites other `span_ids` for an atom than `--atoms` does (an atoms file extracted again from an edited source keeps the ids and moves the spans). It also exits 2 when the `--atoms` file's `bundle.measured_digest` differs from the `--novelty` artifact's `ref_digest`; an atoms file that records no such digest is not checked against it.
+
+Add `--atom-labels labels.csv` (it needs `--atom-verdicts`) to see the known and new shares per label of your own. The file has one row per atom: `skill` (the artifact ref, its `skill:` prefix optional), `atom_id` (the `id` of an atom of `--atoms`, as in the verdicts file) and `label`; it is JSON lines, or CSV with a header when the name ends in `.csv`. An atom with no label row is counted under `unlabelled`, and labels that match no atom of the run are counted in a `WARNING`. `known` is a category starting `known_`, `new` one starting `novel_`, `other` the rest (`scaffolding`, `harmful_conflicting`); the shares are over the atoms that have a category, and `uncat.` counts the atoms with none: the probed atoms that got no category and, in a capped run, the atoms of `--atoms` outside the sample (a label on one of those raises no warning). The table is printed after the view is saved; nothing is written back to the artifacts.
 
 ### 2. Span attribution — where in the file
 
@@ -979,7 +983,9 @@ more per call as well as in calls. Before the first call the run prints that cou
 (`all-vs-all: --model makes N model calls, one per query and repeat, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
-fewer calls than the printed count.
+fewer calls than the printed count. The response cache is opt-in: without `DOKIMI_RESPONSE_CACHE`
+set to a writable directory nothing is stored, and a rerun pays for every call again. Set it for
+research runs and for any run you may repeat. `--cache-dir` keeps only the retention verdicts.
 
 **A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary; with AWS: "Unable to locate credentials", a missing config profile or an expired SSO session, whichever class litellm wraps it in) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries. `skill novelty atoms`, `probe` and `analyze` and `skill shorten` stop the same way at the first such error in an atom extraction call, the faithfulness check, a probe wording, an answer, a grade, a value or conflict batch or a retention adjudication, and keep what they paid for as they do at the cap, with `"reason": "permanent_error"`; a refusal, an unparseable reply or a request one item makes too long is still one failed item.
 
@@ -1255,6 +1261,69 @@ A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
 Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.
 
+## Corpus sweep: `catalog novelty`
+
+`catalog novelty ROOT --out-dir DIR --max-usd USD` runs `skill novelty analyze` on every
+`SKILL.md` under ROOT and writes one row per skill to `--jsonl` (default `DIR/sweep.jsonl`) as
+each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
+`DIR/<skill>/novelty.json` and `novelty.md`. The calls are paid: `--max-usd` is required.
+
+- **Budget.** `--max-usd` is the whole-run budget, shared by the skills analysed at once
+  (`--jobs`, threads). `--max-usd-per-skill` caps one skill inside it; a skill that hits either
+  cap is a `partial` row with no novelty file, and the sweep goes on. Once the whole-run budget
+  is spent, no further skill starts: it is not in the JSONL, and the run says how many were not run.
+  A skill stopped by a call with no price or by a permanent provider error (see above, routing) stops the
+  sweep the same way, since every later skill would meet it on its first calls.
+  A run that leaves any skill it took on `partial`, `error` or not run exits 1 after it has written
+  its rows and the summary; a run that measured every one of them exits 0.
+- **Resume.** `--resume` keeps the `ok` rows whose skill directory digest, measurement settings
+  and dokimi version are unchanged, rewrites the JSONL with them and with the rows of skills this
+  run does not select (a narrower `--limit`), and runs the other skills. Set
+  `DOKIMI_RESPONSE_CACHE` so the calls already paid replay at $0. Without `--resume`, an existing
+  `--jsonl` is refused rather than overwritten. A `--resume` whose settings differ from those of an `ok` row of a
+  selected skill (or whose dokimi version does) is refused and names the fields, since rewriting the file would
+  delete that paid row before its rerun; pass `--rerun-changed` to measure those skills again on purpose.
+- **Settings.** The sweep takes the measurement flags it needs (`--model`, `--judge-model`,
+  `--tier`, `--max-atoms`, `--token-budgets`, `--arms`, `--include-resources`, ...); the rest keep their
+  `skill novelty analyze` defaults. `--judge2` and a judge panel (`--judge` more than once, `--judge-aggregate`) are not part of
+  the sweep, which refuses them: run them on one skill.
+- **Summary.** The first line of the summary is the share the model already knew without the
+  skill, `k0.lenient`, and the share it did not know (`1 - known`): the new-to-the-model share.
+  Each interval is a 95% percentile bootstrap over the skills (2000 resamples,
+  `--bootstrap-resamples`). `--strata CSV` adds one line per stratum: the CSV has a `skill`
+  column (the skill's directory under ROOT, or its name) and a stratum column (`--stratum-column`,
+  default `stratum`); a skill the CSV does not name is `(unassigned)`.
+- **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
+  sweep with no model call. `--summary-out FILE` also writes it as JSON. A file whose `ok`
+  rows were measured under different settings or dokimi versions (a `--resume --limit` with a changed
+  `--model`) is refused: one interval would pool two models' shares. An identical bundle (same
+  files, so the same digest) is counted once, by its last `ok` row, even if it was moved to another directory or
+  renamed. If differently named bundles with the same digest coexist in the catalog, each has a separate
+  measurement. The JSONL records a `bundle_instance` number for additional copies so `--summary-only` can
+  distinguish them without the catalog. Older rows without that evidence use instance zero. The spend
+  counts every paid row, including rows written before a rename.
+- **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
+  byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
+  are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names
+  them (not an error). Two directories with the same `SKILL.md` and different bundled files are two skills.
+- **Interrupt.** Ctrl-C or SIGTERM stops the sweep without new calls: the skills not yet started
+  are cancelled, the skills in flight finish and keep their rows, and the run exits nonzero (130
+  for SIGINT, 143 for SIGTERM). A SIGTERM therefore waits for the calls in flight. The rows already
+  written stay in the JSONL, so `--resume` continues from them. A second signal kills the subprocess calls in
+  flight (their paid work is lost, so set `DOKIMI_RESPONSE_CACHE` to replay what was done) and stops
+  at once. An API call in flight cannot be killed: its row is not written, and the process waits for it to end
+  before it exits, so its paid call is lost unless `DOKIMI_RESPONSE_CACHE` is set. No call after it starts.
+  A skill that is measured again (`--resume`) first loses its earlier `novelty.json` and `novelty.md`, so a
+  `partial` or `error` row never sits beside a file from an older run. `--summary-out` may not be the
+  `--jsonl` file, and neither `--out-dir` nor `--jsonl` may be inside a skill directory (its files
+  would change the skill's digest, so each `--resume` would measure it again).
+
+```bash
+dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \
+  --jobs 4 --model <answerer> --judge-model <judge> --strata strata.csv
+dokimi catalog novelty skills/ --out-dir out/sweep --summary-only
+```
+
 ## Cost, and how it is kept down
 
 The measurement is LLM-call bound, and the probe term is predictable: **every probe costs an
@@ -1477,7 +1546,8 @@ rewrites one file, so with a bundle-derived atom set it scores only the entry po
 and says so.
 
 And the retention oracle runs retrieval → NLI locally, escalating to an LLM only for the
-ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
+ambiguous band, with a disk memo of its verdicts (`--cache-dir`, keyed on (atom, text); the
+response cache is `DOKIMI_RESPONSE_CACHE`, also opt-in). Full sweeps stay opt-in
 (`--all-atoms`).
 
 The cache key carries a version (`retention-cache-v6`). Entries written before failed

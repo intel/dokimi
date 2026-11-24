@@ -4,7 +4,7 @@
 """``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--concurrency`` and ``--resume``.
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
-``description-near-duplicate``) need every skill reviewed together. This mode gives them up
+``description-near-duplicate``, ``similar-skills-exist``) need every skill reviewed together. This mode gives them up
 and reviews one skill per row. Every SKILL.md body the scan finds is loaded before the first row (eager, so
 memory grows with the catalog; lazy per-skill loading is #434). Rows are written in
 catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
@@ -176,7 +176,7 @@ def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
     try:
         base = path.resolve()
         skip = [out.relative_to(base).as_posix() for out in outputs if out.is_relative_to(base)]
-        return tree_digest(path, exclude=skip, tracked={})
+        return tree_digest(path, exclude=skip, strict=True, tracked={})
     except OSError:
         return None
 
@@ -420,7 +420,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                 if row is None:
                     continue
                 key = _row_key(row)
-                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing" in row and "listing_name" in row and row["skill_sha256"] == selected[key]
+                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing" in row and "listing_name" in row and selected[key] is not None and row["skill_sha256"] == selected[key]
                         and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:

@@ -32,7 +32,7 @@ from typing import Any
 
 import yaml
 
-from .shell_split import split_script
+from .shell_split import split_script, substitution_end
 
 TARGETS = ("cpu", "gpu", "os", "memory", "packages", "env", "network")
 
@@ -50,10 +50,13 @@ DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
 _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep", "egrep", "fgrep", "awk", "tac",
                       "strings", "wc", "rg"})
 _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is an expression, not a file
-_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice", "timeout", "xargs"})  # each runs
-# the command after it
+_WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice", "timeout", "xargs", "doas", "stdbuf"})  # each runs the next command
 _KEYWORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!"})  # shell keywords before a command
-_OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u"), ("timeout", "-s"), ("timeout", "-k"),
+_OPTION_OPERANDS = frozenset({("doas", "-u"), ("doas", "-C"), ("stdbuf", "-i"), ("stdbuf", "-o"), ("stdbuf", "-e"),
+                              ("nice", "-n"), ("sudo", "-u"), ("sudo", "-g"), ("sudo", "-h"), ("sudo", "-p"),
+                              ("sudo", "-r"), ("sudo", "-t"), ("sudo", "-C"), ("sudo", "-D"), ("sudo", "-R"),
+                              ("sudo", "-T"), ("sudo", "-U"), ("time", "-f"), ("time", "-o"), ("time", "--format"),
+                              ("time", "--output"), ("exec", "-a"), ("timeout", "-s"), ("timeout", "-k"),
                               ("xargs", "-n"), ("xargs", "-I"), ("xargs", "-L"), ("xargs", "-P"), ("xargs", "-d"),
                               ("xargs", "-E"), ("xargs", "-s"), ("xargs", "-a")})  # wrapper options that take a value
 _ENV_VALUES = frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"})  # env options with a value word
@@ -98,6 +101,9 @@ _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
 _PS_ASSIGN = re.compile(r"\$\w+=")
 _DOTTED = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
+_INFO_OPTIONS = frozenset({"--help", "--version", "-V"})  # a wrapper given one prints text and runs nothing
+_HEREDOC = re.compile(r"<<-?[ \t]*(?P<tag>'[^']*'|\"[^\"]*\"|\\?[\w.-]+)")
+_GROUPED = re.compile(r"[{}()]|\b(?:if|then|else|elif|fi|do|done|while|until|case|esac)\b")  # a group or a block
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 _SHELL_C = re.compile(r"-[a-z]*c[a-z]*")  # ``-c``, ``-lc``: the next word is a script
 _LEX_SKIP = frozenset({"(", ")", "{", "}"})  # grouping a PowerShell or shell expression puts around a command
@@ -175,7 +181,7 @@ def with_probes(events: list[dict[str, Any]], probes: Sequence[Probe],
     out: list[dict[str, Any]] = []
     for event in events:
         out.append(event)
-        if event.get("kind") == "command":
+        if event.get("kind") == "command" and not event.get("denied"):
             try:
                 matched = _matching(str(event.get("text", "")), probes)
             except Exception as exc:  # noqa: BLE001  # one command nested too deep must not cost the others their probes
@@ -238,7 +244,17 @@ def _matching(command: str, probes: Sequence[Probe]) -> list[Probe]:
 
 def _pipelines(script: str) -> Iterator[list[list[str]]]:
     """Each pipeline of the script as its stages' words; the commands of its ``$( )`` and backtick substitutions too."""
-    for part, _after, _in_subshell, _outer in split_script(script):
+    status: bool | None = None  # the exit status of the last part that ran; None when it is not known
+    before = ""  # the operator before this part
+    text = _without_heredocs(script)
+    flat = not _GROUPED.search(_substitutions(_mask(text))[1])  # a group or a block may hold an exit that does not run: then nothing ends the scan
+    for part, after, in_subshell, _outer in split_script(text):
+        conditional = before in ("||", "&&") and status is None  # the part runs only if the one before it did, or did not, succeed
+        skipped, before = (before == "||" and status is True) or (before == "&&" and status is False), after
+        if skipped:  # a part after ``||`` that succeeded, or after ``&&`` that failed, never runs
+            continue
+        status = {"true": True, ":": True, "false": False}.get(part.strip())
+
         codes, rest = _substitutions(_mask(part))
         for code in codes:  # the substitutions ran as their own commands
             yield from _pipelines(_restore(code))
@@ -250,6 +266,113 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
                 script_arg = _shell_script(prog, args)
                 if script_arg is not None:
                     yield from _pipelines(script_arg)
+
+        if flat and not conditional and not in_subshell and after != "&" and len(stages) == 1 and _ends_shell(rest):
+            return
+
+
+def _ends_shell(part: str) -> bool:
+    words = _stages(part, include_reads=False)
+    stages = list(_views(words[0])) if words else []
+    return any(program == "exit" for program, _ in stages) or any(program == "exec" for program, _ in stages[:-1])
+
+
+def _without_heredocs(script: str) -> str:
+    """Keep command text and expansions, skipping each delimiter's data in shell order."""
+    if "<<" not in script:
+        return script
+    out: list[str] = []
+    lines = iter(script.split("\n"))
+    quote = ""
+    for line in lines:
+        opening = len(out)
+        out.append(line)
+        expansions = []
+        openers, quote = _openers(line, quote)
+        for match in openers:
+            tag = match.group("tag")
+            quoted = tag.startswith(("'", '"', "\\"))
+            delimiter = tag[1:-1] if tag.startswith(("'", '"')) else tag.removeprefix("\\")
+            body = []
+            for data in lines:
+                if (data.lstrip("\t") if match.group(0).startswith("<<-") else data) == delimiter:
+                    break
+                body.append(data)
+            prefix = line[:match.start()]
+            words = command_stages(prefix)
+            if match is openers[-1] and words and _reads_script_from_stdin(words[-1]):
+                out.extend(body)
+            elif not quoted:
+                expansions.extend(_expansions("\n".join(body)))
+        if expansions:
+            at = openers[0].start()
+            out[opening] = line[:at] + " ".join(expansions) + " " + line[at:]
+    return "\n".join(out)
+
+
+def _reads_script_from_stdin(words: list[str]) -> bool:
+    for program, args in _views(words):
+        if program in _SHELLS:
+            return all(re.fullmatch(r"-[seuxl]+|--norc|--noprofile", word) for word in args)
+    return False
+
+
+def _openers(line: str, quote: str) -> tuple[list[re.Match[str]], str]:
+    """Read unquoted heredoc operators and carry an open shell quote to the next line."""
+    matches = []
+    i = 0
+    while i < len(line):
+        char = line[i]
+        if char == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (not i or line[i - 1].isspace()):
+            break
+        elif line.startswith("((", i):
+            end = line.find("))", i + 2)
+            i = len(line) if end < 0 else end + 2
+            continue
+        elif line.startswith("<<<", i):
+            i += 3
+            continue
+        elif match := _HEREDOC.match(line, i):
+            matches.append(match)
+            i = match.end()
+            continue
+        i += 1
+    return matches, quote
+
+
+def _expansions(body: str) -> list[str]:
+    """The ``$( )`` and backtick substitutions of an unquoted heredoc body, as text."""
+    found: list[str] = []
+    i = 0
+    while i < len(body):
+        if body[i] == "\\":
+            i += 1
+        elif body[i] in "$`" and (sub := _substitution(body, i)):
+            found.append(body[i:sub[1] + 1])
+            i = sub[1]
+        i += 1
+    return found
+
+
+def _substitution(part: str, i: int) -> tuple[str, int] | None:
+    """The body of the ``$( )`` or backtick substitution at ``i`` and the index of its last character; ``None``
+    where ``$`` or a backtick starts none."""
+    if part[i] == "$":
+        if part[i + 1:i + 2] != "(" or part[i + 2:i + 3] == "(":  # ``$((`` is arithmetic: it runs no command
+            return None
+        end = substitution_end(part, i + 2)
+        return part[i + 2:end - 1], end - 1
+    end = part.find("`", i + 1)
+    end = len(part) if end < 0 else end
+    return part[i + 1:end], end
 
 
 def _mask(part: str) -> str:
@@ -320,16 +443,20 @@ def _substitutions(part: str) -> tuple[list[str], str]:
     rest: list[str] = []
     i = 0
     while i < len(part):
-        if part.startswith("$(", i):
+        if part.startswith("$((", i):
+            end = _close_of(part, i + 3)
+            codes.extend(_substitutions(part[i + 3:end])[0])
+            i = end + 2
+        elif part.startswith("$(", i):
             end = _close_of(part, i + 2)
             codes.append(part[i + 2:end])
-            rest.append(" ")
+            rest.append("_substitution_")
             i = end + 1
         elif part[i] == "`":
             j = part.find("`", i + 1)
             j = len(part) if j < 0 else j
             codes.append(part[i + 1:j])
-            rest.append(" ")
+            rest.append("_substitution_")
             i = j + 1
         else:
             rest.append(part[i])
@@ -363,7 +490,13 @@ def _close(stage: list[str], reads: list[str]) -> None:
         stage.extend(reads)
 
 
-def _stages(part: str) -> list[list[str]]:
+def command_stages(part: str) -> list[list[str]]:
+    """Each command's words, excluding substitutions and redirection operands."""
+    _, rest = _substitutions(_mask(part))
+    return _stages(rest, include_reads=False)
+
+
+def _stages(part: str, *, include_reads: bool = True) -> list[list[str]]:
     """A part's simple commands, cut at its unquoted pipes, each as its words (quotes removed, grouping dropped). An
     output redirection's target is written, so it is no word; an input's target is read, so it follows the words."""
     stages: list[list[str]] = [[]]
@@ -371,19 +504,25 @@ def _stages(part: str) -> list[list[str]]:
     target = ""  # the operator whose target is the next token: ``>`` (written) or ``<`` (read)
     for token in _lexed(_fd_masked(part)):
         if target:
-            if target == "<":
+            if target == "<" and include_reads:
                 reads.append(_restore(token))
             target = ""
-        elif token == "|":
+        elif token in ("|", "|&"):
             _close(stages[-1], reads)
             reads = []
             stages.append([])
-        elif token.lstrip("&").startswith(">") or token in ("<", "<<<"):
+        elif token.lstrip("&").startswith(">") or token in ("<", "<&", "<<<"):
             target = token.lstrip("&")[:3]  # ``<<<`` is a string, not a file: only a lone ``<`` reads its target
         elif token not in _SEPARATORS and token not in _LEX_SKIP:
             stages[-1].append(_restore(token))
     _close(stages[-1], reads)
     return [stage for stage in stages if stage]
+
+
+def command_words(words: list[str]) -> Iterator[list[str]]:
+    """Normalized program and arguments, following wrappers."""
+    for program, arguments in _views(words):
+        yield [program, *arguments]
 
 
 def _views(words: list[str]) -> Iterator[Stage]:
@@ -420,7 +559,7 @@ def _past_wrapper_args(words: list[str], i: int, wrapper: str) -> int | None:
     """The index of the program a wrapper runs: past its options (``sudo -E``, ``nice -n 5``) and, for ``timeout``, its
     duration; None when the wrapper only looks a program up (``command -v``)."""
     while i < len(words) and words[i].startswith("-"):
-        if wrapper == "command" and words[i] in ("-v", "-V"):
+        if words[i] in _INFO_OPTIONS or (wrapper, words[i]) in (("command", "-v"), ("doas", "-C")):
             return None
         i += 2 if (wrapper, words[i]) in _OPTION_OPERANDS else 1
     if wrapper == "timeout" and i < len(words):  # ``timeout 5 nproc``: the duration is no program
