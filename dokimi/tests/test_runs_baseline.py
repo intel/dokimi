@@ -316,6 +316,24 @@ def test_list_names_a_store_entry_that_is_not_a_pointer(root, monkeypatch, capsy
     assert [u["path"] for u in doc["data"]["unreadable"]] == [".baselines/a b", ".baselines/broken"]
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="a FIFO is a POSIX file")
+def test_a_fifo_in_the_store_is_unreadable_and_never_waited_on(root, monkeypatch, capsys):
+    # docs/runs.md, Baselines: an entry that is not a pointer is unreadable; opening a FIFO would block
+    (root / ".baselines").mkdir()
+    os.mkfifo(root / ".baselines" / "main")
+
+    assert _run(monkeypatch, capsys, "baseline", "list")[1].endswith(
+        "unreadable: .baselines/main: cannot read: not a regular file\n")
+    assert _run(monkeypatch, capsys, "gc", "--older-than", "0d", "--keep-baselines")[::2] == (
+        2, "Error: .baselines/main under the runs root: cannot read: not a regular file, so the run "
+           "it holds is not known\n")
+    assert _run(monkeypatch, capsys, "baseline", "save", "main", A)[::2] == (
+        2, "Error: baseline main: cannot read: not a regular file\n")
+    assert _run(monkeypatch, capsys, "baseline", "rm", "main")[:2] == (
+        0, "removed baseline main (it held no run id); the run stays\n")
+    assert not os.path.lexists(root / ".baselines" / "main")
+
+
 def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):
     _run(monkeypatch, capsys, "baseline", "save", "main", A)
 

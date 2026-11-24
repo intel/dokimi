@@ -17,6 +17,7 @@ import contextlib
 import errno
 import os
 import re
+import stat
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -113,12 +114,15 @@ def _unlock(fd: int) -> None:
 
 def _read(path: Path) -> str | None:
     """What the pointer at ``path`` holds, stripped; ``None`` when there is none. Raises ``OSError``
-    and ``UnicodeDecodeError`` as reading does."""
-    try:
-        with open(path, "rb") as fh:
-            return fh.read(_HEAD).decode("utf-8").strip()
+    and ``UnicodeDecodeError`` as reading does, and ``OSError`` for what is not a regular file."""
+    try:  # O_NONBLOCK: opening a FIFO with no writer would wait for one
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
     except FileNotFoundError:
         return None
+    with os.fdopen(fd, "rb") as fh:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file")
+        return fh.read(_HEAD).decode("utf-8").strip()
 
 
 @dataclass(frozen=True)
