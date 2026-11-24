@@ -123,6 +123,15 @@ def test_no_matching_commit_exits_1(toy, tmp_path, capsys):
     assert exc.value.code == 1 and "0 of 5 first-parent commit(s)" in capsys.readouterr().out
 
 
+def test_a_shallow_clone_exits_1(toy, tmp_path, capsys):
+    shallow = tmp_path / "shallow"
+    git(tmp_path, "clone", "-q", "--depth", "1", toy["root"].as_uri(), str(shallow))
+    with pytest.raises(SystemExit) as exc:
+        _gen(shallow, tmp_path / "tasks")
+    assert exc.value.code == 1
+    assert "✗ history generation needs a full clone; run git fetch --unshallow" in capsys.readouterr().err
+
+
 def test_dry_run_writes_nothing_and_kept_tasks_stay(toy, tmp_path, capsys):
     out = tmp_path / "tasks"
     _gen(toy["root"], out, "--dry-run")

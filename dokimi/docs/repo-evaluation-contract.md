@@ -1407,7 +1407,7 @@ python cli.py eval tasks generate ~/repo@main --from history --out-dir ~/repo/.a
 - It prints how many of the non-merge commits it read the pattern matched, one line per commit
   (`written`, `would write` with `--dry-run`, `kept` or `skipped` with the reason), and a
   summary. It exits 1 when no commit gave a task (written, or kept from before), on a git
-  failure, and on the errors `--from prs` exits 1 on (a source it cannot open, a missing or
+  failure, on a shallow clone (`history generation needs a full clone; run git fetch --unshallow`), and on the errors `--from prs` exits 1 on (a source it cannot open, a missing or
   malformed manifest, a prompt file that is empty or cannot be read, a task it cannot write),
   each with `✗` and the reason.
 

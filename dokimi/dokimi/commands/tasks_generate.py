@@ -228,7 +228,8 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
         "cannot be resolved at the revision. With replay or prs, 1 when no pull request gave a task, a task cannot "
         "be written, the source cannot be opened, or the threads or pull request file, the manifest or the prompt "
         "file cannot be used. With history, 2 on an unpinned source or a --subject that is empty or not a "
-        "regular expression, and 1 when no commit gave a task, a task cannot be written, or the source's history, the "
+        "regular expression, and 1 when no commit gave a task, a task cannot be written, the source is a shallow "
+        "clone, or the source's history, the "
         "manifest or the prompt file cannot be used")
     gen_p.add_argument("source", help=SOURCE_HELP)
     gen_p.add_argument("--from", required=True, choices=SOURCES, dest="from_kind",
