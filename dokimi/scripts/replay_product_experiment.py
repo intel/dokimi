@@ -130,7 +130,7 @@ def run_cell(args):
             verdicts = evaluate_control(control, case["evaluator"], output)
         else:
             verdicts = check_control(control)
-        passed = verdicts["correct"] and (
+        passed = verdicts["correct"] and verdicts.get("constraint_ok", True) is not False and (
             args.arm == "correctness" or verdicts["predict_backend"] == "accelerated"
         )
     write_json(output / "evidence.json", {"source": case["source"], "verdicts": verdicts})
