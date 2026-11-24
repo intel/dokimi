@@ -60,3 +60,5 @@ Earlier overview topics now live in [measurement concepts](what-it-measures.md),
 <a id="extending-dokimi"></a>
 
 [Features in development](development/README.md) describes the work underway and its limits; [known limitations](development/limitations.md) helps interpret current results.
+
+[Evaluate a shipped product](delivery.md) covers release contracts and paired AX scans for a binary-only delivery.

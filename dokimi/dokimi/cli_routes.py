@@ -73,6 +73,7 @@ ROOTS: tuple[Root, ...] = (
     Root("benchmark", "The loop"),
     Root("dashboard", "The loop"),
     Root("arms", "The loop"),
+    Root("delivery", "Subjects"),
     Root("subjects", "The loop"),
     Root("tasks", "The loop"),
     Root("explore", "The loop"),
@@ -90,6 +91,9 @@ ROOTS: tuple[Root, ...] = (
 )
 
 LEAVES: tuple[Leaf, ...] = (
+    Leaf(("delivery", "release"), FREE),
+    Leaf(("delivery", "scan"), PAID),
+    Leaf(("delivery", "report"), FREE),
     Leaf(("evaluate",), PAID),
     Leaf(("baseline", "save"), FREE),
     Leaf(("baseline", "list"), FREE),

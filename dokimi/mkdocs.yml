@@ -131,6 +131,7 @@ nav:
       - tool-preference.md
       - run-consistency.md
       - coding-harnesses.md
+      - delivery.md
       - subscription-backends.md
       - answer-formats.md
       - knowledge-runs.md

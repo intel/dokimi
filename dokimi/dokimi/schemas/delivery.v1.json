@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Copyright (C) 2026 Intel Corporation. SPDX-License-Identifier: Apache-2.0",
+  "type": "object",
+  "required": ["schema_version", "identity", "mode", "observations", "summary", "date", "run_id", "dokimi_version"],
+  "properties": {
+    "schema_version": {"const": "delivery.v1"}, "mode": {"enum": ["release", "scan"]},
+    "identity": {"type": "object", "required": ["manifest", "artifact", "profile", "catalog", "image", "version"]},
+    "observations": {"type": "array", "items": {"type": "object", "required": ["task", "origin", "identity", "arm", "outcome", "evidence"], "properties": {"outcome": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]}}}},
+    "summary": {"type": "object"}, "date": {"type": "string"}, "run_id": {"type": "string"}, "dokimi_version": {"type": "string"}
+  },
+  "if": {"properties": {"mode": {"const": "release"}}},
+  "then": {"properties": {"summary": {"required": ["verdict", "checks"], "properties": {"verdict": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]}}}}},
+  "else": {"properties": {"summary": {"required": ["A", "B", "partial"]}}}
+}

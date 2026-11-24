@@ -17,6 +17,7 @@ from dokimi.commands import (
     answers,
     arms,
     backends,
+    delivery,
     baseline,
     benchmark,
     catalog,
@@ -243,6 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory.register(sub, positive_int)          # memory: lint (#728)
     context.register(sub, positive_int)         # trace: inspect, consistency, prefilter (#94 M2)
     runs.register(sub, positive_int)            # runs (the artifacts under the runs root)
+    delivery.register(sub)
     backends.register(sub, positive_int)        # backends (CLI providers)
     data.register(sub, positive_int)            # data: schema, export, import docling (#94 M2)
 

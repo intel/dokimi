@@ -61,6 +61,7 @@ SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
 # kind -> current schema_version string (also the schema filename stem).
 SCHEMA_VERSIONS: dict[str, str] = {
+    "delivery": "delivery.v1",
     "questions": "questions.v2",
     "answers": "answers.v1",
     "eval": "eval.v1",
