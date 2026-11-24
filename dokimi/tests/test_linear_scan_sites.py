@@ -51,6 +51,7 @@ def _old_parse_loose(text: str) -> exploration.CitationSet:
     for m in _OLD_LOOSE_CITATION.finditer(text):
         opener = m.group("open")
         cite = exploration._citation_from_match(m)
+        assert cite is not None
         if opener in exploration._WRAPPERS and exploration._WRAPPERS[opener] in m.group("path"):
             cite = replace(cite, path=exploration.normalize_path(opener + m.group("path")))
         citations.append(cite)

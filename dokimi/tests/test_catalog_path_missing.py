@@ -426,3 +426,19 @@ def test_an_apostrophe_inside_double_quotes_does_not_open_a_single_quote(tmp_pat
     review, _ = _review(tmp_path / "absent", body)
     [finding] = _path_findings(review)
     assert finding.message.startswith("'assets/a\\'\"b\\'c.svg' (in ")
+
+
+@pytest.mark.parametrize("word", ["references/secrets.local.md", "scripts/run.local.md", "references/Keys.LOCAL.MD"])
+def test_a_user_local_markdown_file_is_not_a_bundled_path(word):
+    # the skill tells the user to create it: a user's own file, absent from the bundle by design
+    assert _bundle_path(word) is None
+
+
+def test_a_user_local_file_the_skill_names_is_not_reported_missing(tmp_path):
+    review, _ = _review(tmp_path, "Put the keys in `references/secrets.local.md` (create it yourself).\n")
+    assert _path_findings(review) == []
+
+
+def test_a_plain_file_the_skill_names_is_still_reported_missing(tmp_path):
+    review, _ = _review(tmp_path, "Put the keys in `references/secrets.md`.\n")
+    assert len(_path_findings(review)) == 1
