@@ -470,6 +470,52 @@ def test_gc_keeps_a_run_exactly_as_old_as_the_age_since_it_is_not_older(root):
     assert [a.run_id for a in rm.plan_gc(root, cutoff + 1, {}).runs[0]] == [OLD, OLD]
 
 
+@pytest.mark.parametrize("plan", [
+    lambda root: rm.plan_gc(root, time.time() - 30 * 86400, {}),
+    lambda root: rm.plan_rm(root, OLD),
+    lambda root: rm.plan_rm(root, "r1/eval/onetbb.json"),
+], ids=["gc", "rm RUN_ID", "rm PATH"])
+def test_a_file_replaced_after_it_was_selected_is_kept(root, monkeypatch, plan):
+    """#1147 review: a writer that publishes a new run at a selected path between selection and
+    removal keeps its file; the removal names it as changed."""
+    removal = plan(root)
+    monkeypatch.setenv("DOKIMI_RUN_ID", NEW)
+    save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": _days_ago(0)},
+                  root / "r1" / "eval" / "onetbb.json")
+
+    rm.apply(removal)
+
+    assert json.loads((root / "r1" / "eval" / "onetbb.json").read_text())["run_id"] == NEW
+    assert removal.changed == [Path("r1/eval/onetbb.json")]
+    assert Path("r1/eval/onetbb.json") not in removal.paths
+    assert not removal.not_removed
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_gc_names_a_file_replaced_after_selection_and_exits_0(root, monkeypatch, capsys, as_json):
+    real_apply = rm.apply
+
+    def publish_then_apply(removal):
+        monkeypatch.setenv("DOKIMI_RUN_ID", NEW)
+        save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": _days_ago(0)},
+                      root / "r1" / "eval" / "onetbb.json")
+        monkeypatch.delenv("DOKIMI_RUN_ID")
+        real_apply(removal)
+
+    monkeypatch.setattr("dokimi.commands.runs.apply", publish_then_apply)
+
+    code, out, _ = _run(monkeypatch, capsys, "gc", "--older-than", "30d", *(["--json"] if as_json else []))
+
+    assert code == 0
+    if as_json:
+        data = json.loads(out)["data"]
+        assert (data["changed"], data["paths"]) == (["r1/eval/onetbb.json"], ["r1/answers/onetbb.json"])
+    else:
+        assert "removed 1 run older than 30d under results/: 1 of 2 artifacts, " in out
+        assert "kept: 1 file replaced since it was selected (first: r1/eval/onetbb.json)" in out
+    assert (root / "r1" / "eval" / "onetbb.json").exists()
+
+
 def test_parse_age_reads_days():
     assert rm.parse_age("30d") == timedelta(days=30)
     assert rm.parse_age("0d") == timedelta(0)

@@ -251,6 +251,9 @@ def _left_lines(removal: Removal, of_run: bool) -> list[str]:
         why = ", which may belong to it" if of_run else ""
         lines.append(f"unreadable: {_count(len(removal.unreadable), 'entry', 'entries')} under the "
                      f"root left in place{why} ({_first(removal.unreadable)})")
+    if removal.changed:
+        lines.append(f"kept: {_count(len(removal.changed), 'file')} replaced since it was selected "
+                     f"(first: {plain(removal.changed[0].as_posix())})")
     if removal.not_removed:
         lines.append(f"not removed: {_count(len(removal.not_removed), 'file')} "
                      f"({_first(removal.not_removed)})")
@@ -265,10 +268,11 @@ def _rows(artifacts: list[Artifact], with_run: bool) -> list[str]:
 
 
 def _artifacts(removed: int, removal: Removal) -> str:
-    """``2 artifacts``; ``1 of 2 artifacts`` when some could not be removed."""
-    if not removal.not_removed:
+    """``2 artifacts``; ``1 of 2 artifacts`` when some could not be removed or were replaced."""
+    left = len(removal.not_removed) + len(removal.changed)
+    if not left:
         return _count(removed, "artifact")
-    return f"{removed} of {_count(removed + len(removal.not_removed), 'artifact')}"
+    return f"{removed} of {_count(removed + left, 'artifact')}"
 
 
 def _rm_text(removal: Removal, verb: str, run_id: str | None) -> list[str]:
@@ -305,6 +309,7 @@ def _emit_removal(kind: str, removal: Removal, args: argparse.Namespace, extra: 
             "runs": _runs_json(removal.runs), "paths": [p.as_posix() for p in removal.paths],
             "size_bytes": removal.size_bytes,
             "not_removed": [{"path": u.path.as_posix(), "reason": u.reason} for u in removal.not_removed],
+            "changed": [p.as_posix() for p in removal.changed],
             "unreadable": [u.to_json() for u in removal.unreadable]}
     status = _unreadable_status(removal.unreadable)
     if removal.not_removed:

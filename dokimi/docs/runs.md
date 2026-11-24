@@ -205,11 +205,17 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
   so while one is there `runs gc` removes nothing and exits 2, naming the first. `runs
   rm RUN_ID` removes the run and leaves such an entry in place, counted as `runs list`
   counts it.
+- A file is removed only while it holds what was selected: its device, inode, mtime
+  and size, as the scan read it (as `runs rm PATH` looked it up). A file a writer
+  replaced since (a new run saved at the same path) stays, is named (`kept: 1 file
+  replaced since it was selected`), and the exit code stays 0. A replacement in the
+  instant between that check and the unlink is not caught: nothing locks the root.
 - `--dry-run` prints the same lines, `would remove` in place of `removed`, and
   removes nothing.
 - `--json` prints one `cli_output.v1` document (`kind` `runs rm` or `runs gc`)
   with `root`, `dry_run`, `runs` (as in `runs list --json`), `paths` and
-  `size_bytes` (what was removed, or with `--dry-run` would be), `not_removed` and
+  `size_bytes` (what was removed, or with `--dry-run` would be), `not_removed`,
+  `changed` (the paths kept because they were replaced) and
   `unreadable` under `data`; `runs rm` adds
   `run_id` (`null` for a file), `runs gc` adds `older_than`, `keep_baselines` and
   `kept` (each `run_id` with its `baseline`). `status` is `partial` when

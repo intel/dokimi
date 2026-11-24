@@ -25,6 +25,8 @@ from dokimi.runs.scan import (
     Artifact,
     Unreadable,
     by_run,
+    identity,
+    lookup,
     plain,
     read_error_reason,
     scan,
@@ -48,6 +50,8 @@ class Removal:
     kept: dict[str, str] = field(default_factory=dict)  # run_id -> the baseline that holds it
     unreadable: list[Unreadable] = field(default_factory=list)  # left in place
     not_removed: list[Unreadable] = field(default_factory=list)  # filled by apply
+    changed: list[Path] = field(default_factory=list)  # filled by apply: replaced, so kept
+    file_identity: tuple[int, int, int, int] | None = None
 
     @property
     def paths(self) -> list[Path]:
@@ -73,7 +77,7 @@ def _one_file(root: Path, address: str) -> Removal:
     if stat.S_ISDIR(found.st_mode):
         raise InputError(f"{plain(address)} is a directory; runs rm takes a run_id or one file")
     return Removal(root=root, file=Path(os.path.relpath(entry, os.path.realpath(root))),
-                   file_bytes=found.st_size)
+                   file_bytes=found.st_size, file_identity=identity(found))
 
 
 def plan_rm(root: Path, address: str) -> Removal:
@@ -131,16 +135,30 @@ def plan_gc(root: Path, cutoff: float, held: Mapping[str, str]) -> Removal:
     return removal
 
 
+def _replaced(removal: Removal, path: Path, read: Mapping[Path, tuple | None]) -> bool:
+    """Whether ``path`` holds something other than what was selected (a save since, say): an
+    artifact as the scan read it (links followed), the one file as it was looked up (not)."""
+    if path == removal.file:
+        expected, found = removal.file_identity, lookup(removal.root / path, follow_symlinks=False)
+    else:
+        expected, found = read[path], lookup(removal.root / path)
+    return found is not None and expected is not None and identity(found) != expected
+
+
 def apply(removal: Removal) -> None:
-    """Remove every path of ``removal``; one that cannot be removed moves from the plan to
-    ``not_removed``, so ``paths`` and ``size_bytes`` are then what was removed. A path already
-    gone counts as removed."""
+    """Remove every path of ``removal`` that still holds what was selected; one replaced since
+    goes to ``changed`` and stays, one that cannot be removed to ``not_removed``, so ``paths``
+    and ``size_bytes`` are then what was removed. A path already gone counts as removed."""
+    read = {a.path: a.identity for run in removal.runs for a in run}
     for path in removal.paths:
         try:
+            if _replaced(removal, path, read):
+                removal.changed.append(path)
+                continue
             (removal.root / path).unlink(missing_ok=True)
         except OSError as exc:
             removal.not_removed.append(Unreadable(path, f"cannot remove: {exc.strerror or exc}"))
-    failed = {u.path for u in removal.not_removed}
-    removal.runs = [left for run in removal.runs if (left := [a for a in run if a.path not in failed])]
-    if removal.file in failed:
+    left = {u.path for u in removal.not_removed} | set(removal.changed)
+    removal.runs = [kept for run in removal.runs if (kept := [a for a in run if a.path not in left])]
+    if removal.file in left:
         removal.file, removal.file_bytes = None, 0

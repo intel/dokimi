@@ -86,6 +86,11 @@ def runs_root(environ: Mapping[str, str] | None = None) -> RunsRoot:
     return RunsRoot(Path(value), True) if value else RunsRoot(DEFAULT_ROOT, False)
 
 
+def identity(found: os.stat_result) -> tuple[int, int, int, int]:
+    """Device, inode, mtime and size: a file replaced at the same path (a new save) differs."""
+    return (found.st_dev, found.st_ino, found.st_mtime_ns, found.st_size)
+
+
 @dataclass(frozen=True)
 class Artifact:
     """One artifact under the root: its kind and what it says it is about."""
@@ -98,6 +103,8 @@ class Artifact:
     generated_at: str | None
     size_bytes: int
     mtime: float
+    #: What was read, by :func:`identity`; ``runs rm``/``gc`` remove the path only while it holds that.
+    identity: tuple[int, int, int, int] | None = field(default=None, compare=False)
 
     @property
     def kind(self) -> str:
@@ -217,7 +224,7 @@ def read_artifact(root: Path, path: Path, version: str, data: dict | None = None
                     subjects=read_field(data, fields.subject),
                     models=read_field(data, fields.model),
                     generated_at=times[0] if times else None,
-                    size_bytes=stat.st_size, mtime=stat.st_mtime)
+                    size_bytes=stat.st_size, mtime=stat.st_mtime, identity=identity(stat))
 
 
 def _skip_reason(name: str) -> str | None:
