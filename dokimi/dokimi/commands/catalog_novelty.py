@@ -419,13 +419,13 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
     strata = load_strata(Path(args.strata), args.stratum_column) if args.strata else None
     out_dir = Path(args.out_dir)
     jsonl = Path(args.jsonl) if args.jsonl else out_dir / DEFAULT_JSONL
-    _refuse_unsafe_summary_out(args, jsonl)
+    _refuse_unsafe_summary_out(args, jsonl, out_dir)
     if args.summary_only:
         _summary_only(jsonl, strata, args)
         return
     if not root.is_dir():
         raise InputError(f"ROOT is not a directory: {root}")
-    _refuse_unsafe_run(args, jsonl)
+    _refuse_unsafe_run(args, jsonl, out_dir)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     cache_dir = usable_cache_dir(args.cache_dir)
     all_items = _items(root, None)
@@ -468,14 +468,22 @@ def _refuse_outputs_inside_a_skill(items: list[_Item], out_dir: Path, jsonl: Pat
                                  "skill's digest, so every --resume would measure it again; write it elsewhere")
 
 
-def _refuse_unsafe_summary_out(args: argparse.Namespace, jsonl: Path) -> None:
-    """Refuse a --summary-out that is the --jsonl file (the summary would replace the paid rows) or
-    whose directory cannot be made, before any paid work."""
+def _is_a_novelty_file(path: Path, out_dir: Path) -> bool:
+    """Whether ``path`` is the novelty.json or novelty.md the sweep writes for a skill under ``out_dir``."""
+    resolved = path.resolve()
+    return resolved.name in ("novelty.json", "novelty.md") and resolved.parent.parent == out_dir.resolve()
+
+
+def _refuse_unsafe_summary_out(args: argparse.Namespace, jsonl: Path, out_dir: Path) -> None:
+    """Refuse a --summary-out that is the --jsonl file (the summary would replace the paid rows), a skill's
+    novelty.json or novelty.md under --out-dir, or whose directory cannot be made, before any paid work."""
     if not args.summary_out:
         return
     summary_out = Path(args.summary_out)
     if summary_out.resolve() == jsonl.resolve():
         raise InputError(f"--summary-out {summary_out} is the --jsonl file: the summary would replace the rows")
+    if _is_a_novelty_file(summary_out, out_dir):
+        raise InputError(f"--summary-out {summary_out} is a skill's novelty file under --out-dir: the summary would replace it")
     try:
         summary_out.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -494,7 +502,7 @@ def _summary_only(jsonl: Path, strata, args: argparse.Namespace) -> None:
     _emit_summary(summarize(rows, strata, resamples=args.bootstrap_resamples), args)
 
 
-def _refuse_unsafe_run(args: argparse.Namespace, jsonl: Path) -> None:
+def _refuse_unsafe_run(args: argparse.Namespace, jsonl: Path, out_dir: Path) -> None:
     """Refuse a paid run that would not be a clean one: a judge2 it cannot run, no budget,
     an overwrite of a sweep in progress, or a model flag that does not resolve."""
     from dokimi.novelty import cost
@@ -507,6 +515,8 @@ def _refuse_unsafe_run(args: argparse.Namespace, jsonl: Path) -> None:
     if args.max_usd is None:
         raise InputError("catalog novelty makes paid calls: pass --max-usd, the whole-run budget "
                          "(--max-usd-per-skill caps one skill inside it)")
+    if _is_a_novelty_file(jsonl, out_dir):
+        raise InputError(f"--jsonl {jsonl} is a skill's novelty file under --out-dir: the sweep would delete or replace it")
     if jsonl.exists() and not args.resume:
         raise InputError(f"--jsonl {jsonl} exists: pass --resume to continue it, or remove it to start over")
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge
