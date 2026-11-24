@@ -32,7 +32,7 @@ from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _com
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
 _CONTINUATION = re.compile(r"\\\n")
-_HEREDOC_DELIMITER = r"(?<!<)<<-?[ \t]*(['\"]?)(?!(?<=\")[^\"\n]*\\)((?<=['\"])(?:(?!\1)[^\n])+|[^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)(?!['\"]?\\)\1"  # a whole shell word, or a quoted one up to its closing quote (``<<EOF\-END`` and ``<<"a\$b"`` open nothing); not ``<<<``, a here-string
+_HEREDOC_DELIMITER = r"(?<!<)<<-?[ \t]*(['\"]?)(?!(?<=\")[^\"\n]*\\)((?<=['\"])(?:(?!\1)[^\n])+|[^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)(?!['\"]?[\\(])\1"  # a whole shell word, or a quoted one up to its closing quote (``<<EOF\-END``, ``<<$(printf EOF)`` and ``<<"a\$b"`` open nothing); not ``<<<``, a here-string
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t\r]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
                           re.compile(r"^(.+)$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=2,
                           before=" \t", after=" \t\r")

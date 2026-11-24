@@ -115,13 +115,14 @@ class HeredocPattern:
         if not openers:
             return
         last = dict.fromkeys((o.group(self.word) for o, _ in openers), -1)
-        cores: dict[str, list[str]] = {}
+        cores: dict[str, set[str]] = {}
         for delimiter in last:
-            cores.setdefault(self._core(delimiter), []).append(delimiter)
+            cores.setdefault(self._core(delimiter), set()).add(delimiter)
+        sizes = {core: sorted({len(d) for d in delimiters}) for core, delimiters in cores.items()}
         for line in self.lines.finditer(text):
-            for delimiter in cores.get(self._core(line.group(1)), ()):  # a delimiter may own its own spaces: `<<' a'`
-                if self._closes(line.group(1), delimiter):
-                    last[delimiter] = line.start()
+            core = self._core(line.group(1))
+            for delimiter in self._closed(line.group(1), cores.get(core, set()), sizes.get(core, [])):
+                last[delimiter] = line.start()
         pos = 0
         for o, line_end in openers:
             if o.start() < pos:
@@ -144,11 +145,18 @@ class HeredocPattern:
         """``line`` without the characters ``full`` allows before and after a delimiter."""
         return line.lstrip(self.before).rstrip(self.after)
 
-    def _closes(self, line: str, delimiter: str) -> bool:
-        """Whether ``full`` reads ``line`` as an allowed run, the delimiter (which may start or end in such characters), an allowed run."""
+    def _closed(self, line: str, delimiters: set[str], sizes: list[int]) -> Iterator[str]:
+        """The ``delimiters`` (of the lengths ``sizes``, all of the core of ``line``) that ``full`` reads ``line`` as: an allowed run, the delimiter, an allowed run.
+
+        A delimiter may start or end in such characters (``<<' a'``). Only the positions it can start at are read, a few per length
+        (the blanks the delimiter owns), so the delimiters that share a core are not each tried against every line.
+        """
         end = len(line.rstrip(self.after))
         lead = len(line) - len(line.lstrip(self.before))
-        return any(line.startswith(delimiter, i) for i in range(max(0, end - len(delimiter)), min(lead, len(line) - len(delimiter)) + 1))
+        for size in sizes:
+            for i in range(max(0, end - size), min(lead, len(line) - size) + 1):
+                if line[i:i + size] in delimiters:
+                    yield line[i:i + size]
 
     def _openers(self, text: str) -> list[tuple[re.Match[str], int]]:
         """Each opener with the start of the line after its own; an opener whose line has no end is left out."""
@@ -160,7 +168,8 @@ class HeredocPattern:
             while next_span < len(arithmetic) and arithmetic[next_span][1] <= o.start():
                 next_span += 1
             in_arithmetic = next_span < len(arithmetic) and arithmetic[next_span][0] <= o.start()
-            if quote or in_arithmetic:  # ``grep '<<EOF' f``, ``$((1<<3))``: ``<<`` opens nothing
+            escaped = scanned > o.start()  # a backslash before the first ``<`` made it a literal one: ``echo \<< f``
+            if quote or in_arithmetic or escaped:  # ``grep '<<EOF' f``, ``$((1<<3))``: ``<<`` opens nothing
                 start = o.start() + 1
                 continue
             if o.end() > eol:  # delimiters end in increasing order, so one newline serves every opener before it

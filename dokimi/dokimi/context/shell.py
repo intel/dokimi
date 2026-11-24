@@ -33,7 +33,7 @@ _NO_COMMAND = re.compile(r"^(?:(?:for|select|fi|done|esac|in|function)\b|\}(?=[\
 _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
              "perl": re.compile(r"^-[pnalw0-9]*i[^-\s]*$")}
 _CASE_HEADER = re.compile(rf"^(?:(?:\(|{_KEYWORDS}(?=\s))\s*)*case\b.*?\bin\b\s*")  # `\(` not `\(+`: a run of `(` splits one way (#932)
-_HEREDOC_DELIMITER = r"(?<!<)<<-?\s*(['\"]?)(?!(?<=\")[^\"\n]*\\)((?<=['\"])(?:(?!\1)[^\n])+|[^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)(?!['\"]?\\)\1"  # a whole shell word, or a quoted one up to its closing quote (``<<EOF\-END`` and ``<<"a\$b"`` open nothing); not ``<<<``, a here-string
+_HEREDOC_DELIMITER = r"(?<!<)<<-?\s*(['\"]?)(?!(?<=\")[^\"\n]*\\)((?<=['\"])(?:(?!\1)[^\n])+|[^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)(?!['\"]?[\\(])\1"  # a whole shell word, or a quoted one up to its closing quote (``<<EOF\-END``, ``<<$(printf EOF)`` and ``<<"a\$b"`` open nothing); not ``<<<``, a here-string
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?\n\s*\2\s*(?=\n|$)", re.S), re.compile(_HEREDOC_DELIMITER),
                           re.compile(r"^(.+)$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=2, gap=1)
 

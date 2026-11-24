@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from dokimi import text_spans
 from dokimi.context import session_log, shell
 from dokimi.harnesses import claude_json, fidelity, swebench_grade
 from dokimi.metrics import exploration
@@ -381,6 +382,43 @@ def test_a_delimiter_word_that_is_only_partly_read_opens_no_heredoc_and_the_clos
     text = f"{opener}\nbody\nEOF-END\nsed -i s/x/y/ f\n"
     assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
     assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("opener", ["cat <<$(printf EOF)", "cat <<$(printf EOF) > f", "cat <<'EOF'(x)"])
+def test_a_delimiter_word_cut_by_a_parenthesis_opens_no_heredoc_and_the_commands_after_it_stay(opener: str) -> None:
+    text = f"{opener}\nbody\n$(printf EOF)\nsed -i s/x/y/ f\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["sed -i s/x/y/ f", "cat AGENTS.md"]
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo \\<< /dev/null\nsed -i s/x/y/ f\ncat AGENTS.md\n", "echo \\<<EOF\nsed -i s/x/y/ f\ncat AGENTS.md\n", "echo a\\\\ \\<<EOF\nsed -i s/x/y/ f\ncat AGENTS.md\n"])
+def test_an_escaped_first_angle_bracket_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["sed -i s/x/y/ f", "cat AGENTS.md"]
+    assert _cli_heredocs(text) == text
+
+
+def test_an_opener_after_an_escaped_backslash_still_opens_a_heredoc() -> None:
+    text = "echo \\\\<<EOF\nbody\nEOF\nrm f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert _cli_heredocs(text) == "echo \\\\\nrm f\n"
+
+
+@pytest.mark.parametrize(("core", "line"), [("a", "a"), ("", " " * 9)])
+def test_delimiters_that_share_a_core_are_not_each_tried_against_every_closing_line(monkeypatch: pytest.MonkeyPatch, core: str, line: str) -> None:
+    """512 delimiters of one core (a blank prefix of 9 characters each, the core ``a`` or none) and 512 lines of that core: 262144 pairs on the code that tried each."""
+    prefixes = [format(i, "09b").replace("0", " ").replace("1", "\t") for i in range(512)]
+    reads = [0]
+
+    def counted(*args: int) -> range:
+        r = range(*args)
+        reads[0] += 1 + len(r)
+        return r
+
+    monkeypatch.setattr(text_spans, "range", counted, raising=False)
+    text = "".join(f"cat <<'{p}{core}'\n" for p in prefixes) + f"{line}\n" * 512
+    assert [c for c, _ in shell.split_commands(text)][0].startswith("cat <<")
+    assert _cli_heredocs(text).startswith("cat ")
+    assert reads[0] < 40 * 1024
 
 
 @pytest.mark.parametrize("text", ["cat <<<word\nsed -i s/x/y/ f\n", "cat <<<'a b' > f\nsed -i s/x/y/ f\n", "cat <<<$X\nsed -i s/x/y/ f\n"])
