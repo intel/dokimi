@@ -31,10 +31,14 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
         data = json.loads(text)
     except ValueError as e:
         if Path(path).suffix.lower() == ".json" or text.lstrip().startswith("{") or (
-            text.lstrip().startswith("[") and not re.match(r"\[[^\n\]]+\]\(", text.lstrip())
+            text.lstrip().startswith("[") and not re.match(r"\[[^\n\]]+\](?:\(|\[|:)", text.lstrip())
         ):
             raise InputError(f"{path}: not valid JSON ({e})") from e
         return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text))
+    try:
+        json.dumps(data, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise InputError(f"{path}: JSON contains an unpaired Unicode surrogate") from exc
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
         if errors := schema_errors("repo_static.v1", data):
             raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")

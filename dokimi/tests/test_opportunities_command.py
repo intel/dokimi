@@ -68,13 +68,15 @@ def test_malformed_json_is_an_input_error(tmp_path):
         cmd.build([str(bad)])
 
 
-def test_markdown_link_at_start_is_not_json(tmp_path):
+@pytest.mark.parametrize("link", ["[Start](start.md)", "[Start][guide]\n\n[guide]: https://example.test"])
+def test_markdown_link_at_start_is_not_json(tmp_path, link):
     path = tmp_path / "llms.txt"
-    path.write_text("[Start](start.md)\n", encoding="utf-8-sig")
+    path.write_text(link + "\n", encoding="utf-8-sig")
     assert cmd.build([str(path)])["inputs"][0]["kind"] == "llms_txt"
 
 
-@pytest.mark.parametrize("data", [b"\xff", b'{"schema":"repo_static.v1","claims":null}',
+@pytest.mark.parametrize("data", [b"\xff",
+                                  br'{"schema":"repo_static.v1","claims":[{"file":"\ud800.md","line":1,"status":"fail_missing_path"}]}', b'{"schema":"repo_static.v1","claims":null}',
                                   b'{"paired":{"lenient":{"degraded":-0.5,"n_paired":4}}}'])
 def test_invalid_input_names_the_path(tmp_path, data):
     path = tmp_path / "evidence.json"
