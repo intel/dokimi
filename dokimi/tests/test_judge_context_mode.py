@@ -14,9 +14,10 @@ from dokimi.cli import build_parser
 from dokimi.commands.arms import run_config_from_args
 from dokimi.eval.arm_runner import ArmRunner
 from dokimi.eval.arms_run import ArmsRunConfig, prepare_arms
-from dokimi.eval.judge_context import NO_CONTEXT, PROTOCOL
+from dokimi.eval.judge_context import NO_CONTEXT, PROTOCOL, PROTOCOL_MIXED, JudgeContextStore
 from dokimi.skills import load_skill
 from dokimi.treatments import BaselineTreatment, SkillTreatment
+from dokimi.utils import InputError
 
 QUESTIONS = [{"id": "q1", "question": "How do I parallelize a loop?", "category": "usage"}]
 #: The stamp a run writes when the judge was shown no material on any arm (it pools with no other protocol).
@@ -70,6 +71,39 @@ def test_a_withheld_run_is_stamped_apart_from_a_material_run(fake_answers, demo_
 
     runner, records, judge, evaluations = _run_and_judge(demo_skill)
     assert runner.build_output("oneTBB", records, evaluations, judge=judge)["judge_context"] == PROTOCOL
+
+
+@pytest.mark.parametrize(("saved_mode", "new_mode", "stamp"), [
+    ("baseline", "arm", PROTOCOL_WITHHELD), ("arm", "baseline", PROTOCOL),
+])
+def test_rejudging_uses_the_stored_context_protocol(fake_answers, demo_skill, saved_mode, new_mode, stamp):
+    runner, records, judge, evaluations = _run_and_judge(demo_skill, judge_context_mode=saved_mode)
+    saved = runner.build_output("oneTBB", records, evaluations, judge=judge)
+    later = ArmRunner(runner.treatments, judge_context_mode=new_mode)
+    later.judge_context = JudgeContextStore.from_artifact(saved)
+    second = _CapturingJudge()
+    rescored = later.judge(second, "oneTBB", saved["answers"])
+    assert second.contexts == judge.contexts
+    assert later.build_output("oneTBB", saved["answers"], rescored, judge=second)["judge_context"] == stamp
+
+
+def test_a_withheld_stamp_conflicting_with_the_saved_material_is_refused(fake_answers, demo_skill):
+    runner, records, judge, evaluations = _run_and_judge(demo_skill)
+    saved = runner.build_output("oneTBB", records, evaluations, judge=judge)
+    saved["judge_context"] = PROTOCOL_WITHHELD
+    with pytest.raises(InputError, match="withheld.*non-empty"):
+        JudgeContextStore.from_artifact(saved)
+
+
+def test_missing_withheld_material_still_counts_as_a_fallback(fake_answers, demo_skill):
+    runner, records, judge, evaluations = _run_and_judge(demo_skill, judge_context_mode="baseline")
+    saved = runner.build_output("oneTBB", records, evaluations, judge=judge)
+    del saved["answers"][0]["arms"][runner.treatments[1].name]["judge_context_sha256"]
+    later = ArmRunner(runner.treatments)
+    later.judge_context = JudgeContextStore.from_artifact(saved)
+    rescored = later.judge(judge, "oneTBB", saved["answers"])
+    output = later.build_output("oneTBB", saved["answers"], rescored, judge=judge)
+    assert output["judge_context"] == PROTOCOL_MIXED
 
 
 def test_an_unknown_judge_context_mode_is_refused(demo_skill):

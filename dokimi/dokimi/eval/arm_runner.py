@@ -34,7 +34,7 @@ from dokimi.eval.question_text import question_text_of, require_question_texts
 from dokimi.eval.arm_record import question_record
 from dokimi.eval.arm_stop import Halted, RunStopped, halt_if_stopped, mark_not_asked, stop_question
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
-from dokimi.eval.judge_context import JUDGE_CONTEXT_ARM, check_mode, shown_to_judge
+from dokimi.eval.judge_context import JUDGE_CONTEXT_ARM, shown_to_judge
 from dokimi.eval.judge_context import SOURCE_STORED, stamp_judged_run
 from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.eval.judge_context import build as build_judge_context
@@ -155,11 +155,10 @@ class ArmRunner:
         self.grounded_from_topics = grounded_from_topics
         self.harness = harness
         self.matrix_cell = matrix_cell
-        self.judge_context_mode = check_mode(judge_context_mode)
         # Treatment material per (question, arm), handed from answering to
         # judging without going through the persisted record. See
         # :mod:`dokimi.eval.judge_context`.
-        self.judge_context = JudgeContextStore()
+        self.judge_context = JudgeContextStore(judge_context_mode)
         self.stop_error: Optional[Exception] = None  # a run-wide failure that ended the run
         self.questions_requested = 0
         self.plugin_set = plugin_set or {
@@ -167,6 +166,10 @@ class ArmRunner:
             "plugin_set_id": "sha256:e3b0c44298fc1c149afbf4c8996fb924",
             "plugins": [],
         }
+
+    @property
+    def judge_context_mode(self) -> str:
+        return self.judge_context.mode
 
     @property
     def arm_names(self) -> List[str]:

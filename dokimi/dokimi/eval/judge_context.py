@@ -38,7 +38,7 @@ from collections import Counter
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from dokimi.records import arm_answers, read
-from dokimi.utils import digest_text, question_id
+from dokimi.utils import InputError, digest_text, question_id
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +211,8 @@ class JudgeContextStore:
     material (written before this) degrades visibly instead of silently.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, mode: str = JUDGE_CONTEXT_ARM) -> None:
+        self.mode = check_mode(mode)
         self._ctx: Dict[Tuple[Union[str, int], str], str] = {}
         #: Keys stored twice with different contexts. A question set without
         #: ids makes every question ``unknown_q``, and duplicated ids do the
@@ -253,7 +254,7 @@ class JudgeContextStore:
             return {digest_text(text): text for text in self._ctx.values()}
 
     @classmethod
-    def from_artifact(cls, data: Dict[str, Any]) -> "JudgeContextStore":
+    def from_artifact(cls, data: object) -> "JudgeContextStore":
         """Rebuild the store from an arms artifact's digests and materials.
 
         A digest whose text is missing, or whose text does not hash to it, is
@@ -264,8 +265,11 @@ class JudgeContextStore:
         list or record is a ``RecordError``. When it is missing or not an object,
         the store is empty and the answers are not read.
         """
-        store = cls()
-        materials = data.get("judge_materials") if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            return cls()
+        protocol = data.get("judge_context")
+        store = cls(JUDGE_CONTEXT_BASELINE if protocol == PROTOCOL_WITHHELD else JUDGE_CONTEXT_ARM)
+        materials = data.get("judge_materials")
         if not isinstance(materials, dict):
             return store
         bad = 0
@@ -278,6 +282,8 @@ class JudgeContextStore:
                 if not isinstance(text, str) or digest_text(text) != digest:
                     bad += 1
                     continue
+                if store.mode == JUDGE_CONTEXT_BASELINE and text:
+                    raise InputError(f"withheld judge_context has non-empty material for {rec.question_id}/{arm_name}")
                 store.put(rec.question_id, arm_name, text)
         if bad:
             logger.warning(
