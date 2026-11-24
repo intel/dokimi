@@ -268,6 +268,12 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
 def _refuse_upstream_with(args: argparse.Namespace) -> None:
     """``--upstream`` and ``--upstream-manifest`` check the skills of the whole catalog, in this process: not per-skill, not tasks."""
     if not (getattr(args, "upstream", None) or getattr(args, "upstream_manifest", None)):
+        from dokimi.external.upstream_codes import UPSTREAM_FINDING_CODES
+
+        upstream = sorted(set(args.fail_on or ()) & set(UPSTREAM_FINDING_CODES))
+        if upstream:
+            raise InputError(f"--fail-on-code {', '.join(upstream)}: only --upstream or --upstream-manifest reports it; "
+                             "add one of them")
         return
     if args.per_skill:
         # The upstream index is built once here; --jobs workers would each need their own copy of it.

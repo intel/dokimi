@@ -180,6 +180,15 @@ def test_upstream_does_not_combine_with_per_skill_or_tasks(tmp_path, extra):
         args.func(args)
 
 
+@pytest.mark.parametrize("code", sorted(UPSTREAM_CODES))
+def test_fail_on_an_upstream_code_needs_an_upstream(tmp_path, code):
+    # Without --upstream the code is never reported, so the gate could never fail.
+    root = _copy(tmp_path, OLD_TEXT)
+    args = build_parser().parse_args(["catalog", "check", "--root", str(root), "--fail-on-code", code])
+    with pytest.raises(InputError, match="--upstream"):
+        args.func(args)
+
+
 def test_a_manifest_that_is_not_an_upstream_is_refused(tmp_path, capsys):
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"schema": "other", "name": "x", "skills": []}), encoding="utf-8")
