@@ -140,17 +140,18 @@ def test_an_out_dir_that_is_a_file_is_refused_as_bad_input(tmp_path):
             retest=str(_write_runs(tmp_path / "b", second)), scoring="lenient", out_dir=str(blocker)))
 
 
-def test_an_out_dir_with_a_directory_named_like_an_output_is_refused_before_any_write(tmp_path):
+@pytest.mark.parametrize("output_name,other_name", [("retest.md", "retest.json"), ("retest.json", "retest.md")])
+def test_an_out_dir_with_a_directory_named_like_an_output_is_refused_before_any_write(tmp_path, output_name, other_name):
     pairs = _pairs([(0.1, 0.2), (0.5, 0.45)])
     first = {r["ref"]: _artifact(r["ref"], r["first"]) for r in pairs}
     second = {r["ref"]: _artifact(r["ref"], r["second"], seed=2) for r in pairs}
     out = tmp_path / "out"
-    (out / "retest.md").mkdir(parents=True)
-    with pytest.raises(InputError, match="retest.md"):
+    (out / output_name).mkdir(parents=True)
+    with pytest.raises(InputError, match=output_name.replace(".", r"\.")):
         novelty_cmd.cmd_novelty_retest(argparse.Namespace(
             baseline=str(_write_runs(tmp_path / "a", first)),
             retest=str(_write_runs(tmp_path / "b", second)), scoring="lenient", out_dir=str(out)))
-    assert not (out / "retest.json").exists()
+    assert not (out / other_name).exists()
 
 
 def test_identical_runs_measure_no_noise():
@@ -413,10 +414,12 @@ def test_changed_content_is_excluded_from_the_persisted_floor(tmp_path):
     assert any("edited" in warning and "content changed" in warning for warning in report["warnings"])
 
 
-def test_a_legacy_run_without_a_digest_still_pairs_by_ref():
+@pytest.mark.parametrize("digest_run", ["first", "second"])
+def test_a_legacy_run_without_a_digest_still_pairs_by_ref(digest_run):
     first = _artifact("a", 0.1)
     second = _artifact("a", 0.2, seed=2)
-    second["artifact"]["ref_digest"] = "bbb"
+    run_with_digest = first if digest_run == "first" else second
+    run_with_digest["artifact"]["ref_digest"] = "bbb"
     paired = pair_runs({"a": first}, {"a": second}, "lenient")
     assert [row["ref"] for row in paired["pairs"]] == ["a"]
     assert any("no ref_digest" in warning for warning in paired["warnings"])
