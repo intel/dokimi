@@ -200,8 +200,9 @@ def roll_up_by_role(records: "Iterable[UsageRecord]") -> dict:
     Groups records by ``role`` (anything other than ``"subagent"`` counts as
     main). A bucket's cost is its priced calls' sum, ``None`` when none is
     priced; the full-system cost is ``None`` unless every call of both is
-    priced, so an unpriced subagent never reads as free. Replayed rows add no
-    tokens and no cost (:mod:`dokimi.spend`).
+    priced, so an unpriced subagent never reads as free. A replayed row adds no
+    tokens and no cost (:mod:`dokimi.spend`); a sum of a paid and a replayed row
+    is not replayed (``__add__`` keeps no count of it), so pass each call's row.
     """
     records = list(records)
     main = Spend.of(r for r in records if r.role != "subagent")
