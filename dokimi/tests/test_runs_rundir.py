@@ -584,6 +584,25 @@ def test_a_signal_the_block_caught_still_ends_the_run_terminated(root, handlers,
                                                                  "detail": "SIGTERM: the run stops"})
 
 
+def test_a_signal_the_block_caught_is_not_lost_by_an_explicit_finish(root, handlers):
+    """docs/run-directories.md: "A run a signal stopped is recorded terminated even when code in its block
+    caught the stop", also when the block then calls finish itself."""
+    signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    process.install_signal_handlers([signal.SIGTERM])
+    with open_run(root, name="n") as run:
+        run.write_plan(_fixture("plan.v1"))
+        for cid in _ids():
+            run.record_cell(cid, "pass")
+        try:
+            signal.raise_signal(signal.SIGTERM)
+        except process.ShuttingDown:
+            pass
+        run.finish("complete")
+    record = _record(run.path)
+    assert (record["status"], record["stop"]) == ("incomplete", {"reason": "terminated",
+                                                                 "detail": "SIGTERM: the run stops"})
+
+
 def test_a_signal_while_a_child_is_being_registered_stops_the_run_once_it_is(root, handlers, monkeypatch):
     """dokimi.process defers a signal that lands inside _spawn until the child is in _live, so the
     child is killed; the run's stop waits with it."""

@@ -164,11 +164,14 @@ class RunDir:
     def finish(self, status: Status) -> None:
         """End the run: ``result.v1.json`` when it has a plan, then ``run.json`` with ``status``.
 
+        A run a signal stopped ends ``incomplete``, ``terminated``, whatever ``status`` says: the
+        block may have caught the stop before it called this.
+
         Raises:
             ValueError: the run has already ended, or ``status`` is ``complete`` while a planned
                 cell has no measured status (result.v1: such a run is not complete).
         """
-        self._end(status, None)
+        self._end(*(self._how_ended(None) if self._signal is not None else (status, None)))
 
     def _end(self, status: Status | None, stop: dict[str, str | None] | None) -> None:
         """``status`` None: ``complete`` or ``incomplete`` by the cells, decided under the lock that
