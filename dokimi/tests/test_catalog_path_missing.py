@@ -766,3 +766,32 @@ def test_a_user_local_file_the_skill_names_is_not_reported_missing(tmp_path):
 def test_a_plain_file_the_skill_names_is_still_reported_missing(tmp_path):
     review, _ = _review(tmp_path, "Put the keys in `references/secrets.md`.\n")
     assert len(_path_findings(review)) == 1
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Run [`scripts/deploy.sh`][g[x].\n\n[g[x]: https://example.com\n",
+        "Run [`scripts/deploy.sh`][ ].\n\n[ ]: https://example.com\n",
+        "Run [`scripts/deploy.sh`\n***\n](https://example.com)\n",
+        "Run [`scripts/deploy.sh`](notes.md:42).\n",
+        "Run [`scripts/deploy.sh` and [guide]](https://example.com).\n\n[guide]: notes.md\n",
+        "Run [`scripts/deploy.sh` and [guide][]](https://example.com).\n\n[guide]: notes.md\n",
+        "Run [`scripts/deploy.sh`][guide].\n\n[guide]: https://example.com unexpected trailing text\n",
+    ],
+)
+def test_1092_a_label_that_is_no_url_link_keeps_its_span_checked(tmp_path, body):
+    """#1092: a malformed reference label, a block break, a file with a line suffix, a nested reference or a
+    definition with trailing text is no URL link: the missing script is reported."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+@pytest.mark.parametrize(
+    "title",
+    ['"a \\"quoted\\" title"', "'it\\'s a title'", "(a \\(paren\\) title)"],
+)
+def test_1092_a_definition_title_may_hold_an_escaped_delimiter(tmp_path, title):
+    """#1092: `[g]: https://example.com "a \\"quoted\\" title"` is a URL definition."""
+    review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com {title}\n")
+    assert _path_findings(review) == []

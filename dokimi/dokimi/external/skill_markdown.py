@@ -35,7 +35,8 @@ BRACKET_RE = re.compile(r"\\\\|\\[\[\]]|[\[\]]")
 
 # An inline link target balanced in parentheses up to 32 deep (``a(b(c)).md``), in angle brackets (no line
 # break inside), with an optional title; split() reads one level of parentheses only, so these are read here.
-_TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
+_TITLE = r"""(?:"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|\((?:[^()\\]|\\[\s\S])*\))"""
+_TARGET_TITLE = rf"(?:\s+{_TITLE})?"
 _LINK_OPEN_RE = re.compile(r"\]\(\s*")
 # A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
 ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
@@ -43,12 +44,12 @@ ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
 # After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
 _FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
-_REFERENCE_RE = re.compile(r"\]\[([^\]]+)\]")
-# A reference definition at the start of a block: label (999 characters at most, as in CommonMark), destination, and
-# a title from that line or the next, over lines; an unclosed title is no title, and text after it no definition.
+_REFERENCE_RE = re.compile(r"\]\[([^\[\]]+)\]")
+# A reference definition at the start of a block: label (no unescaped bracket, 999 characters at most), destination,
+# and a title from that line or the next; an unclosed title is no title, and text after it no definition.
 _DEFINITION_RE = re.compile(
-    r"""[ ]{0,3}\[(?!\^)([^\]]{1,999})\]:[ \t]*\n?[ \t]*(<[^<>\n]*>|\S+)"""
-    r"""(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:"[^"]*"|'[^']*'|\([^()]*\)))?[ \t]*(?:\n|$)"""
+    r"""[ ]{0,3}\[(?!\^)([^\[\]]{1,999})\]:[ \t]*\n?[ \t]*(<[^<>\n]*>|\S+)"""
+    rf"""(?:(?:[ \t]+|[ \t]*\n[ \t]*){_TITLE})?[ \t]*(?:\n|$)"""
 )
 # A thematic break line (``---``, ``* * *``, ``___``), with its line end.
 _THEMATIC_BREAK_RE = re.compile(r" {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})(?:\n|$)")
@@ -164,11 +165,17 @@ def _indent(line: str) -> int:
 def _paragraphs(lines: list[str]) -> list[str]:
     """The paragraphs of ``lines`` (blank lines end one), each joined by newlines.
 
-    A list item and an ATX heading are blocks of their own: a code span cannot run across them (CommonMark).
+    A thematic break ends one and is no part of any. A list item and an ATX heading are blocks of their own:
+    a code span cannot run across them (CommonMark).
     """
     out: list[str] = []
     block: list[str] = []
     for line in lines + [""]:
+        if _THEMATIC_BREAK_RE.match(line):  # a break ends the paragraph: no link or code span runs across it
+            if block:
+                out.append("\n".join(block))
+                block = []
+            continue
         if not line.strip() or _LIST_ITEM_RE.match(line) or _HEADING_RE.match(line):
             if block:
                 out.append("\n".join(block))
@@ -347,7 +354,8 @@ def _reference_definitions(paragraph: str, masked: str, found: dict[str, bool]) 
         if rule := _THEMATIC_BREAK_RE.match(masked, pos):  # a break (or a setext underline) ends the block before it
             pos, block_start = rule.end(), True
         elif block_start and (m := _DEFINITION_RE.match(masked, pos)) and _balanced(m.group(2)):
-            found.setdefault(_label_key(paragraph, m), _is_uri_destination(m.group(2)))
+            if key := _label_key(paragraph, m):
+                found.setdefault(key, _is_uri_destination(m.group(2)))
             pos = m.end()
         else:
             eol = masked.find("\n", pos)
@@ -386,7 +394,7 @@ def _link_closes(paragraph: str, masked: str, definitions: dict[str, bool]) -> t
     pairs = _bracket_pairs(literal)
     for ref in _REFERENCE_RE.finditer(literal):
         key = _label_key(paragraph, ref)
-        if ref.start() in pairs and key in definitions:  # an undefined reference is plain text, not a link
+        if ref.start() in pairs and key and key in definitions:  # an undefined reference is plain text, not a link
             closes.append((ref.start(), definitions[key]))
     for short in _SHORT_REFERENCE_RE.finditer(literal):
         if short.end() - 1 in inline_closes or _label_key(paragraph, short) not in definitions:
