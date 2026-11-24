@@ -10,6 +10,7 @@ positioning sections agents use to decide when a tool applies and when it does n
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 #: Above this an index stops being a cheap first read; the llms.txt convention says compact.
@@ -17,7 +18,9 @@ TOKEN_BUDGET = 2000
 
 _H1 = re.compile(r"^ {0,3}#\s+\S")
 _H2 = re.compile(r"^ {0,3}##\s+(.+?)\s*$")
-_LINK = re.compile(r"""(?<![!\\])\[([^\]]+)\]\(([^)\s]+)(?:[ \t]+(?:"[^"]*"|'[^']*'))?\)""")
+_LINK_START = re.compile(r"(?<![!\\])\[([^\]]+)\]\(")
+_LINK_END = re.compile(r"""(?:[ \t]+(?:"[^"]*"|'[^']*'))?\)""")
+_DESTINATION_MARK = re.compile(r"\\.|[()\s]")
 _WHEN_NOT = re.compile(r"\bwhen\s+not\b|\bnot\s+for\b|\bavoid\b|\balternatives?\b", re.I)
 _WHEN = re.compile(r"\bwhen\s+to\s+use\b|\buse\s+(it\s+)?(for|when)\b|\buse\s+cases?\b", re.I)
 
@@ -67,33 +70,65 @@ def _section_findings(lines: list[str]) -> list[Finding]:
     return found
 
 
+def _links(line: str) -> Iterator[tuple[str, str, int]]:
+    for label in _LINK_START.finditer(line):
+        depth = 0
+        for mark in _DESTINATION_MARK.finditer(line, label.end()):
+            char = mark[0]
+            if char == "(":
+                depth += 1
+            elif char == ")" and depth:
+                depth -= 1
+            elif char == ")" or char.isspace():
+                end = _LINK_END.match(line, mark.start()) if depth == 0 else None
+                if end is not None and mark.start() > label.end():
+                    yield label[1], line[label.end():mark.start()], end.end()
+                break
+
+
 def _link_findings(lines: list[str]) -> list[Finding]:
-    links = [(i, m) for i, line in enumerate(lines, 1) for m in _LINK.finditer(line)]
+    links = [(i, title, target, end) for i, line in enumerate(lines, 1) for title, target, end in _links(line)]
     if not links:
         return [Finding("links", "fail", 0, "no Markdown links to the documentation",
                         "List key pages as `- [Title](url): one-line description`.")]
-    return [Finding("links", "warn", i, f"link to {match.group(2)} has no description",
-                    "Add `: <what the page answers>` after the link.",
-                    f"{match.group(1)}|{match.group(2)}")
-            for i, match in links
+    return [Finding("links", "warn", i, f"link to {target} has no description",
+                    "Add `: <what the page answers>` after the link.", f"{title}|{target}")
+            for i, title, target, end in links
             if re.match(r"^\s*(?:[-*+]|\d+[.)])\s+", lines[i - 1])
-            and not re.match(r"\s*:\s*\S", lines[i - 1][match.end():])]
+            and not re.match(r"\s*:\s*\S", lines[i - 1][end:])]
+
+
+def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    parts = []
+    while line:
+        if in_comment:
+            _, closed, line = line.partition("-->")
+            if not closed:
+                return "".join(parts), True
+            in_comment = False
+        else:
+            visible, opened, line = line.partition("<!--")
+            parts.append(visible)
+            in_comment = bool(opened)
+    return "".join(parts), in_comment
 
 
 def _structure_lines(text: str) -> list[str]:
     """Skip fenced examples while preserving physical line numbers."""
     lines = []
     fence = ""
-    for line in text.removeprefix("\ufeff").split("\n"):
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r"))
+    in_comment = False
+    for line in text.removeprefix("\ufeff").splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
         if fence:
             if marker and marker[1].startswith(fence) and not marker[2].strip():
                 fence = ""
             lines.append("")
-        elif marker:
+        elif marker and not in_comment and (marker[1][0] == "~" or "`" not in marker[2]):
             fence = marker[1]
             lines.append("")
         else:
+            line, in_comment = _without_comments(line, in_comment)
             lines.append(line)
     return lines
 

@@ -70,3 +70,19 @@ def test_fenced_examples_and_images_do_not_supply_document_structure():
 def test_indented_heading_and_titled_list_links_are_checked():
     text = ' # A\n > Summary\n ## When to use\n ## When not to use\n1. [A](a "Title"): overview; [B](b)'
     assert [(f.check, f.line) for f in llms_txt.check(text)] == [("links", 5)]
+
+
+def test_described_link_can_include_balanced_parentheses():
+    text = GOOD.replace("https://acme.test/quickstart.md", "https://example.test/api/function(a(b))")
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+def test_inline_backticks_do_not_open_a_fence():
+    text = GOOD.replace("## Docs", "```example```\n\n## Docs")
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+def test_html_comments_do_not_satisfy_structure_checks():
+    assert {"title", "links"} <= _checks(f"<!--\n{GOOD}\n-->")
