@@ -106,30 +106,46 @@ def _binary_arms(run: Run, source: str, *, stopped: bool) -> Tuple[Optional[str]
         raise RecordError(
             f"{source}: arms {list(run.conditions)} with baseline_arm {baseline!r} do not fit answers.v1/eval.v1, "
             "which hold the baseline arm and at most one other")
-    base_kinds = _cells_and_kinds(run, baseline)[1]
-    if base_kinds - {"baseline"}:
+    base = _cell_kinds(run, baseline)
+    if _named(base) - {"baseline"} or _unnamed_answer(base):
         # A --baseline-arm docs run would read as docs against no docs (BaselineTreatment records "baseline").
-        raise RecordError(f"{source}: baseline_arm {baseline!r} (arm_kind {sorted(base_kinds)}) is not a baseline "
-                          "arm, the one arm without_docs holds")
+        raise RecordError(f"{source}: baseline_arm {baseline!r} (arm_kind {_shown(base)}) is not a baseline arm, "
+                          "the one arm without_docs holds")
     if not others:
         return None, baseline
-    cells, kinds = _cells_and_kinds(run, others[0])
-    # A run stopped before the arm answered has only stop cells, which record no kind (arm_stop.py): all
-    # with_docs gets from it is null, which no reader can misread, so the arm is taken as the docs arm.
-    answered = any(not is_empty_reply(cell.text) for cell in cells)
-    if kinds - _DOC_KINDS or (not kinds and (answered or not stopped)):
+    cells = _cell_kinds(run, others[0])
+    # Every answer must name a docs arm. A run stopped before the arm answered has only stop cells, which
+    # record no kind (arm_stop.py): with_docs gets null from them, which no reader can misread.
+    if _named(cells) - _DOC_KINDS or _unnamed_answer(cells) or (not _named(cells) and not stopped):
         # with_docs is what retrieval put in the prompt: another arm would read as a retrieval miss.
         raise RecordError(
-            f"{source}: arm {others[0]!r} (arm_kind {sorted(kinds) or 'unrecorded'}) is not a docs arm "
+            f"{source}: arm {others[0]!r} (arm_kind {_shown(cells)}) is not a docs arm "
             f"({', '.join(sorted(_DOC_KINDS))}), the one arm with_docs holds")
     return others[0], baseline
 
 
-def _cells_and_kinds(run: Run, arm: str) -> Tuple[List[Answer], set[str]]:
-    """The cells *arm* holds, and the ``arm_kind`` values they record (a stop cell records none)."""
-    cells = [cell for r in run if (cell := r.answer(arm)) is not None]
-    return cells, {kind for cell in cells
-                   if isinstance(kind := (cell.raw.get("metadata") or {}).get("arm_kind"), str) and kind}
+def _cell_kinds(run: Run, arm: str) -> List[Tuple[bool, Optional[str]]]:
+    """``(answered, arm_kind or None)`` for each cell *arm* holds; a stop cell records no kind."""
+    out = []
+    for r in run:
+        if (cell := r.answer(arm)) is not None:
+            kind = (cell.raw.get("metadata") or {}).get("arm_kind")
+            out.append((not is_empty_reply(cell.text), kind if isinstance(kind, str) and kind else None))
+    return out
+
+
+def _named(cells: List[Tuple[bool, Optional[str]]]) -> set[str]:
+    return {kind for _, kind in cells if kind is not None}
+
+
+def _unnamed_answer(cells: List[Tuple[bool, Optional[str]]]) -> bool:
+    """An answer whose cell names no arm: it cannot be told to be the arm its slot holds."""
+    return any(answered and kind is None for answered, kind in cells)
+
+
+def _shown(cells: List[Tuple[bool, Optional[str]]]) -> str:
+    named = sorted(_named(cells))
+    return f"{named}, and an answer with none" if named and _unnamed_answer(cells) else str(named or "unrecorded")
 
 
 def _stop_block(data: Mapping[str, Any]) -> Optional[Dict[str, Any]]:

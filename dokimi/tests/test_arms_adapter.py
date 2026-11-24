@@ -326,6 +326,12 @@ def test_method_version_is_carried_and_never_stamped():
     # --baseline-arm docs with an mcp arm: without_docs would hold a docs answer.
     (_arms(_question(docs=_cell(), mcp=_cell(kind="mcp_doc")), arms=("docs", "mcp"), baseline_arm="docs"),
      r"baseline_arm 'docs' \(arm_kind \['docs'\]\) is not a baseline arm"),
+    # One answer of the arm names no kind: it cannot be told to be a docs (or baseline) answer.
+    (_arms(_question(baseline=_cell(kind="baseline"), docs=_cell()),
+           _question("q2", baseline=_cell(kind="baseline"), docs={"answer": "a"})),
+     r"arm 'docs' \(arm_kind \['docs'\], and an answer with none\) is not a docs arm"),
+    (_arms(_question(baseline=_cell(kind="baseline"), docs=_cell()), _question("q2", baseline={"answer": "a"}, docs=_cell())),
+     r"baseline_arm 'baseline' \(arm_kind \['baseline'\], and an answer with none\) is not a baseline arm"),
     # A session's answer is its last turn's (ArmRunner refuses to judge it, arm_runner._refuse_session_records).
     ({**_arms(_question(baseline=_cell(kind="baseline")), arms=("baseline",)), "session": {"turns": 2, "turn_reminder": None}},
      "a session run"),
