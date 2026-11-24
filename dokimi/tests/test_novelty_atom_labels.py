@@ -174,11 +174,30 @@ def test_a_csv_the_parser_refuses_exits_2_without_a_traceback(tmp_path):
     assert "Traceback" not in out.err
 
 
-@pytest.mark.parametrize("name", ["all", "unlabelled"])
+@pytest.mark.parametrize("name", ["all", "unlabelled", " all "])
 def test_a_label_named_like_a_view_bucket_is_refused(tmp_path, name):
     path = tmp_path / "labels.jsonl"
     path.write_text(json.dumps({"skill": "s", "atom_id": "a1", "label": name}) + "\n", encoding="utf-8")
-    with pytest.raises(InputError, match=f"label '{name}' is reserved"):
+    with pytest.raises(InputError, match=f"label '{name.strip()}' is reserved"):
+        load_atom_labels(path)
+
+
+def test_json_numbers_use_the_parsed_value_and_strings_keep_the_spelling(tmp_path):
+    path = tmp_path / "labels.jsonl"
+    path.write_text('{"skill": " s ", "atom_id": " a ", "label": 1e2}\n'
+                    '{"skill": "s", "atom_id": "b", "label": "1e2"}\n', encoding="utf-8")
+    assert load_atom_labels(path) == {("s", "a"): "100.0", ("s", "b"): "1e2"}
+
+
+@pytest.mark.parametrize("error", [ValueError("integer exceeds limit"), RecursionError("nesting exceeds limit")])
+def test_json_decoder_limits_name_the_line(tmp_path, monkeypatch, error):
+    def exceeds_limit(line):
+        raise error
+
+    path = tmp_path / "labels.jsonl"
+    path.write_text('\n{"skill": "s", "atom_id": "a", "label": 0}\n', encoding="utf-8")
+    monkeypatch.setattr(json, "loads", exceeds_limit)
+    with pytest.raises(InputError, match="line 2 is not JSON"):
         load_atom_labels(path)
 
 
