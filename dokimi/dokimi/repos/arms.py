@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import posixpath
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from typing import Any
 import yaml
 
 from dokimi.skills.formats import SPEC_NAME_MAX
+from dokimi.digest_entries import listed_entries
 
 from dokimi import process
 
@@ -298,9 +300,9 @@ def _check_expected_skills(arm: Any, tasks: list[Any], names: set[str], generate
 
 
 def tree_sha256(root: Path) -> str:
-    """sha256 over the relative paths and bytes of the files under ``root``."""
+    """sha256 over the relative paths and bytes of the files under ``root``; a directory that cannot be listed raises."""
     h = hashlib.sha256()
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    for path in sorted(p for p in listed_entries(root) if p.is_file()):
         h.update(os.fsencode(path.relative_to(root).as_posix()) + b"\0")
         h.update(hashlib.sha256(path.read_bytes()).digest())
     return h.hexdigest()
@@ -327,7 +329,7 @@ def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: st
         if e.get("kind") == "tool" and e.get("name") == "Skill":
             name = str(e.get("skill") or "").split(":")[-1]  # a plugin skill is plugin:name
         elif e.get("kind") == "read":
-            parts = PurePosixPath(str(e.get("path") or "")).parts
+            parts = PurePosixPath(posixpath.normpath(str(e.get("path") or ""))).parts
             if len(parts) == 4 and "/".join(parts[:2]) == SKILLS_DIR and parts[3] == "SKILL.md":
                 name = parts[2]
         if name in installed and name not in used:

@@ -286,7 +286,8 @@ are common, so `--strict` does not fail on them. A code span that names a file
 under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
 `examples/`, `resources/`), alone or inside a command such as
 `python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
-have that file. Folders, flat names, placeholders (`scripts/<name>.py`)
+have that file. Folders, flat names, placeholders (`scripts/<name>.py`),
+user-local `*.local.md` files (`references/secrets.local.md`, which the user keeps out of git)
 and repo-root paths such as `src/app.py` are not checked, and
 neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
 (`'scripts/my run.py'`, `scripts/my\ run.py`). Only `/` separators are read: a backslash path such as `scripts\run.py` is not checked. Paths joined by `,` or `;` with no space are read one by one when the next one is under a bundle folder (`scripts/a.py,scripts/b.py`); other commas, and an escaped `\,`, stay in the name. Some hits are files the skill tells the agent to
@@ -298,15 +299,17 @@ with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
 its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
 skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
-half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
+half and shares three words (`description-near-duplicate`). Under a different name, an overlap from 40% up to that line that shares at least three words is a `note` (`similar-skills-exist`) that leaves the state `ok`. The `description-no-when` cue is read in English,
 Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
 of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
-(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
+(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. A word that only states a capability is not a cue:
+Japanese いつ counts only before a use verb, Chinese 耗时, 超时 and 延时 do not count directly before 调用 or 执行 (a comma or 请 between them restores it), and German `beim`
+counts only in the same sentence as a use verb (verwenden, nutzen, ...). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
 `.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
 path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
-finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files, a root translation of `SKILL.md` (`SKILL.ru.md`, `SKILL.zh-CN.md`),
 `_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
 not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no `warn`; it gives a
 `note` (`bundle-file-unchecked`) that says why, when the search cannot see every name: a bundle over 2000 files, more than 50 named
@@ -446,8 +449,9 @@ $ echo $?
 
 A large catalog is easier to scan one skill at a time:
 
-- `--per-skill` reviews each skill alone. The four cross-catalog checks
-  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
+- `--per-skill` reviews each skill alone. The five cross-catalog checks
+  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`,
+  `similar-skills-exist`)
   compare a skill with the others, so they do not run in this mode; every other
   check does. The granularity hints (merge and split candidates) need the whole
   catalog too, so they are not run here; the text output says so in a
@@ -501,6 +505,50 @@ JSON report and of each JSONL row in [catalog check output](catalog-jsonl.md).
 combine with `--format json`; any other misuse exits 2. From Python,
 `dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
 skill in `path`.
+
+### Provenance: which upstream a copy came from (`catalog provenance`)
+
+A skill copied from another repository drifts from it: the upstream is updated and the
+copy is not, or the copy is edited and drops the licence. `catalog provenance` matches each
+skill under `--root` to a version of an upstream you name, offline. Dokimi ships no
+upstream list: give it the upstreams yourself.
+
+- `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. Clone it yourself; a full clone
+  gives the exact count of commits behind, a shallow one says it sees only its own history.
+- `--upstream-manifest FILE` (repeatable) is a JSON file of one upstream, for an upstream that
+  is not a git checkout. Its `schema` field is the version-1 upstream schema string shown here:
+
+  ```json
+  {"schema": "dokimi.upstream.v1", "name": "acme-skills",
+   "head": {"commit": "2c5958e", "date": "2026-04-01T00:00:00+00:00"},
+   "skills": [{"path": "skills/pdf/SKILL.md", "content": "---\nname: pdf\n...", "head": true,
+               "commit": "9f1c2ab", "date": "2026-03-01T00:00:00+00:00"}]}
+  ```
+
+  `content` is the text of the file, hashed as UTF-8; line endings count, except that a CRLF copy also matches the LF form of its text (as `git hash-object` reads it under `core.autocrlf`), against a manifest or a checkout. `head`, `commit` and `date` are optional. The git blob
+  sha is computed from `content`, so a manifest and a checkout agree.
+
+```text
+$ dokimi catalog provenance --root ./my-plugin --upstream ~/src/acme-skills
+# upstream acme-skills: head 446e0e560cff 2026-04-01, history full
+# skills (2 under ./my-plugin: 1 exact, 1 similar, 0 unmatched; 1 edited; 0 at head; median 3.0 months behind)
+skill	match	upstream	version	behind	edited
+skills/pdf-copy	exact	acme-skills:pdf/SKILL.md	88fa89b3fcc7 2026-01-01	1 commits, 3.0 mo	no
+skills/pdf-edit	similar	acme-skills:pdf/SKILL.md	88fa89b3fcc7 2026-01-01	1 commits, 3.0 mo	yes
+```
+
+A copy is matched by its bytes first: an identical `SKILL.md` at the upstream head or in its
+history is `exact` (not edited), and the newest such version is the one reported. Otherwise
+an upstream version with the same frontmatter `name` and a word Jaccard similarity of at least
+0.8 is `similar` (edited). Anything else is `unmatched`. `behind` counts the commits that
+touched the file after the matched version, and the months run from that version's commit date
+to the upstream head. When the matched path is no longer in the upstream head tree (the skill was
+renamed or deleted), the row says `removed_at_head` and the text adds `path removed at head`: `behind`
+then counts only the commits that touched the old path. A copy that does not load (no `description`,
+broken YAML) is matched by its bytes like the others, and the copy's frontmatter `name`, not its
+directory name, is the name for a `similar` match. A checkout that lacks blobs of its history (a
+partial clone) reports `history: partial` with `missing_blobs`; fetch them for an exact count.
+`--format json` adds the upstreams, one row per skill and a `summary`.
 
 ## 2. The awareness half: question sets
 

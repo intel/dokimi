@@ -38,7 +38,7 @@ from typing import Iterator, Sequence
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
 from .lookalikes import readings
-from .skill_markdown import CODE_SPAN_RE
+from .skill_markdown import code_spans
 
 BUNDLED_MAX_BYTES = 256 * 1024
 BUNDLED_MAX_FILES = 200
@@ -164,7 +164,7 @@ def _code_text(text: str, markdown: bool) -> str:
             code.append(line)
     # a code span does not run across a paragraph break
     paragraphs = re.split(r"\n[ \t]*\n", "\n".join(prose))
-    spans = [m.group(2) for para in paragraphs for m in CODE_SPAN_RE.finditer(para)]
+    spans = [m.group(2) for para in paragraphs for m in code_spans(para)]
     return "\n".join(code + [part for span in spans for part in (span, BLOCK_END)])
 
 

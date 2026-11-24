@@ -383,8 +383,8 @@ def test_fixtures_digest_does_not_depend_on_the_walk_order(tmp_path, monkeypatch
         (tree / name).write_text(name, encoding="utf-8")
     os.symlink("a.md", tree / "L.md")
     ordinary = cf.fixtures_digest(tree)
-    walk = type(tree).rglob
-    monkeypatch.setattr(type(tree), "rglob", lambda self, pattern: reversed(list(walk(self, pattern))))
+    walk = cf.listed_entries
+    monkeypatch.setattr(cf, "listed_entries", lambda root: list(reversed(walk(root))))
     assert cf.fixtures_digest(tree) == ordinary  # the same tree, walked in the other order: one digest
 
 

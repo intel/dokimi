@@ -58,10 +58,8 @@ def register_check(skill_sub) -> None:
 
 def register_skill(skill_sub, positive_int) -> None:
     """Add `skill novelty` (analyze, atoms, probe, ground, items, view) and `skill shorten` (#94 M2)."""
+    from dokimi.commands.novelty_flags import _add_bundle_args, _add_common, _add_model_args
     from dokimi.commands.novelty import (
-        _add_bundle_args,
-        _add_common,
-        _add_model_args,
         cmd_novelty_analyze,
         cmd_novelty_atoms,
         cmd_novelty_items,
@@ -185,6 +183,10 @@ def register_skill(skill_sub, positive_int) -> None:
                              "novelty analyze`: colours spans by the measured outcome and category "
                              "of each atom. Refused when it is another analysis's or names atoms "
                              "--atoms does not hold")
+    view_p.add_argument("--atom-labels", default=None, dest="atom_labels", metavar="FILE",
+                        help="Your labels per atom, JSON lines or CSV (.csv) with skill, atom_id "
+                             "and label columns; joined to --atom-verdicts, prints the known and new "
+                             "shares per label. Nothing is written back")
     view_p.add_argument("--format", default="html", choices=["html", "md"])
     view_p.add_argument("--out", default=None)
     view_p.set_defaults(func=cmd_novelty_view)
