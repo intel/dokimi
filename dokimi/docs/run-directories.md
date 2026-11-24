@@ -84,8 +84,9 @@ a run is refused `complete` while a planned cell has no measured status.
 
 A signal is recorded through the CLI's own handler for SIGTERM and SIGHUP
 (`dokimi.process.install_signal_handlers`; a library caller installs it
-itself). The handler kills the child process groups, then stops the run's
-block (`dokimi.process_hooks`); the record is written, and the signal is
+itself). The handler first tells the run that the signal came, so an end any
+thread writes from then on is `terminated`; then it kills the child process
+groups and stops the run's block (`dokimi.process_hooks`); the record is written, and the signal is
 delivered again, so the process exits as it did before (status 143 for SIGTERM
 under the CLI). Only a run opened on the main thread is stopped this way, and a
 signal the process ignores stays ignored. A run a signal stopped is recorded

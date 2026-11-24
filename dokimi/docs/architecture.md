@@ -472,7 +472,7 @@ deterministic checks on it; `dokimi memory lint`. Guide: [memory.md](memory.md).
   process inherited that is lower than the request stays in force. `dokimi/process_io.py`
   decides who owns each pipe, so an interrupted launch closes its streams exactly once
   and Windows reader threads close theirs at EOF. `dokimi/process_hooks.py` holds what the signal
-  handler runs after the kill (a run directory records its stop there). `FakeRunner` is its test
+  handler runs before the kill (notices) and after it (hooks): a run directory records its stop there. `FakeRunner` is its test
   adapter: code that spawns takes a `runner` argument.
 - Bad input: a library loader raises `dokimi.utils.InputError`, naming the file, and
   never ends the process. `cli.main` prints `Error: <message>` and exits 2; exit 1 stays

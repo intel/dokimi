@@ -210,12 +210,15 @@ class RunDir:
         :mod:`dokimi.process` (the CLI installs it) raises :class:`dokimi.process.ShuttingDown` in
         the block once it has killed the child process groups (:mod:`dokimi.process_hooks`)."""
         if threading.current_thread() is threading.main_thread():
+            process_hooks.add_notice(self._on_notice)
             process_hooks.add(self._on_signal)
             self._hooked = True
         return self
 
-    def _on_signal(self, signum: int) -> None:
-        self._signal = signum
+    def _on_notice(self, signum: int) -> None:
+        self._signal = signum  # before the child groups are killed: a worker's end after it is terminated
+
+    def _on_signal(self, signum: int) -> None:  # after the kills; _on_notice has recorded the signal
         raise process.ShuttingDown(f"{signal.Signals(signum).name}: the run stops")
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None,
@@ -250,6 +253,7 @@ class RunDir:
     def _unhook(self) -> None:
         if self._hooked:
             process_hooks.remove(self._on_signal)
+            process_hooks.remove_notice(self._on_notice)
             self._hooked = False
 
 

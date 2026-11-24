@@ -674,6 +674,42 @@ def test_a_signal_before_a_workers_finish_takes_the_lock_ends_the_run_terminated
                                                                  "detail": "SIGTERM: the run stops"})
 
 
+@pytest.mark.parametrize(("last", "asked"), [("fail", "complete"), ("infra_error", "incomplete")])
+def test_a_workers_finish_while_the_children_are_killed_ends_the_run_terminated(root, handlers, monkeypatch,
+                                                                               last, asked):
+    """docs/run-directories.md: "A run a signal stopped is recorded terminated": also a worker whose child the
+    handler kills, and which records its cell and calls finish before the handler reaches the run's hook."""
+    killing, finished = threading.Event(), threading.Event()
+    real_kill = process.kill_children
+
+    def kill_children():
+        killing.set()
+        finished.wait(30)  # the worker's child is gone: it ends the run before the handler goes on
+        real_kill()
+
+    def worker():
+        killing.wait(30)
+        run.record_cell(_ids()[-1], last)
+        run.finish(asked)
+        finished.set()
+
+    signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    process.install_signal_handlers([signal.SIGTERM])
+    monkeypatch.setattr(process, "kill_children", kill_children)
+    with pytest.raises(process.ShuttingDown):
+        with open_run(root, name="n") as run:
+            run.write_plan(_fixture("plan.v1"))
+            for cid in _ids()[:-1]:
+                run.record_cell(cid, "pass")
+            thread = threading.Thread(target=worker)
+            thread.start()
+            signal.raise_signal(signal.SIGTERM)
+    thread.join()
+    record = _record(run.path)
+    assert (record["status"], record["stop"]) == ("incomplete", {"reason": "terminated",
+                                                                 "detail": "SIGTERM: the run stops"})
+
+
 def test_a_signal_while_a_child_is_being_registered_stops_the_run_once_it_is(root, handlers, monkeypatch):
     """dokimi.process defers a signal that lands inside _spawn until the child is in _live, so the
     child is killed; the run's stop waits with it."""

@@ -5,7 +5,8 @@
 child process groups (#94 R2).
 
 The handler :func:`dokimi.process.install_signal_handlers` installs (SIGTERM, SIGHUP) defers a
-signal that lands while a child is being registered, kills every live group, then calls the hooks
+signal that lands while a child is being registered, tells the notices (:func:`notify`), kills
+every live group, then calls the hooks
 added here, newest first, and only then hands the signal on. A hook may raise: a run directory
 raises :class:`dokimi.process.ShuttingDown` to unwind its run and record the stop, and once it is
 done delivers the signal again (``signal.raise_signal``), so the process ends as it would have.
@@ -17,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 _hooks: list[Callable[[int], None]] = []
+_notices: list[Callable[[int], None]] = []
 
 
 def add(hook: Callable[[int], None]) -> None:
@@ -33,3 +35,21 @@ def run(signum: int) -> None:
     """Call every hook with ``signum``, the newest first; a hook that raises stops the rest."""
     for hook in reversed(list(_hooks)):
         hook(signum)
+
+
+def add_notice(notice: Callable[[int], None]) -> None:
+    """Call ``notice(signum)`` on a terminating signal, before the child groups are killed, until
+    :func:`remove_notice`. A notice must not raise: it only records that the signal came, so that
+    what a killed child's caller does next already knows (a run's end is then ``terminated``)."""
+    _notices.append(notice)
+
+
+def remove_notice(notice: Callable[[int], None]) -> None:
+    """Stop calling ``notice``; ``ValueError`` if it was not added."""
+    _notices.remove(notice)
+
+
+def notify(signum: int) -> None:
+    """Call every notice with ``signum``, the newest first."""
+    for notice in reversed(list(_notices)):
+        notice(signum)
