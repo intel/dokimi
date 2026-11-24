@@ -78,7 +78,7 @@ _RENAME_REPLACES_READ_ONLY = os.name != "nt"  # Windows os.replace refuses a rea
 def write_bytes_in_place_or_atomic(path: Path | str, data: bytes, *, replace_read_only: bool = False) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
 
-    With ``replace_read_only`` a read-only file in a writable directory counts as a plain file: it is replaced by rename and keeps its mode, as ``os.replace`` replaces it (not on Windows, whose ``os.replace`` refuses a read-only destination: there it is written in place and refused; see :func:`publishes_by_rename`).
+    With ``replace_read_only`` a read-only regular file in a writable directory is replaced by rename, plain or not (hard-linked, with a ``user.*`` attribute or an ACL, another user's), as ``os.replace`` replaces it: the new file keeps its mode, takes the group it may have, and has none of the other names, attributes or ACL (not on Windows, whose ``os.replace`` refuses a read-only destination: there it is written in place and refused; see :func:`publishes_by_rename`).
 
     A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory,
     a file another user owns (root excepted: it restores the owner and group, or writes in place when it may not chown), a file whose name is a mount point (``os.replace`` fails with EBUSY) is written in place, a file in a group the user is not in, a file with a POSIX access ACL or a ``user.*`` extended attribute and a file in a directory with a default ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
@@ -87,7 +87,8 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes, *, replace_rea
     path = Path(path)
     if publishes_by_rename(path, replace_read_only=replace_read_only):
         try:
-            _publish(path, lambda fd: os.fdopen(fd, "wb"), data, keep_group=True)
+            # A read-only file has no in-place fallback that works, so a group the user may not give it is left to the new file, as ``os.replace`` leaves it.
+            _publish(path, lambda fd: os.fdopen(fd, "wb"), data, keep_group=_is_plain_writable_file(path))
             return
         except _OwnerRefused:
             pass
@@ -100,7 +101,16 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes, *, replace_rea
 
 def publishes_by_rename(path: Path, *, replace_read_only: bool = False) -> bool:
     """Whether :func:`write_bytes_in_place_or_atomic` publishes ``path`` by a rename (else it writes it in place)."""
-    return _is_plain_writable_file(path) or (replace_read_only and _RENAME_REPLACES_READ_ONLY and _is_plain_file(path))
+    return _is_plain_writable_file(path) or (replace_read_only and _RENAME_REPLACES_READ_ONLY and _is_read_only_file_in_writable_dir(path))
+
+
+def _is_read_only_file_in_writable_dir(path: Path) -> bool:
+    """A regular file the user may not write, in a directory the user may change: an in-place write is refused, a rename is not."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISREG(info.st_mode) and not os.access(path, os.W_OK) and os.access(path.parent, os.W_OK | os.X_OK)
 
 
 def tmp_sibling(path: Path) -> Path:

@@ -306,8 +306,10 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       reader or a crash never sees half a file, and concurrent saves to one path (threads or
       processes) each publish one whole payload; the last one wins. A failed write removes its tmp
       file. A file that was there keeps its mode and, where the user may give it, its group; a new
-      file gets the umask mode; a read-only file in a writable directory is replaced by rename and
-      stays read-only, as before. A hard-linked or other special file, or any file in a read-only
+      file gets the umask mode; a read-only file in a writable directory is replaced by rename, as
+      before, and now stays read-only (it was left with the umask mode), also when it has another
+      hard link, a ``user.*`` attribute, an ACL or another owner, which the new file does not
+      keep. A writable hard-linked or other special file, or any file in a read-only
       directory, is not published by rename: it is written in place, as ``Path.write_bytes`` writes
       it, so a reader can see it truncated or half written, an interrupted write can destroy the old
       content, concurrent saves can interleave, and a file the user cannot write raises

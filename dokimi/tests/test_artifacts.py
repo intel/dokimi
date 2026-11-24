@@ -504,6 +504,27 @@ def test_a_save_over_a_read_only_file_replaces_it_and_keeps_it_read_only(tmp_pat
     assert sorted(p.name for p in tmp_path.iterdir()) == ["answers.json"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes and hard links")
+def test_a_save_over_a_read_only_hard_linked_file_replaces_it_and_keeps_the_other_name(tmp_path):
+    """A read-only file with another hard link is still replaced by rename in a writable directory, not refused (#1067)."""
+    import os
+
+    out = tmp_path / "answers.json"
+    other = tmp_path / "other.json"
+    out.write_text("{}", encoding="utf-8")
+    os.link(out, other)
+    os.chmod(out, 0o444)
+    if os.access(out, os.W_OK):
+        pytest.skip("chmod 0444 does not block writes here (for example, running as root)")
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+
+    assert out.stat().st_mode & 0o7777 == 0o444
+    assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+    assert other.read_text(encoding="utf-8") == "{}"  # the other name keeps the old inode
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["answers.json", "other.json"]
+
+
 def test_a_good_save_clears_a_stale_rejected_payload(tmp_path):
     out = tmp_path / "answers.json"
     with pytest.raises(ArtifactValidationError):
