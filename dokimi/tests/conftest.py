@@ -32,9 +32,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 @pytest.fixture(scope="session", autouse=True)
 def _git_config_of_the_session(tmp_path_factory):
     """Tests commit to scratch repositories with the identity of a config of their own, not of the machine they run on:
-    a runner whose user has no name makes ``git commit`` fail, and a developer's global config can change the outcome."""
+    a runner whose user has no name makes ``git commit`` fail, and a developer's global config can change the outcome.
+    Background maintenance is off: since git 2.5x a commit leaves a detached ``git maintenance`` holding
+    ``.git/objects/maintenance.lock``, which a test that copies or removes the repository then trips over."""
     config = tmp_path_factory.mktemp("gitconfig") / "gitconfig"
-    config.write_text("[user]\n\tname = dokimi-tests\n\temail = dokimi-tests@example.com\n", encoding="utf-8")
+    config.write_text("[user]\n\tname = dokimi-tests\n\temail = dokimi-tests@example.com\n"
+                      "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n", encoding="utf-8")
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("GIT_CONFIG_GLOBAL", str(config))
         yield

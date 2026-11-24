@@ -244,6 +244,20 @@ def test_a_command_check_code_can_be_ignored(tmp_path, capsys, code):
         f["code"] for f in row["findings"]}
 
 
+def test_ignore_not_loaded_does_not_clear_an_unloaded_skill(tmp_path, capsys):
+    # The CLI never emits not-loaded (only review_skill_dir does): an unloaded skill is an error from
+    # its load error, and ignoring the code must not let it pass (docs/finding-codes.md, the --ignore paragraph).
+    bad = tmp_path / "skills" / "bad"
+    bad.mkdir(parents=True)
+    (bad / "SKILL.md").write_text("---\n---\n# Body\n", encoding="utf-8")
+
+    row, code = _json_row(tmp_path, capsys, "--ignore", "not-loaded")
+
+    assert row["state"] == "error" and row["error"]
+    assert row["ignored"] == ["not-loaded"] and row["findings"] == []
+    assert code == 1
+
+
 def _fail_on_catalog(root: Path) -> None:
     """One skill with a warn-level finding only (``description-no-when``); a second with none."""
     _skill(root / "skills", "cue", name="cue", description="A tool.")
