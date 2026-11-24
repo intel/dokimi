@@ -230,7 +230,9 @@ def sampling_refusals(
     """Return the reason for each refused sampling option."""
     return llm_sampling.refusals_for_route(
         _sampling_kwargs(temperature=temperature, seed=seed), provider,
-        cli=llm_cli.backend(_canonical(provider)), load=_litellm, resolve=lambda: resolve_model(model, provider))
+        cli=llm_cli.backend(_canonical(provider)),
+        load=_litellm,
+        resolve=lambda: resolve_model(model, provider))
 
 
 # ── Retry ─────────────────────────────────────────────────────────────────────
