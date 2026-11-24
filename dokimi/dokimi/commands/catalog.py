@@ -208,8 +208,8 @@ ONLINE_CODES = ("link-dead", "package-not-found")
 
 
 def _refuse_unchecked_fail_on(args: argparse.Namespace) -> None:
-    """Raise InputError when --fail-on-code names a code this scan mode never reports."""
-    given = set(args.fail_on or ())
+    """Raise InputError when --fail-on-code names, and --ignore does not, a code this scan mode never reports."""
+    given = set(args.fail_on or ()) - set(args.ignore or ())  # --ignore filters first: a code in both is not checked
     cross = sorted(given & set(CROSS_CATALOG_CODES))
     if cross and args.per_skill:
         raise InputError(f"--fail-on-code {', '.join(cross)}: --per-skill does not run the cross-catalog checks, "

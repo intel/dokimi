@@ -289,6 +289,18 @@ def test_fail_on_is_repeatable_and_ignore_filters_first(tmp_path, capsys):
     assert _run(ignored, capsys)[1] == 0
 
 
+@pytest.mark.parametrize("extra, code", [
+    (["--per-skill", "--fail-on-code", "duplicate", "--ignore", "duplicate"], "duplicate"),
+    (["--fail-on-code", "link-dead", "--ignore", "link-dead"], "link-dead"),
+])
+def test_a_code_in_both_fail_on_and_ignore_is_not_refused_for_the_mode(tmp_path, capsys, extra, code):
+    """#942: --ignore filters first, so a mode-restricted code in both flags is not checked (docs/external-content.md)."""
+    _fail_on_catalog(tmp_path)
+    assert _run(["--root", str(tmp_path), "--kind", "skills", *extra], capsys)[1] == 0
+    unignored = extra[:-2]  # the same call without --ignore is still refused
+    assert _run(["--root", str(tmp_path), "--kind", "skills", *unignored], capsys)[1] == 2
+
+
 def test_fail_on_json_marks_the_failing_subject(tmp_path, capsys):
     """#942: with --json the skill with a selected finding has verdict fail (_emit_check docstring)."""
     _fail_on_catalog(tmp_path)
