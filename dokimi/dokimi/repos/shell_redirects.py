@@ -16,6 +16,8 @@ _HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?>&\d+(?=\s|$|[;&|])|(?<!
 # stderr sent to a file: stdout, what a printing command shows, is unchanged
 # (matched on the part with quoted text masked, so a quote glued to ``2`` or to the target is seen)
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
+# any redirect with its target: ``>f``, ``>>f``, ``2>f``, ``&>f``, ``>&2``, ``<f``
+_REDIRECT = re.compile(r"(?<![^\s;&|(])(?:\d+|&)?(?:>>?|<)&?[ \t]*[^\s;&|<>()]+")
 
 
 def bare(part: str) -> str:
@@ -35,6 +37,12 @@ def without_stderr(part: str) -> str:
     if not _stdout_after_stderr(bare(part)):  # else ``>&2`` stays: a redirect, so no read
         part = _outside_quotes(part, _HARMLESS_REDIRECT)
     return _outside_quotes(part, _STDERR_FILE)
+
+
+def without_redirects(part: str) -> str:
+    """``part`` without any redirect and its target (``>/dev/null``, ``2>f``, ``&>f``, ``>&2``, ``<f``), for the state a
+    command sets, which a redirect does not change; ``part`` itself when it has none."""
+    return _outside_quotes(part, _REDIRECT)
 
 
 def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:

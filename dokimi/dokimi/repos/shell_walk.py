@@ -23,7 +23,7 @@ from dokimi.text_spans import HeredocPattern
 
 from .event_format import plain_path
 from .shell_functions import Functions, define
-from .shell_redirects import bare, masked, without_stderr
+from .shell_redirects import bare, masked, without_redirects, without_stderr
 from .shell_search import Searched, cuts_lines, passes_through, prints_nothing, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
@@ -151,6 +151,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
             walk.here, walk.gated = None, False
         walk.chain(op, chained)
+        walk.ran = walk.runs(op)
         if walk.in_function(bare(part)) or walk.in_case(outer, part, after, out):  # a definition runs nothing
             continue
         if op == "||" and walk.moved:
@@ -162,11 +163,9 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
                 walk.lose(_in_own_shell(outer, after))
             continue
         words = walk.words(part, after)
+        walk.track_state(part, words, after)  # ``export POSIXLY_CORRECT=1; head f -n 0``
         if words:
-            walk.track_posix(words, op, after)  # ``export POSIXLY_CORRECT=1; head f -n 0``
             out.extend(walk.command(words, after, chained, _time_keyword(part)))
-        else:
-            walk.last_exit = None
         if not words and (stage := _search_stage(part, walk.functions)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
             walk.cut = True
             out.extend(walk.piped(walk.words(stage, after, staged=True), _time_keyword(part)))
@@ -208,21 +207,42 @@ class _Walk:
         # with it): more than one when a command that changes it ran only perhaps
         self.posix = _POSIX_OFF
         self.last_exit: bool | None = None  # the last command was ``true``/``:`` (True) or ``false`` (False): else not known
+        self.ran: bool | None = True  # whether the part being walked runs (None: not known), see :meth:`runs`
+        self.gates: list[bool | None] = []  # for each open brace group, whether it runs: the group is one command of its list
 
-    def track_posix(self, words: list[str], op: str, after: str) -> None:
+    def runs(self, op: str) -> bool | None:
+        """Whether the command after the operator ``op`` runs: not when the list or brace group holding it was skipped
+        (:attr:`gates`); after ``&&`` or ``||`` it runs when the one before it exited 0 (``true``, ``:``) or not
+        (``false``), and is skipped for the other; None when that is not known."""
+        own: bool | None = True
+        if op in ("&&", "||"):
+            own = None if self.last_exit is None else self.last_exit == (op == "&&")
+        gate = self.gates[-1] if self.gates else True
+        if own is False or gate is False:
+            return False
+        return None if own is None or gate is None else True
+
+    def track_state(self, part: str, words: list[str], after: str) -> None:
+        """The state a command of ``part`` sets (:meth:`track_posix`), also when a redirect leaves it no ``words``
+        (``export POSIXLY_CORRECT=1 >/dev/null``: the redirect changes no variable); no command: its exit is not known."""
+        unredirected = without_redirects(part)
+        state_words = words or (self.words(unredirected, after) if unredirected != part else [])
+        if state_words:
+            self.track_posix(state_words, after)
+        else:
+            self.last_exit = None
+
+    def track_posix(self, words: list[str], after: str) -> None:
         """``POSIXLY_CORRECT`` after a command of this shell (not a job, ``after`` is ``&``; a pipeline's parts have no
-        ``words``), by :func:`_posix_after`. A command after ``&&`` or ``||`` runs when the one before it exited 0
-        (``true``, ``:``) or not (``false``), and is skipped for the other; after any other command it may or may not
-        run, and both states are kept (:attr:`posix`). ``op`` is the operator before it."""
+        ``words``), by :func:`_posix_after`. A command that is skipped changes nothing (:attr:`ran`); one that may or may
+        not run keeps both states (:attr:`posix`)."""
         if after == "&":
             return
-        ran: bool | None = True
-        if op in ("&&", "||"):
-            ran = None if self.last_exit is None else self.last_exit == (op == "&&")
-        if ran is not False:
+        if self.ran is not False:
             after_it = frozenset(_posix_after(words, self.functions, state) for state in self.posix)
-            self.posix = after_it if ran else self.posix | after_it
-            self.last_exit = _LITERAL_EXIT.get(" ".join(words)) if ran else None
+            self.posix = after_it if self.ran else self.posix | after_it
+            shadowed = words[0] in self.functions  # ``true() { false; }``: the function runs, its exit is not known
+            self.last_exit = None if shadowed or not self.ran else _LITERAL_EXIT.get(" ".join(words))
 
     def spot(self) -> _Spot:
         return self.here, self.shell_moved, self.moved, self.posix
@@ -294,11 +314,13 @@ class _Walk:
     def open_group(self, before_brace: str, mark: int) -> None:
         piped = bool(_PIPE.search(before_brace))
         self.groups.append((self.spot(), piped, (mark, self.unknown, self.passthru), (self.list_start, self.listed)))
+        self.gates.append(self.ran)  # ``false && { :; unset X; }``: every command of the group is skipped
         if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
             self.here = None
 
     def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
         before, piped, (mark, unknown, passthru), (self.list_start, self.listed) = self.groups.pop()
+        self.gates.pop()
         if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _stdout_after_stderr(redirects):
             del out[mark:]
             self.unknown, self.passthru = unknown, passthru  # a passthru search dropped with the group shows the agent no line
@@ -337,7 +359,7 @@ class _Walk:
         if name is None:
             return []
         skipped = before[:len(before) - len(words)]  # ``POSIXLY_CORRECT=1 head``
-        posix = frozenset(_posix_set(skipped, exported) for _, exported in self.posix)
+        posix = frozenset(_posix_set(skipped, is_set and exported) for is_set, exported in self.posix)
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
@@ -401,27 +423,54 @@ class _Walk:
 
 
 def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool]) -> tuple[bool, bool]:
-    """``state`` (``POSIXLY_CORRECT`` set in this shell, exported) after the command ``words`` ran in it: a lone
-    ``POSIXLY_CORRECT=1`` sets it, ``export NAME[=value]`` exports it (a bare ``export NAME`` only when it was set),
-    ``export -n NAME[=value]`` assigns the value and drops the export, and ``unset`` drops both. ``builtin`` and
-    ``command`` before ``export`` or ``unset`` run the builtin; a function of that name shadows it otherwise."""
+    """``state`` (``POSIXLY_CORRECT`` set in this shell, marked for export: the command gets it when both) after the command
+    ``words`` ran in it: a lone ``POSIXLY_CORRECT=1`` sets it, ``export NAME[=value]`` marks it for export (a bare
+    ``export NAME`` too before it has a value), ``export -n NAME[=value]`` assigns the value and drops the mark, and
+    ``unset`` drops both. ``export -f`` and ``unset -f`` name functions, so they leave it. ``builtin`` and ``command``
+    (with ``--`` or ``command -p``) before ``export`` or ``unset`` run the builtin; a function of that name shadows it otherwise."""
     name, is_set, exported = "POSIXLY_CORRECT", *state
     if all(_ASSIGN.match(w) for w in words):
         return is_set or any(w.startswith(name + "=") for w in words), exported
     bypassed = False
-    while words[0] in ("builtin", "command") and words[0] not in functions and len(words) > 1:
-        words, bypassed = words[1:], True
+    while words[0] in ("builtin", "command") and words[0] not in functions:
+        inner = _wrapped(words)
+        if inner is None:
+            return state
+        words, bypassed = inner, True
     if words[0] not in ("export", "unset") or (words[0] in functions and not bypassed):
         return state
-    names = [w.partition("=")[0] for w in words[1:]]
-    if name not in names:
+    flags, operands = _builtin_options(words[1:])
+    if "f" in flags or name not in [w.partition("=")[0] for w in operands]:
         return state
     if words[0] == "unset":
         return False, False
-    valued = any(w.startswith(name + "=") for w in words[1:])
-    if "-n" in words[1:]:
+    valued = any(w.startswith(name + "=") for w in operands)
+    if "n" in flags:
         return is_set or valued, False
-    return (True, True) if valued or is_set else state
+    return (True, True) if valued else (is_set, True)
+
+
+def _wrapped(words: list[str]) -> list[str] | None:
+    """The command ``builtin`` or ``command`` at the head of ``words`` runs, past ``--`` and ``command -p``; None when it
+    runs none (``command -v``, a bare ``command``)."""
+    rest = words[1:]
+    while rest and rest[0] != "--" and rest[0].startswith("-"):
+        if words[0] == "builtin" or set(rest[0][1:]) != {"p"}:
+            return None
+        rest = rest[1:]
+    return rest[1:] or None if rest[:1] == ["--"] else rest or None
+
+
+def _builtin_options(args: list[str]) -> tuple[str, list[str]]:
+    """The option letters before the operands of ``export`` or ``unset``, and the operands: options end at the first
+    word that is no option, or at ``--``."""
+    flags, i = "", 0
+    while i < len(args) and args[i].startswith("-") and args[i] != "-":
+        i += 1
+        if args[i - 1] == "--":
+            break
+        flags += args[i - 1][1:]
+    return flags, args[i:]
 
 
 def _posix_set(skipped: list[str], exported: bool = False) -> bool:

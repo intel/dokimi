@@ -285,7 +285,39 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("export POSIXLY_CORRECT=1; command unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
     ("builtin export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
     ("export -n POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # -n assigns, not exports
-    ("export -n POSIXLY_CORRECT=1; head AGENTS.md -n 0", [])
+    ("export -n POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; false && { :; unset POSIXLY_CORRECT; }; head AGENTS.md -n 0", ["AGENTS.md"]),  # a skipped group
+    ("true || { :; export POSIXLY_CORRECT=1; }; head AGENTS.md -n 0", []),
+    ("true && { :; export POSIXLY_CORRECT=1; }; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; true && { :; unset POSIXLY_CORRECT; }; head AGENTS.md -n 0", []),
+    ("ls && { :; export POSIXLY_CORRECT=1; }; head AGENTS.md -n 0", ["AGENTS.md"]),  # a group that may run: both states
+    ("ls && { :; export POSIXLY_CORRECT=1; }; head -n 0 AGENTS.md", []),
+    ("true() { false; }; true || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # the function's exit is not known
+    ("false() { true; }; export POSIXLY_CORRECT=1; false && unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("command -- export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # options of the wrapper
+    ("command -p export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("command -p -- export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("builtin -- export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; command -- unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; command -p unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("command -v export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # prints where export is, runs nothing
+    ("export POSIXLY_CORRECT=1; command -v unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1 >/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # a redirect changes no variable
+    ("export POSIXLY_CORRECT=1 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >/dev/null; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 > out.txt && head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1 | cat > out.txt; head AGENTS.md -n 0", []),  # a pipeline is a subshell
+    ("export POSIXLY_CORRECT=1; unset -f POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # a function, not the variable
+    ("export POSIXLY_CORRECT=1; command unset -f POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; builtin unset -f POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset OTHER; export OTHER=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # another name changes nothing
+    ("export POSIXLY_CORRECT=1; unset -v POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; unset -- POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1; export -f POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # exports a function, not the variable
+    ("export POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # the export mark waits for the value
+    ("export POSIXLY_CORRECT; head AGENTS.md -n 0; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT; export -n POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads
