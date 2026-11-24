@@ -7,6 +7,7 @@ from pathlib import Path
 
 from dokimi import artifacts, cli_output
 from dokimi.gate.delivery import evaluate
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.harnesses.delivery import run
 from dokimi.report.delivery import render
 from dokimi.utils import InputError
@@ -37,7 +38,7 @@ def command(args: argparse.Namespace) -> None:
             cli_output.envelope(
                 args.cli_kind,
                 data=data,
-                run_id=data["run_id"],
+                run_id=data.get("run_id"),
                 cost=cost,
                 verdict=verdict.lower() if verdict else None,
                 status="partial"
@@ -78,5 +79,5 @@ def register(sub: argparse._SubParsersAction) -> None:
                 help="Use recorded responses from the task catalog",
             )
             parser.add_argument(
-                "--provider", choices=("openai", "anthropic", "claude-cli"), default="openai"
+                "--provider", choices=ANSWER_PROVIDERS, default="openai"
             )

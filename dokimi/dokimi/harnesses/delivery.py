@@ -154,7 +154,7 @@ def attempt(
         path = Path(tmp) / "delivery"
         path.write_bytes(product)
         start = Path(tmp) / "initial"
-        start.write_text(initial)
+        start.write_text(initial, encoding="utf-8")
         result = container(
             image,
             "cp /initial ./consumer.sh || exit 121\n"
