@@ -4,6 +4,7 @@
 """Factory for creating documentation source clients from CLI flag values."""
 
 import errno
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +27,12 @@ def require_local_doc_source(doc_source: str) -> None:
         if not isinstance(exc, ValueError) and exc.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG):
             raise InputError(f"doc source {doc_source}: cannot read {local_path}: {exc}") from exc
         raise InputError(f"doc source path does not exist: {doc_source}") from exc
+    try:
+        unreadable = os.access(path, os.F_OK) and not os.access(path, os.R_OK)  # present but mode 000, say
+    except ValueError:  # a name the OS cannot encode (lone surrogate): exists() already accepted it
+        unreadable = False
+    if unreadable:
+        raise InputError(f"doc source {doc_source}: cannot read {local_path}: permission denied")
 
 
 def create_doc_source_client(

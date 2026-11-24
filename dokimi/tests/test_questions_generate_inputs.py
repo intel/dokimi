@@ -276,3 +276,22 @@ def test_preflight_reports_an_unreadable_local_doc_source_as_unreadable(monkeypa
     refusals = []
     _check_doc_source({"doc_source": "local:/restricted/docs"}, None, refusals.append, [], [])
     assert len(refusals) == 1 and "cannot read /restricted/docs" in refusals[0]
+
+
+def test_require_local_doc_source_reports_an_existing_unreadable_file_as_unreadable(tmp_path):
+    """#1086: `local:<file>` with mode 000 exists but cannot be read: `cannot read`, as the changelog says."""
+    import os
+
+    from dokimi.mcp.factory import require_local_doc_source
+    from dokimi.utils import InputError
+
+    doc = tmp_path / "docs.md"
+    doc.write_text("# docs\n")
+    doc.chmod(0)
+    try:
+        if os.access(doc, os.R_OK):
+            pytest.skip("file permissions are not enforced for this user")
+        with pytest.raises(InputError, match="cannot read .*docs.md"):
+            require_local_doc_source(f"local:{doc}")
+    finally:
+        doc.chmod(0o600)
