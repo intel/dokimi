@@ -1186,6 +1186,8 @@ named as warnings (the first five by ref, the rest counted). When both runs reco
 `artifact.ref_digest` and the digests differ, the runs measured different content. The ref is
 listed in `unscored` and excluded from the floor and all other retest statistics. Runs without
 a digest still pair by ref. A warning names the ref when only one run has a digest.
+If these exclusions leave no pairs, the command exits with `no item scored in both runs`.
+This also applies when all shared items have scores but were measured on different content.
 Warnings also name a retest that
 does not vary what it should:
 
