@@ -179,7 +179,8 @@ class RunDir:
         with self._lock:
             self._running()
             if self._signal is not None:  # read under the lock: a signal before it wins over any status chosen earlier
-                status, stop = self._how_ended(None)
+                status, stop = "incomplete", {"reason": "terminated",
+                                              "detail": f"{signal.Signals(self._signal).name}: the run stops"}
             measured = True  # a run with no plan has no cell to measure
             if self._plan is not None:
                 result = self._result(self._plan, stop)
@@ -241,9 +242,7 @@ class RunDir:
                 self._end(*self._how_ended(exc))
 
     def _how_ended(self, exc: BaseException | None) -> tuple[Status | None, dict[str, str | None] | None]:
-        if self._signal is not None:  # also when the block caught the ShuttingDown
-            return "incomplete", {"reason": "terminated",
-                                  "detail": f"{signal.Signals(self._signal).name}: the run stops"}
+        """How ``exc`` ends the run; a signal, also one the block caught, is _end's to apply."""
         if exc is None:
             return None, None  # by the cells (_end)
         return _ending(exc)
