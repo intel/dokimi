@@ -8,7 +8,7 @@ Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# The runs root: `runs list`, `runs show`, `runs rm` and `runs gc`
+# The runs root: `runs list`, `runs show`, `runs rm`, `runs gc` and `runs baseline`
 
 Catalog static receipts (`catalog_eval.v1`) are supported too: the subject is the
 catalog root, and `runs show` counts skill rows and problems. Point `DOKIMI_RUNS_DIR`
@@ -19,7 +19,8 @@ Most commands that run an evaluation write their artifacts under `results/` by
 default (a few write elsewhere, listed below). `runs list` shows what is there,
 one run's artifacts together, and `runs show` opens one artifact or one run. Both only read files: no model call, no
 network access, nothing written. `runs rm` and `runs gc` remove runs from the root
-([below](#removing-runs-runs-rm-and-runs-gc)).
+([below](#removing-runs-runs-rm-and-runs-gc)), and `runs baseline` names a run
+([baselines](#baselines-runs-baseline-save-list-rm)).
 
 The runs root is `results/` in the working directory. Set `DOKIMI_RUNS_DIR` to
 read another directory.
@@ -67,7 +68,9 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   `schema_version` (named), `*.tmp` and `*.rejected` files left by
   `save_artifact`, other files, entries that are not regular files (a FIFO),
   symlinked directories and Windows junctions, which are not walked, and
-  symlinks to files outside the root, which are not read. A file or directory
+  symlinks to files outside the root, which are not read. The root's own
+  `.baselines/` directory, which holds the [baselines](#baselines-runs-baseline-save-list-rm),
+  is not walked and not counted. A file or directory
   that cannot be read is
   listed as unreadable, as is a file that opens with a registered
   `schema_version` but does not parse (a file of no registered kind is never
@@ -196,11 +199,15 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
   than `AGE`, an age in days such as `30d`. The time is the one `runs list` sorts
   by: the time the artifact records, or its file's mtime when it records none. A
   run with one artifact newer than that stays whole.
-- **`--keep-baselines`** keeps the runs a saved baseline holds: each copy that
-  `baseline save` listed in `baselines/eval/manifest.json` (in the working
-  directory) is read, and a run whose `run_id` a copy carries is kept and named. A
-  copy saved before the envelope holds no run. A copy that cannot be read exits 2
-  before anything is removed, since the run it holds is not known.
+- **`--keep-baselines`** keeps the runs a baseline holds, and names the baseline: a
+  run a [`runs baseline`](#baselines-runs-baseline-save-list-rm) pointer points to,
+  and a run whose `run_id` a copy carries that `baseline save` listed in
+  `baselines/eval/manifest.json` (in the working directory). A copy saved before the
+  envelope holds no run. A pointer or a copy that cannot be read exits 2 before
+  anything is removed, since the run it holds is not known. While it removes, `gc`
+  holds the baselines' lock, so a `runs baseline save` waits and then finds the run
+  gone instead of pointing at it; only a first baseline, saved while `.baselines/`
+  does not exist yet, is not waited for.
 - An entry under the root that cannot be read may be the newest artifact of a run,
   so while one is there `runs gc` removes nothing and exits 2, naming the first. `runs
   rm RUN_ID` removes the run and leaves such an entry in place, counted as `runs list`
@@ -226,6 +233,58 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
   `paths` or `size_bytes`), and the command exits 5 (`status` `failed`, `error.code`
   `infra`).
 
+## Baselines: `runs baseline save`, `list`, `rm`
+
+A baseline is a named pointer to a run, like a git tag
+([#94](https://github.com/intel/dokimi/issues/94) §2.3): the run stays where it
+is, and the name says which run a later comparison is made against.
+
+```text
+$ python cli.py runs baseline save skill/a@main 20261028T093512Z-77c2e0b4
+saved baseline skill/a@main -> 20261028T093512Z-77c2e0b4 (2 artifacts); before: none
+$ python cli.py runs baseline list
+NAME          RUN                        SAVED (UTC)
+skill/a@main  20261028T093512Z-77c2e0b4  2026-10-28 11:00
+
+1 baseline under results/
+$ python cli.py runs baseline save skill/a@main 20261029T140211Z-3f9a0c1e \
+    --expect-previous 20261028T093512Z-77c2e0b4
+saved baseline skill/a@main -> 20261029T140211Z-3f9a0c1e (1 artifact); before: 20261028T093512Z-77c2e0b4
+```
+
+- **`runs baseline save NAME RUN`** points `NAME` at `RUN`, a `run_id` that some
+  artifact under the root carries (as `runs show RUN_ID` finds it); a `run_id` no
+  artifact carries exits 2. A baseline that exists is moved, and the line says what
+  it held (`before:`).
+- **`--expect-previous RUN_ID`** makes the save a compare-and-swap: it saves only
+  while `NAME` points to `RUN_ID`. Otherwise, a baseline that points elsewhere or does
+  not exist, it exits 4 (`invalid`, a stale baseline, §2.6) and leaves the pointer as
+  it was. A nightly that read the pointer, ran, and saves with the run it read cannot
+  overwrite another nightly's save made in between: of two such saves one wins and
+  the other exits 4. `--json` then has `status` `failed`, `verdict` `invalid`, `reason`
+  `stale_baseline`, and `expected` and `found` (`null` for no baseline) under `data`.
+- **Names** are segments of letters, digits, `.`, `_`, `@` or `-` joined by `/`, so
+  a name can carry a namespace (`skill/a@main`); each segment starts with a letter or
+  a digit and does not end in `.`, and the whole is 1-128 characters. A name that
+  Windows reserves for a device (`con`, `nul.txt`) is refused, and so is one that
+  differs from a saved one only in case (`Main` beside `main`), since Windows and
+  macOS read them as one file.
+- **`runs baseline list`** prints every baseline by name, its run and when it was
+  saved. An entry of `.baselines/` that is not a pointer is named as unreadable, and
+  `--json` then has `status` `partial`; the exit code stays 0. `--json` lists
+  `name`, `run_id` and `saved_at` of each under `data.baselines`.
+- **`runs baseline rm NAME`** removes the pointer; the run stays (`runs rm RUN_ID`
+  removes a run). A baseline that does not exist exits 2.
+- **On disk** a baseline is the file `.baselines/<NAME>` under the root, with `/`
+  in the name written `%2F` (`.baselines/skill%2Fa@main`), holding one line: the
+  `run_id`. `SAVED` is its mtime. A save replaces the file in one step, and saves and
+  removals hold `.baselines/.lock`, so the compare and the swap are one step for every
+  process on the machine (on a network file system only as far as it honours
+  `flock`).
+- The copies `baseline save --from-eval` makes under `baselines/eval/` are another
+  store: `runs baseline` does not read or change them. `runs gc --keep-baselines`
+  keeps the runs of both.
+
 ## Exit codes
 
 | Case | Exit |
@@ -239,3 +298,7 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 | `runs rm`: no root, a directory, a missing file, a path outside the root, or a `run_id` no artifact carries | 2 |
 | `runs gc`: no `--older-than`, an age that is not days (`30d`), an entry under the root that cannot be read, or with `--keep-baselines` a baseline manifest or copy that cannot be read | 2 |
 | `runs rm`, `runs gc`: a file that could not be removed | 5 |
+| `runs baseline save`, `rm`: saved or removed; `runs baseline list`, with no root or no baseline too | 0 |
+| `runs baseline save`, `rm`: no root, a name that is not one or differs from a saved one only in case, a `RUN` or `--expect-previous` that is not a run id, a `RUN` no artifact carries, `rm` of a baseline that does not exist | 2 |
+| `runs baseline save --expect-previous RUN_ID`: the baseline does not point to `RUN_ID` (the pointer is left as it was) | 4 |
+| `runs baseline save`, `rm`: the pointer could not be written or removed | 5 |

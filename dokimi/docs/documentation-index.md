@@ -68,7 +68,8 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   every artifact under `results/` (or `DOKIMI_RUNS_DIR`), one run's together,
   and counts what it skipped, `cli.py runs show` checks one against its schema
   or lists one run, `cli.py runs rm` and `cli.py runs gc --older-than` remove
-  runs. No LLM call.
+  runs, `cli.py runs baseline save|list|rm` names a run (`--expect-previous`
+  for a compare-and-swap). No LLM call.
 - [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
   preflight, run, then pin the question set so runs stay comparable.
 - [benchmarking-and-comparison.md](benchmarking-and-comparison.md) — how to

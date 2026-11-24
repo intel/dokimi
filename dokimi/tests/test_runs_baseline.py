@@ -1,0 +1,290 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""`runs baseline save|list|rm` (#94 §2.3, R3): a baseline is a named pointer to a run, and
+``--expect-previous`` makes a save a compare-and-swap (docs/runs.md, "Baselines")."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess  # nosec B404 - two real processes race for one pointer
+import sys
+from pathlib import Path
+
+import pytest
+
+from dokimi import cli
+from dokimi.artifacts import save_artifact
+from dokimi.runs import baseline
+from tests.waiting import wait_until
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
+PROJECT = Path(__file__).resolve().parents[1]
+A, B, C = "20261101T000000Z-0000000a", "20261102T000000Z-0000000b", "20261103T000000Z-0000000c"
+
+
+@pytest.fixture
+def root(tmp_path, monkeypatch):
+    """``results/`` with two runs, A (eval + answers) and B (arms)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)
+    results = tmp_path / "results"
+    for run_id, kind, version, path in ((A, "eval", "eval.v1", "a/eval.json"),
+                                        (A, "answers", "answers.v1", "a/answers.json"),
+                                        (B, "arms", "arms.v1", "b/arms.json")):
+        monkeypatch.setenv("DOKIMI_RUN_ID", run_id)
+        data = json.loads((FIXTURES / f"{version}.json").read_text(encoding="utf-8"))
+        save_artifact(kind, data, results / path)
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    return results
+
+
+def _run(monkeypatch, capsys, *argv: str):
+    monkeypatch.setattr("sys.argv", ["dokimi", "runs", *argv])
+    code = 0
+    try:
+        cli.main()
+    except SystemExit as exc:
+        code = exc.code
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def _pointer(results: Path, name: str) -> str | None:
+    path = results / ".baselines" / name.replace("/", "%2F")
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def test_save_list_rm_a_namespaced_baseline(root, monkeypatch, capsys):
+    code, out, _ = _run(monkeypatch, capsys, "baseline", "save", "skill/a@main", A)
+    assert (code, out) == (0, f"saved baseline skill/a@main -> {A} (2 artifacts); before: none\n")
+    assert _pointer(root, "skill/a@main") == A + "\n"  # docs/runs.md: one line, the run_id
+
+    code, out, _ = _run(monkeypatch, capsys, "baseline", "list")
+    assert code == 0
+    assert re.fullmatch(rf"NAME +RUN +SAVED \(UTC\)\nskill/a@main  {A}  \d{{4}}-\d\d-\d\d \d\d:\d\d\n"
+                        r"\n1 baseline under results/\n", out)
+
+    code, out, _ = _run(monkeypatch, capsys, "baseline", "rm", "skill/a@main")
+    assert (code, out) == (0, f"removed baseline skill/a@main (it held {A}); the run stays\n")
+    assert _pointer(root, "skill/a@main") is None
+    assert (root / "a" / "eval.json").exists()
+    assert _run(monkeypatch, capsys, "baseline", "list")[1] == "0 baselines under results/\n"
+
+
+def test_list_json_names_each_baseline_and_its_run(root, monkeypatch, capsys):
+    _run(monkeypatch, capsys, "baseline", "save", "main", B)
+    _run(monkeypatch, capsys, "baseline", "save", "skill/a@main", A)
+
+    doc = json.loads(_run(monkeypatch, capsys, "baseline", "list", "--json")[1])
+
+    assert (doc["kind"], doc["status"]) == ("runs baseline list", "complete")
+    assert [(b["name"], b["run_id"]) for b in doc["data"]["baselines"]] == [("main", B),
+                                                                            ("skill/a@main", A)]
+    assert all(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", b["saved_at"])
+               for b in doc["data"]["baselines"])
+
+
+def test_a_save_without_expect_previous_moves_the_pointer_and_says_what_it_held(
+        root, monkeypatch, capsys):
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+
+    code, out, _ = _run(monkeypatch, capsys, "baseline", "save", "main", B, "--json")
+
+    data = json.loads(out)["data"]
+    assert (code, data["run_id"], data["previous"], data["artifacts"]) == (0, B, A, 1)
+    assert data["path"] == ".baselines/main"
+    assert _pointer(root, "main") == B + "\n"
+
+
+def test_expect_previous_saves_while_the_pointer_holds_that_run(root, monkeypatch, capsys):
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+
+    code, out, _ = _run(monkeypatch, capsys, "baseline", "save", "main", B, "--expect-previous", A)
+
+    assert (code, out) == (0, f"saved baseline main -> {B} (1 artifact); before: {A}\n")
+    assert _pointer(root, "main") == B + "\n"
+
+
+@pytest.mark.parametrize("held", [B, None])
+def test_expect_previous_that_does_not_hold_exits_4_and_leaves_the_pointer(
+        root, monkeypatch, capsys, held):
+    # #94 §2.6: a stale baseline is `invalid`, exit 4
+    if held:
+        _run(monkeypatch, capsys, "baseline", "save", "main", held)
+
+    code, out, err = _run(monkeypatch, capsys, "baseline", "save", "main", A, "--expect-previous", C)
+
+    assert (code, out) == (4, "")
+    holds = f"holds {held}" if held else "does not exist"
+    assert err == (f"Error: baseline main {holds}, not {C} as --expect-previous says: another save "
+                   "moved it, so nothing was saved\n")
+    assert _pointer(root, "main") == (held + "\n" if held else None)
+    code, out, _ = _run(monkeypatch, capsys, "baseline", "save", "main", A, "--expect-previous", C,
+                        "--json")
+    doc = json.loads(out)
+    assert (code, doc["status"], doc["verdict"], doc["reason"]) == (4, "failed", "invalid",
+                                                                    "stale_baseline")
+    assert (doc["data"]["expected"], doc["data"]["found"]) == (C, held)
+
+
+def test_expect_previous_against_a_pointer_that_holds_no_run_id_exits_4(root, monkeypatch, capsys):
+    (root / ".baselines").mkdir()
+    (root / ".baselines" / "main").write_text("", encoding="utf-8")
+
+    code, _, err = _run(monkeypatch, capsys, "baseline", "save", "main", A, "--expect-previous", B)
+
+    assert (code, err) == (4, f"Error: baseline main holds no run id, not {B} as --expect-previous "
+                              "says: another save moved it, so nothing was saved\n")
+    assert _pointer(root, "main") == ""
+
+
+def test_two_processes_that_expect_the_same_run_keep_one_winner(root, monkeypatch):
+    """Both wait on the lock while the test holds it, then race: one saves, the other exits 4."""
+    if not Path("/proc/locks").exists():
+        pytest.skip("waiting on a lock is seen in /proc/locks (Linux)")
+    monkeypatch.setenv("DOKIMI_RUN_ID", C)
+    save_artifact("arms", json.loads((FIXTURES / "arms.v1.json").read_text(encoding="utf-8")),
+                  root / "c" / "arms.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    save = [sys.executable, str(PROJECT / "cli.py"), "runs", "baseline", "save", "main"]
+    env = {**os.environ, "DOKIMI_RUNS_DIR": str(root)}
+    env.pop("DOKIMI_RUN_ID", None)
+    baseline.save(root, "main", A, None)
+    lock = root / ".baselines" / ".lock"
+    with baseline.locked(root):
+        procs = [subprocess.Popen([*save, run, "--expect-previous", A], env=env, cwd=PROJECT,  # nosec B603
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for run in (B, C)]
+        waiting = re.compile(rf"->.*:{lock.stat().st_ino} ")
+        wait_until(lambda: sum(1 for line in Path("/proc/locks").read_text().splitlines()
+                               if waiting.search(line)) == 2,
+                   60, what="both saves to wait on the lock")
+    results = {run: proc.communicate(timeout=60) + (proc.returncode,) for run, proc in zip((B, C), procs, strict=True)}
+
+    codes = sorted(code for _, _, code in results.values())
+    assert codes == [0, 4], results
+    winner = next(run for run, (_, _, code) in results.items() if code == 0)
+    assert _pointer(root, "main") == winner + "\n"
+
+
+@pytest.mark.parametrize("name", ["../x", "a//b", "/a", "a/", ".hidden", "a/.b", "a.", "a./b",
+                                  "a b", "a:b", "a\\b", "", "x" * 129, "con", "NUL.txt", "com1"])
+def test_save_refuses_a_name_that_is_not_one_and_writes_nothing(root, monkeypatch, capsys, name):
+    code, _, err = _run(monkeypatch, capsys, "baseline", "save", name, A)
+
+    assert code == 2 and "is not a baseline name" in err
+    assert not (root / ".baselines").exists()
+
+
+@pytest.mark.parametrize("name", ["main", "skill/a@main", "A.b_c-d/e@f.1", "x" * 128,
+                                  "/".join("ab" for _ in range(43)), "console", "con-x/y"])
+def test_save_takes_a_name_of_segments(root, monkeypatch, capsys, name):
+    assert _run(monkeypatch, capsys, "baseline", "save", name, A)[0] == 0
+    assert [p.name for p in baseline.read_all(root).pointers] == [name]
+
+
+def test_a_name_that_differs_only_in_case_is_refused(root, monkeypatch, capsys):
+    _run(monkeypatch, capsys, "baseline", "save", "skill/a@main", A)
+
+    code, _, err = _run(monkeypatch, capsys, "baseline", "save", "Skill/A@main", B)
+
+    assert code == 2
+    assert err == ("Error: baseline Skill/A@main differs from baseline skill/a@main only in case, "
+                   "which Windows and macOS read as one name\n")
+    assert _pointer(root, "skill/a@main") == A + "\n"
+
+
+@pytest.mark.parametrize("argv, message", [
+    (["main", C], f"no artifact under the runs root results/ has the run_id {C}"),
+    (["main", "not a run"], "RUN 'not a run' is not a run id"),
+    (["main", A, "--expect-previous", ""], "--expect-previous '' is not a run id"),
+])
+def test_save_refuses_a_run_that_is_not_under_the_root(root, monkeypatch, capsys, argv, message):
+    code, _, err = _run(monkeypatch, capsys, "baseline", "save", *argv)
+
+    assert (code, err) == (2, f"Error: {message}\n")
+    assert _pointer(root, "main") is None
+
+
+def test_a_pointer_that_cannot_be_written_exits_5_and_keeps_the_old_one(root, monkeypatch, capsys):
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+
+    def refuse(path, text):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(baseline, "write_text_atomic", refuse)
+    code, _, err = _run(monkeypatch, capsys, "baseline", "save", "main", B)
+
+    assert (code, err) == (5, "Error: baseline main: cannot write: Permission denied\n")
+    assert _pointer(root, "main") == A + "\n"
+
+
+def test_rm_of_a_baseline_that_does_not_exist_exits_2(root, monkeypatch, capsys):
+    assert _run(monkeypatch, capsys, "baseline", "rm", "main")[:3:2] == (
+        2, "Error: no baseline main under the runs root results/\n")
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+    assert _run(monkeypatch, capsys, "baseline", "rm", "other")[0] == 2
+    assert _pointer(root, "main") == A + "\n"
+
+
+def test_without_a_runs_root_list_is_empty_and_save_and_rm_exit_2(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)
+
+    assert _run(monkeypatch, capsys, "baseline", "list")[:2] == (0, "0 baselines under results/\n")
+    for argv in (["save", "main", A], ["rm", "main"]):
+        code, _, err = _run(monkeypatch, capsys, "baseline", *argv)
+        assert (code, err) == (2, "Error: no runs root: results/ does not exist (DOKIMI_RUNS_DIR "
+                                  "names another root)\n")
+    assert not (tmp_path / "results").exists()
+
+
+def test_list_names_a_store_entry_that_is_not_a_pointer(root, monkeypatch, capsys):
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+    (root / ".baselines" / "broken").write_text("not a run id\n", encoding="utf-8")
+    (root / ".baselines" / "a b").write_text(A, encoding="utf-8")
+
+    code, out, _ = _run(monkeypatch, capsys, "baseline", "list")
+
+    assert code == 0
+    assert out.endswith("1 baseline under results/\nunreadable: .baselines/a b: not a baseline name\n"
+                        "unreadable: .baselines/broken: holds no run id\n")
+    doc = json.loads(_run(monkeypatch, capsys, "baseline", "list", "--json")[1])
+    assert doc["status"] == "partial"
+    assert [u["path"] for u in doc["data"]["unreadable"]] == [".baselines/a b", ".baselines/broken"]
+
+
+def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+
+    out = _run(monkeypatch, capsys, "list")[1]
+
+    assert "skipped" not in out and ".baselines" not in out
+    assert out.endswith("3 artifacts under results/ (* the file's mtime: the artifact records no "
+                        "time)\nruns: 2 (3 artifacts)\n")
+
+
+def test_gc_keep_baselines_keeps_the_run_a_pointer_holds(root, monkeypatch, capsys):
+    _run(monkeypatch, capsys, "baseline", "save", "skill/a@main", A)
+
+    code, out, _ = _run(monkeypatch, capsys, "gc", "--older-than", "0d", "--keep-baselines")
+
+    assert code == 0
+    assert out.endswith(f"kept 1 run older than 0d that a baseline holds: {A} (skill/a@main)\n")
+    assert (root / "a" / "eval.json").exists() and not (root / "b" / "arms.json").exists()
+    assert _pointer(root, "skill/a@main") == A + "\n"
+
+
+def test_gc_keep_baselines_removes_nothing_while_a_pointer_cannot_be_read(root, monkeypatch, capsys):
+    (root / ".baselines").mkdir()
+    (root / ".baselines" / "main").write_text("", encoding="utf-8")
+
+    code, _, err = _run(monkeypatch, capsys, "gc", "--older-than", "0d", "--keep-baselines")
+
+    assert code == 2
+    assert err == ("Error: .baselines/main under the runs root: holds no run id, so the run it "
+                   "holds is not known\n")
+    assert (root / "a" / "eval.json").exists() and (root / "b" / "arms.json").exists()
