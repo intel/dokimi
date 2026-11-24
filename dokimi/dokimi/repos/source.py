@@ -19,6 +19,7 @@ import os
 import posixpath
 import re
 import shutil
+import stat
 import sys
 import time
 from dataclasses import dataclass
@@ -42,6 +43,7 @@ _GIT_TIMEOUT_S = 1800
 _FETCH_TRIES = 3  # a fetch that lost a ref to another run's fetch into the cache is run again
 _REF_LOST = ("cannot lock ref", "incorrect old value provided", "reference already exists")  # git's texts for it
 _FETCH_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})  # untranslated: its error is matched
+_JUNCTION_TAG = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT; the stat module has it only on Windows
 READ_MANY_LIMIT = 2 * 1024 * 1024  # bytes; larger files are not text guidance or code to search
 
 
@@ -132,8 +134,13 @@ def _parts(text: str) -> list[str]:
 
 
 def _is_link(path: Path) -> bool:
-    """A symlink, or on Windows a junction: both send the walk somewhere else."""
-    return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+    """A symlink, or on Windows a junction: both send the walk somewhere else. Read from ``lstat``, as
+    ``Path.is_junction`` is new in Python 3.12."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISLNK(st.st_mode) or getattr(st, "st_reparse_tag", 0) == _JUNCTION_TAG
 
 
 def _link_target(path: Path) -> str:

@@ -11,8 +11,10 @@ was read from the directory and refused from the revision.
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -153,8 +155,9 @@ def test_a_junction_out_of_the_tree_escapes(tmp_path, monkeypatch):
     outside.mkdir()
     (outside / "secret.txt").write_text("s", encoding="utf-8")
     (root / "external").mkdir()
-    real_readlink = os.readlink
-    monkeypatch.setattr(Path, "is_junction", lambda self: self.name == "external", raising=False)
+    real_readlink, real_lstat = os.readlink, os.lstat
+    junction = lambda p: SimpleNamespace(st_mode=stat.S_IFDIR, st_reparse_tag=0xA0000003)  # noqa: E731
+    monkeypatch.setattr(os, "lstat", lambda p: junction(p) if Path(p).name == "external" else real_lstat(p))
     monkeypatch.setattr(os, "readlink", lambda p: str(outside) if Path(p).name == "external" else real_readlink(p))
     with pytest.raises(SourceArgumentError, match="path escapes the repository"):
         WorkTree(root).read_text("external/secret.txt")
@@ -176,3 +179,17 @@ def test_a_path_with_another_drive_or_a_leading_separator_does_not_leave_the_dir
                 WorkTree(root).read_text(path)
     finally:
         subprocess.run(["subst", f"{free[0]}:", "/d"], capture_output=True)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a junction is Windows only")
+def test_a_real_junction_out_of_the_tree_escapes(tmp_path):
+    """A junction made by Windows itself, with no API stood in: Python 3.11 has no ``Path.is_junction``."""
+    import _winapi
+
+    root = _repo(tmp_path, {})
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("s", encoding="utf-8")
+    _winapi.CreateJunction(str(outside), str(root / "external"))
+    with pytest.raises(SourceArgumentError, match="path escapes the repository"):
+        WorkTree(root).read_text("external/secret.txt")
