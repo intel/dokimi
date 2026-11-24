@@ -353,9 +353,13 @@ def _reference_definitions(paragraph: str, masked: str, found: dict[str, bool]) 
     while pos < len(masked):
         if rule := _THEMATIC_BREAK_RE.match(masked, pos):  # a break (or a setext underline) ends the block before it
             pos, block_start = rule.end(), True
-        elif block_start and (m := _DEFINITION_RE.match(masked, pos)) and _balanced(m.group(2)):
-            if key := _label_key(paragraph, m):
-                found.setdefault(key, _is_uri_destination(m.group(2)))
+        elif (
+            block_start
+            and (m := _DEFINITION_RE.match(masked, pos))
+            and _balanced(m.group(2))
+            and (key := _label_key(paragraph, m))  # a blank label is no definition: the line is prose
+        ):
+            found.setdefault(key, _is_uri_destination(m.group(2)))
             pos = m.end()
         else:
             eol = masked.find("\n", pos)

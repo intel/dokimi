@@ -795,3 +795,19 @@ def test_1092_a_definition_title_may_hold_an_escaped_delimiter(tmp_path, title):
     """#1092: `[g]: https://example.com "a \\"quoted\\" title"` is a URL definition."""
     review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com {title}\n")
     assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Run [`scripts/deploy.sh`](notes.md:42).\n",
+        "Run [`scripts/deploy.sh` and [guide]](https://example.com).\n\n[guide]: notes.md\n",
+        "Run [`scripts/deploy.sh`][guide].\n\n[guide]: https://example.com unexpected trailing text\n",
+        "Run [`scripts/deploy.sh`][g].\n\n[ ]: https://example.com\n[g]: https://example.com\n",
+    ],
+    ids=["line-suffix", "shortcut-nested", "trailing-text", "blank-label-line"],
+)
+def test_missing_span_is_reported_when_the_destination_is_not_a_url(tmp_path, body):
+    """#1089: a label is skipped only for a real URL link; these four forms are not one."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
