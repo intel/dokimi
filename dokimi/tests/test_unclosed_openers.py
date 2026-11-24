@@ -439,6 +439,21 @@ def test_a_shift_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(t
     assert _cli_heredocs(text) == text
 
 
+@pytest.mark.parametrize("text", ["# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi # cat <<EOF\ncat AGENTS.md\n", "  \t# cat <<'a b'\ncat AGENTS.md\n"])
+def test_a_heredoc_opener_inside_a_comment_opens_nothing_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["# note\ncat <<EOF\nbody\nEOF\nrm f\n", "echo a#b <<EOF\nbody\nEOF\nrm f\n", "echo $# <<EOF\nbody\nEOF\nrm f\n",
+                                  "echo '# x' <<EOF\nbody\nEOF\nrm f\n", "echo \\# <<EOF\nbody\nEOF\nrm f\n", "echo 'a' # '\ncat <<EOF\nbody\nEOF\nrm f\n",
+                                  "# a comment ends at its line, a backslash ending it continues nothing\\\ncat <<EOF\nbody\nEOF\nrm f\n"])
+def test_a_hash_that_starts_no_comment_or_a_comment_ended_by_its_line_does_not_hide_an_opener(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert _cli_heredocs(text).endswith("\nrm f\n")
+    assert "body" not in _cli_heredocs(text)
+
+
 def test_a_heredoc_after_arithmetic_is_still_cut_and_an_unclosed_arithmetic_opener_hides_nothing() -> None:
     text = "echo $((1<<3)); cat <<EOF\nbody\nEOF\nrm f\n"
     assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"

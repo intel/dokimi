@@ -53,15 +53,20 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
     return "".join(out) + text[pos:]
 
 
-_QUOTE_MARKS = re.compile(r"[\\'\"\n]")
+_QUOTE_MARKS = re.compile(r"[\\'\"\n#]")
 
 
 def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
-    """The quote (``'``, ``"`` or none) open at ``end`` on its line, scanning ``text`` from ``at`` where ``quote`` was open."""
+    """The quote (``'``, ``"``, ``#`` for a comment, which runs to the end of its line, or none) open at ``end``, scanning ``text`` from ``at`` where ``quote`` was open."""
     while (m := _QUOTE_MARKS.search(text, at, end)) is not None:
         mark, at = m.group(), m.end()
         if mark == "\n":
             quote = ""
+        elif quote == "#":
+            continue
+        elif mark == "#":
+            if not quote and (m.start() == 0 or text[m.start() - 1].isspace()):  # `a#b` and `$#` start no comment
+                quote = "#"
         elif mark == "\\":
             at += quote != "'"
         elif not quote:
@@ -86,7 +91,7 @@ class HeredocPattern:
 
     ``full`` is the one regex of the whole heredoc and ``lines`` finds each line (group 1), which closes a heredoc as it is or without the whitespace around it.
     ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line (an opener inside a quote of its
-    line, ``grep '<<EOF' f``, or inside ``$((...))``, ``$((1<<3))``, is no opener, and a quoted delimiter is read up to its closing quote): the newline
+    line, ``grep '<<EOF' f``, or inside ``$((...))``, ``$((1<<3))``, or a ``#`` comment, ``# usage: cat <<EOF``, is no opener, and a quoted delimiter is read up to its closing quote): the newline
     that ends the line is found once for the openers on it. The delimiter word is atomic in both
     regexes, so a line naming a prefix of it never closes the heredoc (#930). ``unclosed`` is the opener,
     the rest of its line and everything after it (same groups as ``full``): a heredoc no line closes
