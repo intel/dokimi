@@ -376,26 +376,34 @@ def test_a_signal_while_a_normal_end_is_written_is_recorded_then_delivered_again
     assert process_hooks._hooks == []
 
 
-def test_a_finish_from_another_thread_as_the_block_ends_does_not_fail_the_exit(root, monkeypatch):
+def test_a_finish_from_another_thread_as_the_block_ends_does_not_fail_the_exit(root):
     """docs/run-directories.md: "A block that ends normally finishes the run unless it called run.finish(status)
-    itself": also when another thread's finish lands just as the block ends."""
-    run = open_run(root)
-    real = rundir.RunDir.status
+    itself": also when another thread's finish lands just as the block ends, before its end takes the lock."""
+    class FinishedElsewhereFirst:
+        """The run's lock; the main thread's first entry lets a worker's finish run to its end first."""
 
-    def read_then_finished_elsewhere(self):
-        seen = real.fget(self)
-        if seen == "running":  # the status read as the block ends; then a worker's finish lands
-            worker = threading.Thread(target=self.finish, args=("incomplete",))
-            worker.start()
-            worker.join()
-        return seen
+        def __init__(self, real):
+            self.real, self.fired = real, False
 
-    with run:
+        def __enter__(self):
+            if not self.fired and threading.current_thread() is threading.main_thread():
+                self.fired = True
+                worker = threading.Thread(target=run.finish, args=("incomplete",))
+                worker.start()
+                worker.join()
+            return self.real.__enter__()
+
+        def __exit__(self, *exc):
+            return self.real.__exit__(*exc)
+
+    with open_run(root) as run:
         run.write_plan(_fixture("plan.v1"))
-        monkeypatch.setattr(rundir.RunDir, "status", property(read_then_finished_elsewhere))
-    monkeypatch.undo()
+        for cid in _ids():
+            run.record_cell(cid, "pass")  # by its cells the block would end complete
+        run._lock = FinishedElsewhereFirst(run._lock)
 
-    assert (_record(run.path)["status"], _record(run.path)["stop"]) == ("incomplete", None)
+    assert run._lock.fired
+    assert (_record(run.path)["status"], _record(run.path)["stop"]) == ("incomplete", None)  # the worker's end
 
 
 def test_a_run_ends_once(root):
