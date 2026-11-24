@@ -377,7 +377,7 @@ def cmd_runs_gc(args: argparse.Namespace) -> None:
     root = runs_root()
     exists = root.exists()
     # a save waits for the lock, so it cannot point at a run gc is removing (docs/runs.md)
-    hold = exists and args.keep_baselines and not args.dry_run and baseline.store(root.path).is_dir()
+    hold = exists and args.keep_baselines and not args.dry_run
     with baseline.locked(root.path) if hold else contextlib.nullcontext():
         _gc(args, root.path, exists)
 

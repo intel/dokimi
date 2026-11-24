@@ -205,9 +205,9 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
   `baselines/eval/manifest.json` (in the working directory). A copy saved before the
   envelope holds no run. A pointer or a copy that cannot be read exits 2 before
   anything is removed, since the run it holds is not known. While it removes, `gc`
-  holds the baselines' lock, so a `runs baseline save` waits and then finds the run
-  gone instead of pointing at it; only a first baseline, saved while `.baselines/`
-  does not exist yet, is not waited for.
+  holds the baselines' lock (`.baselines/.lock`, made if missing; not with
+  `--dry-run`), so a `runs baseline save` waits and then finds the run gone instead
+  of pointing at it.
 - An entry under the root that cannot be read may be the newest artifact of a run,
   so while one is there `runs gc` removes nothing and exits 2, naming the first. `runs
   rm RUN_ID` removes the run and leaves such an entry in place, counted as `runs list`

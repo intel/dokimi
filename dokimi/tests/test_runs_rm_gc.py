@@ -68,7 +68,9 @@ def _run(monkeypatch, capsys, *argv: str):
 
 
 def _left(results: Path) -> list[str]:
-    return sorted(p.relative_to(results).as_posix() for p in results.rglob("*") if p.is_file())
+    """The files under the root bar the baselines' store, whose lock gc --keep-baselines takes."""
+    return sorted(p.relative_to(results).as_posix() for p in results.rglob("*")
+                  if p.is_file() and p.relative_to(results).parts[0] != ".baselines")
 
 
 # rm
