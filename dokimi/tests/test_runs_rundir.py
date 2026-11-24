@@ -376,6 +376,28 @@ def test_a_signal_while_a_normal_end_is_written_is_recorded_then_delivered_again
     assert process_hooks._hooks == []
 
 
+def test_a_finish_from_another_thread_as_the_block_ends_does_not_fail_the_exit(root, monkeypatch):
+    """docs/run-directories.md: "A block that ends normally finishes the run unless it called run.finish(status)
+    itself": also when another thread's finish lands just as the block ends."""
+    run = open_run(root)
+    real = rundir.RunDir.status
+
+    def read_then_finished_elsewhere(self):
+        seen = real.fget(self)
+        if seen == "running":  # the status read as the block ends; then a worker's finish lands
+            worker = threading.Thread(target=self.finish, args=("incomplete",))
+            worker.start()
+            worker.join()
+        return seen
+
+    with run:
+        run.write_plan(_fixture("plan.v1"))
+        monkeypatch.setattr(rundir.RunDir, "status", property(read_then_finished_elsewhere))
+    monkeypatch.undo()
+
+    assert (_record(run.path)["status"], _record(run.path)["stop"]) == ("incomplete", None)
+
+
 def test_a_run_ends_once(root):
     """docs/run-directories.md: "A run ends once: a second finish is refused"."""
     run = open_run(root)

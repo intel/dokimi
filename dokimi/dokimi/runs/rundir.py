@@ -221,17 +221,22 @@ class RunDir:
         process ends as it would have without the run directory."""
         try:
             try:
-                if self.status == "running":
-                    self._end(*self._how_ended(exc))
+                self._end_unless_ended(exc)
             except BaseException as late:  # a stop while the end is written (the hook is still on)
                 self._unhook()
-                if self.status == "running":
-                    self._end(*self._how_ended(late))
+                self._end_unless_ended(late)
                 raise
         finally:
             self._unhook()
             if self._signal is not None:
                 signal.raise_signal(self._signal)
+
+    def _end_unless_ended(self, exc: BaseException | None) -> None:
+        """End the run as ``exc`` says, unless it has ended (another thread's finish): checked under
+        the lock that ends it, so the two cannot both try."""
+        with self._lock:
+            if self._record["status"] == "running":
+                self._end(*self._how_ended(exc))
 
     def _how_ended(self, exc: BaseException | None) -> tuple[Status | None, dict[str, str | None] | None]:
         if self._signal is not None:  # also when the block caught the ShuttingDown
