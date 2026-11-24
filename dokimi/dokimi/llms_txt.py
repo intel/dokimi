@@ -118,8 +118,8 @@ def _structure_lines(text: str) -> list[str]:
     lines = []
     fence = ""
     in_comment = False
-    for line in text.removeprefix("\ufeff").splitlines():
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+    for line in text.removeprefix("\ufeff").split("\n"):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r"))
         if fence:
             if marker and marker[1].startswith(fence) and not marker[2].strip():
                 fence = ""

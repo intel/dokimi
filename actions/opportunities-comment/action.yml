@@ -19,7 +19,7 @@ inputs:
     description: Pull request number to comment on
     required: true
   head-sha:
-    description: The commit the checks ran on, named in the comment
+    description: The checked commit. Skip publishing when the pull request head has moved.
     required: false
     default: ''
   top-n:

@@ -242,6 +242,8 @@ def test_a_malformed_commit_does_nothing(tmp_path: Path, body: str) -> None:
 
 
 def test_long_comment_still_recognizes_first_line(tmp_path: Path) -> None:
+    step = yaml.safe_load(GATE.read_text(encoding="utf-8"))["runs"]["steps"][0]
+    assert all("github.event.comment.body" not in value for value in step["env"].values())
     result, outputs = _gate(tmp_path, "  /dokimi run\n" + "✨" * 50000)
     assert result.returncode == 0, result.stderr
     assert outputs["run"] == "true"

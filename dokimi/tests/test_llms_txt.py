@@ -86,3 +86,8 @@ def test_inline_backticks_do_not_open_a_fence():
 
 def test_html_comments_do_not_satisfy_structure_checks():
     assert {"title", "links"} <= _checks(f"<!--\n{GOOD}\n-->")
+
+
+def test_unicode_line_separator_does_not_move_evidence_to_another_physical_line():
+    text = "# A\n> Summary\u2028on the same line\n## When to use\n## When not to use\n- [A](a)\n"
+    assert [(finding.check, finding.line) for finding in llms_txt.check(text)] == [("links", 5)]
