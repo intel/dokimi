@@ -72,17 +72,23 @@ def write_chunks_atomic(path: Path | str, chunks: Iterable[bytes]) -> None:
             shutil.copyfileobj(staged, handle)
 
 
-def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
+_RENAME_REPLACES_READ_ONLY = os.name != "nt"  # Windows os.replace refuses a read-only destination
+
+
+def write_bytes_in_place_or_atomic(path: Path | str, data: bytes, *, replace_read_only: bool = False) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
+
+    With ``replace_read_only`` a read-only regular file in a writable directory is replaced by rename, plain or not (hard-linked, with a ``user.*`` attribute or an ACL, another user's), as ``os.replace`` replaces it: the new file keeps its mode, takes the group it may have, and has none of the other names, attributes or ACL (not on Windows, whose ``os.replace`` refuses a read-only destination: there it is written in place and refused; see :func:`publishes_by_rename`).
 
     A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory,
     a file another user owns (root excepted: it restores the owner and group, or writes in place when it may not chown), a file whose name is a mount point (``os.replace`` fails with EBUSY) is written in place, a file in a group the user is not in, a file with a POSIX access ACL or a ``user.*`` extended attribute and a file in a directory with a default ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
     writable file in a read-only directory is rewritten, a file keeps its owner, group and ACL, and a read-only file raises ``PermissionError`` with its old text kept. Missing parent directories are created.
     """
     path = Path(path)
-    if _is_plain_writable_file(path):
+    if publishes_by_rename(path, replace_read_only=replace_read_only):
         try:
-            _publish(path, lambda fd: os.fdopen(fd, "wb"), data, keep_group=True)
+            # A read-only file has no in-place fallback that works, so a group the user may not give it is left to the new file, as ``os.replace`` leaves it.
+            _publish(path, lambda fd: os.fdopen(fd, "wb"), data, keep_group=_is_plain_writable_file(path))
             return
         except _OwnerRefused:
             pass
@@ -93,7 +99,31 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes) -> None:
     path.write_bytes(data)
 
 
+def publishes_by_rename(path: Path, *, replace_read_only: bool = False) -> bool:
+    """Whether :func:`write_bytes_in_place_or_atomic` publishes ``path`` by a rename (else it writes it in place)."""
+    return _is_plain_writable_file(path) or (replace_read_only and _RENAME_REPLACES_READ_ONLY and _is_read_only_file_in_writable_dir(path))
+
+
+def _is_read_only_file_in_writable_dir(path: Path) -> bool:
+    """A regular file the user may not write, in a directory the user may change (a sticky one only for its owner's or the user's own file): an in-place write is refused, a rename is not."""
+    info = path.lstat()
+    if not (stat.S_ISREG(info.st_mode) and not os.access(path, os.W_OK) and os.access(path.parent, os.W_OK | os.X_OK)):
+        return False
+    euid = getattr(os, "geteuid", lambda: 0)()
+    parent = path.parent.stat()
+    return not (parent.st_mode & stat.S_ISVTX) or euid in (0, info.st_uid, parent.st_uid)
+
+
+def tmp_sibling(path: Path) -> Path:
+    """The random tmp name a publish of ``path`` writes first: beside it, with at most 32 characters of its name."""
+    return path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
+
+
 def _is_plain_writable_file(path: Path) -> bool:
+    return _is_plain_file(path) and (not os.path.lexists(path) or os.access(path, os.W_OK))
+
+
+def _is_plain_file(path: Path) -> bool:
     try:
         info = path.lstat()
     except FileNotFoundError:
@@ -101,7 +131,6 @@ def _is_plain_writable_file(path: Path) -> bool:
     return (
         stat.S_ISREG(info.st_mode)
         and info.st_nlink == 1
-        and os.access(path, os.W_OK)
         and os.access(path.parent, os.W_OK | os.X_OK)
         and _can_keep_owner(info)
         and _can_keep_group(info)
@@ -162,7 +191,7 @@ def write_json_atomic(path: Path | str, obj: Any) -> None:
 def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iterable[bytes], *, keep_group: bool = False,
              copy_in_place: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
+    tmp = tmp_sibling(path)
     old = _existing_stat(path)
     mode = 0o666 if old is None else stat.S_IMODE(old.st_mode)
     try:
@@ -182,6 +211,9 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iter
                 handle.writelines(data)
         try:
             if old is not None:
+                # The parent's default ACL gave the tmp file an access ACL the old file never had; its mask would keep that entry effective after the chmod.
+                with contextlib.suppress(AttributeError, OSError):
+                    os.removexattr(tmp, "system.posix_acl_access")
                 # os.open's mode is cut by the umask, and a change of owner or a write by a user without CAP_FSETID clears set-user-ID and set-group-ID: the mode is restored last.
                 try:
                     os.chmod(tmp, mode)
