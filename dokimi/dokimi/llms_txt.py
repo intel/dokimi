@@ -99,7 +99,7 @@ def _link_findings(lines: list[str]) -> list[Finding]:
 
 
 def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
-    parts = []
+    parts: list[str] = []
     while line:
         if in_comment:
             _, closed, line = line.partition("-->")
