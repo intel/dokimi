@@ -9,6 +9,8 @@ from functools import partial
 
 import pytest
 
+from dokimi.external import command_checks
+from dokimi.external.skill_markdown import code_spans
 from tests.growth_timing import GROWTH_LIMIT, growth
 from tests.test_catalog_command_checks import _fenced, _found, _review
 
@@ -315,3 +317,18 @@ def test_a_package_selection_inside_another_options_value_is_not_a_selection(tmp
     body = _fenced("pnpm --dir 'app --package=typescript@5.0.4' dlx create-vite")
     assert _found(_review(tmp_path, body), "install-unpinned")[0].message.startswith(
         "1 install name no version (pnpm create-vite)")
+
+
+def test_code_spans_of_prose_come_from_the_linear_scanner_and_each_ends_a_block(monkeypatch):
+    # #1073 with #946: spans are read by `code_spans`, and a BLOCK_END follows each so a quote does not run on
+    seen = []
+
+    def spans(text):
+        seen.append(text)
+        return code_spans(text)
+
+    monkeypatch.setattr(command_checks, "code_spans", spans)
+    code = command_checks._code_text("Run `echo it's` then ``pip install a`b``.\n", True)
+    assert seen
+    end = command_checks.BLOCK_END
+    assert code == f"echo it's\n{end}\npip install a`b\n{end}"
