@@ -4,6 +4,7 @@
 """questions generate: an unreadable --personas or --topics file is a clean exit, not a traceback."""
 
 import json
+from typing import cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -131,7 +132,7 @@ class _BogusGenerator(_FakeGenerator):
 
     def save_questions(self, questions, output_path, product=None):
         from dokimi.questions.llm_gen import QuestionGenerator
-        QuestionGenerator.save_questions(self, questions, output_path, product)
+        QuestionGenerator.save_questions(cast(QuestionGenerator, self), questions, output_path, product)
 
 
 def test_generate_exits_1_when_the_generated_set_fails_validation(tmp_path, monkeypatch, capsys):
@@ -259,8 +260,17 @@ def test_require_local_doc_source_accepts_a_path_that_appears_between_exists_and
 
     from dokimi.mcp.factory import require_local_doc_source
 
+    real_stat = Path.stat
+    statted = []
+
+    def spy_stat(self, *args, **kwargs):
+        statted.append(self)
+        return real_stat(self, *args, **kwargs)
+
     monkeypatch.setattr(Path, "exists", lambda self: False)
-    assert require_local_doc_source(f"local:{tmp_path}") is None
+    monkeypatch.setattr(Path, "stat", spy_stat)
+    require_local_doc_source(f"local:{tmp_path}")
+    assert tmp_path in statted
 
 
 def test_preflight_reports_an_unreadable_local_doc_source_as_unreadable(monkeypatch):
@@ -273,7 +283,7 @@ def test_preflight_reports_an_unreadable_local_doc_source_as_unreadable(monkeypa
         raise PermissionError(13, "Permission denied", str(self))
 
     monkeypatch.setattr(Path, "exists", denied)
-    refusals = []
+    refusals: list[str] = []
     _check_doc_source({"doc_source": "local:/restricted/docs"}, None, refusals.append, [], [])
     assert len(refusals) == 1 and "cannot read /restricted/docs" in refusals[0]
 
@@ -295,3 +305,25 @@ def test_require_local_doc_source_reports_an_existing_unreadable_file_as_unreada
             require_local_doc_source(f"local:{doc}")
     finally:
         doc.chmod(0o600)
+
+
+def test_require_local_doc_source_reports_a_directory_without_search_permission_as_unreadable(tmp_path, monkeypatch):
+    """#1086: a docs directory with mode 0444 lists its names but cannot open them: `cannot read`."""
+    import os
+
+    from dokimi.mcp.factory import require_local_doc_source
+    from dokimi.utils import InputError
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# guide\n")
+    real_access = os.access
+
+    def no_search(path, mode, *args, **kwargs):
+        if os.fspath(path) == str(docs) and mode & os.X_OK:
+            return False
+        return real_access(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "access", no_search)
+    with pytest.raises(InputError, match="cannot read .*docs"):
+        require_local_doc_source(f"local:{docs}")

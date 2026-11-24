@@ -28,7 +28,9 @@ def require_local_doc_source(doc_source: str) -> None:
             raise InputError(f"doc source {doc_source}: cannot read {local_path}: {exc}") from exc
         raise InputError(f"doc source path does not exist: {doc_source}") from exc
     try:
-        unreadable = os.access(path, os.F_OK) and not os.access(path, os.R_OK)  # present but mode 000, say
+        # present but mode 000, say; a directory also needs search (X_OK) to open what it lists
+        mode = os.R_OK | os.X_OK if path.is_dir() else os.R_OK
+        unreadable = os.access(path, os.F_OK) and not os.access(path, mode)
     except ValueError:  # a name the OS cannot encode (lone surrogate): exists() already accepted it
         unreadable = False
     if unreadable:
