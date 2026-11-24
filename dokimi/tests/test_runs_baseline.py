@@ -232,6 +232,22 @@ def test_save_takes_a_name_of_segments(root, monkeypatch, capsys, name):
     assert [p.name for p in baseline.read_all(root).pointers] == [name]
 
 
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0,
+                    reason="root lists a directory it may not read; Windows has no such mode")
+@pytest.mark.parametrize("argv", [["save", "Main", B], ["rm", "Main"]])
+def test_a_store_that_cannot_be_listed_refuses_what_the_case_rule_needs(root, monkeypatch, capsys, argv):
+    # docs/runs.md, Names: the case rule needs the store's names, so no listing is no save or rm
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+    (root / ".baselines").chmod(0o333)
+    try:
+        code, _, err = _run(monkeypatch, capsys, "baseline", *argv)
+    finally:
+        (root / ".baselines").chmod(0o755)
+
+    assert (code, err) == (2, "Error: results/.baselines/: cannot list: Permission denied\n")
+    assert sorted(os.listdir(root / ".baselines")) == [".lock", "main"]
+
+
 def test_a_name_that_differs_only_in_case_is_refused(root, monkeypatch, capsys):
     _run(monkeypatch, capsys, "baseline", "save", "skill/a@main", A)
 

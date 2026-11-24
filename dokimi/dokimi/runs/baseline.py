@@ -161,15 +161,24 @@ def _entry(directory: Path, file_name: str) -> Pointer | Unreadable:
     return Pointer(name, str(held), mtime)
 
 
+def _names(directory: Path) -> list[str]:
+    """The entries of the store. Raises ``FileNotFoundError`` when there is none, and ``InputError``
+    when it cannot be listed (no read permission): a check that needs the names cannot pass then."""
+    try:
+        return os.listdir(directory)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise InputError(f"{plain(directory.as_posix())}/: cannot list: {exc.strerror or exc}") from exc
+
+
 def read_all(root: Path) -> Listing:
     """Every baseline under ``root``, by name. Raises ``InputError`` when the store cannot be listed."""
     directory = store(root)
     try:
-        names = sorted(n for n in os.listdir(directory) if not n.startswith("."))  # the lock, a save's tmp file
+        names = sorted(n for n in _names(directory) if not n.startswith("."))  # the lock, a save's tmp file
     except FileNotFoundError:
         return Listing()
-    except OSError as exc:
-        raise InputError(f"{plain(directory.as_posix())}/: cannot list: {exc.strerror or exc}") from exc
     listing = Listing()
     for file_name in names:
         found = _entry(directory, file_name)
@@ -221,10 +230,7 @@ class Saved:
 def _same_but_case(directory: Path, name: str) -> str | None:
     """A baseline whose name differs from ``name`` only in case: on Windows and macOS they would be
     one file, so they are refused everywhere."""
-    try:
-        names = os.listdir(directory)
-    except OSError:  # locked() has just made it: a listing that fails is the save's to report
-        return None
+    names = _names(directory)  # locked() has made it
     folded = name.casefold()
     return next((n for n in map(_name_of, names) if n != name and n.casefold() == folded), None)
 
@@ -280,7 +286,7 @@ def remove(root: Path, name: str) -> str | None:
     if not store(root).is_dir():
         raise missing
     with locked(root):
-        if _file_name(name) not in os.listdir(store(root)):  # Windows and macOS would open main for MAIN
+        if _file_name(name) not in _names(store(root)):  # Windows and macOS would open main for MAIN
             other = _same_but_case(store(root), name)
             raise InputError(str(missing) + (f" (baseline {plain(other)} differs only in case)"
                                              if other else ""))
