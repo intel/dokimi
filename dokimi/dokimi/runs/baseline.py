@@ -293,11 +293,9 @@ def remove(root: Path, name: str) -> str | None:
             other = _same_but_case(store(root), name)
             raise InputError(str(missing) + (f" (baseline {plain(other)} differs only in case)"
                                              if other else ""))
-        try:
-            held = _read(path)
+        try:  # listed, so None is a symlink to nothing: removed like any pointer that cannot be read
+            held = _read(path) or ""
         except (OSError, UnicodeDecodeError):
             held = ""  # removed all the same: a pointer that cannot be read points nowhere
-        if held is None:  # removed since the listing by a process that did not lock
-            raise missing
         path.unlink()
     return held if is_run_id(held) else None
