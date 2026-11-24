@@ -103,6 +103,11 @@ def _ragas_rows(answers) -> list:
     return [call.args[0] for call in dataset.from_list.call_args_list]
 
 
+def _cut(text: str) -> str:
+    """*text* without the cut mark the 200-character snippet ends with ("..." or "…"), pinned apart."""
+    return text.removesuffix("...").removesuffix("…")
+
+
 def _ends(texts: Iterable[str]) -> Tuple[str, ...]:
     return tuple(sorted({"…" if t.endswith("…") else "..." if t.endswith("...") else "whole" for t in texts}))
 
@@ -137,6 +142,7 @@ def _observe(run: Path) -> Dict[str, Any]:
                             for r in answers],
         "records.retrieval_hit": [(r.key, r.retrieval_hit) for r in answers],
         "records.snippet_ends": _ends(docs),
+        "records.doc_texts": [_cut(d) for d in docs],
         "records.scores": [(r.key, r.score("with_docs"), r.score("without_docs"), r.delta, r.error,
                             r.retrieval_hit, (r.diagnosis or {}).get("label")) for r in evals],
         "trust": evaluate_trust(eval_data["evaluations"]).as_dict(),
@@ -150,8 +156,8 @@ def _observe(run: Path) -> Dict[str, Any]:
         "dashboard": (snap.product, bool(snap.evaluated_at), snap.judge_model, snap.total_questions, snap.avg_with_docs,
                       snap.avg_without_docs, snap.avg_delta, snap.doc_health, snap.status, snap.by_source),
         "dashboard.questions": [vars(q) for q in snap.questions],
-        "ragas.rows": [[{**row, "retrieved_contexts": len(row.get("retrieved_contexts", ()))} for row in batch]
-                       for batch in rows],
+        "ragas.rows": [[{**row, "retrieved_contexts": [_cut(c) for c in row.get("retrieved_contexts", ())]}
+                        for row in batch] for batch in rows],
         "ragas.context_ends": _ends(c for batch in rows for row in batch for c in row.get("retrieved_contexts", ())),
         "grounding": evaluate_grounding(answers.records),
         "baseline.summary": _compute_summary(eval_data),
@@ -172,6 +178,11 @@ def test_every_reader_reads_the_adapted_run_as_the_pipelines_own(tmp_path, provi
                   for key in p if (p[key], a[key]) != pinned.get(key, (p[key], p[key]))]
     assert not mismatches, "\n".join(mismatches)
     assert p["records.scores"][0][1:4] == (80.0, 60.0, 20.0)  # the comparison is over judged scores
+    # Negative control: two words swapped in one adapted snippet show in the doc texts and the RAGAS rows.
+    path = tmp_path / "a5" / "answers" / STEM
+    path.write_text(path.read_text(encoding="utf-8").replace("worker threads", "threads worker", 1), encoding="utf-8")
+    swapped = _observe(tmp_path / "a5")
+    assert [k for k in a if swapped[k] != a[k]] == ["records.doc_texts", "ragas.rows"]
 
 
 def test_q_empty_differs_only_as_parity_d2_pins_it(tmp_path, provider_calls):
