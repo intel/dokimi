@@ -18,7 +18,8 @@ TOKEN_BUDGET = 2000
 
 _H1 = re.compile(r"^ {0,3}#\s+\S")
 _H2 = re.compile(r"^ {0,3}##\s+(.+?)\s*$")
-_LINK_START = re.compile(r"(?<![!\\])\[([^\]]+)\]\(")
+_LINK_LABEL = re.compile(r"(?<!\\)(!?)\[([^\[\]]+)\](?:\[([^\[\]]*)\])?")
+_REFERENCE_DEF = re.compile(r"^ {0,3}\[([^\[\]]+)\]:[ \t]*(?:<([^<>]+)>|([^\s<>]+))(?:[ \t]+.*)?$")
 _LINK_END = re.compile(r"""(?:[ \t]+(?:"[^"]*"|'[^']*'))?\)""")
 _DESTINATION_MARK = re.compile(r"\\.|[()\s]")
 _WHEN_NOT = re.compile(r"\bwhen\s+not\b|\bnot\s+for\b|\bavoid\b|\balternatives?\b", re.I)
@@ -70,10 +71,23 @@ def _section_findings(lines: list[str]) -> list[Finding]:
     return found
 
 
-def _links(line: str) -> Iterator[tuple[str, str, int]]:
-    for label in _LINK_START.finditer(line):
+def _reference_label(label: str) -> str:
+    return " ".join(label.split()).casefold()
+
+
+def _links(line: str, definitions: dict[str, str]) -> Iterator[tuple[str, str, int]]:
+    for label in _LINK_LABEL.finditer(line):
+        image, title, reference = label.groups()
+        if image:
+            continue
+        if reference is not None or not line.startswith("(", label.end()):
+            target = definitions.get(_reference_label(reference or title))
+            if target is not None:
+                yield title, target, label.end()
+            continue
+        start = label.end() + 1
         depth = 0
-        for mark in _DESTINATION_MARK.finditer(line, label.end()):
+        for mark in _DESTINATION_MARK.finditer(line, start):
             char = mark[0]
             if char == "(":
                 depth += 1
@@ -81,13 +95,20 @@ def _links(line: str) -> Iterator[tuple[str, str, int]]:
                 depth -= 1
             elif char == ")" or char.isspace():
                 end = _LINK_END.match(line, mark.start()) if depth == 0 else None
-                if end is not None and mark.start() > label.end():
-                    yield label[1], line[label.end():mark.start()], end.end()
+                if end is not None and mark.start() > start:
+                    yield title, line[start:mark.start()], end.end()
                 break
 
 
 def _link_findings(lines: list[str]) -> list[Finding]:
-    links = [(i, title, target, end) for i, line in enumerate(lines, 1) for title, target, end in _links(line)]
+    definitions: dict[str, str] = {}
+    content = []
+    for i, line in enumerate(lines, 1):
+        if definition := _REFERENCE_DEF.fullmatch(line):
+            definitions.setdefault(_reference_label(definition[1]), definition[2] or definition[3])
+        else:
+            content.append((i, line))
+    links = [(i, title, target, end) for i, line in content for title, target, end in _links(line, definitions)]
     if not links:
         return [Finding("links", "fail", 0, "no Markdown links to the documentation",
                         "List key pages as `- [Title](url): one-line description`.")]

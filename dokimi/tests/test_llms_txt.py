@@ -91,3 +91,19 @@ def test_html_comments_do_not_satisfy_structure_checks():
 def test_unicode_line_separator_does_not_move_evidence_to_another_physical_line():
     text = "# A\n> Summary\u2028on the same line\n## When to use\n## When not to use\n- [A](a)\n"
     assert [(finding.check, finding.line) for finding in llms_txt.check(text)] == [("links", 5)]
+
+
+def test_reference_links_resolve_before_their_descriptions_are_checked():
+    text = GOOD.replace('[Quickstart](https://acme.test/quickstart.md)', '[Quickstart][user    guide]')
+    target = 'https://acme.test/v1_(guide).md'
+    definition = f'\n[User Guide]: <{target}> "Guide"\n[user guide]: ignored.md\n'
+    assert llms_txt.check(text + definition) == []
+    missing = text.replace(': first charge in five minutes', '') + definition
+    assert [(f.line, f.identity) for f in llms_txt.check(missing)] == [(15, f'Quickstart|{target}')]
+    for label in ('[User Guide][]', '[User Guide]'):
+        assert llms_txt.check(text.replace('[Quickstart][user    guide]', label) + definition) == []
+
+
+def test_definitions_images_and_unresolved_references_are_not_documentation_links():
+    text = GOOD.replace('[Quickstart](https://acme.test/quickstart.md)', '![icon][guide] and [Missing][unknown]')
+    assert _checks(text + '\n[guide]: https://example.com\n') == {'links'}
