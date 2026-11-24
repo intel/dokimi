@@ -62,6 +62,9 @@ original execute cases and writes ask cases for a separate question run.
 To generate a different suite, pass `--generate-suite request.json --out
 results/frozen-suite`. The request has a `task` string, `constraints` and
 `success_criteria` string arrays, and an optional `product` string.
+Without `product`, generation produces a free-choice suite. To replay the
+product controls, supply `product` during generation so the suite also contains
+the product-named prompts used by the patched controls.
 
 After changing the supplied skill, reuse the same suite file:
 
