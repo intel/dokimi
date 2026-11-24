@@ -81,7 +81,7 @@ class UsageRecord:
             provider=self.provider or other.provider,
             role=self.role or other.role,
             n_calls=self.n_calls + other.n_calls,
-            cost_known_calls=_known_cost_calls(self) + _known_cost_calls(other),
+            cost_known_calls=self.priced_calls + other.priced_calls,
             replayed=self.replayed and other.replayed,
             resolved_model=_joined_models(self.resolved_model, other.resolved_model),
         )
@@ -126,7 +126,7 @@ class UsageRecord:
             "latency_sec": round(self.latency_sec, 4),
             "ttft_sec": round(self.ttft_sec, 4) if self.ttft_sec is not None else None,
             "n_calls": self.n_calls,
-            "cost_known_calls": _known_cost_calls(self),
+            "cost_known_calls": self.priced_calls,
             "role": self.role,
         }
         if self.resolved_model:
@@ -135,6 +135,15 @@ class UsageRecord:
             m["raw_answer_chars"] = answer_chars
             m["final_answer_chars"] = final_chars if final_chars is not None else answer_chars
         return m
+
+    @property
+    def priced_calls(self) -> int:
+        """Number of LLM calls whose dollar cost is represented in ``cost_usd``."""
+        if self.cost_known_calls:
+            return self.cost_known_calls
+        if self.cost_usd is not None and self.n_calls > 0:
+            return self.n_calls
+        return 0
 
     def with_latency(self, latency_sec: float, ttft_sec: Optional[float] = None) -> "UsageRecord":
         """Return a copy with latency/TTFT filled in (extraction-time helper)."""
@@ -216,7 +225,7 @@ def roll_up_by_role(records: "Iterable[UsageRecord]") -> dict:
 
 def _cost_complete(rec: UsageRecord) -> bool:
     """True when a bucket's cost is fully known: empty, or all calls priced."""
-    return rec.n_calls == 0 or _known_cost_calls(rec) == rec.n_calls
+    return rec.n_calls == 0 or rec.priced_calls == rec.n_calls
 
 
 def _add_optional_costs(a: Optional[float], b: Optional[float]) -> Optional[float]:
@@ -229,12 +238,3 @@ def _joined_models(a: str, b: str) -> str:
     """The distinct resolved model names of two rows, sorted and comma-separated."""
     names = {n for n in (*a.split(","), *b.split(",")) if n}
     return ",".join(sorted(names))
-
-
-def _known_cost_calls(rec: UsageRecord) -> int:
-    """Number of LLM calls whose dollar cost is represented in ``cost_usd``."""
-    if rec.cost_known_calls:
-        return rec.cost_known_calls
-    if rec.cost_usd is not None and rec.n_calls > 0:
-        return rec.n_calls
-    return 0

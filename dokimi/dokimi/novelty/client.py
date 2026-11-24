@@ -20,6 +20,7 @@ from typing import Any
 
 from dokimi.llm_cli import backend as cli_backend
 from dokimi.metrics.usage import UsageRecord
+from dokimi.spend import Spend, SpendCap, SpendCapReached
 from dokimi import judge_rule
 
 
@@ -57,79 +58,7 @@ class OutputTruncated(ValueError):
         self.reply = reply[:2000]
 
 
-class SpendCapReached(BaseException):
-    """The run hit its ``--max-usd`` cap, or made a call whose price is unknown.
-
-    A ``BaseException``, like ``KeyboardInterrupt``: the stages treat a failed call as a
-    missing datum and catch ``Exception``, so an ``Exception`` here would be absorbed one
-    call at a time and the run would carry on with every later call refused.
-
-    ``reply`` is set when the refused call came back with a reply (a call with no price): that
-    call was paid for, so the caller can still score the reply before it stops. ``truncated`` says
-    the reply was also cut at the output ceiling: this stop is raised in place of :class:`OutputTruncated`.
-    """
-
-    reply: str | None = None
-    truncated: bool = False
-    #: With a judge panel: the verdicts of the judges graded before this stop, by model.
-    panel_votes: dict[str, str] | None = None
-
-    def __init__(self, message: str, *, reason: str = "spend_cap") -> None:
-        super().__init__(message)
-        # "spend_cap" for the limit; "no_price" for a call the cap cannot meter.
-        self.reason = reason
-
-
-@dataclass
-class SpendCap:
-    """One USD limit shared by every client of one run.
-
-    Checked before each call, so the run can overshoot by the calls already in flight
-    (``--concurrency``). A call that comes back without a price stops the run: the cap
-    cannot be enforced on spend it cannot see. A reply replayed from the response cache
-    (``DOKIMI_RESPONSE_CACHE``) costs nothing now and counts as $0, so a stopped run
-    resumed with the same cap spends only on the calls it had not made.
-    """
-
-    limit_usd: float
-    spent_usd: float = 0.0
-    calls: int = 0
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
-    # Set by the first call with no known price: the run stops for every worker, not just
-    # the one whose call raised, since an unpriced call never raises ``spent_usd``.
-    _unpriced: bool = field(default=False, repr=False, compare=False)
-
-    def before_call(self, model: str) -> None:
-        with self._lock:
-            if self._unpriced:
-                raise SpendCapReached(
-                    f"the run stopped on a call with no known price; not calling {model}. "
-                    "Drop --max-usd to run unmetered",
-                    reason="no_price",
-                )
-            if self.spent_usd >= self.limit_usd:
-                raise SpendCapReached(
-                    f"spend cap reached: ${self.spent_usd:.2f} of ${self.limit_usd:.2f} "
-                    f"after {self.calls} calls (next call: {model}). "
-                    "Raise --max-usd, or measure less (a cheaper --tier, a lower --max-atoms)"
-                )
-
-    def record(self, usage: UsageRecord | None, model: str) -> None:
-        with self._lock:
-            self.calls += 1
-            if usage is not None and usage.replayed:
-                return
-            if usage is None or usage.cost_usd is None:
-                self._unpriced = True
-                raise SpendCapReached(
-                    f"no price is known for {model}, so --max-usd cannot be enforced; "
-                    f"stopped after {self.calls} calls. Drop --max-usd to run unmetered",
-                    reason="no_price",
-                )
-            self.spent_usd += usage.cost_usd
-
-
-@dataclass
+@dataclass(kw_only=True)
 class NestedSpendCap(SpendCap):
     """A cap for one unit of a larger run (one skill of a sweep), that also charges ``parent``.
 
@@ -264,28 +193,19 @@ class LLMClient:
         Calls served from the response cache are counted in ``replayed_calls`` and
         left out of the token and dollar totals.
         """
-        # A replayed row is the response cache's copy of an earlier call: its tokens and
-        # price were not spent by this process, so it is counted apart, as the spend cap does.
-        billed = [u for u in self.usage if not u.replayed]
-        input_tokens = sum(u.prompt_tokens for u in billed)
-        output_tokens = sum(u.completion_tokens for u in billed)
-        cache_read = sum(u.cache_read_tokens for u in billed)
-        cache_write = sum(u.cache_write_tokens for u in billed)
-        costs = [u.cost_usd for u in billed]
         # A call that returned no usage row has no price either, so it makes the total unknown.
-        priced = self.calls > 0 and len(self.usage) == self.calls and None not in costs
-        usd = round(sum(c for c in costs if c is not None), 6) if priced else None
+        spend = Spend.of([*self.usage, *[None] * (self.calls - len(self.usage))])
         return {
             "model": self.model,
             "provider": self.provider,
             "role": self.role,
-            "llm_calls": self.calls,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cache_read_tokens": cache_read,
-            "cache_write_tokens": cache_write,
-            "replayed_calls": len(self.usage) - len(billed),
-            "usd": usd,
+            "llm_calls": spend.calls,
+            "input_tokens": spend.prompt_tokens,
+            "output_tokens": spend.completion_tokens,
+            "cache_read_tokens": spend.cache_read_tokens,
+            "cache_write_tokens": spend.cache_write_tokens,
+            "replayed_calls": spend.replayed_calls,
+            "usd": spend.usd,
         }
 
     def _default_transport(
