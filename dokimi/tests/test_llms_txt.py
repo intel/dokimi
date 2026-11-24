@@ -1,6 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import pytest
+
 from dokimi import llms_txt
 
 GOOD = """# Acme API
@@ -70,3 +72,41 @@ def test_fenced_examples_and_images_do_not_supply_document_structure():
 def test_indented_heading_and_titled_list_links_are_checked():
     text = ' # A\n > Summary\n ## When to use\n ## When not to use\n1. [A](a "Title"): overview; [B](b)'
     assert [(f.check, f.line) for f in llms_txt.check(text)] == [("links", 5)]
+
+
+def test_described_link_can_include_balanced_parentheses():
+    text = GOOD.replace("https://acme.test/quickstart.md", "https://example.test/api/function(a(b))")
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+def test_inline_backticks_do_not_open_a_fence():
+    text = GOOD.replace("## Docs", "```example```\n\n## Docs")
+    assert text != GOOD
+    assert llms_txt.check(text) == []
+
+
+def test_html_comments_do_not_satisfy_structure_checks():
+    assert {"title", "links"} <= _checks(f"<!--\n{GOOD}\n-->")
+
+
+def test_linked_image_has_the_outer_destination_and_description():
+    text = GOOD[:GOOD.index("- [Quickstart]")] + "- [![Logo](logo.png)](https://acme.test/docs)"
+    links = llms_txt.check(text)
+    assert len(links) == 1 and "https://acme.test/docs" in links[0].message
+    assert llms_txt.check(text + ": the docs") == []
+
+
+@pytest.mark.parametrize("example", ["`[Start](start.md)`", "    [Start](start.md)"])
+def test_code_example_is_not_a_documentation_link(example):
+    text = GOOD[:GOOD.index("- [Quickstart]")] + example
+    assert _checks(text) == {"links"}
+
+
+def test_bare_carriage_returns_preserve_structure():
+    assert llms_txt.check(GOOD.replace("\n", "\r")) == []
+
+
+def test_nested_list_link_is_documentation():
+    text = GOOD[:GOOD.index("- [Quickstart]")] + "- Guides\n    - [Install](install.md): set it up"
+    assert llms_txt.check(text) == []

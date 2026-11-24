@@ -29,15 +29,15 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
         data = json.loads(text)
     except ValueError as e:
         if Path(path).suffix.lower() == ".json" or text.lstrip().startswith("{") or (
-            text.lstrip().startswith("[") and not re.match(r"\[[^\n\]]+\]\(", text.lstrip())
+            text.lstrip().startswith("[") and not re.match(r"\[[^\n\]]+\](?:\(|\[|:)", text.lstrip())
         ):
             raise InputError(f"{path}: not valid JSON ({e})") from e
         return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text), target=path)
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
         if errors := schema_errors("repo_static.v1", data):
             raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
-        return "repo_static", opportunities.from_repo_static(
-            data, target=path, repository=str(data.get("repo") or "repository"))
+        repository = str(data.get("repo") or Path(path).resolve().parent)
+        return "repo_static", opportunities.from_repo_static(data, target=path, repository=repository)
     if isinstance(data, dict) and isinstance(data.get("paired"), dict):
         try:
             return "novelty", opportunities.from_novelty(data)
@@ -69,11 +69,14 @@ def cmd_report_opportunities(args: argparse.Namespace) -> None:
     if not args.out:
         sys.stdout.write(text)
         return
+    destination = Path(args.out)
     try:
+        if destination.is_dir():
+            raise IsADirectoryError("Is a directory")
         if args.format == "json":
             save_artifact("opportunities", doc, args.out)
         else:
-            Path(args.out).write_text(text, encoding="utf-8")
+            destination.write_text(text, encoding="utf-8")
     except OSError as exc:
         raise InputError(f"cannot write {args.out}: {exc}") from exc
 

@@ -70,13 +70,17 @@ def _share(count: int, total: int) -> float:
 
 def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunity]:
     """Degraded, still-missing and redundant atoms of one novelty artifact, as fixes."""
-    paired = artifact.get("paired", {}).get(scoring, {})
+    scores = artifact.get("paired")
+    paired = scores.get(scoring) if isinstance(scores, dict) else None
     if not isinstance(paired, dict):
         raise InputError(f"novelty paired.{scoring} must be an object")
-    total = paired.get("n_paired", 0)
+    total = paired.get("n_paired")
     if type(total) is not int or total < 0:
         raise InputError("novelty n_paired must be a nonnegative integer")
-    target = artifact.get("artifact", {}).get("ref", "?")
+    metadata = artifact.get("artifact")
+    target = metadata.get("ref") if isinstance(metadata, dict) else None
+    if not isinstance(target, str) or not target.strip():
+        raise InputError("novelty artifact.ref must be a nonempty string")
     model = artifact.get("model", "?")
     plans = (
         ("degraded", "high-severity", "the context makes the model wrong where it was right",
@@ -97,6 +101,8 @@ def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunit
         count = counts.get(outcome, round(rate * total))
         if type(count) is not int or not 0 <= count <= total:
             raise InputError(f"novelty {outcome} count must be between 0 and n_paired")
+        if rate and total == 0:
+            raise InputError(f"novelty {outcome} has a rate with no paired probes")
         if rate:
             found.append(Opportunity(
                 kind=kind, title=f"{count} {outcome.replace('_', ' ')} paired probes for {model}",

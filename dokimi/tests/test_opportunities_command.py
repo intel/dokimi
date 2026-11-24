@@ -1,6 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+from argparse import Namespace
 import json
 import subprocess
 import sys
@@ -81,3 +82,48 @@ def test_invalid_input_names_the_path(tmp_path, data):
     path.write_bytes(data)
     with pytest.raises(InputError, match="evidence.json"):
         cmd.build([str(path)])
+
+
+def test_anonymous_repo_keys_use_the_report_directory(tmp_path):
+    paths = [tmp_path / name / "static.json" for name in ("first", "second")]
+    for path in paths:
+        path.parent.mkdir()
+        path.write_text(json.dumps(STATIC), encoding="utf-8")
+    first, second = [cmd.build([str(path)])["items"][0]["source_key"] for path in paths]
+    assert first != second
+    renamed = paths[0].rename(paths[0].with_name("other.json"))
+    assert cmd.build([str(renamed)])["items"][0]["source_key"] == first
+
+
+@pytest.mark.parametrize("doc", [{"paired": {}}, {**NOVELTY, "artifact": None}])
+def test_missing_novelty_evidence_is_an_input_error(tmp_path, doc):
+    path = tmp_path / "novelty.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(InputError, match="novelty.json"):
+        cmd.build([str(path)])
+
+
+def test_bracketed_reference_link_is_markdown(tmp_path):
+    file = tmp_path / "llms.txt"
+    file.write_text("[Documentation][docs]\n\n[docs]: https://example.com/docs\n", encoding="utf-8")
+    assert cmd.build([str(file)])["inputs"][0]["kind"] == "llms_txt"
+
+
+@pytest.mark.parametrize("paired", [{"lenient": {}}, {"strict": {}}, {"lenient": {"n_paired": 0, "degraded": 0.5}}])
+def test_unmeasured_novelty_does_not_produce_a_queue(tmp_path, paired):
+    file = tmp_path / "n.json"
+    file.write_text(json.dumps({**NOVELTY, "paired": paired}), encoding="utf-8")
+    with pytest.raises(InputError, match="n.json"):
+        cmd.build([str(file)])
+
+
+def test_json_output_to_current_directory_names_the_path(inputs, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(InputError, match=r"cannot write \."):
+        cmd.cmd_report_opportunities(Namespace(inputs=inputs, out=".", format="json"))
+
+
+def test_json_output_creates_its_parent_directory(inputs, tmp_path):
+    out = tmp_path / "missing" / "report.json"
+    cmd.cmd_report_opportunities(Namespace(inputs=inputs, out=str(out), format="json"))
+    validate_artifact("opportunities", json.loads(out.read_text()))
