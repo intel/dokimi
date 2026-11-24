@@ -105,12 +105,13 @@ def publishes_by_rename(path: Path, *, replace_read_only: bool = False) -> bool:
 
 
 def _is_read_only_file_in_writable_dir(path: Path) -> bool:
-    """A regular file the user may not write, in a directory the user may change: an in-place write is refused, a rename is not."""
-    try:
-        info = path.lstat()
-    except FileNotFoundError:
+    """A regular file the user may not write, in a directory the user may change (a sticky one only for its owner's or the user's own file): an in-place write is refused, a rename is not."""
+    info = path.lstat()
+    if not (stat.S_ISREG(info.st_mode) and not os.access(path, os.W_OK) and os.access(path.parent, os.W_OK | os.X_OK)):
         return False
-    return stat.S_ISREG(info.st_mode) and not os.access(path, os.W_OK) and os.access(path.parent, os.W_OK | os.X_OK)
+    euid = getattr(os, "geteuid", lambda: 0)()
+    parent = path.parent.stat()
+    return not (parent.st_mode & stat.S_ISVTX) or euid in (0, info.st_uid, parent.st_uid)
 
 
 def tmp_sibling(path: Path) -> Path:
@@ -210,6 +211,9 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iter
                 handle.writelines(data)
         try:
             if old is not None:
+                # The parent's default ACL gave the tmp file an access ACL the old file never had; its mask would keep that entry effective after the chmod.
+                with contextlib.suppress(AttributeError, OSError):
+                    os.removexattr(tmp, "system.posix_acl_access")
                 # os.open's mode is cut by the umask, and a change of owner or a write by a user without CAP_FSETID clears set-user-ID and set-group-ID: the mode is restored last.
                 try:
                     os.chmod(tmp, mode)
