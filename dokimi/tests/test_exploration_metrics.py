@@ -677,3 +677,10 @@ def test_loose_scan_skips_a_line_number_too_long_to_read(token):
 def test_citation_path_of_an_unreadable_line_number_is_the_normalized_entry():
     entry = f"a.py:{_HUGE}"
     assert citation_path(entry) == entry
+
+
+def test_block_zero_padded_line_number_past_the_int_limit_still_parses():
+    padded = "0" * 5000 + "12"
+    cs = parse_final_answer(f"<final_answer>\na.py:{padded}-{padded}\n</final_answer>")
+    assert cs.citations == (Citation("a.py", 12, 12),)
+    assert cs.malformed == ()

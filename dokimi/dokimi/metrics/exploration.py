@@ -277,8 +277,8 @@ def _citation(raw_path: str, start: Optional[str], end: Optional[str]) -> Option
     if start is None:
         return Citation(path=path)
     try:
-        start_i = int(start)
-        end_i = int(end) if end is not None else start_i
+        start_i = int(start.lstrip("0") or "0")
+        end_i = int(end.lstrip("0") or "0") if end is not None else start_i
     except ValueError:
         return None
     if end_i < start_i:
