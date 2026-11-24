@@ -141,6 +141,12 @@ def _link_target(path: Path) -> str:
     return text[4:] if os.name == "nt" and text.startswith("\\\\?\\") else text
 
 
+def _rooted(text: str) -> bool:
+    """Whether ``text`` is read from outside the directory it is in: absolute, or on Windows with a drive
+    (``Q:x`` is relative to the drive's current directory) or a leading separator (``\\x`` is on the current drive)."""
+    return os.path.isabs(text) or (os.name == "nt" and (bool(os.path.splitdrive(text)[0]) or text.startswith(("\\", "/"))))
+
+
 def _inside(root: Path, text: str) -> str:
     """The absolute ``text`` as a path relative to ``root``, kept as text so that a link farther along the
     chain is still walked: by its own words when it lies under ``root``, else from the shortest leading part
@@ -160,7 +166,7 @@ def _walk_links(root: Path, path: str) -> Path:
     """``path`` walked one component at a time, as a checkout does: a ``..`` after a link goes up from the link's
     target. :class:`SourceArgumentError` if a ``..`` has nothing left to go up from, an absolute text lands outside
     ``root``, or more than 40 links are followed."""
-    if os.path.isabs(path):
+    if _rooted(path):
         path = _inside(root, path)
     pending = _parts(path)
     walked: list[str] = []
@@ -169,8 +175,8 @@ def _walk_links(root: Path, path: str) -> Path:
         part = pending.pop(0)
         if part in ("", "."):
             continue
-        if part == "..":
-            if not walked:
+        if part == ".." or _rooted(part):  # ``sub/Q:x`` is joined as ``Q:x``, on drive Q
+            if not walked or part != "..":
                 raise SourceArgumentError(f"path escapes the repository: {path}")
             walked.pop()
             continue
@@ -182,7 +188,7 @@ def _walk_links(root: Path, path: str) -> Path:
         if hops > 40:
             raise _LinkLoop(f"too many levels of symbolic links: {path}")
         text = _link_target(here)
-        if os.path.isabs(text):
+        if _rooted(text):
             text = _inside(root, text)
             walked = []
         else:

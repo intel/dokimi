@@ -158,3 +158,21 @@ def test_a_junction_out_of_the_tree_escapes(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "readlink", lambda p: str(outside) if Path(p).name == "external" else real_readlink(p))
     with pytest.raises(SourceArgumentError, match="path escapes the repository"):
         WorkTree(root).read_text("external/secret.txt")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a drive or a leading separator in a relative path is Windows only")
+def test_a_path_with_another_drive_or_a_leading_separator_does_not_leave_the_directory(tmp_path):
+    """``Q:x`` reads drive Q's current directory and ``\\x`` the current drive's root, not the directory."""
+    root = _repo(tmp_path, {})
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("s", encoding="utf-8")
+    free = [d for d in "QRSTUVWXYZ" if not Path(f"{d}:\\").exists()]
+    if not free or subprocess.run(["subst", f"{free[0]}:", str(outside)], capture_output=True).returncode:
+        pytest.skip("no drive letter to subst")
+    try:
+        for path in (f"{free[0]}:secret.txt", f"sub/{free[0]}:secret.txt", str(outside / "secret.txt")[2:]):
+            with pytest.raises(SourceArgumentError, match="path escapes the repository"):
+                WorkTree(root).read_text(path)
+    finally:
+        subprocess.run(["subst", f"{free[0]}:", "/d"], capture_output=True)
