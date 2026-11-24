@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 from dokimi.repos import source
-from dokimi.repos.source import GitTree, SourceArgumentError, WorkTree
+from dokimi.repos.source import GitTree, SourceArgumentError, SourceError, WorkTree
 
 
 def _repo(tmp_path: Path, links: dict[str, str]) -> Path:
@@ -217,3 +217,13 @@ def test_an_extended_unc_link_text_is_the_share(monkeypatch):
         m.setattr(os, "name", "nt")
         text = source._link_target(Path("link"))
     assert text == "\\\\server\\share\\repo\\real.yaml"
+
+
+@pytest.mark.parametrize("path", ["missing/../sub/f.txt", "real.yaml/../sub/f.txt"])
+def test_a_dotdot_after_a_missing_name_or_a_file_is_no_path_in_both_trees(tmp_path, path):
+    """#1084: as in a checkout (ENOENT / ENOTDIR), ``..`` goes up only from a directory."""
+    root = _repo(tmp_path, {})
+    for tree in _trees(root):
+        with pytest.raises(SourceError, match="no such path"):
+            tree.resolve(path)
+        assert not tree.is_file(path)

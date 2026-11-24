@@ -203,6 +203,8 @@ def _walk_links(root: Path, path: str) -> Path:
         if part == ".." or _rooted(part):  # ``sub/Q:x`` is joined as ``Q:x``, on drive Q
             if not walked or part != "..":
                 raise SourceArgumentError(f"path escapes the repository: {path}")
+            if not root.joinpath(*walked).is_dir():  # ENOENT / ENOTDIR in a checkout, as GitTree._follow says
+                raise _NoSuchPath(f"no such path: {path}")
             walked.pop()
             continue
         walked.append(part)
@@ -265,13 +267,13 @@ class WorkTree:
     def is_file(self, path: str) -> bool:
         try:
             return self._resolve(path).is_file()
-        except _LinkLoop:
+        except (_LinkLoop, _NoSuchPath):
             return False
 
     def is_dir(self, path: str) -> bool:
         try:
             return self._resolve(path).is_dir()
-        except _LinkLoop:
+        except (_LinkLoop, _NoSuchPath):
             return False
 
     def read_text(self, path: str) -> str:
