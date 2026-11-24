@@ -137,22 +137,7 @@ def run_cell(args):
     reward.write_text(f"{int(passed)}\n", encoding="utf-8")
 
 
-def run(args):
-    root = args.out.resolve()
-    root.mkdir(parents=True)
-    if args.suite:
-        (root / "suite.json").write_bytes(args.suite.read_bytes())
-    elif args.skill_fixture:
-        write_json(root / "suite.json", {"version": "unicode-keys.v1", "cases": [{
-            "id": "unicode-key", "mode": "execute",
-            "prompt": "Implement Unicode caseless matching for keys.",
-        }]})
-    else:
-        write_json(root / "suite.json", build_suite(TASK, CRITERIA, PRODUCT))
-    suite_bytes = (root / "suite.json").read_bytes()
-    suite = json.loads(suite_bytes)
-    suite_sha = hashlib.sha256(suite_bytes).hexdigest()
-    prompts = {case["id"]: case["prompt"] for case in suite["cases"]}
+def materialize_tasks(args, root, prompts):
     source = "test_fixture"
     if args.skill_fixture:
         inputs = {"unicode-key": {"prompt": prompts["unicode-key"], "source": source}}
@@ -196,6 +181,26 @@ def run(args):
             if args.skill_file:
                 skill_text = args.skill_file.read_text(encoding="utf-8")
             (task / "SKILL.md").write_text(skill_text, encoding="utf-8")
+    return inputs, arms
+
+
+def run(args):
+    root = args.out.resolve()
+    root.mkdir(parents=True)
+    if args.suite:
+        (root / "suite.json").write_bytes(args.suite.read_bytes())
+    elif args.skill_fixture:
+        write_json(root / "suite.json", {"version": "unicode-keys.v1", "cases": [{
+            "id": "unicode-key", "mode": "execute",
+            "prompt": "Implement Unicode caseless matching for keys.",
+        }]})
+    else:
+        write_json(root / "suite.json", build_suite(TASK, CRITERIA, PRODUCT))
+    suite_bytes = (root / "suite.json").read_bytes()
+    suite = json.loads(suite_bytes)
+    suite_sha = hashlib.sha256(suite_bytes).hexdigest()
+    prompts = {case["id"]: case["prompt"] for case in suite["cases"]}
+    inputs, arms = materialize_tasks(args, root, prompts)
     runs = root / "runs.json"
     template = f"{shlex.join([sys.executable, __file__])} --cell '{{task_path}}' --arm '{{harness}}'"
     process = subprocess.run(
