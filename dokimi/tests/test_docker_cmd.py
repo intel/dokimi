@@ -165,7 +165,8 @@ def test_interrupt_while_stdout_waits_for_a_reader_kills_nothing(tmp_path):
 
     fifo = tmp_path / "o"
     os.mkfifo(fifo)
-    threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGINT)).start()
+    # The delay lets the main thread reach the blocking open(); nothing shows that it has.
+    threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGINT)).start()  # timing-ok: no event marks the blocked open
     spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000")
     with pytest.raises(KeyboardInterrupt):
         DockerRunner(docker="/nonexistent/docker", runner=recording).run(spec, stdout=fifo, stderr=tmp_path / "e",

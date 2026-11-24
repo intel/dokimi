@@ -170,6 +170,12 @@ def test_a_cited_span_without_a_colon_gets_no_following_span():
     assert context == "Heading: T > H"
 
 
+def test_a_colon_ended_cited_span_last_in_the_document_gets_no_following_span():
+    spans = segment("# T\n\nLead:\n")
+    _, context = _check(_atom(spans, "Lead:"), spans)
+    assert context == "Heading: T"
+
+
 def test_the_last_cited_span_in_document_order_decides_the_following_span():
     spans = segment(FENCE_DOC)
     _, context = _check(_atom(spans, "Three commands", "Then go on"), spans)

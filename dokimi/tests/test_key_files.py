@@ -287,45 +287,50 @@ def test_a_key_file_that_is_not_utf8_is_named_in_the_refusal(tmp_path, monkeypat
     assert code == 2
 
 
-def test_preflight_refuses_an_unreadable_key_file_on_a_vertex_route(tmp_path, monkeypatch, capsys):
-    """`LLM.complete` resolves the configured provider's key on every route, so a vertex route does not excuse an unreadable `file:` key."""
-    missing = tmp_path / "no-such-key"
-    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{missing}")
-    monkeypatch.setenv("OPENAI_API_KEY", "k")
+
+def _preflight_on(tmp_path, monkeypatch, capsys, provider, model):
     monkeypatch.setattr(
         "sys.argv",
-        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "anthropic",
-         "--model", "vertex_ai/gemini-2.5-pro", "--judge-provider", "openai", "--judge-model", "gpt-4o",
-         "--out-dir", str(tmp_path / "out")],
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", provider, "--model", model,
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    err = capsys.readouterr().err
-    assert f"Cannot read API key from file '{missing}'" in err
-    assert exc.value.code == 2
+    return exc.value.code, capsys.readouterr().err
 
 
-def test_preflight_refuses_an_unreadable_key_file_on_a_bedrock_route(tmp_path, monkeypatch, capsys):
-    """A set `AWS_BEARER_TOKEN_BEDROCK` does not excuse an unreadable `file:` key of the configured provider."""
-    missing = tmp_path / "no-such-key"
-    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{missing}")
-    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "token")
-    monkeypatch.setenv("OPENAI_API_KEY", "key")
-    monkeypatch.setattr(
-        "sys.argv",
-        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "anthropic",
-         "--model", "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0", "--judge-provider", "openai",
-         "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
-    )
-    with pytest.raises(SystemExit) as exc:
-        cli.main()
-    err = capsys.readouterr().err
-    assert f"Cannot read API key from file '{missing}'" in err
-    assert exc.value.code == 2
+@pytest.mark.parametrize("provider, model, key_var", [
+    ("anthropic", "vertex_ai/gemini-2.5-pro", "ANTHROPIC_API_KEY"),
+    ("anthropic", "bedrock/us.anthropic.claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
+    ("google-vertex", "gemini-2.5-pro", "GEMINI_API_KEY"),
+])
+def test_preflight_refuses_an_unreadable_key_file_on_a_keyless_route(
+        provider, model, key_var, tmp_path, monkeypatch, capsys):
+    """#851: every call reads the configured key, so a keyless route still refuses a `file:` it cannot read."""
+    monkeypatch.setenv(key_var, f"file:{tmp_path / 'no-such-key'}")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "valid-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    code, err = _preflight_on(tmp_path, monkeypatch, capsys, provider, model)
+    assert str(tmp_path / "no-such-key") in err
+    assert code == 2
+
+
+@pytest.mark.parametrize("command", ["run", "batch"])
+def test_run_and_batch_refuse_an_unreadable_key_file_on_a_vertex_route(command, tmp_path, monkeypatch):
+    from dokimi.commands.benchmark import _refuse_missing_credentials
+    from dokimi.utils import InputError
+
+    monkeypatch.setenv("GEMINI_API_KEY", f"file:{tmp_path / 'no-such-key'}")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    args = cli.build_parser().parse_args(
+        ["benchmark", command, "--libraries" if command == "batch" else "--library", "onetbb", "--provider", "google-vertex", "--model", "gemini-2.5-pro",
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")])
+    with pytest.raises(InputError, match="no-such-key"):
+        _refuse_missing_credentials(args)
 
 
 def test_keyless_vertex_route_names_the_provider_whose_key_file_is_unreadable(tmp_path, monkeypatch):
-    """The route still checks the configured provider's `file:` key; a readable or unset key leaves it keyless."""
+    """The route still checks the configured provider's `file:` key; an unset key leaves it keyless."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{tmp_path / 'no-such-key'}")
     assert _keyless_route("anthropic", "vertex_ai") == ["anthropic"]
     monkeypatch.delenv("ANTHROPIC_API_KEY")

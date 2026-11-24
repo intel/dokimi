@@ -57,7 +57,7 @@ _DEFAULT_TEST_TIMEOUT = 60.0
 #: ``environment.memory_mb`` of a task whose compose file sets no memory limit.
 DEFAULT_MEMORY_MB = 8192
 MEMORY_ENV = "DOKIMI_TBENCH_V1_MEMORY_MB"
-_SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?)i?b?\s*$", re.IGNORECASE)
+_SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*+([kmgt]?)i?b?\s*$", re.IGNORECASE)  # ``\s*+``: a run is split once (#1119)
 _SIZE_MB = {"": 1 / (1024 * 1024), "k": 1 / 1024, "m": 1, "g": 1024, "t": 1024 * 1024}
 _METADATA_KEYS = (
     "author_name", "author_email", "difficulty", "category", "tags",

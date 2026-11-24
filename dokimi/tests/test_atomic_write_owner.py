@@ -16,7 +16,12 @@ from pathlib import Path
 import pytest
 
 from dokimi import atomic_write
-from dokimi.atomic_write import _keep_owner_and_group, write_bytes_atomic, write_bytes_in_place_or_atomic
+from dokimi.atomic_write import (
+    _keep_owner_and_group,
+    write_bytes_atomic,
+    write_bytes_in_place_or_atomic,
+    write_chunks_atomic,
+)
 
 pytestmark = pytest.mark.skipif(not hasattr(os, "geteuid") or not hasattr(os, "fchown"), reason="needs POSIX owners")
 
@@ -247,6 +252,53 @@ def test_root_denied_the_mode_of_the_new_file_does_not_replace_a_file_atomically
     assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
 
+def _chunks_taken_once():
+    yield b"new\n"
+    yield b"rows\n"
+
+
+def test_chunks_are_written_in_place_when_root_may_not_chown(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_denied_chown(monkeypatch)
+    write_chunks_atomic(target, _chunks_taken_once())
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new\nrows\n", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_chunks_are_written_in_place_when_root_may_not_set_the_mode(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_chowned_but_denied_chmod(monkeypatch)
+    write_chunks_atomic(target, _chunks_taken_once())
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new\nrows\n", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_chunks_of_a_plain_file_need_no_temporary_file(tmp_path, monkeypatch):
+    """The ordinary path writes the tmp file beside the target only: a full or missing system temporary directory does not fail it (#1020)."""
+    target = _report(tmp_path)
+
+    def full(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(atomic_write.tempfile, "TemporaryFile", full)
+    write_chunks_atomic(target, _chunks_taken_once())
+    assert target.read_bytes() == b"new\nrows\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+def test_chunks_are_written_in_place_when_a_user_is_denied_the_group(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    before = target.stat().st_ino
+    _root_denied_group_only(monkeypatch)
+    monkeypatch.setattr(os, "geteuid", lambda: 1)
+    monkeypatch.setattr(atomic_write, "_is_plain_writable_file", lambda path: True)
+    write_chunks_atomic(target, _chunks_taken_once())
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new\nrows\n", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
 def _replace_busy(monkeypatch):
     """``os.replace`` as the kernel answers it for a file that is a mount point."""
 
@@ -262,6 +314,18 @@ def test_a_report_that_is_a_mount_point_is_written_in_place(tmp_path, monkeypatc
     _replace_busy(monkeypatch)
     write_bytes_in_place_or_atomic(target, b"new")
     assert (target.read_bytes(), target.stat().st_ino) == (b"new", before)
+    assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
+
+
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0, reason="root reads a write-only file")
+def test_chunks_into_a_write_only_mount_point_are_copied_in_place(tmp_path, monkeypatch):
+    target = _report(tmp_path)
+    target.chmod(0o200)
+    before = target.stat().st_ino
+    _replace_busy(monkeypatch)
+    write_chunks_atomic(target, _chunks_taken_once())
+    target.chmod(0o600)
+    assert (target.read_bytes(), target.stat().st_ino) == (b"new\nrows\n", before)
     assert [p.name for p in tmp_path.iterdir()] == ["r.md"]
 
 
@@ -341,6 +405,20 @@ def test_a_real_default_acl_of_the_directory_is_not_given_to_a_rewritten_report(
     write_bytes_in_place_or_atomic(target, b"new")
     shown = subprocess.run(["getfacl", "-c", str(target)], capture_output=True, text=True).stdout
     assert target.read_bytes() == b"new"
+    assert "12345" not in shown
+
+
+@pytest.mark.skipif(shutil.which("setfacl") is None or shutil.which("getfacl") is None, reason="needs setfacl")
+@pytest.mark.skipif(os.name == "nt", reason="os.replace refuses a read-only destination on Windows")
+def test_a_read_only_file_replaced_by_rename_gets_no_acl_entry_of_the_directory_default(tmp_path):
+    target = _report(tmp_path)
+    target.chmod(0o440)
+    acl = subprocess.run(["setfacl", "-m", "d:u:12345:r-x", str(tmp_path)], capture_output=True, text=True)
+    if acl.returncode != 0:
+        pytest.skip("the file system takes no ACL")
+    write_bytes_in_place_or_atomic(target, b"new", replace_read_only=True)
+    shown = subprocess.run(["getfacl", "-c", str(target)], capture_output=True, text=True).stdout
+    assert (target.read_bytes(), stat.S_IMODE(target.stat().st_mode)) == (b"new", 0o440)
     assert "12345" not in shown
 
 

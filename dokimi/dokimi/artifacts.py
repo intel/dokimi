@@ -52,6 +52,8 @@ from pathlib import Path
 from typing import Any
 
 from dokimi._version import __version__
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.process_io import json_utf8_bytes
 from dokimi.utils import InputError, read_json_input
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "skill_evidence": "skill_evidence.v1",
     "novelty": "novelty.v1",
     "novelty_atoms": "novelty_atoms.v1",
+    "novelty_retest": "novelty_retest.v1",
     "task_runs": "task_runs.v1",
     "explore_runs": "explore_runs.v1",
     "guidance_reach": "guidance_reach.v1",
@@ -299,10 +302,20 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       (``cli.main`` refuses it before a command runs): nothing is written at ``path`` and the payload
       is kept at ``<name>.rejected`` the same way. ``KeyError`` means ``kind`` is not registered in
       :data:`SCHEMA_VERSIONS`.
-    - The write is atomic (a ``<name>.<pid>.<thread>.tmp`` sibling, then ``os.replace``), so a
+    - A new or plain file is written atomically (a random-named ``.tmp`` sibling, then
+      ``os.replace``, through :func:`~dokimi.atomic_write.write_bytes_in_place_or_atomic`), so a
       reader or a crash never sees half a file, and concurrent saves to one path (threads or
-      processes) each publish one whole payload; the last one wins. A failed write removes its
-      tmp file. Missing parent directories of ``path`` are created.
+      processes) each publish one whole payload; the last one wins. A failed write removes its tmp
+      file. A file that was there keeps its mode and, where the user may give it, its group; a new
+      file gets the umask mode; a read-only file in a writable directory is replaced by rename, as
+      before, and now stays read-only (it was left with the umask mode), also when it has another
+      hard link, a ``user.*`` attribute, an ACL or another owner, which the new file does not
+      keep. A writable hard-linked or other special file, or any file in a read-only
+      directory, is not published by rename: it is written in place, as ``Path.write_bytes`` writes
+      it, so a reader can see it truncated or half written, an interrupted write can destroy the old
+      content, concurrent saves can interleave, and a file the user cannot write raises
+      ``PermissionError`` with its old text kept.
+      Missing parent directories of ``path`` are created.
     - A symlink at ``path`` is kept: the payload replaces the file it resolves to (the tmp file
       sits beside that target, so the rename stays on one filesystem). A dangling link creates
       its target when the target's directory exists; otherwise ``FileNotFoundError`` is raised
@@ -310,6 +323,12 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
     - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
       people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
+      With ``ensure_ascii`` false a surrogate pair is joined into its character and a lone
+      surrogate stays its ``\\udXXX`` escape; ASCII-escaped, a pair stays two escapes, which a reader
+      joins. Either way ``ValueError`` is raised, and nothing is written, when an object would hold
+      two equal keys once read back (a pair key beside its character key, or ``{1: .., "1": ..}``).
+      The text is validated as a reader loads it as well, so two ids that become one once a pair is joined are
+      refused like any duplicate id.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
@@ -323,29 +342,23 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
         head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
     except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
-                                       ensure_ascii=ensure_ascii), encoding="utf-8")
+        rejected.write_bytes(json_utf8_bytes(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
+                                                        ensure_ascii=ensure_ascii)))
         raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     payload = {**head, **{k: v for k, v in data.items() if k not in head}}
-    text = json.dumps(payload, indent=2, ensure_ascii=ensure_ascii)
+    encoded = json_utf8_bytes(json.dumps(payload, indent=2, ensure_ascii=ensure_ascii))
     try:
         validate_artifact(kind, payload)
+        validate_artifact(kind, json.loads(encoded))  # what a reader gets: a joined pair can make two ids one
     except ArtifactValidationError as exc:
         rejected = path.with_name(path.name + ".rejected")
         try:
-            rejected.write_text(text, encoding="utf-8")
+            rejected.write_bytes(encoded)
         except OSError as kept:  # still a refusal: the caller exits as for a refused payload, not as an unwritable path
             raise ArtifactValidationError(f"{exc}\n(not written to {path}; the payload could not be kept at "
                                           f"{rejected}: {kept})") from exc
         raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
-    target = _write_target(path)
-    tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    try:
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, target)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    write_bytes_in_place_or_atomic(_write_target(path), encoded, replace_read_only=True)
     stale = path.with_name(path.name + ".rejected")
     try:
         stale.unlink(missing_ok=True)
@@ -376,7 +389,8 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
     """Read and (optionally) validate an artifact of ``kind`` from ``path``.
 
     Every failure is an :class:`~dokimi.utils.InputError` naming ``path``: a file that is
-    missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema.
+    missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema, and
+    the partial file of an unfinished novelty or arms run.
     """
     data = read_json_input(path)
     if not isinstance(data, dict):
@@ -389,6 +403,11 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
                              "Drop --max-usd to run unmetered" if reason == "no_price" else
                              "Fix the provider error and rerun" if reason == "permanent_error" else
                              "Rerun with a higher --max-usd, or without the cap"))
+    if kind == "arms":
+        from dokimi.records import partial_refusal
+
+        if refusal := partial_refusal(data, str(path)):
+            raise InputError(refusal)
     if validate:
         try:
             validate_artifact(kind, data)

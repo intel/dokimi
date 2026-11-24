@@ -226,6 +226,14 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--run-id", "--run-ids", "--batch"),
     ),
     Concept(
+        name="retention",
+        help="which runs housekeeping removes and which it keeps",
+        canonical=(
+            Flag("--older-than", "AGE", "text", meaning="runs whose newest artifact is older than AGE (30d)"),
+            Flag("--keep-baselines", kind="flag", meaning="keep the runs a saved baseline holds"),
+        ),
+    ),
+    Concept(
         name="network",
         help="network policy, per phase",
         canonical=(Flag("--network", "[PHASE=]MODE[:hosts]", "text"),),
@@ -285,6 +293,16 @@ CONCEPTS: tuple[Concept, ...] = (
                 "--custom-questions", "--atoms", "--novelty-artifact", "--from-eval"),
         note="The subject is a positional. --product, --library and --target name it, so new "
              "commands do not use them.",
+    ),
+    Concept(
+        name="upstream",
+        help="the upstream copies a skill is matched against (catalog provenance)",
+        canonical=(
+            Flag("--upstream", "CHECKOUT", "path", repeatable=True,
+                 meaning="a local git checkout of an upstream; its history gives the versions"),
+            Flag("--upstream-manifest", "FILE", "path", repeatable=True,
+                 meaning="a dokimi.upstream.v1 JSON manifest of one upstream"),
+        ),
     ),
     Concept(
         name="catalog_impact",
@@ -416,11 +434,11 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("arms", "run"), ("arms", "matrix-run"), ("subjects", "run"), ("tools", "preference"),
         ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
         ("skill", "novelty", "probe"), ("skill", "shorten"),
-        ("skill", "routing"), ("catalog", "routing"),
+        ("skill", "routing"), ("catalog", "routing"), ("catalog", "novelty"),
     )),
     FlagMove("--budgets", "--token-budgets", leaves=(
         ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
-        ("skill", "novelty", "probe"), ("skill", "shorten"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"), ("catalog", "novelty"),
     )),
     # Reps concept (F1b): each old spelling counted the same thing on its one leaf, so the move
     # is limited to that leaf (elsewhere the hint would name a flag the command does not take).
