@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from dokimi.repos import source
 from dokimi.repos.source import GitTree, SourceArgumentError, WorkTree
 
 
@@ -204,3 +205,12 @@ def test_a_real_junction_out_of_the_tree_escapes(tmp_path):
     _winapi.CreateJunction(str(outside), str(root / "external"))
     with pytest.raises(SourceArgumentError, match="path escapes the repository"):
         WorkTree(root).read_text("external/secret.txt")
+
+
+def test_an_extended_unc_link_text_is_the_share(monkeypatch):
+    """``\\\\?\\UNC\\server\\share\\x`` is the share ``\\\\server\\share\\x``; cut by four characters it is the relative ``UNC\\server``."""
+    with monkeypatch.context() as m:
+        m.setattr(os, "readlink", lambda p: "\\\\?\\UNC\\server\\share\\repo\\real.yaml")
+        m.setattr(os, "name", "nt")
+        text = source._link_target(Path("link"))
+    assert text == "\\\\server\\share\\repo\\real.yaml"

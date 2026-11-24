@@ -144,7 +144,10 @@ def _is_link(path: Path) -> bool:
 
 
 def _link_target(path: Path) -> str:
+    """The link's text; on Windows without the ``\\\\?\\`` prefix, and ``\\\\?\\UNC\\server`` as the share ``\\\\server``."""
     text = os.readlink(path)
+    if os.name == "nt" and text.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + text[8:]
     return text[4:] if os.name == "nt" and text.startswith("\\\\?\\") else text
 
 
