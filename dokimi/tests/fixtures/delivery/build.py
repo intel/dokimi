@@ -79,29 +79,52 @@ actual=$(cat) || exit 2
         },
     }
     operation = dict(task, example=False, scan=False, owner="product CLI")
-    write(
-        "tasks",
-        {
-            "tasks": {"double": task, "binary-double": operation},
-            "repeats": 2,
-            "weights": {"linux-cpu": {"operations": 1}},
-        },
+    catalog = {
+        "tasks": {"double": task, "binary-double": operation},
+        "repeats": 2,
+        "weights": {"linux-cpu": {"operations": 1}},
+    }
+    write("tasks", catalog)
+    profile = {
+        "required": ["double", "binary-double"],
+        "product_version": base["version"],
+        "image": image,
+        "platform": base["platform"],
+        "tasks_sha256": hashlib.sha256((root / "tasks.json").read_bytes()).hexdigest(),
+    }
+    write("policy", {"version": "1", "profiles": {"linux-cpu": profile}})
+
+    finding = "missing-zero-row"
+    zero_bug = product.replace('{print "cpu:"', '$1 != 0 {print "cpu:"')
+    write("zero-rc", dict(base, artifact=save("zero.cli", zero_bug)))
+    source = dict(
+        save("zero-observation.txt", "The v2 RC drops the output row for zero."),
+        url="https://example.invalid/v2/zero",
+        captured_at="2026-11-22T00:00:00Z",
+        finding_id=finding,
+        owner="product CLI",
+        recommendation="Return a result for every input row",
     )
-    write(
-        "policy",
-        {
-            "version": "1",
-            "profiles": {
-                "linux-cpu": {
-                    "required": ["double", "binary-double"],
-                    "product_version": base["version"],
-                    "image": image,
-                    "platform": base["platform"],
-                    "tasks_sha256": hashlib.sha256((root / "tasks.json").read_bytes()).hexdigest(),
-                }
-            },
-        },
+    write("zero-corpus", {"sources": [source]})
+    zero = dict(
+        operation,
+        scan=True,
+        finding_id=finding,
+        input=save("zero.txt", "0\n"),
+        verifier=save(
+            "verify-zero.sh",
+            """value=$(cat) || exit 2
+[ "$consumer_exit" = 0 ] && [ "$value" = cpu:0 ] || exit 10\n""",
+        ),
     )
+    catalog["tasks"]["double-zero"] = zero
+    write("regression-tasks", catalog)
+    profile = dict(
+        profile,
+        tasks_sha256=hashlib.sha256((root / "regression-tasks.json").read_bytes()).hexdigest(),
+        required=[*profile["required"], "double-zero"],
+    )
+    write("regression-policy", {"version": "2", "profiles": {"linux-cpu": profile}})
 
 
 if __name__ == "__main__":

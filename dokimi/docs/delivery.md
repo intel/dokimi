@@ -43,6 +43,13 @@ A scan corpus lists `sources` with a local snapshot, origin URL, capture time, s
 
 To promote a finding, reproduce it against the intended RC, identify the promised operation, add a deterministic task with `finding_id`, and change the required IDs and catalog pin in a reviewed policy revision. An obsolete article alone adds no obligation to the release profile.
 
+The fixture `zero-rc.json` passes policy 1 but drops the result for input zero. Reproduce the imported `missing-zero-row` finding with the same RC and hidden zero input. Both replay arms fail. Policy 2 adopts `double-zero` because the CLI promises a result for every input. Its release observation carries the original finding ID.
+
+```bash
+python cli.py delivery scan --manifest "$pack/zero-rc.json" --tasks "$pack/regression-tasks.json" --corpus "$pack/zero-corpus.json" --fixture --out "$pack/zero-scan.json"
+python cli.py delivery release --manifest "$pack/zero-rc.json" --tasks "$pack/regression-tasks.json" --policy "$pack/regression-policy.json" --out "$pack/zero-check.json"
+```
+
 ## Reports and CI
 
 `--out` stores a `delivery.v1` artifact. `--json` prints its payload under `data` in the standard `cli_output.v1` envelope. `delivery report` validates and rereads the saved artifact offline and preserves its exit status. Example summary fields for the good release and fixture scan are shown below (scan excerpt).

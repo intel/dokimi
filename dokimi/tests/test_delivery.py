@@ -244,3 +244,28 @@ def test_claim_without_grader_is_visible(pack, monkeypatch):
     stats = delivery.run(pack)["summary"]["B"]
     assert stats["false_success"] == [0, 2] and stats["unverified_claims"] == 2
     assert stats["score"] is None
+
+
+@pytest.mark.skipif(
+    not os.environ.get("DOKIMI_DELIVERY_IMAGE"), reason="requires a preloaded Docker runtime image"
+)
+def test_promote_reproduced_observation(pack):
+    pack.manifest = pack.manifest.with_name("zero-rc.json")
+    assert delivery.run(pack)["summary"]["verdict"] == "PASS"
+    pack.tasks = pack.tasks.with_name("regression-tasks.json")
+    pack.corpus = pack.corpus.with_name("zero-corpus.json")
+    pack.mode = "scan"
+    scan = delivery.run(pack)
+    (source,) = scan["summary"]["attribution"]["sources"]
+    assert scan["summary"]["paired"]["double-zero"]["attempts"] == [["FAIL", "FAIL"]] * 2
+    pack.mode = "release"
+    pack.policy = pack.policy.with_name("regression-policy.json")
+    pack.corpus.unlink()
+    result = delivery.run(pack)
+    (regression,) = [r for r in result["observations"] if r["task"] == "double-zero"]
+    assert regression["finding_id"] == source["finding_id"] == "missing-zero-row"
+    assert result["summary"]["checks"] == {
+        "double": "PASS",
+        "binary-double": "PASS",
+        "double-zero": "FAIL",
+    }
