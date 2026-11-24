@@ -502,6 +502,45 @@ def test_a_hash_after_an_escaped_operator_or_inside_a_word_starts_no_comment(tex
     assert "body" not in _cli_heredocs(text)
 
 
+@pytest.mark.parametrize("text", ["echo a\\ # <<EOF\nsed -i s/x/y/ f\ncat AGENTS.md\nEOF\n", "echo a\\\t# <<EOF\nsed -i s/x/y/ f\nEOF\n", "echo a\\\\\\ # <<EOF\nsed -i s/x/y/ f\nEOF\n"])
+def test_a_hash_after_an_escaped_blank_starts_no_comment_so_its_heredoc_hides_its_body(text: str) -> None:
+    assert not [c for c, _ in shell.split_commands(text) if c.startswith(("sed", "cat"))]
+    assert "sed" not in _cli_heredocs(text)
+
+
+def test_a_hash_after_an_even_run_of_backslashes_and_a_blank_still_starts_a_comment() -> None:
+    text = "echo a\\\\ # <<EOF\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+class _CountedSlices(str):
+    """A text that adds up the length of every slice taken from it."""
+
+    copied = 0
+
+    def __getitem__(self, key):  # type: ignore[no-untyped-def]
+        if isinstance(key, slice):
+            self.copied += len(range(*key.indices(len(self))))
+        return super().__getitem__(key)
+
+
+def test_comments_after_operators_copy_a_linear_volume_of_text() -> None:
+    text = _CountedSlices("echo hi;# note\n" * 4000 + "cat <<EOF\nbody\nEOF\n")
+    assert "body" not in [c for c, _ in shell.split_commands(text)]
+    assert text.copied <= 8 * len(text)
+    traces = _CountedSlices("echo hi;# note\n" * 4000 + "cat <<EOF\nbody\nEOF\n")
+    assert "body" not in _cli_heredocs(traces)
+    assert traces.copied <= 8 * len(traces)
+
+
+@pytest.mark.parametrize("text", ["echo $(( $(printf '))' >/dev/null; echo 1) << 3 ))\ncat AGENTS.md\n", "echo $(( $(printf \"))\"; echo 1) << 3 ))\ncat AGENTS.md\n",
+                                  "echo $(( $(echo 1 # ))\n) << 3 ))\ncat AGENTS.md\n", "echo $(( $(printf \\)\\); echo 1) << 3 ))\ncat AGENTS.md\n"])
+def test_a_quoted_parenthesis_in_a_substitution_inside_arithmetic_does_not_end_it_before_a_shift(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
 @pytest.mark.parametrize("text", ["((x=1<<3))\ncat AGENTS.md\n", "for ((i=0; i<1<<3; i++)); do echo $i; done\ncat AGENTS.md\n", "echo a; (( x = (1 + 2) << 3 ))\ncat AGENTS.md\n",
                                   "((x=1 \\( << 3))\ncat AGENTS.md\n"])
 def test_a_shift_in_an_arithmetic_command_or_header_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:

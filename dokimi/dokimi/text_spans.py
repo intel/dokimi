@@ -58,12 +58,15 @@ _QUOTE_MARKS = re.compile(r"[\\'\"\n#]")
 
 def _starts_word(text: str, at: int) -> bool:
     """Whether the character at ``at`` begins a shell word: at the start, after a blank, or after a ``;&|()`` no backslash escapes."""
-    if at == 0 or text[at - 1].isspace():
+    if at == 0:
         return True
-    if text[at - 1] not in ";&|()":
+    before = text[at - 1]
+    if not (before.isspace() or before in ";&|()"):
         return False
-    slashes = at - 1 - len(text[:at - 1].rstrip("\\"))
-    return slashes % 2 == 0
+    first = at - 1
+    while first and text[first - 1] == "\\":
+        first -= 1
+    return (at - 1 - first) % 2 == 0
 
 
 def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
@@ -108,12 +111,12 @@ def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
     while (m := _ARITHMETIC_MARKS.search(text, pos)) is not None:
         mark, pos = m.group(), m.end()
         if depth:
-            if mark == "\\":
-                pos += 1
-            elif mark in "()":
+            if mark in "()" and not quote:
                 depth += 1 if mark == "(" else -1
                 if not depth:
                     spans.append((start, pos))
+            elif mark not in "()$":
+                quote, pos = _quote_step(text, m, quote)
         elif taken := _arithmetic_opener(text, mark, pos, quote):
             start, depth, pos = m.start(), 2, pos + taken
         elif mark not in "()$":
