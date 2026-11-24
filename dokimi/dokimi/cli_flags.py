@@ -432,11 +432,11 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("arms", "run"), ("arms", "matrix-run"), ("subjects", "run"), ("tools", "preference"),
         ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
         ("skill", "novelty", "probe"), ("skill", "shorten"),
-        ("skill", "routing"), ("catalog", "routing"),
+        ("skill", "routing"), ("catalog", "routing"), ("catalog", "novelty"),
     )),
     FlagMove("--budgets", "--token-budgets", leaves=(
         ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
-        ("skill", "novelty", "probe"), ("skill", "shorten"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"), ("catalog", "novelty"),
     )),
     # Reps concept (F1b): each old spelling counted the same thing on its one leaf, so the move
     # is limited to that leaf (elsewhere the hint would name a flag the command does not take).
