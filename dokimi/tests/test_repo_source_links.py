@@ -50,13 +50,15 @@ def _trees(root: Path):
 def test_a_link_that_leaves_and_returns_escapes_in_both_trees(tmp_path, text):
     (tmp_path / "x").write_text("x\n", encoding="utf-8")
     text = text.replace("<out>", str(tmp_path))
-    root = _repo(tmp_path, {"link.yaml": text} if text.startswith("/") else {})
-    if not text.startswith("/"):
+    absolute = os.path.isabs(text)
+    root = _repo(tmp_path, {"link.yaml": text} if absolute else {})
+    if not absolute:
         (root / "sub" / "rt.yaml").symlink_to("../" + text)
         subprocess.run(["git", "add", "-A"], cwd=root, check=True)
         subprocess.run(["git", "commit", "-qm", "d"], cwd=root, check=True, capture_output=True)
-    path = "link.yaml" if text.startswith("/") else "sub/rt.yaml"
-    for tree in _trees(root):
+    path = "link.yaml" if absolute else "sub/rt.yaml"
+    # GitTree reads a committed link text as POSIX, so ``C:\...`` there is not absolute
+    for tree in _trees(root) if text.startswith("/") or not absolute else [WorkTree(root)]:
         with pytest.raises(SourceArgumentError, match="path escapes the repository"):
             tree.resolve(path)
 
@@ -124,7 +126,8 @@ def test_an_absolute_path_through_a_link_goes_up_from_the_links_target(tmp_path)
     (root / "f.txt").write_text("root", encoding="utf-8")
     (root / "sub" / "f.txt").write_text("sub", encoding="utf-8")
     assert WorkTree(root).read_text(str(root / "link" / ".." / "f.txt")) == "sub"
-    assert WorkTree(root).read_text("outer.txt") == "sub"
+    # Windows stores an absolute link text with its ``..`` already collapsed: the OS reads ``root/f.txt`` too
+    assert WorkTree(root).read_text("outer.txt") == ("root" if os.name == "nt" else "sub")
 
 
 @pytest.mark.skipif(os.sep == "\\", reason="a backslash separates components on Windows")
