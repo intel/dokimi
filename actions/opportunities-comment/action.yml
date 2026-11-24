@@ -7,7 +7,7 @@ description: >-
   wrote (novelty artifacts, repo_static.v1 documents, llms.txt files) and creates or
   updates one comment on the pull request with the table. Reads the inputs as data
   only; never runs pull request code. Needs `pull-requests: write`. Run it after
-  actions/setup.
+  actions/setup. Serialize publishing jobs per pull request and pass head-sha to skip superseded results.
 
 inputs:
   inputs-dir:
@@ -98,6 +98,13 @@ runs:
           exit "$status"
         }
         id=${ids%%$'\n'*}
+        if [ -n "$SHA" ]; then
+          current=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+          if [ "$current" != "$SHA" ]; then
+            echo "The pull request head changed; leaving its comment alone."
+            exit "$status"
+          fi
+        fi
         if [ -n "$id" ]; then
           gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$body" >/dev/null ||
             echo "::warning title=dokimi opportunities::the comment could not be updated"

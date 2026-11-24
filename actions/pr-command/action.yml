@@ -54,7 +54,6 @@ runs:
         IS_PR: ${{ github.event.issue.pull_request.url != '' }}
         ACTOR: ${{ github.event.comment.user.login }}
         COMMENT_ID: ${{ github.event.comment.id }}
-        BODY: ${{ github.event.comment.body }}
       run: |
         echo "run=false" >> "$GITHUB_OUTPUT"
         if [ "$EVENT" != issue_comment ] || [ "$IS_PR" != true ]; then
@@ -62,7 +61,7 @@ runs:
           exit 0
         fi
         # The first line, trimmed, must be the command: a comment that quotes it later does not run.
-        first=${BODY%%$'\n'*}
+        first=$(jq -r '.comment.body | split("\n")[0]' "$GITHUB_EVENT_PATH")
         first=${first%$'\r'}
         first="${first#"${first%%[![:space:]]*}"}"
         first="${first%"${first##*[![:space:]]}"}"

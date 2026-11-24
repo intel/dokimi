@@ -62,6 +62,9 @@ jobs:
 
   comment:
     needs: [gate, checks]
+    concurrency:
+      group: dokimi-opportunities-comment-${{ needs.gate.outputs.pr }}
+      cancel-in-progress: false
     if: needs.gate.outputs.run == 'true' && needs.checks.result == 'success'
     runs-on: ubuntu-latest
     permissions:

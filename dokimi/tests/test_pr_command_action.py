@@ -10,6 +10,7 @@ calls and answers from env vars, so no network is used.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -81,8 +82,10 @@ def _run(tmp_path: Path, script: str, **env: str) -> tuple[subprocess.CompletedP
 
 
 def _gate(tmp_path: Path, body: str = "/dokimi run", perm: str = "write", **env: str):
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"comment": {"body": body}}), encoding="utf-8")
     kw = {"COMMAND": "/dokimi run", "EVENT": "issue_comment", "PR": "7", "IS_PR": "true",
-          "ACTOR": "alice", "COMMENT_ID": "99", "BODY": body, "FAKE_PERM": perm, **env}
+          "ACTOR": "alice", "COMMENT_ID": "99", "GITHUB_EVENT_PATH": str(event), "FAKE_PERM": perm, **env}
     return _run(tmp_path, _script(GATE), **kw)
 
 
@@ -178,6 +181,18 @@ def test_run_steps_interpolate_no_expressions(path: Path) -> None:
         assert not _expressions(step.get("run", "")), step.get("name")
 
 
+def test_overlapping_publications_share_one_pr_lock_and_skip_a_stale_head(tmp_path: Path) -> None:
+    jobs = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))["jobs"]
+    lock = jobs["comment"]["concurrency"]
+    assert "needs.gate.outputs.pr" in lock["group"]
+    assert lock["cancel-in-progress"] is False
+    r, _ = _comment(tmp_path, {}, FAKE_SHA="b" * 40, FAKE_IDS="123")
+    assert r.returncode == 0, r.stderr
+    calls = (tmp_path / "gh.log").read_text(encoding="utf-8")
+    assert "pulls/7" in calls
+    assert "-X POST" not in calls and "-X PATCH" not in calls
+
+
 def test_example_workflow_permissions_and_pins() -> None:
     wf = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
     assert wf["permissions"] == {}
@@ -227,7 +242,7 @@ def test_a_malformed_commit_does_nothing(tmp_path: Path, body: str) -> None:
 
 
 def test_long_comment_still_recognizes_first_line(tmp_path: Path) -> None:
-    result, outputs = _gate(tmp_path, "  /dokimi run\n" + "é" * 40000)
+    result, outputs = _gate(tmp_path, "  /dokimi run\n" + "✨" * 50000)
     assert result.returncode == 0, result.stderr
     assert outputs["run"] == "true"
 

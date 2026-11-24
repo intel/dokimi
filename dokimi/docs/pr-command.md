@@ -59,5 +59,7 @@ value reaches the shell through `env:`.
 
 `actions/opportunities-comment`: `inputs-dir` (required), `pr` (required), `head-sha`
 (named in the comment), `top-n` (10), `github-token` (the job token). It needs
-`actions/setup` first. With no findings file the comment says there is nothing to rank;
+`actions/setup` first. Use the same concurrency group for all jobs that publish to one
+pull request, as in the example. This serializes the comment lookup and write. Pass `head-sha`
+so an older run skips publication after a push. With no findings file the comment says there is nothing to rank;
 when `dokimi report opportunities` fails the comment links the run and the step fails.
