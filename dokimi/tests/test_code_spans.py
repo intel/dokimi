@@ -12,6 +12,7 @@ from __future__ import annotations
 import itertools
 import random
 import re
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
@@ -305,8 +306,33 @@ def test_online_checks_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.parametrize("shape", SHAPES)
-def test_online_checks_time_grows_no_faster_than_its_text(shape: Callable[[int], str]) -> None:
-    """A pass over the whole text per run, which the counted reads miss, is quadratic in the runs: the text
-    grows about 256x, a linear scan takes under half that factor and a pass per run takes several times it."""
-    ratio, _ = growth(lambda k: partial(_distinct_urls, shape(k)), 25)
-    assert ratio < len(shape(25 * FACTOR)) / len(shape(25)) / 2
+def test_online_checks_touches_the_text_in_linear_work(shape: Callable[[int], str]) -> None:
+    """The characters handed to str methods and the calls of regex methods grow with the text, not with the text
+    times the runs: a ``count``, ``find`` or ``upper`` over the whole body for each run (16x the text's growth) or a
+    ``re`` call for each run fails, on any machine. The scan's own passes over the characters are admitted (it makes
+    about one). Not seen: slices, loops in Python, and what one regex call does inside."""
+
+    def measure(text: str) -> tuple[int, int]:
+        chars = calls = 0
+
+        def watch(frame: Any, event: str, arg: Any) -> None:
+            nonlocal chars, calls
+            if event == "c_call":
+                owner = getattr(arg, "__self__", None)
+                if isinstance(owner, str):
+                    chars += len(owner)
+                elif isinstance(owner, re.Pattern):
+                    calls += 1
+
+        previous = sys.getprofile()
+        sys.setprofile(watch)
+        try:
+            _distinct_urls(text)
+        finally:
+            sys.setprofile(previous)
+        return chars, calls
+
+    (small_chars, small_calls), (large_chars, large_calls) = (measure(shape(k)) for k in (25, 25 * FACTOR))
+    text_growth = len(shape(25 * FACTOR)) / len(shape(25))
+    assert 0 < small_chars and large_chars <= 4 * text_growth * small_chars, (small_chars, large_chars)
+    assert large_calls <= 2 * small_calls, (small_calls, large_calls)
