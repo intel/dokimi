@@ -87,7 +87,7 @@ prediction is unobserved. The positive control satisfies both gates. The
 example uses prediction dispatch for the backend gate. A real task must define
 which of fit, predict, both, or another operation it requires.
 
-With access to AIReady's evaluator bundle, reuse the saved controls and their
+With a compatible external evaluator bundle, reuse saved controls and their
 seeds to re-run verification:
 
 ```bash

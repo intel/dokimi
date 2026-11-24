@@ -248,7 +248,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, help="New directory for generated suite and results")
     variant = parser.add_mutually_exclusive_group()
-    variant.add_argument("--controls", type=Path, help="Stored AIReady evaluator control results")
+    variant.add_argument("--controls", type=Path, help="Stored evaluator control results")
     variant.add_argument("--skill-fixture", action="store_true")
     variant.add_argument("--generate-suite", type=Path, help="Build a frozen suite from a JSON request")
     parser.add_argument("--suite", type=Path, help="Read a previously frozen suite byte for byte")
