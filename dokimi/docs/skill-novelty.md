@@ -1103,7 +1103,7 @@ totals have no variance, or when nothing is left to correlate against. Only atom
 cell scored are correlated (the rest are reported in `atoms_dropped`): counting a missing
 probe as a failure would manufacture a correlation, and leaving a one-cell atom in the rest
 score moved the shared atoms' totals and could flip their sign. The correlation itself
-lives in `eval/stats.py`, next to the other statistics, so the next caller finds it instead
+lives in `eval/correlation.py`, next to the other statistics, so the next caller finds it instead
 of writing its own.
 
 Read the output as a statement about the *measurement*, not the atom: a non-discriminating
@@ -1153,6 +1153,69 @@ python cli.py skill novelty analyze --artifact skill:s --model M \
   --placebo-text other-domain.md \
   --context-framing neutral
 ```
+
+### Test-retest noise of the headline score
+
+The noise floor above is per run: it is the flip rate of the baseline answers against themselves.
+It does not say how far the headline `k0` score of one skill moves when the whole pipeline runs
+again (extraction, sampling and judging all redrawn). For that, run the same items twice and
+compare:
+
+```bash
+# run 1: the usual sweep
+python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 0 --out-dir runs/a/$S ...
+# run 2: the retest, another seed, a fresh --cache-dir (the retention verdicts) and no response
+# cache: DOKIMI_RESPONSE_CACHE=0 (or unset) so that no answer is replayed
+DOKIMI_RESPONSE_CACHE=0 python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 2 \
+  --cache-dir runs/cache-retest --out-dir runs/b/$S ...
+# the floor, pairwise comparisons, no model calls
+python cli.py skill novelty retest --baseline runs/a --retest runs/b --out-dir runs/retest
+```
+
+`retest` pairs the baseline run and the retest by artifact ref and writes `retest.md` and `retest.json` (`novelty_retest.v1`). Its
+statistics are over `k0.lenient` by default (`--scoring strict` for the strict one):
+
+- **Noise floor** = 1.96 × the sample standard deviation of `second − first`. A difference
+  between two single-run scores smaller than the floor is not evidence of a difference.
+- **Pearson r** between the two runs, the **mean |diff|** and the **mean shift** (second −
+  first). A shift moves every item alike, so it does not reorder items, but it does move a
+  score against a score from another run.
+- **Comparisons below the floor**: pairs of items whose first-run scores differ by less than
+  the floor. They are listed in `retest.json`.
+
+Items that appear in one run only, have no usable score, or are partial runs are left out and
+named as warnings (the first five by ref, the rest counted). When both runs record an
+`artifact.ref_digest` and the digests differ, the runs measured different content. The ref is
+listed in `unscored` and excluded from the floor and all other retest statistics. Runs without
+a digest still pair by ref. A warning names the ref when only one run has a digest.
+If these exclusions leave no pairs, the command exits with `no item scored in both runs`.
+This also applies when all shared items have scores but were measured on different content.
+Warnings also name a retest that
+does not vary what it should:
+
+- the same seed, or another model;
+- another judge: `judge_model`;
+- calls served from the response cache: `cost.replayed_calls` above zero in either run. A
+  replayed answer is the baseline's answer again, so the floor shrinks toward zero;
+- a `run_config` that differs in any key other than `seed` (`max_atoms`, `arms`, `paraphrases`,
+  `tier`, `prompts_sha256`, ...). Such cells do not compare, and the floor inflates.
+
+The retention verdicts of `--cache-dir` are memoized on disk and are not counted in
+`replayed_calls`, so a retest must not reuse the baseline's `--cache-dir` either.
+
+A baseline or retest given as a directory is searched for files named `novelty.json`: a run saved
+under another name (for example `analyze --out-json foo.json`) is not read there, and the item
+shows up as unmatched. A file passed directly is read whatever its name. A run with no probed atom
+(`atoms.n_probed` 0) is left out as unscored.
+
+Below ten items the floor is a rough guide: `retest.md` and the stdout say so. With two items the
+spread has one degree of freedom.
+
+Corpus evidence (2026-11-09, 10 S2 skills, triage; the ten pairs are pinned as `S2_RETEST` in
+`tests/test_novelty_retest.py`): r = 0.86, mean |diff| 0.10, mean shift +0.067, floor about 0.21.
+26 of the 45 pairs of those ten skills are below that floor. Use at least two runs per item before
+reading a per-skill difference under 0.2. The retest costs one full run per item, so the cost is
+the sweep again; there is no default, because it is a choice of spend.
 
 ## Provenance, judge vendors, a second judge, reversal both ways
 

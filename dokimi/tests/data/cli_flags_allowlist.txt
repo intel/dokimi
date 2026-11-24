@@ -169,6 +169,7 @@
 --repo
 --repo-root
 --require-validated
+--retest  # novelty retest: the second run of the same items, named by role; no registry concept yet
 --resource-roles
 --results-dir
 --resume  # catalog check --resume (#413 A7): keep the rows already in --jsonl; no registry concept yet; a F1b migration names it
@@ -182,6 +183,7 @@
 --save-analysis
 --scenarios
 --schema-only  # eval check --schema-only (#276 M1, was repo validate): the manifest checks, no registry concept yet
+--scoring  # novelty retest: which k0 score the floor is over; no registry concept yet
 --scorer
 --sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
 --sequential
