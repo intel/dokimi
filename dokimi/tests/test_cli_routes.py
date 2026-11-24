@@ -113,6 +113,7 @@ PAID_PATHS = {
     ("explore", "run"),
     ("catalog", "trigger-probe"),
     ("catalog", "routing"),
+    ("catalog", "novelty"),
     ("skill", "novelty", "analyze"),
     ("skill", "novelty", "atoms"),
     ("skill", "novelty", "probe"),

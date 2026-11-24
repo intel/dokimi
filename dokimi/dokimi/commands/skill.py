@@ -58,10 +58,8 @@ def register_check(skill_sub) -> None:
 
 def register_skill(skill_sub, positive_int) -> None:
     """Add `skill novelty` (analyze, atoms, probe, ground, items, view) and `skill shorten` (#94 M2)."""
+    from dokimi.commands.novelty_flags import _add_bundle_args, _add_common, _add_model_args
     from dokimi.commands.novelty import (
-        _add_bundle_args,
-        _add_common,
-        _add_model_args,
         cmd_novelty_analyze,
         cmd_novelty_atoms,
         cmd_novelty_items,
