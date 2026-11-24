@@ -184,6 +184,8 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("trace", "prefilter"), FREE),
     Leaf(("runs", "list"), FREE),
     Leaf(("runs", "show"), FREE),
+    Leaf(("runs", "rm"), FREE),
+    Leaf(("runs", "gc"), FREE),
     Leaf(("backends",), FREE),
     Leaf(("data", "schema", "list"), FREE),
     Leaf(("data", "schema", "show"), FREE),
