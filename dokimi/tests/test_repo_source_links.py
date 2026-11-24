@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dokimi.repos import source
+from dokimi.repos import links, source
 from dokimi.repos.source import GitTree, SourceArgumentError, SourceError, WorkTree
 
 
@@ -205,18 +205,32 @@ def test_a_real_junction_out_of_the_tree_escapes(tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "secret.txt").write_text("s", encoding="utf-8")
-    _winapi.CreateJunction(str(outside), str(root / "external"))
+    _winapi.CreateJunction(str(outside), str(root / "external"))  # type: ignore[attr-defined]  # Windows only
     with pytest.raises(SourceArgumentError, match="path escapes the repository"):
         WorkTree(root).read_text("external/secret.txt")
 
 
 def test_an_extended_unc_link_text_is_the_share(monkeypatch):
     """``\\\\?\\UNC\\server\\share\\x`` is the share ``\\\\server\\share\\x``; cut by four characters it is the relative ``UNC\\server``."""
+    link = Path("link")  # made before ``os.name`` changes: Python 3.11 cannot build a WindowsPath on POSIX
     with monkeypatch.context() as m:
         m.setattr(os, "readlink", lambda p: "\\\\?\\UNC\\server\\share\\repo\\real.yaml")
         m.setattr(os, "name", "nt")
-        text = source._link_target(Path("link"))
+        text = links._link_target(link)
     assert text == "\\\\server\\share\\repo\\real.yaml"
+
+
+def test_an_alias_to_the_checkout_root_itself_resolves_to_dot(tmp_path, monkeypatch):
+    """A link whose target is only an anchor (``\\\\server\\share\\`` as the checkout root) leaves nothing to walk: it is the root."""
+    root = _repo(tmp_path, {})
+    alias = tmp_path / "alias"
+    alias.symlink_to(root, target_is_directory=True)
+    start = links._start
+    with monkeypatch.context() as m:
+        m.setattr(links, "_link_target", lambda p: "ROOT")
+        m.setattr(links, "_start", lambda text, here: (root, []) if text == "ROOT" else start(text, here))
+        assert links._inside(root, str(alias)) == "."
+        assert links._inside(root, str(alias) + "/sub") == "./sub"
 
 
 @pytest.mark.parametrize("path", ["missing/../sub/f.txt", "real.yaml/../sub/f.txt"])
@@ -227,3 +241,10 @@ def test_a_dotdot_after_a_missing_name_or_a_file_is_no_path_in_both_trees(tmp_pa
         with pytest.raises(SourceError, match="no such path"):
             tree.resolve(path)
         assert not tree.is_file(path)
+
+
+def test_the_link_walk_lives_apart_so_source_stays_under_the_line_cap():
+    """The walk is in ``links``; ``source`` re-exports the errors, and its 800-line cap (scripts/check_growth.py) holds."""
+    assert source._walk_links is links._walk_links
+    assert source.SourceArgumentError.__module__ == "dokimi.repos.source_errors"
+    assert len(Path(source.__file__).read_text(encoding="utf-8").splitlines()) <= 800
