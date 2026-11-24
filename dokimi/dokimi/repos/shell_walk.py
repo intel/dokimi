@@ -156,21 +156,27 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
             walk.here = None
         walk.track_groups(bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
         if in_subshell:  # a subshell: its reads are not tracked
+            walk.last_exit = None
             if _runs_dir(outer, walk.dirs, walk.functions):  # ``cd $(dirname f)``: the cd is outside the parentheses
                 walk.lose(_in_own_shell(outer, after))
             continue
         words = walk.words(part, after)
         if words:
-            walk.track_posix(words, after)  # ``export POSIXLY_CORRECT=1; head f -n 0``
+            walk.track_posix(words, op, after)  # ``export POSIXLY_CORRECT=1; head f -n 0``
             out.extend(walk.command(words, after, chained, _time_keyword(part)))
-        elif (stage := _search_stage(part, walk.functions)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
+        else:
+            walk.last_exit = None
+        if not words and (stage := _search_stage(part, walk.functions)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
             walk.cut = True
             out.extend(walk.piped(walk.words(stage, after, staged=True), _time_keyword(part)))
     walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
     return out, walk
 
 
-_Spot = tuple[str | None, bool, bool, bool, bool]  # (here, shell_moved, moved, posix_set, posix_exported): what a subshell's end restores
+_PosixStates = frozenset[tuple[bool, bool]]
+_POSIX_OFF: _PosixStates = frozenset({(False, False)})
+_LITERAL_EXIT = {"true": True, ":": True, "false": False}  # the commands whose exit the walker knows
+_Spot = tuple[str | None, bool, bool, _PosixStates]  # (here, shell_moved, moved, posix): what a subshell's end restores
 
 
 class _Walk:
@@ -187,7 +193,7 @@ class _Walk:
         # the open brace groups: the spot before it, in a pipeline, (index in the reads, ``unknown``) where it began,
         # the enclosing && / || list's (list_start, listed), which the group's own separators do not end
         self.groups: list[tuple[_Spot, bool, tuple[int, int, bool], tuple[_Spot, bool]]] = []
-        self.list_start: _Spot = (here, False, False, False, False)  # the spot where the && / || list began
+        self.list_start: _Spot = (here, False, False, _POSIX_OFF)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
         self.head = False  # the last part was a function's name alone (``f()``): its body's ``{`` comes next
@@ -197,33 +203,32 @@ class _Walk:
         self.last_start = 0  # where in the found paths the script's last non-empty part began
         self.unknown = 0  # the relative files printing commands named at a directory not known
         self.cut = False  # the last part is a search piped into head or tail: its exit may be the pipeline's, under pipefail
-        self.posix_set = False  # ``POSIXLY_CORRECT`` is a variable of this shell (``POSIXLY_CORRECT=1``, ``export``)
-        self.posix_exported = False  # and is exported, so every later command is run with it
+        # the states ``POSIXLY_CORRECT`` may be in here, each (set in this shell, exported: every later command is run
+        # with it): more than one when a command that changes it ran only perhaps
+        self.posix = _POSIX_OFF
+        self.last_exit: bool | None = None  # the last command was ``true``/``:`` (True) or ``false`` (False): else not known
 
-    def track_posix(self, words: list[str], after: str) -> None:
+    def track_posix(self, words: list[str], op: str, after: str) -> None:
         """``POSIXLY_CORRECT`` after a command of this shell (not a job, ``after`` is ``&``; a pipeline's parts have no
-        ``words``): ``export NAME[=value]`` exports it (a bare ``export NAME`` only when it was set), ``export -n``
-        and ``unset`` drop it, and a lone ``POSIXLY_CORRECT=1`` sets it without exporting."""
-        name = "POSIXLY_CORRECT"
+        ``words``), by :func:`_posix_after`. A command after ``&&`` or ``||`` runs when the one before it exited 0
+        (``true``, ``:``) or not (``false``), and is skipped for the other; after any other command it may or may not
+        run, and both states are kept (:attr:`posix`). ``op`` is the operator before it."""
         if after == "&":
             return
-        if all(_ASSIGN.match(w) for w in words):
-            self.posix_set |= any(w.startswith(name + "=") for w in words)
-        elif words[0] == "unset" and name in words[1:]:
-            self.posix_set = self.posix_exported = False
-        elif words[0] == "export":
-            args = words[1:]
-            if "-n" in args and name in (w.partition("=")[0] for w in args):
-                self.posix_exported = False
-            elif any(w.startswith(name + "=") or (w == name and self.posix_set) for w in args):
-                self.posix_set = self.posix_exported = True
+        ran: bool | None = True
+        if op in ("&&", "||"):
+            ran = None if self.last_exit is None else self.last_exit == (op == "&&")
+        if ran is not False:
+            after_it = frozenset(_posix_after(words, self.functions, state) for state in self.posix)
+            self.posix = after_it if ran else self.posix | after_it
+            self.last_exit = _LITERAL_EXIT.get(" ".join(words)) if ran else None
 
     def spot(self) -> _Spot:
-        return self.here, self.shell_moved, self.moved, self.posix_set, self.posix_exported
+        return self.here, self.shell_moved, self.moved, self.posix
 
     def back(self, spot: _Spot) -> None:
         """Back to ``spot`` after a subshell: what ran in it moved neither this shell nor its ``||`` fallbacks."""
-        self.here, self.shell_moved, self.moved, self.posix_set, self.posix_exported = spot
+        self.here, self.shell_moved, self.moved, self.posix = spot
 
     def chain(self, op: str, chained: bool) -> None:
         """A list of more than one command ended by ``&`` ran in a subshell, so this shell did not move: ``cd sub &&
@@ -330,7 +335,8 @@ class _Walk:
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        posix = _posix_set(before[:len(before) - len(words)], self.posix_exported)  # ``POSIXLY_CORRECT=1 head``
+        skipped = before[:len(before) - len(words)]  # ``POSIXLY_CORRECT=1 head``
+        posix = frozenset(_posix_set(skipped, exported) for _, exported in self.posix)
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
@@ -344,7 +350,7 @@ class _Walk:
             return self.shown(name, words[1:], chdir, posix)
         return []
 
-    def shown(self, name: str, args: list[str], chdir: bool, posix: bool = False) -> list[str]:
+    def shown(self, name: str, args: list[str], chdir: bool, posix: frozenset[bool] = frozenset({False})) -> list[str]:
         """The files a printing command prints, or a search shows lines of, as a path list (:class:`Searched` for a search)."""
         if name in _PRINTERS:
             return self.printed(name, args, chdir, posix)
@@ -364,12 +370,12 @@ class _Walk:
         search = search_program(name, words[1:]) if name and (bypassed or words[0] not in self.functions) else None
         return self.searching(*search, chdir) if search else []
 
-    def printed(self, name: str, args: list[str], chdir: bool, posix: bool = False) -> list[str]:
-        """The files a printing command reads; ``unknown`` counts those it names at a directory not known. ``posix``: the
-        command is run with ``POSIXLY_CORRECT`` set."""
+    def printed(self, name: str, args: list[str], chdir: bool, posix: frozenset[bool] = frozenset({False})) -> list[str]:
+        """The files a printing command reads; ``unknown`` counts those it names at a directory not known. ``posix``: whether
+        the command may be run with ``POSIXLY_CORRECT`` set (True), unset (False), or either, when it is not known."""
         if _asks_for_help(args):  # ``cat --help AGENTS.md`` prints the help and opens no file
             return []
-        if prints_nothing(name, args, posix):  # ``head -n 0 AGENTS.md`` exits 0 and prints no line
+        if all(prints_nothing(name, args, p) for p in posix):  # ``head -n 0 AGENTS.md`` prints no line in each state
             return []
         files = sed_files(args) if name == "sed" else _print_files(name, args)
         known = self.named(files, chdir)
@@ -391,6 +397,30 @@ class _Walk:
 
     def resolve(self, f: str) -> str:
         return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
+
+
+def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool]) -> tuple[bool, bool]:
+    """``state`` (``POSIXLY_CORRECT`` set in this shell, exported) after the command ``words`` ran in it: a lone
+    ``POSIXLY_CORRECT=1`` sets it, ``export NAME[=value]`` exports it (a bare ``export NAME`` only when it was set),
+    ``export -n NAME[=value]`` assigns the value and drops the export, and ``unset`` drops both. ``builtin`` and
+    ``command`` before ``export`` or ``unset`` run the builtin; a function of that name shadows it otherwise."""
+    name, is_set, exported = "POSIXLY_CORRECT", *state
+    if all(_ASSIGN.match(w) for w in words):
+        return is_set or any(w.startswith(name + "=") for w in words), exported
+    bypassed = False
+    while words[0] in ("builtin", "command") and words[0] not in functions and len(words) > 1:
+        words, bypassed = words[1:], True
+    if words[0] not in ("export", "unset") or (words[0] in functions and not bypassed):
+        return state
+    names = [w.partition("=")[0] for w in words[1:]]
+    if name not in names:
+        return state
+    if words[0] == "unset":
+        return False, False
+    valued = any(w.startswith(name + "=") for w in words[1:])
+    if "-n" in words[1:]:
+        return is_set or valued, False
+    return (True, True) if valued or is_set else state
 
 
 def _posix_set(skipped: list[str], exported: bool = False) -> bool:

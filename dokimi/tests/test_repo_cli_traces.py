@@ -270,6 +270,22 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # set in the shell, not exported
     ("POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
     ("export POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # nothing to export
+    ("true || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # a command that is skipped changes nothing
+    ("false && export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("true && export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("false || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; false && unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; true && unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("ls || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # may have run: the read is kept
+    ("export POSIXLY_CORRECT=1; ls && unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("ls || export POSIXLY_CORRECT=1; head -n 0 AGENTS.md", []),  # no state prints a line
+    ("export() { :; }; export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # a function of the name runs, not the builtin
+    ("export POSIXLY_CORRECT=1; unset() { :; }; unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export() { :; }; builtin export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; command unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("builtin export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export -n POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # -n assigns, not exports
+    ("export -n POSIXLY_CORRECT=1; head AGENTS.md -n 0", [])
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads
