@@ -29,7 +29,7 @@ from dokimi.utils import InputError
 
 
 def _listing_source(entry):
-    """``(file, meta, body, directory name, at root)`` of the SKILL.md ``repo budget`` would read for the entry, None when
+    """``(file, meta, body, directory name, at root, sha256 of the bytes read)`` of the SKILL.md ``repo budget`` would read for the entry, None when
     it is not named ``SKILL.md``, cannot be read or resolves outside the catalog root. The directory name and ``at root`` are
     those of the directory the skill is listed in, not of a symlink target."""
     from dokimi.utils import parse_frontmatter
@@ -44,11 +44,12 @@ def _listing_source(entry):
         root = entry.source_root.resolve()
         if not file.is_file() or not file.is_relative_to(root):
             return None
-        meta, body = parse_frontmatter(file.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RuntimeError):
+        raw = file.read_bytes()
+        meta, body = parse_frontmatter(raw.decode("utf-8"))
+    except (OSError, ValueError, RuntimeError):  # UnicodeDecodeError is a ValueError
         return None
     # The default name is the directory the skill is listed in, not the one a symlinked SKILL.md points into.
-    return file, meta if isinstance(meta, dict) else {}, body, Path(os.path.normpath(listed.parent)).name, listed.parent.resolve() == root
+    return file, meta if isinstance(meta, dict) else {}, body, Path(os.path.normpath(listed.parent)).name, listed.parent.resolve() == root, hashlib.sha256(raw).hexdigest()
 
 
 def _name_fits_spec(read) -> bool:
@@ -56,7 +57,7 @@ def _name_fits_spec(read) -> bool:
     not listed once its description is added, so the missing-description fallback does not charge it."""
     from dokimi.external.validate import NAME_MAX, NAME_PATTERN
 
-    _, meta, _, dir_name, at_root = read
+    _, meta, _, dir_name, at_root, _ = read
     declared = str(meta.get("name") or "").strip()
     if not declared:
         return True
@@ -77,7 +78,7 @@ def listing_preview(entry, source=None) -> Optional[dict]:
     source = source or _listing_source(entry)
     if source is None:
         return None
-    _, meta, body, dir_name, _ = source
+    _, meta, body, dir_name, _, _ = source
     description = listing_description(meta, body)
     if not description:
         return None
@@ -121,7 +122,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         listing_chars = preview["listing_chars"]  # Claude Code lists a skill without ``description`` by its body's first line (#943, #1087)
         # It never loaded, so the listing total groups it by the name it would be listed under and its SKILL.md digest.
         listing_name = str(read[1].get("name") or "").strip() or read[3]
-        content_sha256 = hashlib.sha256(read[0].read_bytes()).hexdigest()
+        content_sha256 = read[5]  # the digest of the bytes the preview came from
     kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
     state = "error" if not skill.loaded and not exempt else state_of(kept)
     if not skill.loaded and exempt and state == "ok":

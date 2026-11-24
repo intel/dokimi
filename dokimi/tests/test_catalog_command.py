@@ -472,6 +472,27 @@ def test_catalog_check_reports_body_listing_fallback(tmp_path, capsys):
     assert rows["leading-blank"]["listing_chars"] == 30
 
 
+def test_catalog_check_fallback_digest_comes_from_the_preview_read(tmp_path, capsys, monkeypatch):
+    """#1087: the digest of a skill without `description` is that of the bytes the preview read; a file removed after that read cannot abort the scan."""
+    import hashlib
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "first-line").mkdir(parents=True)
+    content = "---\nname: first-line\n---\nSort logs.\n"
+    (skills / "first-line" / "SKILL.md").write_bytes(content.encode())
+    from dokimi.commands import catalog_scan
+    real = catalog_scan._listing_source
+
+    def read_then_remove(entry):
+        source = real(entry)
+        (skills / "first-line" / "SKILL.md").unlink()  # a generator removes the skill after the preview read
+        return source
+
+    monkeypatch.setattr(catalog_scan, "_listing_source", read_then_remove)
+    rows = _check_rows(skills, capsys)
+    assert rows["first-line"]["content_sha256"] == hashlib.sha256(content.encode()).hexdigest()
+    assert rows["first-line"]["listing_chars"] == 20
+
+
 def test_catalog_check_listing_is_null_without_text(tmp_path, capsys):
     """#1087: no description and an empty body leaves nothing to list, so `listing` is null."""
     skills = tmp_path / ".claude" / "skills"
