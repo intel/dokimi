@@ -151,6 +151,9 @@ def materialize_tasks(args, root, prompts):
             write_json(root / "replay-input.json", {"sha256": hashlib.sha256(raw).hexdigest(),
                                                    "revision": stored["revision"]})
             source = "replay"
+        if "execute-named-0" not in prompts:
+            raise ValueError("The suite has no product-named cases; replay needs a suite "
+                             "generated with a product")
         inputs = {}
         for name, cue in (("late_patch", "named"), ("stock", "free"),
                           ("positive_patched", "named")):

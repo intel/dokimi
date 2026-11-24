@@ -10,6 +10,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "replay_product_experiment.py"
 _spec = importlib.util.spec_from_file_location("replay_product_experiment", _SCRIPT)
 assert _spec and _spec.loader
@@ -32,3 +34,11 @@ def test_fresh_control_violating_constraints_does_not_pass(tmp_path, monkeypatch
         rpe.run_cell(argparse.Namespace(cell=cell, arm=arm))
         assert (out / "reward.txt").read_text(encoding="utf-8") == "0\n"
         assert json.loads((out / "evidence.json").read_text())["verdicts"]["constraint_ok"] is False
+
+
+def test_suite_without_product_is_rejected_with_a_clear_error(tmp_path):
+    suite = rpe.build_suite(rpe.TASK, rpe.CRITERIA)
+    prompts = {case["id"]: case["prompt"] for case in suite["cases"]}
+    args = argparse.Namespace(skill_fixture=False, controls=None, evaluator_root=None)
+    with pytest.raises(ValueError, match="product-named"):
+        rpe.materialize_tasks(args, tmp_path, prompts)
