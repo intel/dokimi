@@ -29,8 +29,8 @@ log = logging.getLogger(__name__)
 ANSWER_FORMATS = ("codex-review",)
 _SEVERITY = {"P0": "blocker", "P1": "major", "P2": "minor", "P3": "minor"}
 # a header may be indented; the title may hold " — ": the path is what follows the last one, on the header's line.
-# A line number has at most 9 digits: a longer one is no finding (int() of 4300+ digits raises), an unparsed marker
-_CODEX_FINDING = re.compile(r"^[ \t]*- \[(P\d)\] (.+) — ([^\s—][^—\r\n]*?):(\d{1,9})(?:-(\d{1,9}))?[ \t\r]*$", re.M)
+# A line number has at most 9 digits past its zero padding: a longer one is no finding (int() of 4300+ raises)
+_CODEX_FINDING = re.compile(r"^[ \t]*- \[(P\d)\] (.+) — ([^\s—][^—\r\n]*?):0*(\d{1,9})(?:-0*(\d{1,9}))?[ \t\r]*$", re.M)
 # a marker is a [Pn] header in any shape outside a parsed finding: a list item (``-``, ``*``, ``1.``, ``2)``) at
 # any indent (bold or not, with a path or not) or a line starting with [Pn]; every marker is parsed or no block
 _BULLET_MARK = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])[ \t]*(?:\*\*)?\[P\d\]", re.M | re.I)
