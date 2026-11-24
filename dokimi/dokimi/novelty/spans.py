@@ -50,10 +50,9 @@ _QUOTE = re.compile(r"^ {0,3}>")
 _BREAK = re.compile(r"^ {0,3}([*_])(?:[ \t]*\1){2,}\s*$")
 # a backtick run closed by a run of the same length, over soft line breaks but not over a blank line
 _CODE = r"(?<!`)(`+)(?!`)(?:(?!\n[ \t\r]*\n)[\s\S])+?(?<!`)\1(?!`)"
-_CODE_SPAN = re.compile(_CODE)
-# A closed comment, or an inline code span (matched first when it starts first, so a literal `<!--` in it opens nothing).
-# `<!-->` and `<!--->` are complete comments.
-_COMMENT = re.compile(rf"{_CODE}|<!--(?:-?>|.*?-->)", re.S)
+# A closed comment (`<!-->` and `<!--->` too), or a code span or `\<`/`\\` escape matched first, so `\<!--` opens nothing.
+_COMMENT = re.compile(rf"{_CODE}|\\[\\<]|<!--(?:-?>|.*?-->)", re.S)
+_OPENER = re.compile(rf"{_CODE}|\\[\\<]|(<!--)", re.S)
 # A sentence ends before a comment: the text so far ends in terminal punctuation and what follows starts a sentence.
 _ENDS = re.compile(r"[.!?:]\s*$")
 _STARTS = re.compile(r"\s*[A-Z`\-*\d]")
@@ -62,7 +61,7 @@ _STARTS = re.compile(r"\s*[A-Z`\-*\d]")
 def _blank_comments(text: str, fill: str) -> str:
     """``text`` with each closed comment replaced by ``fill`` (repeated to its length when ``fill`` is one character)."""
     return _COMMENT.sub(
-        lambda m: m.group() if m.group().startswith("`") else (fill * len(m.group()) if len(fill) == 1 else fill), text)
+        lambda m: m.group() if not m.group().startswith("<!--") else (fill * len(m.group()) if len(fill) == 1 else fill), text)
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 # Sentence split on terminal punctuation followed by whitespace + a capital/backtick.
@@ -227,7 +226,7 @@ def _close_comment(lines: list[str], i: int, j: int) -> int:
     A comment opened inside a paragraph or list item runs over blank and structural lines to its ``-->``;
     a later ``<!--`` on the line that closes it opens the next one, and the range grows until none is left open.
     """
-    while "<!--" in _CODE_SPAN.sub("", _blank_comments("".join(lines[i:j]), "")):
+    while any(m.group(2) for m in _OPENER.finditer(_blank_comments("".join(lines[i:j]), ""))):
         n = next((n for n in range(j, len(lines)) if "-->" in lines[n]), -1)
         if n < 0:
             break
@@ -241,8 +240,8 @@ def _mask(text: str) -> str:
     A sentence cut never falls in either; the first character of a code span stays, so a cut before it holds.
     A cut falls before a comment when the text after the comment starts a sentence.
     """
-    return _COMMENT.sub(lambda m: m.group()[0] + "_" * (len(m.group()) - 1) if m.group().startswith("`")
-                        else "\0" * len(m.group()), text)
+    return _COMMENT.sub(lambda m: "\0" * len(m.group()) if m.group().startswith("<!--")
+                        else m.group()[0] + "_" * (len(m.group()) - 1), text)
 
 
 def _list_item_end(lines: list[str], i: int, close: bool = True) -> int:
@@ -272,7 +271,7 @@ def _emit_pieces(kind: str, chunk: str, start: int, hidden_from: int, emit) -> N
     pos = 0
     pieces: list[tuple[str, str, int]] = []
     for m in _COMMENT.finditer(chunk):
-        if m.group().startswith("`") or m.end() <= hidden_from:
+        if not m.group().startswith("<!--") or m.end() <= hidden_from:
             continue
         pieces += [(kind, chunk[pos:m.start()], pos), ("comment", m.group(), m.start())]
         pos = m.end()

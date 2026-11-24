@@ -48,3 +48,14 @@ def test_a_prohibition_cut_by_two_comments_stays_protected_in_every_claim():
     """#973: `- Never <!-- first ... --> ever <!-- second --> delete production data.` leaves no unprotected claim."""
     claims = claims_from_guidance("- Never <!-- first\n\n--> ever <!-- second --> delete production data.\n")
     assert [c.protection for c in claims if "delete" in c.text] == [("negation",)]
+
+
+def test_an_escaped_comment_opener_is_visible_text_and_keeps_its_negation():
+    for text in ("Restart the package. \\<!-- Never delete data. -->", "Restart the package. \\\\\\<!-- Never delete data. -->"):
+        claims = [c for c in claims_from_guidance(text) if "Never delete data" in c.text]
+        assert [c.protection for c in claims] == [("negation",)], text
+
+
+def test_a_comment_after_an_escaped_backslash_is_still_a_comment():
+    claims = claims_from_guidance("Restart the package. \\\\<!-- Never delete data. -->")
+    assert [c.protection for c in claims if "Restart" in c.text] == [()]
