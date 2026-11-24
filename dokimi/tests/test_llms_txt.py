@@ -98,6 +98,7 @@ def test_reference_links_resolve_before_their_descriptions_are_checked():
     target = 'https://acme.test/v1_(guide).md'
     definition = f'\n[User Guide]: <{target}> "Guide"\n[user guide]: ignored.md\n'
     assert llms_txt.check(text + definition) == []
+    assert llms_txt.check((text + definition).replace("\n", "\r\n")) == []
     missing = text.replace(': first charge in five minutes', '') + definition
     assert [(f.line, f.identity) for f in llms_txt.check(missing)] == [(15, f'Quickstart|{target}')]
     for label in ('[User Guide][]', '[User Guide]'):
@@ -106,4 +107,7 @@ def test_reference_links_resolve_before_their_descriptions_are_checked():
 
 def test_definitions_images_and_unresolved_references_are_not_documentation_links():
     text = GOOD.replace('[Quickstart](https://acme.test/quickstart.md)', '![icon][guide] and [Missing][unknown]')
-    assert _checks(text + '\n[guide]: https://example.com\n') == {'links'}
+    findings = llms_txt.check(text + '\n[guide]: https://example.com\n')
+    assert [(f.check, f.severity, f.line) for f in findings] == [('links', 'fail', 0)]
+    inline = GOOD.replace('- [Quickstart]', '- [note][Quickstart]')
+    assert llms_txt.check(inline) == []

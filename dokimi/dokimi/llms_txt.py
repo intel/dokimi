@@ -18,8 +18,8 @@ TOKEN_BUDGET = 2000
 
 _H1 = re.compile(r"^ {0,3}#\s+\S")
 _H2 = re.compile(r"^ {0,3}##\s+(.+?)\s*$")
-_LINK_LABEL = re.compile(r"(?<!\\)(!?)\[([^\[\]]+)\](?:\[([^\[\]]*)\])?")
-_REFERENCE_DEF = re.compile(r"^ {0,3}\[([^\[\]]+)\]:[ \t]*(?:<([^<>]+)>|([^\s<>]+))(?:[ \t]+.*)?$")
+_LINK_LABEL = re.compile(r"(?<!\\)(!?)\[([^\[\]]+)\](?:\[([^\[\]]*)\](?!\())?")
+_REFERENCE_DEF = re.compile(r'''^ {0,3}\[([^\[\]]+)\]:[ \t]*(?:<([^<>]+)>|([^\s<>]+))(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$''')
 _LINK_END = re.compile(r"""(?:[ \t]+(?:"[^"]*"|'[^']*'))?\)""")
 _DESTINATION_MARK = re.compile(r"\\.|[()\s]")
 _WHEN_NOT = re.compile(r"\bwhen\s+not\b|\bnot\s+for\b|\bavoid\b|\balternatives?\b", re.I)
@@ -104,7 +104,7 @@ def _link_findings(lines: list[str]) -> list[Finding]:
     definitions: dict[str, str] = {}
     content = []
     for i, line in enumerate(lines, 1):
-        if definition := _REFERENCE_DEF.fullmatch(line):
+        if definition := _REFERENCE_DEF.fullmatch(line.removesuffix("\r")):
             definitions.setdefault(_reference_label(definition[1]), definition[2] or definition[3])
         else:
             content.append((i, line))
