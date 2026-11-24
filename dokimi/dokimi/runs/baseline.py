@@ -293,9 +293,12 @@ def remove(root: Path, name: str) -> str | None:
             other = _same_but_case(store(root), name)
             raise InputError(str(missing) + (f" (baseline {plain(other)} differs only in case)"
                                              if other else ""))
-        try:  # listed, so None is a symlink to nothing: removed like any pointer that cannot be read
+        try:  # None: a link to nothing, or a pointer another process removed since the listing
             held = _read(path) or ""
         except (OSError, UnicodeDecodeError):
             held = ""  # removed all the same: a pointer that cannot be read points nowhere
-        path.unlink()
+        try:
+            path.unlink()  # a link to nothing goes: unlink does not follow it
+        except FileNotFoundError:
+            raise missing from None
     return held if is_run_id(held) else None

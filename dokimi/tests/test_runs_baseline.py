@@ -409,6 +409,22 @@ def test_runs_rm_refuses_the_store_however_it_is_reached(root, monkeypatch, caps
     assert sorted(os.listdir(root / "store")) == [".lock", "main"]
 
 
+def test_rm_of_a_pointer_removed_after_the_listing_says_there_is_no_such_baseline(
+        root, monkeypatch, capsys):
+    # a process that does not take the lock (a shell rm) may remove it between the listing and the read
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+    read = baseline._read
+
+    def removed_first(path):
+        path.unlink()
+        return read(path)
+
+    monkeypatch.setattr(baseline, "_read", removed_first)
+
+    assert _run(monkeypatch, capsys, "baseline", "rm", "main")[::2] == (
+        2, "Error: no baseline main under the runs root results/\n")
+
+
 def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):
     _run(monkeypatch, capsys, "baseline", "save", "main", A)
 
