@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 from dokimi.artifacts import save_artifact
 from dokimi.llm import LLM, ChatModel, Invoker, check_caller_provider
 from dokimi.judged import judged_reply
-from dokimi.metrics.usage import UsageRecord
-from dokimi.spend import Spend
 from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
 from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
@@ -28,6 +26,8 @@ from dokimi.eval.question_text import require_question_texts
 from dokimi.records import (BASELINE, CONTEXT, NO_RETRIEVAL_SOURCES, Record, RecordLike, is_knowledge_run,
                             knowledge_only, records)
 from dokimi.defaults import ANSWERING_METHOD_VERSION, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.metrics.usage import UsageRecord
+from dokimi.spend import Spend
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
 from dokimi.eval.rubric import (
