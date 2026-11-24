@@ -63,3 +63,10 @@ def test_a_listable_skill_keeps_its_files_digest_and_words_on_disk(tmp_path: Pat
     assert [(f.path, f.role) for f in bundle.files] == [
         ("SKILL.md", "entry_point"), ("references/a.md", "reference"), ("references/deeper/b.md", "reference")]
     assert bundle.resource_words_on_disk == 4
+
+
+def test_a_symlink_named_like_a_skipped_directory_is_excluded_as_a_symlink(tmp_path: Path):
+    skill = _skill(tmp_path)
+    (skill / "venv").symlink_to("references")
+    bundle = load_bundle(f"skill:{skill}", include_resources=True)
+    assert [(row["path"], row["reason"]) for row in bundle.excluded] == [("venv", "symlink")]
