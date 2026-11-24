@@ -111,3 +111,23 @@ def test_definitions_images_and_unresolved_references_are_not_documentation_link
     assert [(f.check, f.severity, f.line) for f in findings] == [('links', 'fail', 0)]
     inline = GOOD.replace('- [Quickstart]', '- [note][Quickstart]')
     assert llms_txt.check(inline) == []
+
+
+def test_link_like_text_in_a_title_does_not_create_another_link():
+    text = GOOD.replace('https://acme.test/quickstart.md', 'guide "[Example](example)"')
+    assert llms_txt.check(text) == []
+    more = text.rstrip() + '; [Other](other.md)\n'
+    assert [f.identity for f in llms_txt.check(more)] == ['Other|other.md']
+
+
+def test_angle_brackets_delimit_the_destination_including_unbalanced_parentheses():
+    text = GOOD.replace('https://acme.test/quickstart.md', '<https://example.test/function(a>')
+    assert llms_txt.check(text) == []
+    missing = text.replace(': first charge in five minutes', '')
+    assert [f.identity for f in llms_txt.check(missing)] == ['Quickstart|https://example.test/function(a']
+
+
+def test_inline_code_with_a_comment_opener_leaves_the_rest_of_the_index_visible():
+    text = GOOD.replace('Payments for SaaS products.', 'Use `<!--` for a comment.')
+    assert llms_txt.check(text) == []
+    assert llms_txt.check(text.replace('`<!--`', '``a ` and <!--``')) == []

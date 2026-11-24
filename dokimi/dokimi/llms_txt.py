@@ -13,6 +13,8 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from dokimi.code_spans import CodeSpanScanner
+
 #: Above this an index stops being a cheap first read; the llms.txt convention says compact.
 TOKEN_BUDGET = 2000
 
@@ -75,29 +77,42 @@ def _reference_label(label: str) -> str:
     return " ".join(label.split()).casefold()
 
 
+def _inline_destination(line: str, start: int) -> tuple[str, int] | None:
+    if line.startswith("<", start):
+        angle = re.match(r"<((?:\\.|[^<>\\])+)>", line[start:])
+        if angle and (end := _LINK_END.match(line, start + angle.end())):
+            return angle[1], end.end()
+        return None
+    depth = 0
+    for mark in _DESTINATION_MARK.finditer(line, start):
+        char = mark[0]
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+        elif char == ")" or char.isspace():
+            end = _LINK_END.match(line, mark.start()) if depth == 0 else None
+            if end is not None and mark.start() > start:
+                return line[start:mark.start()], end.end()
+            break
+    return None
+
+
 def _links(line: str, definitions: dict[str, str]) -> Iterator[tuple[str, str, int]]:
-    for label in _LINK_LABEL.finditer(line):
+    pos = 0
+    while label := _LINK_LABEL.search(line, pos):
         image, title, reference = label.groups()
-        if image:
-            continue
-        if reference is not None or not line.startswith("(", label.end()):
+        pos = label.end()
+        target: str | None
+        if reference is None and line.startswith("(", pos):
+            destination = _inline_destination(line, pos + 1)
+            if destination is None:
+                continue
+            target, pos = destination
+        else:
             target = definitions.get(_reference_label(reference or title))
-            if target is not None:
-                yield title, target, label.end()
-            continue
-        start = label.end() + 1
-        depth = 0
-        for mark in _DESTINATION_MARK.finditer(line, start):
-            char = mark[0]
-            if char == "(":
-                depth += 1
-            elif char == ")" and depth:
-                depth -= 1
-            elif char == ")" or char.isspace():
-                end = _LINK_END.match(line, mark.start()) if depth == 0 else None
-                if end is not None and mark.start() > start:
-                    yield title, line[start:mark.start()], end.end()
-                break
+        if target is not None and not image:
+            yield title, target, pos
 
 
 def _link_findings(lines: list[str]) -> list[Finding]:
@@ -120,17 +135,31 @@ def _link_findings(lines: list[str]) -> list[Finding]:
 
 
 def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
+    if not in_comment and "<!--" not in line:
+        return line, False
     parts: list[str] = []
-    while line:
+    pos = 0
+    spans = CodeSpanScanner(line)
+    while pos < len(line):
         if in_comment:
-            _, closed, line = line.partition("-->")
-            if not closed:
+            close = line.find("-->", pos)
+            if close < 0:
                 return "".join(parts), True
-            in_comment = False
+            pos, in_comment = close + 3, False
+            continue
+        opened = line.find("<!--", pos)
+        if opened < 0:
+            parts.append(line[pos:])
+            break
+        span = spans.find(pos)
+        while span is not None and span.end() <= opened:
+            span = spans.find(span.end())
+        if span is not None and span.start() < opened:
+            parts.append(line[pos:span.end()])
+            pos = span.end()
         else:
-            visible, opened, line = line.partition("<!--")
-            parts.append(visible)
-            in_comment = bool(opened)
+            parts.append(line[pos:opened])
+            pos, in_comment = opened + 4, True
     return "".join(parts), in_comment
 
 
