@@ -160,7 +160,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         walk.track_groups(bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
         if in_subshell:  # a subshell: its reads are not tracked
             walk.last_exit = None
-            walk.track_substituted(outer, after)  # ``export POSIXLY_CORRECT=$(date)``: the export is in this shell
+            walk.track_state(outer, [], after)  # ``export POSIXLY_CORRECT=$(date)``: the export is in this shell
             if _runs_dir(outer, walk.dirs, walk.functions):  # ``cd $(dirname f)``: the cd is outside the parentheses
                 walk.lose(_in_own_shell(outer, after))
             continue
@@ -247,13 +247,16 @@ class _Walk:
 
     def track_state(self, part: str, words: list[str], after: str) -> None:
         """The state a command of ``part`` sets (:meth:`track_posix`), also when a redirect leaves it no ``words``
-        (``export POSIXLY_CORRECT=1 >/dev/null``: the redirect changes no variable); no command: its exit is not known."""
+        (``export POSIXLY_CORRECT=1 >/dev/null``: the redirect changes no variable); no command: its exit is not known.
+        Also for a command with a substitution, whose ``part`` is its text outside the substitution (``if (false)``: ``if``)."""
         self.track_bodies(part)
         for copied in self.copies:
             copied |= copied_fds(part)
         unredirected = without_redirects(part)
         state_words = words or (self.words(unredirected, after) if unredirected != part else [])
         state_words = state_words or _expanded_words(unredirected)  # ``export POSIXLY_CORRECT="$X"``: set, whatever $X is
+        while state_words[:1] == ["{"]:  # ``{ export POSIXLY_CORRECT="$X"; }``: the group's command is this shell's
+            state_words = state_words[1:]
         if state_words == ["}"]:  # the ``}`` that closes a group has no exit of its own: the group's last command's
             return
         body = state_words
@@ -263,18 +266,6 @@ class _Walk:
             self.track_posix(body, after, _time_keyword(part), may_fail_redirect(part) or body != state_words)
         else:
             self.last_exit = None
-
-    def track_substituted(self, outer: str, after: str) -> None:
-        """The state a command sets whose word holds a substitution (``export POSIXLY_CORRECT=$(date)``): the substitution
-        is a part in a subshell, and ``outer`` is the command without it, which runs in this shell."""
-        body = _expanded_words(outer)
-        while body[:1] == ["{"]:
-            body = body[1:]
-        words = body
-        while words and words[0] in _KEYWORDS:  # ``then export P=$(x)``: the branch may not run
-            words = words[1:]
-        if words:
-            self.track_posix(words, after, _time_keyword(outer), words != body)
 
     def track_posix(self, words: list[str], after: str, timed: bool = False, perhaps: bool = False) -> None:
         """``POSIXLY_CORRECT`` after a command of this shell (not a job, ``after`` is ``&``; a pipeline's parts have no

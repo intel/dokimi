@@ -34,6 +34,14 @@ from dokimi.repos.cli_traces import shell_reads
     ("declare -a POSIXLY_CORRECT; export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
     ("declare -ax POSIXLY_CORRECT=1; unset POSIXLY_CORRECT; export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
     ("declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # a scalar is
+    ("export POSIXLY_CORRECT=1; if (false); then :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),  # the body may not run
+    ("export POSIXLY_CORRECT=1; if (false); then unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ('X=1; { export POSIXLY_CORRECT="$X"; }; head AGENTS.md -n 0', ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=$(echo 1) >/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # a redirect changes no variable
+    ("export POSIXLY_CORRECT=$(echo 1) >/missing/f; head AGENTS.md -n 0", ["AGENTS.md"]),  # it may fail: both states stay
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT $(echo X) >/missing/f; head AGENTS.md -n 0", ["AGENTS.md"]),  # may not run
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT $(echo X) >/dev/null; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=$(echo 1) | cat >/dev/null; head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_follows_posixly_correct_through_expansions_prefixes_and_arrays(command, reads):
     assert shell_reads(command) == reads
