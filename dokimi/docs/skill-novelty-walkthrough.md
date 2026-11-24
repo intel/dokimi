@@ -3,6 +3,8 @@ depends_on:
   - dokimi/dokimi/novelty/**
   - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
+  - dokimi/dokimi/commands/novelty_flags.py
+  - dokimi/dokimi/commands/novelty_routing*.py
 ---
 <!--
 Copyright (C) 2026 Intel Corporation
@@ -184,7 +186,7 @@ extraction, not empty.
 
 ```bash
 python cli.py skill shorten --artifact skill:skills/my-skill --atoms atoms.json \
-    --budgets 0.75 0.5 --lexical-only --out short/SKILL.md
+    --token-budgets 0.75 0.5 --lexical-only --out short/SKILL.md
 ```
 
 `--lexical-only` runs the retention oracle without an LLM adjudicator: cheap, reproducible,

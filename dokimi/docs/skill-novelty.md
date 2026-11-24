@@ -3,6 +3,8 @@ depends_on:
   - dokimi/dokimi/novelty/**
   - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
+  - dokimi/dokimi/commands/novelty_flags.py
+  - dokimi/dokimi/commands/novelty_routing*.py
   - dokimi/dokimi/gate/novelty_gate.py
   - dokimi/dokimi/schemas/novelty.v1.json
 ---
@@ -398,6 +400,21 @@ Read it in this order:
 4. **`added` last** — it tells you whether the artifact is worth its tokens, but the three checks
    above tell you what to do.
 
+### Per-atom verdicts: `<out stem>.atom_verdicts.json`
+
+`novelty.json` holds totals. Beside it `analyze` writes `novelty.atom_verdicts.json` (the output's stem plus `.atom_verdicts.json`), a `novelty_atoms` artifact with one row per atom the run probed (a capped run's sample), and `novelty.atoms.json` (the stem plus `.atoms.json`), the atoms and spans that run extracted, in the format of the `atoms.json` that `skill novelty atoms` writes. The verdict rows:
+
+- `id`, `statement`, `question`, `answer`, `kind`, `tags`, `span_ids` and `faithfulness` (`supported`, `distorted`, `unsupported` or `unchecked`), as in `atoms.json`.
+- `needed`, `scaffolding`, `conflict` and `conflict_why`: the value judge's verdict and the conflict check. `needed` and `scaffolding` are `null` for an atom the value judge gave no answer, even when a detected conflict names it (`conflict` and the category `harmful_conflicting` stay). All four are `null` for an atom with no verdict, and for every atom of a run with `--no-classify` or a tier without classification. `conflict` and `conflict_why` are also `null` for an atom the conflict check never compared with anything (the "not checked for conflicts" warning in `novelty.json`, with `conflict_coverage.pairs_compared` below `pairs_total`): `null` is "not checked", `false` is "checked, no conflict".
+- `outcome.lenient` and `outcome.strict`: the atom's worst paired outcome (`degraded`, then `added`, `still_missing`, `redundant`) under each scoring; `null` for an atom with no usable pair.
+- `category`: the content category from the judged axes and the lenient outcome (never the strict one); with no usable pair it is `novel_*`, from the judged axes alone, so a `null` `outcome` still gives `novel_useful` or `novel_inert`; `null` without a verdict.
+
+Top level: `artifact_ref`, `ref_digest` (the artifact revision), `model`, `with_arm` and `conflicts` (the pairs, as `a`, `b`, `why` with atom ids). To check the grader, filter the rows on `outcome.lenient` and `category`, for example `redundant` outcomes with category `known_inert`, and read each row's `statement` and `span_ids` against the spans. The file is always written, so a file left by an earlier run into the same output is replaced.
+
+`skill novelty view --novelty novelty.json --atoms novelty.atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. Pass the `novelty.atoms.json` of the same run: atom ids hash the statement, so an `atoms.json` from a separate `skill novelty atoms` call holds the same ids only when the extractor worded every atom the same. It exits 2 when the file's `artifact_ref`, `ref_digest`, `model`, `run_id` or `analysis_digest` differs from the `--novelty` artifact's (a `novelty.json` with no `run_id` differs from a file that has one; `analysis_digest` is the digest of the `novelty.json` payload without `schema_version`, `run_id` and `dokimi_version`, so two analyses that share a `DOKIMI_RUN_ID` still differ), or when it names an atom `--atoms` does not hold or cites other `span_ids` for an atom than `--atoms` does (an atoms file extracted again from an edited source keeps the ids and moves the spans). It also exits 2 when the `--atoms` file's `bundle.measured_digest` differs from the `--novelty` artifact's `ref_digest`; an atoms file that records no such digest is not checked against it.
+
+Add `--atom-labels labels.csv` (it needs `--atom-verdicts`) to see the known and new shares per label of your own. The file has one row per atom: `skill` (the artifact ref, its `skill:` prefix optional), `atom_id` (the `id` of an atom of `--atoms`, as in the verdicts file) and `label`; it is JSON lines, or CSV with a header when the name ends in `.csv`. An atom with no label row is counted under `unlabelled`, and labels that match no atom of the run are counted in a `WARNING`. `known` is a category starting `known_`, `new` one starting `novel_`, `other` the rest (`scaffolding`, `harmful_conflicting`); the shares are over the atoms that have a category, and `uncat.` counts the atoms with none: the probed atoms that got no category and, in a capped run, the atoms of `--atoms` outside the sample (a label on one of those raises no warning). The table is printed after the view is saved; nothing is written back to the artifacts.
+
 ### 2. Span attribution — where in the file
 
 Each span of the artifact is annotated with the atoms it carries, their outcome, and its token cost,
@@ -450,10 +467,10 @@ the highlight is load-bearing. Three measured constraints ship with it:
 ### 3. Shortening, with five separate scores
 
 ```bash
-python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
+python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --token-budgets 0.75 0.5
 ```
 
-`skill novelty analyze` scores the same candidates at its `--budgets` unless you pass `--no-shorten`
+`skill novelty analyze` scores the same candidates at its `--token-budgets` unless you pass `--no-shorten`
 (`--tier triage` skips them too).
 
 Never one "retention" number, because a single score hides the one failure that matters. A measured
@@ -705,31 +722,53 @@ prompt asks for. A negation written as its synonym counts as the negation itself
 `X rather than Y` and `non-deterministic` restate `X, not Y` and `not deterministic`
 rather than inverting them. An opening `Doesn't` / `Isn't` is question phrasing and is not counted, so
 `Doesn't X support Y?` restates `X supports Y`, while `Is it true that X supports Y?`
-inverts `X does not support Y`. A reversal may run up to 15 words past the 2.5x length cap,
+inverts `X does not support Y`. A tag at the end (`..., doesn't it?`, `..., is it not?`) is question phrasing
+in the same way, so `The skill ships with numbers, doesn't it?` inverts `No numbers ship with
+the skill`; `Is it NOT the case that ...?` still counts as a negation. A reversal may run up to 15 words past the 2.5x length cap,
 the size of a leading frame such as `Isn't it true that ... NOT ..., but rather ...?`.
 
 Known gap: the paraphrase polarity check only asks whether a negation is present, so a
 faithful paraphrase that drops one (`Can you run X without root?` to `Is root required to
 run X?`) is rejected and counted in `malformed_rate`. The error inflates the rate; it never
-lets a corrupted wording through. The reversal check is lexical too: an inversion made by a
-plain antonym (`faster` to `slower`, `off` to `on`) is rejected and inflates the rate, while a
-restatement whose verb carries the negation (`does not support` to `lacks support for`) is
-not detected and is probed with a true premise.
+lets a corrupted wording through. The reversal check is lexical too. It accepts an inversion
+that adds one of these words the source lacks: `skip`, `unreliable`, `useless`,
+`unsuitable`, `unhelpful`, `wrong`, plus the bound and permission words (`any`, `all`, `newer`,
+`safe`, ...); `always` when the source holds `sometimes`, `occasionally`, `rarely`, `never` or
+`only the first` and the candidate drops it; and `entirety` when the source holds `subset`,
+`partial`, `some` or `few` and the candidate drops it. `Only administrators ...` to `... always ...`
+is rejected, since `only`, `once` and `single` limit who, when and how many, which `always` does not
+widen. `skip` governed by `wrong`, `useless`, `unreliable`, `unsuitable`, `unhelpful`, `unwise`,
+`bad`, `risky` or `mistake` cancels, in `... to skip` (up to two words between, `to ever skip`
+included) and in `skipping ... <judgement>` at the end of a clause (`Is it wrong to skip
+warm-up?`, `Is skipping warm-up a mistake?` restate `warm up first`) and is rejected; the adjective
+after `skip` (`skip warm-up because it is useless`) does not cancel it. A filler word (`still`, `also`, `even`, `just`) is never one. An
+inversion made by a pure antonym with no listed word (`preferable`, `stays the same`, `faster`
+to `slower`, `off` to `on`) is rejected and inflates the rate, while a restatement whose verb
+carries the negation (`does not support` to `lacks support for`) is not detected and is probed
+with a true premise.
 
 Rejected wordings are dropped, never probed, and the rate ships with the result:
 
 ```json
 "probes": {"n_probes": 81, "malformed_rate": 0.12,
            "by_kind": {"paraphrase": {"generated": 27, "kept": 24, "rejected": 3,
-                                      "reasons": {"anchor_dropped": 3}}}}
+                                      "reasons": {"anchor_dropped": 3},
+                                      "rejected_examples": [
+                                        {"atom_id": "a007", "source": "Which flag enables the accelerator on driver 2.1?",
+                                         "candidate": "Which flag enables the accelerator?",
+                                         "reasons": ["anchor_dropped"]}]}}}
 ```
+
+`rejected_examples` keeps the first 20 rejected wordings of each kind (an empty generator row
+is kept with `candidate` `""`), so a reader can audit the rate; `reasons` still counts every
+rejection.
 
 Read it as a budget statement, not a quality score. The denominator is **atoms asked for**,
 not rows the generator returned, so a failed or truncated generation counts: a
 `malformed_rate` of 0.12 on paraphrases means that kind probed 24 of 27 atoms, and a
 `redundant` verdict that was supposed to be confirmed under reworded phrasing was not
 confirmed for three of them. Above
-0.2 the run says so in `warnings`. The checks reject on evidence only, so a rate of 0.0 is
+0.2 the run says so in `warnings`, which names `probes.by_kind.<kind>.rejected_examples`. The checks reject on evidence only, so a rate of 0.0 is
 the absence of detectable corruption — not proof that the wordings are faithful.
 
 ## Can the artifact be selected at all
@@ -944,7 +983,9 @@ more per call as well as in calls. Before the first call the run prints that cou
 (`all-vs-all: --model makes N model calls, one per query and repeat, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
-fewer calls than the printed count.
+fewer calls than the printed count. The response cache is opt-in: without `DOKIMI_RESPONSE_CACHE`
+set to a writable directory nothing is stored, and a rerun pays for every call again. Set it for
+research runs and for any run you may repeat. `--cache-dir` keeps only the retention verdicts.
 
 **A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary; with AWS: "Unable to locate credentials", a missing config profile or an expired SSO session, whichever class litellm wraps it in) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries. `skill novelty atoms`, `probe` and `analyze` and `skill shorten` stop the same way at the first such error in an atom extraction call, the faithfulness check, a probe wording, an answer, a grade, a value or conflict batch or a retention adjudication, and keep what they paid for as they do at the cap, with `"reason": "permanent_error"`; a refusal, an unparseable reply or a request one item makes too long is still one failed item.
 
@@ -1220,6 +1261,69 @@ A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
 Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.
 
+## Corpus sweep: `catalog novelty`
+
+`catalog novelty ROOT --out-dir DIR --max-usd USD` runs `skill novelty analyze` on every
+`SKILL.md` under ROOT and writes one row per skill to `--jsonl` (default `DIR/sweep.jsonl`) as
+each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
+`DIR/<skill>/novelty.json` and `novelty.md`. The calls are paid: `--max-usd` is required.
+
+- **Budget.** `--max-usd` is the whole-run budget, shared by the skills analysed at once
+  (`--jobs`, threads). `--max-usd-per-skill` caps one skill inside it; a skill that hits either
+  cap is a `partial` row with no novelty file, and the sweep goes on. Once the whole-run budget
+  is spent, no further skill starts: it is not in the JSONL, and the run says how many were not run.
+  A skill stopped by a call with no price or by a permanent provider error (see above, routing) stops the
+  sweep the same way, since every later skill would meet it on its first calls.
+  A run that leaves any skill it took on `partial`, `error` or not run exits 1 after it has written
+  its rows and the summary; a run that measured every one of them exits 0.
+- **Resume.** `--resume` keeps the `ok` rows whose skill directory digest, measurement settings
+  and dokimi version are unchanged, rewrites the JSONL with them and with the rows of skills this
+  run does not select (a narrower `--limit`), and runs the other skills. Set
+  `DOKIMI_RESPONSE_CACHE` so the calls already paid replay at $0. Without `--resume`, an existing
+  `--jsonl` is refused rather than overwritten. A `--resume` whose settings differ from those of an `ok` row of a
+  selected skill (or whose dokimi version does) is refused and names the fields, since rewriting the file would
+  delete that paid row before its rerun; pass `--rerun-changed` to measure those skills again on purpose.
+- **Settings.** The sweep takes the measurement flags it needs (`--model`, `--judge-model`,
+  `--tier`, `--max-atoms`, `--token-budgets`, `--arms`, `--include-resources`, ...); the rest keep their
+  `skill novelty analyze` defaults. `--judge2` and a judge panel (`--judge` more than once, `--judge-aggregate`) are not part of
+  the sweep, which refuses them: run them on one skill.
+- **Summary.** The first line of the summary is the share the model already knew without the
+  skill, `k0.lenient`, and the share it did not know (`1 - known`): the new-to-the-model share.
+  Each interval is a 95% percentile bootstrap over the skills (2000 resamples,
+  `--bootstrap-resamples`). `--strata CSV` adds one line per stratum: the CSV has a `skill`
+  column (the skill's directory under ROOT, or its name) and a stratum column (`--stratum-column`,
+  default `stratum`); a skill the CSV does not name is `(unassigned)`.
+- **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
+  sweep with no model call. `--summary-out FILE` also writes it as JSON. A file whose `ok`
+  rows were measured under different settings or dokimi versions (a `--resume --limit` with a changed
+  `--model`) is refused: one interval would pool two models' shares. An identical bundle (same
+  files, so the same digest) is counted once, by its last `ok` row, even if it was moved to another directory or
+  renamed. If differently named bundles with the same digest coexist in the catalog, each has a separate
+  measurement. The JSONL records a `bundle_instance` number for additional copies so `--summary-only` can
+  distinguish them without the catalog. Older rows without that evidence use instance zero. The spend
+  counts every paid row, including rows written before a rename.
+- **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
+  byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
+  are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names
+  them (not an error). Two directories with the same `SKILL.md` and different bundled files are two skills.
+- **Interrupt.** Ctrl-C or SIGTERM stops the sweep without new calls: the skills not yet started
+  are cancelled, the skills in flight finish and keep their rows, and the run exits nonzero (130
+  for SIGINT, 143 for SIGTERM). A SIGTERM therefore waits for the calls in flight. The rows already
+  written stay in the JSONL, so `--resume` continues from them. A second signal kills the subprocess calls in
+  flight (their paid work is lost, so set `DOKIMI_RESPONSE_CACHE` to replay what was done) and stops
+  at once. An API call in flight cannot be killed: its row is not written, and the process waits for it to end
+  before it exits, so its paid call is lost unless `DOKIMI_RESPONSE_CACHE` is set. No call after it starts.
+  A skill that is measured again (`--resume`) first loses its earlier `novelty.json` and `novelty.md`, so a
+  `partial` or `error` row never sits beside a file from an older run. `--summary-out` may not be the
+  `--jsonl` file, and neither `--out-dir` nor `--jsonl` may be inside a skill directory (its files
+  would change the skill's digest, so each `--resume` would measure it again).
+
+```bash
+dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \
+  --jobs 4 --model <answerer> --judge-model <judge> --strata strata.csv
+dokimi catalog novelty skills/ --out-dir out/sweep --summary-only
+```
+
 ## Cost, and how it is kept down
 
 The measurement is LLM-call bound, and the probe term is predictable: **every probe costs an
@@ -1442,7 +1546,8 @@ rewrites one file, so with a bundle-derived atom set it scores only the entry po
 and says so.
 
 And the retention oracle runs retrieval → NLI locally, escalating to an LLM only for the
-ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
+ambiguous band, with a disk memo of its verdicts (`--cache-dir`, keyed on (atom, text); the
+response cache is `DOKIMI_RESPONSE_CACHE`, also opt-in). Full sweeps stay opt-in
 (`--all-atoms`).
 
 The cache key carries a version (`retention-cache-v6`). Entries written before failed
@@ -1461,8 +1566,8 @@ statement's byte length as 8 bytes (big-endian) before the statement, which no s
 can collide on. The old files stay in `--cache-dir` and can be deleted, and the first run after
 upgrading pays the adjudication calls again.
 
-**Pass `--max-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
-16384 output tokens unless `--max-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
+**Pass `--max-output-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
+16384 output tokens unless `--max-output-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
 Claude when none is given, and on a dense skill a 25-span extraction batch can need more than
 that: in the run below, replies came back with `finish_reason=length` at exactly 4096 tokens,
 cut mid-array. A reply cut at the ceiling (`finish_reason` `length` or `max_tokens`) is an error,
@@ -1472,14 +1577,14 @@ unparseable (or one whose rows are all unusable) in half and re-asking, down to 
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
 capped run asks every batch too), and a warning (`atom extraction re-asked N
-unparseable batches as halves`) says what they cost; a higher `--max-tokens` avoids the truncated ones, not those with unusable rows. A call
+unparseable batches as halves`) says what they cost; a higher `--max-output-tokens` avoids the truncated ones, not those with unusable rows. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
 Spans that still cannot be read are *unread*, not text that carries nothing. The warning
 (`atom extraction could not read N of M spans`) gives their count and token cost, and separates
-four causes: spans whose reply never parsed, even alone (raise `--max-tokens`); spans whose call
+four causes: spans whose reply never parsed, even alone (raise `--max-output-tokens`); spans whose call
 came back empty, which is what a reasoning model returns when it spends the output ceiling before
-answering (raise `--max-tokens` too); spans whose reply parsed to rows none of which is a usable atom
+answering (raise `--max-output-tokens` too); spans whose reply parsed to rows none of which is a usable atom
 (wrong keys, strings, span ids outside the document; an empty array is a result, not this); and spans
 lost to a failed call (with its error). The
 `extraction` block, in the artifact and in `atoms.json`, records:
@@ -1513,7 +1618,7 @@ retention by up to that many decisions. A hedged verdict (`"retained?"`) counts 
 (`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split a
 batch whose reply does not parse, or has no row it can use, the same way as extraction, and say so
 (`content classification re-asked N unparseable batches as halves`, or `unusable` when no row was
-usable; only the first is cured by `--max-tokens`). A judge row whose `needed` is not a real boolean
+usable; only the first is cured by `--max-output-tokens`). A judge row whose `needed` is not a real boolean
 is counted as malformed, apart from a statement the judge skipped, unless no row of its reply is usable (then the batch is split and the atoms count as `unusable`); a conflict row that names no pair
 of its batch is dropped and counted. Every novelty call passes a test of a usable reply to the
 response cache, so a reply that fails it is never stored or replayed: extraction, the batched

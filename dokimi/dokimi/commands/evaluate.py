@@ -84,6 +84,11 @@ def _print_left_out(rows: list, valid: list) -> None:
         print(f"Questions left out (no quorum or no answer): {left_out}/{len(rows)}")
 
 
+def _stop_of(answers_meta) -> dict:
+    """The answers file's ``terminated`` block for the eval's ``run_metadata``: the report then says the run stopped."""
+    return {"terminated": answers_meta["terminated"]} if answers_meta.get("terminated") else {}
+
+
 def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     """Score answers using a multi-judge panel (parallel, role-diverse judges)."""
     from dokimi.eval.panel import JudgePanel, JudgeConfig, DEFAULT_PANEL, JUDGE_ROLES
@@ -137,7 +142,8 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                                          output_path=output_path,
                                          limit=getattr(args, "limit", None),
                                          run_metadata={"answer_model": answer_model,
-                                                       "answer_provider": answer_provider})
+                                                       "answer_provider": answer_provider,
+                                                       **_stop_of(run.meta)})
     except OSError as exc:
         raise InputError(f"cannot write {output_path}: {exc.strerror or exc}") from exc
 
@@ -205,6 +211,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
             "judge_provider": args.judge_provider,
             "evaluator_independence_warning": same_model_warning,
             **({"run_intent": run.meta["run_intent"]} if run.meta.get("run_intent") else {}),
+            **_stop_of(run.meta),
         },
     )
 

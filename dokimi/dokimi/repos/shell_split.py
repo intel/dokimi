@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""A shell script split into its parts, for :func:`~dokimi.repos.cli_traces.shell_reads`."""
+"""A shell script split into its parts, for :func:`~dokimi.repos.shell_walk.shell_reads`."""
 
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ class _Splitter:
         script, c = self.script, self.script[i]
         two = script[i:i + 2]
         op = two if two in ("&&", "||") else c if c in ";\n" else ""
-        if c == "&" and not op and script[i - 1:i] not in (">", "<") and script[i + 1:i + 2] != ">":
+        if c == "&" and not op and script[i - 1:i] not in (">", "<", "|") and script[i + 1:i + 2] != ">":
             op = "&"
         if not op and (word := self._case_word(i)):
             self.add(word)

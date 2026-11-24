@@ -13,6 +13,7 @@ import os
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skill_dir, review_skills
+from tests.growth_timing import GROWTH_LIMIT, growth
 from tests.test_catalog_validate import _codes, _skill
 
 
@@ -428,34 +429,41 @@ def test_a_folder_written_above_the_skill_root_names_no_bundled_folder(tmp_path,
     assert "(scripts/unused.py)" in message
 
 
-def test_a_bundle_with_many_files_and_large_documents_is_judged_quickly(tmp_path):
-    import time
-
+def _big_bundle(root, docs, unreferenced, lines):
+    """A skill under ``root`` with ``docs`` documents of ``lines`` lines, each naming one script, and ``unreferenced``
+    scripts nothing names; returns the call that judges it."""
     from dokimi.external.bundle_refs import unreferenced_message
     from dokimi.external.validate import _link_files
 
-    # Only the bundle search is timed, in CPU time, and the bound is loose: a loaded runner is several times slower.
-    # A search per file took 32 s on this input; the name lookup takes about 2 s.
-    docs = {
-        f"docs/d{i:02d}.md": "filler line for the document\n" * 7500 + f"Run `scripts/s{i:02d}.py`.\n"
-        for i in range(50)
+    names = {
+        f"docs/d{i:02d}.md": "filler line for the document\n" * lines + f"Run `scripts/s{i:02d}.py`.\n"
+        for i in range(docs)
     }
-    texts = dict(docs)
-    texts.update({f"scripts/s{i:02d}.py": "x\n" for i in range(50)})
-    texts.update({f"scripts/u{i:04d}.py": "x\n" for i in range(1900)})
-    body = "See " + ", ".join(docs) + ".\n"
-    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body=body)
+    texts = dict(names)
+    texts.update({f"scripts/s{i:02d}.py": "x\n" for i in range(docs)})
+    texts.update({f"scripts/u{i:04d}.py": "x\n" for i in range(unreferenced)})
+    body = "See " + ", ".join(names) + ".\n"
+    skill_dir = _skill(root / "skills", "kit", name="kit", description="Use when testing.", body=body)
     for rel, text in texts.items():
         target = skill_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     links = _link_files(body)
-    started = time.process_time()
-    message = unreferenced_message(skill_dir / "SKILL.md", links, at_root=False, doc_links=_link_files)
-    elapsed = time.process_time() - started
+    return lambda: unreferenced_message(skill_dir / "SKILL.md", links, at_root=False, doc_links=_link_files)
+
+
+def test_a_bundle_with_many_files_and_large_documents_names_the_unreferenced_ones(tmp_path):
+    message = _big_bundle(tmp_path, 50, 1900, 7500)()
     assert message is not None
     assert "1900 of 2000" in message  # 50 documents, 50 scripts they name, and 1900 they do not
-    assert elapsed < 10
+
+
+def test_a_bundle_with_many_files_and_large_documents_is_judged_quickly(tmp_path):
+    # Documents and files grow together: the name lookup is linear, a search per file quadratic (#1033).
+    # A CPU-time ratio, not an absolute time: a loaded runner slows both sizes.
+    ratio, message = growth(lambda k: _big_bundle(tmp_path / f"k{k}", k, 37 * k, 200), 3, reps=3)
+    assert message is not None and "1776 of 1872" in message
+    assert ratio < GROWTH_LIMIT
 
 
 @pytest.mark.parametrize(
@@ -756,3 +764,18 @@ def test_an_unlistable_hidden_folder_with_every_file_named_gives_no_note(tmp_pat
     finally:
         cache.chmod(0o755)
     assert "bundle-file-unchecked" not in _codes(review)
+
+
+@pytest.mark.parametrize("locale_file", ["SKILL.ru.md", "SKILL.zh-CN.md", "SKILL.pt_BR.md", "skill.ja.MD"])
+def test_a_translation_of_skill_md_at_the_root_is_not_an_unnamed_file(tmp_path, locale_file):
+    review = _review(tmp_path, "Run `python scripts/build.py`.\n", ["scripts/build.py", locale_file])
+    assert "bundle-file-unreferenced" not in _codes(review)
+
+
+@pytest.mark.parametrize("other_file", ["SKILL.notes.md", "notes.ru.md", "SKILL.ru.txt", "SKILL.cli.md", "SKILL.bak.md", "SKILL.md.md",
+                                       "SKILL.db.md", "SKILL.md-old.md", "SKILL.ru-draft.md",
+                                       "SKILL.en-help.md", "SKILL.ru-tips.md"])
+def test_a_file_that_only_looks_like_a_translation_is_still_unnamed(tmp_path, other_file):
+    review = _review(tmp_path, "Run `python scripts/build.py`.\n", ["scripts/build.py", other_file])
+    [finding] = [f for f in review.findings if f.code == "bundle-file-unreferenced"]
+    assert finding.message.startswith("1 of 2")

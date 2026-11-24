@@ -252,7 +252,7 @@ criteria:
   AC-J03-002:
     delivery: available
     enforce: false
-    surfaces: ["repo validate --manifest"]
+    surfaces: ["eval check --schema-only --manifest"]
     gaps: ["not yet bound to a test id"]
 
   # ---------------------------------------------------------------- J7
@@ -299,7 +299,7 @@ criteria:
     evidence:
       - id: cjm-builtin-review-graders
         kind: cli_scenario
-        invokes: ["eval check --task", "repo validate --json"]
+        invokes: ["eval check --task", "eval check --schema-only --json"]
         stubs: [Docker (FakeRunner)]
   AC-J07-005:
     delivery: available
@@ -364,7 +364,7 @@ criteria:
     enforce: true
     capability: novelty
     surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "skill routing --max-usd"]
-    refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py, dokimi/novelty/cost.py]
+    refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py, dokimi/commands/novelty_routing.py, dokimi/novelty/cost.py]
     evidence:
       - {id: cjm-novelty-spend-cap, kind: unit, stubs: [model client prices]}
   AC-J14-002:

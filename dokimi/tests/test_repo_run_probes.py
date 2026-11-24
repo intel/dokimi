@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+import yaml
+
 from dokimi.repos import security as sec
 from test_repo_run import _run, setup  # noqa: F401  # the run fixture, with its helpers
 
@@ -46,3 +49,28 @@ def test_commands_the_matcher_cannot_read_cost_only_their_own_probes(setup, monk
     # one note for the cell: five would fill the runner's five trace_errors slots and the scan would call it unfinished
     cov = sec.scan_batch(setup["out"] / "b1", "guidance:raw")["coverage"]
     assert cov["cells"] == 1 and cov["unfinished"] == []
+
+
+def test_choice_matching_failure_keeps_the_grade_and_trace(setup, monkeypatch):  # noqa: F811
+    def failed(*args):
+        raise ValueError("no match")
+
+    monkeypatch.setattr("dokimi.repos.runner.with_choices", failed)
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    cell = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    result = json.loads((cell / "result.json").read_text())
+    assert result["grade"]["success"] is True
+    assert (cell / "events.jsonl").read_text() and (cell / "answer.txt").read_text()
+    assert any("choice matching failed" in reason for reason in result["agent"]["trace_errors"])
+
+
+def test_changed_probes_in_an_external_manifest_refuse_resume(setup, tmp_path, capsys):  # noqa: F811
+    manifest = tmp_path / "manifest.yaml"
+    raw = yaml.safe_load((setup["root"] / ".agent-eval/repo-eval.yaml").read_text())
+    manifest.write_text(yaml.safe_dump({**raw, "probes": {"cpu": ["nproc"]}}))
+    args = ("--arm", "guidance:raw", "--task", "fix_add", "--manifest-file", str(manifest))
+    _run(setup, *args)
+    manifest.write_text(yaml.safe_dump({**raw, "probes": {"cpu": []}}))
+    with pytest.raises(SystemExit):
+        _run(setup, *args)
+    assert "holds cells of another execution" in capsys.readouterr().err

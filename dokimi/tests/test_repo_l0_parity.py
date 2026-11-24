@@ -494,6 +494,14 @@ def test_a_fence_nested_in_a_list_item_is_checked_as_at_the_top_level(tmp_path, 
     )
 
 
+@pytest.mark.parametrize("lang", ["python", "starlark"])
+@pytest.mark.parametrize("body", ["", "\n"], ids=["no line", "blank line"])
+def test_an_empty_python_or_starlark_fence_is_skipped_and_the_next_fence_checked(tmp_path, lang, body):
+    agents = f"{FENCE}{lang}\n{body}{FENCE}\n\n" + _fence(lang, 'load("//:defs.bzl", "m")')
+    got = _verdicts(_scan(tmp_path, agents, _DEFS))
+    assert got == {("starlark_load", "m from //:defs.bzl"): "ok", ("bazel_label", "//:defs.bzl"): "ok"}
+
+
 def test_a_computed_first_build_file_is_not_forgotten_by_the_second(tmp_path):
     files = _external(
         {

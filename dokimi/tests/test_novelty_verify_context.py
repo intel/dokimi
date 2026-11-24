@@ -40,7 +40,7 @@ def _atom(spans, text_part, *more):
 def _blocks(prompt: str) -> tuple[str, str]:
     assert "\nCONTEXT" in prompt, "the faithfulness prompt has no CONTEXT block"
     source = prompt.split("SOURCE:\n", 1)[1].split("\n\nCONTEXT", 1)[0]
-    context = prompt.split("never supplies the claim, so judge the SOURCE alone):\n", 1)[1]
+    context = prompt.split("the claim, so judge the SOURCE alone):\n", 1)[1]
     return source, context.split("\n\nAnswer with JSON", 1)[0]
 
 
@@ -137,6 +137,52 @@ def test_a_sentence_after_a_table_gets_no_table_header():
                     "These defaults apply to CPU only.\n")
     _, context = _check(_atom(spans, "These defaults"), spans)
     assert "Table header" not in context
+
+
+LEAD = "Three commands answer most questions before any code changes:"
+FENCE_DOC = f"# T\n\n## H\n\n{LEAD}\n\n```bash\npython -V\nsycl-ls\n```\n\nThen go on.\n"
+
+
+def test_a_colon_ended_lead_in_gets_the_code_block_after_it():
+    spans = segment(FENCE_DOC)
+    client = _Capture()
+    verify_atoms([_atom(spans, "Three commands")], spans, client=client)
+    source, context = _blocks(client.prompts[0])
+    assert source == LEAD
+    assert context == "Heading: T > H\nFollowing: ```bash\npython -V\nsycl-ls\n```"
+
+
+def test_a_heading_after_a_colon_ended_span_is_not_added():
+    spans = segment("# T\n\n## H\n\nSee below:\n\n## Next\n\nText.\n")
+    _, context = _check(_atom(spans, "See below"), spans)
+    assert context == "Heading: T > H"
+
+
+def test_a_repeated_sibling_heading_after_a_colon_ended_span_is_not_added():
+    spans = segment("# Intro\n\n## Setup\n\nDo the following:\n\n## Setup\n\nText.\n")
+    _, context = _check(_atom(spans, "Do the following"), spans)
+    assert context == "Heading: Intro > Setup"
+
+
+def test_a_cited_span_without_a_colon_gets_no_following_span():
+    spans = segment(FENCE_DOC.replace(LEAD, LEAD[:-1] + "."))
+    _, context = _check(_atom(spans, "Three commands"), spans)
+    assert context == "Heading: T > H"
+
+
+def test_a_colon_ended_cited_span_last_in_the_document_gets_no_following_span():
+    spans = segment("# T\n\nLead:\n")
+    _, context = _check(_atom(spans, "Lead:"), spans)
+    assert context == "Heading: T"
+
+
+def test_the_last_cited_span_in_document_order_decides_the_following_span():
+    spans = segment(FENCE_DOC)
+    _, context = _check(_atom(spans, "Three commands", "Then go on"), spans)
+    assert "Following" not in context
+    spans = segment("# T\n\nFirst sentence. Lead:\n\n- one\n- two\n")
+    _, context = _check(_atom(spans, "First sentence", "Lead:"), spans)
+    assert context.splitlines()[-1] == "Following: - one"
 
 
 def test_rows_beside_a_dash_only_row_get_their_own_table_header():

@@ -110,12 +110,12 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("subjects", "evidence"), FREE),
     Leaf(("tasks", "harnesses"), FREE),
     Leaf(("tasks", "run"), PAID),
-    Leaf(("explore", "list"), FREE),
     Leaf(("explore", "run"), PAID),
     Leaf(("catalog", "list"), FREE),
     Leaf(("catalog", "show"), FREE),
     Leaf(("catalog", "intents"), FREE),
     Leaf(("catalog", "check"), FREE),
+    Leaf(("catalog", "provenance"), FREE),
     Leaf(("catalog", "eval"), FREE),
     Leaf(("catalog", "formats"), FREE),
     Leaf(("catalog", "trigger-probe"), PAID),
@@ -131,8 +131,8 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("skill", "check"), FREE),
     Leaf(("skill", "routing"), PAID),
     Leaf(("catalog", "routing"), PAID),
+    Leaf(("catalog", "novelty"), PAID),
     Leaf(("catalog", "routing-compare"), FREE),
-    Leaf(("repo", "validate"), FREE),
     Leaf(("repo", "scan"), FREE),
     Leaf(("repo", "inspect"), FREE),
     Leaf(("repo", "fetch"), FREE),
@@ -187,6 +187,68 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "list"), FREE),
     Leaf(("data", "schema", "show"), FREE),
 )
+
+_RETIRED_VALIDATE_OPTIONS: tuple[str, ...] = (
+    "--manifest", "--manifest-file", "--cache-dir", "--out", "--json", "--fail-on", "--help",
+)
+_RETIRED_VALIDATE_VALUE_OPTIONS: frozenset[str] = frozenset({"--manifest", "--manifest-file", "--cache-dir", "--out", "--fail-on"})
+
+
+def _retired_validate_option(tok: str) -> str | None:
+    """The retired `repo validate` option that ``tok`` names: exact, or the one prefix of it that argparse
+    would take on that parser. A prefix the retired parser also could not tell apart (``--m``) names none."""
+    name = tok.split("=", 1)[0]
+    if not name.startswith("--"):
+        return None
+    if name in _RETIRED_VALIDATE_OPTIONS:
+        return name
+    hits = [opt for opt in _RETIRED_VALIDATE_OPTIONS if opt.startswith(name)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _retired_validate_value(token: str) -> bool:
+    """Argparse also takes a token containing a space as a value after ruling out options."""
+    if _is_plain(token):
+        return True
+    if " " not in token or token.startswith("-h"):  # -h was the only short option
+        return False
+    name = token.partition("=")[0]
+    return not (name.startswith("--") and any(opt.startswith(name) for opt in _RETIRED_VALIDATE_OPTIONS))
+
+
+def _repo_validate_argv(rest: list[str]) -> list[str]:
+    """The argv `repo validate` moved to (#94 M1). Its ``--out FILE`` wrote the report; the printed argv drops the
+    file, since the report is ``--json`` on stdout now (the user redirects stdout to the file).
+
+    Each retired option is printed under its full name, so the new leaf reads it as the retired parser did: its
+    prefixes can mean something else there (``--c`` also matches ``--cache`` and ``--cache-root``). A ``--`` ends the options, and
+    the rest of the argv is printed as it was given."""
+    kept: list[str] = []
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--":
+            kept.extend(rest[i:])
+            break
+        opt = _retired_validate_option(rest[i])
+        if opt is None:
+            kept.append(rest[i])
+            i += 1
+            continue
+        _, eq, value = rest[i].partition("=")
+        nxt = rest[i + 1] if i + 1 < len(rest) else None
+        if nxt is not None and opt in _RETIRED_VALIDATE_VALUE_OPTIONS and not eq and _retired_validate_value(nxt):
+            args, i = [opt, nxt], i + 2  # argparse: an option is no value; `-` and -1 are
+        else:
+            args, i = [f"{opt}{eq}{value}"], i + 1
+        if opt != "--out":  # --out FILE is dropped: the report is --json on stdout
+            kept.extend(args)
+    return ["eval", "check", "--schema-only", *kept]
+
+
+def _explore_list_argv(rest: list[str]) -> list[str]:
+    """The argv `explore list` moved to (#94 M1): `--json` is not a flag of `eval tasks list`, so it is not printed."""
+    return ["eval", "tasks", "list", "--format", "localization", *(t for t in rest if t != "--json")]
+
 
 def _novelty_routing_argv(rest: list[str]) -> list[str]:
     """The argv `novelty routing` moved to, given the argv after it (#94 M3).
@@ -374,6 +436,8 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("questions", "panel-review"), ("eval", "questions", "review")),
     Tombstone(("questions", "import"), ("eval", "import")),
     Tombstone(("tasks", "list"), ("eval", "tasks", "list")),
+    Tombstone(("explore", "list"), ("eval", "tasks", "list"), ("--format", "localization"), rewrite=_explore_list_argv),
+    Tombstone(("repo", "validate"), ("eval", "check"), ("--schema-only",), rewrite=_repo_validate_argv),
     Tombstone(("catalog", "trigger-set"), ("eval", "triggers", "generate")),
     Tombstone(("eval", "score"), ("eval", "score", "pointwise")),
     Tombstone(("eval", "pairwise"), ("eval", "score", "pairwise")),

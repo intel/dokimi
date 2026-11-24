@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dokimi import cli_flags, llm_cli
 from dokimi.llm import ANSWER_PROVIDERS
-from dokimi.commands._output import exit_on_unwritable
+from dokimi.commands._output import exit_on_unwritable, write_report_text
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -33,7 +33,15 @@ def cmd_subjects_list(args: argparse.Namespace) -> None:
     if not args.subjects_root:
         raise InputError("no subjects root given; pass --subjects-root <checkout>/evaluation/subjects")
     root = Path(args.subjects_root)
-    if not root.is_dir():
+    try:
+        is_dir = root.is_dir()
+    except OSError as exc:
+        from dokimi.subjects.loader import name_too_long
+
+        if not name_too_long(exc):
+            raise
+        is_dir = False
+    if not is_dir:
         raise InputError(f"--subjects-root is not a directory: {root}")
     paths = sorted([*root.glob("*.toml"), *root.glob("*.json")])
     for path in paths:
@@ -121,7 +129,7 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
     except (ValueError, FileNotFoundError) as exc:
         raise InputError(f"cannot load subject: {exc}") from exc
     if descriptor.subject.kind == "repo":
-        raise InputError("repo subjects are not run by `subjects run` yet; check them with `repo validate`")
+        raise InputError("repo subjects are not run by `subjects run` yet; check them with `eval check --schema-only`")
     resolve_judge(args, descriptor)
     # Attached, not produced: `skill novelty analyze` makes it, so a bad path fails here,
     # before any cell runs.
@@ -177,7 +185,7 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         save_artifact("subject_scorecard", scorecard, out_json)
     with exit_on_unwritable(out_md):
         out_md.parent.mkdir(parents=True, exist_ok=True)
-        out_md.write_text(render_subject_scorecard(scorecard), encoding="utf-8")
+        write_report_text(out_md, render_subject_scorecard(scorecard))
     print(f"OK Saved subject scorecard: {out_json}")
     print(f"OK Saved subject report:    {out_md}")
 
@@ -261,9 +269,9 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k")
     run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
     run_p.add_argument("--max-iterations", type=positive_int, default=6, dest="max_iterations")
-    run_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens",
-                       help="Output-token ceiling per answer. Raise for reasoning models, which "
-                            "can spend the provider default entirely on reasoning and return empty text")
+    cli_flags.add(run_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens",
+                  help="Output-token ceiling per answer. Raise for reasoning models, which "
+                  "can spend the provider default entirely on reasoning and return empty text")
     run_p.add_argument("--grounded-from-topics", action="store_true", dest="grounded_from_topics",
                        help="Let the judge use a question's expected_topics as ground truth when they "
                             "are substantive answer statements, enabling the factual_grounding "
@@ -478,7 +486,7 @@ def _run_subject_work(descriptor, args: argparse.Namespace, *, out_dir: Path, ta
         save_artifact("task_runs", artifact, task_runs_path)
     with exit_on_unwritable(task_runs_md):
         task_runs_md.parent.mkdir(parents=True, exist_ok=True)
-        task_runs_md.write_text(render_task_runs_report(artifact), encoding="utf-8")
+        write_report_text(task_runs_md, render_task_runs_report(artifact))
     return {
         "status": "run",
         "tasks": list(descriptor.suite.tasks),

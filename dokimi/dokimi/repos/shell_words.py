@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""A shell command's words, for :func:`~dokimi.repos.cli_traces.shell_reads`: the command word past what comes before
+"""A shell command's words, for :func:`~dokimi.repos.shell_walk.shell_reads`: the command word past what comes before
 it (``NAME=value``, a redirection, ``builtin``, ``command``, ``time``, ``env``), whether it runs a directory builtin, and
 the ``case ... esac`` a part opens or closes."""
 
@@ -31,6 +31,24 @@ _LEAD = _KEYWORDS | {"{", "time"}
 _QUOTED = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"", re.S)
 _SUBSTITUTION = re.compile(r"`[^`]*`|\$\(")
 _EXPANDS = re.compile(r"[$`*?\[{]")  # a word the shell expands (``$V/bin/activate``, ``*/bin/activate``): not known here
+# redirects apply in order: after ``2>/dev/null`` or ``2>file``, a ``1>&2`` sends stdout there too, away from the agent
+_STDERR_TARGET = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+")
+_STDOUT_TO_STDERR = re.compile(r"(?<![^\s;&|(])1?>&2(?!\d)")
+
+
+def _stdout_after_stderr(text: str) -> bool:
+    """Whether a ``2>file`` is followed on its line by ``>&2``; the next line is scanned once, not once per ``2>``."""
+    pos, closer = 0, None
+    while (target := _STDERR_TARGET.search(text, pos)) is not None:
+        if closer is None or closer.start() < target.end():
+            closer = _STDOUT_TO_STDERR.search(text, target.end())
+            if closer is None:
+                return False
+        eol = text.find("\n", target.end())
+        if eol == -1 or closer.start() < eol:
+            return True
+        pos = eol + 1  # the closer is on a later line: no other target on this one reaches it
+    return False
 
 
 def _time_keyword(text: str) -> bool:
@@ -49,19 +67,55 @@ def _run_name(name: str, via_env: bool) -> str | None:
     return name
 
 
+class _Dir(str):
+    """A directory path whose first ``lock`` components are physical (a ``cd -P`` reached them): a later ``..`` after
+    them stays, for :class:`~dokimi.repos.held_guidance.HeldGuidance` to follow, as bash's physical ``PWD`` has no link
+    to collapse it against; a ``..`` after a name cd took logically collapses it."""
+
+    lock: int
+
+
 def _cd(here: str | None, args: list[str]) -> str | None:
-    """The directory after ``cd <args>`` from ``here`` (``None``: unknown)."""
-    rest = list(args)
+    """The directory after ``cd <args>`` from ``here`` (``None``: unknown). ``cd`` takes a ``..`` by name, as bash
+    does (``cd alias/..`` goes to the directory holding ``alias``'s name), unless ``-P`` asks for the physical one,
+    whose ``..`` stays for :class:`~dokimi.repos.held_guidance.HeldGuidance` to follow, and so does a ``..`` of a
+    later ``cd`` that goes back past it (``cd -P alias/.. && cd ..``: a :class:`_Dir`'s physical part)."""
+    rest, physical = list(args), False
     while rest and rest[0] in ("-L", "-P", "-e", "-@"):
-        rest.pop(0)
+        option = rest.pop(0)
+        physical = option == "-P" or (physical and option != "-L")  # the last of -L and -P decides
     if rest and rest[0] == "--":
         rest.pop(0)
     if len(rest) != 1 or rest[0] == "-" or rest[0].startswith("~"):
         return None  # home, the previous directory, or something we do not track
     target = rest[0]
     if target.startswith("/"):
-        return posixpath.normpath(target)
-    return None if here is None else posixpath.normpath(posixpath.join(here, target))
+        lead, base, lock = "/", [], 0
+    elif here is None:
+        return None
+    else:
+        lead, base, lock = "/" if here.startswith("/") else "", [p for p in here.split("/") if p not in ("", ".")], getattr(here, "lock", 0)
+    lock = _walk(lead, base, lock, target, physical)
+    path = _Dir(lead + "/".join(base) or ".")
+    path.lock = len(base) if physical else lock
+    return path
+
+
+def _walk(lead: str, base: list[str], lock: int, target: str, physical: bool) -> int:
+    """Append the components of ``target`` to ``base`` (``cd``'s ``..`` as :func:`_cd` says), and return the new count
+    of leading physical components, ``lock``."""
+    for part in target.split("/"):
+        if part in ("", "."):
+            continue
+        if part != ".." or physical:
+            base.append(part)
+        elif len(base) > lock and base[-1] != "..":
+            base.pop()  # a name cd took logically: its ``..`` leaves it
+        elif not (lead and not base):  # at the root a ``..`` stays there
+            base.append(part)
+            lock = len(base)
+        lock = min(lock, len(base))
+    return lock
 
 
 def _runs_dir(outer: str, dirs: Collection[str] = _DIRS, functions: Collection[str] = ()) -> bool:

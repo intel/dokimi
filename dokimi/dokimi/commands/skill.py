@@ -35,7 +35,7 @@ def cmd_skill_check(args: argparse.Namespace) -> None:
     cmd_catalog_scan(argparse.Namespace(
         root=args.root, kind="skills", strict=args.strict, format=args.format,
         tasks_subdir="evaluation/harbor/tasks", per_skill=False, skip_nested=False,
-        jsonl=None, jobs=None, resume=False, online=False, ignore=None, only=args.skill))
+        jsonl=None, jobs=None, resume=False, online=False, ignore=None, fail_on=None, only=args.skill))
 
 
 def register_check(skill_sub) -> None:
@@ -58,10 +58,8 @@ def register_check(skill_sub) -> None:
 
 def register_skill(skill_sub, positive_int) -> None:
     """Add `skill novelty` (analyze, atoms, probe, ground, items, view) and `skill shorten` (#94 M2)."""
+    from dokimi.commands.novelty_flags import _add_bundle_args, _add_common, _add_model_args
     from dokimi.commands.novelty import (
-        _add_bundle_args,
-        _add_common,
-        _add_model_args,
         cmd_novelty_analyze,
         cmd_novelty_atoms,
         cmd_novelty_items,
@@ -122,7 +120,7 @@ def register_skill(skill_sub, positive_int) -> None:
                               f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)")
     atoms_p.add_argument("--extract-model", default=None, dest="extract_model")
     atoms_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=PROVIDERS)
-    atoms_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
+    cli_flags.add(atoms_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     atoms_p.add_argument("--no-verify", action="store_true", dest="no_verify")
     atoms_p.add_argument("--out", default=None)
     add_spend_cap(atoms_p)
@@ -176,7 +174,19 @@ def register_skill(skill_sub, positive_int) -> None:
     # Was `novelty view` (#94 M3 tail): re-render the saved artifact; no model calls.
     view_p = novelty_sub.add_parser("view", help="Re-render the annotated artifact view")
     view_p.add_argument("--novelty", required=True, help="novelty.json from `skill novelty analyze`")
-    view_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
+    view_p.add_argument("--atoms", required=True,
+                        help="atoms.json from `skill novelty atoms`, or the <out stem>.atoms.json "
+                             "`skill novelty analyze` writes beside novelty.json (the one to pass "
+                             "with --atom-verdicts)")
+    view_p.add_argument("--atom-verdicts", default=None, dest="atom_verdicts", metavar="FILE",
+                        help="<out stem>.atom_verdicts.json written beside novelty.json by `skill "
+                             "novelty analyze`: colours spans by the measured outcome and category "
+                             "of each atom. Refused when it is another analysis's or names atoms "
+                             "--atoms does not hold")
+    view_p.add_argument("--atom-labels", default=None, dest="atom_labels", metavar="FILE",
+                        help="Your labels per atom, JSON lines or CSV (.csv) with skill, atom_id "
+                             "and label columns; joined to --atom-verdicts, prints the known and new "
+                             "shares per label. Nothing is written back")
     view_p.add_argument("--format", default="html", choices=["html", "md"])
     view_p.add_argument("--out", default=None)
     view_p.set_defaults(func=cmd_novelty_view)
@@ -193,7 +203,7 @@ def register_skill(skill_sub, positive_int) -> None:
                                 f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)")
     shorten_p.add_argument("--extract-model", default=None, dest="extract_model")
     shorten_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=PROVIDERS)
-    shorten_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
+    cli_flags.add(shorten_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     shorten_p.add_argument("--lexical-only", action="store_true", dest="lexical_only",
                            help="Run the retention oracle without an LLM adjudicator. Cheap and "
                                 "reproducible, but blind to contradictions")

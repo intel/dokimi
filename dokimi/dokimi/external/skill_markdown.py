@@ -13,14 +13,23 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_right
+from collections.abc import Iterator
 from typing import Optional
 from urllib.parse import unquote
 
+from dokimi.code_spans import CodeSpan, iter_code_spans, replace_code_spans
 from dokimi.repos.l0.markdown import split as split_markdown
 
-# A code span of any run length, across lines of a paragraph: its text is literal (a backslash escapes
-# nothing in it), so no link is read inside one. Group 2 is the text.
-CODE_SPAN_RE = re.compile(r"(?<![\\`])(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+
+def code_spans(text: str) -> Iterator[CodeSpan]:
+    """The code spans of ``text``, of any run length, across lines: a run after a backslash opens none (#1073).
+
+    The text of a span is literal (a backslash escapes nothing in it), so no link is read inside one.
+    Group 2 of a span is the text.
+    """
+    return iter_code_spans(text, not_after="\\")
+
+
 # Brackets and the backslashes that may escape them, in order (_unlinked_brackets).
 BRACKET_RE = re.compile(r"\\\\|\\[\[\]]|[\[\]]")
 
@@ -436,14 +445,16 @@ def link_pieces(lines: list[str]) -> tuple[list[str], list[str]]:
     targets: dict[str, None] = {}
     spans: dict[str, None] = {}
     paragraphs = _paragraphs(lines)
-    maskeds = [_unlinked_brackets(CODE_SPAN_RE.sub(lambda m: " " * len(m.group()), p)) for p in paragraphs]
+    maskeds = [
+        _unlinked_brackets(replace_code_spans(p, lambda m: " " * len(m.group()), not_after="\\")) for p in paragraphs
+    ]
     definitions: dict[str, bool] = {}
     for paragraph, masked in zip(paragraphs, maskeds, strict=True):
         _reference_definitions(paragraph, masked, definitions)
     for paragraph, masked in zip(paragraphs, maskeds, strict=True):
         labels = _merged(_external_labels(paragraph, masked, definitions))
         label_starts = [a for a, _ in labels]
-        for m in CODE_SPAN_RE.finditer(paragraph):
+        for m in code_spans(paragraph):
             text = m.group(2).replace("\n", " ").strip()
             if text and not _inside(labels, label_starts, m.start()):
                 spans[text] = None

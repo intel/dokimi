@@ -49,7 +49,6 @@ def parse_pytest(log: str) -> StatusMap:
 
 
 def parse_pytest_options(log: str) -> StatusMap:
-    option = re.compile(r"(.*?)\[(.*)\]")
     found: StatusMap = {}
     for line in log.split("\n"):
         if not _starts_with_status(line):
@@ -59,10 +58,10 @@ def parse_pytest_options(log: str) -> StatusMap:
         parts = line.split()
         if len(parts) <= 1:
             continue
-        match = option.search(parts[1])
         name = parts[1]
-        if match:
-            main, opt = match.groups()
+        first, last = name.find("["), name.rfind("]")
+        if 0 <= first < last:  # the text before the first "[" and the text up to the last "]" after it
+            main, opt = name[:first], name[first + 1:last]
             if opt.startswith("/") and not opt.startswith("//") and "*" not in opt:
                 opt = "/" + opt.split("/")[-1]
             name = f"{main}[{opt}]"
@@ -106,8 +105,11 @@ def parse_seaborn(log: str) -> StatusMap:
 
 def parse_sympy(log: str) -> StatusMap:
     found: StatusMap = {}
-    for match in re.findall(r"(_*) (.*)\.py:(.*) (_*)", log):
-        found[f"{match[1]}.py:{match[2]}"] = "FAILED"
+    for line in log.split("\n"):
+        # Upstream's ``(_*) (.*)\.py:(.*) (_*)`` per line, in one pass (https://github.com/intel/dokimi/issues/927).
+        first, last = line.find(" "), line.rfind(" ")
+        if first >= 0 and line.rfind(".py:", first + 1, last) >= 0:
+            found[line[first + 1:last]] = "FAILED"
     endings = {" E": "ERROR", " F": "FAILED", " ok": "PASSED"}
     for line in log.split("\n"):
         line = line.strip()

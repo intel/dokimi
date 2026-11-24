@@ -206,9 +206,22 @@ these, in order, before writing what it showed (the fields:
   counts a read tool's reads and a Claude Code Bash call, Codex command or
   Copilot `bash` command that only prints files (§7's list: a bare `cat`,
   `head`, `tail`, `nl` or `sed -n`), not a pipe, `grep`, `rg` or `! cat`, nor a
-  relative read after the shell moved; `process:unknown_reads` counts those
-  dropped relative reads, so `guidance_read: []` with `unknown_reads` above 0
-  is not "never read". For the rest, look in `events.jsonl` or
+  relative read after the shell moved. A listed file may have been printed in
+  part (`head -n 1 AGENTS.md`, `sed -n 1p AGENTS.md`), so `guidance_read` does
+  not show that the whole file reached the agent: read `agent.stdout` for
+  that; `process:guidance_searched` counts the
+  guidance files a `grep`, `rg` or `git grep` (or Claude Code's `Grep` in
+  `content` mode) named in a search that showed lines: a search of several
+  files lists all of them when it showed a line of any (`grep visible
+  AGENTS.md docs/AGENTS.md` with `visible` only in `AGENTS.md` lists both), so
+  a listed file is not proof that it supplied a line; an agent that only searched a nested
+  `AGENTS.md` has it there and not in `guidance_read` (a file printed and searched
+  is in both), but a search of a directory or a glob names no file
+  (`grep -rn x .`, `rg x docs`, a `Grep` call with no `path` or with a `glob`),
+  so `guidance_searched: []` is not "never searched": look in `events.jsonl`;
+  `process:unknown_reads` counts
+  those dropped relative reads, so `guidance_read: []` with `unknown_reads`
+  above 0 is not "never read". For the rest, look in `events.jsonl` or
   `agent.stdout`, or add a `process_metrics` counter. Name what was delivered
   as what was tested ("the root `AGENTS.md`", not "the guidance").
 - **A leakage cut.** A task is out of sample for a guidance revision only when
@@ -252,7 +265,8 @@ these, in order, before writing what it showed (the fields:
   content: the same file, within `window` lines of a thread, with no judge.
   `dokimi repo report <batch> --hits` finds the pairs but cuts each comment
   and finding to 100 characters (200 with `--json`): read each pair you cite
-  in full, the thread's `comment` in the task's `gold.json` (or at its `url`),
+  in full, the thread's `comment` in the file named by the task's `gold` field in
+  `task.json` (default `gold.json`; or at the thread's `url`),
   then the finding in the cell's `answer.txt`.
   `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
   every credited pair (`same point`, `related` or `unrelated`) and gives

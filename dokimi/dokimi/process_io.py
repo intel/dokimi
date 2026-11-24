@@ -6,7 +6,9 @@
 read_spool reads back a spooled capture; join_capture joins the head and tail of a capture that was cut.
 """
 
+import json
 import os
+import re
 import sys
 from stat import S_ISFIFO
 import threading
@@ -15,6 +17,7 @@ from contextlib import suppress
 from typing import IO, Protocol
 
 _POSIX = sys.platform != "win32"
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 def joined_pairs(text: str) -> str:
@@ -26,6 +29,31 @@ def joined_pairs(text: str) -> str:
 def utf8_bytes(text: str) -> bytes:
     """*text* as UTF-8 with its surrogate pairs joined (:func:`joined_pairs`) and a lone surrogate sent as ``?``."""
     return joined_pairs(text).encode("utf-8", "replace")
+
+
+def json_utf8_bytes(text: str) -> bytes:
+    """JSON *text* (from ``json.dumps(..., ensure_ascii=False)``) as UTF-8 with its surrogate pairs joined and each lone
+    surrogate kept as its ``\\udXXX`` escape, which ``json.loads`` reads back: two object keys never collapse into one.
+    Raises ValueError when an object of the text, read as a reader reads it, holds two equal keys: a pair key beside its
+    character (also as ``\\ud83d\\ude00`` escapes), or an integer, boolean, float or ``None`` key beside the string
+    ``json.dumps`` writes it as (``{1: "a", "1": "b"}``). A reader keeps one of them. Equal keys in different objects are fine."""
+    joined = joined_pairs(text)
+    json.loads(joined, object_pairs_hook=_distinct_keys)
+    return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", joined).encode("utf-8")
+
+
+def _distinct_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result = dict(pairs)
+    if len(result) < len(pairs):
+        raise ValueError("two object keys are the same once written as JSON (a surrogate pair beside its character, "
+                         "or an integer, boolean or null key beside its string form); a reader would keep one")
+    return result
+
+
+def text_file_bytes(text: str) -> bytes:
+    """What ``Path.write_text(text, encoding="utf-8")`` writes on this platform (``\\n`` as ``os.linesep``) for text that
+    encodes; a lone surrogate is a ``?`` and a pair is joined (:func:`utf8_bytes`), where ``write_text`` raises."""
+    return utf8_bytes(text if os.linesep == "\n" else text.replace("\n", os.linesep))
 
 
 def argv_text(text: str) -> str:

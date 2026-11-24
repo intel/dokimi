@@ -3,13 +3,13 @@
 
 """The argparse leaves of `skill routing` and `catalog routing` (#94 M3).
 
-Both leaves take the same routing options; `cmd_routing` in `dokimi.commands.novelty` runs them.
+Both leaves take the same routing options; `cmd_routing` in `dokimi.commands.novelty_routing` runs them.
 """
 
 from __future__ import annotations
 
 from dokimi import cli_flags
-from dokimi.commands.novelty import cmd_routing, cmd_skill_routing
+from dokimi.commands.novelty_routing import cmd_routing, cmd_skill_routing
 from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
 from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
@@ -95,7 +95,7 @@ def _add_routing_options(routing_p, positive_int, refused: bool = False) -> None
                            help="Also ask this model to pick from the same cards. Optional: "
                                 "without it only the free lexical floor is computed")
     routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
-    routing_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
+    cli_flags.add(routing_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     routing_p.add_argument("--seed", type=int, default=0,
                            help="Seeds only the card order (a seeded permutation per query, so "
                                 "a position-biased model scores about 1/N). Not answer "

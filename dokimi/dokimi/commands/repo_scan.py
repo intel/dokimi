@@ -7,10 +7,15 @@ report, and the reason and gate of a failed --json or --fail-on fail run."""
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from pathlib import Path
+import posixpath
+import re
 import sys
 import shutil
 
+from dokimi.repos.l0.config import new_failures
 from dokimi.utils import InputError
 
 
@@ -36,14 +41,18 @@ def _typecheck_or_exit(args: argparse.Namespace):
 
 def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The rules and the Markdown ``@`` imports Claude Code loads with the default guidance, and the warnings of the rules
-    budget does not count (a linked ``.claude/rules``); both () for a written manifest.
+    budget does not count (a linked ``.claude/rules``); for a written manifest the rules and imports are () and the
+    warnings are the guidance paths the tree could not look at.
 
     The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
     imported file reaches the agent as surely as one in CLAUDE.md. They are named by path, not glob, so a repository
-    without rules gets no warning for them. A written manifest scans what it says, so a gate on it does not change.
+    without rules gets no warning for them. A written manifest scans what it says. Only a skipped path the scan would
+    have checked (a guidance or ``also_scan`` glob, a rule, a guidance name, an import, a directory) makes it incomplete;
+    any other is only a budget warning. A skipped Bazel build input is left to ``scan_repo``.
     """
     if manifest.path != "<default>":
-        return (), ()
+        tree.files()  # fills ``skipped``: listed paths the tree could not look at
+        return (), _skipped_guidance(tree, manifest)  # a written manifest scans what it says, not the profile's names
     from dokimi.repos.budget import RULE_GLOB, budget
     from dokimi.repos.harness_profile import load_profile
 
@@ -52,7 +61,16 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
                        claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)
     entries = inventory["entries"]
     # a rule the tree cannot list (a link to a directory, a dangling link) is not checked, so the scan is incomplete
-    not_counted = tuple(w for w in inventory["warnings"] if "are not counted" in w)
+    from dokimi.repos.budget import imported_by
+
+    md = [x for x in getattr(tree, "skipped_paths", ()) if x.endswith(".md")]
+    routes = _link_routes(tree, md)  # an import through a linked directory names the link's path, not the file's
+    imported = frozenset(routes.get(x, x) for x in imported_by(
+        tree, md + list(routes), p.guidance_names, p.import_max_depth, p.reads_claude_rules,
+        claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)) if md else frozenset()
+    skipped = set(getattr(tree, "skipped", ()))
+    kept = set(_skipped_guidance(tree, manifest, p.guidance_names, p.reads_claude_rules, imported))
+    not_counted = tuple(w for w in inventory["warnings"] if "are not counted" in w and (w not in skipped or w in kept))
     # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
     listed = set(tree.files())
     # budget lists a rule or import that is also a guidance name (CLAUDE.local.md, or a rule linked to it) as guidance,
@@ -77,6 +95,101 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
         print(f"note: also checking {len(new)} files Claude Code loads beyond the default globs: rules, @ imports, "
               "and guidance names such as CLAUDE.local.md", file=sys.stderr)
     return loaded, not_counted
+
+
+def _link_routes(tree, paths: list[str]) -> dict[str, str]:
+    """For each of ``paths`` under a directory a link points to, the path through that link, mapped to the path.
+
+    A skipped ``d/context.md`` is imported as ``lnk/context.md`` when ``lnk`` links to ``d``; the file cannot be
+    resolved, so the import is known only by the link's path."""
+    from dokimi.repos import SourceError
+
+    if not paths:
+        return {}
+    routes: dict[str, str] = {}
+    for f in tree.files():
+        try:
+            target = tree.resolve(f, dirs=True)
+        except (SourceError, OSError, ValueError):
+            target = _link_target(tree, f)  # a link to a skipped file cannot be resolved: read where it points
+            if target is None:
+                continue
+        if target == f:
+            continue
+        under = "" if target == "." else target + "/"  # a link to the root: its files are at the link's path
+        routes.update({f + "/" + p[len(under):]: p for p in paths if p.startswith(under)})
+        if target in paths:
+            routes[f] = target
+    return routes
+
+
+_WINDOWS = os.name == "nt"
+
+
+def _posix(path: str) -> str:
+    """``path`` with ``/`` separators and no ``\\\\?\\`` prefix: ``os.readlink`` returns native ones, the tree lists ``/`` paths."""
+    if not _WINDOWS:
+        return path
+    path = path.replace("\\", "/")
+    return path[4:] if path.startswith(("//?/", "//./")) else path  # `\\?\C:\repo` is `C:/repo`
+
+
+def _link_target(tree, path: str) -> str | None:
+    """Where ``path`` finally points when a link on it (the file, or a directory above it) is followed
+    component by component without resolving the file, which a skipped file does not allow; the path inside
+    the tree, or None when no link is on it, there is a loop, or the target is outside the tree."""
+    root = getattr(tree, "root", None)
+    if root is None:
+        return None
+    roots = {_posix(r) for r in (os.path.abspath(root), os.path.realpath(root))}
+    pending, hops = path.split("/"), 0
+    done: list[str] = []
+    while pending:
+        part = pending.pop(0)
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not done:
+                return None
+            done.pop()
+            continue
+        try:
+            where = os.readlink(os.path.join(root, *done, part))
+        except (OSError, ValueError):
+            done.append(part)  # not a link, or below a directory that cannot be searched
+            continue
+        hops += 1
+        if hops > 40:
+            return None
+        where = _posix(where)
+        if posixpath.isabs(where) or (_WINDOWS and re.match(r"[A-Za-z]:/", where)):
+            where = re.sub(r"/(?:\.?/)+", "/", where)  # `/repo/./d` is `/repo/d`; a `..` stays, a link may precede it
+            inside = [where[len(r) + 1:] or "." for r in roots if where == r or where.startswith(r + "/")]  # a text cut: `..` stays
+            if not inside:
+                return None
+            where, done = inside[0], []
+        pending = where.split("/") + pending
+    return ("/".join(done) or ".") if hops else None
+
+
+def _skipped_guidance(tree, manifest, names: tuple[str, ...] = (), rules: bool = False,
+                      imported: frozenset[str] = frozenset()) -> tuple[str, ...]:
+    """The ``skipped`` warnings of the tree that name a path the scan would check: a file a skipped data file stands
+    beside is not guidance, so it does not make the scan incomplete (#959 review of #1028).
+
+    The paths checked are those a guidance glob or an ``also_scan`` glob matches, a rule, a guidance name of the
+    profile (``CLAUDE.local.md``), a Markdown file the default guidance imports (``imported``), and a directory
+    that could not be listed. A Bazel build input is counted by ``scan_repo``, only when the Bazel adapter is on."""
+    from dokimi.repos.budget import RULE_GLOB
+    from dokimi.repos.manifest import match_glob
+
+    def checked(path: str) -> bool:
+        return (any(match_glob(g, path) for g in (*manifest.guidance_globs, *manifest.also_scan))
+                or bool(rules and RULE_GLOB.match(path)) or posixpath.basename(path) in names
+                or path in getattr(tree, "skipped_dirs", ()) or path in imported)  # a directory hides any of them
+
+    paths = getattr(tree, "skipped_paths", ())
+    return tuple(w for path, w in zip(paths, getattr(tree, "skipped", ()), strict=True) if checked(path))
 
 
 def _target(tree, path: str) -> str:
@@ -123,9 +236,13 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
         r = payload["by_source"]["repository"]
         print(f"  repository static: {r['total']} claims, {r['fail']} fail; "
               f"{static_info['superseded']} framework claims replaced")
+    base = payload.get("baseline")
+    if base:
+        print(f"  baseline {base['source']}: {base['new']} new fail, {base['known']} known, {base['fixed']} fixed")
     for claim in payload["claims"]:
         if claim["status"].split("_", 1)[0] == "fail":
-            print(f"  FAIL {claim['file']}:{claim['line']} [{claim.get('kind')}] "
+            mark = "known" if claim.get("baselined") else "FAIL"
+            print(f"  {mark} {claim['file']}:{claim['line']} [{claim.get('kind')}] "
                   f"{str(claim.get('claim'))[:90]} -- {claim.get('why')}")
     if out:
         print(f"wrote {out}")
@@ -138,8 +255,9 @@ def _scan_reason(payload: dict, static_errors: list, gate: bool) -> str:
     parts = []
     if static_errors:
         parts.append(f"{len(static_errors)} --static problem(s) not merged")
-    if gate and payload["counts"]["fail"]:
-        parts.append(f"{payload['counts']['fail']} claim(s) failed")
+    if gate and new_failures(payload):
+        known = (payload.get("baseline") or {}).get("known")
+        parts.append(f"{new_failures(payload)} claim(s) failed" + (f" ({known} more known in the baseline)" if known else ""))
     if gate and payload["incomplete"]:
         reasons = "; ".join(payload.get("incomplete_reasons") or [])
         parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
@@ -148,11 +266,29 @@ def _scan_reason(payload: dict, static_errors: list, gate: bool) -> str:
 
 def _scan_gate(payload: dict, gate: bool) -> None:
     """--fail-on fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
-    if not gate or not (payload["counts"]["fail"] or payload["incomplete"]):
+    if not gate or not (new_failures(payload) or payload["incomplete"]):
         return
     if payload["incomplete"]:
         print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)
     sys.exit(1)
+
+
+def baseline_from(args: argparse.Namespace, payload: dict) -> None:
+    """--baseline FILE: mark the fail claims that earlier report also fails; a file that cannot be read is exit 2."""
+    from dokimi.repos.l0.config import apply_baseline
+
+    if not getattr(args, "baseline", None):
+        return
+    try:
+        doc = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:  # RecursionError: nesting past the decoder's limit
+        raise InputError(f"--baseline {args.baseline}: {exc}") from None
+    doc = doc.get("data", doc) if isinstance(doc, dict) and doc.get("schema_version") == "cli_output.v1" else doc
+    if not isinstance(doc, dict) or not isinstance(doc.get("claims"), list):
+        raise InputError(f"--baseline {args.baseline}: not a repo_readiness.v1 report (no claims list)")
+    if not all(isinstance(c, dict) for c in doc["claims"]):
+        raise InputError(f"--baseline {args.baseline}: every entry of claims must be an object")
+    apply_baseline(payload, doc, args.baseline)
 
 
 def scan_subjects(payload: dict) -> list[dict]:
@@ -166,7 +302,10 @@ def scan_subjects(payload: dict) -> list[dict]:
         file = str(claim.get("file"))
         line = claim.get("line") if isinstance(claim.get("line"), int) and claim["line"] >= 1 else None
         message = f"{claim.get('kind')}: `{str(claim.get('claim'))[:80]}`: {claim.get('why')}"
-        by_file.setdefault(file, []).append(finding("warn", str(claim.get("status")), message, file, line))
+        if claim.get("baselined"):
+            message += " (known: in the baseline)"
+        by_file.setdefault(file, []).append(
+            finding("info" if claim.get("baselined") else "warn", str(claim.get("status")), message, file, line))
     files = [str(f.get("path", f)) if isinstance(f, dict) else str(f) for f in payload.get("files") or []]
     names = sorted(set(files) | set(by_file))
     if names:

@@ -27,9 +27,13 @@ changelog. The `message` text is for people and may be reworded, so do not match
 - `note`: information only; it never changes the state.
 
 `--ignore CODE` leaves the findings with that code out of the state and the exit code.
+`--fail-on-code CODE` does the opposite: the scan exits 1 when a finding with that code is left
+after `--ignore`, at any level.
 Three codes cannot be ignored (`catalog check` refuses the flag): ignoring them would hide why
 a skill does not load, or make the whole-catalog and `--per-skill` exits disagree.
 They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
+An unloaded skill that no format rule exempts is `error` in the CLI: its load error is the reason, and `--ignore` does not clear it.
+The CLI never emits `not-loaded` (only `review_skill_dir` does), so `--ignore not-loaded` changes nothing there.
 
 ## Codes
 
@@ -47,19 +51,20 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `duplicate` | warn | the SKILL.md is identical to another copy; the copy is counted twice | yes |
 | `frontmatter-parse` | error | the frontmatter is not valid YAML | no |
 | `frontmatter-unknown-key` | warn | the frontmatter has a key the spec does not define | yes |
-| `hidden-unicode` | warn | a bidi control, Unicode tag or stray zero-width character in SKILL.md or a bundled text file | yes |
+| `hidden-unicode` | warn | a bidi control or mark, Unicode tag, soft hyphen, invisible format character, variation selector, blank filler or stray zero-width character in SKILL.md or a bundled text file | yes |
 | `install-unpinned` | warn | a bundled script installs a package without a pinned version | yes |
 | `legacy-model-id` | warn | a model ID its vendor has retired or deprecated | yes |
 | `link-dead` | warn | `--online`: a URL in SKILL.md answers 404 or 410; a host that does not resolve counts too (not when an environment proxy carries the URL), once any other probe of the run got an answer (a PyPI or npm lookup counts too, including one that answers 404) | yes |
 | `link-escapes-skill` | warn | a relative link points to a file outside the skill directory | yes |
 | `link-missing` | warn | a relative Markdown link names no file | yes |
+| `listing-over-budget` | warn | `--listing-budget CHARS`: the skills the routing field lists total more than CHARS characters. It is one finding for the scan, not for a skill: it is printed right after the counts, is not in a row, and with `--strict` it exits 1 | yes |
 | `mirror-drift` | warn | a copy of the same directory name in another path has different SKILL.md text | yes |
 | `name-conflict` | warn | the name is also used by a listed skill with different content | yes |
 | `name-format` | error | the name is not a valid skill name (characters or length) | yes |
 | `name-mismatch` | error | the frontmatter name differs from the directory name | yes |
 | `name-missing` | warn | the frontmatter has no name | yes |
 | `not-a-skill-no-frontmatter` | error | the SKILL.md is plain Markdown with no frontmatter block | no |
-| `not-loaded` | error | a skill reviewed alone did not load | yes |
+| `not-loaded` | error | a skill reviewed alone with `review_skill_dir` did not load; the CLI never emits it, so `--ignore` has no effect there | yes |
 | `opencode-no-description` | warn | an OpenCode `SKILL.md` (under `.opencode/skills`) has no frontmatter or no description; OpenCode loads it but does not advertise it | yes |
 | `package-not-found` | warn | `--online`: a package a command installs is not in its registry | yes |
 | `path-escapes-skill` | warn | a `../` code span names a file outside the skill directory | yes |
@@ -69,6 +74,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `script-crlf` | warn | a bundled script has CRLF line endings | yes |
 | `script-lint` | note | a bundled script has a lint finding | yes |
 | `script-syntax` | warn | a bundled script does not parse | yes |
+| `similar-skills-exist` | note | the description overlaps a differently named skill's (Jaccard similarity at least 0.4 and below 0.5, at least 3 shared words); the state stays `ok` | yes |
 | `unreadable` | error | SKILL.md exists but the OS will not read it | no |
 | `unsupported-skill-format` | note | the skill is under a host directory dokimi holds no spec for (`.kiro`, `.cursor`, ...); the frontmatter and description checks were skipped, an unloaded file was not read | yes |
 

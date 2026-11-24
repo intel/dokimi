@@ -388,7 +388,7 @@ def label_claims(scan: Scan, file: str, line: int, text: str) -> bool:
 def _is_label(label: str) -> bool:
     """A package, a target or a repository, and no host name (`//github.com/x` is a protocol-relative URL)."""
     m = _LABEL_PARTS.match(label.lstrip("-"))
-    if not m:
+    if not m or label.lstrip("-@").startswith("///"):  # `///` is a doc-comment marker, not the root package
         return False
     repo, pkg, target = m.groups()
     return bool(pkg or target or (repo or "").strip("@")) and "." not in pkg.split("/", 1)[0]
@@ -496,15 +496,23 @@ def _check_load(scan: Scan, file: str, line: int, args: str, snippet: str) -> No
                  + ("; it binds names in a form not read here" if other else ""), snippet)
 
 
+_BZL_BINDING = re.compile(  # ``def f(``, or ``x = ...`` / ``x, y = ...``: each whitespace run is written once (#1074)
+    r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*(?:,\s*)?=(?!=)", re.M)
+
+
+_BZL_TUPLE_BINDING = re.compile(  # ``(x, y) = ...`` or ``[x] = ...``: an ``=`` on the line, or after blank lines (#1120)
+    r"^[(\[][^\n]*(?:=|\n\s*=)(?!=)", re.M)
+
+
 def _bzl_public(text: str) -> tuple[set[str], bool]:
     """The public top-level names of a ``.bzl`` file (``def x(``, ``x = ...``, ``x, _y = ...``), and whether it also
     binds names in a form not read here (``(x, y) = ...``, ``[x] = ...``)."""
     masked_text = _TOKEN.sub(lambda m: re.sub(r"[^\n]", " ", m.group()) if m.lastgroup in ("str", "comment")
                              else m.group(), text)  # a docstring or a comment binds nothing
     names: set[str] = set()
-    for m in re.finditer(r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*,?\s*=(?!=)", masked_text, re.M):
+    for m in _BZL_BINDING.finditer(masked_text):
         names.update(n for n in re.split(r"\s*,\s*", m.group(1) or m.group(2)) if n and not n.startswith("_"))
-    return names, re.search(r"^[(\[][^\n]*\)?\]?\s*=(?!=)", masked_text, re.M) is not None
+    return names, _BZL_TUPLE_BINDING.search(masked_text) is not None
 
 
 def _load_strings(args: str) -> list[str]:

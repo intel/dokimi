@@ -17,7 +17,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from dokimi.process_io import utf8_bytes
-from dokimi.repos.event_format import EVENT_VERSION
+from dokimi.repos.event_format import EVENT_VERSION, plain_path
 
 OUTPUT_LIMIT = 8192
 OUTPUT_KEEP = 4096
@@ -49,6 +49,7 @@ class Transcript:
     dropped_lines: int = 0  # trace lines that did not parse or were of no known shape: their events are missing
     init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
     answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
+    added_text: list[tuple[dict[str, Any], str]] = field(default_factory=list)  # edit event, the text it adds (choices.py)
     start_record: dict[str, Any] = field(default_factory=dict)  # the start-up record as printed (run_context reads it)
     final_record: dict[str, Any] = field(default_factory=dict)  # the closing record as printed (run_context reads it)
     stop_reasons: list[str] = field(default_factory=list)  # ``stop_reason`` of each main-thread reply that carried one
@@ -63,7 +64,8 @@ class Transcript:
 
     def reads(self) -> set[str]:
         """The paths the agent was shown (:func:`shown_read`); a refused or failed read stays in the events only."""
-        return {e["path"] for e in self.events if shown_read(e) and e.get("path")}
+        # a ``..`` is taken by name: no workspace here to follow a link (``HeldGuidance`` does that for ``guidance_read``)
+        return {posixpath.normpath(e["path"]) for e in self.events if shown_read(e) and e.get("path")}
 
     def events_jsonl(self, events: list[dict[str, Any]] | None = None) -> str:
         return "".join(json.dumps({**e, "v": EVENT_VERSION}, sort_keys=True) + "\n"
@@ -112,7 +114,7 @@ def _from_cwd(path: str, cwd: str) -> str:
     if not cwd or path.startswith("/") or win.is_absolute() or drive_letter:
         return path
     # a Windows CLI separates with backslashes, which posixpath keeps as part of a name
-    return posixpath.normpath(posixpath.join(cwd, win.as_posix()))
+    return plain_path(posixpath.join(cwd, win.as_posix()))
 
 
 def _parse_time(value: Any) -> datetime | None:
