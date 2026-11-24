@@ -31,7 +31,7 @@ import sys
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -39,7 +39,7 @@ from dokimi import __version__, cli_flags
 from dokimi.atomic_write import write_text_atomic
 from dokimi.cli_types import unit_interval
 from dokimi.commands.novelty_run import stops_at_cap
-from dokimi.novelty.sweep import read_rows, resumable, summarize, summary_lines
+from dokimi.novelty.sweep import bundle_instances, read_rows, resumable, summarize, summary_lines
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
@@ -102,6 +102,8 @@ class _Item:
     skill_md: Path
     sha256: Optional[str]
     error: Optional[str] = None  # a SKILL.md that does not load: its row is an error, and no call is made
+
+    bundle_instance: int = 0
 
     @property
     def directory(self) -> Path:
@@ -370,7 +372,7 @@ def _review_one(item: _Item, *, args: argparse.Namespace, run_cap: "SpendCap", p
 
     def row(status: str, **fields: Any) -> dict:
         return make_row(key=item.key, name=item.name, path=str(item.skill_md),
-                        skill_sha256=item.sha256, status=status, settings=fingerprint,
+                        skill_sha256=item.sha256, bundle_instance=item.bundle_instance, status=status, settings=fingerprint,
                         version=__version__, usd=cap.spent_usd, calls=cap.calls, **fields)
 
     novelty_json = out_dir / _dirname(item.key) / "novelty.json"
@@ -432,7 +434,7 @@ def cmd_catalog_novelty(args: argparse.Namespace) -> None:
     _refuse_outputs_inside_a_skill(all_items, out_dir, jsonl)
     items = all_items[:args.limit]
     fingerprint = _fingerprint(args, placebo_text)
-    kept, todo, others = _plan(items, jsonl, args, fingerprint)
+    kept, todo, others = _plan(items, all_items, jsonl, args, fingerprint)
     print(f"# catalog novelty: {len(items)} skills under {root}; {len(kept)} measured and kept, "
           f"{len(todo)} to run", file=sys.stderr)
     run_cap = SpendCap(limit_usd=args.max_usd)
@@ -534,7 +536,7 @@ def _refuse_changed_settings(prior: list[dict], selected: dict[str, Optional[str
                              "another --jsonl, or pass --rerun-changed to measure those skills again")
 
 
-def _plan(items: list[_Item], jsonl: Path, args: argparse.Namespace,
+def _plan(items: list[_Item], all_items: list[_Item], jsonl: Path, args: argparse.Namespace,
           fingerprint: dict[str, Any]) -> tuple[list[dict], list[_Item], list[dict]]:
     """The measured rows a resumed run keeps, the skills it still has to run, and the prior rows of
     skills this run does not select (a narrower --limit, a moved skill): those stay in the file as they are."""
@@ -543,9 +545,19 @@ def _plan(items: list[_Item], jsonl: Path, args: argparse.Namespace,
     if args.resume and not args.rerun_changed:
         _refuse_changed_settings(prior, selected, fingerprint)
     kept = resumable(prior, selected, fingerprint, __version__)
-    done = {row["key"] for row in kept}
+    current = {item.key: item.sha256 for item in all_items}
+    instances = bundle_instances(current, prior)
     others = [row for row in prior if row["key"] not in selected]
-    return kept, [item for item in items if item.key not in done], others
+    for row in others + kept:
+        if row["key"] not in instances or row.get("skill_sha256") != current[row["key"]]:
+            continue
+        if slot := instances.get(row["key"]):
+            row["bundle_instance"] = slot
+        else:
+            row.pop("bundle_instance", None)
+    done = {row["key"] for row in kept}
+    todo = [replace(item, bundle_instance=instances.get(item.key, 0)) for item in items if item.key not in done]
+    return kept, todo, others
 
 
 def _sweep_rows(todo: list[_Item], *, args: argparse.Namespace, run_cap, kept: list[dict],
@@ -611,7 +623,7 @@ RUN_WIDE_STOPS = ("no_price", "permanent_error")
 
 def register(catalog_sub, positive_int) -> None:
     """Add ``catalog novelty``: the corpus sweep, a catalog verb like ``catalog routing``."""
-    from dokimi.commands.novelty import _add_bundle_args, _add_model_args
+    from dokimi.commands.novelty_flags import _add_bundle_args, _add_model_args
     from dokimi.cli_types import positive_usd
     from dokimi.novelty.sweep import RESAMPLES
     from dokimi.novelty.tiers import TIERS

@@ -183,8 +183,35 @@ def test_summarize_counts_every_status_but_measures_only_ok_rows():
     assert summary["strata"] is None
 
 
+def test_summarize_measures_a_skill_moved_to_another_directory_once_and_keeps_its_spend():
+    rows = [_ok("old/deploy", 0.2, usd=0.3, name="deploy"), _ok("review", 0.6, usd=0.2, digest="d3"),
+            _ok("new/deploy", 0.4, usd=0.3, name="deploy"), _ok("other/deploy", 0.5, name="deploy", digest="d2")]
+    summary = summarize(rows, resamples=200)
+    assert summary["counts"]["ok"] == 3
+    assert summary["overall"]["n"] == 3
+    assert summary["overall"]["new_lenient"]["mean"] == pytest.approx(0.5)  # 0.6, 0.4 (the last), 0.5
+    assert summary["usd"] == pytest.approx(0.9)
+    assert summary_lines(summary)[0].startswith("# novelty sweep: 3 measured")
+
+
+def test_summarize_counts_an_identical_bundle_once_under_a_new_name_and_keeps_both_spend_records():
+    rows = [_ok("old/deploy", 0.2, usd=0.3, name="deploy"), _ok("new/deployer", 0.4, usd=0.3, name="deployer")]
+    summary = summarize(rows, resamples=200)
+    assert summary["counts"]["ok"] == 1
+    assert summary["overall"]["n"] == 1
+    assert summary["overall"]["new_lenient"]["mean"] == pytest.approx(0.4)  # the last row
+    assert [row["key"] for row in summary["ranking"]] == ["new/deployer"]
+    assert summary["usd"] == pytest.approx(0.6)  # both paid rows
+    assert summary_lines(summary)[0].startswith("# novelty sweep: 1 measured")
+
+
+def test_summarize_counts_each_ok_row_without_a_digest_on_its_own():
+    rows = [dict(_ok("a", 0.2, name="same"), skill_sha256=None), dict(_ok("b", 0.4, name="same"), skill_sha256=None)]
+    assert summarize(rows, resamples=50)["overall"]["n"] == 2
+
+
 def test_summarize_splits_the_measure_by_stratum_and_names_the_unassigned():
-    rows = [_ok("ops/deploy", 0.2), _ok("review", 0.6), _ok("misc", 0.5)]
+    rows = [_ok("ops/deploy", 0.2, digest="d4"), _ok("review", 0.6, digest="d5"), _ok("misc", 0.5, digest="d6")]
     summary = summarize(rows, {"ops/deploy": "ops", "review": "dev"}, resamples=200)
     assert set(summary["strata"]) == {"dev", "ops", UNASSIGNED}
     assert summary["strata"]["dev"]["n"] == 1
@@ -214,26 +241,26 @@ def test_resumable_never_keeps_a_row_whose_directory_could_not_be_digested():
 
 
 def test_ranking_orders_by_new_share_per_1k_tokens():
-    rows = [_ok("a", 0.2, tokens=800), _ok("b", 0.6, tokens=3000), _ok("c", 0.5, tokens=500)]
+    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b"), _ok("c", 0.5, tokens=500, digest="c")]
     ranked = summarize(rows, resamples=50)["ranking"]
     assert [r["key"] for r in ranked] == ["c", "a", "b"]  # 1.0, 0.25, 0.2 per 1k tokens
     assert ranked[0]["new_per_1k_tokens"] == pytest.approx(1.0)
 
 
 def test_ranking_breaks_rate_ties_by_key():
-    rows = [_ok("b", 0.5, tokens=500), _ok("a", 0.5, tokens=500)]
+    rows = [_ok("b", 0.5, tokens=500, digest="b"), _ok("a", 0.5, tokens=500, digest="a")]
     assert [row["key"] for row in summarize(rows, resamples=50)["ranking"]] == ["a", "b"]
 
 
 def test_ranking_leaves_out_rows_that_are_not_measured_or_have_no_size():
-    rows = [_ok("a", 0.2, tokens=800), _ok("sizeless", 0.9, tokens=None),
-            _ok("zero-size", 0.9, tokens=0), _row("b", "partial"),
+    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("sizeless", 0.9, tokens=None, digest="sizeless"),
+            _ok("zero-size", 0.9, tokens=0, digest="zero-size"), _row("b", "partial"),
             _row("c", "error")]
     assert [r["key"] for r in summarize(rows, resamples=50)["ranking"]] == ["a"]
 
 
 def test_summary_lines_list_the_ranking_after_the_stratum_table():
-    lines = summary_lines(summarize([_ok("a", 0.2, tokens=800), _ok("b", 0.6, tokens=3000)], resamples=50))
+    lines = summary_lines(summarize([_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b")], resamples=50))
     head = next(i for i, line in enumerate(lines) if line.startswith("ranking by new share per 1k tokens"))
     assert lines[head] == "ranking by new share per 1k tokens (top 2 of 2):"
     assert lines[head + 1].lstrip().startswith("1. a:")
@@ -241,15 +268,15 @@ def test_summary_lines_list_the_ranking_after_the_stratum_table():
 
 def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
     """Two sweeps into one JSONL measure `a` twice: the ranking has one entry for it, the later one,
-    while the overall figures still sum every ok row."""
-    rows = [_ok("a", 0.2, tokens=800), _ok("b", 0.6, tokens=3000), _ok("a", 0.5, tokens=800)]
+    and the identical digest is counted once in the overall figures."""
+    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b"), _ok("a", 0.5, tokens=800, digest="a")]
     summary = summarize(rows, resamples=50)
     assert [(r["key"], r["new_lenient"]) for r in summary["ranking"]] == [("a", 0.5), ("b", 0.6)]
-    assert summary["overall"]["n"] == 3
+    assert summary["overall"]["n"] == 2
 
 
 def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
-    rows = [_ok("a", 0.5, tokens=800), _row("a", "error")]
+    rows = [_ok("a", 0.5, tokens=800, digest="a"), _row("a", "error")]
     assert [(r["key"], r["new_lenient"]) for r in summarize(rows, resamples=50)["ranking"]] == [("a", 0.5)]
 
 

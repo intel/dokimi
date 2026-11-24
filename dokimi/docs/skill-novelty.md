@@ -3,6 +3,8 @@ depends_on:
   - dokimi/dokimi/novelty/**
   - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
+  - dokimi/dokimi/commands/novelty_flags.py
+  - dokimi/dokimi/commands/novelty_routing*.py
   - dokimi/dokimi/gate/novelty_gate.py
   - dokimi/dokimi/schemas/novelty.v1.json
 ---
@@ -1294,11 +1296,15 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
 - **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
   sweep with no model call. `--summary-out FILE` also writes it as JSON. A file whose `ok`
   rows were measured under different settings or dokimi versions (a `--resume --limit` with a changed
-  `--model`) is refused: one interval would pool two models' shares. The summary leads with
-  the already-known share, then lists the skills by **new share per 1k tokens** (the new share
-  divided by the skill's size in thousands of tokens; the top ten in text, all in the JSON
-  `ranking`; a skill with no or zero token count is not ranked). The ranking has one entry per skill, from its latest `ok` row, so a skill measured by
-  two sweeps into one JSONL is listed once; the overall figures still sum every `ok` row.
+  `--model`) is refused: one interval would pool two models' shares. An identical bundle (same
+  files, so the same digest) is counted once, by its last `ok` row, even if it was moved to another directory or
+  renamed. If differently named bundles with the same digest coexist in the catalog, each has a separate
+  measurement. The JSONL records a `bundle_instance` number for additional copies so `--summary-only` can
+  distinguish them without the catalog. Older rows without that evidence use instance zero. The spend
+  counts every paid row, including rows written before a rename.
+  After the already-known share, the summary ranks skills by **new share per 1k tokens**. Text shows
+  the top ten, and the JSON `ranking` includes every skill whose latest successful measurement has a
+  new share and a positive token count. Ties sort by skill key.
 - **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
   byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
   are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names

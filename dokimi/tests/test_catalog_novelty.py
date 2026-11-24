@@ -790,3 +790,61 @@ def test_the_hard_stop_ends_the_next_call_of_a_skill_in_flight():
         cap.before_call("m")
     assert stop.value.reason == "stopped"
     assert cap.parent.calls == 0
+
+
+def test_identical_bundles_discovered_together_stay_distinct_after_a_rename(tmp_path):
+    out, root = tmp_path / "out", _root(tmp_path, ("a", "b"))
+    for skill in root.glob("*/SKILL.md"):
+        skill.write_text(SKILL.replace("name: accel-tuning\n", ""), encoding="utf-8")
+    report = tmp_path / "summary.json"
+    _sweep(root, out, "--max-usd", "5", "--summary-out", str(report))
+    assert json.loads(report.read_text())["overall"]["n"] == 2
+    (root / "a").rename(root / "z")
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    _sweep(root, out, "--summary-only", "--summary-out", str(report))
+    summary = json.loads(report.read_text())
+    rows = _rows(out / "sweep.jsonl")
+    assert len(rows) == 3
+    assert summary["overall"]["n"] == 2
+    assert summary["usd"] == pytest.approx(sum(row["usd"] for row in rows))
+
+    # Restore the earlier pair of names in a new combination, reusing two paid rows.
+    (root / "b").rename(root / "a")
+    (root / "z").rename(root / "c")
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    (root / "a").rename(root / "b")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--summary-out", str(report))
+    assert json.loads(report.read_text())["overall"]["n"] == 2
+
+
+def test_limited_resume_refreshes_identical_instances_outside_selection(tmp_path):
+    out, root = tmp_path / "out", _root(tmp_path, ("a", "b"))
+    unnamed = SKILL.replace("name: accel-tuning\n", "")
+    for skill in root.glob("*/SKILL.md"):
+        skill.write_text(unnamed, encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5")
+    (root / "a").rename(root / "c")
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    (root / "b").rename(root / "a")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--limit", "1")
+    (root / "b").mkdir()
+    (root / "b" / "SKILL.md").write_text(unnamed + "\nChanged content.\n", encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5", "--resume", "--limit", "2")
+    report = tmp_path / "summary.json"
+    _sweep(root, out, "--summary-only", "--summary-out", str(report))
+    assert json.loads(report.read_text())["overall"]["n"] == 3
+
+
+def test_a_version_change_requires_opt_in_before_replacing_paid_rows(tmp_path, monkeypatch):
+    from dokimi.commands import catalog_novelty
+
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    rows = out / "sweep.jsonl"
+    before = rows.read_bytes()
+    monkeypatch.setattr(catalog_novelty, "__version__", "changed-version")
+    with pytest.raises(InputError, match="dokimi_version.*--rerun-changed"):
+        _sweep(root, out, "--max-usd", "0.02", "--resume")
+    assert rows.read_bytes() == before
+    _sweep(root, out, "--max-usd", "5", "--resume", "--rerun-changed")
+    assert {row["dokimi_version"] for row in _rows(rows)} == {"changed-version"}

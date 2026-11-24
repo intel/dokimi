@@ -14,4 +14,5 @@ SPDX-License-Identifier: Apache-2.0
   Ctrl-C or SIGTERM cancels the skills not yet started, lets the running ones finish and keeps the
   rows done; a run that leaves a skill partial, error or not run exits 1 after writing its rows. A second signal kills the subprocess calls in flight and starts no further call. Identical
   skill directories (SKILL.md and bundled files) of one skill count once.
+  The summary counts a renamed bundle once, keeps distinct coexisting skills, and retains the spend of every row.
   See `docs/skill-novelty.md`, Corpus sweep.
