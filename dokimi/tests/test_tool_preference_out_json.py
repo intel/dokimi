@@ -101,6 +101,24 @@ def test_out_json_check_accepts_a_read_only_file_in_a_writable_dir(tmp_path):
         out.chmod(0o644)
 
 
+def test_out_json_check_refuses_a_read_only_file_where_rename_cannot_replace_it(monkeypatch, tmp_path):
+    import dokimi.atomic_write as aw
+    from dokimi.commands.tools import _check_out_json_writable
+
+    monkeypatch.setattr(aw, "_RENAME_REPLACES_READ_ONLY", False)  # Windows: os.replace refuses a read-only destination
+    out = tmp_path / "pref.json"
+    out.write_text("{}", encoding="utf-8")
+    out.chmod(0o444)
+    try:
+        if os.access(out, os.W_OK):
+            pytest.skip("chmod 0444 does not block writes here (for example, running as root)")
+        with pytest.raises(SystemExit) as exc:
+            _check_out_json_writable(str(out))
+        assert exc.value.code == 2
+    finally:
+        out.chmod(0o644)
+
+
 def _symlink_or_skip(link: Path, target: Path) -> None:
     try:
         link.symlink_to(target)

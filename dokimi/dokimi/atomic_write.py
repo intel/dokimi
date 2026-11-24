@@ -72,10 +72,13 @@ def write_chunks_atomic(path: Path | str, chunks: Iterable[bytes]) -> None:
             shutil.copyfileobj(staged, handle)
 
 
+_RENAME_REPLACES_READ_ONLY = os.name != "nt"  # Windows os.replace refuses a read-only destination
+
+
 def write_bytes_in_place_or_atomic(path: Path | str, data: bytes, *, replace_read_only: bool = False) -> None:
     """:func:`write_bytes_atomic` for a plain file or a new one; any other target is written in place, as ``Path.write_bytes`` does.
 
-    With ``replace_read_only`` a read-only file in a writable directory counts as a plain file: it is replaced by rename and keeps its mode, as ``os.replace`` replaces it (see :func:`publishes_by_rename`).
+    With ``replace_read_only`` a read-only file in a writable directory counts as a plain file: it is replaced by rename and keeps its mode, as ``os.replace`` replaces it (not on Windows, whose ``os.replace`` refuses a read-only destination: there it is written in place and refused; see :func:`publishes_by_rename`).
 
     A symlink, a hard-linked file, a special file (``/dev/stdout``), a read-only file, a file in a read-only directory,
     a file another user owns (root excepted: it restores the owner and group, or writes in place when it may not chown), a file whose name is a mount point (``os.replace`` fails with EBUSY) is written in place, a file in a group the user is not in, a file with a POSIX access ACL or a ``user.*`` extended attribute and a file in a directory with a default ACL get what an in-place write gives them: the link target changes, the other names see the data, the device gets it, a
@@ -97,7 +100,7 @@ def write_bytes_in_place_or_atomic(path: Path | str, data: bytes, *, replace_rea
 
 def publishes_by_rename(path: Path, *, replace_read_only: bool = False) -> bool:
     """Whether :func:`write_bytes_in_place_or_atomic` publishes ``path`` by a rename (else it writes it in place)."""
-    return _is_plain_writable_file(path) or (replace_read_only and _is_plain_file(path))
+    return _is_plain_writable_file(path) or (replace_read_only and _RENAME_REPLACES_READ_ONLY and _is_plain_file(path))
 
 
 def tmp_sibling(path: Path) -> Path:
