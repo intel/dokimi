@@ -439,7 +439,7 @@ def test_a_shift_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(t
     assert _cli_heredocs(text) == text
 
 
-@pytest.mark.parametrize("text", ["# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi # cat <<EOF\ncat AGENTS.md\n", "  \t# cat <<'a b'\ncat AGENTS.md\n"])
+@pytest.mark.parametrize("text", ["# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi # cat <<EOF\ncat AGENTS.md\n", "  \t# cat <<'a b'\ncat AGENTS.md\n", "# 'x' cat <<EOF\ncat AGENTS.md\n"])
 def test_a_heredoc_opener_inside_a_comment_opens_nothing_and_the_commands_after_it_stay(text: str) -> None:
     assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
     assert _cli_heredocs(text) == text
