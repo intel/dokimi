@@ -255,6 +255,21 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("POSIXLY_CORRECT=1 env -u OTHER head AGENTS.md -n 0", ["AGENTS.md"]),
     ("POSIXLY_CORRECT=1 env - head AGENTS.md -n 0", []),  # a lone ``-`` is ``-i``
     ("env -i POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),  # set again after the reset
+    ("export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # an earlier export reaches the later command
+    ("export POSIXLY_CORRECT=1 && head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1\nhead -n 0 AGENTS.md", []),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; export -n POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; env -i head AGENTS.md -n 0", []),  # env drops what the shell exported
+    ("(export POSIXLY_CORRECT=1); head AGENTS.md -n 0", []),  # a subshell's export ends with it
+    ("export POSIXLY_CORRECT=1 | cat; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 & head AGENTS.md -n 0", []),
+    ("{ export POSIXLY_CORRECT=1; } | cat; head AGENTS.md -n 0", []),  # a group in a pipeline or a job is a subshell
+    ("{ export POSIXLY_CORRECT=1; } & head AGENTS.md -n 0", []),
+    ("{ export POSIXLY_CORRECT=1; }; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # set in the shell, not exported
+    ("POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # nothing to export
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads

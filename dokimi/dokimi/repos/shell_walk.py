@@ -26,7 +26,7 @@ from .shell_redirects import bare, masked, without_stderr
 from .shell_search import Searched, cuts_lines, passes_through, prints_nothing, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
-from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _loses, _run_name, _runs_dir,
+from .shell_words import (_ASSIGN, _DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _loses, _run_name, _runs_dir,
                           _time_keyword, _unquoted, _stdout_after_stderr)
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
@@ -161,6 +161,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
             continue
         words = walk.words(part, after)
         if words:
+            walk.track_posix(words, after)  # ``export POSIXLY_CORRECT=1; head f -n 0``
             out.extend(walk.command(words, after, chained, _time_keyword(part)))
         elif (stage := _search_stage(part, walk.functions)) is not None:  # ``grep x AGENTS.md | head``: the search's lines reach the agent
             walk.cut = True
@@ -169,7 +170,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     return out, walk
 
 
-_Spot = tuple[str | None, bool, bool]  # (here, shell_moved, moved): what the end of a subshell restores
+_Spot = tuple[str | None, bool, bool, bool, bool]  # (here, shell_moved, moved, posix_set, posix_exported): what a subshell's end restores
 
 
 class _Walk:
@@ -186,7 +187,7 @@ class _Walk:
         # the open brace groups: the spot before it, in a pipeline, (index in the reads, ``unknown``) where it began,
         # the enclosing && / || list's (list_start, listed), which the group's own separators do not end
         self.groups: list[tuple[_Spot, bool, tuple[int, int, bool], tuple[_Spot, bool]]] = []
-        self.list_start: _Spot = (here, False, False)  # the spot where the && / || list began
+        self.list_start: _Spot = (here, False, False, False, False)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
         self.head = False  # the last part was a function's name alone (``f()``): its body's ``{`` comes next
@@ -196,13 +197,33 @@ class _Walk:
         self.last_start = 0  # where in the found paths the script's last non-empty part began
         self.unknown = 0  # the relative files printing commands named at a directory not known
         self.cut = False  # the last part is a search piped into head or tail: its exit may be the pipeline's, under pipefail
+        self.posix_set = False  # ``POSIXLY_CORRECT`` is a variable of this shell (``POSIXLY_CORRECT=1``, ``export``)
+        self.posix_exported = False  # and is exported, so every later command is run with it
+
+    def track_posix(self, words: list[str], after: str) -> None:
+        """``POSIXLY_CORRECT`` after a command of this shell (not a job, ``after`` is ``&``; a pipeline's parts have no
+        ``words``): ``export NAME[=value]`` exports it (a bare ``export NAME`` only when it was set), ``export -n``
+        and ``unset`` drop it, and a lone ``POSIXLY_CORRECT=1`` sets it without exporting."""
+        name = "POSIXLY_CORRECT"
+        if after == "&":
+            return
+        if all(_ASSIGN.match(w) for w in words):
+            self.posix_set |= any(w.startswith(name + "=") for w in words)
+        elif words[0] == "unset" and name in words[1:]:
+            self.posix_set = self.posix_exported = False
+        elif words[0] == "export":
+            args = words[1:]
+            if "-n" in args and name in (w.partition("=")[0] for w in args):
+                self.posix_exported = False
+            elif any(w.startswith(name + "=") or (w == name and self.posix_set) for w in args):
+                self.posix_set = self.posix_exported = True
 
     def spot(self) -> _Spot:
-        return self.here, self.shell_moved, self.moved
+        return self.here, self.shell_moved, self.moved, self.posix_set, self.posix_exported
 
     def back(self, spot: _Spot) -> None:
         """Back to ``spot`` after a subshell: what ran in it moved neither this shell nor its ``||`` fallbacks."""
-        self.here, self.shell_moved, self.moved = spot
+        self.here, self.shell_moved, self.moved, self.posix_set, self.posix_exported = spot
 
     def chain(self, op: str, chained: bool) -> None:
         """A list of more than one command ended by ``&`` ran in a subshell, so this shell did not move: ``cd sub &&
@@ -309,7 +330,7 @@ class _Walk:
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        posix = _posix_set(before[:len(before) - len(words)])  # ``POSIXLY_CORRECT=1 head``
+        posix = _posix_set(before[:len(before) - len(words)], self.posix_exported)  # ``POSIXLY_CORRECT=1 head``
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
@@ -372,10 +393,11 @@ class _Walk:
         return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
 
 
-def _posix_set(skipped: list[str]) -> bool:
+def _posix_set(skipped: list[str], exported: bool = False) -> bool:
     """Whether ``POSIXLY_CORRECT`` is set for the command after the wrapper words ``skipped``, in order: ``NAME=value`` sets
-    it, ``env -i`` (``--ignore-environment``) or ``env -u POSIXLY_CORRECT`` (``--unset``) drops what was set before."""
-    posix, i = False, 0
+    it, ``env -i`` (``--ignore-environment``) or ``env -u POSIXLY_CORRECT`` (``--unset``) drops what was set before, also
+    what the shell ``exported``."""
+    posix, i = exported, 0
     while i < len(skipped):
         word, i = skipped[i], i + 1
         if word.startswith("POSIXLY_CORRECT="):

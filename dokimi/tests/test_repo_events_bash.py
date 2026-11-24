@@ -54,7 +54,9 @@ def test_an_absolute_path_inside_the_workspace_is_made_relative():
 
 
 @pytest.mark.parametrize("command,reads", [("head -n 0 AGENTS.md", []), ("tail -c 0 AGENTS.md", []),
-                                           ("head -n -0 AGENTS.md", ["AGENTS.md"]), ("tail -n 1 AGENTS.md", ["AGENTS.md"])])
+                                           ("head -n -0 AGENTS.md", ["AGENTS.md"]), ("tail -n 1 AGENTS.md", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+                                           ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT; head AGENTS.md -n 0", [])])
 def test_a_head_or_tail_that_prints_no_line_gives_no_read_event(command, reads):
     assert _reads(_events(_call("a", command), _result("a", ""))) == reads
 
