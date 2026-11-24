@@ -141,6 +141,7 @@ def test_dry_run_writes_nothing_and_kept_tasks_stay(toy, tmp_path, capsys):
     (["--prs", "p.json"], "--prs is for --from prs"),
     (["--references", "9"], "--references is for --from graph"),
     (["--subject", "("], "is not a regular expression"),
+    (["--subject", "(" * 10000], "is not a regular expression"),
     (["--subject", "a{4294967296}"], "is not a regular expression"),
     (["--subject", ""], "--subject is empty"),
 ])
@@ -224,11 +225,11 @@ def test_a_revert_or_fixup_is_never_a_fix(toy, tmp_path, capsys):
     root = toy["root"]
     _commit(root, 'Revert "fix(calc): mul was missing (#12)"', {"src/calc.py": CALC, "tests/test_mul.py": "\n"})
     for subject in ("fixup! fix: neg", "amend! fix: neg", "revert: fix(calc): mul", "Revert fix for crash",
-                    "Back out fix: neg"):
+                    "Back out fix: neg", '[backport] Revert "fix x"'):
         _commit(root, subject, {"src/neg.py": f"def neg(a):\n    return 0 - a  # {subject}\n",
                                 "tests/test_neg.py": f"def test_neg():\n    pass  # {subject}\n"})
-    _gen(root, tmp_path / "tasks", "--commits", "6", "--dry-run", check=False)
-    assert "0 of 6 first-parent commit(s)" in capsys.readouterr().out
+    _gen(root, tmp_path / "tasks", "--commits", "7", "--dry-run", check=False)
+    assert "0 of 7 first-parent commit(s)" in capsys.readouterr().out
 
 
 def test_trailers_stay_out_of_the_prompt(toy, tmp_path):
@@ -243,10 +244,13 @@ def test_trailers_stay_out_of_the_prompt(toy, tmp_path):
     assert "The body.\nWhy: it crashed." in prompt and "example.invalid" not in prompt and "cherry" not in prompt
 
 
-def test_a_crlf_message_loses_its_trailers_too():
+@pytest.mark.parametrize("newline", ["\r\n", "\r"])
+@pytest.mark.parametrize("key", ["Signed-off-by", "Co-developed-by", "Requested-by", "Bisected-by", "Reported-and-tested-by"])
+def test_messages_lose_person_trailers(newline, key):
     from dokimi.repos.replay.authoring_commits import without_trailers
 
-    assert without_trailers("Body.\r\n\r\nSigned-off-by:\tJ <j@x>\r\n(cherry picked from commit 0123abc)\r\n") == "Body."
+    message = newline.join(("Body.", "", f"{key}: J <j@x>", "(cherry picked from commit 0123abc)"))
+    assert without_trailers(message) == "Body."
 
 
 def test_two_commits_of_one_pull_request_give_one_task_and_the_dry_run_says_so(toy, tmp_path, capsys):
@@ -287,3 +291,10 @@ def test_prs_after_history_gives_no_second_task(toy, tmp_path):
                      threads=(), reviews=(), body="")
     o = build_one(None, None, pr, Options(out=out))  # never reaches the history: the task is found first
     assert (o.status, o.task) == ("kept", f"authoring_{toy['c1'][:12]}") and not (out / "authoring_pr12").exists()
+
+
+def test_an_oversized_pr_suffix_is_ordinary_subject_text():
+    from dokimi.repos.replay.authoring_commits import _split_subject
+
+    subject = f"fix: bad suffix (#{'1' * 5000})"
+    assert _split_subject(subject) == (subject, None)

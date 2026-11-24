@@ -22,16 +22,16 @@ from .authoring import Change, Options, Outcome, kept, task_of_pr, tasks_by_pr, 
 from .history import History
 from .merged import Skip
 
-# Words a fix's subject uses (Exp4 on dokimi and oneDAL history: 87 of 267 and 43 of 1500 subjects).
+# Match common bug-fix language, including subjects that describe the symptom without using "fix".
 DEFAULT_SUBJECT = (r"\b(?:bugfix(?:es)?|fix(?:es|ed|ing)?|bugs?)\b|regress|crash|wrong|incorrect|broken|no longer|\bnever\b|\bhang|\bleak|off-by|"
                    r"mismatch|silently")
 _PR_SUFFIX = re.compile(r"\s*\(#(\d+)\)\s*$")
 # A revert ("Revert \"...", "revert: ...", "Revert fix for ...", "Back out ...") undoes a change: its oracle would undo
 # the fix. fixup!/squash!/amend! commits are halves of another commit.
-_NOT_A_FIX = re.compile(r"^(?:(?:[a-z]+(?:\([^)]*\))?!?:\s*)?)(?:revert\b|back(?:ed)?[ -]out\b|fixup! |squash! |amend! )", re.I)
+_NOT_A_FIX = re.compile(r"^(?:\[[^]\r\n]+\][ \t]*)*(?:(?:[a-z]+(?:\([^)]*\))?!?:\s*)?)(?:revert\b|back(?:ed)?[ -]out\b|fixup! |squash! |amend! )", re.I)
 # The trailer lines that name people (with their e-mail) or are git's own, with their folded (indented) continuation
 # lines: no part of a description.
-_TRAILER = re.compile(r"^(?:(?:Signed-off|Co-authored|Reviewed|Acked|Tested|Reported|Suggested|Helped)-by|Cc|"
+_TRAILER = re.compile(r"^(?:(?:Signed-off|Co-authored|Co-developed|Reviewed|Acked|Tested|Reported|Suggested|Helped|Requested|Bisected|Reported-and-tested)-by|Cc|"
                       r"Change-Id):[ \t]*.*(?:\n[ \t]+\S.*)*$|^\(cherry picked from commit [0-9a-f]+\)$", re.I | re.M)
 
 
@@ -59,7 +59,7 @@ def first_parent(h: History, rev: str, n: int, subject: re.Pattern[str]) -> tupl
 
 
 def without_trailers(body: str) -> str:
-    body = body.replace("\r\n", "\n")  # a CRLF message: \r is no part of a line ``$`` ends
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
     return re.sub(r"\n{3,}", "\n\n", _TRAILER.sub("", body)).strip()
 
 
@@ -80,8 +80,7 @@ def build_one(h: History, manifest: RepoManifest, c: Commit, opts: Options, *, d
     existing = kept(opts, None, task_id(c.sha))
     if existing is not None:
         return existing
-    m = _PR_SUFFIX.search(c.subject)
-    number = int(m[1]) if m else None
+    _, number = _split_subject(c.subject)
     other = None
     if number is not None:
         other = claimed.get(number) if claimed is not None else task_of_pr(opts.out, number)
@@ -93,14 +92,23 @@ def build_one(h: History, manifest: RepoManifest, c: Commit, opts: Options, *, d
         return Outcome(None, "skipped", task_id(c.sha), reason=str(exc))
 
 
+def _split_subject(subject: str) -> tuple[str, int | None]:
+    match = _PR_SUFFIX.search(subject)
+    if match is None:
+        return subject, None
+    try:
+        number = int(match[1])
+    except ValueError:
+        return subject, None
+    return subject[:match.start()], number
+
+
 def change_of(h: History, c: Commit) -> Change:
     """``c`` as a change from its first parent; :class:`.merged.Skip` for a root commit."""
     parents = h.parents(c.sha)
     if not parents:
         raise Skip("a root commit has no parent to start from")
-    m = _PR_SUFFIX.search(c.subject)
-    number = int(m.group(1)) if m else None
-    title = _PR_SUFFIX.sub("", c.subject) if m else c.subject
+    title, number = _split_subject(c.subject)
     fields = {"source_commit": c.sha, **({"source_pr": number} if number is not None else {})}
     if re.search(DEFAULT_SUBJECT, title, re.I):
         fields["family"] = "fix"

@@ -152,7 +152,7 @@ def _generate_history(args: argparse.Namespace) -> None:
         if args.subject == "":
             raise InputError("--subject is empty (give '.' for every commit)")
         subject = re.compile(DEFAULT_SUBJECT if args.subject is None else args.subject, re.I)
-    except (re.error, OverflowError) as exc:
+    except (re.error, OverflowError, RecursionError) as exc:
         raise InputError(f"--subject {args.subject!r} is not a regular expression: {exc}") from None
     source = _parse_source(args)
     if not source.rev:

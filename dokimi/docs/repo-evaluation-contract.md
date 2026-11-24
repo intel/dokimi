@@ -1381,7 +1381,8 @@ python cli.py eval tasks generate ~/repo@main --from history --out-dir ~/repo/.a
   whose subject `--subject` matches, case-insensitively. A merge, and so the commits of a branch
   merged with `--no-ff`, gives no task; the output counts the merges left out. A revert (a
   subject that starts with `revert` or `back out`), `fixup!`, `squash!` or `amend!` commit is never
-  one, whatever the pattern. The default pattern holds the words a fix's subject uses
+  one, whatever the pattern. Leading bracketed tags such as `[backport]` and a conventional
+  commit prefix are ignored when recognizing these subjects. The default pattern holds the words a fix's subject uses
   (`fix`, `bug`, `regress`, `crash`, `wrong`, `incorrect`, `broken`, `no longer`, `never`,
   `hang`, `leak`, `off-by`, `mismatch`, `silently`); `.` takes every commit.
 - Each commit is a change from its first parent to itself. A root commit is skipped. The task
