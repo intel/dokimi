@@ -37,12 +37,13 @@ def _refuse_judge_sampling(args: argparse.Namespace) -> None:
     """Exit 2 before any answer is paid for when the judge would refuse later: a CLI judge given a
     temperature, or a Bedrock name Bedrock cannot run."""
     provider = getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER)
+    model = getattr(args, "judge_model", None)
+    check_bedrock_model(provider, model or "")
     try:
-        check_judge_sampling(provider, getattr(args, "judge_model", None),
+        check_judge_sampling(provider, model,
                              getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:
         raise InputError(str(exc)) from exc
-    check_bedrock_model(provider, args.judge_model)
 
 
 def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None, judge_placeholder=False, registry=None) -> dict:

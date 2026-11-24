@@ -32,12 +32,13 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
 
     if not getattr(args, "repo", None) and not getattr(args, "description", None):
         raise InputError("either --repo or --description must be provided.")
+    model = getattr(args, "judge_model", None)
+    check_bedrock_model(args.judge_provider, model or "")
     try:  # before any persona, question or answer is paid for; the judge would refuse later
-        check_judge_sampling(args.judge_provider, getattr(args, "judge_model", None),
+        check_judge_sampling(args.judge_provider, model,
                              getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:  # the same exit as the other judge commands' sampling refusal
         raise InputError(str(exc)) from exc
-    check_bedrock_model(args.judge_provider, args.judge_model)  # InputError: exit 2, as above
 
     print(f"Starting full evaluation pipeline for {args.product}")
     if args.repo:

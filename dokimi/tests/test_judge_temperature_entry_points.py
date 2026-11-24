@@ -322,6 +322,22 @@ def test_evaluate_refuses_a_judge_temperature_the_route_refuses_before_any_call(
     assert haiku_requests == []
 
 
+@pytest.mark.parametrize("argv", [
+    ["evaluate", "--product", "onedal", "--description", "x"],
+    ["benchmark", "run", "--library", "onedal"],
+])
+def test_an_empty_bedrock_judge_model_is_reported_before_sampling(monkeypatch, argv):
+    import litellm
+
+    from dokimi.utils import InputError
+
+    monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **_: ["max_tokens"])
+    args = build_parser().parse_args([*argv, "--judge-provider", "amazon-bedrock", "--judge-model", "",
+                                      "--judge-temperature", "1"])
+    with pytest.raises(InputError, match="Bedrock has no model ''"):
+        args.func(args)
+
+
 def test_a_judge_constructed_with_a_refused_temperature_fails_before_any_call(haiku_requests):
     from dokimi.eval.judge import Judge
     from dokimi.llm_cli import SamplingError
