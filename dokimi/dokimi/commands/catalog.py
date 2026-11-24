@@ -203,7 +203,7 @@ def _refuse_unknown_codes(args: argparse.Namespace, codes: tuple) -> None:
 
 # Codes only the whole-catalog scan reports, and the codes only --online reports: a gate on one the scan
 # does not check would read "not checked" as a pass.
-CROSS_CATALOG_CODES = ("description-near-duplicate", "duplicate", "mirror-drift", "name-conflict")
+CROSS_CATALOG_CODES = ("description-near-duplicate", "duplicate", "mirror-drift", "name-conflict", "similar-skills-exist")
 ONLINE_CODES = ("link-dead", "package-not-found")
 
 
