@@ -508,7 +508,8 @@ The judge re-draws a reply it cannot parse, up to three attempts. At a pinned
 judge temperature the same prompt tends to return the same malformed reply, so
 each re-draw then appends a short format reminder to the prompt; the first
 attempt is unchanged. `judge_metrics.redrawn_judgements` counts the judgements
-that needed a re-draw.
+that needed a re-draw. A judge call replayed from the response cache (below)
+counts in `judge_metrics.replayed_calls` and adds no tokens and no `cost_usd`.
 
 `temperature=0` is not a determinism guarantee. It picks the highest-scoring
 token, but some endpoints compute slightly different scores from one call to

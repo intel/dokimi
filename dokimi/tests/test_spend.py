@@ -94,13 +94,14 @@ def _judge(*rows: object, redrawn: int = 0) -> Judge:
     judge = Judge(model="m", provider="openai")
     for row in rows:
         judge._accumulate_usage(row)
-    judge._usage_totals["redrawn_judgements"] = redrawn
+    judge._redrawn_judgements = redrawn
     return judge
 
 
-def _judge_metrics(calls, known, usd, prompt, completion, total, redrawn=0) -> dict:
-    return {"calls": calls, "cost_known_calls": known, "cost_usd": usd, "prompt_tokens": prompt,
-            "completion_tokens": completion, "total_tokens": total, "redrawn_judgements": redrawn}
+def _judge_metrics(calls, known, usd, prompt, completion, total, redrawn=0, replayed=0) -> dict:
+    return {"calls": calls, "replayed_calls": replayed, "cost_known_calls": known, "cost_usd": usd,
+            "prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total,
+            "redrawn_judgements": redrawn}
 
 
 def _both_judge_records(judge: Judge) -> dict:
@@ -121,13 +122,15 @@ def test_the_judge_shows_the_priced_part_when_a_call_is_unpriced():
     assert _both_judge_records(_judge(UNPRICED)) == _judge_metrics(1, 0, None, 3, 1, 4)
 
 
-def test_the_judge_counts_a_replayed_call_as_paid():
-    assert _both_judge_records(_judge(PRICED, REPLAYED)) == _judge_metrics(2, 2, 1.25, 17, 9, 26)
+def test_a_replayed_judge_call_is_counted_apart_and_not_billed():
+    assert _both_judge_records(_judge(PRICED, REPLAYED)) == _judge_metrics(
+        2, 2, 0.25, 10, 2, 12, replayed=1)
+    assert _both_judge_records(_judge(REPLAYED)) == _judge_metrics(1, 1, 0.0, 0, 0, 0, replayed=1)
 
 
-def test_the_judge_skips_a_call_with_no_usage_record():
+def test_a_judge_call_with_no_usage_record_is_a_call_with_no_price():
     assert _both_judge_records(_judge(PRICED, None, {"cost_usd": 1.0})) == _judge_metrics(
-        1, 1, 0.25, 10, 2, 12)
+        3, 1, 0.25, 10, 2, 12)
 
 
 def test_a_judge_with_no_call_has_no_dollar_total():
