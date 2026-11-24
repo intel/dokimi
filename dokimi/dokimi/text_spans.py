@@ -82,7 +82,8 @@ class HeredocPattern:
     regexes, so a line naming a prefix of it never closes the heredoc (#930). ``unclosed`` is the opener,
     the rest of its line and everything after it (same groups as ``full``): a heredoc no line closes
     runs to the end of the input, as in a shell. ``gap`` is the number of characters the closing line
-    must start past the end of the opener's line (1 when ``full`` wants a body line first).
+    must start past the end of the opener's line (1 when ``full`` wants a body line first). ``before`` and ``after``
+    are the characters ``full`` allows ahead of and after the delimiter on its closing line (all whitespace when None).
     """
 
     full: re.Pattern[str]
@@ -91,6 +92,8 @@ class HeredocPattern:
     unclosed: re.Pattern[str]
     word: int
     gap: int = 0
+    before: str | None = None
+    after: str | None = None
 
     def matches(self, text: str) -> Iterator[re.Match[str]]:
         """The matches of ``full``, then ``unclosed`` for the first opener that no line closes, which ends the scan.
@@ -103,10 +106,13 @@ class HeredocPattern:
         if not openers:
             return
         last = dict.fromkeys((o.group(self.word) for o, _ in openers), -1)
+        cores: dict[str, list[str]] = {}
+        for delimiter in last:
+            cores.setdefault(self._core(delimiter), []).append(delimiter)
         for line in self.lines.finditer(text):
-            for key in {line.group(1), line.group(1).rstrip(), line.group(1).strip()}:  # a delimiter may own its own spaces: `<<' a'`
-                if key in last:
-                    last[key] = line.start()
+            for delimiter in cores.get(self._core(line.group(1)), ()):  # a delimiter may own its own spaces: `<<' a'`
+                if self._closes(line.group(1), delimiter):
+                    last[delimiter] = line.start()
         pos = 0
         for o, line_end in openers:
             if o.start() < pos:
@@ -124,6 +130,16 @@ class HeredocPattern:
                 return
             else:
                 pos = o.start() + 1
+
+    def _core(self, line: str) -> str:
+        """``line`` without the characters ``full`` allows before and after a delimiter."""
+        return line.lstrip(self.before).rstrip(self.after)
+
+    def _closes(self, line: str, delimiter: str) -> bool:
+        """Whether ``full`` reads ``line`` as an allowed run, the delimiter (which may start or end in such characters), an allowed run."""
+        end = len(line.rstrip(self.after))
+        lead = len(line) - len(line.lstrip(self.before))
+        return any(line.startswith(delimiter, i) for i in range(max(0, end - len(delimiter)), min(lead, len(line) - len(delimiter)) + 1))
 
     def _openers(self, text: str) -> list[tuple[re.Match[str], int]]:
         """Each opener with the start of the line after its own; an opener whose line has no end is left out."""

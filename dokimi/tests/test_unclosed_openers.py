@@ -433,6 +433,19 @@ def test_a_quoted_delimiter_with_outer_whitespace_is_closed_by_its_whole_line_an
     assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
 
 
+@pytest.mark.parametrize(("opener", "closing"), [("<<'a '", "a \r"), ("<<' '", " \r"), ("<<' a '", " a \r"), ("<<'a '", "a  "), ("<<'a '", "  a \r\r"), ("<<' a'", "  a")])
+def test_a_quoted_delimiter_with_outer_whitespace_is_closed_by_a_line_with_more_whitespace_or_a_carriage_return(opener: str, closing: str) -> None:
+    text = f"cat {opener}\nx\n{closing}\nsed -i s/x/y/ f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
+    assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
+
+
+def test_cli_trace_heredoc_is_not_closed_by_a_line_whose_outer_character_is_no_blank_it_allows() -> None:
+    text = "cat <<EOF\nx\n\u00a0EOF\ncat AGENTS.md\n"
+    assert _cli_heredocs(text) == "cat "  # the body runs to the end: a no-break space is no blank of the closing line
+    assert shell.split_commands(text) == [("cat <<EOF", "\n"), ("cat AGENTS.md", "\n")]  # the `\s` of that regex reads it as one
+
+
 def test_a_quote_inside_the_other_quote_does_not_close_it_before_an_opener() -> None:
     text = "echo \"it's\" <<EOF\nbody\nEOF\nrm f\n"
     assert _cli_heredocs(text) == "echo \"it's\" \nrm f\n"
