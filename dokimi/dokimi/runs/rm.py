@@ -79,10 +79,19 @@ def _one_file(root: Path, address: str) -> Removal:
     if stat.S_ISDIR(found.st_mode):
         raise InputError(f"{plain(address)} is a directory; runs rm takes a run_id or one file")
     file = Path(os.path.relpath(entry, os.path.realpath(root)))
-    if file.parts[0] == BASELINE_POINTERS:  # unlinking the lock or a pointer would bypass the lock
+    if file.parts[0] == BASELINE_POINTERS or _in_store(root, entry):  # it would bypass the lock
         raise InputError(f"{plain(address)} is in the baselines' store {BASELINE_POINTERS}/; "
                          "runs baseline rm NAME removes a baseline")
     return Removal(root=root, file=file, file_bytes=found.st_size, file_identity=identity(found))
+
+
+def _in_store(root: Path, entry: str) -> bool:
+    """Whether ``entry`` lies in the baselines' store by identity: a symlinked ``.baselines``, or one
+    spelled in another case on a case-insensitive file system, resolves under another name."""
+    try:
+        return os.path.samestat(os.stat(os.path.dirname(entry)), os.stat(root / BASELINE_POINTERS))
+    except OSError:  # no store, or no directory to compare: nothing to bypass
+        return False
 
 
 def plan_rm(root: Path, address: str) -> Removal:

@@ -395,6 +395,20 @@ def test_rm_removes_a_pointer_that_is_a_link_to_nothing_so_gc_can_run(root, monk
     assert _run(monkeypatch, capsys, "gc", "--older-than", "0d", "--keep-baselines")[0] == 0
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a symlink needs a privilege on Windows")
+@pytest.mark.parametrize("path", [".baselines/.lock", "store/.lock", "store/main"])
+def test_runs_rm_refuses_the_store_however_it_is_reached(root, monkeypatch, capsys, path):
+    # a .baselines that links to a directory under the root resolves to that directory's name
+    (root / "store").mkdir()
+    (root / ".baselines").symlink_to(root / "store", target_is_directory=True)
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+
+    assert _run(monkeypatch, capsys, "rm", path)[::2] == (
+        2, f"Error: {path} is in the baselines' store .baselines/; runs baseline rm NAME removes a "
+           "baseline\n")
+    assert sorted(os.listdir(root / "store")) == [".lock", "main"]
+
+
 def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):
     _run(monkeypatch, capsys, "baseline", "save", "main", A)
 
