@@ -633,6 +633,47 @@ def test_a_signal_the_block_caught_is_not_lost_by_an_explicit_finish(root, handl
                                                                  "detail": "SIGTERM: the run stops"})
 
 
+def test_a_signal_before_a_workers_finish_takes_the_lock_ends_the_run_terminated(root, handlers):
+    """docs/run-directories.md: "A run a signal stopped is recorded terminated", also when a worker thread's
+    finish("complete") was called before the signal and takes the run's lock after it."""
+    waiting, go = threading.Event(), threading.Event()
+
+    class HeldAtTheDoor:
+        """The run's lock; the worker waits at it until the main thread has had its signal."""
+
+        def __init__(self, real):
+            self.real = real
+
+        def __enter__(self):
+            if threading.current_thread() is not threading.main_thread():
+                waiting.set()
+                go.wait(30)
+            return self.real.__enter__()
+
+        def __exit__(self, *exc):
+            return self.real.__exit__(*exc)
+
+    signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    process.install_signal_handlers([signal.SIGTERM])
+    with open_run(root, name="n") as run:
+        run.write_plan(_fixture("plan.v1"))
+        for cid in _ids():
+            run.record_cell(cid, "pass")
+        run._lock = HeldAtTheDoor(run._lock)
+        worker = threading.Thread(target=run.finish, args=("complete",))
+        worker.start()
+        assert waiting.wait(30)
+        try:
+            signal.raise_signal(signal.SIGTERM)
+        except process.ShuttingDown:
+            pass
+        go.set()
+        worker.join()
+    record = _record(run.path)
+    assert (record["status"], record["stop"]) == ("incomplete", {"reason": "terminated",
+                                                                 "detail": "SIGTERM: the run stops"})
+
+
 def test_a_signal_while_a_child_is_being_registered_stops_the_run_once_it_is(root, handlers, monkeypatch):
     """dokimi.process defers a signal that lands inside _spawn until the child is in _live, so the
     child is killed; the run's stop waits with it."""

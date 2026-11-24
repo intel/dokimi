@@ -171,13 +171,15 @@ class RunDir:
             ValueError: the run has already ended, or ``status`` is ``complete`` while a planned
                 cell has no measured status (result.v1: such a run is not complete).
         """
-        self._end(*(self._how_ended(None) if self._signal is not None else (status, None)))
+        self._end(status, None)
 
     def _end(self, status: Status | None, stop: dict[str, str | None] | None) -> None:
         """``status`` None: ``complete`` or ``incomplete`` by the cells, decided under the lock that
         also writes the result, so a cell recorded meanwhile cannot make the two disagree."""
         with self._lock:
             self._running()
+            if self._signal is not None:  # read under the lock: a signal before it wins over any status chosen earlier
+                status, stop = self._how_ended(None)
             measured = True  # a run with no plan has no cell to measure
             if self._plan is not None:
                 result = self._result(self._plan, stop)
