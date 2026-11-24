@@ -205,7 +205,9 @@ def run(args):
     prompts = {case["id"]: case["prompt"] for case in suite["cases"]}
     inputs, arms = materialize_tasks(args, root, prompts)
     runs = root / "runs.json"
-    template = f"{shlex.join([sys.executable, __file__])} --cell '{{task_path}}' --arm '{{harness}}'"
+    # CommandHarness runs from the parent of tasks/. Only generated identifiers
+    # enter the template, so quoting in the user's output directory is immaterial.
+    template = shlex.join([sys.executable, __file__, "--cell", "tasks/{task}", "--arm", "{harness}"])
     process = subprocess.run(
         [sys.executable, "cli.py", "tasks", "run", "--all", "--tasks-root", str(root / "tasks"),
          "--harnesses", ",".join(arms), "--reps", "3", "--baseline-harness", arms[0],

@@ -59,3 +59,12 @@ def test_harness_error_is_an_infrastructure_error(tmp_path, monkeypatch):
     cell = json.loads((out / "response.json").read_text())["cells"][0]
     assert cell["status"] == "infrastructure_error"
     assert cell["error"] == "harness failed"
+
+
+def test_skill_fixture_scores_all_cells_under_quoted_path(tmp_path):
+    out = tmp_path / "user's run"
+    rpe.run(argparse.Namespace(out=out, suite=None, skill_fixture=True, skill_file=None))
+    cells = json.loads((out / "response.json").read_text())["cells"]
+    assert len(cells) == 6
+    assert {(cell["arm"], cell["status"]) for cell in cells} == {
+        ("without-skill", "task_failed"), ("with-skill", "passed")}
