@@ -25,8 +25,8 @@ def _litellm_reason(text: str) -> str:
 def refusal_reason(litellm: Any, resolved: str, provider: str, name: str, value: Any) -> str | None:
     """The reason when litellm (passed in; dokimi.llm owns the import) refuses this value on this route.
 
-    litellm judges the bare id plus its provider; the ``bedrock/``-prefixed form accepts
-    temperature=0 for a model that refuses it under the bare id, so the prefix is split off.
+    litellm wants the provider and the bare id apart, so the provider prefix (and Bedrock's
+    ``converse/`` route) is split off and the rest, an ARN or a publisher/model id, is kept whole.
     Any other failure reads as accepted.
     """
     route, separator, bare = resolved.partition("/")
