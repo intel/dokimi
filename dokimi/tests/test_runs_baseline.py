@@ -189,6 +189,33 @@ def test_two_processes_that_expect_the_same_run_keep_one_winner(root, monkeypatc
     assert _pointer(root, "main") == winner + "\n"
 
 
+@pytest.mark.skipif(not Path("/proc/locks").exists(), reason="waiting on a lock is seen in /proc/locks (Linux)")
+def test_gc_keep_baselines_removes_while_it_holds_the_lock(root):
+    """docs/runs.md, --keep-baselines: gc holds the baselines' lock while it removes, so it waits for
+    a save that holds it, and a save waits for gc."""
+    baseline.save(root, "main", A, None)
+    with _cli(root, ["gc", "--older-than", "0d", "--keep-baselines"]) as (gc,):
+        with baseline.locked(root):
+            _wait_on_the_lock(root, 1)
+            assert (root / "b" / "arms.json").exists()  # nothing removed before gc has the lock
+        out, err = gc.communicate(timeout=60)
+
+    assert gc.returncode == 0, err
+    assert f"kept 1 run older than 0d that a baseline holds: {A} (main)" in out
+    assert not (root / "b" / "arms.json").exists() and (root / "a" / "eval.json").exists()
+
+
+@pytest.mark.parametrize("argv", [["--keep-baselines", "--dry-run"], []])
+def test_gc_takes_no_lock_when_it_keeps_no_baseline_or_removes_nothing(root, monkeypatch, capsys, argv):
+    def forbidden(path):
+        raise AssertionError("gc took the baselines' lock")
+
+    monkeypatch.setattr(baseline, "locked", forbidden)
+
+    assert _run(monkeypatch, capsys, "gc", "--older-than", "0d", *argv)[0] == 0
+    assert not (root / ".baselines").exists()
+
+
 @pytest.mark.parametrize("name", ["../x", "a//b", "/a", "a/", ".hidden", "a/.b", "a.", "a./b",
                                   "a b", "a:b", "a\\b", "", "x" * 129, "con", "NUL.txt", "com1"])
 def test_save_refuses_a_name_that_is_not_one_and_writes_nothing(root, monkeypatch, capsys, name):
