@@ -332,6 +332,24 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("export POSIXLY_CORRECT=1; time -p unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
     ("env export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # a program, not the builtin
     ("X=1 time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 <>/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # a read-write redirect is one redirect
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT <>/dev/null; head AGENTS.md -n 0", []),  # to /dev/null it cannot fail
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT <>/no/dir/f; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>&9; head AGENTS.md -n 0", ["AGENTS.md"]),  # fd 9 may not be open
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >&2; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } </definitely-missing; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } </dev/null; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } 2>&1; head AGENTS.md -n 0", []),
+    ("X=1 command export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # ``command`` runs the builtin here
+    ("time command export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("X=1 env export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("builtin() { :; }; command builtin export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # past the outer one
+    ("command() { :; }; builtin command export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("command() { :; }; command export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # the function runs
+    ("export POSIXLY_CORRECT=1; unset -z POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # an option it refuses
+    ("export POSIXLY_CORRECT=1; unset -vz POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; export -zn POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export -z POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads

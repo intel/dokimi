@@ -18,9 +18,10 @@ _HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?>&\d+(?=\s|$|[;&|])|(?<!
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
 # any redirect with its target: ``>f``, ``>>f``, ``2>f``, ``&>f``, ``>&2``, ``<f``; the operator may be glued to the
 # word before it (``export X=1>f``), but a descriptor number or ``&`` only starts a word
-_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])(?:\d+|&))?(?:>>?|<)&?[ \t]*[^\s;&|<>()]+")
-# a redirect that cannot fail to open: to /dev/null, or a copy of or close of a descriptor (``2>&1``, ``<&-``)
-_SAFE_REDIRECT = re.compile(r"(?:\d+|&)?(?:>>?|<)(?:&[ \t]*(?:\d+|-)|[ \t]*/dev/null)")
+_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])(?:\d+|&))?(?:>>?|<>?)&?[ \t]*[^\s;&|<>()]+")
+# a redirect that cannot fail to open: to /dev/null, or a copy of or close of a standard descriptor (``2>&1``, ``<&-``);
+# a copy of another one (``2>&9``) fails when it is not open
+_SAFE_REDIRECT = re.compile(r"(?:\d+|&)?(?:>>?|<>?)(?:&[ \t]*(?:[0-2]|-)|[ \t]*/dev/null)")
 
 
 def bare(part: str) -> str:
@@ -50,7 +51,7 @@ def without_redirects(part: str) -> str:
 
 def may_fail_redirect(part: str) -> bool:
     """Whether ``part`` has a redirect that may fail to open (``</missing``, ``>dir/f``), so its command may not run: any
-    but one to ``/dev/null`` or a descriptor (:data:`_SAFE_REDIRECT`)."""
+    but one to ``/dev/null`` or a standard descriptor (:data:`_SAFE_REDIRECT`)."""
     text = masked(part)
     return any(not _SAFE_REDIRECT.fullmatch(m.group()) for m in _REDIRECT.finditer(text))
 

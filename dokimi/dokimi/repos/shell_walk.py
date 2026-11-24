@@ -27,8 +27,8 @@ from .shell_redirects import bare, masked, may_fail_redirect, without_redirects,
 from .shell_search import Searched, cuts_lines, passes_through, prints_nothing, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
-from .shell_words import (_ASSIGN, _DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _loses, _run_name, _runs_dir,
-                          _time_keyword, _unquoted, _stdout_after_stderr)
+from .shell_words import (_ASSIGN, _DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _loses, _past_time, _run_name,
+                          _runs_dir, _time_keyword, _unquoted, _stdout_after_stderr)
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
@@ -325,6 +325,9 @@ class _Walk:
     def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
         before, piped, (mark, unknown, passthru), (self.list_start, self.listed) = self.groups.pop()
         self.gates.pop()
+        if may_fail_redirect(redirects):  # ``{ unset X; } </missing``: bash opens it first, and runs no body when that fails
+            self.posix |= before[3]
+            self.last_exit = None
         if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _stdout_after_stderr(redirects):
             del out[mark:]
             self.unknown, self.passthru = unknown, passthru  # a passthru search dropped with the group shows the agent no line
@@ -437,19 +440,12 @@ def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool
     name, is_set, exported = "POSIXLY_CORRECT", *state
     if all(_ASSIGN.match(w) for w in words):
         return is_set or any(w.startswith(name + "=") for w in words), exported
-    if _ASSIGN.match(words[0]) or (timed and words[0] == "time"):
-        words, via_env, _, _ = _command_words(words, timed, functions)
-        if via_env or not words:
-            return state
-    bypassed = False
-    while words[0] in ("builtin", "command") and words[0] not in functions:
-        inner = _wrapped(words)
-        if inner is None:
-            return state
-        words, bypassed = inner, True
-    if words[0] not in ("export", "unset") or (words[0] in functions and not bypassed):
+    words = _builtin_run(words, functions, timed)
+    if not words:
         return state
     flags, operands = _builtin_options(words[1:])
+    if set(flags) - set("fnp" if words[0] == "export" else "fnv"):  # an option the builtin refuses: it changes nothing
+        return state
     if "f" in flags or name not in [w.partition("=")[0] for w in operands]:
         return state
     if words[0] == "unset":
@@ -458,6 +454,22 @@ def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool
     if "n" in flags:
         return is_set or valued, False
     return (True, True) if valued else (is_set, True)
+
+
+def _builtin_run(words: list[str], functions: Functions, timed: bool) -> list[str]:
+    """``words`` from the ``export`` or ``unset`` the command runs in this shell, past ``NAME=value`` words, the ``time``
+    keyword and ``builtin`` / ``command`` (which run the builtin here, also past a function of their own name once an outer
+    one has bypassed the functions); empty when it runs no such builtin."""
+    while _ASSIGN.match(words[0]):  # ``X=1 command export``: ``command`` runs the builtin here, so not _command_words
+        words = words[1:]
+    if timed and words[0] == "time":
+        words = words[_past_time(words):]
+    bypassed = False
+    while words and words[0] in ("builtin", "command") and (bypassed or words[0] not in functions):
+        words, bypassed = _wrapped(words) or [], True
+    if not words or words[0] not in ("export", "unset") or (words[0] in functions and not bypassed):
+        return []
+    return words
 
 
 def _wrapped(words: list[str]) -> list[str] | None:
