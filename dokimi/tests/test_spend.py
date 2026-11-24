@@ -83,9 +83,14 @@ def test_the_novelty_roll_up_sums_the_roles_and_keeps_each_row():
 def test_one_role_without_a_dollar_total_leaves_the_roll_up_without_one():
     total = roll_up_cost([_client(PRICED, role="answerer"), _client(UNPRICED, role="judge")])
     assert {k: v for k, v in total.items() if k != "by_role"} == _novelty(2, 13, 3, 4, 1, 0, None)
-    # A role that made no call has no total either, so it takes the run's total away.
-    assert roll_up_cost([_client(PRICED, role="answerer"), _client(role="judge")])["usd"] is None
     assert roll_up_cost([])["usd"] is None
+
+
+def test_a_role_that_made_no_call_adds_nothing_to_the_roll_up():
+    """A run stopped before the judge's first call still says what its other roles spent."""
+    total = roll_up_cost([_client(PRICED, role="answerer"), _client(role="judge")])
+    assert (total["llm_calls"], total["usd"]) == (1, 0.25)
+    assert [row["usd"] for row in total["by_role"]] == [0.25, None]
 
 
 # ── eval: Judge judge_metrics, written by evaluate and by arms run ──────────────────────

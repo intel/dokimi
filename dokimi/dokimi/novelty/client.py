@@ -193,20 +193,12 @@ class LLMClient:
         Calls served from the response cache are counted in ``replayed_calls`` and
         left out of the token and dollar totals.
         """
-        # A call that returned no usage row has no price either, so it makes the total unknown.
-        spend = Spend.of([*self.usage, *[None] * (self.calls - len(self.usage))])
-        return {
-            "model": self.model,
-            "provider": self.provider,
-            "role": self.role,
-            "llm_calls": spend.calls,
-            "input_tokens": spend.prompt_tokens,
-            "output_tokens": spend.completion_tokens,
-            "cache_read_tokens": spend.cache_read_tokens,
-            "cache_write_tokens": spend.cache_write_tokens,
-            "replayed_calls": spend.replayed_calls,
-            "usd": spend.usd,
-        }
+        return {"model": self.model, "provider": self.provider, "role": self.role,
+                **_cost_block(self.spend())}
+
+    def spend(self) -> Spend:
+        """This client's calls as a :class:`Spend`; a call that returned no usage row has no price."""
+        return Spend.of([*self.usage, *[None] * (self.calls - len(self.usage))])
 
     def _default_transport(
         self, prompt: str, system: str | None, *, accept: Accept | None = None,
@@ -254,20 +246,25 @@ def accepting(parse: Callable[[str], Any]) -> Accept:
 
 
 def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
-    """Total cost across roles, with the per-role breakdown kept."""
-    per_role = [c.cost_summary() for c in clients]
-    usd_parts = [row["usd"] for row in per_role]
+    """Total cost across roles, with the per-role breakdown kept.
+
+    The roles' calls are summed as one :class:`Spend`: a role that made no call adds nothing,
+    so a run stopped before the judge's first call still has a dollar total.
+    """
+    return {**_cost_block(sum((c.spend() for c in clients), Spend())),
+            "by_role": [c.cost_summary() for c in clients]}
+
+
+def _cost_block(spend: Spend) -> dict[str, Any]:
+    """A ``Spend`` under the field names of a ``novelty.v1`` cost block."""
     return {
-        "llm_calls": sum(row["llm_calls"] for row in per_role),
-        "input_tokens": sum(row["input_tokens"] for row in per_role),
-        "output_tokens": sum(row["output_tokens"] for row in per_role),
-        "cache_read_tokens": sum(row["cache_read_tokens"] for row in per_role),
-        "cache_write_tokens": sum(row["cache_write_tokens"] for row in per_role),
-        "replayed_calls": sum(row["replayed_calls"] for row in per_role),
-        "usd": round(sum(p for p in usd_parts if p is not None), 6)
-        if usd_parts and None not in usd_parts
-        else None,
-        "by_role": per_role,
+        "llm_calls": spend.calls,
+        "input_tokens": spend.prompt_tokens,
+        "output_tokens": spend.completion_tokens,
+        "cache_read_tokens": spend.cache_read_tokens,
+        "cache_write_tokens": spend.cache_write_tokens,
+        "replayed_calls": spend.replayed_calls,
+        "usd": spend.usd,
     }
 
 
