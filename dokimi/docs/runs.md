@@ -278,9 +278,12 @@ saved baseline skill/a@main -> 20261029T140211Z-3f9a0c1e (1 artifact); before: 2
 - **`runs baseline rm NAME`** removes the pointer; the run stays (`runs rm RUN_ID`
   removes a run). A baseline that does not exist exits 2, and so does a name that
   matches a saved one only in case (`rm MAIN` beside `main`): it removes nothing.
+  An entry that cannot be read (named as unreadable by `list`, it stops `runs gc
+  --keep-baselines`: a link to nothing, a FIFO, a file over 256 bytes, text that is
+  not UTF-8) is removed too, and the line says it held no run id.
 - **On disk** a baseline is the file `.baselines/<NAME>` under the root, with `/`
   in the name written `%2F` (`.baselines/skill%2Fa@main`), holding one line: the
-  `run_id`. `SAVED` is its mtime. A save replaces the file in one step, and saves and
+  `run_id`; a file over 256 bytes cannot be read. `SAVED` is its mtime. A save replaces the file in one step, and saves and
   removals hold `.baselines/.lock`, so the compare and the swap are one step for every
   process on the machine (on a network file system only as far as it honours
   `flock`).

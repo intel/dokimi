@@ -384,7 +384,7 @@ def test_a_pointer_longer_than_a_run_id_line_is_not_read_as_its_first_bytes(root
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a symlink needs a privilege on Windows")
 def test_rm_removes_a_pointer_that_is_a_link_to_nothing_so_gc_can_run(root, monkeypatch, capsys):
-    # docs/runs.md: such an entry is unreadable and stops gc --keep-baselines; rm is how it goes
+    # docs/runs.md, runs baseline rm: an entry that cannot be read stops gc, and rm removes it
     (root / ".baselines").mkdir()
     (root / ".baselines" / "main").symlink_to(root / "gone")
     assert _run(monkeypatch, capsys, "gc", "--older-than", "0d", "--keep-baselines")[0] == 2
