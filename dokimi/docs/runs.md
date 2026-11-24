@@ -297,9 +297,9 @@ saved baseline skill/a@main -> 20261029T140211Z-3f9a0c1e (1 artifact); before: 2
 | `runs show RUN_ID`: nothing of that name and no artifact under the root with that `run_id` (the error counts the entries that could not be read), or a root that cannot be listed | 2 |
 | `runs rm`, `runs gc`: removed, or listed with `--dry-run`; nothing to remove; `runs gc` when `results/` does not exist | 0 |
 | `runs rm`: no root, a directory, a missing file, a path outside the root, or a `run_id` no artifact carries | 2 |
-| `runs gc`: no `--older-than`, an age that is not days (`30d`), an entry under the root that cannot be read, or with `--keep-baselines` a baseline manifest or copy that cannot be read | 2 |
+| `runs gc`: no `--older-than`, an age that is not days (`30d`), an entry under the root that cannot be read, or with `--keep-baselines` a baseline manifest, copy or pointer that cannot be read, or a `.baselines/` that cannot be listed | 2 |
 | `runs rm`, `runs gc`: a file that could not be removed | 5 |
-| `runs baseline save`, `rm`: saved or removed; `runs baseline list`, with no root or no baseline too | 0 |
-| `runs baseline save`, `rm`: no root, a name that is not one or differs from a saved one only in case, a `RUN` or `--expect-previous` that is not a run id, a `RUN` no artifact carries, `rm` of a baseline that does not exist | 2 |
+| `runs baseline save`, `rm`: saved or removed; `runs baseline list`, with no root, no baseline or an entry of `.baselines/` that is not a pointer too | 0 |
+| `runs baseline save`, `rm`: no root, a name that is not one or differs from a saved one only in case, a `RUN` or `--expect-previous` that is not a run id, a `RUN` no artifact carries, `rm` of a baseline that does not exist; `runs baseline list`: a `DOKIMI_RUNS_DIR` that does not exist, or a `.baselines/` that cannot be listed (a file, no permission) | 2 |
 | `runs baseline save --expect-previous RUN_ID`: the baseline does not point to `RUN_ID` (the pointer is left as it was) | 4 |
 | `runs baseline save`, `rm`: the pointer could not be written or removed | 5 |
