@@ -519,3 +519,16 @@ def test_a_call_that_becomes_real_keeps_its_first_block_position():
     assert [c["i"] for c in trace.calls] == [0, 1]
     assert all("line" not in c for c in trace.calls)
     assert trace.compactions[0]["after_call"] == 1
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_a_compaction_before_a_promoted_call_stays_after_its_first_block():
+    """#1088: m1 opens all zero, a compaction, m2, then m1 gets output: the compaction follows m1, not precedes every call."""
+    trace = parse_trace(_jsonl(
+        _assistant("m1", {"input_tokens": 0}),
+        {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto"}},
+        _assistant("m2", {"input_tokens": 300}),
+        _assistant("m1", {"output_tokens": 7})))
+    assert [c["prompt_tokens"] for c in trace.calls] == [0, 300]
+    assert trace.compactions[0]["after_call"] == 0
+    assert "line" not in trace.compactions[0]

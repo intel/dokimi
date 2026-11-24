@@ -147,6 +147,9 @@ def parse_trace(raw: str) -> ContextTrace:
             _apply(out, rec, by_message, names, seen, dormant, n)
         except (AttributeError, TypeError, ValueError, OverflowError, RecursionError) as exc:  # valid JSON of an unexpected shape
             out.errors.append(f"line {n}: unexpected shape ({exc})")
+    for compaction in out.compactions:
+        at = compaction.pop("line")
+        compaction["after_call"] = sum(c["line"] < at for c in out.calls) - 1
     for i, call in enumerate(out.calls):
         call["i"] = i
         del call["line"]
@@ -173,8 +176,9 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
             "trigger": meta.get("trigger"),
             "pre_tokens": meta.get("pre_tokens", meta.get("preTokens")),
             "post_tokens": meta.get("post_tokens"),  # newer CLIs only
-            "after_call": len(out.calls) - 1,
+            "after_call": len(out.calls) - 1,  # settled from "line" once every call is placed
             "at": rec.get("timestamp"),
+            "line": line,
         })
     elif kind == "assistant":
         message = rec.get("message") or {}
@@ -222,9 +226,6 @@ def _add_call(out: ContextTrace, call: dict[str, Any], key: Any, by_message: dic
             first = dormant.pop(key)  # the call sits where its first block was, not where it became real
             at = sum(c["line"] < first for c in out.calls)
             out.calls.insert(at, by_message[key])
-            for compaction in out.compactions:
-                if compaction["after_call"] >= at:
-                    compaction["after_call"] += 1
     elif any(call[k] for k in _PARTS):  # an all-zero block carries no call yet
         out.calls.append(call)
         if key:
