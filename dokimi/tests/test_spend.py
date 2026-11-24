@@ -184,9 +184,9 @@ def test_the_role_roll_up_shows_each_bucket_s_priced_part_and_no_total_while_one
     }
 
 
-def test_the_role_roll_up_counts_a_replayed_call_as_paid_and_an_empty_bucket_as_complete():
+def test_the_role_roll_up_leaves_a_replayed_call_out_and_an_empty_bucket_complete():
     assert roll_up_by_role([PRICED, REPLAYED]) == {
-        "main_agent_tokens": 26, "subagent_tokens": 0, "full_system_tokens": 26,
-        "main_agent_cost": 1.25, "subagent_cost": None, "full_system_cost": 1.25,
+        "main_agent_tokens": 12, "subagent_tokens": 0, "full_system_tokens": 12,
+        "main_agent_cost": 0.25, "subagent_cost": None, "full_system_cost": 0.25,
         "full_system_cost_complete": True,
     }

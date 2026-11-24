@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Iterable, Optional
 
+from dokimi.spend import Spend
+
 
 @dataclass(frozen=True)
 class UsageRecord:
@@ -193,45 +195,27 @@ def to_record(
 
 
 def roll_up_by_role(records: "Iterable[UsageRecord]") -> dict:
-    """Split usage into main-agent vs subagent buckets.
+    """Split usage into main-agent vs subagent buckets, each a :class:`dokimi.spend.Spend`.
 
     Groups records by ``role`` (anything other than ``"subagent"`` counts as
-    main) and reports tokens and cost for each bucket plus the full-system
-    total. Cost stays ``None`` when a bucket has no priced calls; the
-    full-system cost is the sum of whichever buckets are priced (``None`` only
-    when *both* are unpriced) — so an unpriced subagent never silently zeroes
-    the system cost.
+    main). A bucket's cost is its priced calls' sum, ``None`` when none is
+    priced; the full-system cost is ``None`` unless every call of both is
+    priced, so an unpriced subagent never reads as free. Replayed rows add no
+    tokens and no cost (:mod:`dokimi.spend`).
     """
     records = list(records)
-    # Seed with role="" so the empty identity element never overrides the
-    # bucket's real role under ``__add__`` (role=self.role or other.role).
-    main = sum((r for r in records if r.role != "subagent"), UsageRecord(n_calls=0, role=""))
-    sub = sum((r for r in records if r.role == "subagent"), UsageRecord(n_calls=0, role=""))
-    # full-system cost is a trustworthy total only when *every* call (main and
-    # subagent) is priced; otherwise an unpriced portion would read as free.
-    cost_complete = _cost_complete(main) and _cost_complete(sub)
+    main = Spend.of(r for r in records if r.role != "subagent")
+    sub = Spend.of(r for r in records if r.role == "subagent")
+    both = main + sub
     return {
         "main_agent_tokens": main.total_tokens,
         "subagent_tokens": sub.total_tokens,
-        "full_system_tokens": main.total_tokens + sub.total_tokens,
-        "main_agent_cost": main.cost_usd,
-        "subagent_cost": sub.cost_usd,
-        "full_system_cost": (
-            _add_optional_costs(main.cost_usd, sub.cost_usd) if cost_complete else None
-        ),
-        "full_system_cost_complete": cost_complete,
+        "full_system_tokens": both.total_tokens,
+        "main_agent_cost": main.known_usd,
+        "subagent_cost": sub.known_usd,
+        "full_system_cost": both.usd,
+        "full_system_cost_complete": not both.unpriced_calls,
     }
-
-
-def _cost_complete(rec: UsageRecord) -> bool:
-    """True when a bucket's cost is fully known: empty, or all calls priced."""
-    return rec.n_calls == 0 or rec.priced_calls == rec.n_calls
-
-
-def _add_optional_costs(a: Optional[float], b: Optional[float]) -> Optional[float]:
-    if a is None and b is None:
-        return None
-    return round((a or 0.0) + (b or 0.0), 6)
 
 
 def _joined_models(a: str, b: str) -> str:
