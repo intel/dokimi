@@ -200,6 +200,19 @@ def test_model_compare_reads_the_arms_run_as_the_adapted_eval(tmp_path, provider
     assert len(rows) == 6
 
 
+def test_a_two_turn_session_of_arm_runner_is_refused(provider_calls):
+    # Its record holds the second turn's answer under the first question (ArmRunner, session_turns=2).
+    from dokimi.eval.arm_runner import ArmRunner
+    from dokimi.treatments.arms import BaselineTreatment
+
+    runner = ArmRunner([BaselineTreatment()], model="m", provider="openai", session_turns=2)
+    records = runner.run("lib", [{"id": "q1", "question": "Capital of France?", "follow_ups": ["And of Japan?"]}],
+                         concurrency=1)
+    assert records[0]["session_turns"] == 2
+    with pytest.raises(RecordError, match="a session run"):
+        to_binary(runner.build_output("lib", records))
+
+
 # ── Shapes the fixture does not reach ────────────────────────────────────────
 
 def _arms(*records: Dict[str, Any], arms=("baseline", "docs"), evaluations=None, **meta) -> Dict[str, Any]:
@@ -299,6 +312,10 @@ def test_method_version_is_carried_and_never_stamped():
     (_arms(_question(baseline=_cell(), profile={**_cell(), "metadata": {"arm_kind": "profile"}}),
            arms=("baseline", "profile")), r"arm 'profile' \(arm_kind \['profile'\]\) is not a docs arm"),
     (_arms(_question(baseline=_cell(), docs={"answer": "a"})), r"arm 'docs' \(arm_kind unrecorded\) is not a docs arm"),
+    # A session's answer is its last turn's (ArmRunner refuses to judge it, arm_runner._refuse_session_records).
+    ({**_arms(_question(baseline=_cell()), arms=("baseline",)), "session": {"turns": 2, "turn_reminder": None}},
+     "a session run"),
+    (_arms({**_question(baseline=_cell()), "session_turns": 2}, arms=("baseline",)), "a session run"),
 ])
 def test_a_run_with_no_binary_reading_is_refused(data, message):
     # answers.v1/eval.v1 have two conditions, with_docs and without_docs (AGENTS.md, "Persisted formats").

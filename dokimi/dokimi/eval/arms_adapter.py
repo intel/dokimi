@@ -14,7 +14,7 @@ binary artifacts. ``report model-compare`` reads the arms file itself.
   as the docs arm, with ``with_docs: null``. A non-docs arm stopped that early cannot be told apart, and
   converts too. A run of the baseline arm alone is a knowledge run (``with_docs: null``, ``run_intent:
   knowledge``). A run with more arms, with no baseline arm among them, or whose other arm is not a docs arm,
-  is a :class:`RecordError`.
+  is a :class:`RecordError`, and so is a session run (``session_turns``), whose answers are the last turn's.
 * **Answers.** A cell keeps its fields; its ``context_chunks`` become ``retrieved_docs``, and ``doc_source`` is
   the first chunk's source, as the answerer writes it. An errored or empty cell is ``null``, and the record's
   ``error`` names it, as a failed condition is in an answers file.
@@ -51,12 +51,17 @@ def to_binary(data: Mapping[str, Any], *, source: str = "<arms>") -> Tuple[Dict[
     """The ``answers.v1`` and ``eval.v1`` payloads of an ``arms.v1`` run; the eval is ``None`` for an unjudged run.
 
     The payloads are what ``save_artifact("answers", ...)`` and ``save_artifact("eval", ...)`` take. Raises
-    :class:`RecordError` for a file that is not ``arms.v1``, or whose arms are not a baseline and at most one docs arm.
+    :class:`RecordError` for a file that is not ``arms.v1``, a session run, or a run whose arms are not a baseline and
+    at most one docs arm.
     """
     if not isinstance(data, Mapping) or data.get("schema_version") != "arms.v1":
         raise RecordError(f"{source}: not an arms.v1 artifact")
     # Read past records.read's refusal of a partial file: its stop block says what it is.
     run = read({k: v for k, v in data.items() if k != "partial"}, source=source)
+    if data.get("session") is not None or any(r.raw.get("session_turns") for r in run):
+        # A session cell's answer is its last turn's; a binary record would pair it with the first question.
+        raise RecordError(f"{source}: a session run (session_turns) has no answers.v1/eval.v1 reading: "
+                          "each answer is the last turn's, and these files pair it with the first question")
     stop = _stop_block(data)
     context, baseline = _binary_arms(run, source, stopped=stop is not None)
     intent = KNOWLEDGE_INTENT if context is None else PAIRED_INTENT
