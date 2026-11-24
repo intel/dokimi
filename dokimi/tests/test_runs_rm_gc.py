@@ -260,7 +260,7 @@ def test_a_file_that_cannot_be_removed_is_named_and_exits_5(root, monkeypatch, c
 
 @pytest.mark.parametrize("refused, headline", [
     ({"answers"}, "removed 1 run older than 30d under results/: 1 of 2 artifacts, {size:,} bytes"),
-    ({"answers", "eval"}, "removed 1 run older than 30d under results/: 0 of 2 artifacts, 0 bytes"),
+    ({"answers", "eval"}, "removed 0 of 1 run older than 30d under results/: 0 of 2 artifacts, 0 bytes"),
 ])
 def test_gc_counts_the_selected_runs_and_only_the_artifacts_removed(
         root, monkeypatch, capsys, refused, headline):
@@ -531,6 +531,27 @@ def test_gc_names_a_file_replaced_after_selection_and_exits_0(root, monkeypatch,
         assert "removed 1 run older than 30d under results/: 1 of 2 artifacts, " in out
         assert "kept: 1 file replaced since it was selected (first: r1/eval/onetbb.json)" in out
     assert (root / "r1" / "eval" / "onetbb.json").exists()
+
+
+def test_gc_does_not_count_a_run_whose_every_file_was_replaced_as_removed(root, monkeypatch, capsys):
+    real_apply = rm.apply
+
+    def publish_then_apply(removal):
+        monkeypatch.setenv("DOKIMI_RUN_ID", NEW)
+        save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": _days_ago(0)},
+                      root / "r1" / "eval" / "onetbb.json")
+        save_artifact("answers", {**_fixture("answers.v1"), "generated_at": _days_ago(0)},
+                      root / "r1" / "answers" / "onetbb.json")
+        monkeypatch.delenv("DOKIMI_RUN_ID")
+        real_apply(removal)
+
+    monkeypatch.setattr("dokimi.commands.runs.apply", publish_then_apply)
+
+    code, out, _ = _run(monkeypatch, capsys, "gc", "--older-than", "30d")
+
+    assert code == 0
+    assert out.splitlines()[0] == ("removed 0 of 1 run older than 30d under results/: "
+                                   "0 of 2 artifacts, 0 bytes")
 
 
 def test_parse_age_reads_days():

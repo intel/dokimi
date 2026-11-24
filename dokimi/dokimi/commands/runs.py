@@ -287,11 +287,15 @@ def _rm_text(removal: Removal, verb: str, run_id: str | None) -> list[str]:
 
 
 def _gc_text(removal: Removal, verb: str, age: str, root: str, selected: int) -> list[str]:
-    """``selected`` is the count of runs selected before any was removed."""
+    """``selected`` is the count of runs selected before any was removed; ``removal.runs`` holds
+    those that lost an artifact."""
     artifacts = [a for run in removal.runs for a in run]
     lines = [*_rows(artifacts, with_run=True), ""] if artifacts else []
     if selected:
-        lines.append(f"{verb} {_count(selected, 'run')} older than {age} under {root}: "
+        runs = _count(selected, "run")
+        if len(removal.runs) != selected:
+            runs = f"{len(removal.runs)} of {runs}"
+        lines.append(f"{verb} {runs} older than {age} under {root}: "
                      f"{_artifacts(len(artifacts), removal)}, {removal.size_bytes:,} bytes")
     else:
         lines.append(f"no run under {root} to remove: none is older than {age}"

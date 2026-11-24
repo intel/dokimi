@@ -221,7 +221,8 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
   `kept` (each `run_id` with its `baseline`). `status` is `partial` when
   `unreadable` is not empty (`runs rm RUN_ID` only).
 - A file that cannot be removed (no permission) is named, the others are still
-  removed (`removed run ...: 1 of 2 artifacts`; it is in `not_removed`, not in `runs`,
+  removed (`removed run ...: 1 of 2 artifacts`, and for `gc` `removed 0 of 1 run ...` when
+  a run lost none; it is in `not_removed`, not in `runs`,
   `paths` or `size_bytes`), and the command exits 5 (`status` `failed`, `error.code`
   `infra`).
 
