@@ -296,14 +296,18 @@ def _is_uri_destination(raw: str) -> bool:
     return not text.startswith("/") and is_uri(text)
 
 
+_SQUARE_RE = re.compile(r"[\[\]]")
+
+
 def _bracket_pairs(masked: str) -> dict[int, int]:
     """``{index of "]": index of the "[" that opens it}`` for the brackets of ``masked``, matched in one pass."""
     pairs: dict[int, int] = {}
     stack: list[int] = []
-    for i, char in enumerate(masked):
-        if char == "[":
+    for m in _SQUARE_RE.finditer(masked):  # the brackets only: a text with few of them costs no Python step per character
+        i = m.start()
+        if m.group() == "[":
             stack.append(i)
-        elif char == "]" and stack:
+        elif stack:
             pairs[i] = stack.pop()
     return pairs
 
