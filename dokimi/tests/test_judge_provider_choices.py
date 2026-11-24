@@ -30,7 +30,8 @@ def _judge_provider_actions(parser, path=()):
 #: Judge-role flags whose value never reaches ``Judge``: the novelty commands call
 #: the model through ``novelty.client.LLMClient`` -> ``llm_call_with_usage``, which
 #: does route ``openai-codex``.
-NOT_THE_JUDGE_CLASS = {"skill novelty analyze --judge-provider", "skill novelty probe --judge-provider"}
+NOT_THE_JUDGE_CLASS = {"skill novelty analyze --judge-provider", "skill novelty probe --judge-provider",
+                        "catalog novelty --judge-provider"}
 
 
 def test_every_judge_provider_flag_offers_exactly_judge_providers():
