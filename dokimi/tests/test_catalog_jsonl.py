@@ -389,4 +389,4 @@ def test_resume_reviews_again_a_row_without_a_listing_preview(tmp_path, capsys):
 
     delta = next(row for row in _rows(out_path) if row["relpath"] == "skills/delta")
     assert delta["listing"] is not None
-    assert delta["listing_chars"] == len("delta") + len("# no description")
+    assert delta["listing_chars"] == len("delta") + len("# no description") + len(": ")

@@ -471,7 +471,14 @@ def _refuse_outputs_inside_a_skill(items: list[_Item], out_dir: Path, jsonl: Pat
 def _is_a_novelty_file(path: Path, out_dir: Path) -> bool:
     """Whether ``path`` is the novelty.json or novelty.md the sweep writes for a skill under ``out_dir``."""
     resolved = path.resolve()
-    return resolved.name in ("novelty.json", "novelty.md") and resolved.parent.parent == out_dir.resolve()
+    if resolved.name not in ("novelty.json", "novelty.md"):
+        return False
+    if resolved.parent.parent == out_dir.resolve():
+        return True
+    try:  # a skill's directory under --out-dir may be a symlink: its files live where it points
+        return any((child / resolved.name).resolve() == resolved for child in out_dir.iterdir() if child.is_dir())
+    except OSError:
+        return False
 
 
 def _refuse_unsafe_summary_out(args: argparse.Namespace, jsonl: Path, out_dir: Path) -> None:

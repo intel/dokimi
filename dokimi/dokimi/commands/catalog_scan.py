@@ -104,6 +104,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     ``listing`` previews the entry ``repo budget`` charges (``listing_preview``), None when there is none;
     ``listing_name`` is the name the routing field knows the skill by (the loaded name, not the manifest ``name``)."""
     from dokimi.external.catalog_review import entry_relpath
+    from dokimi.external.listing import ENTRY_SEP
     from dokimi.external.skill_format import not_a_failed_load
     from dokimi.external.findings import state_of
     from dokimi.external.validate import name_risky_commands
@@ -119,7 +120,9 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     if (listing_chars is None and preview is not None and not skill.loaded and not exempt
             and _name_fits_spec(read)
             and "missing a 'description'" in (skill.error or "") and not hidden):
-        listing_chars = preview["listing_chars"]  # Claude Code lists a skill without ``description`` by its body's first line (#943, #1087)
+        # Claude Code lists a skill without ``description`` by its body's first line (#943, #1087); the row charges it
+        # as ``entry_chars`` charges a loaded skill's ``name: description``, with the separator.
+        listing_chars = preview["listing_chars"] + len(ENTRY_SEP)
         # It never loaded, so the listing total groups it by the name it would be listed under and its SKILL.md digest.
         listing_name = str(read[1].get("name") or "").strip() or read[3]
         content_sha256 = read[5]  # the digest of the bytes the preview came from

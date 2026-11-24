@@ -735,6 +735,17 @@ def test_a_jsonl_that_is_a_skills_novelty_file_is_refused_before_any_work(tmp_pa
     assert not (out / "a-ca978112" / name).exists()
 
 
+@pytest.mark.parametrize("flag", ["--summary-out", "--jsonl"])
+def test_a_novelty_file_under_a_symlinked_skill_directory_is_refused(tmp_path, flag):
+    root, out = _root(tmp_path, names=("a",)), tmp_path / "out"
+    (tmp_path / "elsewhere").mkdir()
+    out.mkdir()
+    (out / "a-ca978112").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    with pytest.raises(InputError, match=flag):
+        _sweep(root, out, "--max-usd", "5", flag, str(out / "a-ca978112" / "novelty.json"))
+    assert not (tmp_path / "elsewhere" / "novelty.json").exists()
+
+
 def test_a_summary_out_in_a_missing_directory_is_made_and_written(tmp_path):
     root, out = _root(tmp_path), tmp_path / "out"
     target = tmp_path / "new" / "dir" / "summary.json"

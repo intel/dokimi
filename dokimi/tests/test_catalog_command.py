@@ -468,8 +468,8 @@ def test_catalog_check_reports_body_listing_fallback(tmp_path, capsys):
                                          "description_chars": description_chars,
                                          "listing_chars": listing_chars}
     assert rows["first-line"]["state"] == "error"
-    assert rows["first-line"]["listing_chars"] == 25
-    assert rows["leading-blank"]["listing_chars"] == 30
+    assert rows["first-line"]["listing_chars"] == 27  # 25 and the ": " an entry puts after the name
+    assert rows["leading-blank"]["listing_chars"] == 32
 
 
 def test_catalog_check_fallback_digest_comes_from_the_preview_read(tmp_path, capsys, monkeypatch):
@@ -490,7 +490,7 @@ def test_catalog_check_fallback_digest_comes_from_the_preview_read(tmp_path, cap
     monkeypatch.setattr(catalog_scan, "_listing_source", read_then_remove)
     rows = _check_rows(skills, capsys)
     assert rows["first-line"]["content_sha256"] == hashlib.sha256(content.encode()).hexdigest()
-    assert rows["first-line"]["listing_chars"] == 20
+    assert rows["first-line"]["listing_chars"] == 22
 
 
 def test_catalog_check_listing_is_null_without_text(tmp_path, capsys):
@@ -538,7 +538,7 @@ def test_catalog_check_previews_a_manifest_entry_pointing_at_skill_md(tmp_path, 
         "skills:\n  - name: quiet\n    catalog_path: skills/quiet/SKILL.md\n", encoding="utf-8")
     row = _check_rows(tmp_path, capsys)["quiet"]
     assert row["listing"] is not None
-    assert (row["listing"]["listing_chars"], row["listing_chars"]) == (15, 15)
+    assert (row["listing"]["listing_chars"], row["listing_chars"]) == (15, 17)
 
 
 def test_catalog_check_whitespace_description_is_charged_like_repo_budget(tmp_path, capsys):
@@ -549,7 +549,7 @@ def test_catalog_check_whitespace_description_is_charged_like_repo_budget(tmp_pa
         "---\nname: quiet\ndescription: '   '\n---\nSort logs.\n", encoding="utf-8")
     row = _check_rows(skills, capsys)["quiet"]
     assert row["listing"]["listing_chars"] == 8
-    assert row["listing_chars"] == 8
+    assert row["listing_chars"] == 10  # 8 and the ": " of an entry
 
 
 def test_catalog_check_skill_with_a_bad_name_and_no_description_has_no_listing_chars(tmp_path, capsys):
@@ -571,7 +571,7 @@ def test_catalog_check_symlinked_skill_md_is_named_by_its_own_directory(tmp_path
     (skills / "alias" / "SKILL.md").symlink_to("../../../shared/entry.md")
     row = _check_rows(tmp_path, capsys)["alias"]
     assert row["listing"]["listing_chars"] == len("alias") + len("Sort logs.")
-    assert row["listing_chars"] == len("alias") + len("Sort logs.")
+    assert row["listing_chars"] == len("alias") + len("Sort logs.") + len(": ")
 
 
 def _check_report(root: Path, capsys) -> dict:
@@ -593,8 +593,8 @@ def test_catalog_check_counts_a_mirror_without_description_once(tmp_path, capsys
     _write_quiet(tmp_path / "skills" / "quiet")
     _write_quiet(tmp_path / "plugins" / "x" / "skills" / "quiet")
     report = _check_report(tmp_path, capsys)
-    assert [row["listing_chars"] for row in report["skills"]] == [15, 15]
-    assert report["listing"]["chars"] == 15
+    assert [row["listing_chars"] for row in report["skills"]] == [17, 17]
+    assert report["listing"]["chars"] == 17
 
 
 def test_catalog_check_drops_conflicting_names_without_description(tmp_path, capsys):
@@ -622,3 +622,14 @@ def test_catalog_check_name_mismatch_is_read_from_the_listed_directory(tmp_path,
     row = next(iter(_check_rows(tmp_path, capsys).values()))
     assert row["listing_chars"] is None
     assert row["listing"]["listing_chars"] == len("other") + len("Sort logs.")
+
+
+def test_catalog_check_charges_a_skill_without_description_like_a_loaded_one(tmp_path, capsys):
+    """#1138: the same text charges the same in a loaded skill's row and in the row of one without `description`, `: ` included."""
+    skills = tmp_path / ".claude" / "skills"
+    for name, front in (("a", "description: Sort logs.\n"), ("b", "")):
+        (skills / name).mkdir(parents=True)
+        (skills / name / "SKILL.md").write_text(f"---\nname: {name}\n{front}---\nSort logs.\n", encoding="utf-8")
+    report = _check_report(skills, capsys)
+    assert {row["name"]: row["listing_chars"] for row in report["skills"]} == {"a": 13, "b": 13}
+    assert report["listing"]["chars"] == 26
