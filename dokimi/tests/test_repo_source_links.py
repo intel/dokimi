@@ -148,6 +148,17 @@ def test_a_checkout_alias_does_not_hide_a_leave_and_return_link(tmp_path):
     assert tree.read_text(str(tmp_path / "alias" / "real.yaml")) == "version: 1\n"
 
 
+def test_an_alias_to_a_link_inside_the_directory_does_not_hide_a_leave_and_return_link(tmp_path):
+    """#1084: ``alias -> repo/esc`` is walked through ``esc``, not resolved past it."""
+    root = _repo(tmp_path, {"esc": "../repo/sub"})
+    os.symlink(root / "esc", tmp_path / "alias")
+    os.symlink(str(tmp_path / "alias" / "f.txt"), root / "outer.yaml")
+    tree = WorkTree(root)
+    for path in (str(tmp_path / "alias" / "f.txt"), "outer.yaml", "esc/f.txt"):
+        with pytest.raises(SourceArgumentError, match="path escapes the repository"):
+            tree.resolve(path)
+
+
 def test_a_junction_out_of_the_tree_escapes(tmp_path, monkeypatch):
     """A Windows junction is not a symlink: it is followed by its target, which must lie under the root."""
     root = _repo(tmp_path, {})

@@ -154,18 +154,33 @@ def _rooted(text: str) -> bool:
     return os.path.isabs(text) or (os.name == "nt" and (bool(os.path.splitdrive(text)[0]) or text.startswith(("\\", "/"))))
 
 
+def _start(text: str, here: Path) -> tuple[Path, list[str]]:
+    """Where the text of a path or a link starts outside the root: its anchor, or ``here`` when it is relative."""
+    path = Path(text)
+    return (Path(os.path.realpath(path.anchor)), list(path.parts[1:])) if path.anchor else (here, list(path.parts))
+
+
 def _inside(root: Path, text: str) -> str:
-    """The absolute ``text`` as a path relative to ``root``, kept as text so that a link farther along the
-    chain is still walked: by its own words when it lies under ``root``, else from the shortest leading part
-    that the file system lands under ``root`` (a checkout alias), with the rest of the text left unconsumed."""
+    """The rooted ``text`` as a path relative to ``root``, kept as text so that a link farther along the chain is
+    still walked: by its own words when it lies under ``root``, else walked outside one link at a time (a checkout
+    alias) up to the first name under ``root``, with the rest of the text left to :func:`_walk_links`."""
     lexical = Path(text)  # not normalised: a ``..`` after a link goes up from the link's target
     if lexical.is_relative_to(root):
         return lexical.relative_to(root).as_posix()
-    parts = lexical.parts
-    for i in range(1, len(parts) + 1):
-        landed = Path(os.path.realpath(Path(*parts[:i])))
-        if landed.is_relative_to(root):
-            return "/".join([landed.relative_to(root).as_posix(), *parts[i:]])
+    here, pending = _start(text, root)
+    hops = 0
+    while pending:
+        part = pending.pop(0)
+        here = here.parent if part == ".." else here / part
+        if here.is_relative_to(root):
+            return "/".join([here.relative_to(root).as_posix(), *pending])
+        if not _is_link(here):
+            continue
+        hops += 1
+        if hops > 40:
+            raise _LinkLoop(f"too many levels of symbolic links: {text}")
+        here, more = _start(_link_target(here), here.parent)
+        pending = more + pending
     raise SourceArgumentError(f"path escapes the repository: {text}")
 
 
