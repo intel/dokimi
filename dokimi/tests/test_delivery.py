@@ -269,3 +269,90 @@ def test_promote_reproduced_observation(pack):
         "binary-double": "PASS",
         "double-zero": "FAIL",
     }
+
+
+@pytest.mark.parametrize(
+    "argv,missing",
+    [
+        (["delivery"], "mode"),
+        (
+            [
+                "delivery",
+                "release",
+                "--json",
+                "--tasks",
+                "tasks",
+                "--policy",
+                "policy",
+                "--out",
+                "run",
+            ],
+            "--manifest",
+        ),
+        (
+            [
+                "delivery",
+                "scan",
+                "--manifest",
+                "rc",
+                "--tasks",
+                "tasks",
+                "--corpus",
+                "sources",
+                "--out",
+                "run",
+            ],
+            "--fixture",
+        ),
+    ],
+)
+def test_required_delivery_inputs(argv, missing, capsys, monkeypatch):
+    import sys
+    from dokimi.cli import main
+
+    monkeypatch.setattr(sys, "argv", ["dokimi", *argv])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+    out = capsys.readouterr()
+    if "--json" in argv:
+        assert missing in json.loads(out.out)["error"]["message"]
+    else:
+        assert missing in out.err
+
+
+def test_priced_pairs_count_only_their_own_claims(pack, monkeypatch, capsys):
+    from dokimi.cli import parse_args
+    from dokimi import llm
+    from dokimi.metrics.usage import UsageRecord
+
+    def reply(prompt, *a, **kw):
+        claims_success = len(json.loads(prompt)["sources"]) == 1
+        return json.dumps({"script": "false", "claimed_success": claims_success}), UsageRecord(
+            cost_usd=0.01
+        )
+
+    monkeypatch.setattr(llm, "llm_call_with_usage", reply)
+    monkeypatch.setattr(delivery, "container", lambda *a, **kw: process.reply(returncode=10))
+    args = parse_args(
+        [
+            "delivery",
+            "scan",
+            "--model",
+            "test-model",
+            "--tasks",
+            str(pack.tasks),
+            "--manifest",
+            str(pack.manifest),
+            "--corpus",
+            str(pack.corpus),
+            "--out",
+            str(pack.manifest.parent / "run.json"),
+            "--json",
+        ]
+    )
+    args.func(args)
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["cost"]["priced"] is True and envelope["cost"]["calls"] == 4
+    assert envelope["data"]["summary"]["A"]["false_success"] == [2, 2]
+    assert envelope["data"]["summary"]["B"]["false_success"] == [0, 0]
