@@ -18,9 +18,10 @@ import pytest
 
 from dokimi.context.prefilter import _TABLE_DELIMITER
 from dokimi.external.frontmatter_shape import YAML_KEY_RE
+from dokimi.harnesses.tbench_v1 import _SIZE_RE
 from dokimi.memory.store import _EMPTY_LINK
 from dokimi.novelty.spans import _PROTECTION_RULES
-from dokimi.repos.l0.adapters import _BZL_BINDING
+from dokimi.repos.l0.adapters import _BZL_BINDING, _BZL_TUPLE_BINDING, _bzl_public
 from dokimi.repos.shell_sed import _PRINT_ONLY
 from dokimi.task_formats.imports.inspect_ai import _DOC_SECTION
 from tests.growth_timing import GROWTH_LIMIT, growth
@@ -167,6 +168,50 @@ def test_version_gate_reads_the_phrases_the_old_regex_did() -> None:
     assert 20 < hits < len(texts) - 20
 
 
+# --- harnesses/tbench_v1._SIZE_RE (#1119) --------------------------------------------------------
+
+_OLD_SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?)i?b?\s*$", re.IGNORECASE)
+
+
+def test_size_reads_the_values_the_old_regex_did() -> None:
+    texts = ["512", "512 ", " 512", "512m", "512 MB", "1.5g", "1.5 GiB", "2T", "10k", "10kb", "10 b", "512x", "1.", ".5", "",
+             "1\n", "1\t m \n", "1 m\nb", "1" + " " * 40 + "m", "1" + " " * 40 + "x", "1 m b",
+             *_random_texts(list("0123456789.  \t\n") + ["k", "m", "g", "t", "i", "b", "K", "M", "B", "x"], seed=1119)]
+    hits = _compare(_OLD_SIZE_RE, _SIZE_RE, texts, lambda rx, t: _span(rx.match(t)))
+    assert 20 < hits < len(texts) - 20
+
+
+@pytest.mark.parametrize("value", ["512", "512 ", " 512\t"])
+def test_size_without_a_unit_keeps_an_empty_unit_group(value: str) -> None:
+    m = _SIZE_RE.match(value)
+    assert m is not None
+    assert m.group(2) == ""
+
+
+# --- repos/l0/adapters._bzl_public, the form it does not read (#1120) ----------------------------
+
+_OLD_BZL_TUPLE_BINDING = re.compile(r"^[(\[][^\n]*\)?\]?\s*=(?!=)", re.M)
+
+_BZL_TUPLE_TEXTS = [
+    "(a, b) = f()", "[a, b] = f()", "(a) = 1", "[a]=1", "(a, b)\n= f()", "(a, b)\n\n  \n = f()", "(a == b", "(a == b)", "(a ==\n= b",
+    "(a\n==", "(a\n= =", "(\n=", "(x\n(y) = 1", "x = (1)", "a = 1\n(b) = 2", "a = 1\n(b)", "def f(): pass\n[x]\n", "(a)\r\n= 1",
+    "(a)\f= 1", "(a)\x0b\n= 1", "(a) \n= 1", "(a) \n \n x = 1", "(a) \n \n", "(a" + " " * 40 + "=", "(" + " " * 40 + "x",
+    "[" + " " * 40 + "\n" + " " * 40 + "=", "(a" + " " * 40 + "\n" + " " * 40 + "x = 1", "[a] = =", "(a)=",
+]
+
+
+def test_tuple_binding_reports_the_files_the_old_regex_did() -> None:
+    texts = [*_BZL_TUPLE_TEXTS, "\n".join(_BZL_TUPLE_TEXTS),
+             *_random_texts(["(", "[", "x", ")", "]", "=", "==", " ", "\t", "\n", "\n\n", "\r", "\f", " "], seed=1120, longest=14)]
+    hits = _compare(_OLD_BZL_TUPLE_BINDING, _BZL_TUPLE_BINDING, texts, lambda rx, t: rx.search(t) is not None)
+    assert 20 < hits < len(texts) - 20
+
+
+def test_bzl_public_flags_a_form_it_does_not_read() -> None:
+    assert _bzl_public("a = 1\n(b, c) = f()\n") == ({"a"}, True)
+    assert _bzl_public("a = 1\nb = (2)\n") == ({"a", "b"}, False)
+
+
 # --- growth: a run of whitespace that ends in a failure ------------------------------------------
 
 _GROWTH = [
@@ -184,6 +229,9 @@ _GROWTH = [
     ("sed script, spaces then a number", lambda t: _PRINT_ONLY.fullmatch(t), lambda n: " " * n + "1x"),
     ("docstring heading, spaces then x", lambda t: _DOC_SECTION.match(t), lambda n: "Args" + " " * n + "x"),
     ("version gate, requires then spaces", lambda t: _VERSION_GATE.search(t), lambda n: "requires" + " " * n + "!"),
+    ("size, number then spaces then x", lambda t: _SIZE_RE.match(t), lambda n: "1" + " " * n + "x"),
+    ("bzl tuple binding, paren then spaces", lambda t: _bzl_public(t), lambda n: "(" + " " * n + "x"),
+    ("bzl tuple binding, bracket then spaces", lambda t: _bzl_public(t), lambda n: "[" + " " * n + "x"),
 ]
 
 
