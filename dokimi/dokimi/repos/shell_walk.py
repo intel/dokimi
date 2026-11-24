@@ -23,7 +23,7 @@ from dokimi.text_spans import HeredocPattern
 
 from .event_format import plain_path
 from .shell_functions import Functions, define
-from .shell_redirects import bare, masked, without_redirects, without_stderr
+from .shell_redirects import bare, masked, may_fail_redirect, without_redirects, without_stderr
 from .shell_search import Searched, cuts_lines, passes_through, prints_nothing, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
@@ -227,22 +227,26 @@ class _Walk:
         (``export POSIXLY_CORRECT=1 >/dev/null``: the redirect changes no variable); no command: its exit is not known."""
         unredirected = without_redirects(part)
         state_words = words or (self.words(unredirected, after) if unredirected != part else [])
+        if state_words == ["}"]:  # the ``}`` that closes a group has no exit of its own: the group's last command's
+            return
         if state_words:
-            self.track_posix(state_words, after)
+            self.track_posix(state_words, after, _time_keyword(part), may_fail_redirect(part))
         else:
             self.last_exit = None
 
-    def track_posix(self, words: list[str], after: str) -> None:
+    def track_posix(self, words: list[str], after: str, timed: bool = False, perhaps: bool = False) -> None:
         """``POSIXLY_CORRECT`` after a command of this shell (not a job, ``after`` is ``&``; a pipeline's parts have no
         ``words``), by :func:`_posix_after`. A command that is skipped changes nothing (:attr:`ran`); one that may or may
-        not run keeps both states (:attr:`posix`)."""
+        not run keeps both states (:attr:`posix`), as one with a redirect that may fail to open (``perhaps``: bash then
+        does not run it). ``timed``: the part starts with the ``time`` keyword."""
         if after == "&":
             return
-        if self.ran is not False:
-            after_it = frozenset(_posix_after(words, self.functions, state) for state in self.posix)
-            self.posix = after_it if self.ran else self.posix | after_it
+        ran = None if perhaps and self.ran else self.ran
+        if ran is not False:
+            after_it = frozenset(_posix_after(words, self.functions, state, timed) for state in self.posix)
+            self.posix = after_it if ran else self.posix | after_it
             shadowed = words[0] in self.functions  # ``true() { false; }``: the function runs, its exit is not known
-            self.last_exit = None if shadowed or not self.ran else _LITERAL_EXIT.get(" ".join(words))
+            self.last_exit = None if shadowed or not ran else _LITERAL_EXIT.get(" ".join(words))
 
     def spot(self) -> _Spot:
         return self.here, self.shell_moved, self.moved, self.posix
@@ -422,15 +426,21 @@ class _Walk:
         return plain_path(f if f.startswith("/") else posixpath.join(self.here or "", f))
 
 
-def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool]) -> tuple[bool, bool]:
+def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool], timed: bool = False) -> tuple[bool, bool]:
     """``state`` (``POSIXLY_CORRECT`` set in this shell, marked for export: the command gets it when both) after the command
     ``words`` ran in it: a lone ``POSIXLY_CORRECT=1`` sets it, ``export NAME[=value]`` marks it for export (a bare
     ``export NAME`` too before it has a value), ``export -n NAME[=value]`` assigns the value and drops the mark, and
     ``unset`` drops both. ``export -f`` and ``unset -f`` name functions, so they leave it. ``builtin`` and ``command``
-    (with ``--`` or ``command -p``) before ``export`` or ``unset`` run the builtin; a function of that name shadows it otherwise."""
+    (with ``--`` or ``command -p``) before ``export`` or ``unset`` run the builtin; a function of that name shadows it otherwise.
+    ``NAME=value`` words and the ``time`` keyword (``timed``) before the command are skipped (``X=1 export P=1``,
+    ``time export P=1`` run it here); ``env`` or /usr/bin/time before it run a child, which changes nothing here."""
     name, is_set, exported = "POSIXLY_CORRECT", *state
     if all(_ASSIGN.match(w) for w in words):
         return is_set or any(w.startswith(name + "=") for w in words), exported
+    if _ASSIGN.match(words[0]) or (timed and words[0] == "time"):
+        words, via_env, _, _ = _command_words(words, timed, functions)
+        if via_env or not words:
+            return state
     bypassed = False
     while words[0] in ("builtin", "command") and words[0] not in functions:
         inner = _wrapped(words)

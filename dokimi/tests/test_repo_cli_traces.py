@@ -318,6 +318,20 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("export POSIXLY_CORRECT; head AGENTS.md -n 0; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
     ("export POSIXLY_CORRECT; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
     ("export POSIXLY_CORRECT; export -n POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=yes>/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # a redirect glued to the operand
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT>/dev/null; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; true && { false; } || unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # a ``}`` has no exit
+    ("export POSIXLY_CORRECT=1; true && { { false; }; } || unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT </definitely-missing; head AGENTS.md -n 0", ["AGENTS.md"]),  # may not run
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>/no/dir/log; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >/no/dir/out; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT </dev/null 2>&1; head AGENTS.md -n 0", []),  # these cannot fail
+    ("X=1 export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # a prefix, and the command runs in this shell
+    ("time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; X=1 unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; time -p unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("env export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # a program, not the builtin
+    ("X=1 time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
     assert shell_reads(command) == reads
