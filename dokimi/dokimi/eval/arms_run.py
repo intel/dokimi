@@ -356,8 +356,8 @@ def _treatments(config: ArmsRunConfig, specs: list[str], questions: list[dict]):
     print(f"Arms: {', '.join(t.name for t in treatments)}")
     if config.matrix_cell:
         print(f"Matrix cell: {config.matrix_cell}")
-    if plugin_set["plugins"]:
-        print(f"Plugins: {plugin_set['plugin_set']} ({plugin_set['plugin_set_id']})")
+    print(f"Model: {config.provider}/{config.model}, harness: {config.harness}")
+    print(f"Plugins: {plugin_set['plugin_set']} ({plugin_set['plugin_set_id']})")
     return treatments, library_id, plugin_set
 
 
