@@ -17,22 +17,10 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from dokimi import cli_flags
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
-from dokimi.commands.novelty_run import (add_judge2_args, add_panel_args, add_spend_cap,
-                                         attach_panel, exit_if_analyze_partial,
+from dokimi.commands.novelty_run import (attach_panel, exit_if_analyze_partial,
                                          judge2_client, panel_clients, save_panel_verdicts, stamp,
                                          usable_cache_dir)
-from dokimi.cli_types import unit_interval
-from dokimi.defaults import (
-    DEFAULT_ANSWER_MODEL,
-    DEFAULT_ANSWER_PROVIDER,
-    DEFAULT_GENERATOR_MODEL,
-    DEFAULT_GENERATOR_PROVIDER,
-    DEFAULT_JUDGE_MODEL,
-    DEFAULT_JUDGE_PROVIDER,
-)
-from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
@@ -414,107 +402,6 @@ def _bundle_from_args(args: argparse.Namespace):
     if note:
         print(f"NOTE: {note}", file=sys.stderr)
     return artifact_bundle
-
-
-def _add_bundle_args(parser: argparse.ArgumentParser, positive_int) -> None:
-    """Flags that decide *which files of the artifact* are measured.
-
-    On `atoms` as well as `analyze`: the cheap path is `skill novelty atoms` once and
-    `skill novelty probe --atoms` per model, so the bundle decision has to be makeable at
-    extraction time or the reuse path can only ever see the entry point.
-    """
-    parser.add_argument("--include-resources", action="store_true", dest="include_resources",
-                        help="Measure the whole skill bundle, not just SKILL.md. In the "
-                             "33-skill study corpus 0.72 of all words live in bundled "
-                             "references/scripts/patterns (worst skill: 0.99), so an "
-                             "entry-point-only run says little about a progressive-disclosure "
-                             "skill. Costs proportionally more: the bill is ~4 LLM calls per "
-                             "paired probe")
-    parser.add_argument("--resource-roles", nargs="+", default=None, dest="resource_roles",
-                        choices=["reference", "pattern", "eval", "script", "template",
-                                 "trigger", "data", "top", "other"],
-                        help="Restrict bundled files to these roles (default: every "
-                             "role except eval)")
-    parser.add_argument("--max-file-words", type=positive_int, default=4000,
-                        dest="max_file_words",
-                        help="Skip a bundled file larger than this instead of truncating it; a "
-                             "cut reference would be attributed as if complete")
-    parser.add_argument("--max-resource-words", type=positive_int, default=20000,
-                        dest="max_resource_words",
-                        help="Total budget across bundled files, taken in role order "
-                             "(reference, pattern, eval, rest) and recorded per exclusion")
-
-
-def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
-    parser.add_argument("--artifact", required=True,
-                        help="skill:<path to SKILL.md or its directory>, or text:<path>")
-    parser.add_argument("--max-atoms", type=positive_int, default=None, dest="max_atoms",
-                        help="Atom cap per artifact (default 120). The measurement is "
-                             "LLM-call bound: atoms × probes × arms × (answer + grade). "
-                             "Unset by default so that passing the default value explicitly "
-                             "still overrides a --tier cap")
-    parser.add_argument("--all-atoms", action="store_true", dest="all_atoms",
-                        help="Probe every extracted atom (opt-in: the expensive sweep); with "
-                             "--atoms, every atom in the file, not only the cap's sample")
-    cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=unit_interval, nargs="+", default=[0.75, 0.5],
-                  dest="budgets", help="Target token fractions for shortening candidates")
-    parser.add_argument("--seed", type=int, default=0,
-                        help="Seed for the shuffled control and random selection, so both "
-                             "are reproducible across runs")
-
-
-def _add_cache_dir(parser: argparse.ArgumentParser, *, reruns_pay_for: str) -> None:
-    """The retention memo: read by the commands that adjudicate retention (analyze, shorten)."""
-    parser.add_argument("--cache-dir", default=None, dest="cache_dir",
-                        help="Disk memo of the retention adjudications only, not the model replies: "
-                             "a rerun with the same directory replays them at $0. The response cache "
-                             "for replies is separate and opt-in (set DOKIMI_RESPONSE_CACHE to a "
-                             f"writable directory); without it a rerun pays again for {reruns_pay_for}.")
-
-
-def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
-    parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL,
-                        help="The model under measurement — novelty is a property of the "
-                             "(artifact, model) pair, not of the file")
-    parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
-    parser.add_argument("--judge-model", default=None, dest="judge_model",
-                        help="Grading model; must differ from --model (default: "
-                             f"{DEFAULT_JUDGE_PROVIDER}/{DEFAULT_JUDGE_MODEL}, or "
-                             f"{DEFAULT_GENERATOR_PROVIDER}/{DEFAULT_GENERATOR_MODEL} when "
-                             "--model is that judge). A --judge-model without "
-                             "--judge-provider runs on --provider")
-    parser.add_argument("--judge-provider", default=None, dest="judge_provider", choices=PROVIDERS,
-                        help="Provider for the judge. Without --judge-model, the default judge "
-                             "that runs on this provider; if none does, the run exits asking "
-                             "for --judge-model")
-    add_panel_args(parser)
-    parser.add_argument("--extract-model", default=None, dest="extract_model",
-                        help="Extractor/adjudicator model (defaults to --judge-model, so the "
-                             "answering model never writes its own answer key)")
-    parser.add_argument("--extract-provider", default=None, dest="extract_provider",
-                        choices=PROVIDERS)
-    cli_flags.add(parser, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None,
-                  dest="max_tokens", help="Output-token ceiling. Raise for reasoning models, which can "
-                  "spend the provider default on reasoning and return empty text")
-    parser.add_argument("--arms", default="no_artifact,full",
-                        help="Arms to run: no_artifact,full[,placebo][,shuffled]"
-                             "[,no_artifact_repeat] (the last is the noise floor)")
-    parser.add_argument("--context-framing", default="reference", dest="context_framing",
-                        choices=("reference", "neutral"),
-                        help="How the context is introduced: as reference material, or as a "
-                             "document that may be irrelevant (the placebo framing control)")
-    parser.add_argument("--placebo-text", default=None, dest="placebo_text",
-                        help="File of domain-mismatched text for the placebo control: it "
-                             "separates 'this artifact carries knowledge' from 'this model "
-                             "reacts to any long context'")
-    parser.add_argument("--concurrency", type=positive_int, default=5)
-    parser.add_argument("--allow-self-judge", action="store_true", dest="allow_self_judge",
-                        help="Let the answering model grade itself (inflates scores), or --judge2 be"
-                             " the first judge's model (its agreement is not independent)")
-    add_judge2_args(parser, PROVIDERS)
-    parser.add_argument("--no-paraphrase", action="store_true", dest="no_paraphrase")
-    parser.add_argument("--no-reversal", action="store_true", dest="no_reversal")
-    add_spend_cap(parser)
 
 
 def _settings(args: argparse.Namespace) -> RunSettings:
