@@ -130,8 +130,13 @@ def _cell_kinds(run: Run, arm: str) -> List[Tuple[bool, Optional[str]]]:
     for r in run:
         if (cell := r.answer(arm)) is not None:
             kind = (cell.raw.get("metadata") or {}).get("arm_kind")
-            out.append((not is_empty_reply(cell.text), kind if isinstance(kind, str) and kind else None))
+            out.append((_answered(cell), kind if isinstance(kind, str) and kind else None))
     return out
+
+
+def _answered(cell: Answer) -> bool:
+    """Whether *cell* holds an answer: the one test of which cells must name their kind and which become null."""
+    return not is_empty_reply(cell.text)
 
 
 def _named(cells: List[Tuple[bool, Optional[str]]]) -> set[str]:
@@ -172,7 +177,7 @@ def _answers_record(rec: Record, context: Optional[str], baseline: str) -> Dict[
     errors: List[str] = []
     for condition, arm in ((CONTEXT, context), (BASELINE, baseline)):
         cell = rec.answer(arm) if arm is not None else None
-        if cell is not None and is_empty_reply(cell.text):
+        if cell is not None and not _answered(cell):
             errors.append(f"{arm}: {cell.error or 'empty_reply'}")
             cell = None
         out[condition] = None if cell is None else _answer(cell, with_docs=condition == CONTEXT)
