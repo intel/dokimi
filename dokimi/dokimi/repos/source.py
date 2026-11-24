@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import errno
 import os
 import posixpath
 import re
@@ -231,6 +232,9 @@ class WorkTree:
         self.root = Path(root).resolve()
         self.label = str(self.root)
         self._files: list[str] | None = sorted(files) if files is not None else None
+        self.skipped: list[str] = []  # warnings for listed paths left out of ``files()`` because they could not be looked at
+        self.skipped_paths: list[str] = []  # those paths, parallel to ``skipped`` (a path may hold ``": "``)
+        self.skipped_dirs: set[str] = set()  # the skipped paths that are directories whose content could not be listed
 
     def _resolve(self, path: str) -> Path:
         """The file ``path`` names, walked as :meth:`GitTree._follow` walks it (#1084): a link whose ``..``
@@ -242,8 +246,34 @@ class WorkTree:
             (self.root / path).resolve()  # Python before 3.13 raises RuntimeError on a loop, as callers expect
             raise
 
+    def _walk_failed(self, exc: OSError) -> None:
+        """``os.walk`` could not list a directory: name it in ``skipped``, as for a listed path."""
+        rel = os.path.relpath(exc.filename, self.root) if exc.filename else "."
+        self._skip(rel.replace(os.sep, "/"), exc)
+        self.skipped_dirs.add(self.skipped_paths[-1])
+
+    def _skip(self, path: str, exc: OSError) -> None:
+        # not ``exc.strerror``, which follows the locale; "are not counted" is what repo scan reads as incomplete
+        why = "Permission denied" if exc.errno in (errno.EACCES, errno.EPERM) else f"{type(exc).__name__}"
+        self.skipped.append(f"{path}: {why}; the file and anything it leads to are not counted")
+        self.skipped_paths.append(path)
+
+    def _is_entry(self, path: str) -> bool:
+        """Whether a listed path is a file or a link; one that cannot be looked at (a directory above it that
+        cannot be searched) is left out and named in ``skipped``."""
+        target = self.root / path
+        try:  # os.lstat raises on every Python; Path.is_file and Path.is_symlink stop raising on 3.14
+            mode = os.lstat(target).st_mode
+            return stat.S_ISLNK(mode) or stat.S_ISREG(mode)
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        except OSError as exc:
+            self._skip(path, exc)
+            return False
+
     def files(self) -> list[str]:
         """Every file, or inside a git working tree the files git would show: tracked or not ignored.
+        A listed path that cannot be looked at (an unsearchable directory above it) is left out and named in ``skipped``.
 
         The root may be a subdirectory of the working tree; ``ls-files -C`` lists paths relative to it.
         """
@@ -251,11 +281,10 @@ class WorkTree:
             listed = _git_entries(self.root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                                   check=False, warn=True)
             if listed:  # a link is an entry even when it dangles or names a directory, as in git
-                self._files = sorted({p for p in listed
-                                      if (self.root / p).is_file() or (self.root / p).is_symlink()})
+                self._files = sorted({p for p in dict.fromkeys(listed) if self._is_entry(p)})
         if self._files is None:
             out: list[str] = []
-            for dirpath, dirnames, filenames in os.walk(self.root):
+            for dirpath, dirnames, filenames in os.walk(self.root, onerror=self._walk_failed):
                 dirnames[:] = [d for d in dirnames if d != ".git"]
                 rel = Path(dirpath).relative_to(self.root)
                 # A link to a directory is an entry, as in git, though walk lists it as a directory.

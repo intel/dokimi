@@ -156,6 +156,15 @@ and how to check it loads before spending money on a run.
 Without `--judge` the command only generates answers (cheap, no judge calls).
 Outputs default to `results/arms/<product>.{json,md}` (ignored by git).
 
+While it answers, the run keeps the questions done so far in `<out stem>.partial.json` beside
+the `--out` file, rewritten after each question and removed once the whole run is saved. A run
+killed or crashed before that save leaves it behind: an `arms.v1` file with a `partial` block
+(`questions_requested`, `questions_recorded`) and the answers paid for, none judged. It never
+replaces a file (a name that holds one, finished, left by a crashed run or taken by a run going on at the
+same time, is passed over for `<out stem>.partial2.json`),
+and the commands that read arms files refuse it. There is no resume: rerun the command.
+`arms matrix-run` keeps one per cell, `cells/<cell>.partial.json`.
+
 Example Caveman plugin cell:
 
 ```bash
@@ -856,7 +865,8 @@ python cli.py eval leak skills/candidate questions.json --split split.json \
   reference (there is no lower weight for a criterion), and only where there is no reference.
   Negated checks are left out.
   The skill's text is every UTF-8 file beside SKILL.md, each cut separately so a run does not
-  span two files. Questions are not compared: restating one is fine.
+  span two files. An entry named `evals` directly under the skill (the skill's own `evals/` directory) is not indexed,
+  as the agent's plugin copy leaves it out too, so questions imported from its `evals/evals.json` are not flagged against themselves. Questions are not compared: restating one is fine.
 - **threshold**: 0.10 was set on eight saved unitrace GEPA candidates and their eval items. The
   benign candidates peaked at 0.073 of their runs in common with an item (the
   boilerplate: headers, flag names), and the candidates that copied an answer sentence reached

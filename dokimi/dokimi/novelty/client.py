@@ -130,6 +130,32 @@ class SpendCap:
 
 
 @dataclass
+class NestedSpendCap(SpendCap):
+    """A cap for one unit of a larger run (one skill of a sweep), that also charges ``parent``.
+
+    Every call is checked against both limits and recorded on both, so a sweep's whole-run
+    budget holds across the skills running at once. The parent is charged first: a call the
+    parent refuses or cannot price never reaches this cap's own count.
+    """
+
+    parent: SpendCap | None = None
+    # Set to stop this unit at once: the call in flight ends on its own, and no later call starts.
+    hard_stop: threading.Event | None = field(default=None, repr=False, compare=False)
+
+    def before_call(self, model: str) -> None:
+        if self.hard_stop is not None and self.hard_stop.is_set():
+            raise SpendCapReached(f"stopped by a second signal; not calling {model}", reason="stopped")
+        super().before_call(model)
+        if self.parent is not None:
+            self.parent.before_call(model)
+
+    def record(self, usage: UsageRecord | None, model: str) -> None:
+        if self.parent is not None:
+            self.parent.record(usage, model)
+        super().record(usage, model)
+
+
+@dataclass
 class LLMClient:
     """One model in one role, with its usage recorded.
 

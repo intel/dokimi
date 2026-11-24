@@ -26,7 +26,8 @@ Interface
 ---------
 read(data) / load(path) -> Run
     A whole artifact: ``{"answers": [...]}``, ``{"evaluations": [...]}``, both (an
-    ``arms.v1`` file, joined by question id) or a bare record list. With
+    ``arms.v1`` file, joined by question id) or a bare record list; the partial file of
+    an unfinished arms run is refused (:func:`partial_refusal`). With
     ``section="answers"`` (or ``"evaluations"``) only that list is read, and an
     artifact without it is an error: a command that needs answers refuses an eval file.
     With ``required=False`` as well, an object without it has no records instead.
@@ -254,6 +255,8 @@ def read(data: Any, *, source: str = "<input>", section: Optional[str] = None, r
         return _run(records(data, source=source, kind=section), {})
     if not isinstance(data, Mapping):
         raise RecordError(f"{source}: expected a JSON object or a list of records, got {type(data).__name__}")
+    if refusal := partial_refusal(data, source):
+        raise RecordError(refusal)
     meta = {k: v for k, v in data.items() if k not in ("answers", "evaluations")}
     answers = _list(data, "answers", source) if section in (None, "answers") else None
     evaluations = _list(data, "evaluations", source) if section in (None, "evaluations") else None
@@ -270,6 +273,18 @@ def read(data: Any, *, source: str = "<input>", section: Optional[str] = None, r
     else:
         recs = records(evaluations or [], source=f"{source} evaluations", kind="evaluations")
     return _run(recs, meta)
+
+
+def partial_refusal(data: Mapping[str, Any], source: str) -> Optional[str]:
+    """Why *data* is not read, when it is what an arms run keeps while it answers (an ``arms.v1``
+    file with a ``partial`` block, #228 step 4): a prefix of a run that never finished, not a measurement.
+    Another kind's ``partial`` block (a novelty stop record) is not this one's to refuse."""
+    block = data.get("partial")
+    if data.get("schema_version") != "arms.v1" or not isinstance(block, Mapping):
+        return None
+    return (f"{source} is the partial file of a run that did not finish: {block.get('questions_recorded', '?')} of "
+            f"{block.get('questions_requested', '?')} questions answered and none judged. Rerun the command "
+            "for a whole run")
 
 
 def records(items: Iterable[RecordLike], *, source: str = "<input>", kind: Optional[str] = None) -> list[Record]:
