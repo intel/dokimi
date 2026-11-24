@@ -354,6 +354,20 @@ def test_a_fifo_in_the_store_is_unreadable_and_never_waited_on(root, monkeypatch
     assert not os.path.lexists(root / ".baselines" / "main")
 
 
+@pytest.mark.parametrize("path", [".baselines/.lock", ".baselines/main", "results/.baselines/main",
+                                  "{root}/.baselines/../.baselines/.lock"])
+def test_runs_rm_refuses_a_file_of_the_baselines_store(root, monkeypatch, capsys, path):
+    # docs/runs.md, runs rm: removing the lock while it is held would let a second save run beside the first
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+    path = path.format(root=root)
+
+    code, _, err = _run(monkeypatch, capsys, "rm", path)
+
+    assert (code, err) == (2, f"Error: {path} is in the baselines' store .baselines/; runs baseline "
+                              "rm NAME removes a baseline\n")
+    assert sorted(os.listdir(root / ".baselines")) == [".lock", "main"]
+
+
 def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):
     _run(monkeypatch, capsys, "baseline", "save", "main", A)
 

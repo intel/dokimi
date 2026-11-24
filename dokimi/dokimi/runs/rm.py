@@ -23,6 +23,7 @@ from typing import Mapping
 
 from dokimi.artifacts import is_run_id
 from dokimi.runs.scan import (
+    BASELINE_POINTERS,
     Artifact,
     Unreadable,
     by_run,
@@ -77,8 +78,11 @@ def _one_file(root: Path, address: str) -> Removal:
     _, entry, found = contained(root, address, follow_last=False)
     if stat.S_ISDIR(found.st_mode):
         raise InputError(f"{plain(address)} is a directory; runs rm takes a run_id or one file")
-    return Removal(root=root, file=Path(os.path.relpath(entry, os.path.realpath(root))),
-                   file_bytes=found.st_size, file_identity=identity(found))
+    file = Path(os.path.relpath(entry, os.path.realpath(root)))
+    if file.parts[0] == BASELINE_POINTERS:  # unlinking the lock or a pointer would bypass the lock
+        raise InputError(f"{plain(address)} is in the baselines' store {BASELINE_POINTERS}/; "
+                         "runs baseline rm NAME removes a baseline")
+    return Removal(root=root, file=file, file_bytes=found.st_size, file_identity=identity(found))
 
 
 def plan_rm(root: Path, address: str) -> Removal:

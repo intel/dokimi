@@ -194,7 +194,9 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
   there is removed, an artifact or not (a file that does not parse, say). The file
   must lie under the root once the directories on its path are resolved; a
   symlink is removed itself, never its target. A directory, a missing file, a
-  path outside the root or a `run_id` no artifact carries exits 2.
+  path outside the root or a `run_id` no artifact carries exits 2, and so does a
+  file in `.baselines/`: `runs baseline rm` removes a baseline under the
+  baselines' lock, which removing its file or the lock would bypass.
 - **`runs gc --older-than AGE`** removes every run whose newest artifact is older
   than `AGE`, an age in days such as `30d`. The time is the one `runs list` sorts
   by: the time the artifact records, or its file's mtime when it records none. A
@@ -296,7 +298,7 @@ saved baseline skill/a@main -> 20261029T140211Z-3f9a0c1e (1 artifact); before: 2
 | `runs show`: no root, a path outside the root (or a symlink that leads out of it), a missing file, a directory, or a file that is not a readable artifact of a registered kind | 2 |
 | `runs show RUN_ID`: nothing of that name and no artifact under the root with that `run_id` (the error counts the entries that could not be read), or a root that cannot be listed | 2 |
 | `runs rm`, `runs gc`: removed, or listed with `--dry-run`; nothing to remove; `runs gc` when `results/` does not exist | 0 |
-| `runs rm`: no root, a directory, a missing file, a path outside the root, or a `run_id` no artifact carries | 2 |
+| `runs rm`: no root, a directory, a missing file, a path outside the root, a file in `.baselines/`, or a `run_id` no artifact carries | 2 |
 | `runs gc`: no `--older-than`, an age that is not days (`30d`), an entry under the root that cannot be read, or with `--keep-baselines` a baseline manifest, copy or pointer that cannot be read, or a `.baselines/` that cannot be listed or locked (a file, no permission) | 2 |
 | `runs rm`, `runs gc`: a file that could not be removed | 5 |
 | `runs baseline save`, `rm`: saved or removed; `runs baseline list`, with no root, no baseline or an entry of `.baselines/` that is not a pointer too | 0 |
