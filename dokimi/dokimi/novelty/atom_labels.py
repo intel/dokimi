@@ -49,7 +49,8 @@ def _rows(path: Path) -> list[Any]:
             try:
                 row = json.loads(line)
             except (ValueError, RecursionError) as exc:
-                raise InputError(f"{path}: line {number} is not JSON ({exc})") from exc
+                detail = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
+                raise InputError(f"{path}: line {number} is not JSON ({detail})") from exc
             if not isinstance(row, dict):
                 raise InputError(f"{path}: line {number} is not a JSON object")
             rows.append(row)

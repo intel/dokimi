@@ -238,14 +238,14 @@ def test_analyze_help_says_the_response_cache_is_opt_in_and_what_a_rerun_costs(c
         build_parser().parse_args(["skill", "novelty", "analyze", "--help"])
     text = " ".join(capsys.readouterr().out.split())
     assert "DOKIMI_RESPONSE_CACHE" in text and "opt-in" in text
-    assert "pays again for the answer and judge calls" in text
+    assert "pays again for every model call except memoized retention adjudications" in text
 
 
 def test_shorten_help_says_a_rerun_pays_again_for_its_retention_calls_only(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["skill", "shorten", "--help"])
     text = " ".join(capsys.readouterr().out.split())
-    assert "pays again for the retention calls" in text
+    assert "pays again for retention adjudications missing from the memo" in text
     assert "pays again for the answer" not in text
 
 
