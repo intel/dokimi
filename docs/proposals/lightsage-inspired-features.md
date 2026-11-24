@@ -93,8 +93,8 @@ positioning Lightsage reports as most predictive), every listed link described, 
    schema). Still open: a `cli_output` envelope, a user-docs page and outcome test; adapters for
    `catalog check --json`, judge-validity and routing reports; per-atom novelty spans so the
    prompt names the exact passage.
-2. Ship `dokimi docs llms-txt <path-or-file>` (or a `repo scan` metric) and a feature card under
-   "Will the agent use it?"; later, optional fetch of `/llms.txt` + `robots.txt` AI-crawler rules.
+2. Done: `dokimi docs llms-txt <path-or-file>` and a feature card under "Will the agent use it?".
+   Still open: optionally fetch `/llms.txt` and check `robots.txt` AI-crawler rules.
 3. Add a `/dokimi run` PR-comment trigger to the GitHub Action, gated on write permission, posting
    the `render_markdown` table — the Docs Agent pattern on dokimi's rigorous measurements.
 4. Ship a dokimi Agent Skill + "pull opportunities and fix the top 3" workflow prompt (Lightsage's
