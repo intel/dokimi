@@ -8,14 +8,14 @@ artifacts (the trust gate, ``report generate`` and ``report eval``, the dashboar
 ``eval score``) stay as they are. :func:`to_binary` is the bridge: a pure function from an arms run to the two
 binary artifacts. ``report model-compare`` reads the arms file itself.
 
-* **Arms.** The run's ``baseline_arm`` is ``without_docs``; it must be a baseline arm (``arm_kind`` ``baseline``,
-  or none recorded). Its one other arm, the context arm, is ``with_docs``; it must be a docs arm (``arm_kind``
-  ``docs`` or ``mcp_doc``). In a stopped run (a ``terminated`` or ``partial`` block), an arm the stop reached
-  before it answered records no kind: it is taken as the docs arm, with ``with_docs: null``. A non-docs arm
-  stopped that early cannot be told apart, and converts too. A run of the baseline arm alone is a knowledge run
-  (``with_docs: null``, ``run_intent: knowledge``). A run with more arms, with no baseline arm among them, with
-  a baseline arm of another kind, or whose other arm is not a docs arm, is a :class:`RecordError`, and so is a
-  session run (``session_turns``), whose answers are the last turn's.
+* **Arms.** The run's ``baseline_arm`` is ``without_docs``; it must be a baseline arm. Its one other arm, the
+  context arm, is ``with_docs``; it must be a docs arm. Each answered cell records its arm's kind (``arm_kind``
+  ``baseline``; ``docs`` or ``mcp_doc``); only an unanswered cell, a stop's, may record none. In a stopped run (a
+  ``terminated`` or ``partial`` block), an arm the stop reached before it answered records no kind: it is taken as the
+  docs arm, with ``with_docs: null``. A non-docs arm stopped that early cannot be told apart, and converts too. A run
+  of the baseline arm alone is a knowledge run (``with_docs: null``, ``run_intent: knowledge``). A run with more arms,
+  with no baseline arm among them, with a baseline arm of another kind, or whose other arm is not a docs arm, is a
+  :class:`RecordError`, and so is a session run (``session_turns``), whose answers are the last turn's.
 * **Answers.** A cell keeps its fields; its ``context_chunks`` become ``retrieved_docs``, and ``doc_source`` is
   the first chunk's source, as the answerer writes it. An errored or empty cell is ``null``, and the record's
   ``error`` names it, as a failed condition is in an answers file.
