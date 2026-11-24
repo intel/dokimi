@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -274,13 +275,14 @@ def test_to_jsonl_into_a_mount_point_copies_the_staged_rows_in_place(tmp_path, m
     assert [p.name for p in tmp_path.iterdir()] == ["rows.jsonl"]
 
 
-def test_to_jsonl_writes_equal_plain_keys_beside_a_surrogate_pair(tmp_path):
-    """Only keys holding a character above U+FFFF can be made equal by joining a pair: ``1`` and ``"1"`` are not refused (#1020)."""
+def test_to_jsonl_refuses_an_integer_key_beside_its_string_and_writes_no_file(tmp_path):
+    """``json.dumps`` writes ``{"1": "a", "1": "b"}`` and a reader keeps one entry: refused, as a pair key beside its character is (#1066)."""
     path = tmp_path / "rows.jsonl"
 
-    to_jsonl([{1: "a", "1": "b", "x": chr(0xD83D) + chr(0xDE00)}], path)
+    with pytest.raises(ValueError, match="two object keys are the same"):
+        to_jsonl([{1: "a", "1": "b", "x": chr(0xD83D) + chr(0xDE00)}], path)
 
-    assert path.read_bytes() == '{"1": "a", "1": "b", "x": "\U0001F600"}\n'.encode()
+    assert not path.exists()
 
 
 def test_export_answers_artifact_jsonl(tmp_path):
@@ -318,6 +320,29 @@ def test_dataset_card_contents():
     assert "Schema version:** questions.v2" in card
     assert "Source schema version" not in card
     assert "Rows:** 5" in card
+
+
+@pytest.mark.parametrize("linesep", ["\n", "\r\n"])
+def test_export_card_for_an_ordinary_name_is_the_dataset_card_text(tmp_path, monkeypatch, linesep):
+    monkeypatch.setattr(os, "linesep", linesep)
+    src = tmp_path / "q.json"
+    src.write_text(json.dumps({"schema_version": "questions.v1", "questions": [{"id": "q1", "text": "x"}]}))
+    primary = export_artifact("questions", src, tmp_path / "out", fmt="jsonl")
+    columns = sorted(json.loads(primary.read_text(encoding="utf-8")))
+    expected = dataset_card("questions", src, 1, columns, source_version="questions.v1")
+    assert "Exported from `q.json` (questions.v1)." in expected
+    assert (tmp_path / "out" / "README.md").read_bytes() == expected.replace("\n", linesep).encode("utf-8")
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+def test_export_card_names_a_non_utf8_input_with_a_question_mark(tmp_path):
+    """#1100: a lone surrogate (a non-UTF-8 byte of the input's name) is a ``?`` in the card, not a UnicodeEncodeError."""
+    src = tmp_path / os.fsdecode(b"q\xff.json")
+    src.write_text(json.dumps({"questions": []}))
+    out = tmp_path / "out"
+    primary = export_artifact("questions", src, out, fmt="jsonl", validate=False)
+    assert primary.exists()
+    assert "Exported from `q?.json`" in (out / "README.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.skipif(not HAS_DATASETS, reason="datasets not installed")
