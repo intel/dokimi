@@ -173,8 +173,8 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     return out, walk
 
 
-_PosixStates = frozenset[tuple[bool, bool, bool]]  # (set in this shell, exported, the allexport option is on)
-_POSIX_OFF: _PosixStates = frozenset({(False, False, False)})
+_PosixStates = frozenset[tuple[bool, bool, bool, bool]]  # (set in this shell, exported, allexport is on, readonly)
+_POSIX_OFF: _PosixStates = frozenset({(False, False, False, False)})
 _LITERAL_EXIT = {"true": True, ":": True, "false": False}  # the commands whose exit the walker knows
 _POSIX_ASSIGN = ("POSIXLY_CORRECT=", "POSIXLY_CORRECT+=")  # an assignment word of the variable, appending or not
 _STATE_BUILTINS = ("export", "unset", "set", "declare", "typeset")  # the builtins that change whether it is set or exported
@@ -387,7 +387,7 @@ class _Walk:
         if name is None:
             return []
         skipped = before[:len(before) - len(words)]  # ``POSIXLY_CORRECT=1 head``
-        posix = frozenset(_posix_set(skipped, is_set and exported) for is_set, exported, _ in self.posix)
+        posix = frozenset(_posix_set(skipped, is_set and exported) for is_set, exported, _, _ in self.posix)
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
@@ -450,7 +450,7 @@ class _Walk:
         return plain_path(f if f.startswith("/") else posixpath.join(self.here or "", f))
 
 
-def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool, bool], timed: bool = False) -> _PosixStates:
+def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool, bool, bool], timed: bool = False) -> _PosixStates:
     """The states ``state`` (``POSIXLY_CORRECT`` set in this shell, marked for export: the command gets it when both) may be
     in after the command ``words`` ran in it: a lone ``POSIXLY_CORRECT=1`` (or ``+=``) sets it, ``export NAME[=value]`` marks
     it for export (a bare ``export NAME`` too before it has a value), ``export -n NAME[=value]`` assigns the value and drops
@@ -460,30 +460,31 @@ def _posix_after(words: list[str], functions: Functions, state: tuple[bool, bool
     (with ``--`` or ``command -p``) before ``export`` or ``unset`` run the builtin; a function of that name shadows it otherwise.
     ``NAME=value`` words and the ``time`` keyword (``timed``) before the command are skipped (``X=1 export P=1``,
     ``time export P=1`` run it here); ``env`` or /usr/bin/time before it run a child, which changes nothing here."""
-    name, is_set, exported, allexport = "POSIXLY_CORRECT", *state
+    name, is_set, exported, allexport, readonly = "POSIXLY_CORRECT", *state
     if all(_ASSIGN.match(w) for w in words):
         valued = any(w.startswith(_POSIX_ASSIGN) for w in words)
-        return frozenset({(is_set or valued, exported or (allexport and valued), allexport)})
+        return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly)})
     words = _builtin_run(words, functions, timed)
     if not words:
         return frozenset({state})
     builtin = words[0]
     flags, operands = _builtin_options(words[1:])
     if builtin == "set":  # ``set -a``: what is assigned after it is exported, whether or not it was unset in between
-        return frozenset({(is_set, exported, _allexport(words[1:], allexport))})
+        return frozenset({(is_set, exported, _allexport(words[1:], allexport), readonly)})
     if set(flags) - set({"export": "fnp", "unset": "fnv"}.get(builtin, _DECLARE_FLAGS)):  # an option it refuses: no change
         return frozenset({state})
     names = operands if builtin == "unset" else [w.partition("=")[0].removesuffix("+") for w in operands]  # ``unset NAME=1`` fails
     if "f" in flags or name not in names:
         return frozenset({state})
-    if builtin == "unset":
-        return frozenset({(False, False, allexport)})
+    if builtin == "unset":  # a readonly variable is not unset
+        return frozenset({state if readonly else (False, False, allexport, False)})
+    readonly = readonly or "r" in flags  # ``declare -r NAME``
     valued = any(w.startswith(_POSIX_ASSIGN) for w in operands)
     if "n" in flags:
-        return frozenset({(is_set or valued, False, allexport)})
+        return frozenset({(is_set or valued, False, allexport, readonly)})
     if builtin != "export" and "x" not in flags:  # ``declare NAME=1`` sets it in this shell, and exports it only under allexport
-        return frozenset({(is_set or valued, exported or (allexport and valued), allexport)})
-    return frozenset({(True, True, allexport) if valued else (is_set, True, allexport)})
+        return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly)})
+    return frozenset({(True, True, allexport, readonly) if valued else (is_set, True, allexport, readonly)})
 
 
 def _allexport(args: list[str], current: bool) -> bool:
@@ -493,8 +494,9 @@ def _allexport(args: list[str], current: bool) -> bool:
     while i < len(args) and args[i][:1] in ("-", "+") and len(args[i]) > 1 and args[i] != "--":
         letters, sign, i = args[i][1:], args[i][0] == "-", i + 1
         on = sign if "a" in letters else on
-        if "o" in letters and args[i:i + 1] == ["allexport"]:
-            on, i = sign, i + 1
+        if "o" in letters:  # ``-o NAME`` takes the next word, whichever option it names
+            on = sign if args[i:i + 1] == ["allexport"] else on
+            i += 1
     return on
 
 

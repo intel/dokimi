@@ -378,6 +378,9 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     ("set -a; set +o allexport; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
     ("set -a; set -o allexport; set +a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
     ("set -a; set -e; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("set -o errexit -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # ``-o`` takes the next word, whichever option
+    ("set -a; set +o errexit +a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("declare -rx POSIXLY_CORRECT=1; unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # a readonly variable is not unset
     ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),  # a copy of a closed descriptor fails
     ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>&1 1>&-; head AGENTS.md -n 0", []),  # the copy came first
     ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 1>/dev/null 2>&1; head AGENTS.md -n 0", []),  # reopened
