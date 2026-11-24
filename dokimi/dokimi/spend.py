@@ -7,6 +7,9 @@ Every cost total follows one rule (#229 P2-7). A call replayed from the response
 (``DOKIMI_RESPONSE_CACHE``) was not paid for by this process: it is counted apart and adds no
 tokens and no dollars. The dollar total is known only when every paid call has a price; one
 call with no price, or one that returned no usage, makes it unknown, never the priced part.
+
+The answers' ``metrics`` rows do not record a replay yet (``UsageRecord.as_metrics_dict``), so
+the arms ``cost_summary`` still counts a replayed answer call as paid (#229).
 """
 
 from __future__ import annotations
