@@ -71,13 +71,22 @@ def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
     return quote, max(at, end)
 
 
+def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
+    """The ``(start, end)`` of each ``$((...))`` in ``text``; an opener with no ``))`` after it ends the list."""
+    spans, pos = [], 0
+    while (start := text.find("$((", pos)) >= 0 and (close := text.find("))", start + 3)) >= 0:
+        spans.append((start, close + 2))
+        pos = close + 2
+    return spans
+
+
 @dataclass(frozen=True)
 class HeredocPattern:
     """A heredoc: ``opener``, the rest of its line, a body, then a line holding only the opener's delimiter (``word`` is its group).
 
     ``full`` is the one regex of the whole heredoc and ``lines`` finds each line (group 1), which closes a heredoc as it is or without the whitespace around it.
     ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line (an opener inside a quote of its
-    line, ``grep '<<EOF' f``, is no opener, and a quoted delimiter is read up to its closing quote): the newline
+    line, ``grep '<<EOF' f``, or inside ``$((...))``, ``$((1<<3))``, is no opener, and a quoted delimiter is read up to its closing quote): the newline
     that ends the line is found once for the openers on it. The delimiter word is atomic in both
     regexes, so a line naming a prefix of it never closes the heredoc (#930). ``unclosed`` is the opener,
     the rest of its line and everything after it (same groups as ``full``): a heredoc no line closes
@@ -145,9 +154,13 @@ class HeredocPattern:
         """Each opener with the start of the line after its own; an opener whose line has no end is left out."""
         openers, start, eol = [], 0, -1
         quote, scanned = "", 0
+        arithmetic, next_span = _arithmetic_spans(text), 0
         while (o := self.opener.search(text, start)) is not None:
             quote, scanned = _quote_after(text, scanned, o.start(), quote)
-            if quote:  # ``grep '<<EOF' f``: inside a quote of its line, ``<<`` opens nothing
+            while next_span < len(arithmetic) and arithmetic[next_span][1] <= o.start():
+                next_span += 1
+            in_arithmetic = next_span < len(arithmetic) and arithmetic[next_span][0] <= o.start()
+            if quote or in_arithmetic:  # ``grep '<<EOF' f``, ``$((1<<3))``: ``<<`` opens nothing
                 start = o.start() + 1
                 continue
             if o.end() > eol:  # delimiters end in increasing order, so one newline serves every opener before it

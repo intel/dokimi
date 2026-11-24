@@ -395,6 +395,19 @@ def test_a_heredoc_opener_inside_a_quote_opens_nothing_and_the_commands_after_it
     assert _cli_heredocs(text) == text
 
 
+@pytest.mark.parametrize("text", ["echo $((1<<3))\ncat AGENTS.md\n", "echo $(( 1 << 3 ))\ncat AGENTS.md\n", "x=$((a<<b)) y=$((1<<2))\ncat AGENTS.md\n"])
+def test_a_shift_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+def test_a_heredoc_after_arithmetic_is_still_cut_and_an_unclosed_arithmetic_opener_hides_nothing() -> None:
+    text = "echo $((1<<3)); cat <<EOF\nbody\nEOF\nrm f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert _cli_heredocs(text) == "echo $((1<<3)); cat \nrm f\n"
+    assert [c for c, _ in shell.split_commands("echo $((1 <<EOF\nrm f\n")] == ["echo $((1 <<EOF"]  # no `))`: nothing is blanked
+
+
 def test_a_quote_closed_before_an_opener_does_not_hide_it() -> None:
     text = "echo 'a' ; cat <<EOF\nbody\nEOF\nrm f\n"
     assert shell.split_commands(text)[-1] == ("rm f", "\n")
