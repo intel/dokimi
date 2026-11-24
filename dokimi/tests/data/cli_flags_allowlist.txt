@@ -253,8 +253,16 @@
 --canary  # repo security: a planted fake secret to look for, repeatable (#360)
 --canaries-file  # repo security: the same canaries one per line (#360)
 --atom-verdicts  # skill novelty view (#1005): the per-atom verdicts file `analyze` writes; no registry concept yet
---atom-labels  # skill novelty view (#1133): the labels file joined to --atom-verdicts; no registry concept yet
+--max-usd-per-skill  # catalog novelty: the cap of one skill of a sweep; --max-usd-per-cell caps a repo-run cell, another unit
 --tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
 --tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet
+--strata  # catalog novelty: the CSV that maps skills to strata; no registry concept yet
+--stratum-column  # catalog novelty: the column of --strata that names the stratum; no registry concept yet
+--jobs  # catalog novelty: skills analysed in parallel; --concurrency is already the per-skill call concurrency of the same command
+--rerun-changed  # catalog novelty: allow a --resume to replace rows measured under other settings; no registry concept yet
+--summary-only  # catalog novelty: print a JSONL's summary with no model call; no registry concept yet
+--summary-out  # catalog novelty: write the summary as JSON; no registry concept yet
+--bootstrap-resamples  # catalog novelty: resamples per bootstrap interval; no registry concept yet
+--atom-labels  # skill novelty view (#1133): the labels file joined to --atom-verdicts; no registry concept yet
 --label-host  # host label mode (contract §4.3) has no registry concept yet; F1b moves it with --allow-unsupported
 --fail-on-code  # catalog check (#942): selects finding codes, not the {warn,fail} severity of the fail_on concept
