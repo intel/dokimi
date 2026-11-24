@@ -56,6 +56,16 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
 _QUOTE_MARKS = re.compile(r"[\\'\"\n#]")
 
 
+def _starts_word(text: str, at: int) -> bool:
+    """Whether the character at ``at`` begins a shell word: at the start, after a blank, or after a ``;&|()`` no backslash escapes."""
+    if at == 0 or text[at - 1].isspace():
+        return True
+    if text[at - 1] not in ";&|()":
+        return False
+    slashes = at - 1 - len(text[:at - 1].rstrip("\\"))
+    return slashes % 2 == 0
+
+
 def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
     """The quote open after the mark ``m`` (one of ``_QUOTE_MARKS``) where ``quote`` was open, and where the scan goes on."""
     mark, at = m.group(), m.end()
@@ -63,8 +73,8 @@ def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
         return "", at
     if quote == "#":
         return quote, at
-    if mark == "#":  # `a#b` and `$#` start no comment
-        return ("#" if not quote and (m.start() == 0 or text[m.start() - 1].isspace()) else quote), at
+    if mark == "#":  # `a#b`, `$#` and `\;#` start no comment: only a blank or an unescaped `;&|()` before it does
+        return ("#" if not quote and _starts_word(text, m.start()) else quote), at
     if mark == "\\":
         return quote, at + (quote != "'")
     if not quote:
@@ -82,10 +92,17 @@ def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
 _ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$]")
 
 
-def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
-    """The ``(start, end)`` of each ``$((...))`` in ``text``, closed by the parenthesis that balances its two; an opener with none ends the list.
+def _arithmetic_opener(text: str, mark: str, at: int, quote: str) -> int:
+    """How many characters from ``at`` (after ``mark``) complete a ``$((`` or a bare ``((``, such as ``((x=1<<3))`` or a ``for ((...))`` header; 0 when ``mark`` opens none."""
+    if mark == "$":
+        return 2 if quote not in ("'", "#") and text.startswith("((", at) else 0
+    return 1 if mark == "(" and not quote and text.startswith("(", at) else 0
 
-    A ``$((`` inside single quotes or a comment opens nothing, as a backslash before the ``$`` does not either.
+
+def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
+    """The ``(start, end)`` of each ``$((...))`` and bare ``((...))`` in ``text``, closed by the parenthesis that balances its two; an opener with none ends the list.
+
+    A ``$((`` inside single quotes or a comment opens nothing, as a backslash before the ``$`` does not either; a bare ``((`` opens nothing inside any quote or comment.
     """
     spans, quote, depth, start, pos = [], "", 0, 0, 0
     while (m := _ARITHMETIC_MARKS.search(text, pos)) is not None:
@@ -97,10 +114,9 @@ def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
                 depth += 1 if mark == "(" else -1
                 if not depth:
                     spans.append((start, pos))
-        elif mark == "$":
-            if quote not in ("'", "#") and text.startswith("((", pos):
-                start, depth, pos = m.start(), 2, pos + 2
-        elif mark not in "()":
+        elif taken := _arithmetic_opener(text, mark, pos, quote):
+            start, depth, pos = m.start(), 2, pos + taken
+        elif mark not in "()$":
             quote, pos = _quote_step(text, m, quote)
     return spans
 
@@ -182,9 +198,7 @@ class HeredocPattern:
             if len(delimiters) < last - first + 1:
                 yield from (d for d in delimiters if line.find(d, first, last + size) >= 0)
                 continue
-            for i in range(first, last + 1):
-                if line[i:i + size] in delimiters:
-                    yield line[i:i + size]
+            yield from delimiters.intersection(line[i:i + size] for i in range(first, last + 1))
 
     def _openers(self, text: str) -> list[tuple[re.Match[str], int]]:
         """Each opener with the start of the line after its own; an opener whose line has no end is left out."""

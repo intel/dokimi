@@ -489,6 +489,33 @@ def test_a_hash_that_starts_no_comment_or_a_comment_ended_by_its_line_does_not_h
     assert "body" not in _cli_heredocs(text)
 
 
+@pytest.mark.parametrize("text", ["echo hi;# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi&# cat <<EOF\ncat AGENTS.md\n", "echo hi|# cat <<EOF\ncat AGENTS.md\n",
+                                  "(# cat <<EOF\ncat AGENTS.md\n", "(echo hi)# cat <<EOF\ncat AGENTS.md\n", "echo hi \\\\;# cat <<EOF\ncat AGENTS.md\n"])
+def test_a_comment_after_a_shell_operator_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo \\;# <<EOF\nbody\nEOF\nrm f\n", "echo a;b#c <<EOF\nbody\nEOF\nrm f\n"])
+def test_a_hash_after_an_escaped_operator_or_inside_a_word_starts_no_comment(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert "body" not in _cli_heredocs(text)
+
+
+@pytest.mark.parametrize("text", ["((x=1<<3))\ncat AGENTS.md\n", "for ((i=0; i<1<<3; i++)); do echo $i; done\ncat AGENTS.md\n", "echo a; (( x = (1 + 2) << 3 ))\ncat AGENTS.md\n",
+                                  "((x=1 \\( << 3))\ncat AGENTS.md\n"])
+def test_a_shift_in_an_arithmetic_command_or_header_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo '((x=1'\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho '))'\n", "# ((\ncat <<EOF\nsed -i s/x/y/ f\nEOF\n# ))\n", 'echo "(("\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho "))"\n',
+                                  "echo \\((\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho \\))\n"])
+def test_a_double_parenthesis_in_a_quote_a_comment_or_after_a_backslash_hides_no_heredoc_between_them(text: str) -> None:
+    assert not [c for c, _ in shell.split_commands(text) if c.startswith("sed")]
+    assert "sed" not in _cli_heredocs(text)
+
+
 def test_a_heredoc_after_arithmetic_is_still_cut_and_an_unclosed_arithmetic_opener_hides_nothing() -> None:
     text = "echo $((1<<3)); cat <<EOF\nbody\nEOF\nrm f\n"
     assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
