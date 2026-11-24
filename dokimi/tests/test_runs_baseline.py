@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import subprocess  # nosec B404 - two real processes race for one pointer
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -141,28 +143,45 @@ def test_expect_previous_against_a_pointer_that_holds_no_run_id_exits_4(root, mo
     assert _pointer(root, "main") == ""
 
 
+@contextlib.contextmanager
+def _cli(root: Path, *argvs: list[str]) -> Iterator[list[subprocess.Popen]]:
+    """``cli.py runs ARGV`` for each argv, at once, on ``root``; any still running at the end is
+    killed, so a failed test does not leave them to the next one."""
+    env = {**os.environ, "DOKIMI_RUNS_DIR": str(root)}
+    env.pop("DOKIMI_RUN_ID", None)
+    procs = [subprocess.Popen([sys.executable, str(PROJECT / "cli.py"), "runs", *argv],  # nosec B603
+                              env=env, cwd=PROJECT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True) for argv in argvs]
+    try:
+        yield procs
+    finally:
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate()
+
+
+def _wait_on_the_lock(root: Path, waiters: int) -> None:
+    """Until ``waiters`` processes wait on ``.baselines/.lock``, as ``/proc/locks`` shows (Linux)."""
+    waiting = re.compile(rf"->.*:{(root / '.baselines' / '.lock').stat().st_ino} ")
+    wait_until(lambda: sum(1 for line in Path("/proc/locks").read_text().splitlines()
+                           if waiting.search(line)) == waiters,
+               60, what=f"{waiters} process(es) to wait on the lock")
+
+
+@pytest.mark.skipif(not Path("/proc/locks").exists(), reason="waiting on a lock is seen in /proc/locks (Linux)")
 def test_two_processes_that_expect_the_same_run_keep_one_winner(root, monkeypatch):
     """Both wait on the lock while the test holds it, then race: one saves, the other exits 4."""
-    if not Path("/proc/locks").exists():
-        pytest.skip("waiting on a lock is seen in /proc/locks (Linux)")
     monkeypatch.setenv("DOKIMI_RUN_ID", C)
     save_artifact("arms", json.loads((FIXTURES / "arms.v1.json").read_text(encoding="utf-8")),
                   root / "c" / "arms.json")
     monkeypatch.delenv("DOKIMI_RUN_ID")
-    save = [sys.executable, str(PROJECT / "cli.py"), "runs", "baseline", "save", "main"]
-    env = {**os.environ, "DOKIMI_RUNS_DIR": str(root)}
-    env.pop("DOKIMI_RUN_ID", None)
     baseline.save(root, "main", A, None)
-    lock = root / ".baselines" / ".lock"
-    with baseline.locked(root):
-        procs = [subprocess.Popen([*save, run, "--expect-previous", A], env=env, cwd=PROJECT,  # nosec B603
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                 for run in (B, C)]
-        waiting = re.compile(rf"->.*:{lock.stat().st_ino} ")
-        wait_until(lambda: sum(1 for line in Path("/proc/locks").read_text().splitlines()
-                               if waiting.search(line)) == 2,
-                   60, what="both saves to wait on the lock")
-    results = {run: proc.communicate(timeout=60) + (proc.returncode,) for run, proc in zip((B, C), procs, strict=True)}
+    with _cli(root, *(["baseline", "save", "main", run, "--expect-previous", A] for run in (B, C))) as procs:
+        with baseline.locked(root):
+            _wait_on_the_lock(root, 2)
+        results = {run: proc.communicate(timeout=60) + (proc.returncode,)
+                   for run, proc in zip((B, C), procs, strict=True)}
 
     codes = sorted(code for _, _, code in results.values())
     assert codes == [0, 4], results
