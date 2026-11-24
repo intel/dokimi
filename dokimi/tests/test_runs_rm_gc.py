@@ -491,6 +491,23 @@ def test_a_file_replaced_after_it_was_selected_is_kept(root, monkeypatch, plan):
     assert not removal.not_removed
 
 
+@pytest.mark.parametrize("argv", [("rm", OLD), ("gc", "--older-than", "30d")])
+def test_a_symlinked_artifact_of_the_run_is_removed_not_taken_for_replaced(
+        root, monkeypatch, capsys, argv):
+    """The scan reads a link inside the root as the artifact it leads to, so the removal checks
+    the link's target, not the link (docs/runs.md: a file holds what was selected)."""
+    try:
+        (root / "r1" / "eval" / "link.json").symlink_to("onetbb.json")
+    except OSError:
+        pytest.skip("symlinks need privileges on this platform")
+
+    data = json.loads(_run(monkeypatch, capsys, *argv, "--json")[1])["data"]
+
+    assert data["changed"] == []
+    assert "r1/eval/link.json" in data["paths"]
+    assert not os.path.lexists(root / "r1" / "eval" / "link.json")
+
+
 @pytest.mark.parametrize("as_json", [False, True])
 def test_gc_names_a_file_replaced_after_selection_and_exits_0(root, monkeypatch, capsys, as_json):
     real_apply = rm.apply
