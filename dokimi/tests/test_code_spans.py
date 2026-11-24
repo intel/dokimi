@@ -302,3 +302,11 @@ def test_online_checks_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch
         _distinct_urls(shape(k))
         counts.append(reads)
     assert 0 < counts[0] and counts[1] <= 2 * FACTOR * counts[0], counts
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_online_checks_time_grows_no_faster_than_its_text(shape: Callable[[int], str]) -> None:
+    """A pass over the whole text per run, which the counted reads miss, is quadratic in the runs: the text
+    grows about 256x, a linear scan takes under half that factor and a pass per run takes several times it."""
+    ratio, _ = growth(lambda k: partial(_distinct_urls, shape(k)), 25)
+    assert ratio < len(shape(25 * FACTOR)) / len(shape(25)) / 2
