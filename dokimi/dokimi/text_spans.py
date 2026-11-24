@@ -56,32 +56,52 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
 _QUOTE_MARKS = re.compile(r"[\\'\"\n#]")
 
 
+def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
+    """The quote open after the mark ``m`` (one of ``_QUOTE_MARKS``) where ``quote`` was open, and where the scan goes on."""
+    mark, at = m.group(), m.end()
+    if mark == "\n":
+        return "", at
+    if quote == "#":
+        return quote, at
+    if mark == "#":  # `a#b` and `$#` start no comment
+        return ("#" if not quote and (m.start() == 0 or text[m.start() - 1].isspace()) else quote), at
+    if mark == "\\":
+        return quote, at + (quote != "'")
+    if not quote:
+        return mark, at
+    return ("" if quote == mark else quote), at
+
+
 def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
     """The quote (``'``, ``"``, ``#`` for a comment, which runs to the end of its line, or none) open at ``end``, scanning ``text`` from ``at`` where ``quote`` was open."""
     while (m := _QUOTE_MARKS.search(text, at, end)) is not None:
-        mark, at = m.group(), m.end()
-        if mark == "\n":
-            quote = ""
-        elif quote == "#":
-            continue
-        elif mark == "#":
-            if not quote and (m.start() == 0 or text[m.start() - 1].isspace()):  # `a#b` and `$#` start no comment
-                quote = "#"
-        elif mark == "\\":
-            at += quote != "'"
-        elif not quote:
-            quote = mark
-        elif quote == mark:
-            quote = ""
+        quote, at = _quote_step(text, m, quote)
     return quote, max(at, end)
 
 
+_ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$]")
+
+
 def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
-    """The ``(start, end)`` of each ``$((...))`` in ``text``; an opener with no ``))`` after it ends the list."""
-    spans, pos = [], 0
-    while (start := text.find("$((", pos)) >= 0 and (close := text.find("))", start + 3)) >= 0:
-        spans.append((start, close + 2))
-        pos = close + 2
+    """The ``(start, end)`` of each ``$((...))`` in ``text``, closed by the parenthesis that balances its two; an opener with none ends the list.
+
+    A ``$((`` inside single quotes or a comment opens nothing, as a backslash before the ``$`` does not either.
+    """
+    spans, quote, depth, start, pos = [], "", 0, 0, 0
+    while (m := _ARITHMETIC_MARKS.search(text, pos)) is not None:
+        mark, pos = m.group(), m.end()
+        if depth:
+            if mark == "\\":
+                pos += 1
+            elif mark in "()":
+                depth += 1 if mark == "(" else -1
+                if not depth:
+                    spans.append((start, pos))
+        elif mark == "$":
+            if quote not in ("'", "#") and text.startswith("((", pos):
+                start, depth, pos = m.start(), 2, pos + 2
+        elif mark not in "()":
+            quote, pos = _quote_step(text, m, quote)
     return spans
 
 
@@ -120,13 +140,11 @@ class HeredocPattern:
         if not openers:
             return
         last = dict.fromkeys((o.group(self.word) for o, _ in openers), -1)
-        cores: dict[str, set[str]] = {}
+        cores: dict[str, dict[int, set[str]]] = {}
         for delimiter in last:
-            cores.setdefault(self._core(delimiter), set()).add(delimiter)
-        sizes = {core: sorted({len(d) for d in delimiters}) for core, delimiters in cores.items()}
+            cores.setdefault(self._core(delimiter), {}).setdefault(len(delimiter), set()).add(delimiter)
         for line in self.lines.finditer(text):
-            core = self._core(line.group(1))
-            for delimiter in self._closed(line.group(1), cores.get(core, set()), sizes.get(core, [])):
+            for delimiter in self._closed(line.group(1), cores.get(self._core(line.group(1)), {})):
                 last[delimiter] = line.start()
         pos = 0
         for o, line_end in openers:
@@ -150,16 +168,21 @@ class HeredocPattern:
         """``line`` without the characters ``full`` allows before and after a delimiter."""
         return line.lstrip(self.before).rstrip(self.after)
 
-    def _closed(self, line: str, delimiters: set[str], sizes: list[int]) -> Iterator[str]:
-        """The ``delimiters`` (of the lengths ``sizes``, all of the core of ``line``) that ``full`` reads ``line`` as: an allowed run, the delimiter, an allowed run.
+    def _closed(self, line: str, by_size: dict[int, set[str]]) -> Iterator[str]:
+        """The delimiters (``by_size``: those of the core of ``line``, by length) that ``full`` reads ``line`` as: an allowed run, the delimiter, an allowed run.
 
-        A delimiter may start or end in such characters (``<<' a'``). Only the positions it can start at are read, a few per length
-        (the blanks the delimiter owns), so the delimiters that share a core are not each tried against every line.
+        A delimiter may start or end in such characters (``<<' a'``). Only the positions it can start at are read, and for a length
+        with fewer delimiters than positions, each delimiter is searched for in them at once, so neither the delimiters that share a core
+        nor the lengths of a line of blanks are each tried against every position.
         """
         end = len(line.rstrip(self.after))
         lead = len(line) - len(line.lstrip(self.before))
-        for size in sizes:
-            for i in range(max(0, end - size), min(lead, len(line) - size) + 1):
+        for size, delimiters in by_size.items():
+            first, last = max(0, end - size), min(lead, len(line) - size)
+            if len(delimiters) < last - first + 1:
+                yield from (d for d in delimiters if line.find(d, first, last + size) >= 0)
+                continue
+            for i in range(first, last + 1):
                 if line[i:i + size] in delimiters:
                     yield line[i:i + size]
 

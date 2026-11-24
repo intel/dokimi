@@ -439,6 +439,41 @@ def test_a_shift_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(t
     assert _cli_heredocs(text) == text
 
 
+@pytest.mark.parametrize("text", ["echo $(( (1 + (2)) << 3 ))\ncat AGENTS.md\n", "echo $(( ((1)) << 3 )) $(( ((2)) <<4 ))\ncat AGENTS.md\n"])
+def test_a_shift_after_a_nested_group_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo '$(('\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho '))'\n", "# $((\ncat <<EOF\nsed -i s/x/y/ f\nEOF\n# ))\n"])
+def test_an_arithmetic_marker_in_single_quotes_or_a_comment_does_not_hide_a_heredoc_between_them(text: str) -> None:
+    assert not [c for c, _ in shell.split_commands(text) if c.startswith("sed")]
+    assert "sed" not in _cli_heredocs(text)
+
+
+@pytest.mark.parametrize("text", ['echo "$((1<<3))"\ncat AGENTS.md\n', "echo $# $((1<<3))\ncat AGENTS.md\n"])
+def test_an_arithmetic_marker_in_double_quotes_or_after_a_dollar_hash_still_hides_a_shift(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+def test_delimiters_of_blanks_of_many_lengths_are_not_each_tried_at_every_position_of_a_closing_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """128 delimiters of 1 to 128 blanks and 128 closing lines of 128 blanks: 1056768 candidate positions on the code that read each."""
+    reads = [0]
+
+    def counted(*args: int) -> range:
+        r = range(*args)
+        reads[0] += 1 + len(r)
+        return r
+
+    monkeypatch.setattr(text_spans, "range", counted, raising=False)
+    k = 128
+    text = "".join(f"cat <<'{' ' * i}'\n" for i in range(1, k + 1)) + (" " * k + "\n") * k
+    assert [c for c, _ in shell.split_commands(text)][0].startswith("cat <<")
+    assert _cli_heredocs(text).startswith("cat ")
+    assert reads[0] < 40 * 1024
+
+
 @pytest.mark.parametrize("text", ["# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi # cat <<EOF\ncat AGENTS.md\n", "  \t# cat <<'a b'\ncat AGENTS.md\n", "# 'x' cat <<EOF\ncat AGENTS.md\n"])
 def test_a_heredoc_opener_inside_a_comment_opens_nothing_and_the_commands_after_it_stay(text: str) -> None:
     assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
