@@ -91,7 +91,8 @@ delivered again, so the process exits as it did before (status 143 for SIGTERM
 under the CLI). Only a run opened on the main thread is stopped this way, and a
 signal the process ignores stays ignored. A run a signal stopped is recorded
 `terminated` even when code in its block caught the stop, and even when the
-block then calls `finish` itself.
+block then calls `finish` itself. An end another thread is already writing when
+the signal comes is kept: it was decided from cells measured before the signal.
 
 ## In code
 

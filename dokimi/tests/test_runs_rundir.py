@@ -710,6 +710,57 @@ def test_a_workers_finish_while_the_children_are_killed_ends_the_run_terminated(
                                                                  "detail": "SIGTERM: the run stops"})
 
 
+def test_a_signal_during_a_workers_end_waits_for_it_and_keeps_it(root, handlers, monkeypatch):
+    """docs/run-directories.md: "An end another thread is already writing when the signal comes is kept": the
+    handler's notice waits for that end, so the signal cannot land between its decision and its run.json."""
+    main_waiting, writing = threading.Event(), threading.Event()
+    signal_known: list[int | None] = []
+
+    class Watched:
+        """The run's lock; says when the main thread (the signal's notice) waits at it."""
+
+        def __init__(self, real):
+            self.real = real
+
+        def __enter__(self):
+            if threading.current_thread() is threading.main_thread() and not main_waiting.is_set():
+                signal_known.append(run._signal)  # None: it is the notice that waits, before it records the signal
+                main_waiting.set()
+            return self.real.__enter__()
+
+        def __exit__(self, *exc):
+            return self.real.__exit__(*exc)
+
+    real_save = rundir.save_artifact
+
+    def held_in_the_end(kind, data, path, **kw):
+        if kind == "run" and data["status"] == "complete":
+            writing.set()
+            main_waiting.wait(30)  # the notice is at the lock this end holds
+        return real_save(kind, data, path, **kw)
+
+    signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    process.install_signal_handlers([signal.SIGTERM])
+    monkeypatch.setattr(rundir, "save_artifact", held_in_the_end)
+    with pytest.raises(process.ShuttingDown):
+        with open_run(root, name="n") as run:
+            run.write_plan(_fixture("plan.v1"))
+            for cid in _ids():
+                run.record_cell(cid, "pass")
+            run._lock = Watched(run._lock)
+            worker = threading.Thread(target=run.finish, args=("complete",))
+            worker.start()
+            assert writing.wait(30)
+            signal.raise_signal(signal.SIGTERM)
+    worker.join()
+
+    assert signal_known == [None]
+    record = _record(run.path)
+    assert (record["status"], record["stop"]) == ("complete", None)
+    assert completeness(load_artifact("plan", run.path / "plan.v1.json"),
+                        load_artifact("result", run.path / "result.v1.json")).state == "complete"
+
+
 def test_a_signal_while_a_child_is_being_registered_stops_the_run_once_it_is(root, handlers, monkeypatch):
     """dokimi.process defers a signal that lands inside _spawn until the child is in _live, so the
     child is killed; the run's stop waits with it."""

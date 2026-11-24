@@ -216,7 +216,8 @@ class RunDir:
         return self
 
     def _on_notice(self, signum: int) -> None:
-        self._signal = signum  # before the child groups are killed: a worker's end after it is terminated
+        with self._lock:  # an end being written finishes first: it was decided before the signal
+            self._signal = signum  # before the child groups are killed: any end after this is terminated
 
     def _on_signal(self, signum: int) -> None:  # after the kills; _on_notice has recorded the signal
         raise process.ShuttingDown(f"{signal.Signals(signum).name}: the run stops")
