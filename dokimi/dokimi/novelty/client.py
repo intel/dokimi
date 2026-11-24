@@ -198,7 +198,10 @@ class LLMClient:
 
     def spend(self) -> Spend:
         """This client's calls as a :class:`Spend`; a call that returned no usage row has no price."""
-        return Spend.of([*self.usage, *[None] * (self.calls - len(self.usage))])
+        spend = Spend()
+        for usage in [*self.usage, *[None] * (self.calls - len(self.usage))]:
+            spend.add_call(usage)
+        return spend
 
     def _default_transport(
         self, prompt: str, system: str | None, *, accept: Accept | None = None,

@@ -217,3 +217,19 @@ def test_a_row_that_counts_priced_calls_without_a_price_is_unpriced():
     row = UsageRecord(n_calls=2, cost_known_calls=2)
     spend = Spend.of([PRICED, row])
     assert (spend.calls, spend.priced_calls, spend.known_usd, spend.usd) == (3, 1, 0.25, None)
+
+
+def test_the_cap_counts_one_call_per_record_whatever_its_row_says():
+    """``record`` meters one call: a row of ``n_calls=0`` with no price still stops the run."""
+    cap = SpendCap(limit_usd=1.0)
+    cap.record(UsageRecord(n_calls=3, cost_usd=0.25), "a")
+    with pytest.raises(SpendCapReached, match="no price is known for b"):
+        cap.record(UsageRecord(n_calls=0), "b")
+    assert (cap.calls, cap.unpriced_calls, cap.spent_usd) == (2, 1, 0.25)
+    client = _client(UsageRecord(n_calls=2, cost_usd=0.5))
+    assert (client.cost_summary()["llm_calls"], client.cost_summary()["usd"]) == (1, 0.5)
+
+
+def test_a_row_claiming_more_priced_calls_than_it_has_hides_no_other_unpriced_call():
+    over = UsageRecord(n_calls=1, cost_known_calls=2, cost_usd=0.25)
+    assert Spend.of([over, UNPRICED]).usd is None

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterable
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -58,13 +58,20 @@ class Spend:
         if usage.replayed:
             self.replayed_calls += usage.n_calls
             return
-        self.unpriced_calls += usage.n_calls - usage.priced_calls
+        # A row claiming more priced calls than it has must not offset another row's unpriced one.
+        self.unpriced_calls += max(usage.n_calls - usage.priced_calls, 0)
         self.spent_usd += usage.cost_usd or 0.0
         self.prompt_tokens += usage.prompt_tokens
         self.completion_tokens += usage.completion_tokens
         self.total_tokens += usage.total_tokens
         self.cache_read_tokens += usage.cache_read_tokens
         self.cache_write_tokens += usage.cache_write_tokens
+
+    def add_call(self, usage: UsageRecord | None) -> None:
+        """Count one call, whatever its row's ``n_calls`` says; ``None`` is a call that returned no usage."""
+        if usage is not None:
+            usage = replace(usage, n_calls=1, cost_known_calls=int(usage.cost_usd is not None))
+        self.add(usage)
 
     def __add__(self, other: Spend) -> Spend:
         return Spend(**{f.name: getattr(self, f.name) + getattr(other, f.name) for f in fields(Spend)})
@@ -141,7 +148,7 @@ class SpendCap(Spend):
     def record(self, usage: UsageRecord | None, model: str) -> None:
         with self._lock:
             unpriced = self.unpriced_calls
-            self.add(usage)
+            self.add_call(usage)
             if self.unpriced_calls > unpriced:
                 raise SpendCapReached(
                     f"no price is known for {model}, so --max-usd cannot be enforced; "
