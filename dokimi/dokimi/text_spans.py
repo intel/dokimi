@@ -75,7 +75,7 @@ def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
 class HeredocPattern:
     """A heredoc: ``opener``, the rest of its line, a body, then a line holding only the opener's delimiter (``word`` is its group).
 
-    ``full`` is the one regex of the whole heredoc and ``lines`` finds a line of one word (group 1).
+    ``full`` is the one regex of the whole heredoc and ``lines`` finds each line (group 1), which closes a heredoc as it is or without the whitespace around it.
     ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line (an opener inside a quote of its
     line, ``grep '<<EOF' f``, is no opener, and a quoted delimiter is read up to its closing quote): the newline
     that ends the line is found once for the openers on it. The delimiter word is atomic in both
@@ -104,8 +104,9 @@ class HeredocPattern:
             return
         last = dict.fromkeys((o.group(self.word) for o, _ in openers), -1)
         for line in self.lines.finditer(text):
-            if line.group(1) in last:
-                last[line.group(1)] = line.start()
+            for key in {line.group(1), line.group(1).rstrip(), line.group(1).strip()}:  # a delimiter may own its own spaces: `<<' a'`
+                if key in last:
+                    last[key] = line.start()
         pos = 0
         for o, line_end in openers:
             if o.start() < pos:

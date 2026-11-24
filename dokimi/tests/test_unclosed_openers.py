@@ -406,10 +406,36 @@ def test_a_quote_closed_before_an_opener_does_not_hide_it() -> None:
 @pytest.mark.parametrize("quote", ["'", '"'])
 def test_a_quoted_delimiter_with_a_space_is_closed_by_its_whole_line_and_the_commands_after_it_stay(quote: str) -> None:
     text = f"cat <<{quote}a b{quote}\nx\na b\nrm f\n"
-    assert [c for c, _ in shell.split_commands(text)] == ["cat <<a b", "rm f"]
+    assert [c for c, _ in shell.split_commands(text)] == [f"cat <<{quote}a b{quote}", "rm f"]
     assert _cli_heredocs(text) == "cat \nrm f\n"
-    assert [c for c, _ in shell.split_commands(f"cat <<{quote}a b{quote}\nx\na\nrm f\n")] == ["cat <<a b"]  # `a` closes nothing
+    assert [c for c, _ in shell.split_commands(f"cat <<{quote}a b{quote}\nx\na\nrm f\n")] == [f"cat <<{quote}a b{quote}"]  # `a` closes nothing
     assert _cli_heredocs(f"cat <<{quote}a b{quote}\nx\na\nrm f\n") == "cat "
+
+
+@pytest.mark.parametrize(("opener", "closing"), [("<<\"a'b\"", "a'b"), ("<<'a\"b'", 'a"b'), ('<<"a;b"', "a;b"), ("<<'a&&b'", "a&&b")])
+def test_a_quoted_delimiter_keeps_its_quotes_in_the_command_and_the_commands_after_it_are_split_out(opener: str, closing: str) -> None:
+    text = f"cat {opener}\nx\n{closing}\nsed -i s/x/y/ f\n"
+    assert shell.split_commands(text) == [(f"cat {opener}", "\n"), ("sed -i s/x/y/ f", "\n")]
+    assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
+
+
+@pytest.mark.parametrize("opener", ['cat <<"a\\$b"', 'cat <<"a\\"b"', 'cat <<"a\\\\b"', 'cat <<"a\\$b" > f'])
+def test_a_double_quoted_delimiter_with_a_backslash_opens_no_heredoc_and_the_commands_after_it_stay(opener: str) -> None:
+    text = f"{opener}\nx\na$b\nsed -i s/x/y/ f\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["sed -i s/x/y/ f", "cat AGENTS.md"]
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize(("opener", "closing"), [("<<' a'", " a"), ("<<'a '", "a "), ("<<' '", " "), ('<<" a b "', " a b "), ("<<' a'", " a\r")])
+def test_a_quoted_delimiter_with_outer_whitespace_is_closed_by_its_whole_line_and_the_commands_after_it_stay(opener: str, closing: str) -> None:
+    text = f"cat {opener}\nx\n{closing}\nsed -i s/x/y/ f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "sed -i s/x/y/ f"
+    assert _cli_heredocs(text) == "cat \nsed -i s/x/y/ f\n"
+
+
+def test_a_quote_inside_the_other_quote_does_not_close_it_before_an_opener() -> None:
+    text = "echo \"it's\" <<EOF\nbody\nEOF\nrm f\n"
+    assert _cli_heredocs(text) == "echo \"it's\" \nrm f\n"
 
 
 def test_a_heredoc_that_a_line_closes_right_after_its_opener_leaves_the_commands_after_it() -> None:
