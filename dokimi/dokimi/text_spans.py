@@ -53,12 +53,31 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
     return "".join(out) + text[pos:]
 
 
+_QUOTE_MARKS = re.compile(r"[\\'\"\n]")
+
+
+def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
+    """The quote (``'``, ``"`` or none) open at ``end`` on its line, scanning ``text`` from ``at`` where ``quote`` was open."""
+    while (m := _QUOTE_MARKS.search(text, at, end)) is not None:
+        mark, at = m.group(), m.end()
+        if mark == "\n":
+            quote = ""
+        elif mark == "\\":
+            at += quote != "'"
+        elif not quote:
+            quote = mark
+        elif quote == mark:
+            quote = ""
+    return quote, max(at, end)
+
+
 @dataclass(frozen=True)
 class HeredocPattern:
     """A heredoc: ``opener``, the rest of its line, a body, then a line holding only the opener's delimiter (``word`` is its group).
 
     ``full`` is the one regex of the whole heredoc and ``lines`` finds a line of one word (group 1).
-    ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line: the newline
+    ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line (an opener inside a quote of its
+    line, ``grep '<<EOF' f``, is no opener, and a quoted delimiter is read up to its closing quote): the newline
     that ends the line is found once for the openers on it. The delimiter word is atomic in both
     regexes, so a line naming a prefix of it never closes the heredoc (#930). ``unclosed`` is the opener,
     the rest of its line and everything after it (same groups as ``full``): a heredoc no line closes
@@ -108,7 +127,12 @@ class HeredocPattern:
     def _openers(self, text: str) -> list[tuple[re.Match[str], int]]:
         """Each opener with the start of the line after its own; an opener whose line has no end is left out."""
         openers, start, eol = [], 0, -1
+        quote, scanned = "", 0
         while (o := self.opener.search(text, start)) is not None:
+            quote, scanned = _quote_after(text, scanned, o.start(), quote)
+            if quote:  # ``grep '<<EOF' f``: inside a quote of its line, ``<<`` opens nothing
+                start = o.start() + 1
+                continue
             if o.end() > eol:  # delimiters end in increasing order, so one newline serves every opener before it
                 eol = text.find("\n", o.end())
                 if eol < 0:  # no opener from here on has a line end

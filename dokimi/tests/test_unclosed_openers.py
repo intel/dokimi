@@ -214,7 +214,7 @@ def test_final_answer_scans_unclosed_openers_in_linear_time() -> None:
 # cli_traces._HEREDOC and shell.split_commands -------------------------------------------------------------------------
 
 _REF_CLI_HEREDOC = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)(\w++)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
-_REF_SHELL_HEREDOC = re.compile(r"(?<!<)<<-?\s*['\"]?(\w++)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", re.S)
+_REF_SHELL_HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)(\w++)\1([^\n]*)\n.*?\n\s*\2\s*(?=\n|$)", re.S)
 
 HEREDOC_TABLE = [
     "",
@@ -248,8 +248,8 @@ UNCLOSED_TABLE = [
     ("B\n<<A\nbody\nB\n", "B\n", "B\n<<A"),
     ("<<AB\nx\nA\n", "", "<<AB"),
     ("<<'AB'\nx\nA\n", "", "<<AB"),
-    ("<<AB'\nx\nA\n", "'", "<<AB"),
-    ("<<'AB\nx\nA\n", "<<'AB\nx\nA\n", "<<AB"),
+    ("<<AB'\nx\nA\n", "'", "<<AB'"),
+    ("<<'AB\nx\nA\n", "<<'AB\nx\nA\n", "<<'AB\nx\nA\n"),
     ("cat <<AB\nsed -i s/x/y/ f\nA", "cat ", "cat <<AB"),
     ("cat <<AB\necho hi\nA\nrm x\n", "cat ", "cat <<AB"),
 ]
@@ -264,7 +264,7 @@ def _ref_cli_heredocs(text: str) -> str:
 
 
 def _shell_heredocs(text: str) -> str:
-    return shell._HEREDOC.sub(lambda m: f"<<{m.group(1)}{m.group(2)}", text)
+    return shell._HEREDOC.sub(lambda m: f"<<{m.group(2)}{m.group(3)}", text)
 
 
 @pytest.mark.parametrize("text", HEREDOC_TABLE)
@@ -274,7 +274,7 @@ def test_cli_trace_heredocs_match_the_reference_regex(text: str) -> None:
 
 @pytest.mark.parametrize("text", HEREDOC_TABLE)
 def test_shell_heredocs_match_the_reference_regex(text: str) -> None:
-    assert _shell_heredocs(text) == _REF_SHELL_HEREDOC.sub(r"<<\1\2", text)
+    assert _shell_heredocs(text) == _REF_SHELL_HEREDOC.sub(r"<<\2\3", text)
 
 
 @pytest.mark.parametrize(("text", "cli", "shell_cut"), UNCLOSED_TABLE)
@@ -284,6 +284,7 @@ def test_an_unclosed_heredoc_runs_to_the_end_of_the_input(text: str, cli: str, s
 
 
 _OPENER = re.compile(r"<<-?\s*['\"]?\w")
+_QUOTE_BEFORE_OPENER = re.compile(r"['\"][^\n]*<<")
 
 
 def test_heredocs_match_the_reference_regex_on_random_scripts_whose_openers_are_all_closed() -> None:
@@ -291,7 +292,9 @@ def test_heredocs_match_the_reference_regex_on_random_scripts_whose_openers_are_
               "<<'B'\n", "echo "]
     compared = 0
     for text in _random_texts(pieces, 4):
-        cli, shell_cut = _ref_cli_heredocs(text), _REF_SHELL_HEREDOC.sub(r"<<\1\2", text)
+        if _QUOTE_BEFORE_OPENER.search(text):  # a quote may hide the opener from the new code only
+            continue
+        cli, shell_cut = _ref_cli_heredocs(text), _REF_SHELL_HEREDOC.sub(r"<<\2\3", text)
         if not _OPENER.search(cli):
             assert _cli_heredocs(text) == cli, repr(text)
             compared += 1
@@ -386,6 +389,29 @@ def test_a_here_string_is_no_heredoc_and_the_commands_after_it_stay(text: str) -
     assert _cli_heredocs(text) == text
 
 
+@pytest.mark.parametrize("text", ["grep '<<EOF' x.txt\nrm f\n", "echo \"a <<EOF\"\nrm f\n", "echo 'it''s' '<<EOF'\nrm f\n", "'<<EOF' x\nrm f\n"])
+def test_a_heredoc_opener_inside_a_quote_opens_nothing_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert _cli_heredocs(text) == text
+
+
+def test_a_quote_closed_before_an_opener_does_not_hide_it() -> None:
+    text = "echo 'a' ; cat <<EOF\nbody\nEOF\nrm f\n"
+    assert shell.split_commands(text)[-1] == ("rm f", "\n")
+    assert _cli_heredocs(text) == "echo 'a' ; cat \nrm f\n"
+    assert _cli_heredocs("echo \\' <<EOF\nbody\nEOF\nrm f\n") == "echo \\' \nrm f\n"
+    assert _cli_heredocs("echo '\\' <<EOF\nbody\nEOF\nrm f\n") == "echo '\\' \nrm f\n"
+
+
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_a_quoted_delimiter_with_a_space_is_closed_by_its_whole_line_and_the_commands_after_it_stay(quote: str) -> None:
+    text = f"cat <<{quote}a b{quote}\nx\na b\nrm f\n"
+    assert [c for c, _ in shell.split_commands(text)] == ["cat <<a b", "rm f"]
+    assert _cli_heredocs(text) == "cat \nrm f\n"
+    assert [c for c, _ in shell.split_commands(f"cat <<{quote}a b{quote}\nx\na\nrm f\n")] == ["cat <<a b"]  # `a` closes nothing
+    assert _cli_heredocs(f"cat <<{quote}a b{quote}\nx\na\nrm f\n") == "cat "
+
+
 def test_a_heredoc_that_a_line_closes_right_after_its_opener_leaves_the_commands_after_it() -> None:
     assert shell.split_commands("cat <<A\nA\nrm x\n") == [("cat <<A", "\n"), ("A", "\n"), ("rm x", "\n")]
 
@@ -425,7 +451,7 @@ def test_split_commands_scans_many_openers_on_one_line_of_a_closed_heredoc_in_li
 def test_heredocs_with_openers_on_one_line_match_the_reference_regex() -> None:
     for text in ("<<A <<B <<A \nbody\nA\n", "cat <<EOF\n<<A <<A \nEOF\nx", "<<A <<B", "x <<A <<B \nA\nB\n"):
         assert _cli_heredocs(text) == _ref_cli_heredocs(text), repr(text)
-        assert _shell_heredocs(text) == _REF_SHELL_HEREDOC.sub(r"<<\1\2", text), repr(text)
+        assert _shell_heredocs(text) == _REF_SHELL_HEREDOC.sub(r"<<\2\3", text), repr(text)
 
 
 def test_cli_trace_heredoc_scans_quoted_openers_a_shorter_closing_line_does_not_close_in_linear_time() -> None:

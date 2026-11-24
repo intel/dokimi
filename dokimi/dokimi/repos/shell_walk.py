@@ -32,9 +32,9 @@ from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _com
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
 _CONTINUATION = re.compile(r"\\\n")
-_HEREDOC_DELIMITER = r"(?<!<)<<-?[ \t]*(['\"]?)([^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)(?!['\"]?\\)\1"  # a whole shell word (``<<EOF\-END`` opens nothing); not ``<<<``, a here-string
+_HEREDOC_DELIMITER = r"(?<!<)<<-?[ \t]*(['\"]?)((?<=['\"])(?:(?!\1)[^\n])+|[^\s;&|<>()'\"\\-][^\s;&|<>()'\"\\]*+)(?!['\"]?\\)\1"  # a whole shell word, or a quoted one up to its closing quote (``<<EOF\-END`` opens nothing); not ``<<<``, a here-string
 _HEREDOC = HeredocPattern(re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*?^[ \t]*\2[ \t\r]*$", re.S | re.M), re.compile(_HEREDOC_DELIMITER),
-                          re.compile(r"^[ \t]*([^\s;&|<>()'\"\\]+)[ \t\r]*$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=2)
+                          re.compile(r"^[ \t]*(\S(?:[^\n]*\S)?)[ \t\r]*$", re.M), re.compile(_HEREDOC_DELIMITER + r"([^\n]*)\n.*", re.S), word=2)
 _GLOB = re.compile(r"[*?\[]|\{[^\s{}]*(?:,|\.\.)[^\s{}]*\}")  # a pathname or brace expansion, unquoted
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
