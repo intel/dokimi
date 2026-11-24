@@ -710,51 +710,36 @@ def test_a_workers_finish_while_the_children_are_killed_ends_the_run_terminated(
                                                                  "detail": "SIGTERM: the run stops"})
 
 
-def test_a_signal_during_a_workers_end_waits_for_it_and_keeps_it(root, handlers, monkeypatch):
-    """docs/run-directories.md: "An end another thread is already writing when the signal comes is kept": the
-    handler's notice waits for that end, so the signal cannot land between its decision and its run.json."""
-    main_waiting, writing = threading.Event(), threading.Event()
-    signal_known: list[int | None] = []
-
-    class Watched:
-        """The run's lock; says when the main thread (the signal's notice) waits at it."""
-
-        def __init__(self, real):
-            self.real = real
-
-        def __enter__(self):
-            if threading.current_thread() is threading.main_thread() and not main_waiting.is_set():
-                signal_known.append(run._signal)  # None: it is the notice that waits, before it records the signal
-                main_waiting.set()
-            return self.real.__enter__()
-
-        def __exit__(self, *exc):
-            return self.real.__exit__(*exc)
-
+def test_an_end_being_written_when_the_signal_comes_is_kept_and_the_signal_delivered(root, handlers, monkeypatch):
+    """docs/run-directories.md: "An end another thread is already writing when the signal comes is kept", and
+    "the signal is delivered again"; the handler does not wait for that end."""
+    writing, release = threading.Event(), threading.Event()
+    delivered: list[int] = []
     real_save = rundir.save_artifact
 
     def held_in_the_end(kind, data, path, **kw):
         if kind == "run" and data["status"] == "complete":
             writing.set()
-            main_waiting.wait(30)  # the notice is at the lock this end holds
+            release.wait(30)
         return real_save(kind, data, path, **kw)
 
-    signal.signal(signal.SIGTERM, lambda signum, frame: None)
+    signal.signal(signal.SIGTERM, lambda signum, frame: delivered.append(signum))
     process.install_signal_handlers([signal.SIGTERM])
     monkeypatch.setattr(rundir, "save_artifact", held_in_the_end)
-    with pytest.raises(process.ShuttingDown):
-        with open_run(root, name="n") as run:
-            run.write_plan(_fixture("plan.v1"))
-            for cid in _ids():
-                run.record_cell(cid, "pass")
-            run._lock = Watched(run._lock)
-            worker = threading.Thread(target=run.finish, args=("complete",))
-            worker.start()
-            assert writing.wait(30)
+    with open_run(root, name="n") as run:
+        run.write_plan(_fixture("plan.v1"))
+        for cid in _ids():
+            run.record_cell(cid, "pass")
+        worker = threading.Thread(target=run.finish, args=("complete",))
+        worker.start()
+        assert writing.wait(30)
+        with pytest.raises(process.ShuttingDown):
             signal.raise_signal(signal.SIGTERM)
-    worker.join()
+        assert worker.is_alive()  # the handler came back while the worker still held the run's lock
+        release.set()
+        worker.join()
 
-    assert signal_known == [None]
+    assert delivered == [signal.SIGTERM]
     record = _record(run.path)
     assert (record["status"], record["stop"]) == ("complete", None)
     assert completeness(load_artifact("plan", run.path / "plan.v1.json"),
