@@ -11,6 +11,7 @@ what a run removes. Nothing here prints or exits.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -99,6 +100,9 @@ def baseline_runs(entries: list[dict]) -> dict[str, str]:
     held: dict[str, str] = {}
     for entry in entries:
         try:
+            found = lookup(entry["path"])
+            if found is not None and not stat.S_ISREG(found.st_mode):  # a FIFO would block gc
+                raise OSError(errno.EINVAL, "not a regular file")
             data = json.loads(Path(entry["path"]).read_text(encoding="utf-8"))
         except (OSError, ValueError, RecursionError) as exc:
             raise InputError(f"baseline {plain(entry['name'])}: {plain(entry['path'])}: "

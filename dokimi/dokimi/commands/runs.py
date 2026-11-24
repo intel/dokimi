@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import stat
 import sys
 import time
 from collections import Counter
@@ -354,12 +355,16 @@ def _manifest_held() -> dict[str, str]:
     from dokimi.commands.baseline import BASELINES_DIR, _baseline_manifest
     manifest = BASELINES_DIR / "manifest.json"
     try:  # _baseline_manifest's Path.exists() reads "no permission" as absent on Python 3.14
-        unreachable = lookup(manifest) is None and lookup(manifest, follow_symlinks=False)
+        found = lookup(manifest)
+        unreachable = found is None and lookup(manifest, follow_symlinks=False)
     except OSError as exc:
         raise InputError(f"{manifest.as_posix()}: {read_error_reason(exc)}, so the runs the "
                          "baselines hold are not known") from exc
     if unreachable:  # a dangling link or a link loop: there, but not readable
         raise InputError(f"{manifest.as_posix()}: a link to nothing, so the runs the baselines "
+                         "hold are not known")
+    if found is not None and not stat.S_ISREG(found.st_mode):  # a FIFO would block gc, under the lock
+        raise InputError(f"{manifest.as_posix()}: not a regular file, so the runs the baselines "
                          "hold are not known")
     return baseline_runs(_baseline_manifest()["baselines"])
 
