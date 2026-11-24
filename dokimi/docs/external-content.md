@@ -286,7 +286,8 @@ are common, so `--strict` does not fail on them. A code span that names a file
 under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
 `examples/`, `resources/`), alone or inside a command such as
 `python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
-have that file. Folders, flat names, placeholders (`scripts/<name>.py`)
+have that file. Folders, flat names, placeholders (`scripts/<name>.py`),
+user-local `*.local.md` files (`references/secrets.local.md`, which the user keeps out of git)
 and repo-root paths such as `src/app.py` are not checked, and
 neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
 (`'scripts/my run.py'`, `scripts/my\ run.py`). Only `/` separators are read: a backslash path such as `scripts\run.py` is not checked. Paths joined by `,` or `;` with no space are read one by one when the next one is under a bundle folder (`scripts/a.py,scripts/b.py`); other commas, and an escaped `\,`, stay in the name. Some hits are files the skill tells the agent to
@@ -308,7 +309,7 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 (`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
 `.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
 path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
-finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files, a root translation of `SKILL.md` (`SKILL.ru.md`, `SKILL.zh-CN.md`),
 `_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
 not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no `warn`; it gives a
 `note` (`bundle-file-unchecked`) that says why, when the search cannot see every name: a bundle over 2000 files, more than 50 named

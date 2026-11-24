@@ -58,7 +58,8 @@ def _print_text(rows: list[dict], args: argparse.Namespace) -> None:
         if heavy:
             print(f"{row['trace']}: largest tool results (chars): {heavy}")
         if args.calls:
-            series = " ".join(str(c["prompt_tokens"]) for c in row["per_call"] if c["agent"] is None)
+            series = " ".join("–" if c["prompt_tokens"] is None else str(c["prompt_tokens"])
+                              for c in row["per_call"] if c["agent"] is None)
             print(f"{row['trace']}: prompt tokens per call: {series}")
 
 
