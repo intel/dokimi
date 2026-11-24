@@ -368,6 +368,20 @@ def test_runs_rm_refuses_a_file_of_the_baselines_store(root, monkeypatch, capsys
     assert sorted(os.listdir(root / ".baselines")) == [".lock", "main"]
 
 
+def test_a_pointer_longer_than_a_run_id_line_is_not_read_as_its_first_bytes(root, monkeypatch, capsys):
+    # docs/runs.md, On disk: the file holds one line, the run_id; padding hid what came after it
+    (root / ".baselines").mkdir()
+    (root / ".baselines" / "main").write_text(A + " " * 300 + "garbage\n", encoding="utf-8")
+    unreadable = "cannot read: longer than a pointer (256 bytes)"
+
+    assert _run(monkeypatch, capsys, "baseline", "list")[1].endswith(
+        f"0 baselines under results/\nunreadable: .baselines/main: {unreadable}\n")
+    assert _run(monkeypatch, capsys, "gc", "--older-than", "0d", "--keep-baselines")[0] == 2
+    assert _run(monkeypatch, capsys, "baseline", "save", "main", B, "--expect-previous", A)[::2] == (
+        2, f"Error: baseline main: {unreadable}\n")
+    assert _pointer(root, "main").endswith("garbage\n")
+
+
 def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):
     _run(monkeypatch, capsys, "baseline", "save", "main", A)
 

@@ -122,7 +122,10 @@ def _read(path: Path) -> str | None:
     with os.fdopen(fd, "rb") as fh:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError(errno.EINVAL, "not a regular file")
-        return fh.read(_HEAD).decode("utf-8").strip()
+        data = fh.read(_HEAD + 1)
+        if len(data) > _HEAD:  # what follows the first 256 bytes would not be read
+            raise OSError(errno.EFBIG, f"longer than a pointer ({_HEAD} bytes)")
+        return data.decode("utf-8").strip()
 
 
 @dataclass(frozen=True)
