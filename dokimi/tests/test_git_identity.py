@@ -10,9 +10,20 @@ _IDENTITY_ENV = ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "G
 
 
 def test_the_global_git_config_is_the_one_of_the_test_session():
-    """Not the machine's: ``git config --global`` lists only the identity the session fixture wrote."""
+    """Not the machine's: ``git config --global`` lists only what the session fixture wrote."""
     listed = subprocess.run(["git", "config", "--global", "--list"], capture_output=True, text=True, check=True).stdout
-    assert listed.split() == ["user.name=dokimi-tests", "user.email=dokimi-tests@example.com"]
+    assert listed.split() == ["user.name=dokimi-tests", "user.email=dokimi-tests@example.com",
+                              "maintenance.auto=false", "gc.auto=0"]
+
+
+def test_a_commit_leaves_no_background_maintenance_behind(tmp_path):
+    """Git 2.5x detaches ``git maintenance`` after a commit, which holds ``objects/maintenance.lock`` for a moment:
+    copying the repository in that moment raises ``shutil.Error`` (the flaky catalog provenance tests). With the session
+    config no commit starts one: 40 commits are enough to see the lock on an unprotected git a few times over."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    for number in range(40):
+        subprocess.run(["git", "-C", str(tmp_path), "commit", "-q", "--allow-empty", "-m", str(number)], check=True)
+        assert not (tmp_path / ".git" / "objects" / "maintenance.lock").exists(), number
 
 
 def test_a_commit_needs_no_identity_from_the_machine(tmp_path):
