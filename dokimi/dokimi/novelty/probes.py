@@ -343,13 +343,18 @@ def _paraphrase_reasons(source: str, text: str, answer: str) -> list[str]:
     reasons = []
     # A paraphrase that presumes the answer ("..., doesn't it?") measures whether the model
     # resists the presumption, not whether it recalls the fact.
-    if _LEADING_CUES.search(text) and not _LEADING_CUES.search(source):
+    if _presumes_answer(text) and not _presumes_answer(source):
         reasons.append("leading_question")
     if answer.strip():
         leaked = _content_tokens(answer) - _content_tokens(source)
         if leaked and leaked <= _content_tokens(text):
             reasons.append("answer_leak")
     return reasons
+
+
+def _presumes_answer(text: str) -> bool:
+    """Whether ``text`` carries a leading cue or a trailing tag ("..., can't it?")."""
+    return bool(_LEADING_CUES.search(text) or _TRAILING_TAG.search(text))
 
 
 def _question_negations(claim: str) -> int:

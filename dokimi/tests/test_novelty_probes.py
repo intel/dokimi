@@ -369,7 +369,12 @@ def test_an_imperative_that_opens_with_a_negative_keeps_its_negation():
 
 @pytest.mark.parametrize(
     "candidate",
-    [TAGGED_STATEMENT, "Isn't it true that the skill ships measured numbers?"],
+    [
+        TAGGED_STATEMENT,
+        "Isn't it true that the skill ships measured numbers?",
+        "The package can run offline, can't it?",
+        "The package can run offline, can it not?",
+    ],
 )
 def test_a_paraphrase_that_presumes_the_answer_is_a_leading_question(candidate):
     reasons = check_wording("paraphrase", source=PLAIN_QUESTION, candidate=candidate)
