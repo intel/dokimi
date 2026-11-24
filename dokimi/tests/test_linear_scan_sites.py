@@ -1,10 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Three scans that took quadratic time on one long token or line now take one pass, with the old result.
+"""Scans that took quadratic time on one long token or line now take one pass, with the old result.
 
 Each section keeps the old regex as the reference and compares the new code with it on a hand table and
-on seeded random texts from a small alphabet (https://github.com/intel/dokimi/issues/924 and /927).
+on seeded random texts from a small alphabet (https://github.com/intel/dokimi/issues/924, /927 and /1116).
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import pytest
 
 from dokimi.harnesses import swebench, swebench_grade
 from dokimi.metrics import exploration
+from dokimi.repos import security
 from tests.growth_timing import GROWTH_LIMIT, growth
 
 CASES = 600
@@ -50,6 +51,7 @@ def _old_parse_loose(text: str) -> exploration.CitationSet:
     for m in _OLD_LOOSE_CITATION.finditer(text):
         opener = m.group("open")
         cite = exploration._citation_from_match(m)
+        assert cite is not None
         if opener in exploration._WRAPPERS and exploration._WRAPPERS[opener] in m.group("path"):
             cite = replace(cite, path=exploration.normalize_path(opener + m.group("path")))
         citations.append(cite)
@@ -258,3 +260,149 @@ def test_test_directives_match_the_old_regex_on_random_patches() -> None:
 
 def test_test_directives_scan_a_long_header_line_in_linear_time() -> None:
     _linear(partial(swebench.test_directives, "x/y"), lambda k: "diff --git a/" * k)
+
+
+# --- security container-escape and hook-bypass (#1116) ---------------------------------------------
+
+_OLD_CONTAINER_ESCAPE = re.compile(
+    r"\bdocker\s+(?:container\s+)?(?:run|create)\b.*(?:--privileged|--pid[= ]host|--net(?:work)?[= ]host|"
+    r"-v\s*[\"']?/:|--volume[= ][\"']?/:|(?:-v|--volume|--mount)[= ]?\s*[\"']?[^\s\"']*docker\.sock|"
+    r"--mount[= ](?:\S*,)?(?:source|src)=/(?:,|\s|[\"']|$)|nsenter\b)",
+    re.IGNORECASE,
+)
+_OLD_HOOK_BYPASS = re.compile(
+    r"\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*(?:commit\b[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)"
+    r"|--no-verify\b)"
+    r"|push\b.*--no-verify\b)",
+    re.IGNORECASE,
+)
+_SECURITY_OLD = {"container-escape": _OLD_CONTAINER_ESCAPE, "hook-bypass": _OLD_HOOK_BYPASS}
+
+
+def _security_search(rule: str, text: str) -> re.Match[str] | None:
+    pattern = security.RULES[rule].pattern
+    assert pattern is not None
+    return pattern.search(text)
+
+SECURITY_TABLE = [
+    "docker run --privileged x",
+    "docker run x\n--privileged",
+    "docker\nrun --privileged",
+    "docker run\n  --privileged",
+    "docker run a; docker run b --privileged",
+    "docker run a && echo --privileged",
+    "docker container create -v /:/h x",
+    "docker create -v/: x",
+    "docker run -v /var/run/docker.sock:/s x",
+    "docker run --mount source=/ x",
+    "docker run x nsenter",
+    "docker run docker run",
+    "docker docker run --privileged",
+    "docker container container run --privileged",
+    "DOCKER RUN --PRIVILEGED",
+    "xdocker run --privileged",
+    "docker runx --privileged",
+    "docker run a\ndocker run b --net=host",
+    "echo docker run; docker run --pid host",
+    "git push --no-verify",
+    "git push origin x && y --no-verify",
+    "git push; echo --no-verify",
+    "git push\n--no-verify",
+    "git\npush --no-verify",
+    "git -c a=b push --no-verify",
+    "git -c git push -x push --no-verify",
+    "git -C d push origin --no-verify",
+    "git push a\ngit push --no-verify",
+    "git commit -n; git push --no-verify",
+    "git commit --no-verify",
+    "git commit -nm x",
+    "git commit x; git push --no-verify",
+    "git push --no-verifyx",
+    "git pushx --no-verify",
+    "xgit push --no-verify",
+    "git push -n",
+    "docker run safe; docker\nrun --privileged",
+    "git push safe; git\npush --no-verify",
+    "docker run safe; docker container\nrun --privileged",
+    "docker run safe; docker\ncontainer run --net=host",
+    "docker run safe; docker \n create -v /:/h x",
+    "git push safe; git\n-c a=b push --no-verify",
+    "git push safe; git -c\na=b push --no-verify",
+    "git push safe; git -c a=b\npush --no-verify",
+    "git push safe; git -x\npush --no-verify",
+    "git -C push\npush --no-verify",
+    "git push\ngit\npush a\n--no-verify",
+    "docker run safe; docker\nrun safe\n--privileged",
+    "git -C git\npush --no-verify",
+    "git -C git -C git\npush --no-verify",
+    "git\n-C a/git push --no-verify",
+    "git -C\na/git push --no-verify",
+    "ls -C git\npush --no-verify",
+    "git -C a/git\n-c git push --no-verify",
+    "git -C git\npush",
+    "git -C a/git -C b/git push --no-verify",
+    "git -C a/git\npush --no-verify",
+    "git -C /usr/bin/git -c x\npush --no-verify",
+    "git -C a.git push --no-verify",
+    "git -c core.foo=git push --no-verify",
+    "git -C a.git\npush --no-verify",
+    "git -c core.foo=git\npush --no-verify",
+    "git -C a.git\npush",
+]
+
+
+@pytest.mark.parametrize("text", SECURITY_TABLE)
+@pytest.mark.parametrize("rule", sorted(_SECURITY_OLD))
+def test_security_rules_read_a_line_as_the_old_pattern_did(rule: str, text: str) -> None:
+    assert (_security_search(rule, text) is None) == (_SECURITY_OLD[rule].search(text) is None)
+
+
+def test_security_rules_match_the_old_patterns_on_random_command_lines() -> None:
+    pieces = ["docker", "run", "create", "container", "--privileged", "-v", "/:", "docker.sock", "nsenter",
+              "git", "push", "--no-verify", ";", "&&", "|", "\n", "x", "-c", "a=b", "-C", "--mount", "--net=host",
+              "docker run", "docker container create", "git push", "git -c a=b push", "--privileged", "--no-verify",
+              "docker\nrun", "docker container\ncreate", "docker\n container run", "git\npush", "git -c\na=b push",
+              "git -c a=b\npush", "git\n-x push", "-C git", "-c a/git", "git -C git", "-C\ngit"]
+    rng = random.Random(1116)
+    texts = [" ".join(rng.choice(pieces) for _ in range(rng.randint(0, 12))) for _ in range(CASES)]
+    hits = {rule: 0 for rule in _SECURITY_OLD}
+    for text in texts:
+        for rule, old in _SECURITY_OLD.items():
+            new_match = _security_search(rule, text) is not None
+            assert new_match == (old.search(text) is not None), (rule, text)
+            hits[rule] += new_match
+    assert all(count > 30 for count in hits.values()), hits
+
+
+@pytest.mark.parametrize(
+    ("rule", "shape"),
+    [
+        ("container-escape", lambda n: "docker run " * n),
+        ("container-escape", lambda n: "docker run a " * n),
+        ("hook-bypass", lambda n: "git push " * n),
+        ("container-escape", lambda n: "docker\nrun " * n),
+        ("container-escape", lambda n: "docker container\n" * n),
+        ("hook-bypass", lambda n: "git\npush " * n),
+        ("hook-bypass", lambda n: "git -a -b\n" * n),
+        ("hook-bypass", lambda n: "git " + "-a " * n),
+    ],
+)
+def test_security_rules_scan_a_line_of_openers_in_linear_time(rule: str, shape: Callable[[int], str]) -> None:
+    _linear(partial(_security_search, rule), shape, n=200)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        lambda n: "git -C " * n + "git\npush",
+        lambda n: "git\n-C " * n + "git\npush",
+        lambda n: "git -C a/" * n + "git\npush",
+        lambda n: "git\n-C a/" * n + "git\npush",
+        lambda n: "git -C a." * n + "git\npush",
+        lambda n: "git -c core.foo=" * n + "git\npush",
+        lambda n: "git\n-c core.foo=" * n + "git\npush",
+    ],
+)
+def test_overlapping_git_openers_are_scanned_in_linear_time(shape: Callable[[int], str]) -> None:
+    # the push alternative alone: the commit alternative of hook-bypass is a separate scan of the same chain
+    _linear(security._PUSH_NO_VERIFY.search, shape, n=200)
