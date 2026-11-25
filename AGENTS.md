@@ -122,8 +122,8 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 - `dokimi/data/` holds only the fixtures this repo's own tests and
   examples read: `data/skills/fastcontext/`, `data/agent_profiles/`,
   `data/explore_tasks/`. The other skills there, `data/skills/dokimi-design-evals/`
-  and `data/skills/dokimi-fix-opportunities/`, are guidance for using dokimi itself,
-  not product skills; their links and commands are checked by `tests/test_bundled_skills.py`. Question sets,
+  and `data/skills/dokimi-fix-opportunities/`, are guidance for using dokimi itself.
+  `tests/test_bundled_skills.py` checks their links and commands. Question sets,
   product skills and tasks belong in their content repository.
 - A file the package reads at run time goes inside `dokimi/dokimi/` and into
   `[tool.setuptools.package-data]`, or the installed wheel goes without it.
