@@ -89,8 +89,8 @@ def _after_first_opener(opener: str, across_lines: str, closers: str) -> re.Patt
 
 _PUSH_NO_VERIFY = _after_first_opener(_GIT_PUSH, _GIT_PUSH_ACROSS_LINES, r"--no-verify\b")
 
-_COMMIT_ARG = r"[^\s-]\S*"
-_COMMIT_ARG_LOCAL = r"[^\s;&|-][^\s;&|]*"
+_COMMIT_ARG = _ARG
+_COMMIT_ARG_LOCAL = r"(?!\S*\bgit\s)[^\s;&|-][^\s;&|]*"
 _COMMIT_OPT = r"(?:-[Cc]\s+" + _COMMIT_ARG + r"\s+|-\S+\s+)"
 _COMMIT_OPT_LOCAL = r"(?:-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+|-[^\s;&|]+" + _NL + r"+)"
 _COMMIT_CLOSERS = r"[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)|--no-verify\b)"
@@ -168,8 +168,8 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # git's global options (`-C dir`, `-c k=v`, `--git-dir=x`) may come before the subcommand; a short flag may be
     # one of several (`-fu`); `+ref` is a force push; `-n` is --no-verify for commit (for push it is a dry run)
     Rule("history-rewrite", "high", "force push or hard reset",
-         _rx(r"\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*push\b[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)"
-             r"|\s\+\S)|\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*reset\b[^;&|\n]*\s--hard(?![\w-])")),
+         _rx(r"\bgit\s+" + _GIT_OPT + r"*push\b[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)"
+             r"|\s\+\S)|\bgit\s+" + _GIT_OPT + r"*reset\b[^;&|\n]*\s--hard(?![\w-])")),
     Rule("hook-bypass", "medium", "git hooks skipped",
          # a short flag cluster may end in `-m` or `-F` (`-nm msg`), so the `n` need not be the last letter
          _rx(_COMMIT_NO_VERIFY + r"|" + _PUSH_NO_VERIFY.pattern)),

@@ -511,18 +511,85 @@ def test_security_rules_scan_a_line_of_openers_in_linear_time(rule: str, shape: 
     _linear(partial(_security_search, rule), shape, n=200)
 
 
-@pytest.mark.parametrize(
-    "shape",
-    [
-        lambda n: "git -C " * n + "git\npush",
-        lambda n: "git\n-C " * n + "git\npush",
-        lambda n: "git -C a/" * n + "git\npush",
-        lambda n: "git\n-C a/" * n + "git\npush",
-        lambda n: "git -C a." * n + "git\npush",
-        lambda n: "git -c core.foo=" * n + "git\npush",
-        lambda n: "git\n-c core.foo=" * n + "git\npush",
-    ],
-)
+_OVERLAPPING_GIT_SHAPES = [
+    lambda n: "git -C " * n + "git\npush",
+    lambda n: "git\n-C " * n + "git\npush",
+    lambda n: "git -C a/" * n + "git\npush",
+    lambda n: "git\n-C a/" * n + "git\npush",
+    lambda n: "git -C a." * n + "git\npush",
+    lambda n: "git -c core.foo=" * n + "git\npush",
+    lambda n: "git\n-c core.foo=" * n + "git\npush",
+]
+
+
+@pytest.mark.parametrize("shape", _OVERLAPPING_GIT_SHAPES)
 def test_overlapping_git_openers_are_scanned_in_linear_time(shape: Callable[[int], str]) -> None:
-    # the push alternative alone: the commit alternative of hook-bypass is a separate scan of the same chain
+    # the push alternative alone: the commit alternative of hook-bypass is timed below, with a tail that holds no commit
     _linear(security._PUSH_NO_VERIFY.search, shape, n=200)
+
+
+@pytest.mark.parametrize("shape", _OVERLAPPING_GIT_SHAPES)
+def test_overlapping_git_openers_are_scanned_in_linear_time_by_the_commit_alternative(shape: Callable[[int], str]) -> None:
+    _linear(security._rx(security._COMMIT_NO_VERIFY).search, shape, n=200)
+
+
+@pytest.mark.parametrize("shape", _OVERLAPPING_GIT_SHAPES)
+def test_overlapping_git_openers_are_scanned_in_linear_time_by_history_rewrite(shape: Callable[[int], str]) -> None:
+    _linear(partial(_security_search, "history-rewrite"), shape, n=200)
+
+
+_OLD_HISTORY_REWRITE = re.compile(
+    r"\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*push\b[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)"
+    r"|\s\+\S)|\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*reset\b[^;&|\n]*\s--hard(?![\w-])",
+    re.IGNORECASE,
+)
+_C_ARGUMENT_TABLE = [
+    "git -C git commit -n",
+    "git -C a/git commit -n",
+    "git -C a.git commit --no-verify",
+    "git -C my-dir commit -n",
+    "git -C a-b/git commit -n",
+    "git -C git -C git commit -n",
+    "git -C a.git -C b.git commit -n",
+    "git -c core.foo=git commit -n",
+    "git -C git\ncommit -n",
+    "git\n-C a/git commit -n",
+    "git -C a/git\n-c git commit -n",
+    "git -C git git commit -n",
+    "git -C git; git commit -n",
+    "git -C git commit -a; git -C git commit -n",
+    "git -C git git -C git commit -n",
+    "git -C git push -f",
+    "git -C a/git push --force",
+    "git -C a.git -C b.git push +main",
+    "git -C a.git\npush -f",
+    "git -C git reset --hard",
+    "git -C a.git -C git reset --hard",
+    "git -C git\nreset --hard",
+    "git -C git -f push -f",
+    "git -C commit commit -n",
+    "git -C git; git push -f",
+    "git -C git push -f; git -C git reset --hard",
+    "git -C git push",
+    "git -C a.git reset --soft",
+]
+
+
+@pytest.mark.parametrize("text", _C_ARGUMENT_TABLE)
+def test_a_git_word_as_the_argument_of_c_is_read_as_the_old_patterns_did(text: str) -> None:
+    assert (_security_search("hook-bypass", text) is None) == (_OLD_HOOK_BYPASS.search(text) is None)
+    assert (_security_search("history-rewrite", text) is None) == (_OLD_HISTORY_REWRITE.search(text) is None)
+
+
+def test_git_c_arguments_match_the_old_patterns_on_random_lines() -> None:
+    pieces = ["git", "commit", "push", "reset", "-n", "-f", "--hard", "--force", "--no-verify", "-C", "-c", "a/git", "a.git",
+              "core.foo=git", "d", ";", "&&", "\n", "git -C git", "git -C a/git", "-C git", "commit -n", "push -f", "x"]
+    rng = random.Random(1175)
+    hits = {"hook-bypass": 0, "history-rewrite": 0}
+    for _ in range(3 * CASES):
+        text = " ".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+        for rule, old in (("hook-bypass", _OLD_HOOK_BYPASS), ("history-rewrite", _OLD_HISTORY_REWRITE)):
+            new_match = _security_search(rule, text) is not None
+            assert new_match == (old.search(text) is not None), (rule, text)
+            hits[rule] += new_match
+    assert all(count > 100 for count in hits.values()), hits
