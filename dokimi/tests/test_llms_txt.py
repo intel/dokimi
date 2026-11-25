@@ -92,3 +92,19 @@ def test_inline_code_comment_delimiter_keeps_following_links():
     text = GOOD.replace('## Docs', '## Docs\n\nWrite `<!--` to begin a comment.')
     assert text != GOOD
     assert llms_txt.check(text) == []
+
+
+def test_escaped_backticks_do_not_hide_a_real_comment():
+    text = GOOD.replace('- [Quickstart](https://acme.test/quickstart.md)', r'\`<!-- [Hidden](url) -->\`')
+    assert 'links' in _checks(text)
+
+
+def test_inline_examples_are_not_links_and_code_descriptions_are_visible():
+    text = GOOD.replace('- [Quickstart](https://acme.test/quickstart.md)', 'Write links as `[Example](url)`')
+    assert 'links' in _checks(text)
+    assert not _checks(GOOD.replace('first charge in five minutes', '`quickstart`'))
+
+
+def test_code_span_across_a_soft_break_keeps_a_comment_literal():
+    text = GOOD.replace('## Docs', '## Docs\n\nWrite `example\n<!--` to begin a comment.')
+    assert not _checks(text)

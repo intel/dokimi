@@ -14,6 +14,8 @@ import re
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 
+from dokimi.code_spans import CodeSpanScanner
+
 #: Above this an index stops being a cheap first read; the llms.txt convention says compact.
 TOKEN_BUDGET = 2000
 
@@ -103,45 +105,69 @@ def _link_findings(lines: list[str]) -> list[Finding]:
             and not re.match(r"\s*:\s*\S", lines[i - 1][end:])]
 
 
-_COMMENT_OR_CODE = re.compile(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)|<!--")
-
-
-def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
-    parts: list[str] = []
-    while line:
-        if in_comment:
-            _, closed, line = line.partition("-->")
-            if not closed:
-                return "".join(parts), True
-            in_comment = False
-        else:
-            opening = next((mark for mark in _COMMENT_OR_CODE.finditer(line) if mark[0] == "<!--"), None)
-            if opening is None:
-                parts.append(line)
-                break
-            parts.append(line[:opening.start()])
-            line = line[opening.end():]
-            in_comment = True
-    return "".join(parts), in_comment
+_BLOCK = re.compile(r"\n(?=[ \t]*(?:\n|$)| {0,3}(?:#{1,6}(?:\s|$)|>|[-+*] |\d+[.)] |`{3,}|~{3,}))")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
 def _structure_lines(text: str) -> list[str]:
-    """Skip fenced examples while preserving physical line numbers."""
-    lines = []
+    """Hide examples and comments while retaining visible code as prose and preserving line numbers."""
+    text = "\n".join(text.removeprefix("\ufeff").splitlines())
+    scanner = CodeSpanScanner(text, stop=_BLOCK)
+    span = scanner.find(0)
+    comment = text.find("<!--")
     fence = ""
     in_comment = False
-    for line in text.removeprefix("\ufeff").splitlines():
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+    start = 0
+    lines = []
+    for line in text.split("\n"):
+        end = start + len(line)
+        marker = _FENCE.match(line)
+        parts = []
         if fence:
             if marker and marker[1].startswith(fence) and not marker[2].strip():
                 fence = ""
-            lines.append("")
         elif marker and not in_comment and (marker[1][0] == "~" or "`" not in marker[2]):
             fence = marker[1]
-            lines.append("")
         else:
-            line, in_comment = _without_comments(line, in_comment)
-            lines.append(line)
+            pos = start
+            while pos < end:
+                if in_comment:
+                    close = text.find("-->", pos, end)
+                    if close < 0:
+                        break
+                    in_comment = False
+                    pos = close + 3
+                    span = scanner.find(pos)
+                    continue
+                if span and span.end() <= pos:
+                    span = scanner.find(pos)
+                stop = min(span.start(), end) if span else end
+                if 0 <= comment < pos:
+                    comment = text.find("<!--", pos)
+                if pos <= comment < stop:
+                    parts.append(text[pos:comment])
+                    in_comment = True
+                    pos = comment + 4
+                elif span and span.start() < end:
+                    if span.start() >= pos:
+                        back = span.start()
+                        while back > pos and text[back - 1] == "\\":
+                            back -= 1
+                        if (span.start() - back) % 2:
+                            parts.append(text[pos:span.body_begin])
+                            pos = span.body_begin
+                            span = scanner.find(pos)
+                            continue
+                        parts.append(text[pos:span.start()])
+                    parts.append("x")  # literal content is visible, but cannot introduce Markdown syntax
+                    pos = min(span.end(), end)
+                else:
+                    parts.append(text[pos:end])
+                    break
+        lines.append("".join(parts))
+        start = end + 1
+        if marker and not fence and not parts:
+            span = scanner.find(start)
     return lines
 
 
