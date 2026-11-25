@@ -34,6 +34,9 @@ def test_lexical_pass_flags_version_flag_and_polarity_conflicts():
     }  # the driver sentence shares only "accelerator" with the Windows atom: not paired
     driver = next(c for c in report.claims if c.atom_id == "a_driver")
     assert driver.quote == "3.0" and driver.span_ids == ("s0001",)
+    assert driver.as_dict()["quote"] == "3.0"
+    assert report.as_dict()["claims"] == [claim.as_dict() for claim in report.claims]
+    assert report.as_dict()["n_pairs"] == report.n_pairs > 0
 
 
 def test_a_distorted_atom_is_never_used_as_ground_truth():
