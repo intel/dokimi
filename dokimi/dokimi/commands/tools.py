@@ -41,10 +41,10 @@ def _first_turn_caller(model: str, provider: str, max_tokens: int):
     from dokimi.llm import chat_completion, parse_turn, response_usage
 
     def call(item: dict) -> dict:
-        t0 = time.time()
+        t0 = time.perf_counter()
         resp = chat_completion(item["messages"], model=model, provider=provider, tools=item["tools"],
                                tool_choice="auto", max_tokens=max_tokens)
-        usage = response_usage(resp, model, provider, latency_sec=time.time() - t0).as_metrics_dict()
+        usage = response_usage(resp, model, provider, latency_sec=time.perf_counter() - t0).as_metrics_dict()
         try:
             turn = parse_turn(resp, strict=True)  # no choice is an item error, not an empty answer
             # an empty or missing name is kept as "": a call was made, to no tool on offer

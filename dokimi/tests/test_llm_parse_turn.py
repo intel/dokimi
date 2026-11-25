@@ -179,3 +179,12 @@ def test_probe_with_no_choices_is_an_item_error_with_usage(monkeypatch, no_cost)
 def test_probe_keeps_the_name_of_a_dict_shaped_tool_call(monkeypatch, no_cost):
     out = _caller(monkeypatch, _resp(None, [{"id": "c", "function": {"name": "read"}}], "stop"))
     assert out["called"] == ["read"] and out["text"] == ""
+
+
+def test_probe_measures_latency_when_the_wall_clock_steps_back(monkeypatch, no_cost):
+    wall_clock = iter([100.0, 99.0])
+    monotonic_clock = iter([1.0, 1.5])
+    monkeypatch.setattr("dokimi.commands.tools.time", NS(time=lambda: next(wall_clock),
+                                                        perf_counter=lambda: next(monotonic_clock)))
+    out = _caller(monkeypatch, _resp("ok"))
+    assert out["usage"]["latency_sec"] == 0.5
