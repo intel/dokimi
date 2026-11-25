@@ -74,3 +74,30 @@ def test_probe_and_shorten_hand_the_answer_key_checks_a_parsed_record(tmp_path, 
                      "--lexical-only")
     shorten.func(shorten)
     assert seen == [AnswerKeyRecord]
+
+
+@pytest.mark.parametrize("role,command", [("extractor", ["novelty", "atoms"]), ("oracle", ["shorten"])])
+@pytest.mark.parametrize(("ref", "model", "provider"), [
+    ("openai/gpt-4o", "gpt-4o", "openai"),
+    ("gpt-4o", "gpt-4o", "anthropic"),
+])
+def test_atoms_and_shorten_route_the_extractor_override(tmp_path, monkeypatch, role, command, ref, model, provider):
+    class ClientCreated(Exception):
+        pass
+
+    def expect_client(model_arg, provider_arg, role_arg, _args):
+        assert (model_arg, provider_arg, role_arg) == (model, provider, role)
+        raise ClientCreated
+
+    monkeypatch.setattr("dokimi.novelty.cost.client", expect_client)
+    root = _bundle_skill(tmp_path)
+    artifact = f"skill:{root}"
+    argv = ["skill", *command, "--artifact", artifact, "--extract-model", ref]
+    if role == "oracle":
+        bundle = load_bundle(artifact)
+        atoms = tmp_path / "atoms.json"
+        save_atoms([], segment(bundle.text), atoms, extractor="e", cap=None, bundle=bundle.summary())
+        argv += ["--atoms", str(atoms)]
+    args = _parse(*argv)
+    with pytest.raises(ClientCreated):
+        args.func(args)

@@ -59,7 +59,7 @@ def register_check(skill_sub) -> None:
 
 def register_skill(skill_sub, positive_int) -> None:
     """Add `skill novelty` (analyze, atoms, probe, ground, items, view) and `skill shorten` (#94 M2)."""
-    from dokimi.commands.novelty_flags import _add_bundle_args, _add_common, _add_model_args
+    from dokimi.commands.novelty_flags import _add_bundle_args, _add_common, _add_extractor_arg, _add_model_args
     from dokimi.commands.novelty import (
         cmd_novelty_analyze,
         cmd_novelty_atoms,
@@ -123,7 +123,7 @@ def register_skill(skill_sub, positive_int) -> None:
         help="Extractor model when --extract-model is not given "
                               f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)",
     )
-    atoms_p.add_argument("--extract-model", default=None, dest="extract_model")
+    _add_extractor_arg(atoms_p, "Extractor model override (a bare model uses the --model provider)")
     cli_flags.add(atoms_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     atoms_p.add_argument("--no-verify", action="store_true", dest="no_verify")
     atoms_p.add_argument("--out", default=None)
@@ -223,7 +223,7 @@ def register_skill(skill_sub, positive_int) -> None:
         help="Retention adjudicator model "
                                 f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)",
     )
-    shorten_p.add_argument("--extract-model", default=None, dest="extract_model")
+    _add_extractor_arg(shorten_p, "Retention adjudicator override (a bare model uses the --model provider)")
     cli_flags.add(shorten_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     shorten_p.add_argument("--lexical-only", action="store_true", dest="lexical_only",
                            help="Run the retention oracle without an LLM adjudicator. Cheap and "
