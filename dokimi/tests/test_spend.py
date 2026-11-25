@@ -250,6 +250,9 @@ def test_the_cap_keeps_its_positional_constructor_under_its_old_import():
 
     cap = OldImport(2.0, 1.25, 3)
     assert (cap.limit_usd, cap.spent_usd, cap.calls, cap.unpriced_calls) == (2.0, 1.25, 3, 0)
+    copy = replace(cap, limit_usd=3.0)
+    assert (copy.limit_usd, copy.spent_usd, copy.calls) == (3.0, 1.25, 3) and copy._lock is not cap._lock
+    assert replace(NestedSpendCap(1.0, parent=cap), spent_usd=0.5).parent is cap
     assert OldImport(2.0).limit_usd == 2.0 and OldImport(limit_usd=1.0, spent_usd=1.0, calls=4).calls == 4
     child = NestedSpendCap(1.0, parent=cap)
     child.record(PRICED, "a")

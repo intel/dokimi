@@ -143,7 +143,7 @@ class SpendCap(Spend):
     """
 
     limit_usd: float
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
     def __init__(self, limit_usd: float, spent_usd: float = 0.0, calls: int = 0, **counts: int) -> None:
         # Positional as before the move to Spend: SpendCap(limit_usd, spent_usd, calls).
