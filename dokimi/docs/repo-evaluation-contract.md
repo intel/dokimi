@@ -672,7 +672,7 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 | Grader | Declare | Hit |
 |---|---|---|
 | test: the grade runs the target tests | `{"command": "<regex>"}` | the first `command` event whose text matches the regex (`regex.search`) and whose `rc` is `0`. `rc` 0 says that command passed, not that every target test did, so the regex should name the target tests |
-| edit or diff: the grade reads a target file | `{"edit": "<glob>"}` or a list | the first `edit` event whose path matches a glob (`match_glob`, as the guidance globs) |
+| edit or diff: the grade reads a target file | `{"edit": "<glob>"}` or a list | the first `edit` event whose path matches a glob (`match_glob`, as the guidance globs; a `..` after a link in the path is followed as in `guidance_read`, so `sub/alias/../x` with `sub/alias -> ../docs/nested` is `docs/x`) |
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
@@ -701,7 +701,7 @@ row shows which.
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
 `skills_used` (the installed skills the agent called with the `Skill` tool or
-whose `SKILL.md` it read, the call or read neither denied nor failed, in order of first use), `expected_skill` (the task's,
+whose `SKILL.md` it read, the call or read neither denied nor failed, a `..` after a link in the read path followed as in `guidance_read`, in order of first use), `expected_skill` (the task's,
 or `null`), `skill_invoked` (the expected skill was used; any installed skill
 when the task names none) and `skill_selected_correct` (the expected skill was
 the first one used; `null` when the task names none). When the trace could not
@@ -719,7 +719,7 @@ command events that name an added file as a workspace path (`tools/fmt`,
 `./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`; a file
 with no `/` only as `./name`, under the workspace path or after an interpreter (a bare `name` resolves through `PATH`), so
 `npm run lint` does not name a `lint` file), `reads` the read events of one that did not fail (a
-read of an added script counts as use), `mcp_calls` the calls of the servers' tools
+read of an added script counts as use; a `..` after a link in the path is followed as in `guidance_read`, so `alias/../tools/fmt` with `alias -> docs/nested` reads `docs/tools/fmt`), `mcp_calls` the calls of the servers' tools
 (`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
 is whether any is non-zero, and `measured` is
 `false` when the agent left no trace to count from. `repo report` shows the
@@ -1775,7 +1775,9 @@ per scenario).
     - `loaded`: both tokens reported;
     - `truncated`: one token reported;
     - `fetched`: reported only after the agent read the file with a tool (a
-      read that was denied or failed is none). For the
+      read that was denied or failed is none; a `..` after a link in the read
+      path is followed as in `guidance_read`, by the links of the probe
+      workspace, a `CLAUDE.md` link among them). For the
       Claude Code (its Bash tool), Codex and Copilot profiles a shell read counts
       only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`, after the `time`
       keyword too (`time -p cat AGENTS.md`, `time -- cat AGENTS.md`; the
