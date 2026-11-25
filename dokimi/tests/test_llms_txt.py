@@ -110,3 +110,17 @@ def test_bare_carriage_returns_preserve_structure():
 def test_nested_list_link_is_documentation():
     text = GOOD[:GOOD.index("- [Quickstart]")] + "- Guides\n    - [Install](install.md): set it up"
     assert llms_txt.check(text) == []
+
+
+def test_link_title_may_quote_link_syntax_without_creating_another_link():
+    text = GOOD.replace('quickstart.md)', 'quickstart.md "See [Start](start.md)")')
+    assert llms_txt.check(text) == []
+
+
+def test_indented_link_continues_an_open_paragraph():
+    text = GOOD[:GOOD.index("- [Quickstart]")] + "Documentation:\n    [Start](start.md): introduction"
+    assert llms_txt.check(text) == []
+
+
+def test_comment_opener_inside_inline_code_keeps_later_sections_visible():
+    assert llms_txt.check(GOOD.replace("## Docs", "`<!--`\n\n## Docs")) == []

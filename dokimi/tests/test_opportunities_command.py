@@ -127,3 +127,10 @@ def test_json_output_creates_its_parent_directory(inputs, tmp_path):
     out = tmp_path / "missing" / "report.json"
     cmd.cmd_report_opportunities(Namespace(inputs=inputs, out=str(out), format="json"))
     validate_artifact("opportunities", json.loads(out.read_text()))
+
+
+def test_sample_count_without_outcome_rates_cannot_clear_queue(tmp_path):
+    file = tmp_path / "novelty.json"
+    file.write_text(json.dumps({**NOVELTY, "paired": {"lenient": {"n_paired": 4}}}), encoding="utf-8")
+    with pytest.raises(InputError, match="novelty.json"):
+        cmd.build([str(file)])

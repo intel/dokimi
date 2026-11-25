@@ -87,7 +87,10 @@ def _link_labels(line: str) -> Iterator[tuple[int, int]]:
 
 def _links(line: str) -> Iterator[tuple[str, str, int]]:
     visible = replace_code_spans(line, lambda span: " " * (span.end() - span.start()), not_after="\\")
+    consumed = 0
     for label_start, destination in _link_labels(visible):
+        if label_start <= consumed:
+            continue
         depth = 0
         for mark in _DESTINATION_MARK.finditer(line, destination):
             char = mark[0]
@@ -98,25 +101,29 @@ def _links(line: str) -> Iterator[tuple[str, str, int]]:
             elif char == ")" or char.isspace():
                 end = _LINK_END.match(line, mark.start()) if depth == 0 else None
                 if end is not None and mark.start() > destination:
-                    yield line[label_start:destination - 2], line[destination:mark.start()], end.end()
+                    consumed = end.end()
+                    yield line[label_start:destination - 2], line[destination:mark.start()], consumed
                 break
 
 
 def _prose_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
     """Indented code starts four columns beyond the containing list item, or from the margin."""
     item_columns = [0]
+    paragraph = False
     for i, line in enumerate(lines, 1):
         expanded = line.expandtabs(4)
         content = expanded.lstrip(" ")
         if not content:
+            paragraph = False
             continue
         indent = len(expanded) - len(content)
         while indent < item_columns[-1]:
             item_columns.pop()
-        if indent >= item_columns[-1] + 4:
+        if indent >= item_columns[-1] + 4 and not paragraph:
             continue
         if marker := _LIST_MARKER.match(content):
             item_columns.append(indent + marker.end())
+        paragraph = not re.match(r"#{1,6}(?:\s|$)|>", content)
         yield i, line
 
 
@@ -142,9 +149,13 @@ def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
                 return "".join(parts), True
             in_comment = False
         else:
-            visible, opened, line = line.partition("<!--")
-            parts.append(visible)
-            in_comment = bool(opened)
+            prose = replace_code_spans(line, lambda span: " " * (span.end() - span.start()), not_after="\\")
+            opening = prose.find("<!--")
+            if opening < 0:
+                return "".join(parts) + line, False
+            parts.append(line[:opening])
+            line = line[opening + 4:]
+            in_comment = True
     return "".join(parts), in_comment
 
 

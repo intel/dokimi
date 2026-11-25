@@ -27,7 +27,7 @@ def test_novelty_outcomes_become_weighted_fixes():
 
 
 def test_zero_counts_produce_no_opportunity():
-    art = {**NOVELTY, "paired": {"lenient": {"degraded": 0, "n_paired": 5}}}
+    art = {**NOVELTY, "paired": {"lenient": {"degraded": 0, "redundant": 0, "still_missing": 0, "n_paired": 5}}}
     assert opp.from_novelty(art) == []
 
 
