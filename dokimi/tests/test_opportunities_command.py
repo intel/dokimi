@@ -129,3 +129,13 @@ def test_shortcut_reference_at_start_is_markdown(tmp_path):
     json_path.write_text('["incomplete"', encoding="utf-8")
     with pytest.raises(InputError, match="not valid JSON"):
         cmd.build([str(json_path)])
+
+
+def test_build_keeps_llms_txt_path_in_finding_identity(tmp_path):
+    paths = [tmp_path / part / "llms.txt" for part in ("api", "sdk")]
+    for path in paths:
+        path.parent.mkdir()
+        path.write_text("prose only\n", encoding="utf-8")
+    items = cmd.build(list(map(str, paths)))["items"]
+    assert {item["target"] for item in items} == set(map(str, paths))
+    assert len({item["source_key"] for item in items}) == len(items)
