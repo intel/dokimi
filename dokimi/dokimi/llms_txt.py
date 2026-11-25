@@ -112,6 +112,10 @@ def _links(line: str, definitions: dict[str, str]) -> Iterator[tuple[str, str, i
             target, pos = destination
         else:
             target = definitions.get(_reference_label(reference or title))
+            if target is None and reference:
+                # Leave the unresolved second label available to the inline parser.
+                pos = label.end(2) + 1
+                target = definitions.get(_reference_label(title))
         if target is not None and not image:
             yield title, target, pos
 
