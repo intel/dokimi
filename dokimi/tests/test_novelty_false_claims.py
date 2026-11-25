@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from dokimi.novelty.atoms import Atom
-from dokimi.novelty.false_claims import find_false_claims, split_sentences
+from dokimi.novelty.false_claims import find_false_claims, lexical_conflict, pair_atoms, split_sentences
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "false_claims" / "accel.json")
                      .read_text(encoding="utf-8"))
@@ -77,3 +77,9 @@ def test_judge_failures_are_counted_not_read_as_clean():
     report = find_false_claims(ANSWER, ATOMS, judge=judge)
     assert report.n_judge_errors >= 2
     assert report.claims == []
+
+
+def test_sentence_final_identifier_still_pairs():
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement":
+                          "cache_size configures the maximum number of entries stored in the accelerator cache."})
+    assert pair_atoms("There is no cache_size.", [atom]) == [atom]

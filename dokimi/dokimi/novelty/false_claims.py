@@ -134,7 +134,7 @@ def _values(text: str) -> set[str]:
 
 def _distinctive(text: str) -> set[str]:
     """Tokens that name one thing: flags, dotted/underscored identifiers, CamelCase."""
-    return {w.lower() for w in _WORD.findall(text)
+    return {w.lower() for w in (token.rstrip(".") for token in _WORD.findall(text))
             if w.startswith("-") or "_" in w or re.search(r"[a-z][A-Z]", w)
             or re.fullmatch(r"[A-Za-z]+\.[A-Za-z_.]+", w)}
 
