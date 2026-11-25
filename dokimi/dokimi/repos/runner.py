@@ -738,8 +738,8 @@ def batch_lock(batch_dir: Path) -> Iterator[None]:
         try:
             _lock_file(f)
         except OSError as exc:
-            raise BatchBusy(f"batch {batch_dir} is in use by another `repo run`; wait for it or use "
-                            "another --name") from exc
+            raise BatchBusy(f"batch {batch_dir} is in use by another `repo run`; wait for it, or give "
+                            "`repo run` another --name") from exc
         yield
 
 

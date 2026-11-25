@@ -554,7 +554,7 @@ def test_a_batch_another_run_holds_fails_with_exit_1_and_a_dry_run_takes_no_lock
     with batch_lock(batch):  # a `repo run` resuming the batch: it rewrites _eval/content and regrades cells
         code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
         assert (code, out, judge_llm.requests) == (1, "", [])
-        assert err.strip() == f"✗ batch {batch} is in use by another `repo run`; wait for it or use another --name"
+        assert err.strip() == f"✗ batch {batch} is in use by another `repo run`; wait for it, or give `repo run` another --name"
         assert not list(batch.glob(f"*/{HITS_JUDGED}"))
         assert _run(capsys, "judge", str(batch), "--judge", JUDGE, "--dry-run")[0] == 0  # it writes nothing
     assert _run(capsys, "judge", str(batch), "--judge", JUDGE)[0] == 0 and len(judge_llm.requests) == 4  # released
