@@ -225,6 +225,27 @@ def test_container_removes_its_name_after_an_exception(monkeypatch, failure):
     assert calls[1] == ["docker", "rm", "-f", calls[0][calls[0].index("--name") + 1]]
 
 
+def test_mounted_starter_preserves_the_pinned_bytes_on_windows(pack, monkeypatch):
+    write_text = Path.write_text
+
+    def windows_write_text(path, data, *args, **kwargs):
+        if path.name == "initial":
+            kwargs["newline"] = "\r\n"
+        return write_text(path, data, *args, **kwargs)
+
+    def container(image, script, mounts, *args, **kwargs):
+        if mounts:
+            original = (pack.tasks.parent / "consumer.sh").read_bytes()
+            assert mounts["initial"].read_bytes() == original
+        return process.reply()
+
+    monkeypatch.setattr(Path, "write_text", windows_write_text)
+    monkeypatch.setattr(delivery, "container", container)
+    for row in delivery.run(pack)["observations"]:
+        assert row["outcome"] == "PASS", row["reason"]
+        assert row["initial_sha256"] == delivery.digest((pack.tasks.parent / "consumer.sh").read_bytes())
+
+
 def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):
     from dokimi.cli import parse_args
 

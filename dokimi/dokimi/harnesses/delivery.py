@@ -114,7 +114,7 @@ def attempt(
     product = snapshot(args.manifest.parent, manifest["artifact"])
     verifier = snapshot(root, task["verifier"]).decode()
     hidden = snapshot(root, task["input"])
-    initial = snapshot(root, task["initial"]).decode()
+    initial = snapshot(root, task["initial"])
     row["verifier"] = task["verifier"]["sha256"]
     script = supplied[0] if task["example"] else task["contract"]
     if arm != "release":
@@ -123,7 +123,7 @@ def attempt(
             from dokimi.llm import llm_call_with_usage
 
             prompt = json.dumps(
-                {"instruction": task["instruction"], "initial": initial, "sources": supplied}
+                {"instruction": task["instruction"], "initial": initial.decode(), "sources": supplied}
             )
             row["model_calls"] = 1
             reply, usage = llm_call_with_usage(
@@ -161,7 +161,7 @@ def attempt(
 def _grade(
     manifest: dict,
     product: bytes,
-    initial: str,
+    initial: bytes,
     script: str,
     hidden: bytes,
     verifier: str,
@@ -176,7 +176,7 @@ def _grade(
         path = Path(tmp) / "delivery"
         path.write_bytes(product)
         start = Path(tmp) / "initial"
-        start.write_text(initial, encoding="utf-8")
+        start.write_bytes(initial)
         # Bind-mounted inputs must remain readable to the image's configured user.
         path.chmod(0o444)
         start.chmod(0o444)
