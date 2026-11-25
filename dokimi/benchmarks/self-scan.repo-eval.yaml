@@ -1,9 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# The framework's own agent guidance, scanned by L0 in CI (`repo scan .. --manifest-file`).
-# eval_dir and tasks are required by repo_manifest.v1 and unused by a scan; this file is for
-# `repo scan` only (`repo validate` would refuse it: the framework has no repository tasks).
+# The framework's agent guidance, scanned by L0 in CI: `repo scan` only (`eval check --schema-only` would refuse it).
+# eval_dir and tasks are required by repo_manifest.v1 and unused by a scan (the framework has no repository tasks).
 schema: repo_manifest.v1
 id: dokimi
 eval_dir: dokimi/tests

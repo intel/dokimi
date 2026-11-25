@@ -12,7 +12,7 @@
 # that a new row has a reason.
 #
 # Rows with no reason are the spellings already on main when this file was written (b69b15f8).
---agent-network
+--agent-network  # repo run: the agent container's docker network (host or bridge), not the policy modes of --network; no registry concept yet
 --all
 --all-atoms
 --allow-self-judge
@@ -28,9 +28,8 @@
 --bases
 --batch
 --both
---build-network
---build-timeout
---cache-root
+--build-network  # repo run: docker build --network NAME for the image build, a docker network name, not the policy modes of --network
+--cache-root  # repo run: the parent directory of the per-name manifest caches, resolved at run time; not --cache NAME=DIR
 --calls
 --candidate
 --candidates  # repo run's candidate file (repos/choices.py): no registry concept yet; a F1b migration names it
@@ -66,7 +65,6 @@
 --from-eval
 --github-token
 --golden-runs
---grade-timeout
 --grader
 --grounded
 --grounded-from-topics

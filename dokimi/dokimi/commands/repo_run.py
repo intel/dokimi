@@ -587,7 +587,43 @@ def _usd(text: str) -> float:
     return value
 
 
-def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, positive_int) -> None:
+# The phase of a `--timeout [PHASE=]SEC` value and the argparse dest it sets (#94 F1b; the network's phases).
+_TIMEOUT_DEST = {"solve": "timeout", "build": "build_timeout", "verify": "grade_timeout"}
+
+
+class _PhaseSeconds(argparse.Action):
+    """Store the (phase, seconds) that `_phase_seconds` parsed in the dest of its phase."""
+
+    def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace, values: Any,
+                 option_string: str | None = None) -> None:
+        phase, seconds = values
+        setattr(namespace, _TIMEOUT_DEST[phase], seconds)
+
+
+def _timeout_flag(p: argparse.ArgumentParser, phases: tuple[str, ...], positive_int) -> None:
+    """``--timeout [PHASE=]SEC``: a bare SEC or ``solve=`` is the agent run, ``build=`` the image build and
+    ``verify=`` each grade or oracle run. A command takes only the phases it runs (`eval check` has no agent)."""
+
+    def phase_seconds(text: str) -> tuple[str, int]:
+        phase, sep, value = text.rpartition("=")
+        phase = phase if sep else "solve"
+        if phase not in phases:
+            raise argparse.ArgumentTypeError(f"{phase!r} is not a phase of this command "
+                                             f"(take {', '.join(phases)}); got {text!r}")
+        return phase, positive_int(value)
+
+    texts = {
+        "solve": "a bare SEC is the agent run (solve, default 2700, unless task.json sets timeout_s)",
+        "build": "build=SEC the image build (default 10800, 3 hours)",
+        "verify": "verify=SEC each grade or oracle run (default 3600)",
+    }
+    cli_flags.add(p, "timeout", "--timeout", type=phase_seconds, action=_PhaseSeconds, default=2700,
+                  metavar="[PHASE=]SEC", help="Seconds per phase: " + "; ".join(texts[ph] for ph in phases))
+    p.set_defaults(build_timeout=docker_cmd.BUILD_TIMEOUT_S, grade_timeout=3600)
+
+
+def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, positive_int,
+            timeout_phases: tuple[str, ...]) -> None:
     p.add_argument("source", help=source_help)
     p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
                    help="Manifest path relative to the repository root")
@@ -605,17 +641,14 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
                    help="Build the image even if the tag exists")
     p.add_argument("--build-network", default=None, dest="build_network",
                    help="docker build --network (for example host, behind a local proxy)")
-    p.add_argument("--build-timeout", type=positive_int, default=docker_cmd.BUILD_TIMEOUT_S, dest="build_timeout",
-                   help="Seconds the image build may run before it fails (default 10800, 3 hours)")
-    p.add_argument("--cache", action="append", default=None, metavar="NAME=PATH",
+    _timeout_flag(p, timeout_phases, positive_int)
+    p.add_argument("--cache", action="append", default=None, metavar="NAME=DIR",
                    help="Host directory for the manifest cache NAME; repeatable")
     p.add_argument("--cache-root", default=None, dest="cache_root",
                    help="Parent of cache directories without --cache "
                    "(default: ~/.cache/dokimi/caches/<repo id>)")
     p.add_argument("--source-dir", default=None, dest="source_dir",
                    help="Full-history clone mounted as {source_dir} (default: the source's own git dir)")
-    p.add_argument("--grade-timeout", type=positive_int, default=3600, dest="grade_timeout",
-                   help="Seconds per grade/oracle run (default 3600)")
     cli_flags.add(p, "concurrency", "--concurrency", "-j", type=positive_int, default=1, dest="jobs", metavar="N",
                   help="Parallel tasks or cells (default 1)")
     p.add_argument("--docker", default="docker", help="docker CLI (default: docker)")
@@ -639,7 +672,7 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
         "pass it (score-only: reach score.max), and the agent's container must not see tasks or source; "
         "--schema-only: the manifest and task.json checks of `repo validate`",
         description=CHECK_EXIT)
-    _common(check_p, source_help, cache_help, positive_int)
+    _common(check_p, source_help, cache_help, positive_int, timeout_phases=("build", "verify"))
     check_p.add_argument("--schema-only", action="store_true", dest="schema_only",
                          help="Check the manifest and every task.json against one snapshot, with no self-check run "
                          "(what `repo validate` did); --json and --fail-on apply to it")
@@ -664,13 +697,15 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     schema_refused = tuple((a.option_strings[0], a.dest, a.default) for a in check_p._actions
                            if a.option_strings and a.dest not in schema_kept
                            and not isinstance(a, argparse._HelpAction))
+    # `--timeout build=` and `verify=` set these two dests, which have no action of their own
+    schema_refused += tuple(("--timeout", d, check_p.get_default(d)) for d in ("build_timeout", "grade_timeout"))
     check_p.set_defaults(func=cmd_eval_check, emits_cli_output=True, cli_kind="eval check",
                          schema_refused=schema_refused)
 
     run_p = repo_sub.add_parser(
         "run", help="Run an agent per (task, arm, model, rep) in the image and grade each run; one "
         "result.json per cell, already finished cells skipped", description=RUN_EXIT)
-    _common(run_p, source_help, cache_help, positive_int)
+    _common(run_p, source_help, cache_help, positive_int, timeout_phases=("solve", "build", "verify"))
     run_p.add_argument("--arm", action="append", default=None, required=True,
                        help="guidance:none | guidance:raw | guidance:bridge | guidance:as-skill | "
                        "guidance:overlay (the base with the AGENTS.<agent>.md of the harness only) | "
@@ -697,8 +732,6 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     run_p.add_argument("--delegation", choices=DELEGATION_MODES, default="native",
                        help="native: the agent may start subagents (default); none: the profile's tool "
                             "arguments without the subagent tools, for a single-agent baseline")
-    run_p.add_argument("--timeout", type=positive_int, default=2700,
-                       help="Seconds per agent run unless task.json sets timeout_s (default 2700)")
     run_p.add_argument("--max-turns", type=positive_int, default=200, dest="max_turns",
                        help="Unless task.json sets max_turns (default 200)")
     run_p.add_argument("--probes", default=None, metavar="FILE",

@@ -21,7 +21,7 @@ import shlex
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-from dokimi.cli_flags import FLAG_MOVES
+from dokimi.cli_flags import FLAG_MOVES, FlagMove
 
 SECTIONS: tuple[str, ...] = ("The loop", "Subjects", "Evals", "Analysis and data")
 
@@ -548,6 +548,19 @@ def moved_argv(
     return None
 
 
+def _rewrite_moved_token(rewritten: list[str], index: int, move: FlagMove, equals: str, value: str) -> None:
+    """Rewrite the token at ``index`` to ``move.new``; a ``prefix`` goes in front of the value (F1b)."""
+    if not move.prefix:
+        # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
+        rewritten[index] = move.new if "=" in move.new else f"{move.new}{equals}{value}"
+    elif equals:
+        rewritten[index] = f"{move.new}={move.prefix}{value}"
+    else:  # the value is the next token: --build-timeout 5 is --timeout build=5
+        rewritten[index] = move.new
+        if index + 1 < len(rewritten) and not rewritten[index + 1].startswith("-"):
+            rewritten[index + 1] = move.prefix + rewritten[index + 1]
+
+
 def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
     """``argv`` with each moved spelling rewritten to its new one, or None when none moved."""
     canon = _canonical(tuple(argv))
@@ -561,8 +574,7 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
         name, equals, value = token.partition("=")
         for move in FLAG_MOVES:
             if name == move.old and (not move.leaves or leaf in move.leaves):
-                # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
-                rewritten[index] = move.new if "=" in move.new else f"{move.new}{equals}{value}"
+                _rewrite_moved_token(rewritten, index, move, equals, value)
                 changed = True
                 break
     return rewritten if changed else None

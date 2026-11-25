@@ -161,8 +161,6 @@ _TYPES_BY_KIND: Mapping[str, frozenset[str]] = {
 # An exception covers one observed value on one leaf. Its reason explains the difference from the registry.
 ExceptionValue = str | bool | frozenset[str] | None
 MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
-    ("dokimi catalog trigger-probe", "--timeout", "type"): ("float",
-        "The probe accepts fractional seconds per run."),
     ("dokimi catalog routing-compare", "--arm", "choices"): (frozenset({"lexical", "model"}),
         "Selects a built-in comparison arm by name. The registry accepts [NAME=]REF."),
     ("dokimi eval triggers generate", "--fail-on", "choices"): (frozenset({"warn"}),
@@ -197,13 +195,6 @@ MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
     ("dokimi trace consistency", "--arm", "metavar"): ("LABEL=GLOB",
         "LABEL=GLOB selects traces by glob, not the `[NAME=]REF` of the arm concept. Not one of "
         "the #94 audit rows; rename at F1b"),
-    ("dokimi eval check", "--cache", "metavar"): ("NAME=PATH",
-        "metavar NAME=PATH where the registry says NAME=DIR: wording only; F1b aligns it"),
-    ("dokimi repo run", "--cache", "metavar"): ("NAME=PATH",
-        "metavar NAME=PATH where the registry says NAME=DIR: wording only; F1b aligns it"),
-    ("dokimi tasks run", "--network", "metavar"): ("PHASE=MODE",
-        "repeatable PHASE=MODE, with no `:hosts` form; the registry's `--network` is one "
-        "`[PHASE=]MODE[:hosts]`. F1b aligns it"),
     ("dokimi eval triggers generate", "--questions", "metavar"): ("PATH=LABEL",
         "repeatable PATH=LABEL pairs; the registry's `--questions FILE` is one file. F1b aligns it"),
 }
@@ -577,8 +568,9 @@ def test_a_tuple_metavar_is_compared_as_one_text():
     assert _metavar_text(None) is None
 
 
+# Test-narrowed: the catalog trigger-probe --timeout float case is gone: --timeout is text now (a phase
+# carries the value), so that exception is stale. Nothing else covers --timeout here.
 @pytest.mark.parametrize(("path", "option", "aspect", "changed"), [
-    (("catalog", "trigger-probe"), "--timeout", "type", str),
     (("repo", "budget"), "--fail-on", "choices", ("warn", "bogus")),
     (("eval", "tasks", "generate"), "--from", "choices", ("graph", "prs")),
     (("repo", "reach"), "--from", "metavar", "OTHER_FILE"),

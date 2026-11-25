@@ -572,7 +572,7 @@ def test_worktree_image_tag_follows_the_build_context(setup, capsys):
 
 
 def test_the_image_build_gets_the_build_timeout(setup):
-    """--build-timeout bounds the image build; without it the build gets BUILD_TIMEOUT_S."""
+    """--timeout build=SEC bounds the image build; without it the build gets BUILD_TIMEOUT_S."""
     from dokimi.repos.container import BUILD_TIMEOUT_S
 
     root, runner = setup["root"], setup["runner"]
@@ -585,7 +585,7 @@ def test_the_image_build_gets_the_build_timeout(setup):
         args.func(args)
 
     check()
-    check("--build-timeout", "36000")
+    check("--timeout", "build=36000")
     assert runner.build_timeouts == [BUILD_TIMEOUT_S, 36000]
     for parser_argv in (["repo", "run", str(root), "--arm", "guidance:none", "--model", "m", "--batch", "b"],
                         ["eval", "check", str(root)]):

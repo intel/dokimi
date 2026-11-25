@@ -8,7 +8,7 @@
 
 manifest_ok: examples/toy-repo/repo-eval.yaml exists, dokimi's manifest loader accepts it
 (repo_manifest.v1 schema and rules), and `cli.py repo scan ../examples/toy-repo --manifest
-repo-eval.yaml --json` exits 0 with AGENTS.md among the scanned files. `repo validate` is not
+repo-eval.yaml --json` exits 0 with AGENTS.md among the scanned files. `eval check --schema-only` is not
 required: it also wants eval_dir and the tasks directory to exist, which a scan-only manifest
 (like the framework's own benchmarks/self-scan.repo-eval.yaml) does not have.
 answer_names_claim_1/2: the final answer calls each broken claim (the missing path, the dead

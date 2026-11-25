@@ -68,7 +68,7 @@ def test_failed_to_start_is_the_infra_exit_and_not_a_timeout():
 
 def test_build_timeout_names_the_flag(tmp_path):
     fake = FakeRunner(lambda call: reply(stderr="stuck", timed_out=True))
-    with pytest.raises(ContainerError, match=r"timed out after 5s \(--build-timeout\)"):
+    with pytest.raises(ContainerError, match=r"timed out after 5s \(--timeout build=SEC\)"):
         DockerRunner(runner=fake).build(tmp_path, tmp_path / "Dockerfile", "t:1", timeout_s=5)
     assert fake.calls[0].timeout == 5
 

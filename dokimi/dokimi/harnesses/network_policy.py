@@ -100,10 +100,12 @@ def policy(mode: Any, hosts: Iterable[Any] = (), source: str = "default") -> Pha
 
 
 def parse_override(spec: str) -> dict[str, PhasePolicy]:
-    """``PHASE[,PHASE]=MODE[:host,...]`` (``all`` for every phase) -> one policy per phase."""
+    """``[PHASE[,PHASE]=]MODE[:host,...]``: no PHASE, or ``all``, is every phase -> one policy per phase."""
     phases_raw, sep, value = spec.partition("=")
-    if not sep or not value:
-        raise ValueError(f"--network {spec!r}: expected PHASE=MODE, e.g. verify=none or "
+    if not sep:  # a bare MODE[:hosts] is every phase (the --network registry spelling, #94 §2.4)
+        phases_raw, value = "all", spec
+    if not value:
+        raise ValueError(f"--network {spec!r}: expected [PHASE=]MODE, e.g. verify=none or "
                          "solve=allowlist:pypi.org,files.pythonhosted.org")
     mode, _, hosts = value.partition(":")
     phases = [p.strip() for raw in phases_raw.split(",")

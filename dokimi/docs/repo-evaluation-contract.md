@@ -175,7 +175,7 @@ outside every workspace and passes its absolute path to entry points as
   anywhere in that context, for example a build wrapper under `<eval-dir>`,
   and must work for every task base: a version pinned in the task tree (such
   as `.bazelversion`) is read at run time, not baked in. A build that runs
-  past `--build-timeout` seconds (3 hours by default) fails as a container
+  past `--timeout build=SEC` seconds (3 hours by default) fails as a container
   error rather than hanging the batch.
 - `eval check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
