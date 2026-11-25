@@ -17,7 +17,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import IO, Any
 
-from dokimi.process_io import utf8_bytes
+from dokimi.process_io import checked_json_text, utf8_bytes
 
 
 class _OwnerRefused(PermissionError):
@@ -182,10 +182,14 @@ def write_json_atomic(path: Path | str, obj: Any) -> None:
 
     A value loaded from a ``\\ud83d\\ude00`` escape is joined into its character and a lone surrogate is written
     as ``?`` (:func:`dokimi.process_io.utf8_bytes`), where a strict UTF-8 encode would raise. Each line ends
-    with the platform's ``os.linesep``, as :func:`write_text_atomic` writes it (``\\r\\n`` on Windows).
+    with the platform's ``os.linesep``, as :func:`write_text_atomic` writes it (``\\r\\n`` on Windows). Raises ValueError,
+    writing nothing, for an object that would hold two equal keys in the bytes written (:func:`dokimi.process_io.checked_json_text`):
+    a lone-surrogate key beside the key ``?`` is one of them.
     """
     text = json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
-    write_bytes_atomic(path, utf8_bytes(text.replace("\n", os.linesep)))
+    data = utf8_bytes(text.replace("\n", os.linesep))
+    checked_json_text(data.decode("utf-8"))
+    write_bytes_atomic(path, data)
 
 
 def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes | Iterable[bytes], *, keep_group: bool = False,
