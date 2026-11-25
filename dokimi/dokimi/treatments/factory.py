@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Build treatment arms from ``--arms`` spec strings.
+"""Build treatment arms from ``--arm`` spec strings.
 
 The spec grammar — kinds, the ``+`` rule, how each arm is named — lives in
 :mod:`dokimi.treatments.specs`; this module turns parsed parts into

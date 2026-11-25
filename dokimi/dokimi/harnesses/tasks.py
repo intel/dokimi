@@ -752,10 +752,6 @@ _DEFAULT_BUILD_TIMEOUT = 600.0
 _DEFAULT_VERIFY_TIMEOUT = 180.0
 
 
-def _is_public(task: TaskSpec) -> bool:
-    return str(task.environment.get("network_mode") or "none") == "public"
-
-
 def _task_build_timeout(task: TaskSpec) -> float:
     """Image build timeout: the task's ``environment.build_timeout_sec`` if set,
     else :data:`_DEFAULT_BUILD_TIMEOUT`."""

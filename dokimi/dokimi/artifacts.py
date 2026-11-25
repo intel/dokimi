@@ -87,6 +87,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "effective_instructions": "effective_instructions.v1",
     "task_inspect": "task_inspect.v1",
     "headroom": "headroom.v1",
+    "opportunities": "opportunities.v1",
     "redteam": "redteam.v1",
     "leak": "leak.v1",
     "cli_routes": "cli_routes.v1",

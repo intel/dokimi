@@ -955,7 +955,7 @@ def _significance_lines(
         return lines + [
             "",
             "> **⚠️ Skipped:** Statistical tests require treatment arm (e.g., docs, skills).",
-            "> Add `--arms \"baseline,docs\"` to enable delta analysis.",
+            "> Add `--arm \"baseline,docs\"` to enable delta analysis.",
             "",
             "",
         ]
