@@ -635,6 +635,7 @@ The line format, its version and the promise that comes with it: [events-format.
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
+The per-call `turn` events of `events.jsonl` and the `usage_remainder` line that closes them against these totals are in [events-format.md](events-format.md).
 `usage_scope` is `tree` when they include subagents and helper models (Claude
 Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. Codex counts `cached_input_tokens` inside its

@@ -387,7 +387,7 @@ def test_claude_stream_json_to_events():
     raw = "\n".join(json.dumps(x) for x in lines) + "\nnot json\n"
     t = convert("claude-stream-json", raw, "/ws")
     assert t.answer == "done" and t.cost_usd == 0.02 and t.harness_version == "2.1.286"
-    assert t.events == [
+    assert [e for e in t.events if e["kind"] != "usage_remainder"] == [
         {"t": 0.0, "kind": "command", "text": "bazel test //x", "rc": 1, "output": "fail",
          "output_truncated": False},
         {"t": 0.0, "kind": "read", "path": "sub/AGENTS.md"},

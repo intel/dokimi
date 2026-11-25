@@ -54,7 +54,7 @@ from typing import Any
 from dokimi.context.trace import parse_trace
 
 from .cli_traces import _failed_read, codex_json, copilot_json, failed_search, shell_walked
-from .turn_events import claude_events
+from .turn_events import claude_events, usage_remainder
 from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
@@ -144,6 +144,10 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
     main = trace.main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
     out.events.extend(claude_events(trace, start))
+    if out.usage_scope:  # the result's totals, closed against the turns of the same scope
+        totals = {"input": out.input_tokens, "output": out.output_tokens,
+                  "cache_read": out.cache_read_tokens, "cache_write": out.cache_write_tokens}
+        out.events.append(usage_remainder(out.events, totals, tree=out.usage_scope == "tree"))
     return out
 
 
