@@ -303,8 +303,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if cur_judge_provider in llm_cli.BACKENDS and cur_judge_model is not None \
             and not llm_cli.accepts_model(cur_judge_provider, cur_judge_model):
         # Checked here, before any persona or answer is generated for the run.
+        separate_flags = args.cmd in {"arms", "subjects"}
         parser.error(refuse_judge_model(cur_judge_provider, cur_judge_model, named=args.judge_provider_named,
-                                        answerer_provider=getattr(args, "provider", None)))
+                                        answerer_provider=getattr(args, "provider", None),
+                                        separate_flags=separate_flags))
     provider, model = getattr(args, "provider", None), getattr(args, "model", None)
     # With --matrix-cells every cell sets its own provider and model (checked when applied), so the
     # top-level model is not the one that runs.

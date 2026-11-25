@@ -369,8 +369,9 @@ def test_subjects_run_refuses_a_judge_model_the_cli_judge_it_moves_to_cannot_tak
     from dokimi.utils import InputError
 
     args = parse_args([*COMMANDS["subjects run"], "--judge", "--model", "claude-cli/sonnet", "--judge-model", "gpt-4o"])
-    with pytest.raises(InputError, match="the judge follows --model claude-cli: pass a judge from another family"):
+    with pytest.raises(InputError, match="the judge follows --model claude-cli: pass a judge from another family") as exc:
         resolve_judge(args, SimpleNamespace(matrix_cells_explicit=False))
+    assert "--judge-provider PROVIDER --judge-model MODEL" in str(exc.value)
 
 
 def test_a_judge_model_refusal_does_not_name_a_judge_provider_that_was_not_passed(capsys):
@@ -381,9 +382,15 @@ def test_a_judge_model_refusal_does_not_name_a_judge_provider_that_was_not_passe
     err = capsys.readouterr().err
     assert "the judge follows --model claude-cli: pass a judge from another family" in err
     assert "--judge-provider claude-cli takes" not in err
-    with pytest.raises(SystemExit):
-        parse_args([*argv, "--judge-provider", "claude-cli"])
-    assert "takes a Claude model" in capsys.readouterr().err
+    assert "--judge-provider PROVIDER --judge-model MODEL" in err
+
+
+@pytest.mark.parametrize("command", sorted(KEPT_SPELLING))
+def test_a_named_cli_judge_refusal_uses_the_separate_flags(command, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*COMMANDS[command], "--judge", "--judge-provider", "claude-cli", "--judge-model", "gpt-4o"])
+    assert exc.value.code == 2
+    assert "pass --judge-model <Claude model>" in capsys.readouterr().err
 
 
 def test_subjects_run_refuses_a_default_judge_that_is_the_implicit_cell_answerer():

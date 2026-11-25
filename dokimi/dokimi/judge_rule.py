@@ -108,15 +108,20 @@ def apply_default_judge(args, *, matrix: bool, named: bool) -> None:
         args.judge_provider = picked
 
 
-def refuse_judge_model(provider: str, model: str, *, named: bool, answerer_provider: str | None) -> str:
+def refuse_judge_model(provider: str, model: str, *, named: bool, answerer_provider: str | None,
+                       separate_flags: bool = False) -> str:
     """The refusal for a judge *model* the CLI judge *provider* cannot take.
 
     A judge provider that was not named was moved there by the answerer's CLI: say so, and ask for the flag that
     picks another family, not for a flag the user did not pass.
     """
     if not named and provider == answerer_provider:
+        flags = "--judge-provider PROVIDER --judge-model MODEL" if separate_flags else "--judge PROVIDER/MODEL"
         return (f"judge {model!r} is not a Claude model (sonnet, haiku, opus or a claude-* id), and the judge "
-                f"follows --model {provider}: pass a judge from another family, --judge PROVIDER/MODEL")
+                f"follows --model {provider}: pass a judge from another family, {flags}")
+    if separate_flags:
+        return (f"judge provider {provider} takes a Claude model (sonnet, haiku, opus or a claude-* id), "
+                f"not {model!r}: pass --judge-model <Claude model>")
     return (f"--judge {provider}/ takes a Claude model (sonnet, haiku, opus or a claude-* id), "
             f"not {model!r}: pass --judge {provider}/<Claude model>")
 

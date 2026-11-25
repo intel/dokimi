@@ -113,7 +113,8 @@ def resolve_judge(args, descriptor) -> None:
     provider, model = args.judge_provider, args.judge_model
     if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model):
         raise InputError(refuse_judge_model(provider, model, named=named,
-                                            answerer_provider=None if matrix else getattr(args, "provider", None)))
+                                            answerer_provider=None if matrix else getattr(args, "provider", None),
+                                            separate_flags=True))
 
 
 def cmd_subjects_run(args: argparse.Namespace) -> None:
