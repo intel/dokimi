@@ -112,7 +112,7 @@ def test_old_and_new_spellings_parse_to_the_same_value():
     docs_new = cli.build_parser().parse_args(["docs", "check", "--out", "b.json"])
     assert docs_new.out_json == "b.json"
     arms_new = cli.build_parser().parse_args(
-        ["arms", "run", "--product", "p", "--questions", "q", "--arms", "baseline", "--out", "a.json"])
+        ["arms", "run", "--product", "p", "--questions", "q", "--arm", "baseline", "--out", "a.json"])
     assert arms_new.out_json == "a.json"
 
 

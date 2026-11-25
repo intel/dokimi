@@ -22,7 +22,7 @@ def _questions(tmp_path):
 def _run(tmp_path, cells, capsys, *argv):
     args = build_parser().parse_args([
         "arms", *argv, "--product", "p", "--questions", str(_questions(tmp_path)),
-        "--arms", "baseline", "--matrix-cells", str(cells),
+        "--arm", "baseline", "--matrix-cells", str(cells),
         *(["--matrix-cell", "c1"] if argv[0] == "run" else ["--out-dir", str(tmp_path / "out")]),
     ])
     with refusal() as exc:

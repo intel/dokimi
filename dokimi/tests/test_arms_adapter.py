@@ -469,7 +469,7 @@ def test_the_partial_file_of_a_crashed_run_reads_as_incomplete(tmp_path, monkeyp
     questions.write_text(json.dumps([{"id": f"q{i}", "question": f"How do I do thing {i}?"} for i in range(4)]),
                          encoding="utf-8")
     args = build_parser().parse_args([
-        "arms", "run", "--product", "onedal", "--questions", str(questions), "--arms", "baseline",
+        "arms", "run", "--product", "onedal", "--questions", str(questions), "--arm", "baseline",
         "--concurrency", "1", "--out", str(tmp_path / "arms.json"), "--out-md", str(tmp_path / "arms.md")])
     with pytest.raises(RuntimeError, match="boom"):
         args.func(args)
