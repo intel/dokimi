@@ -136,8 +136,9 @@ def check_expectations(expect: Mapping[str, Any], fixtures: Path) -> list[str]:
 
 def scenarios_of(root: Path) -> set[str]:
     """The scenario ids reach runs over one fixture: ``cwd=.``, and ``cwd=<dir>`` and ``read=<dir>`` for each
-    directory below the root that holds a guidance file the conformance manifest globs."""
-    dirs = {p.relative_to(root).parent.as_posix() for p in root.rglob("*") if p.name in MANIFEST_NAMES}
+    directory below the root that holds a guidance file the conformance manifest globs. A directory that cannot be
+    listed raises its OSError: its guidance files would yield no scenario."""
+    dirs = {p.relative_to(root).parent.as_posix() for p in listed_entries(root) if p.name in MANIFEST_NAMES}
     dirs.discard(".")
     return {"cwd=."} | {f"cwd={d}" for d in dirs} | {f"read={d}" for d in dirs}
 

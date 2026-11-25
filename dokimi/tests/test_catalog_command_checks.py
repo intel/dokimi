@@ -504,10 +504,12 @@ def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
     locked.mkdir()
     locked.chmod(0)
     try:
-        [review] = review_skills(read_skill_manifest(tmp_path / "skills"))
+        [entry] = read_skill_manifest(tmp_path / "skills")
+        reviews = review_skills([entry])
     finally:
         locked.chmod(0o755)
-    assert [f.code for f in review.findings] == ["bundle-file-unchecked"]  # the folder cannot be listed: a note
+    # the folder cannot be listed: the skill does not load (#1168), an error row and no review, and the scan goes on
+    assert reviews == [None] and "locked" in (entry.error or "")
 
 
 @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permissions")

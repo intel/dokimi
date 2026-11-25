@@ -120,7 +120,7 @@ def check_skill(skill_dir: Path) -> str:
     _check_links(skill_dir)
     try:
         skill = load_skill(skill_dir)
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         raise ValueError(f"cannot load skill at {skill_dir}: {exc}") from exc
     meta, _ = parse_frontmatter(skill.path.read_text(encoding="utf-8"))
     refused = []

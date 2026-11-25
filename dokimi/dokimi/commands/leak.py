@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 from dokimi.cli_types import positive_fraction, positive_int
+from dokimi.digest_entries import listed_entries
 from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.utils import InputError
 
@@ -56,7 +57,10 @@ def _refuse_clobber(args: argparse.Namespace, lock_path: Path | None) -> None:
     skill_root = Path(args.skill)
     if skill_root.is_file():
         skill_root = skill_root.parent  # read_skill reads the directory of a SKILL.md argument
-    skill_files = [str(p) for p in skill_root.rglob("*") if p.is_file()] if skill_root.is_dir() else []
+    try:
+        skill_files = [str(p) for p in listed_entries(skill_root) if p.is_file()] if skill_root.is_dir() else []
+    except OSError as e:  # a directory that cannot be listed: a file of the skill could be the output unchecked
+        raise InputError(str(e)) from e
     inputs = [str(p) for p in [args.skill, args.questions, args.split, args.proposer, args.allow_file] if p]
     inputs += skill_files
     outputs = []

@@ -236,7 +236,9 @@ def test_an_unreadable_subdirectory_is_not_a_loop_error(tmp_path, monkeypatch):
         return real(path)
 
     monkeypatch.setattr("dokimi.harnesses.skill_treatment.os.scandir", scandir)
-    assert check_skill(skill) == "onetbb-quickstart"
+    with pytest.raises(ValueError, match=r"cannot load skill at .*denied: .*locked") as refused:
+        check_skill(skill)  # the resources list would be a smaller skill's (#1168)
+    assert "loops" not in str(refused.value)
 
 
 def test_a_skill_only_the_model_can_invoke_is_a_valid_treatment(tmp_path):

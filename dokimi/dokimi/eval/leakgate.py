@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from dokimi.atomic_write import write_text_atomic
+from dokimi.digest_entries import listed_entries
 from dokimi.eval.reference_checks import check_values
 
 DEFAULT_NGRAM = 8
@@ -66,8 +67,8 @@ def read_skill(path: Path | str, skipped: Optional[list[str]] = None) -> dict[st
     root (a directory, or a file) is not part of the skill text and is not read, nor named in ``skipped``: the
     agent's plugin copy leaves it out, and the directory holds the questions under test. An ``evals`` directory
     deeper down stays.
-    Raises OSError when there is no such directory,
-    and ValueError when it holds no text file at all (nothing could be checked).
+    Raises OSError when there is no such directory or a directory of the skill cannot be listed (the text
+    would be a smaller skill's), and ValueError when it holds no text file at all (nothing could be checked).
     """
     root = Path(path)
     if root.is_file():
@@ -75,11 +76,12 @@ def read_skill(path: Path | str, skipped: Optional[list[str]] = None) -> dict[st
     if not root.is_dir():
         raise OSError(f"{path} is not a skill directory or a SKILL.md file")
     files: dict[str, str] = {}
-    for p in sorted(root.rglob("*")):
+    def left_out(p: Path) -> bool:  # a dropped entry is not listed, so an unlistable .git or evals directory does not raise
+        return p.name in _SKIP_DIRS or (p.name == _OWN_EVALS_DIR and p.parent == root)
+
+    for p in sorted(listed_entries(root, drop=left_out)):
         rel = p.relative_to(root)
-        if any(part in _SKIP_DIRS for part in rel.parts) or not (p.is_symlink() or p.is_file()):
-            continue
-        if rel.parts[0] == _OWN_EVALS_DIR:
+        if not (p.is_symlink() or p.is_file()):
             continue
         text = _text_of(p, rel.as_posix(), skipped)
         if text is not None:

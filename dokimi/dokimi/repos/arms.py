@@ -144,12 +144,18 @@ def _frontmatter_name(skill_md: Path) -> str | None:
         return None
 
 
+def _raise(error: OSError) -> None:
+    """``os.walk``'s ``onerror``: a directory it cannot list is an error, not a subtree left unchecked."""
+    raise error
+
+
 def _uncopyable(skill_dir: Path) -> tuple[Path, str] | None:
     """What under ``skill_dir`` the copy into the workspace cannot take, with the reason: a link out of the
     skill (the copy would take the host's bytes), a dangling or looping link, a link to a directory (the copy
-    would recurse), or a file that is not regular (a FIFO would block the copy)."""
+    would recurse), or a file that is not regular (a FIFO would block the copy). A directory that cannot be listed
+    raises its OSError: a link in it would go unchecked."""
     root = skill_dir.resolve()
-    for dirpath, dirnames, filenames in os.walk(skill_dir):
+    for dirpath, dirnames, filenames in os.walk(skill_dir, onerror=_raise):
         for name in dirnames + filenames:
             path = Path(dirpath, name)
             if path.is_symlink():

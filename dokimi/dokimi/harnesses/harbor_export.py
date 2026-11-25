@@ -35,6 +35,7 @@ from typing import Any
 
 import yaml
 
+from dokimi.digest_entries import listed_entries
 from dokimi.process_io import joined_pairs
 
 from . import tbench_v1
@@ -98,9 +99,11 @@ def default_cache_root() -> Path:
 
 
 def _content_key(path: Path, resolved: str = "") -> str:
-    """Hash of the task's files and of *resolved*, what the export writes from runtime state."""
+    """Hash of the task's files and of *resolved*, what the export writes from runtime state.
+
+    A directory of the task that cannot be listed raises its OSError: the key never hashes a smaller tree."""
     digest = hashlib.sha256(EXPORT_VERSION.encode() + b"\0" + resolved.encode("utf-8", "surrogatepass") + b"\0")
-    for file in sorted(p for p in path.rglob("*") if p.is_file() and not p.is_symlink()):
+    for file in sorted(p for p in listed_entries(path) if p.is_file() and not p.is_symlink()):
         digest.update(os.fsencode(file.relative_to(path).as_posix()) + b"\0")
         digest.update(hashlib.sha256(file.read_bytes()).digest())
     return digest.hexdigest()[:16]

@@ -569,12 +569,13 @@ def test_an_unreadable_folder_withholds_the_claim(tmp_path, monkeypatch):
         return real(path)
 
     monkeypatch.setattr(os, "scandir", scandir)
-    review = _review_with_texts(
-        tmp_path,
-        "Read references/guide.md.\n",
-        {"references/guide.md": "Run scripts/run.py.\n", "scripts/run.py": "x\n"},
-    )
-    assert _unreferenced(review) == []
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.",
+                       body="Read references/guide.md.\n")
+    (skill_dir / "references").mkdir()
+    (skill_dir / "references" / "guide.md").write_text("Run scripts/run.py.\n", encoding="utf-8")
+    [entry] = read_skill_manifest(tmp_path)
+    # the folder cannot be listed: the skill does not load (#1168), so it has no review to claim anything in
+    assert review_skills([entry]) == [None] and "references" in (entry.error or "")
 
 
 @pytest.mark.parametrize("link", ["scripts\\", ".\\scripts\\", "${CLAUDE_SKILL_DIR}\\scripts\\"])

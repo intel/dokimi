@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi.digest_entries import listed_entries
 from dokimi.skills.loader import VENDORED_DIR_NAMES, skill_files
 from dokimi.utils import parse_frontmatter
 
@@ -254,12 +255,14 @@ def classify(path: Path) -> Optional[SkillPackage]:
 
 
 def detect_skill_packages(root) -> List[SkillPackage]:
-    """Every package under *root*, in path order (VCS and dependency dirs skipped)."""
+    """Every package under *root*, in path order (VCS and dependency dirs skipped).
+
+    Raises OSError when a directory under *root* cannot be listed: a package in it would be missed."""
     root = Path(root)
     kept = set(skill_files(root))  # a template or a mirror is not loadable, as discover_skills
     found = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or _SKIP_DIRS.intersection(path.relative_to(root).parts):
+    for path in sorted(listed_entries(root, drop=lambda p: p.name in _SKIP_DIRS)):
+        if not path.is_file():
             continue
         pkg = classify(path)
         if pkg is not None:

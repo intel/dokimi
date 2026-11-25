@@ -469,7 +469,10 @@ def cmd_catalog_formats(args: argparse.Namespace) -> None:
     root = Path(args.root)
     if not root.is_dir():
         raise InputError(f"--root is not a directory: {root}")
-    packages = formats.detect_skill_packages(root)
+    try:
+        packages = formats.detect_skill_packages(root)
+    except OSError as exc:  # a directory that cannot be listed: the table would miss its packages
+        raise InputError(f"--root: {exc}") from exc
     summary = formats.summarize(packages)
     if args.json:
         from dokimi import cli_output
