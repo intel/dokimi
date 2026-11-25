@@ -123,9 +123,10 @@ def test_a_cap_below_the_estimate_refuses_the_call_with_exit_3(tmp_path, monkeyp
     assert not out.exists()
 
 
-def test_a_cap_above_the_estimate_lets_the_call_run(tmp_path, monkeypatch, capsys, reply, priced):
+@pytest.mark.parametrize("cap", ["0.01", "1"])
+def test_a_cap_at_or_above_the_estimate_lets_the_call_run(tmp_path, monkeypatch, reply, priced, cap):
     out = tmp_path / "personas" / "lib.json"
-    assert _discover(monkeypatch, out, "--max-usd", "1") == 0
+    assert _discover(monkeypatch, out, "--max-usd", cap) == 0
     assert json.loads(out.read_text(encoding="utf-8"))["personas"][0]["id"] == "hpc_dev"
 
 
