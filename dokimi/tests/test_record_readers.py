@@ -319,7 +319,7 @@ def test_plugin_delta_names_the_file_with_the_malformed_record(tmp_path, monkeyp
     good = {"answers": [{"question_id": "q0", "arms": {"baseline": {"answer": "a"}}}]}
     bad = {"answers": [{"arms": {"baseline": {"answer": "a"}}}]}
     monkeypatch.setattr(dokimi.artifacts, "load_artifact", lambda kind, p: bad if p.name == "p.json" else good)
-    args = build_parser().parse_args(["arms", "plugin-delta", "--baseline-json", str(tmp_path / "b.json"),
+    args = build_parser().parse_args(["arms", "plugin-delta", "--baseline", str(tmp_path / "b.json"),
                                       "--plugin-json", str(tmp_path / "p.json"),
                                       "--out", str(tmp_path / "d.json")])
     with refusal() as _r:
@@ -333,7 +333,7 @@ def test_plugin_delta_exits_2_with_a_message_on_an_unreadable_arms_file(tmp_path
 
     unreadable = tmp_path / "b.json"
     unreadable.mkdir()  # reading a directory raises IsADirectoryError, as a permission error would
-    args = build_parser().parse_args(["arms", "plugin-delta", "--baseline-json", str(unreadable),
+    args = build_parser().parse_args(["arms", "plugin-delta", "--baseline", str(unreadable),
                                       "--plugin-json", str(tmp_path / "p.json"),
                                       "--out", str(tmp_path / "d.json")])
     with refusal() as exc:

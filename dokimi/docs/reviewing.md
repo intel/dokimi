@@ -57,8 +57,8 @@ For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answ
 | 2. Is it ever picked? | `dokimi skill routing skill:<dir> --against <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --dry-run` | free |
 | 4. What does it add? | the same command without `--dry-run`, plus `--model PROVIDER/MODEL`, `--judge-model` and `--max-usd` | ~100 calls |
-| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <provider>/<model> --judge --judge <judge-provider>/<judge-model>` | one answer and one grade per question and arm |
-| 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](coding-harnesses.md)) | one agent run per task and harness; needs Docker and Claude credentials (`AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), not the provider keys above; run with `--dry-run` first |
+| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arm baseline,skill:<dir> --model <provider>/<model> --judge --judge <judge-provider>/<judge-model>` | one answer and one grade per question and arm |
+| 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harness docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](coding-harnesses.md)) | one agent run per task and harness; needs Docker and Claude credentials (`AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), not the provider keys above; run with `--dry-run` first |
 
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the

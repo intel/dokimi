@@ -47,7 +47,7 @@ def _questions(tmp_path):
 
 def _arms_argv(tmp_path, *extra):
     return ["arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
-            "--arms", "baseline", "--out", str(tmp_path / "a.json"),
+            "--arm", "baseline", "--out", str(tmp_path / "a.json"),
             "--out-md", str(tmp_path / "a.md"), *extra]
 
 
@@ -90,7 +90,7 @@ def test_arm_run_sampling_probe_failure_keeps_exit_1_before_any_answer(tmp_path,
 
 def test_arm_run_unknown_arm_spec_exits_2(tmp_path, monkeypatch, capsys):
     _argv(monkeypatch, "arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
-          "--arms", "no-such-arm-kind", "--out", str(tmp_path / "a.json"),
+          "--arm", "no-such-arm-kind", "--out", str(tmp_path / "a.json"),
           "--out-md", str(tmp_path / "a.md"))
     with refusal() as exc:
         cli.main()
@@ -127,7 +127,7 @@ def test_matrix_cell_refused_at_probe_stops_before_any_answer(tmp_path, monkeypa
         {"id": "cell-bad", "model": "reject-temp-model", "provider": "openai", "harness": "arms-runner"},
     ]}), encoding="utf-8")
     _argv(monkeypatch, "arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path),
-          "--arms", "baseline", "--matrix-cells", str(cells), "--temperature", "0.5",
+          "--arm", "baseline", "--matrix-cells", str(cells), "--temperature", "0.5",
           "--out-dir", str(tmp_path / "matrix"))
     from dokimi.exit_codes import EXIT_FAILURE
 
@@ -162,7 +162,7 @@ def test_matrix_cell_that_cannot_be_set_up_exits_2_before_any_answer(tmp_path, m
         {"id": "cell-bad", "model": "bad-cell-model", "provider": "openai", "harness": "arms-runner"},
     ]}), encoding="utf-8")
     _argv(monkeypatch, "arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path),
-          "--arms", "baseline", "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "matrix"))
+          "--arm", "baseline", "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "matrix"))
     with refusal() as exc:
         cli.main()
     assert exc.code == 2
@@ -176,7 +176,7 @@ def _one_cell(tmp_path):
     cells = tmp_path / "cells.json"
     cells.write_text(json.dumps({"cells": [
         {"id": "c1", "model": "gpt-4o-mini", "provider": "openai", "harness": "arms-runner"}]}), encoding="utf-8")
-    return ["arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path), "--arms", "baseline",
+    return ["arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path), "--arm", "baseline",
             "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "matrix")]
 
 

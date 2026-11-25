@@ -32,6 +32,7 @@ __all__ = [
     "Concept",
     "Flag",
     "FlagMove",
+    "JoinedValues",
     "add",
     "registry_problems",
 ]
@@ -397,6 +398,14 @@ def registry_problems(concepts: Iterable[Concept] = CONCEPTS) -> list[str]:
     return problems
 
 
+class JoinedValues(argparse.Action):
+    """A repeatable flag whose values join with commas: ``--arm a --arm b,c`` is ``a,b,c``."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        prior = getattr(namespace, self.dest, None)
+        setattr(namespace, self.dest, values if prior is None else f"{prior},{values}")
+
+
 def add(parser: argparse.ArgumentParser, concept: str, *args: str, **kwargs: object) -> argparse.Action:
     """Add a flag of ``concept`` to ``parser``. Every option string must be a canonical spelling of it."""
     spellings = {flag.spelling for c in CONCEPTS if c.name == concept for flag in c.canonical}
@@ -509,5 +518,12 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--estimate-only", "--dry-run", leaves=(
         ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
     )),
+    # Arm concept (F1b): a subject arm list is repeatable --arm; the old comma list is the same value.
+    FlagMove("--arms", "--arm", leaves=(("arms", "run"), ("arms", "matrix-run"), ("explore", "run"))),
+    # Harness concept (F1b): the list of harnesses a tasks run uses, repeatable or comma-separated.
+    FlagMove("--harnesses", "--harness", leaves=(("tasks", "run"),)),
+    # Baseline concept (F1b): the artifact or snapshot a comparison is made against.
+    FlagMove("--baseline-json", "--baseline", leaves=(("arms", "plugin-delta"),)),
+    FlagMove("--base", "--baseline", leaves=(("docs", "compare"),)),
 )
 

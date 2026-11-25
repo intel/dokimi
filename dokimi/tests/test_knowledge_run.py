@@ -177,7 +177,7 @@ def test_the_default_harness_is_accepted():
 
 def test_the_harness_refusal_reaches_the_cli_with_exit_2(tmp_path, fake_llm):
     args = build_parser().parse_args(["arms", "run", "--product", "oneTBB", "--questions",
-                                      str(_write_questions(tmp_path)), "--arms", "baseline",
+                                      str(_write_questions(tmp_path)), "--arm", "baseline",
                                       "--model", "amazon-bedrock/claude-haiku-5-5", "--harness", "codex"])
     with refusal() as outcome:
         args.func(args)

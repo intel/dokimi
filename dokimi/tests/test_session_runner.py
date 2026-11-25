@@ -370,7 +370,7 @@ def _parse_arms_run(argv):
 
     return build_parser().parse_args(
         ["arms", "run", "--product", "oneTBB", "--questions", "q.json",
-         "--arms", "baseline"] + argv)
+         "--arm", "baseline"] + argv)
 
 
 def test_arms_run_wires_the_session_flags_into_the_run(fake_llm, monkeypatch):
@@ -544,7 +544,7 @@ def test_arms_run_exits_2_on_a_session_question_without_follow_ups(fake_llm, mon
     questions = tmp_path / "questions.json"
     questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "How?"}]}), encoding="utf-8")
     args = build_parser().parse_args(["arms", "run", "--product", "oneTBB", "--questions", str(questions),
-                                      "--arms", "baseline", "--session-turns", "2"])
+                                      "--arm", "baseline", "--session-turns", "2"])
 
     with refusal() as exc:
         args.func(args)
