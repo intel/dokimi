@@ -310,6 +310,65 @@ def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["verdict"] == "inconclusive"
 
 
+@pytest.mark.parametrize(
+    "mode, summary, exit_code, text",
+    [
+        ("release", {"verdict": "INCONCLUSIVE", "checks": {}}, 3, ("**INCONCLUSIVE**",)),
+        (
+            "scan",
+            {"A": {}, "B": {}, "partial": True},
+            3,
+            ("Source attribution unavailable.", "Paired evidence unavailable."),
+        ),
+        (
+            "scan",
+            {
+                "A": {"score": "unknown", "coverage": [1], "groups": {"tools": {"scenarios": {"one": {}}}}},
+                "B": {"score": 10, "coverage": [2, 2], "false_success": [0, 2], "groups": []},
+                "partial": False,
+                "attribution": {"sources": [None, {"url": "https://example.test"}]},
+                "paired": {"one": {"measured_pairs": 2}, "two": None},
+            },
+            0,
+            (
+                "| B | 10.00 | 2/2 | 0/2 |",
+                "| A | tools | — | one | —/— |",
+                "one. 2/— pairs measured",
+                "https://example.test · Capture date unavailable",
+            ),
+        ),
+    ],
+)
+def test_offline_reports_accept_schema_valid_partial_evidence(tmp_path, capsys, mode, summary, exit_code, text):
+    from dokimi.cli import parse_args
+
+    data = {
+        "schema_version": "delivery.v1",
+        "mode": mode,
+        "identity": dict.fromkeys(("manifest", "artifact", "profile", "catalog", "image", "version"), "fixture"),
+        "summary": summary,
+        "observations": [],
+        "required": ["check"],
+        "date": "2026-11-25",
+        "reproduce": "dokimi delivery report fixture.json",
+    }
+    path = tmp_path / "result.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    for flags in (["--json"], []):
+        args = parse_args(["delivery", "report", str(path), *flags])
+        if exit_code:
+            with pytest.raises(SystemExit) as exit_info:
+                args.func(args)
+            assert exit_info.value.code == exit_code
+        else:
+            args.func(args)
+        output = capsys.readouterr().out
+        if flags:
+            assert json.loads(output)["data"]["mode"] == mode
+        else:
+            assert all(fragment in output for fragment in text)
+
+
 def test_claim_without_grader_is_visible(pack, monkeypatch):
     pack.mode = "scan"
 
