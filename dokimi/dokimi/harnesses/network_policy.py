@@ -282,7 +282,7 @@ def dockerfile_arg_names(text: str) -> set[str]:
     """The names a Dockerfile declares with ``ARG`` (``ARG a=1 b``), with continuations joined."""
     names: set[str] = set()
     pending = ""
-    lines = text.splitlines()
+    lines = text.removeprefix("\ufeff").splitlines()
     escape = _escape_token(lines)
     for raw in lines:
         if raw.lstrip().startswith("#") or not raw.strip():  # docker drops these, also inside a continuation
