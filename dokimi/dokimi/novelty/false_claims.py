@@ -49,7 +49,7 @@ Return ONLY JSON: {{"verdict": "contradicts|supports|unrelated",
 
 _WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
 # A value: a version, a number with optional unit, or a CLI flag.
-_VALUE = re.compile(r"(?<![\w.])(?:--?[a-z][\w-]*|v?\d+(?:\.\d+)*%?)(?![\w])", re.I)
+_VALUE = re.compile(r"(?<![\w.-])(?:--?[a-z][\w-]*|[+-]?v?\d+(?:\.\d+)*%?)(?![\w])", re.I)
 _NEGATION = re.compile(
     r"\b(not|never|no|cannot|can't|don't|doesn't|isn't|unsupported|deprecated|without)\b", re.I)
 # A sentence ends at . ! ? followed by whitespace or the end, or at a newline; "3.0" and
@@ -169,8 +169,8 @@ def lexical_conflict(statement: str, sentence: str) -> tuple[str, str] | None:
     """
     a, b = _values(statement), _values(sentence)
     if a and b and not (a & b):
-        flags = {v for v in a if v.startswith("-")}, {v for v in b if v.startswith("-")}
-        if bool(flags[0]) == bool(flags[1]):
+        flags = tuple(any(re.match(r"--?[a-z]", value) for value in values) for values in (a, b))
+        if flags[0] == flags[1]:
             quote = next(m.group(0) for m in _VALUE.finditer(sentence))
             return "lexical:value", quote
     neg_a, neg_b = _NEGATION.search(statement), _NEGATION.search(sentence)
