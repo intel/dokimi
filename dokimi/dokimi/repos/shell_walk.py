@@ -28,7 +28,7 @@ from .shell_redirects import bare, closed_fds, copied_fds, masked, may_fail_redi
 from .shell_search import Searched, cuts_lines, passes_through, prints_nothing, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
-from .shell_words import (_ASSIGN, _DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _loses, _past_time, _run_name,
+from .shell_words import (_ASSIGN, _DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _loses, _past_time_options, _run_name,
                           _runs_dir, _time_keyword, _unquoted, _stdout_after_stderr)
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
@@ -159,7 +159,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
             walk.here = None
         walk.track_groups(bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
         if in_subshell:  # a subshell: its reads are not tracked
-            walk.last_exit = None
+            walk.last_exit = walk.last_exit if walk.ran is False else None  # a skipped subshell keeps the exit before it
             walk.track_state(outer, [], after)  # ``export POSIXLY_CORRECT=$(date)``: the export is in this shell
             if _runs_dir(outer, walk.dirs, walk.functions):  # ``cd $(dirname f)``: the cd is outside the parentheses
                 walk.lose(_in_own_shell(outer, after))
@@ -266,7 +266,7 @@ class _Walk:
             body = body[1:]
         if body:
             self.track_posix(body, after, _time_keyword(part), may_fail_redirect(part) or body != state_words)
-        else:
+        elif self.ran is not False:  # a skipped command leaves the exit before it
             self.last_exit = None
 
     def track_posix(self, words: list[str], after: str, timed: bool = False, perhaps: bool = False) -> None:
@@ -486,11 +486,12 @@ def _posix_after(words: list[str], functions: Functions, state: _PosixState, tim
     ``POSIXLY_CORRECT=1 export POSIXLY_CORRECT`` keeps the prefixed value. An array (``declare -a``) is never in the
     environment, whatever exports it, until it is unset. A word that expands (``export POSIXLY_CORRECT="$X"``) is read as written."""
     name, is_set, exported, allexport, readonly, array = "POSIXLY_CORRECT", *state
+    words = _untimed(words, timed)
     if all(_ASSIGN.match(w) for w in words):
         valued = any(w.startswith(_POSIX_ASSIGN) for w in words) and not readonly  # a readonly variable refuses a value
         return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly, array)})
     prefix = list(itertools.takewhile(_ASSIGN.match, words))
-    words = _builtin_run(words, functions, timed)
+    words = _builtin_run(words, functions)
     if not words:
         return frozenset({state})
     builtin = words[0]
@@ -517,6 +518,12 @@ def _posix_after(words: list[str], functions: Functions, state: _PosixState, tim
     return frozenset({(True, True, allexport, readonly, array) if valued else (is_set, True, allexport, readonly, array)})
 
 
+def _untimed(words: list[str], timed: bool) -> list[str]:
+    """``words`` past the ``time`` keyword and its options when ``timed``: ``time P=1; ...`` and ``time P=1 export P`` run
+    the assignment in this shell."""
+    return words[_past_time_options(words, 1):] if timed and words[0] == "time" else words
+
+
 def _allexport(args: list[str], current: bool) -> bool:
     """Whether the allexport option is on after ``set args``: ``-a`` and ``-o allexport`` turn it on, ``+a`` and
     ``+o allexport`` off, the last one wins; the options end at the first word that is no option, or at ``--``."""
@@ -530,14 +537,12 @@ def _allexport(args: list[str], current: bool) -> bool:
     return on
 
 
-def _builtin_run(words: list[str], functions: Functions, timed: bool) -> list[str]:
-    """``words`` from the ``export`` or ``unset`` the command runs in this shell, past ``NAME=value`` words, the ``time``
-    keyword and ``builtin`` / ``command`` (which run the builtin here, also past a function of their own name once an outer
+def _builtin_run(words: list[str], functions: Functions) -> list[str]:
+    """``words`` from the ``export`` or ``unset`` the command runs in this shell, past ``NAME=value`` words and
+    ``builtin`` / ``command`` (which run the builtin here, also past a function of their own name once an outer
     one has bypassed the functions); empty when it runs no such builtin."""
     while _ASSIGN.match(words[0]):  # ``X=1 command export``: ``command`` runs the builtin here, so not _command_words
         words = words[1:]
-    if timed and words[0] == "time":
-        words = words[_past_time(words):]
     bypassed = False
     while words and words[0] in ("builtin", "command") and (bypassed or words[0] not in functions):
         words, bypassed = _wrapped(words) or [], True

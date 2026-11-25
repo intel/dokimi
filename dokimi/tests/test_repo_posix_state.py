@@ -39,3 +39,18 @@ from dokimi.repos.cli_traces import shell_reads
 ])
 def test_shell_reads_follows_posixly_correct_through_group_closures_declare_and_readonly(command, reads):
     assert shell_reads(command) == reads
+
+
+@pytest.mark.parametrize("command, reads", [
+    ("true || (false) || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # the subshell is skipped: true's exit stands
+    ("true || (false) || (false) || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("false || (false) || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # it runs, its exit is not known
+    ("true && (false) || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("time POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # time runs the assignment here
+    ("time POSIXLY_CORRECT=1 export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("time -p POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("time POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # set, not exported
+    ("time; export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+])
+def test_shell_reads_keeps_the_exit_across_a_skipped_subshell_and_the_assignments_of_time(command, reads):
+    assert shell_reads(command) == reads
