@@ -132,6 +132,8 @@ def attempt(
                 replayed=usage.replayed,
                 cost_usd=0 if usage.replayed else usage.cost_usd,
             )
+            if usage.truncated:
+                raise ValueError("model reply was truncated before a complete measurement")
             try:
                 answer = extract_json_object(reply)
             except ValueError:

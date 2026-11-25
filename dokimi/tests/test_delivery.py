@@ -396,3 +396,22 @@ def test_scan_rejects_empty_corpus(pack):
     pack.corpus.write_text('{"sources": []}')
     with pytest.raises(delivery.InputError, match="at least one source"):
         delivery.run(pack)
+
+
+def test_truncated_model_output_is_inconclusive(pack, monkeypatch):
+    from dokimi import llm
+    from dokimi.metrics.usage import UsageRecord
+
+    monkeypatch.setattr(
+        llm, "llm_call_with_usage",
+        lambda *a, **kw: ('{"script":"true"}', UsageRecord(cost_usd=0.01, truncated=True)),
+    )
+    monkeypatch.setattr(delivery, "container", lambda *a, **kw: pytest.fail("ran a truncated response"))
+    pack.mode, pack.model = "scan", "test-model"
+    data = delivery.run(pack)
+    assert data["summary"]["partial"]
+    for row in data["observations"]:
+        assert row["outcome"] == "INCONCLUSIVE"
+        assert "model reply was truncated" in row["reason"]
+        assert row["cost_usd"] == 0.01
+        assert row["evidence"] is None
