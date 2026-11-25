@@ -17,7 +17,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass, field, fields, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from dokimi.metrics.usage import UsageRecord
@@ -54,18 +54,21 @@ class Spend:
             self.calls += 1
             self.unpriced_calls += 1
             return
-        self.calls += usage.n_calls
+        n = _count(usage.n_calls, missing=1)
+        self.calls += n
         if usage.replayed:
-            self.replayed_calls += usage.n_calls
+            self.replayed_calls += n
             return
+        cost = _price(usage.cost_usd)
         # A row claiming more priced calls than it has must not offset another row's unpriced one.
-        self.unpriced_calls += max(usage.n_calls - usage.priced_calls, 0)
-        self.spent_usd += usage.cost_usd or 0.0
-        self.prompt_tokens += usage.prompt_tokens
-        self.completion_tokens += usage.completion_tokens
-        self.total_tokens += usage.total_tokens
-        self.cache_read_tokens += usage.cache_read_tokens
-        self.cache_write_tokens += usage.cache_write_tokens
+        priced = 0 if cost is None else min(max(_count(usage.priced_calls), 0), n)
+        self.unpriced_calls += n - priced
+        self.spent_usd += cost or 0.0
+        self.prompt_tokens += _count(usage.prompt_tokens)
+        self.completion_tokens += _count(usage.completion_tokens)
+        self.total_tokens += _count(usage.total_tokens)
+        self.cache_read_tokens += _count(usage.cache_read_tokens)
+        self.cache_write_tokens += _count(usage.cache_write_tokens)
 
     def add_call(self, usage: UsageRecord | None) -> None:
         """Count one call, whatever its row's ``n_calls`` says; ``None`` is a call that returned no usage."""
@@ -90,6 +93,19 @@ class Spend:
     def usd(self) -> float | None:
         """The dollar total; ``None`` with no call, or with any paid call unpriced."""
         return round(self.spent_usd, 6) if self.calls and not self.unpriced_calls else None
+
+
+def _count(value: Any, missing: int = 0) -> int:
+    """A usage count as an int: a provider may send ``"12"`` (``_extract_usage`` copies it); what does not convert is ``missing``."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return missing
+
+
+def _price(value: object) -> float | None:
+    """A usage row's ``cost_usd`` as a float; ``None`` (unpriced) for one that is not a number."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 class SpendCapReached(BaseException):

@@ -269,3 +269,19 @@ def test_the_judge_reads_a_provider_row_with_numeric_strings_as_numbers():
     row = replace(_extract_usage(response, "m", "openai"), cost_usd=0.1)
     assert _both_judge_records(_judge(row, UsageRecord(prompt_tokens="x", cost_usd="0.2"))) == (
         _judge_metrics(2, 1, 0.1, 12, 3, 15))
+
+
+def test_a_capped_novelty_call_keeps_its_reply_when_the_provider_sends_numeric_strings():
+    from types import SimpleNamespace
+
+    from dokimi.llm import _extract_usage
+
+    response = SimpleNamespace(usage=SimpleNamespace(prompt_tokens="12", completion_tokens=3,
+                                                     total_tokens="15"))
+    row = replace(_extract_usage(response, "m", "openai"), cost_usd=0.1)
+    client = LLMClient(model="m", transport=lambda prompt, system: ("ok", row), cap=SpendCap(1.0))
+    assert client.text("a") == "ok"
+    assert (client.cap.calls, client.cap.spent_usd, client.cap.prompt_tokens) == (1, 0.1, 12)
+    assert client.cost_summary()["input_tokens"] == 12
+    with pytest.raises(SpendCapReached, match="no price is known for m"):
+        client.cap.record(UsageRecord(cost_usd="0.2"), "m")
