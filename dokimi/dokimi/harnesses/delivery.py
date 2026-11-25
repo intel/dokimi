@@ -68,7 +68,7 @@ def container(
     spec = docker_cmd.run_spec(
         policy, [options, "network", "hardening", "pids", mounts_argv], image, ["-c", script]
     )
-    env = process.Env.only(("PATH", "HOME", "DOCKER_HOST", "XDG_RUNTIME_DIR"))
+    env = process.Env.inherit()
     result = process.run(docker_cmd.argv(*spec), input=data, env=env, timeout=timeout)
     if result.timed_out:
         process.run(docker_cmd.argv("rm", "-f", name), env=env, timeout=15)

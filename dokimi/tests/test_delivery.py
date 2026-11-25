@@ -187,9 +187,11 @@ def test_live_adapter_and_offline_report(pack, monkeypatch, capsys):
 
 
 def test_container_protocol(monkeypatch):
+    monkeypatch.setenv("DOCKER_CONTEXT", "selected")
     calls = []
 
     def timeout(argv, **kwargs):
+        assert kwargs["env"].resolve()["DOCKER_CONTEXT"] == "selected"
         calls.append(argv)
         return process.reply(stderr="deadline", timed_out=True)
 
