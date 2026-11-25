@@ -655,7 +655,7 @@ For a direct N-arm comparison, hand `arms run` the question file itself:
 python cli.py arms run --product demo \
   --questions C:/Users/Public/content-repo/questions/demo_golden.json \
   --arm baseline,skill:C:/Users/Public/content-repo/skills/demo-skill \
-  --judge --judge <a-different-model>
+  --judge --judge-model <a-different-model>
 ```
 
 This is the one command on this page that bills a provider, so no transcript is

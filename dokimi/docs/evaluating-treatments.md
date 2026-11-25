@@ -719,11 +719,11 @@ A batch judged before the 2026-10-13 default change names its judge, since the p
 ```bash
 python scripts/check_treatment_batch.py results/arms/persona-batch \
   --profile data/agent_profiles/concise_expert.md \
-  --judge amazon-bedrock/global.anthropic.claude-sonnet-4-6
+  --judge-provider amazon-bedrock --judge-model global.anthropic.claude-sonnet-4-6
 ```
 
 It checks schema, exactly two arms, the baseline arm, the treatment-arm pattern, a pinned judge
-(`--judge PROVIDER/MODEL`, or `--judge-model`/`--judge-provider` on `arms run`), that the judge is not the answering model
+(`--judge-model` and `--judge-provider`), that the judge is not the answering model
 (self-judging), question and per-arm answer counts, and — for `profile:` arms — that the
 system prompt reached every treatment answer and no baseline answer. With `--profile` it
 compares each cell's stamped digest against the file's current text and reports

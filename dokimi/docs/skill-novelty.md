@@ -631,7 +631,7 @@ entry point alone would judge that skill on 1.2% of itself, and its "dead tokens
 would be dominated by spans whose only job is to name a file nobody read.
 
 ```bash
-python cli.py skill novelty analyze --artifact skill:path/to/skill --model M --judge J \
+python cli.py skill novelty analyze --artifact skill:path/to/skill --model openai/gpt-6.1-sol --judge anthropic/claude-sonnet-5-5 \
     --include-resources                       # measure the bundle
     # --resource-roles reference pattern      # or only some of it
     # --max-file-words 4000 --max-resource-words 20000
@@ -1386,7 +1386,7 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
 
 ```bash
 dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \
-  --jobs 4 --model <answerer> --judge <judge> --strata strata.csv
+  --jobs 4 --model openai/gpt-6.1-sol --judge anthropic/claude-sonnet-5-5 --strata strata.csv
 dokimi catalog novelty skills/ --out-dir out/sweep --summary-only
 ```
 

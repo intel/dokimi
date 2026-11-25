@@ -70,7 +70,7 @@ knowledge/demo-answers.json --output knowledge/demo-judged.json`. Its per-questi
 ```bash
 python cli.py arms run --product demo --questions questions/demo.json \
   --arm baseline --model amazon-bedrock/claude-haiku-5-5 \
-  --judge --judge amazon-bedrock/claude-sonnet-5-5 \
+  --judge --judge-model claude-sonnet-5-5 --judge-provider amazon-bedrock \
   --out knowledge/demo-arms.json --out-md knowledge/demo-arms.md
 ```
 
@@ -193,7 +193,7 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
 ```bash
 python cli.py arms run --product demo --questions questions/demo.json \
   --arm "baseline,docs" --model amazon-bedrock/claude-haiku-5-5 \
-  --judge --judge amazon-bedrock/claude-sonnet-5-5 \
+  --judge --judge-model claude-sonnet-5-5 --judge-provider amazon-bedrock \
   --out results/arms/demo-with-docs.json
 ```
 

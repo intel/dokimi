@@ -44,8 +44,9 @@ litellm has no price for such a model, so cost is reported as unknown and
 The judge must be a different model from the one under measurement, because a
 model that grades its own answers inflates the scores. `novelty`, `arms run` and
 `subjects run` refuse a judged run whose default judge is the model under measurement:
-the command exits 2 with `pass --judge as well`, so name
-`--judge --judge <judge-provider>/<other>` yourself.
+the command exits 2 with `pass --judge-model as well`. Select a different model with
+`--judge-model <other>` and set `--judge-provider` if needed. On `arms run` and
+`subjects run`, also pass `--judge` to enable grading.
 For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answerer only warns on stderr.
 `novelty` does not: it refuses that judge unless you also pass `--allow-self-judge`.
 
@@ -57,7 +58,7 @@ For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answ
 | 2. Is it ever picked? | `dokimi skill routing skill:<dir> --against <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --dry-run` | free |
 | 4. What does it add? | the same command without `--dry-run`, plus `--model PROVIDER/MODEL`, `--judge-model` and `--max-usd` | ~100 calls |
-| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arm baseline,skill:<dir> --model <provider>/<model> --judge --judge <judge-provider>/<judge-model>` | one answer and one grade per question and arm |
+| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arm baseline,skill:<dir> --model <provider>/<model> --judge --judge-model <judge-model> --judge-provider <judge-provider>` | one answer and one grade per question and arm |
 | 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harness docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](coding-harnesses.md)) | one agent run per task and harness; needs Docker and Claude credentials (`AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), not the provider keys above; run with `--dry-run` first |
 
 - **Competitors** are the other skills an agent sees next to this one when it
