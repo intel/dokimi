@@ -15,10 +15,13 @@ Copy [examples/dokimi-pr-command.yml](examples/dokimi-pr-command.yml) to
 and replace the `Run the checks` step with yours. Each check writes its findings file to
 the top level of `$OUT/opportunities`: a novelty artifact, a `repo_static.v1` document or
 an `llms.txt` file (`*.json` and `*.txt` are read; anything else is left out).
-`dokimi report opportunities` accepts those same three inputs and reads each supplied
+`dokimi report opportunities` also accepts catalog and judge validity artifacts, and reads each supplied
 path once. Each repo_static input path identifies its repository for `source_key`. When
 comparing snapshots of one repository across runs, pass `--repository OWNER/REPO`
-to give its findings the same identity across artifact paths. Malformed or unsupported JSON exits with status 2.
+to give all the supplied repo_static inputs one identity. If two snapshots contain the
+same finding, the report lists it once per snapshot with the same `source_key`. Run
+separate reports for separate repositories when using this flag. Malformed or unsupported
+JSON exits with status 2.
 
 ## Who can run it
 

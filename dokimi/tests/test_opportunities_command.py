@@ -107,3 +107,15 @@ def test_markdown_file_matches_stdout(inputs, tmp_path):
 def test_repo_claim_targets_the_claim_file(inputs):
     [item] = cmd.build(inputs[:1])["items"]
     assert item["target"] == "AGENTS.md"
+
+
+def test_build_identifies_repo_static_inputs_by_path(inputs, tmp_path):
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps(STATIC), encoding="utf-8")
+    paths = [inputs[0], str(other), inputs[0]]
+    report = cmd.build(paths)
+    assert [row["path"] for row in report["inputs"]] == paths[:2]
+    assert len({row["source_key"] for row in report["items"]}) == 2
+    scoped = cmd.build(paths, repository="owner/repo")
+    assert len(scoped["items"]) == 2
+    assert len({row["source_key"] for row in scoped["items"]}) == 1

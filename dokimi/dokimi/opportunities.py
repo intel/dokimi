@@ -108,7 +108,9 @@ def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunit
     return found
 
 
-def from_repo_static(doc: dict, *, target: str = "repository", repository: str | None = None) -> list[Opportunity]:
+def from_repo_static(
+    doc: dict, *, target: str = "repository", repository: str | None = None, identity_target: str | None = None,
+) -> list[Opportunity]:
     """Failed and unresolved repository claims, grouped per file."""
     claims = doc.get("claims", [])
     bad: dict[tuple[str, str], list[dict]] = {}
@@ -125,7 +127,7 @@ def from_repo_static(doc: dict, *, target: str = "repository", repository: str |
                      "Verify each unresolved claim at lines ") + ", ".join(str(r["line"]) for r in rows) + ".",
         target=f"{repository or target}:{path}" if repository or target else path, impact=_share(len(rows), len(claims)), effort="low",
         evidence={"lines": [r["line"] for r in rows], "statuses": sorted({r["status"] for r in rows})},
-        identity=f"{path}|{status}", identity_target=repository,
+        identity=f"{path}|{status}", identity_target=identity_target or repository,
     ) for (path, status), rows in sorted(bad.items())]
 
 
