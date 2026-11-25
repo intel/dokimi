@@ -25,13 +25,10 @@ or re-run. The golden tests in ``tests/test_batch_ledger_golden.py`` pin the cur
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
-import os
 import shutil
 import sys
-import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -217,15 +214,7 @@ def write_json(path: Path, data: Any) -> None:
     """Through a new file and a rename: a link a grader left at ``path`` is replaced, never followed."""
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
-        os.replace(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    write_text_atomic(path, json.dumps(data, indent=1, sort_keys=True) + "\n")
 
 
 def _stderr(message: str) -> None:
