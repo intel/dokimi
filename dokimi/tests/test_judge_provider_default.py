@@ -407,6 +407,17 @@ def test_a_named_cli_judge_refusal_uses_the_separate_flags(command, capsys):
     assert "pass --judge-model <Claude model>" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", [
+    ["skill", "novelty", "analyze", "--artifact", "skill:x"],
+    ["catalog", "novelty", "x", "--out-dir", "out"],
+])
+def test_novelty_cli_judge_refusal_uses_the_separate_flags(command, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*command, "--judge-provider", "claude-cli", "--judge-model", "gpt-4o"])
+    assert exc.value.code == 2
+    assert "pass --judge-model <Claude model>" in capsys.readouterr().err
+
+
 def test_subjects_run_refuses_a_default_judge_that_is_the_implicit_cell_answerer():
     from dokimi.commands.subjects import resolve_judge
     from dokimi.utils import InputError

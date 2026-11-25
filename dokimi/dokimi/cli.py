@@ -262,6 +262,20 @@ def _names_judge_provider(token: str) -> bool:
     return flag.startswith("--judge-p") and "--judge-provider".startswith(flag)
 
 
+def _fill_default_judge(parser: argparse.ArgumentParser, args: argparse.Namespace, *, separate_flags: bool) -> None:
+    if (getattr(args, "judge_model", None) is not JUDGE_MODEL_FOR_PROVIDER
+            or getattr(args, "defer_judge_default", False)):
+        return
+    matrix = getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)
+    try:
+        apply_default_judge(args, matrix=bool(matrix), named=args.judge_provider_named)
+    except ValueError as e:
+        if isinstance(e, JudgeIsAnswerer) and not separate_flags:
+            parser.error(f"the default judge is the model under measurement ({args.model}); "
+                         "pass --judge PROVIDER/MODEL to choose another model")
+        parser.error(str(e))
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse ``argv`` (default ``sys.argv[1:]``), then fill in defaults that hang on another flag.
 
@@ -286,18 +300,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args.judge_provider_named = bool(getattr(args, "judge_provider_named", False)) or any(
         _names_judge_provider(t) for t in raw)
     args.model_named = any(_names_model(t) for t in raw)
-    separate_judge_flags = args.cmd in {"arms", "subjects"}
+    separate_judge_flags = args.cmd in {"arms", "subjects", "skill", "catalog"}
     # A command that reads its answerer from a descriptor (subjects run) resolves the judge itself, once it is loaded.
-    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER and not getattr(args, "defer_judge_default", False):
-        # With --matrix-cells / --matrix-cell every cell sets its own model, so the top-level one is no answerer.
-        matrix = getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)
-        try:
-            apply_default_judge(args, matrix=bool(matrix), named=args.judge_provider_named)
-        except ValueError as e:
-            if isinstance(e, JudgeIsAnswerer) and not separate_judge_flags:
-                parser.error(f"the default judge is the model under measurement ({args.model}); "
-                             "pass --judge PROVIDER/MODEL to choose another model")
-            parser.error(str(e))
+    _fill_default_judge(parser, args, separate_flags=separate_judge_flags)
     # An explicit --judge-model on a CLI answerer judges on its CLI too, unless --judge-provider names one.
     # A command that defers its judge (subjects run) follows its answerer once the descriptor is loaded.
     if not getattr(args, "defer_judge_default", False):
