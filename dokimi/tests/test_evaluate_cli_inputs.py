@@ -131,11 +131,10 @@ def test_an_unparseable_questions_from_file_names_the_flag(tmp_path):
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
 def test_a_named_pipe_as_custom_questions_or_questions_from_is_not_read_up_front(tmp_path, monkeypatch):
     """The early parse is for regular files: reading a pipe there would take the one read its writer gets."""
-    from dokimi import files
     from dokimi.orchestrator import pipeline
 
     read = []
-    monkeypatch.setattr(files, "read_json_input", lambda path, **kw: read.append(path))
+    monkeypatch.setattr(pipeline, "read_json_input", lambda path, **kw: read.append(path))
     fifo = tmp_path / "q.json"
     os.mkfifo(fifo)
 

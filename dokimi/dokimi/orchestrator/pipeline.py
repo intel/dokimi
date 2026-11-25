@@ -15,7 +15,9 @@ from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEF
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
-from dokimi import digest, files, model_names
+from dokimi.digest import key_bytes
+from dokimi.files import InputError, read_json_input, refuse_device
+from dokimi.model_names import same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +71,7 @@ def _read_input_set(path: Path, what: str, fix: str = "") -> List[Dict[str, Any]
         return load_questions_payload(path)
     except (ValueError, RecursionError, OSError) as exc:  # refused by the schema, not JSON or UTF-8, unreadable
         named = "" if str(path) in str(exc) else f" {path}"  # a schema refusal already names the file
-        raise files.InputError(f"{what}{named} cannot be used: {exc}" + (f"\n({fix})" if fix else "")) from exc
+        raise InputError(f"{what}{named} cannot be used: {exc}" + (f"\n({fix})" if fix else "")) from exc
 
 
 def _check_custom_questions(path: Path, parse: bool = True) -> None:
@@ -80,16 +82,16 @@ def _check_custom_questions(path: Path, parse: bool = True) -> None:
     """
     if not path.exists():
         raise FileNotFoundError(f"--custom-questions path does not exist: {path}")
-    files.refuse_device(path, "--custom-questions")
+    refuse_device(path, "--custom-questions")
     if path.is_dir():  # refuse_device lets a directory pass; reading it ends in IsADirectoryError
-        raise files.InputError(f"--custom-questions {path}: not a file")
+        raise InputError(f"--custom-questions {path}: not a file")
     try:  # a regular file only: opening a named pipe here would take the writer's one read
         if path.is_file():
             path.open("rb").close()
     except OSError as exc:  # unreadable: refused here, before the output directories exist
-        raise files.InputError(f"--custom-questions {path}: {exc.strerror or exc}") from exc
+        raise InputError(f"--custom-questions {path}: {exc.strerror or exc}") from exc
     if parse and path.is_file():  # the run reads it again through the same function, with the same flag
-        files.read_json_input(path, flag="--custom-questions")
+        read_json_input(path, flag="--custom-questions")
 
 
 class EvaluationPipeline:
@@ -253,9 +255,9 @@ class EvaluationPipeline:
                 raise FileNotFoundError(
                     f"--questions-from: questions file not found: {qf}"
                 )
-            files.refuse_device(qf, "--questions-from")
+            refuse_device(qf, "--questions-from")
             if qf.is_file():
-                files.read_json_input(qf, flag="--questions-from")
+                read_json_input(qf, flag="--questions-from")
             self.external_questions_path: Optional[Path] = qf
             logger.info(f"Will reuse questions from: {qf}")
         else:
@@ -511,7 +513,7 @@ class EvaluationPipeline:
         library_id = self._library_id(mcp_client)
 
         # The id is the registry's for every source, so the topics cache is also keyed on the source.
-        source_key = hashlib.sha256(digest.key_bytes(self.doc_source)).hexdigest()[:16]
+        source_key = hashlib.sha256(key_bytes(self.doc_source)).hexdigest()[:16]
         extractor = RagasSeedExtractor(mcp_client=mcp_client,
                                        cache_dir=Path(".cache/topics") / source_key)
         topics = extractor.extract_topics(
@@ -582,7 +584,7 @@ class EvaluationPipeline:
             self._custom_questions = self._load_custom_questions()
             return None
         if not reused:  # an empty reused set is a bad input (exit 2), refused before persona discovery
-            raise files.InputError(f"No questions to answer: {path} has no questions")
+            raise InputError(f"No questions to answer: {path} has no questions")
         return reused
 
     def _load_custom_questions(self) -> List[Dict[str, Any]]:
@@ -595,7 +597,7 @@ class EvaluationPipeline:
         path = self.custom_questions_path
         if not (path and path.exists()):
             return []
-        files.refuse_device(path, "--custom-questions")
+        refuse_device(path, "--custom-questions")
         if getattr(self, "golden_pinned", False):  # the golden set of --questions-root: no flag to name
             custom_questions = _read_input_set(path, "the golden set")
         else:
@@ -760,7 +762,7 @@ class EvaluationPipeline:
                 "judge_model": self.judge_model,
                 "judge_provider": self.judge_provider,
                 "question_set_hash": question_set_hash,
-                "evaluator_independence_warning": model_names.same_evaluator(str(self.model), str(self.judge_model)),
+                "evaluator_independence_warning": same_evaluator(str(self.model), str(self.judge_model)),
             },
         )
         
