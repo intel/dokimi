@@ -167,3 +167,17 @@ def test_an_unresolved_doc_library_id_is_logged_and_the_name_is_used(monkeypatch
         lib_id = arms_run.resolve_doc_library_id([DocTreatment(object(), name="docs", top_k=3)], "react")
     assert lib_id == "react"
     assert [r.exc_info is not None for r in caplog.records if "not resolved" in r.getMessage()] == [True]
+
+
+@pytest.mark.parametrize(("plugins", "plugin_set"), [("", "none"), ("plugin:caveman", "caveman:full")])
+def test_setup_log_names_model_harness_and_plugin_set(capsys, plugins, plugin_set):
+    """#1085: each cell's setup log shows its effective model, harness and plugin set, `none` included."""
+    from dokimi.eval.arms_run import _treatments
+
+    config = ArmsRunConfig(product="p", model="gpt-6.1-sol", provider="openai",
+                           harness="arms-runner", plugins=plugins, matrix_cell="cell-1")
+    _treatments(config, ["baseline"], [{"id": "q1", "question": "x"}])
+    lines = capsys.readouterr().out.splitlines()
+    assert "Matrix cell: cell-1" in lines
+    assert "Model: openai/gpt-6.1-sol, harness: arms-runner" in lines
+    assert any(line.startswith(f"Plugins: {plugin_set} (") for line in lines)

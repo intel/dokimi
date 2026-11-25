@@ -975,3 +975,16 @@ def test_a_skill_arm_cell_of_an_unsupported_task_is_marked_not_run(tmp_path, mon
     assert [p.name for p in (batch / "fix_race__skill-lint__m-1__r1").iterdir()] == ["unsupported.json"]
     assert (batch / "fix_add__skill-lint__m-1__r1/result.json").is_file()
     assert {u["cell"] for u in summarize(batch)["unsupported"]} >= {"fix_race__skill-lint__m-1__r1"}
+
+
+def test_a_probe_container_that_fails_to_start_has_its_error_scrubbed(tmp_path):
+    from dokimi.repos.container import ContainerError
+
+    class RuntimeFails(HostRunner):
+        def run(self, spec, *, stdout, stderr, timeout_s):
+            raise ContainerError("docker run failed: Error loading config file: /home/jdoe/.docker/config.json")
+
+    ctx = EvalContext(manifest=parse_manifest(MANIFEST), git_dir=tmp_path, content_dir=tmp_path, image="img:1",
+                      runner=RuntimeFails(None))
+    error = probe_host(ctx, tmp_path / "w")["error"]
+    assert "/home/jdoe" not in error and "host probe did not start" in error

@@ -286,7 +286,9 @@ are common, so `--strict` does not fail on them. A code span that names a file
 under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
 `examples/`, `resources/`), alone or inside a command such as
 `python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
-have that file. Folders, flat names, placeholders (`scripts/<name>.py`)
+have that file. A code span that is the label of an inline link to a URL (`[`examples/a.py`](https://...)`) or of a full reference to one (`[`examples/a.py`][ref]`) is the link's text and is not checked; one in a shortcut or collapsed reference (`[`examples/a.py`]`, `[`examples/a.py`][]`) is still checked.
+Folders, flat names, placeholders (`scripts/<name>.py`),
+user-local `*.local.md` files (`references/secrets.local.md`, which the user keeps out of git)
 and repo-root paths such as `src/app.py` are not checked, and
 neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
 (`'scripts/my run.py'`, `scripts/my\ run.py`). Only `/` separators are read: a backslash path such as `scripts\run.py` is not checked. Paths joined by `,` or `;` with no space are read one by one when the next one is under a bundle folder (`scripts/a.py,scripts/b.py`); other commas, and an escaped `\,`, stay in the name. Some hits are files the skill tells the agent to
@@ -308,7 +310,7 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 (`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
 `.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
 path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
-finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files, a root translation of `SKILL.md` (`SKILL.ru.md`, `SKILL.zh-CN.md`),
 `_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
 not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no `warn`; it gives a
 `note` (`bundle-file-unchecked`) that says why, when the search cannot see every name: a bundle over 2000 files, more than 50 named
@@ -337,8 +339,9 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
 (`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
-an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
-package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
+an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm`, `pnpm` (`add`, `install`, `i`, `dlx`), `pnpx` or `npx` install that names a
+package with no version is a `warn` with the count of distinct packages for the skill (`install-unpinned`); the
+same install shown twice is one, and a command inside the quoted text of an `echo` or `printf` is not an install (unless a `$(...)` or backtick substitution in it runs it, or the output is piped to a shell); a requirements
 file, a local path, a URL or a `git+` source is not counted. These checks read a Cyrillic or Greek look-alike letter, or a fullwidth letter, as its Latin letter, so `сurl | bash` with a Cyrillic `с` is still a `pipe-to-shell`; the letter list is short, and a look-alike outside it escapes. Installs are read from code only: the fenced
 blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
 text file, such as a script. The scan reads at most 200
@@ -377,6 +380,14 @@ they do not change the exit code.
 text output and `--format json` (one object: `state`, `findings`,
 `content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
 `duplicate_of`, for a script or a CI gate) are the same either way.
+
+The `rates` object reports the share of skills in each state and the share with each finding code.
+Each skill belongs to the nearest directory containing a `.git` entry between its directory and the
+scanned root, or to the scanned root if none has one. `rate` weights each skill equally. `repo_rate`
+weights each repository equally by averaging its within-repository share. An empty scan reports
+`null` for both shares. An `ok` row with an unchecked description or format contributes to
+`not_checked`. A row with state `skipped` contributes to `skipped`. With two or more repositories,
+the text output includes both shares for each state and up to five codes, ranked by the larger share.
 
 After the skill rows, `catalog check` prints a `# granularity` section: skill pairs
 that look like merge candidates (similar descriptions, shared trigger clauses, overlapping

@@ -9,11 +9,15 @@ fallback topics) is never replayed, and an unreadable entry is a miss with a war
 
 import json
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
+from tests.exists_mock import exists_for_prefix
+
+from dokimi.utils import InputError
 from dokimi.mcp.context7 import Context7Client
 from dokimi.mcp.url_client import URLClient
 from dokimi.questions.ragas_seed import RagasSeedExtractor
@@ -283,6 +287,8 @@ def test_generate_does_not_replay_one_doc_source_topics_for_another(tmp_path, mo
         return client
 
     monkeypatch.chdir(tmp_path)
+    real_exists = Path.exists  # `/docs` is only a source name here; #1086 refuses a missing local path
+    monkeypatch.setattr(Path, "exists", exists_for_prefix(real_exists, "/docs"))
     monkeypatch.setattr(factory, "create_doc_source_client", _client)
     monkeypatch.setattr(factory, "resolve_library_id_for_product", lambda *a, **kw: LIB)
     monkeypatch.setattr(questions_pkg, "QuestionGenerator", _Generator)
@@ -293,3 +299,31 @@ def test_generate_does_not_replay_one_doc_source_topics_for_another(tmp_path, mo
             product="oneTBB", personas=str(personas), topics=None, doc_source=source, context7_id=None,
             top_k=3, provider="openai", model="m", count=1, validate=False, output=None))
     assert seen == [["tbb::parallel_for"], ["tbb::flow_graph"]]
+
+
+def test_generate_refuses_a_missing_path_outside_the_exists_stand_in(tmp_path, monkeypatch):
+    """#1086: through `cmd_questions_generate`, the `/docs` stand-in passes the guard and `/other` is refused."""
+    import argparse
+    from dokimi.commands import questions as cmd
+    from dokimi.mcp import factory
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "exists", exists_for_prefix(lambda self: False, "/docs"))
+    monkeypatch.setattr(factory, "create_doc_source_client", lambda source: MagicMock())
+    personas = tmp_path / "personas.json"
+    personas.write_text(json.dumps({"personas": [{"id": "dev", "name": "dev", "skill_level": "expert"}]}), encoding="utf-8")
+    args = argparse.Namespace(
+        product="oneTBB", personas=str(personas), topics=None, doc_source="local:/other", context7_id=None,
+        top_k=3, provider="openai", model="m", count=1, validate=False, output=None)
+    with pytest.raises(InputError, match="path does not exist: local:/other"):
+        cmd.cmd_questions_generate(args)
+
+
+def test_doc_source_guard_accepts_the_stand_in_prefix_and_refuses_other_paths(monkeypatch):
+    """#1086: `require_local_doc_source` passes `/docs/caf\u00e9` under the stand-in and refuses `/other`."""
+    from dokimi.mcp.factory import require_local_doc_source
+
+    monkeypatch.setattr(Path, "exists", exists_for_prefix(lambda self: False, "/docs"))
+    require_local_doc_source("local:/docs/caf\u00e9")
+    with pytest.raises(InputError, match="path does not exist: okf:/other"):
+        require_local_doc_source("okf:/other")

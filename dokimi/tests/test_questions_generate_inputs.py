@@ -4,6 +4,7 @@
 """questions generate: an unreadable --personas or --topics file is a clean exit, not a traceback."""
 
 import json
+from typing import cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -131,7 +132,7 @@ class _BogusGenerator(_FakeGenerator):
 
     def save_questions(self, questions, output_path, product=None):
         from dokimi.questions.llm_gen import QuestionGenerator
-        QuestionGenerator.save_questions(self, questions, output_path, product)
+        QuestionGenerator.save_questions(cast(QuestionGenerator, self), questions, output_path, product)
 
 
 def test_generate_exits_1_when_the_generated_set_fails_validation(tmp_path, monkeypatch, capsys):
@@ -173,3 +174,156 @@ def test_generate_records_the_product_so_runs_list_finds_the_set(tmp_path, monke
     assert (found["kind"], found["subject"], found["model"], found["path"]) == (
         "questions", "oneTBB", "gen-m", "r1/questions/oneTBB.json")
     assert runs_list("oneDAL") == []
+
+
+@pytest.mark.parametrize("scheme", ["local", "okf"])
+def test_generate_exits_2_when_a_local_doc_source_path_is_missing(tmp_path, monkeypatch, capsys, scheme):
+    """#1086: `--doc-source local:<missing>` and `okf:<missing>` are input errors naming the path, before any generation."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    (tmp_path / "personas.json").write_text('{"personas": []}', encoding="utf-8")
+    missing = tmp_path / "missing"
+    assert _generate(monkeypatch, "--personas", "personas.json", "--doc-source", f"{scheme}:{missing}",
+                     "--output", "out.json") == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(missing) in err
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_generate_accepts_an_existing_local_doc_source(tmp_path, monkeypatch, capsys):
+    """#1086: the path check passes for an existing directory."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# parallel_for\nUse tbb::parallel_for.", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    (tmp_path / "personas.json").write_text('{"personas": []}', encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "questions", "generate", "--product", "oneTBB",
+                                     "--personas", "personas.json", "--doc-source", f"local:{docs}",
+                                     "--output", "out.json"])
+    cli.main()
+    assert "Error" not in capsys.readouterr().err
+
+
+def test_generate_exits_2_when_a_local_doc_source_name_is_too_long(tmp_path, monkeypatch, capsys):
+    """#1086: a filename past NAME_MAX is a missing path, an input error and not a traceback."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    (tmp_path / "personas.json").write_text('{"personas": []}', encoding="utf-8")
+    assert _generate(monkeypatch, "--personas", "personas.json", "--doc-source", f"local:{'0' * 256}",
+                     "--output", "out.json") == 2
+    assert capsys.readouterr().err.startswith("Error: ")
+
+
+def test_require_local_doc_source_reports_a_permission_error_as_unreadable(monkeypatch):
+    """#1086: `local:/restricted/docs` under a directory denying search exists; it is not `path does not exist`."""
+    from pathlib import Path
+
+    from dokimi.mcp.factory import require_local_doc_source
+    from dokimi.utils import InputError
+
+    def denied(self):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "exists", denied)
+    with pytest.raises(InputError, match="cannot read /restricted/docs") as exc:
+        require_local_doc_source("local:/restricted/docs")
+    assert "does not exist" not in str(exc.value)
+
+
+def test_require_local_doc_source_reports_a_denied_directory_when_exists_answers_false(tmp_path, monkeypatch):
+    """#1086: Python 3.14 `Path.exists` returns False on a denied directory; the guard still says unreadable."""
+    import os
+    from pathlib import Path
+
+    from dokimi.mcp.factory import require_local_doc_source
+    from dokimi.utils import InputError
+
+    restricted = tmp_path / "restricted"
+    (restricted / "docs").mkdir(parents=True)
+    restricted.chmod(0)
+    if os.access(restricted / "docs", os.F_OK):
+        restricted.chmod(0o700)
+        pytest.skip("directory permissions are not enforced for this user")
+    monkeypatch.setattr(Path, "exists", lambda self: os.path.exists(self))
+    try:
+        with pytest.raises(InputError, match="cannot read") as exc:
+            require_local_doc_source(f"local:{restricted / 'docs'}")
+    finally:
+        restricted.chmod(0o700)
+    assert "does not exist" not in str(exc.value)
+
+
+def test_require_local_doc_source_accepts_a_path_that_appears_between_exists_and_stat(tmp_path, monkeypatch):
+    """#1086: `exists` answers False but `stat` succeeds (the path appeared in between): not `does not exist`."""
+    from pathlib import Path
+
+    from dokimi.mcp.factory import require_local_doc_source
+
+    real_stat = Path.stat
+    statted = []
+
+    def spy_stat(self, *args, **kwargs):
+        statted.append(self)
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+    monkeypatch.setattr(Path, "stat", spy_stat)
+    require_local_doc_source(f"local:{tmp_path}")
+    assert tmp_path in statted
+
+
+def test_preflight_reports_an_unreadable_local_doc_source_as_unreadable(monkeypatch):
+    """#1086: `benchmark check` shares the guard: a denied path is `cannot read`, not `does not exist`."""
+    from pathlib import Path
+
+    from dokimi.commands.benchmark import _check_doc_source
+
+    def denied(self):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "exists", denied)
+    refusals: list[str] = []
+    _check_doc_source({"doc_source": "local:/restricted/docs"}, None, refusals.append, [], [])
+    assert len(refusals) == 1 and "cannot read /restricted/docs" in refusals[0]
+
+
+def test_require_local_doc_source_reports_an_existing_unreadable_file_as_unreadable(tmp_path):
+    """#1086: `local:<file>` with mode 000 exists but cannot be read: `cannot read`, as the changelog says."""
+    import os
+
+    from dokimi.mcp.factory import require_local_doc_source
+    from dokimi.utils import InputError
+
+    doc = tmp_path / "docs.md"
+    doc.write_text("# docs\n")
+    doc.chmod(0)
+    try:
+        if os.access(doc, os.R_OK):
+            pytest.skip("file permissions are not enforced for this user")
+        with pytest.raises(InputError, match="cannot read .*docs.md"):
+            require_local_doc_source(f"local:{doc}")
+    finally:
+        doc.chmod(0o600)
+
+
+def test_require_local_doc_source_reports_a_directory_without_search_permission_as_unreadable(tmp_path, monkeypatch):
+    """#1086: a docs directory with mode 0444 lists its names but cannot open them: `cannot read`."""
+    import os
+
+    from dokimi.mcp.factory import require_local_doc_source
+    from dokimi.utils import InputError
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# guide\n")
+    real_access = os.access
+
+    def no_search(path, mode, *args, **kwargs):
+        if os.fspath(path) == str(docs) and mode & os.X_OK:
+            return False
+        return real_access(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "access", no_search)
+    with pytest.raises(InputError, match="cannot read .*docs"):
+        require_local_doc_source(f"local:{docs}")

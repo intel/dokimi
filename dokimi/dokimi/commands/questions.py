@@ -309,9 +309,12 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
         doc_source = getattr(args, "doc_source", "context7")
         from dokimi.mcp.factory import (
             create_doc_source_client,
+            require_local_doc_source,
             resolve_library_id_for_product,
         )
         mcp_client = create_doc_source_client(doc_source)
+        # #1086: a missing local path would otherwise fall back to default seed topics and exit 0.
+        require_local_doc_source(doc_source)
         context7_id = getattr(args, "context7_id", None)
         if context7_id:
             print(f"Using explicit Context7 library ID: {context7_id}")
