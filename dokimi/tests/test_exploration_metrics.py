@@ -649,3 +649,38 @@ def test_loose_scan_keeps_a_bracket_only_when_the_path_closes_it(text, paths):
     from dokimi.metrics.exploration import _parse_loose
 
     assert [c.path for c in _parse_loose(text).citations] == paths
+
+
+_HUGE = "9" * 5000
+
+
+def test_block_line_number_too_long_to_read_is_malformed():
+    cs = parse_final_answer(f"<final_answer>\na.py:{_HUGE}\nb.py:3\n</final_answer>")
+    assert cs.citations == (Citation("b.py", 3, 3),)
+    assert cs.malformed == (f"a.py:{_HUGE}",)
+    assert cs.validity_rate == 0.5
+
+
+def test_block_range_end_too_long_to_read_is_malformed():
+    cs = parse_final_answer(f"<final_answer>\na.py:1-{_HUGE}\n</final_answer>")
+    assert cs.citations == ()
+    assert cs.malformed == (f"a.py:1-{_HUGE}",)
+
+
+@pytest.mark.parametrize("token", [f"a.py:{_HUGE}", f"a.py:1-{_HUGE}"])
+def test_loose_scan_skips_a_line_number_too_long_to_read(token):
+    cs = parse_final_answer(f"see {token} and b.py:3")
+    assert cs.citations == (Citation("b.py", 3, 3),)
+    assert cs.malformed == ()
+
+
+def test_citation_path_of_an_unreadable_line_number_is_the_normalized_entry():
+    entry = f"a.py:{_HUGE}"
+    assert citation_path(entry) == entry
+
+
+def test_block_zero_padded_line_number_past_the_int_limit_still_parses():
+    padded = "0" * 5000 + "12"
+    cs = parse_final_answer(f"<final_answer>\na.py:{padded}-{padded}\n</final_answer>")
+    assert cs.citations == (Citation("a.py", 12, 12),)
+    assert cs.malformed == ()

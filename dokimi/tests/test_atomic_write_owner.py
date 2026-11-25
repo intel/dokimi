@@ -408,6 +408,20 @@ def test_a_real_default_acl_of_the_directory_is_not_given_to_a_rewritten_report(
     assert "12345" not in shown
 
 
+@pytest.mark.skipif(shutil.which("setfacl") is None or shutil.which("getfacl") is None, reason="needs setfacl")
+@pytest.mark.skipif(os.name == "nt", reason="os.replace refuses a read-only destination on Windows")
+def test_a_read_only_file_replaced_by_rename_gets_no_acl_entry_of_the_directory_default(tmp_path):
+    target = _report(tmp_path)
+    target.chmod(0o440)
+    acl = subprocess.run(["setfacl", "-m", "d:u:12345:r-x", str(tmp_path)], capture_output=True, text=True)
+    if acl.returncode != 0:
+        pytest.skip("the file system takes no ACL")
+    write_bytes_in_place_or_atomic(target, b"new", replace_read_only=True)
+    shown = subprocess.run(["getfacl", "-c", str(target)], capture_output=True, text=True).stdout
+    assert (target.read_bytes(), stat.S_IMODE(target.stat().st_mode)) == (b"new", 0o440)
+    assert "12345" not in shown
+
+
 def test_a_file_without_an_acl_or_on_a_system_without_xattrs_is_still_replaced(tmp_path, monkeypatch):
     target = _report(tmp_path)
     before = target.stat().st_ino

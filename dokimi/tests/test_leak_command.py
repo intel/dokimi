@@ -88,6 +88,40 @@ def test_a_leak_exits_1_and_the_table_names_the_item(tmp_path, capsys):
     assert "status blocked: 1 items, 1 checked, 1 flagged" in out
 
 
+def _skill_with_own_evals(root: Path, body: str) -> Path:
+    _skill(root, body)
+    (root / "evals").mkdir()
+    (root / "evals" / "evals.json").write_text(json.dumps({"expected_output": ANSWER}), encoding="utf-8")
+    return root
+
+
+def test_a_question_found_only_in_the_skills_own_evals_directory_passes(tmp_path):
+    questions = _questions(tmp_path / "q.json", {"1": ANSWER})
+    skill = _skill_with_own_evals(tmp_path / "skill", "Use the trace flag; see the docs for details.")
+    out = tmp_path / "leak.json"
+    cmd_eval_leak(_args(skill, questions, out=out))  # exit 0 returns normally
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["status"] == "pass" and saved["skill_files"] == ["SKILL.md"]
+
+
+def test_a_question_also_in_skill_md_is_flagged_with_only_skill_md_named(tmp_path):
+    questions = _questions(tmp_path / "q.json", {"1": ANSWER})
+    skill = _skill_with_own_evals(tmp_path / "skill", f"Copied: {ANSWER}.")
+    out = tmp_path / "leak.json"
+    assert _exit_code(_args(skill, questions, out=out)) == 1
+    [item] = json.loads(out.read_text(encoding="utf-8"))["items"]
+    assert item["status"] == "flagged" and item["files"] == ["SKILL.md"]
+
+
+def test_an_out_over_the_skills_own_evals_file_is_still_refused(tmp_path):
+    questions = _questions(tmp_path / "q.json", {"1": ANSWER})
+    skill = _skill_with_own_evals(tmp_path / "skill", "clean")
+    evals = skill / "evals" / "evals.json"
+    before = evals.read_bytes()
+    assert _exit_code(_args(skill, questions, out=str(evals))) == 2
+    assert evals.read_bytes() == before
+
+
 def test_an_item_that_cannot_be_checked_exits_3_as_inconclusive(tmp_path, capsys):
     questions = _questions(tmp_path / "q.json", {"1": "42"})
     assert _exit_code(_args(_skill(tmp_path / "skill", "clean"), questions)) == 3

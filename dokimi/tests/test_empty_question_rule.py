@@ -352,7 +352,7 @@ def test_no_probe_call_before_the_refusal(cmd, tmp_path, monkeypatch, capsys):
         {"id": "q2", "question": "Why?", "expected_topics": ["predict"]}]}), encoding="utf-8")
     calls = []
     monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: calls.append(a))
-    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params", lambda *a, **k: [])
+    monkeypatch.setattr("dokimi.llm.sampling_refusals", lambda *a, **k: {})
     argv = [a.format(questions=questions) for a in cmd]
     monkeypatch.setattr(sys, "argv", ["dokimi", *argv, "--answers", str(answers), "--judge-temperature", "0.2"])
     with pytest.raises(SystemExit) as exc:

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import statistics
 from dataclasses import dataclass
@@ -43,7 +44,7 @@ SIMILAR_JACCARD = 0.8
 MONTH_DAYS = 30.44
 MANIFEST_SCHEMA = "dokimi.upstream.v1"
 _SKILL_PATHSPEC = ":(glob,icase)**/SKILL.md"
-_WORDS = re.compile(r"[a-z0-9]+")
+_WORDS = re.compile(r"[^\W_]+")
 
 
 def _is_zero(sha: str) -> bool:
@@ -70,7 +71,7 @@ def _exact_rank(version: "Version") -> tuple:
 
 
 def _tokens(text: str) -> frozenset[str]:
-    """The lowercase ASCII words of ``text``. The same words the corpus study measured the 0.8 threshold on."""
+    """Lowercase Unicode words of ``text``. The corpus study measured the 0.8 threshold on ASCII words."""
     return frozenset(_WORDS.findall(text.lower()))
 
 
@@ -157,12 +158,18 @@ class Index:
 
     def __init__(self, upstreams: Sequence[Upstream], versions: Iterable[Version]):
         self.upstreams = tuple(upstreams)
+        versions = list(versions)
+        self._flagged = frozenset((v.upstream.name, v.path) for v in versions if v.head)
         self._by_blob: dict[str, list[Version]] = {}
         self._by_name: dict[str, list[Version]] = {}
         for version in versions:
             self._by_blob.setdefault(version.blob_sha, []).append(version)
             if version.name is not None:
                 self._by_name.setdefault(version.name, []).append(version)
+
+    def head_known(self, version: Version) -> bool:
+        """Whether the head of this version's path is known: always for a checkout; for a manifest, only when an entry of that path is flagged."""
+        return version.upstream.history != "manifest" or (version.upstream.name, version.path) in self._flagged
 
     def match(self, raw: bytes, name: Optional[str]) -> Optional[Match]:
         """The upstream version a copy with bytes ``raw`` and frontmatter ``name`` came from, or None."""
@@ -240,23 +247,25 @@ def _git_error(done: process.Completed) -> str:
 
 
 def _read_blobs(root: Path, shas: Sequence[str]) -> dict[str, bytes]:
-    """The bytes of each blob sha that is present in the object store (a partial clone may lack some)."""
+    """Read locally available blobs. Git may refuse the batch if a promisor clone needs a fetch."""
     unique = sorted(set(shas))
     if not unique:
         return {}
     done = _git(root, "cat-file", "--batch", input=("\n".join(unique) + "\n").encode())
     if done.returncode:
-        raise ValueError(f"{root}: cannot read blobs: {_git_error(done)}")
+        raise ValueError(f"{root}: cannot read blobs: {_git_error(done)}. "
+                         "Use a checkout with all skill blobs available locally.")
     data, pos, out = done.stdout_bytes, 0, {}
     for sha in unique:
         end = data.index(b"\n", pos)
         header = data[pos:end].split()
         pos = end + 1
-        if len(header) != 3 or header[1] != b"blob":
-            continue  # missing, or not a blob: its version is left out
+        if len(header) != 3:
+            continue  # missing or ambiguous: no payload follows the header
         size = int(header[2])
-        out[sha] = data[pos:pos + size]
-        pos += size + 1
+        if header[1] == b"blob":
+            out[sha] = data[pos:pos + size]
+        pos += size + 1  # the payload and its newline, whatever the object type (a gitlink is a commit)
     return out
 
 
@@ -303,7 +312,7 @@ def load_checkout(root: Path, order: int) -> tuple[Upstream, list[Version]]:
         raise ValueError(f"{root} is not a directory: --upstream takes the top level of a git checkout")
     top = _git(root, "rev-parse", "--show-toplevel")
     # git walks up from any directory to an enclosing repository: a plain folder inside one is not a checkout.
-    if top.returncode or Path(top.stdout.strip()).resolve() != root.resolve():
+    if top.returncode or Path(os.fsdecode(top.stdout_bytes.removesuffix(b"\n"))).resolve() != root.resolve():
         raise ValueError(f"{root} is not a git checkout: --upstream takes the top level of a git checkout")
     head = _git(root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
     if head.returncode:
@@ -424,7 +433,7 @@ def build(checkouts: Sequence[str | Path] = (), manifests: Sequence[str | Path] 
     return Index(upstreams, versions)
 
 
-def to_row(match: Optional[Match]) -> dict:
+def to_row(match: Optional[Match], *, head_known: bool = True) -> dict:
     """The report fields of one skill's match; ``match`` None gives ``match: null`` and nothing else."""
     if match is None:
         return {"match": None, "upstream": None, "path": None, "commit": None, "date": None, "version": None,
@@ -438,9 +447,9 @@ def to_row(match: Optional[Match]) -> dict:
         "commit": v.commit[:12] if v.commit else None,
         "date": v.date.date().isoformat() if v.date else None,
         "version": v.version,
-        "at_head": v.head,
+        "at_head": v.head if head_known else None,
         "behind_commits": 0 if v.head else v.behind,
-        "behind_months": v.months_behind,
+        "behind_months": v.months_behind if head_known else None,
         "edited": match.edited,
         "jaccard": match.jaccard,
         "removed_at_head": v.removed,

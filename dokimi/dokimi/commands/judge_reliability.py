@@ -109,12 +109,13 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
     if temperature is None:
         return
     from dokimi.eval.arms_run import ProbeError, probe_sampling
-    from dokimi.llm import unsupported_sampling_params
+    from dokimi.llm import sampling_refusals
+    from dokimi.llm_sampling import refusal_clause
 
     for model, provider in dict.fromkeys(judges):
-        if unsupported_sampling_params(model, provider, temperature=temperature):
+        if refused := sampling_refusals(model, provider, temperature=temperature):
             raise InputError(f"--judge-temperature {temperature} is rejected by judge {provider}/{model}: "
-                             f"provider '{provider}' does not support temperature for model '{model}'")
+                             f"provider '{provider}' does not support {refusal_clause(refused)} for model '{model}'")
         try:
             probe_sampling(model, provider, temperature, None)
         except ProbeError as exc:

@@ -8,7 +8,7 @@ A code span that names a file under one of the bundle folders (:data:`BUNDLE_DIR
 a command (``python scripts/run.py``), is a ``warn`` in :mod:`dokimi.external.validate` when that
 file is not in the skill directory. Only a path with a folder and a file name is read: a folder
 (``assets/``), a flat name (``run.py``), a placeholder part (``scripts/<name>.py``, ``scripts/x.py``)
-and a ``#anchor`` are not files to check. A repo-root path such as ``src/app.py`` names no bundled
+and a ``#anchor`` are not files to check, nor is a user's own ``*.local.md`` file. A repo-root path such as ``src/app.py`` names no bundled
 file and is not read.
 """
 
@@ -35,6 +35,8 @@ SEPARATOR_RE = re.compile(
 PLACEHOLDER_PARTS = frozenset({"x", "xx", "xxx", "n/a", "na", "foo", "bar", "your-file", "...", "…"})
 # A folder a template fills in (``assets/example/``). A file named ``example.py`` is a real name, so these are not stems.
 PLACEHOLDER_FOLDERS = PLACEHOLDER_PARTS | {"example", "file", "filename", "name"}
+# A file the user makes for their own machine (``secrets.local.md``): the skill names it, the bundle never has it.
+USER_LOCAL_SUFFIX = ".local.md"
 
 
 def _bundle_path(word: str, anchor: bool = True) -> Optional[str]:
@@ -44,7 +46,7 @@ def _bundle_path(word: str, anchor: bool = True) -> Optional[str]:
     away), with a trailing ``,;:.)`` taken away; an option's value follows its last ``=``. The part
     after ``#`` is an anchor and is dropped unless ``anchor`` is false (``assets/logo#dark.svg``).
     None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no file extension),
-    a placeholder part, or a template variable.
+    a placeholder part, a template variable, or a user-local ``*.local.md`` file.
     """
     text = word.lstrip("(").rstrip(",;:.)").strip("'\"").rstrip(",;:.)")
     if text.startswith("-") and "=" in text:  # an option's value: --config=scripts/x.yaml
@@ -66,6 +68,8 @@ def _bundle_path(word: str, anchor: bool = True) -> Optional[str]:
         return None  # no file extension: read as a folder or a command name
     if any(p.lower() in PLACEHOLDER_FOLDERS for p in parts[1:-1]) or stem.lower() in PLACEHOLDER_PARTS:
         return None
+    if parts[-1].lower().endswith(USER_LOCAL_SUFFIX):
+        return None  # the user's own file (secrets.local.md), which the skill tells the user to create
     return text
 
 

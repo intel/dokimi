@@ -21,8 +21,9 @@ from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
 from dokimi import __version__
+from dokimi.external.catalog_rates import RateTally, text_lines
 from dokimi.external.listing import listed_chars
-from dokimi.external.skill_format import UNSUPPORTED_CODE
+from dokimi.external.skill_format import NOT_CHECKED_CODES, not_checked
 from dokimi.utils import InputError
 
 
@@ -97,7 +98,7 @@ def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
     try:
         base = path.resolve()
         skip = [out.relative_to(base).as_posix() for out in outputs if out.is_relative_to(base)]
-        return tree_digest(path, exclude=skip, tracked={})
+        return tree_digest(path, exclude=skip, strict=True, tracked={})
     except OSError:
         return None
 
@@ -113,14 +114,6 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
 def _continued(message: str) -> str:
     """``message`` with its continuation lines indented under the row, so a multi-line message stays in it."""
     return message.replace("\n", "\n    ")
-
-
-NOT_CHECKED_CODES = ("description-when-not-checked", UNSUPPORTED_CODE)  # the notes that say a skill was not read
-
-
-def not_checked(row: dict) -> bool:
-    """Whether an ``ok`` row is only ok because the check did not read it (a ``NOT_CHECKED_CODES`` note)."""
-    return row["state"] == "ok" and any(f["code"] in NOT_CHECKED_CODES for f in row["findings"])
 
 
 def skipped_note(skipped: int) -> str:
@@ -252,7 +245,7 @@ class _Tally:
     ``--fail-on-code`` (:func:`fails_on_finding`), with a ``fail-on-code:`` line in ``reasons``.
     """
 
-    def __init__(self, strict: bool, fail_on: frozenset[str] = frozenset()) -> None:
+    def __init__(self, strict: bool, root: Path, fail_on: frozenset[str] = frozenset()) -> None:
         self.strict = strict
         self.fail_on = fail_on
         self.counts = {"ok": 0, "warn": 0, "error": 0, "skipped": 0}
@@ -261,8 +254,10 @@ class _Tally:
         self.listing = ListingTotal()  # the compact count of the rows with a listing_chars; no row is kept for it
         self.failed = False
         self.reasons: list[str] = []
+        self.rates = RateTally(root)  # the shares per skill and per repo (catalog_rates)
 
     def add(self, row: dict) -> None:
+        self.rates.add(row)
         self.counts[row["state"]] += 1
         self.plain += is_plain_markdown(row)
         self.not_checked += not_checked(row)
@@ -291,6 +286,7 @@ def _is_row(row: object) -> bool:
         and row.get("state") in ROW_STATES
         and "error" in row
         and isinstance(row.get("findings"), list)
+        and all(isinstance(f, dict) and isinstance(f.get("code"), str) for f in row["findings"])
         and _count_ok(row.get("listing_chars"))
         and isinstance(row.get("content_sha256"), (str, type(None)))
         and isinstance(row.get("listing_name"), (str, type(None)))
@@ -341,7 +337,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                 if row is None:
                     continue
                 key = _row_key(row)
-                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing_name" in row and row["skill_sha256"] == selected[key]
+                if (key in selected and "skill_sha256" in row and "listing_chars" in row and "listing_name" in row and selected[key] is not None and row["skill_sha256"] == selected[key]
                         and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:
@@ -400,6 +396,8 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     else:
         for row in rows:
             print_skill_row(row)
+    for line in text_lines(tally.rates.summary()):
+        print(line)
     print("# granularity: not run with --per-skill (run without it for the merge and split hints)")
     print()
 
@@ -492,7 +490,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
                 for key, (entry, _) in zip(keys, pairs, strict=True)}
     ignore = row_ignore(args)
     sink = _Jsonl(jsonl, args.resume, selected, ignore) if jsonl is not None else None
-    tally = _Tally(args.strict, frozenset(args.fail_on or ()))
+    tally = _Tally(args.strict, root, frozenset(args.fail_on or ()))
     prior = sink.prior if sink is not None else []
     for row in prior:
         tally.add(row)
@@ -508,6 +506,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
     finally:
         if sink is not None:
             sink.close()
+    report["rates"] = tally.rates.summary()
     if not as_json:
         _print_text(root, declared, tally, len(prior), jsonl, report["skills"])
         for line in tally.reasons:
