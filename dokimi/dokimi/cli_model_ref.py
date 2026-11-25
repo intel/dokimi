@@ -44,6 +44,9 @@ class ProviderModelAction(argparse.Action):
             parser.error(f"{option_string}: `{provider}` is not a provider for this command; "
                          f"use one of {', '.join(sorted(self.providers))}")
         else:
+            setattr(namespace, self.provider_dest, parser.get_default(self.provider_dest))
+            if self.named_dest:
+                setattr(namespace, self.named_dest, False)
             setattr(namespace, self.dest, values)
 
 
