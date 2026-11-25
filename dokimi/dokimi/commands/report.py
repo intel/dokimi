@@ -173,10 +173,24 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
         print(report.split("---")[0])  # Print just the summary section
 
 
+def _refuse_absent_inputs(paths: list[str]) -> None:
+    """Exit 2 before anything is summarised: a path the user named that does not exist, or inputs holding no
+    document at all. An existing directory with no ``*.json`` beside other inputs stays a ``not_run`` row."""
+    from dokimi.report.summary import expand_inputs
+
+    missing = [p for p in paths if not Path(p).exists()]
+    if missing:
+        raise InputError(f"no such file or directory: {', '.join(missing)}")
+    if all(p.is_dir() for p in expand_inputs(paths)):  # a file, a pipe or a FIFO is read, whatever it holds
+        raise InputError(f"no *.json file to summarize in {', '.join(paths)}")
+
+
 def cmd_report_summary(args: argparse.Namespace) -> None:
-    """Merge cli_output.v1 documents into one summary. Exit 0 once written: the gate stays each leaf's own exit code."""
+    """Merge cli_output.v1 documents into one summary. Exit 2 on an absent input (a gate must not pass on a typo);
+    exit 0 once written, the gate staying each leaf's own exit code."""
     from dokimi.report.summary import render, summarize
 
+    _refuse_absent_inputs(args.inputs)
     text = render(summarize(args.inputs), args.format)
     if args.out:
         from dokimi.commands._output import write_text_or_exit

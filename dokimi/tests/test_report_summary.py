@@ -73,12 +73,48 @@ def test_markdown_escapes_pipes_and_marks_absent_subjects(tmp_path):
     assert "| s | pass |" in md
 
 
-def test_cli_exits_zero_on_a_failed_input_and_writes_out(tmp_path):
+def _summary_cli(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(CLI), "report", "summary", *args], capture_output=True, text=True)
+
+
+def test_cli_refuses_a_named_input_that_is_missing_and_writes_nothing(tmp_path):
+    # B1 (review of #94): a gate reading the summary must not pass on a typo'd path (exit 2, input refusal).
     out = tmp_path / "r" / "summary.json"
-    done = subprocess.run([sys.executable, str(CLI), "report", "summary", str(tmp_path / "nope.json"),
-                           "--format", "json", "--out", str(out)], capture_output=True, text=True)
+    done = _summary_cli(str(tmp_path / "nope.json"), "--format", "json", "--out", str(out))
+    assert done.returncode == 2 and "no such file or directory" in done.stderr and done.stdout == ""
+    assert not out.exists()
+
+
+def test_cli_refuses_a_missing_path_next_to_a_good_document(tmp_path):
+    good = _doc(tmp_path, "ok.json", "repo scan", verdict="pass")
+    done = _summary_cli(str(good), str(tmp_path / "gone.json"))
+    assert done.returncode == 2 and str(tmp_path / "gone.json") in done.stderr and done.stdout == ""
+
+
+def test_cli_refuses_inputs_that_hold_no_document(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    out = tmp_path / "summary.md"
+    done = _summary_cli(str(empty), "--out", str(out))
+    assert done.returncode == 2 and "no *.json file to summarize" in done.stderr and done.stdout == ""
+    assert not out.exists()
+
+
+def test_cli_reads_a_named_file_whatever_its_name(tmp_path):
+    f = tmp_path / "result.txt"
+    f.write_text("{", encoding="utf-8")
+    done = _summary_cli(str(f), "--format", "json")
     assert done.returncode == 0, done.stderr
-    assert json.loads(out.read_text())["checks"][0]["state"] == "not_run"
+    assert [c["state"] for c in json.loads(done.stdout)["checks"]] == ["invalid"]
+
+
+def test_cli_keeps_an_empty_directory_beside_a_document_as_a_not_run_row(tmp_path):
+    good = _doc(tmp_path, "ok.json", "repo scan", verdict="pass")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    done = _summary_cli(str(empty), str(good), "--format", "json")
+    assert done.returncode == 0, done.stderr
+    assert [c["state"] for c in json.loads(done.stdout)["checks"]] == ["not_run", "pass"]
 
 
 # --- the leaves that opt in (#749 layer 2) and their findings in the summary ---
