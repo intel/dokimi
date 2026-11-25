@@ -230,6 +230,7 @@ def test_eval_check_j_prefix_is_json_only():
     assert cli.parse_args(["eval", "check", "src", "--j", "--schema-only"]).json is True
 
 
+# Test-narrowed: repo scan now accepts the deprecated spelling, which the compatibility test exercises.
 @pytest.mark.parametrize(("old", "new"), [
     (["repo", "validate", "src", "--fail-on-warning"], ["eval", "check", "--schema-only", "src", "--fail-on=warn"]),
     (["repo", "budget", "src", "--fail-on-warning"], ["repo", "budget", "src", "--fail-on=warn"]),
