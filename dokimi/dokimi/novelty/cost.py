@@ -114,6 +114,73 @@ def estimate_usd(
     return usd
 
 
+ROLES = ("extractor", "answerer", "judge")
+
+
+def role_usd(args: argparse.Namespace, n_tokens: int, by_role: dict[str, int], tier: str | None,
+             context_share: float = 0.5) -> dict[str, float] | None:
+    """Each role's list-price dollars, panel judges after the first counted under ``judge``.
+
+    Silent: :func:`estimate_usd` has said why a figure is missing. ``None`` when a role has no
+    price; the values sum to the estimate's ``expected_usd`` to rounding.
+    """
+    from dokimi.novelty.tiers import usd_by_role
+
+    try:
+        models = role_models(args)
+    except ValueError:
+        return None
+    split = usd_by_role(by_role, n_tokens, models, tier, context_share)
+    if split is None:
+        return None
+    for model, provider in judge_refs(args)[1:]:
+        extra = usd_by_role({"judge": by_role.get("judge", 0)}, n_tokens,
+                            {"judge": (model, provider)}, tier, context_share)
+        if extra is None:
+            return None
+        split["judge"] = split.get("judge", 0.0) + extra["judge"]
+    return {role: round(split.get(role, 0.0), 6) for role in ROLES}
+
+
+def least_sure_role(usd_by_role: dict[str, float], tier: str | None) -> dict[str, str]:
+    """The role the dollar figure is least sure of, and why (#631).
+
+    A tier with no extractor profile of its own (``study``, an untiered run) borrows the
+    standard one, so the extractor is the least sure. Otherwise it is the role with the largest
+    dollars, where an error in the token profile moves the figure most; a tie goes to the first
+    of extractor, answerer, judge. There is no per-role error data behind this rule.
+    """
+    from dokimi.novelty.tiers import EXTRACTOR_TOKENS
+
+    if tier not in EXTRACTOR_TOKENS:
+        return {"role": "extractor",
+                "reason": "the extractor's token profile is the standard tier's, borrowed, "
+                          "since no run of this tier was measured"}
+    role = max(ROLES, key=lambda name: usd_by_role[name])
+    return {"role": role,
+            "reason": f"an error in the {role}'s token profile moves the dollar figure most"}
+
+
+def add_role_usd(args: argparse.Namespace, estimate: dict, n_tokens: int, tier: str | None,
+                 context_share: float) -> None:
+    """Put ``usd_by_role`` and ``least_sure_role`` in a run estimate, both ``None`` without a figure."""
+    split = None
+    if estimate["expected_usd"] is not None:
+        split = role_usd(args, n_tokens, estimate["estimate"]["by_role"], tier, context_share)
+    estimate["usd_by_role"] = split
+    estimate["least_sure_role"] = None if split is None else least_sure_role(split, tier)
+
+
+def least_sure_line(estimate: dict) -> str | None:
+    """The stderr line naming the least sure role, its share of ``expected_usd`` and why."""
+    least = estimate.get("least_sure_role")
+    if not least:
+        return None
+    split = estimate["usd_by_role"]
+    share = 100 * split[least["role"]] / (sum(split.values()) or 1)
+    return f"Least sure of: {least['role']} ({share:.0f}% of expected_usd): {least['reason']}"
+
+
 def add_panel_calls(args: argparse.Namespace, estimate: dict) -> None:
     """Count the panel's grading calls in a run estimate: each judge after the first grades every answer again."""
 
