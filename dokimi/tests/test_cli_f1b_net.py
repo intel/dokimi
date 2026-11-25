@@ -37,7 +37,7 @@ def test_an_old_timeout_spelling_tombstones_with_the_new_argv(old, new, capsys):
     ["repo", "run", "src", "--timeout", "900"],  # a bare SEC is the agent run's
     ["repo", "run", "src", "--timeout", "build=5", "--timeout", "verify=60"],
     ["eval", "check", "src", "--timeout", "build=5"],
-    ["tasks", "run", "--all", "--harnesses", "h", "--network", "none"],
+    ["tasks", "run", "--all", "--harness", "h", "--network", "none"],
 ])
 def test_a_canonical_timeout_or_network_spelling_is_not_moved(argv):
     assert cli_routes.moved_flags_argv(argv) is None
@@ -89,7 +89,7 @@ def test_a_moved_timeout_flag_with_no_value_does_not_index_past_the_end():
 
 def test_a_bare_network_mode_means_every_phase():
     """`tasks run --network none` (no PHASE=) sets every phase, as the registry's spelling promises."""
-    args = build_parser().parse_args(["tasks", "run", "--all", "--harnesses", "h", "--network", "none"])
+    args = build_parser().parse_args(["tasks", "run", "--all", "--harness", "h", "--network", "none"])
     overrides = network_policy.parse_override(args.network[0])
     assert set(overrides) == set(network_policy.PHASES)
     assert {p.mode for p in overrides.values()} == {"none"}
