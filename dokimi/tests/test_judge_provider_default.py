@@ -425,3 +425,14 @@ def test_apply_default_judge_on_a_copilot_answerer_keeps_the_judge_provider():
     apply_default_judge(args, matrix=False, named=False)
     assert args.judge_provider == "openai"
 
+
+
+@pytest.mark.parametrize("named, answerer", [(True, None), (False, "codex-cli")])
+def test_judge_model_refusal_names_only_the_canonical_judge_flag(named, answerer):
+    # The hint must not point at a retired spelling (--judge-model, --judge-provider): on every command it is stale.
+    from dokimi.judge_rule import refuse_judge_model
+
+    message = refuse_judge_model("codex-cli", "gpt-x", named=named, answerer_provider=answerer)
+    assert "--judge PROVIDER/MODEL" in message or "--judge codex-cli/<Claude model>" in message
+    for retired in ("--judge-model", "--judge-provider", "arms run"):
+        assert retired not in message, message
