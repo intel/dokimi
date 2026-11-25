@@ -54,6 +54,7 @@ def test_unknown_frontmatter_key_is_a_note_that_names_the_key(tmp_path):
     [finding] = [f for f in _findings(tmp_path)["color-skill"] if f.code == "frontmatter-unknown-key"]
     assert finding.level == "note"  # a non-spec key may be a field a harness reads: information, not a defect
     assert "'color'" in finding.message
+    assert "may be read by another harness" in finding.message
 
 
 def test_an_unknown_frontmatter_key_alone_leaves_the_skill_in_state_ok(tmp_path):

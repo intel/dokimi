@@ -115,7 +115,7 @@ NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 # The frontmatter keys the Agent Skills spec defines, then the ones Claude Code reads on top of it.
-# Any other key is a typo or a field no harness reads (``frontmatter-unknown-key``, a note: it changes no state).
+# Other keys may be typos or fields used by another harness (``frontmatter-unknown-key``, a note).
 FRONTMATTER_KEYS = frozenset(
     {
         "name", "description", "license", "allowed-tools", "metadata", "compatibility",
@@ -319,8 +319,8 @@ def _frontmatter_findings(
             Finding(
                 "note",
                 "frontmatter-unknown-key",
-                f"frontmatter has {', '.join(map(repr, unknown_keys))}, which no spec or Claude Code "
-                "field is named; a typo, or a field no harness reads",
+                f"frontmatter keys {', '.join(map(repr, unknown_keys))} are outside the Agent Skills "
+                "spec and Claude Code conventions. These keys may be read by another harness or may be typos.",
             )
         )
     findings += _tool_findings(meta.get("allowed-tools"))
