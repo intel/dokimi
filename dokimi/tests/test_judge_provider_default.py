@@ -260,6 +260,16 @@ def test_the_legacy_cli_shim_exports_the_resolving_parse_args():
     assert args.judge_model == DEFAULT_GENERATOR_MODEL
 
 
+def test_preflight_refuses_the_judge_that_run_refuses(capsys):
+    # preflight shows the plan the run will take: the same flags that `benchmark run` refuses are refused here
+    for argv in (["benchmark", "run", "--library", "onetbb"], ["benchmark", "preflight", "--library", "onetbb"]):
+        for flag in ("--judge", "--model"):
+            with pytest.raises(SystemExit) as exc:
+                parse_args([*argv, flag, "openai/"])
+            assert exc.value.code == 2
+            assert f"{flag} openai/ has no model" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("command", sorted(set(COMMANDS) - KEPT_SPELLING))
 def test_judge_provider_is_moved_on_the_commands_that_no_longer_take_it(command, capsys):
     # The switch is gone there: the tombstone points at `--judge PROVIDER/MODEL` and exits 2.

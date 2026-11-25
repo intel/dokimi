@@ -436,9 +436,8 @@ class FlagJoin:
     leaves: tuple[tuple[str, ...], ...] = ()
 
 
-# The leaves whose judge was ``--judge-model``/``--judge-provider`` and is now ``--judge PROVIDER/MODEL``.
-# arms run, arms matrix-run, subjects run and catalog/skill novelty keep both spellings (their ``--judge``
-# is a switch or a panel there), so they are not listed.
+# Leaves whose judge was ``--judge-model``/``--judge-provider``; now ``--judge PROVIDER/MODEL`` (issue #94 F1b).
+# arms run, arms matrix-run, subjects run and novelty keep both spellings: there ``--judge`` is a switch or a panel.
 JUDGE_MOVED_LEAVES: tuple[tuple[str, ...], ...] = (
     ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
     ("eval", "judge", "validate"), ("eval", "judge", "wording"),

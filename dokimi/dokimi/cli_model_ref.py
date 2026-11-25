@@ -60,3 +60,18 @@ def add_model_flag(parser: argparse.ArgumentParser, option: str, *, dest: str, p
     )
     parser.set_defaults(**{provider_dest: default_provider})
     return action
+
+
+_EMPTY_MODEL_CHECKS = (("--model", "provider", "model"), ("--judge", "judge_provider", "judge_model"))
+
+
+def refuse_empty_model(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Refuse ``--model P/`` and ``--judge P/``: a provider with no model, which would reach its API as an empty name.
+
+    The old ``--judge-provider P`` alone was refused up front; the Bedrock judge check reports an empty model before
+    sampling too. This keeps the other providers from sampling first and failing at the judge.
+    """
+    for flag, provider_attr, model_attr in _EMPTY_MODEL_CHECKS:
+        provider = getattr(args, provider_attr, None)
+        if provider and getattr(args, model_attr, None) == "":
+            parser.error(f"{flag} {provider}/ has no model: pass {flag} {provider}/<MODEL>")
