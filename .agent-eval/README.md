@@ -41,9 +41,9 @@ Process metrics are reported and never gated. They come from `events.jsonl` and 
 - `read_docs`
 
 The review tasks report no process metrics (`read_docs`, `ran_pytest` and the rest above):
-the built-in seeded-review grader writes only the seed metrics. It reads the final fenced
-JSON array and measures recall, unmatched findings and decoy flags. Without a
-readable findings array, both tasks report `pass: false` and `parse_error: true`,
+the built-in seeded-review grader writes only the seed metrics. It scores the
+objects in the last parseable fenced `json` block. If that block is absent or
+its JSON value is not an array, both tasks report `pass: false` and `parse_error: true`,
 and the seeded task scores zero recall. The clean task also fails when the
 reviewer reports a blocker or major issue. Read credited findings before treating
 recall as a correctness measure, because the grader also matches by proximity.

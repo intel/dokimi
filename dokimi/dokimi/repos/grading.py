@@ -214,7 +214,10 @@ def _builtin_entry(ctx: EvalContext, kind: str, task: Task, builtin: str,
     # The Docker daemon may see the exported content's parent but not the client's site-packages.
     staging = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="graders-", dir=ctx.content_dir.resolve().parent)))
     graders = shutil.copytree(GRADERS_HOST, staging / "graders", ignore=shutil.ignore_patterns("__pycache__"))
-    # A daemon running under another UID must be able to traverse the staging directory.
+    # The package may have been installed with permissions that other UIDs cannot read.
+    graders.chmod(0o755)
+    for path in graders.rglob("*"):
+        path.chmod(0o755 if path.is_dir() else 0o644)
     staging.chmod(0o711)
     return argv, [Mount(graders, GRADERS_DIR, read_only=True)]
 

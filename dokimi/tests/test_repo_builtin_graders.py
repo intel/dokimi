@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import stat
 import subprocess
 import sys
@@ -359,11 +360,17 @@ def _check(root, out, runner, monkeypatch, *tasks):
 def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, monkeypatch):
     runner = FakeRunner()
     run = runner.run
+    installed = shutil.copytree(HOST_DIR, tmp_path / "private-install")
+    installed.chmod(0o700)
+    (installed / "main.py").chmod(0o600)
+    monkeypatch.setattr("dokimi.repos.grading.GRADERS_HOST", installed)
 
     def run_with_separate_daemon(spec, **kwargs):
         for mount in spec.mounts:
-            if mount.container == GRADERS_DIR:
+            if mount.container == GRADERS_DIR and mount.host != installed:
                 assert mount.host.parent.stat().st_mode & stat.S_IXOTH
+                assert mount.host.stat().st_mode & stat.S_IXOTH
+                assert (mount.host / "main.py").stat().st_mode & stat.S_IROTH
         return run(spec, **kwargs)
 
     monkeypatch.setattr(runner, "run", run_with_separate_daemon)

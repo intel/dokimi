@@ -71,10 +71,13 @@ def _seeded(file, line, message):
         ("lift compares the with_docs answer to the baseline answer; document the sign", []),
         ("Rename the helper that reads `with_docs`", []),
         ("Replace the documentation link for `with_docs`. The baseline is correct.", []),
+        ("Use `baseline` rather than `without_docs` in the report heading", []),
         ("with_docs is renamed to baseline, so stored keys change", ["key_rename"]),
         ("The persisted key `with_docs` is now `with_context`", ["key_rename"]),
         ("The writer renamed the persisted with_docs key to with_context", ["key_rename"]),
         ("`with_context` and `baseline` replace `with_docs` and `without_docs`", ["key_rename"]),
+        ("The persisted keys `with_docs` and `without_docs` have been renamed to `with_context` and `baseline`",
+         ["key_rename"]),
     ],
 )
 def test_key_rename_needs_the_rename_not_just_both_key_names(message, hits):
@@ -93,5 +96,12 @@ def test_seed_keywords_accept_common_wordings():
 def test_a_nullable_score_complaint_that_says_narrow_is_the_decoy_not_the_schema_seed():
     grade = _seeded("dokimi/dokimi/schemas/answers.v1.json", 89,
                     "The grounding score types are too narrow; make score, baseline_score and lift nullable.")
+    assert grade["seeds_hit"] == []
+    assert grade["decoys_flagged"] == ["nullable_grounding_scores"]
+
+
+def test_a_nullable_decoy_with_in_place_wording_is_not_a_version_change():
+    grade = _seeded("dokimi/dokimi/schemas/answers.v1.json", 89,
+                    "The score types are too narrow. Make score, baseline_score and lift nullable in place.")
     assert grade["seeds_hit"] == []
     assert grade["decoys_flagged"] == ["nullable_grounding_scores"]
