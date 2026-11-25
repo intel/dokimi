@@ -708,3 +708,9 @@ def test_a_question_that_keeps_the_negation_of_a_statement_source_is_still_rejec
     assert check_wording("reversal", source=source, candidate="Should the installer not be run as root?") == [
         "polarity_not_flipped"
     ]
+
+
+@pytest.mark.parametrize("source", ["Don't run the installer as root.", "Don’t run the installer as root."])
+@pytest.mark.parametrize("candidate", ["Don't run the installer as root?", "Don’t run the installer as root?"])
+def test_a_question_that_keeps_the_leading_dont_of_the_source_restates_it(source, candidate):
+    assert check_wording("reversal", source=source, candidate=candidate) == ["restates_source"]
