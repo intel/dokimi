@@ -90,6 +90,11 @@ def test_a_moved_timeout_flag_with_no_value_does_not_index_past_the_end():
     assert cli_routes.moved_flags_argv(["eval", "check", "src", "--build-timeout"]) == ["eval", "check", "src", "--timeout", "build="]
 
 
+def test_a_moved_timeout_flag_without_a_value_leaves_the_next_flag_intact():
+    argv = ["repo", "run", "src", "--build-timeout", "--arm", "guidance:none"]
+    assert cli_routes.moved_flags_argv(argv) == ["repo", "run", "src", "--timeout", "build=", "--arm", "guidance:none"]
+
+
 def test_a_bare_network_mode_means_every_phase():
     """`tasks run --network none` (no PHASE=) sets every phase, as the registry's spelling promises."""
     args = build_parser().parse_args(["tasks", "run", "--all", "--harness", "h", "--network", "none"])
