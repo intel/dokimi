@@ -134,6 +134,13 @@ def test_a_shift_before_a_substitution_whose_heredoc_body_has_a_quote_opens_no_h
     assert "cat AGENTS.md" in _cli_heredocs(text)
 
 
+def test_an_escaped_opener_before_the_real_one_on_a_substitution_line_in_arithmetic_names_no_body() -> None:
+    text = "echo $((1 << 3 + $(echo \\<<X; cat <<EOF >/dev/null; echo 0\nit's\nEOF\n) ))\n((x=1<<3))\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["((x=1<<3))", "cat AGENTS.md"]
+    assert "it's" not in _cli_heredocs(text)
+    assert "cat AGENTS.md" in _cli_heredocs(text)
+
+
 @pytest.mark.parametrize("text", ["echo $(( $( ((x=1<<3)); echo 1) + 1 ))\ncat AGENTS.md\n", "echo $(( `((x=1<<3)); echo 1` + 1 ))\ncat AGENTS.md\n"])
 def test_a_bare_arithmetic_command_in_a_substitution_in_arithmetic_opens_no_heredoc(text: str) -> None:
     assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
