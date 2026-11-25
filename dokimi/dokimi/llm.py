@@ -493,6 +493,44 @@ def _tool_calls(message: Any) -> Tuple[ToolCall, ...]:
     return tuple(out)
 
 
+@dataclass(frozen=True)
+class ChatTurn:
+    """The first choice of a chat response: its text, its tool calls, how it ended."""
+
+    text: Optional[str]
+    tool_calls: Tuple[ToolCall, ...] = ()
+    finish_reason: Optional[str] = None
+
+    @property
+    def truncated(self) -> bool:
+        """Whether the choice was cut at the output ceiling."""
+        return self.finish_reason in _TRUNCATED
+
+
+def parse_turn(resp: Any, *, strict: bool = False) -> ChatTurn:
+    """Read the first choice of a litellm response *resp*.
+
+    Lenient (the default, the adapter's reading): a response with no choices, which some
+    routes bill as a 200, reads as an empty turn; its callers price it. Strict: no choice
+    raises instead, as a caller that needs an answer wants (``IndexError`` for an empty
+    list, ``TypeError`` for ``None``, ``AttributeError`` for a choice with no ``message``).
+    """
+    if strict:
+        choice = resp.choices[0]
+        message = choice.message
+    else:
+        choices = getattr(resp, "choices", None) or ()
+        choice = choices[0] if choices else None
+        message = getattr(choice, "message", None)
+    return ChatTurn(text=getattr(message, "content", None), tool_calls=_tool_calls(message),
+                    finish_reason=getattr(choice, "finish_reason", None))
+
+
+def response_usage(resp: Any, model: str, provider: str, *, latency_sec: float = 0.0) -> UsageRecord:
+    """The usage of a raw chat response, as :func:`chat_completion` hands it back."""
+    return _extract_usage(resp, model, provider, latency_sec=latency_sec)
+
+
 def _stream(completion: Any, request: Request) -> Reply:
     """Streaming variant of a single completion that also measures TTFT.
 
@@ -581,17 +619,15 @@ class LiteLLMAdapter:
             **kwargs,
         )
         latency = time.time() - t0
-        # No choices (a billed 200 some routes return) is not an error here:
-        # chat_completion hands the raw response on, and its callers price it.
-        choices = getattr(resp, "choices", None) or ()
-        choice = choices[0] if choices else None
-        message = getattr(choice, "message", None)
+        # No choices (a billed 200 some routes return) is not an error here: parse_turn
+        # reads it as an empty turn, and chat_completion hands the raw response on to be priced.
+        turn = parse_turn(resp)
         return Reply(
-            text=getattr(message, "content", None),
+            text=turn.text,
             usage=_extract_usage(resp, request.model, request.provider, latency_sec=latency,
                                  litellm_model=request.litellm_model),
-            finish_reason=getattr(choice, "finish_reason", None),
-            tool_calls=_tool_calls(message),
+            finish_reason=turn.finish_reason,
+            tool_calls=turn.tool_calls,
             response=resp,
         )
 

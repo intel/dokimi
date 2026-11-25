@@ -37,23 +37,22 @@ def _first_turn_caller(model: str, provider: str, max_tokens: int):
     A reply cut at ``max_tokens`` before any tool call is an error; one cut after a call keeps
     that call (only its name is scored) and is flagged ``truncated``.
     """
-    from dokimi.llm import _TRUNCATED, _extract_usage, chat_completion
+    # local, not module-level: the tests swap dokimi.llm.chat_completion before building the caller
+    from dokimi.llm import chat_completion, parse_turn, response_usage
 
     def call(item: dict) -> dict:
         t0 = time.time()
         resp = chat_completion(item["messages"], model=model, provider=provider, tools=item["tools"],
                                tool_choice="auto", max_tokens=max_tokens)
-        usage = _extract_usage(resp, model, provider, latency_sec=time.time() - t0).as_metrics_dict()
+        usage = response_usage(resp, model, provider, latency_sec=time.time() - t0).as_metrics_dict()
         try:
-            msg = resp.choices[0].message
-            calls = getattr(msg, "tool_calls", None) or []
+            turn = parse_turn(resp, strict=True)  # no choice is an item error, not an empty answer
             # an empty or missing name is kept as "": a call was made, to no tool on offer
-            names = [getattr(getattr(tc, "function", None), "name", None) or "" for tc in calls]
-            truncated = getattr(resp.choices[0], "finish_reason", None) in _TRUNCATED
-            if not calls and truncated:
+            names = [tc.name or "" for tc in turn.tool_calls]
+            if not turn.tool_calls and turn.truncated:
                 raise CutBeforeToolCall(f"reply cut at max_tokens={max_tokens} before any tool call", usage)
-            return {"called": names, "text": getattr(msg, "content", None) or "",
-                    "usage": usage, "truncated": truncated}
+            return {"called": names, "text": turn.text or "",
+                    "usage": usage, "truncated": turn.truncated}
         except CutBeforeToolCall:
             raise
         except Exception as exc:
