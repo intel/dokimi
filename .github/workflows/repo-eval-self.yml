@@ -3,7 +3,7 @@
 
 name: repo-eval-self
 
-# Check changed tasks and smoke-test guidance or harness edits using this commit's Dokimi.
+# Scan guidance, check changed tasks and smoke-test harness edits using this commit's Dokimi.
 # Manual dispatch checks every task by default.
 on:
   pull_request:
@@ -47,9 +47,8 @@ jobs:
       manifest: .agent-eval/repo-eval.yaml
       tasks: ${{ inputs.tasks || 'changed' }}
       smoke-tasks: fix-degrade-pre review-pr-conventions review-clean-diff
-      # Every `paths:` entry above outside .agent-eval/, as a prefix.
+      # Harness changes select the smoke set. Guidance-only edits still run the scan.
       smoke-paths: >-
-        AGENTS.md CLAUDE.md REVIEW.md .github/copilot-instructions.md
         dokimi/dokimi/repos/ dokimi/dokimi/commands/repo dokimi/dokimi/schemas/repo_
         dokimi/requirements.lock.txt dokimi/pyproject.toml
         .github/workflows/repo-eval.yml .github/workflows/repo-eval-self.yml actions/
