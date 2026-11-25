@@ -285,3 +285,45 @@ def test_a_key_file_that_is_not_utf8_is_named_in_the_refusal(tmp_path, monkeypat
     code, err = _preflight(tmp_path, monkeypatch, capsys)
     assert f"Cannot read API key from file '{key}'" in err
     assert code == 2
+
+
+
+def _preflight_on(tmp_path, monkeypatch, capsys, provider, model):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", provider, "--model", model,
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    return exc.value.code, capsys.readouterr().err
+
+
+@pytest.mark.parametrize("provider, model, key_var", [
+    ("anthropic", "vertex_ai/gemini-2.5-pro", "ANTHROPIC_API_KEY"),
+    ("anthropic", "bedrock/us.anthropic.claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
+    ("google-vertex", "gemini-2.5-pro", "GEMINI_API_KEY"),
+])
+def test_preflight_refuses_an_unreadable_key_file_on_a_keyless_route(
+        provider, model, key_var, tmp_path, monkeypatch, capsys):
+    """#851: every call reads the configured key, so a keyless route still refuses a `file:` it cannot read."""
+    monkeypatch.setenv(key_var, f"file:{tmp_path / 'no-such-key'}")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "valid-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    code, err = _preflight_on(tmp_path, monkeypatch, capsys, provider, model)
+    assert str(tmp_path / "no-such-key") in err
+    assert code == 2
+
+
+@pytest.mark.parametrize("command", ["run", "batch"])
+def test_run_and_batch_refuse_an_unreadable_key_file_on_a_vertex_route(command, tmp_path, monkeypatch):
+    from dokimi.commands.benchmark import _refuse_missing_credentials
+    from dokimi.utils import InputError
+
+    monkeypatch.setenv("GEMINI_API_KEY", f"file:{tmp_path / 'no-such-key'}")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    args = cli.build_parser().parse_args(
+        ["benchmark", command, "--libraries" if command == "batch" else "--library", "onetbb", "--provider", "google-vertex", "--model", "gemini-2.5-pro",
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")])
+    with pytest.raises(InputError, match="no-such-key"):
+        _refuse_missing_credentials(args)

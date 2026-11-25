@@ -16,9 +16,10 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from dokimi.artifacts import save_artifact
+from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import LLM, ChatModel, Invoker, check_caller_provider
 from dokimi.judged import judged_reply
-from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
+from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
 from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
@@ -262,7 +263,7 @@ class Judge:
         # The model names a CLI judge's aliases resolved to, for the judge record.
         self._resolved_models: set = set()
 
-        check_sampling(provider, temperature, seed)
+        check_judge_sampling(provider, model, temperature, seed)
         check_caller_provider(provider)
         self.llm: ChatModel = Invoker(LLM(model, provider, api_key, temperature=temperature, seed=seed))
         

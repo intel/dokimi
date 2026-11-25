@@ -168,6 +168,17 @@ class History:
         mode, kind, sha = entry.split("\t", 1)[0].split()
         return mode, (self._git("cat-file", "blob", sha).stdout_bytes if kind == "blob" else b"")
 
+    def first_parent_log(self, rev: str, n: int) -> list[tuple[str, int, str, str, str]]:
+        """``(sha, number of parents, subject, author date, body)`` of the newest ``n`` first-parent commits of
+        ``rev``, merges included. ``-z`` ends each commit with a NUL and the format puts one between its fields:
+        a message holds no NUL."""
+        raw = self._git("log", "--no-color", "--no-decorate", "--no-notes", "--no-show-signature",
+                        "--encoding=UTF-8", "-z", "--first-parent", f"--max-count={n}",
+                        "--format=%H%x00%P%x00%s%x00%aI%x00%b", rev, "--").stdout_bytes
+        parts = raw.decode("utf-8", "replace").split("\0")
+        return [(parts[i], len(parts[i + 1].split()), parts[i + 2], parts[i + 3], parts[i + 4])
+                for i in range(0, len(parts) - 4, 5)]
+
     def commits(self, a: str, b: str) -> list[str]:
         """The commits reachable from ``b`` and not from ``a``."""
         return self._git("rev-list", b, f"^{a}", "--").stdout.split()

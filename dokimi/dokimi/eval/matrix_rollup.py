@@ -31,6 +31,13 @@ def build_matrix_rollup(
             "plugin_set": data.get("plugin_set", "none"),
             "plugin_set_id": data.get("plugin_set_id"),
             "baseline_arm": data.get("baseline_arm"),
+            "judge_model": data.get("judge_model"),
+            "judge_provider": data.get("judge_provider"),
+            "judge_context": data.get("judge_context"),
+            "judge_temperature": data.get("judge_temperature"),
+            "judge_prompt_sha256": data.get("judge_prompt_sha256"),
+            **({"judge_resolved_models": data["judge_resolved_models"]}
+               if "judge_resolved_models" in data else {}),
             "summary": data.get("summary", {}),
             "cost_summary": data.get("cost_summary", {}),
         }
