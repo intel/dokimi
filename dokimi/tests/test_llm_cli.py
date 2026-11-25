@@ -499,12 +499,12 @@ def test_a_cli_provider_needs_a_claude_model_on_the_command_line():
 def test_a_cli_judge_given_a_non_claude_model_is_refused_at_parse_time(command):
     from dokimi.cli import parse_args
 
-    base = [*command, "--judge", "claude-cli/opus"]
     with refusal() as out:
-        parse_args([*base, "--judge", "gpt-6.1-sol"])  # refused before persona or answer work
+        parse_args([*command, "--judge", "claude-cli/gpt-6.1-sol"])
     assert out.code == 2
-    assert parse_args([*base, "--judge", "claude-sonnet-5-5"]).judge_model == "claude-sonnet-5-5"
-    assert parse_args(base).judge_model  # left out, the default judge is a Claude model and parses
+    for model in ("opus", "claude-sonnet-5-5"):
+        args = parse_args([*command, "--judge", f"claude-cli/{model}"])
+        assert (args.judge_model, args.judge_provider) == (model, "claude-cli")
 
 
 def test_answerer_and_generators_accept_the_cli_provider(runner):
