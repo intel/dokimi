@@ -323,9 +323,8 @@ def register(sub, positive_int) -> None:
     arms_run_p.add_argument("--baseline-arm", default="baseline", dest="baseline_arm",
                             help="Arm name used as the delta baseline (default: baseline)")
     cli_flags.add(arms_run_p, "policy", "--correction", default="holm", dest="stats_correction",
-                  # Kept literal so registering the CLI stays stdlib-only;
-                  # eval.stats.CORRECTIONS is the enforced source of truth
-                  # and ArmRunner validates against it.
+                  # Literal so registering the CLI stays stdlib-only; ArmRunner validates it
+                  # against eval.stats.CORRECTIONS, the source of truth.
                   choices=["holm", "bh"],
                   help="Multiple-comparison correction across treatment arms: "
                        "'holm' (Holm-Bonferroni, controls family-wise error, "
@@ -441,9 +440,8 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
     parser.add_argument("--baseline-arm", default="baseline", dest="baseline_arm",
                         help="Arm name used as the delta baseline (default: baseline)")
     cli_flags.add(parser, "policy", "--correction", default="holm", dest="stats_correction",
-                  # Kept literal so registering the CLI stays stdlib-only;
-                  # eval.stats.CORRECTIONS is the enforced source of truth
-                  # and ArmRunner validates against it.
+                  # Literal so registering the CLI stays stdlib-only; ArmRunner validates it
+                  # against eval.stats.CORRECTIONS, the source of truth.
                   choices=["holm", "bh"],
                   help="Multiple-comparison correction across treatment arms: "
                        "'holm' (Holm-Bonferroni, controls family-wise error, default) "
