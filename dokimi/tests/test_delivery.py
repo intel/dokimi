@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -255,6 +256,25 @@ def test_consumer_can_modify_its_starter(pack):
     pack.manifest.write_text(json.dumps(manifest))
     row = delivery.run(pack)["observations"][0]
     assert row["outcome"] == "PASS", row["evidence"]
+
+
+@pytest.mark.skipif(not shutil.which("sh"), reason="requires a POSIX shell")
+def test_multiline_installer_output_is_kept_out_of_consumer_output(pack, monkeypatch):
+    manifest = json.loads(pack.manifest.read_text())
+    manifest["install"] = "printf 'installing\\n'\n" + manifest["install"] + "\nprintf 'installed\\n'"
+    pack.manifest.write_text(json.dumps(manifest))
+
+    def container(image, script, mounts, data, *args, **kwargs):
+        if mounts:
+            for name, path in mounts.items():
+                script = script.replace(f"/{name}", str(path))
+        return process.run(["sh", "-c", script], input=data, env=process.Env.inherit(), timeout=10)
+
+    monkeypatch.setattr(delivery, "container", container)
+    row = delivery.run(pack)["observations"][0]
+    assert row["outcome"] == "PASS", row["evidence"]
+    assert row["evidence"]["stdout"] == "cpu:34\ncpu:-8\n"
+    assert row["evidence"]["stderr"] == "installing\ninstalled\n"
 
 
 def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):

@@ -187,8 +187,9 @@ def _grade(
             'cd "$workspace" || workspace_failed\n'
             "cp /initial ./consumer.sh || workspace_failed\n"
             "chmod u+w ./consumer.sh || workspace_failed\n"
+            "{\n"
             + manifest["install"]
-            + " || exit 120\n"
+            + "\n} >&2 || exit 120\n"
             + script,
             {"delivery": path, "initial": start},
             hidden,
