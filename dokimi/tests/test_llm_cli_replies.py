@@ -61,7 +61,10 @@ def test_a_usage_limit_error_is_run_wide_and_not_retried_though_it_names_a_rate_
 def test_a_cli_answerer_left_without_model_is_refused_at_parse(provider, capsys):
     from dokimi import cli
 
+    argv = ["answers", "generate", "--product", "p", "--questions", "q.json", "--model"]
     with pytest.raises(SystemExit) as exc:
-        cli.parse_args(["answers", "generate", "--product", "p", "--questions", "q.json", "--model", f"{provider}/"])
-    assert exc.value.code == 2 and "takes a Claude model" in capsys.readouterr().err
-    assert cli.parse_args(["answers", "generate", "--product", "p", "--questions", "q.json", "--model", "openai/gpt-5"]).model == "gpt-5"
+        cli.parse_args([*argv, f"{provider}/"])
+    assert exc.value.code == 2
+    assert f"--model {provider}/ has no model" in capsys.readouterr().err
+    args = cli.parse_args([*argv, f"{provider}/gpt-5"])
+    assert (args.provider, args.model) == (provider, "gpt-5")

@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterable
 
-from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.llm import ANSWER_PROVIDERS, PROVIDER_ALIASES
+
+_KNOWN_PROVIDERS = frozenset((*ANSWER_PROVIDERS, *PROVIDER_ALIASES))
 
 
 class ProviderModelAction(argparse.Action):
@@ -35,15 +37,19 @@ class ProviderModelAction(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
         provider, sep, model = str(values).partition("/")
-        if sep and provider in self.providers:  # `P/` (empty model) is P with no model: the provider's check reports it
+        if sep and provider in self.providers:
+            if not model.strip():
+                parser.error(f"{option_string} {provider}/ has no model: pass {option_string} {provider}/<MODEL>")
             setattr(namespace, self.provider_dest, provider)
             if self.named_dest:
                 setattr(namespace, self.named_dest, True)
             setattr(namespace, self.dest, model)
-        elif sep and provider in self.known and model.strip():
+        elif sep and provider in self.known:
             parser.error(f"{option_string}: `{provider}` is not a provider for this command; "
                          f"use one of {', '.join(sorted(self.providers))}")
         else:
+            if not str(values).strip():
+                parser.error(f"{option_string} has no model: pass {option_string} <MODEL>")
             setattr(namespace, self.provider_dest, parser.get_default(self.provider_dest))
             if self.named_dest:
                 setattr(namespace, self.named_dest, False)
@@ -59,24 +65,7 @@ def add_model_flag(parser: argparse.ArgumentParser, option: str, *, dest: str, p
     """
     action = parser.add_argument(
         option, dest=dest, action=ProviderModelAction, provider_dest=provider_dest, providers=tuple(providers),
-        known=ANSWER_PROVIDERS, named_dest=named_dest, default=default_model, metavar="PROVIDER/MODEL", help=help,
+        known=_KNOWN_PROVIDERS, named_dest=named_dest, default=default_model, metavar="PROVIDER/MODEL", help=help,
     )
     parser.set_defaults(**{provider_dest: default_provider})
     return action
-
-
-_EMPTY_MODEL_CHECKS = (("--model", "provider", "model"), ("--judge", "judge_provider", "judge_model"))
-
-
-def refuse_empty_model(parser: argparse.ArgumentParser, args: argparse.Namespace, *,
-                       checked_elsewhere: Iterable[str] = ()) -> None:
-    """Refuse ``--model P/`` and ``--judge P/``: a provider with no model, which would reach its API as an empty name.
-
-    The old ``--judge-provider P`` alone was refused up front; the Bedrock judge check reports an empty model before
-    sampling too. This keeps the other providers from sampling first and failing at the judge. A provider in
-    ``checked_elsewhere`` (the CLI backends) has its own check in ``cli.parse_args``, which names the models it takes.
-    """
-    for flag, provider_attr, model_attr in _EMPTY_MODEL_CHECKS:
-        provider = getattr(args, provider_attr, None)
-        if provider and provider not in checked_elsewhere and getattr(args, model_attr, None) == "":
-            parser.error(f"{flag} {provider}/ has no model: pass {flag} {provider}/<MODEL>")

@@ -41,7 +41,6 @@ from dokimi.commands import (
 from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
 from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER
-from dokimi.cli_model_ref import refuse_empty_model
 from dokimi.exit_codes import EXIT_INFRA
 from dokimi.judge_rule import apply_default_judge, follow_answerer_cli, refuse_judge_model
 
@@ -282,7 +281,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
         _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
     args = parser.parse_args(raw)
-    refuse_empty_model(parser, args, checked_elsewhere=llm_cli.BACKENDS)
     # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
     # ``--judge PROVIDER/MODEL`` sets it too (ProviderModelAction), so keep what the parser stored.
     args.judge_provider_named = bool(getattr(args, "judge_provider_named", False)) or any(

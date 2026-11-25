@@ -24,3 +24,26 @@ def test_a_later_bare_reference_uses_the_leaf_defaults(argv, option, first, last
     only = parse_args([*argv, option, last])
     repeated = parse_args([*argv, option, first, option, last])
     assert tuple(getattr(repeated, dest) for dest in dests) == tuple(getattr(only, dest) for dest in dests)
+
+
+@pytest.mark.parametrize(("argv", "option", "ref", "message"), [
+    (["answers", "generate", "--product", "p", "--questions", "q.json"],
+     "--model", "google/gemini-2.5-pro", "`google` is not a provider for this command"),
+    (["tools", "preference", "--groups", "groups.json"],
+     "--model", "claude-cli/", "`claude-cli` is not a provider for this command"),
+    (["tools", "preference", "--groups", "groups.json"],
+     "--model", "openai/ ", "--model openai/ has no model"),
+    (["eval", "score", "pointwise", "--answers", "a.json", "--product", "p"],
+     "--judge", "openai/ ", "--judge openai/ has no model"),
+    (["skill", "novelty", "analyze", "--artifact", "skill:s"],
+     "--extract-model", "anthropic/", "--extract-model anthropic/ has no model"),
+    (["skill", "novelty", "probe", "--artifact", "skill:s", "--atoms", "atoms.json"],
+     "--extract-model", "openai/ ", "--extract-model openai/ has no model"),
+    (["catalog", "novelty", "--root", "catalog"],
+     "--extract-model", "openai/", "--extract-model openai/ has no model"),
+])
+def test_malformed_qualified_references_fail_at_parse(argv, option, ref, message, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*argv, option, ref])
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
