@@ -685,7 +685,7 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)
     cli_flags.add(run_p, "run_name", "--name", required=True, dest="batch", metavar="NAME",
-                  help="Batch name: cells go to <out>/<name>/ (a batch's directory is its name)")
+                  help="Batch name: cells go to <out-dir>/<name>/ (a batch's directory is its name)")
     cli_flags.add(run_p, "output", "--out-dir", dest="out", default="repo-runs", help="Parent of batch directories (default: repo-runs)")
     run_p.add_argument("--harness", default="claude-code", help="Built-in profile name or profile YAML path")
     run_p.add_argument("--bin", default=None,
