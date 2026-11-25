@@ -146,6 +146,11 @@ def test_probe_returns_text_names_and_truncation(monkeypatch, no_cost):
     assert isinstance(out["usage"], dict)
 
 
+def test_probe_reads_a_missing_name_as_empty(monkeypatch, no_cost):
+    out = _caller(monkeypatch, _resp(None, [_tc(None)]))
+    assert out["called"] == [""]
+
+
 def test_probe_reads_absent_text_as_empty(monkeypatch, no_cost):
     out = _caller(monkeypatch, _resp(None, [_tc("a")]))
     assert out["text"] == "" and out["called"] == ["a"] and out["truncated"] is False
@@ -168,7 +173,7 @@ def test_probe_with_no_choices_is_an_item_error_with_usage(monkeypatch, no_cost)
             monkeypatch,
             NS(choices=[], usage=NS(prompt_tokens=1, completion_tokens=1, total_tokens=2)),
         )
-    assert isinstance(info.value.usage, dict)
+    assert isinstance(info.value.usage, dict)  # type: ignore[attr-defined]
 
 
 def test_probe_keeps_the_name_of_a_dict_shaped_tool_call(monkeypatch, no_cost):
