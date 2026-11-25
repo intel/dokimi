@@ -1144,7 +1144,7 @@ def test_cli_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatch):
     _task(tmp_path)
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "sb-task", "--tasks-root", str(tmp_path),
-        "--harnesses", "benchflow:oracle", "--out-dir", str(tmp_path / "runs"),
+        "--harness", "benchflow:oracle", "--out-dir", str(tmp_path / "runs"),
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)

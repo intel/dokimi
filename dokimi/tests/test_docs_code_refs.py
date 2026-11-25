@@ -141,7 +141,7 @@ def test_doc_code_references_resolve(doc):
 
 
 def test_the_checker_sees_commands_flags_and_paths():
-    assert _check_command("tasks run --tasks x --harnesses docker-oracle") == []
+    assert _check_command("tasks run --tasks x --harness docker-oracle") == []
     assert _check_command("tasks sprint") == ["unknown command: tasks sprint"]
     assert _check_command("tasks run --no-such-flag") == ["unknown flag: tasks run --no-such-flag"]
     assert _check_command("tasks run --tasks <id> | tee log") == []

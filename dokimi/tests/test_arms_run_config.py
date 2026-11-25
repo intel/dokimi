@@ -21,7 +21,7 @@ from dokimi.eval.arms_run import ArmsRunConfig
 from tests.cli_refusal import refusal
 
 
-ARMS_RUN = ["arms", "run", "--product", "demo", "--questions", "q.json", "--arms", "baseline"]
+ARMS_RUN = ["arms", "run", "--product", "demo", "--questions", "q.json", "--arm", "baseline"]
 
 
 @pytest.mark.parametrize("judge_provider", [[], ["--judge-provider", "openai"], ["--judge-provider", "claude-cli"]])
@@ -76,7 +76,7 @@ def test_a_doc_arm_without_a_library_id_stops_the_run_before_any_answer(command,
                                                                        capsys):
     argv = [a.format(**unresolvable) for a in command]
     args = parse_args([*argv, "--product", "demo", "--questions", str(unresolvable["questions"]),
-                       "--arms", f"baseline,docs:local:{unresolvable['docs']}"])
+                       "--arm", f"baseline,docs:local:{unresolvable['docs']}"])
 
     with refusal() as exc:
         args.func(args)
@@ -99,7 +99,7 @@ def test_a_refused_matrix_cell_is_named_and_no_cell_is_answered(tmp_path, provid
     ]}}), encoding="utf-8")
     out = tmp_path / "out"
     args = parse_args(["arms", "matrix-run", "--product", "demo", "--questions", str(questions),
-                       "--arms", "baseline", "--matrix-cells", str(cells), "--out-dir", str(out)])
+                       "--arm", "baseline", "--matrix-cells", str(cells), "--out-dir", str(out)])
 
     with refusal() as exc:
         args.func(args)
