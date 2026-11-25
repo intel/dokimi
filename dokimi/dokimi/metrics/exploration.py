@@ -43,12 +43,13 @@ _FINAL_ANSWER_CLOSE = re.compile(r"</final_answer>", re.IGNORECASE)
 # Fallback when no <final_answer> block exists: scan for path:line(-line) tokens. A
 # wrapping pair around the whole citation, ``(src/a.py:10)``, is not part of the path;
 # a leading bracket with no closer after the range, ``(app)/page.tsx:10``, is.
-_LOOSE_CITATION_RE = re.compile(
-    r"(?P<open>[(\[{<\"'])?"
-    r"(?P<path>[^\s:`]+\.[A-Za-z0-9_+]+)`?"
-    r":(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
+_LOOSE_RUN_RE = re.compile(r"[^\s:`]+")
+_LOOSE_TAIL_RE = re.compile(
+    r"`?:(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
     r"(?P<close>[)\]}>\"'])?"
 )
+_LOOSE_EXT_RE = re.compile(r"[A-Za-z0-9_+]+")
+_OPENERS = "([{<\"'"
 _WRAPPERS = {"(": ")", "[": "]", "{": "}", "<": ">", '"': '"', "'": "'"}
 
 
@@ -209,13 +210,42 @@ def _parse_block(block: str) -> CitationSet:
 
 def _parse_loose(text: str) -> CitationSet:
     citations: list[Citation] = []
-    for m in _LOOSE_CITATION_RE.finditer(text):
-        opener = m.group("open")
-        cite = _citation_from_match(m)
-        if opener in _WRAPPERS and _WRAPPERS[opener] in m.group("path"):
-            cite = replace(cite, path=normalize_path(opener + m.group("path")))
+    for opener, path, start, end in _loose_citations(text):
+        cite = _citation(path, start, end)
+        if cite is None:
+            continue
+        if opener in _WRAPPERS and _WRAPPERS[opener] in path:
+            cite = replace(cite, path=normalize_path(opener + path))
         citations.append(cite)
     return _finish(citations, [])
+
+
+def _loose_citations(text: str) -> Iterable[tuple[Optional[str], str, Optional[str], Optional[str]]]:
+    """``(opener, path, start, end)`` of each ``path.ext:start[-end]`` token, left to right.
+
+    A path is a whole run of non-space, non-``:``, non-backtick characters, so only the run
+    that ends at ``:digits`` is read: its last ``.`` must be followed by an extension. One pass
+    over the text (https://github.com/intel/dokimi/issues/924).
+    """
+    pos = 0
+    while True:
+        run = _LOOSE_RUN_RE.search(text, pos)
+        if run is None:
+            return
+        first, last = run.span()
+        pos = last
+        tail = _LOOSE_TAIL_RE.match(text, last)
+        if tail is None:
+            continue
+        dot = text.rfind(".", first, last)
+        if dot <= first or _LOOSE_EXT_RE.fullmatch(text, dot + 1, last) is None:
+            continue
+        opener = None
+        if text[first] in _OPENERS and dot > first + 1:
+            opener = text[first]
+            first += 1
+        yield opener, text[first:last], tail.group("start"), tail.group("end")
+        pos = tail.end()
 
 
 def citation_path(entry: str) -> str:
@@ -237,14 +267,20 @@ def _parse_one(token: str) -> Optional[Citation]:
     return _citation_from_match(m)
 
 
-def _citation_from_match(m: "re.Match[str]") -> Citation:
-    path = normalize_path(m.group("path"))
-    start = m.group("start")
-    end = m.group("end")
+def _citation_from_match(m: "re.Match[str]") -> Optional[Citation]:
+    return _citation(m.group("path"), m.group("start"), m.group("end"))
+
+
+def _citation(raw_path: str, start: Optional[str], end: Optional[str]) -> Optional[Citation]:
+    """The citation, or ``None`` when a line number has too many digits for ``int()``."""
+    path = normalize_path(raw_path)
     if start is None:
         return Citation(path=path)
-    start_i = int(start)
-    end_i = int(end) if end is not None else start_i
+    try:
+        start_i = int(start.lstrip("0") or "0")
+        end_i = int(end.lstrip("0") or "0") if end is not None else start_i
+    except ValueError:
+        return None
     if end_i < start_i:
         start_i, end_i = end_i, start_i
     return Citation(path=path, start=start_i, end=end_i)

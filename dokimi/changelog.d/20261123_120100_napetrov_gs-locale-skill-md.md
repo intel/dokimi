@@ -1,0 +1,3 @@
+### Fixed
+
+- **`bundle-file-unreferenced` no longer counts a translation of `SKILL.md`** — a localized copy at the skill root, named with a two-letter language tag (`SKILL.ru.md`, `SKILL.zh-CN.md`, `SKILL.pt_BR.md`), holds the same instructions as `SKILL.md`, so it is not a bundled file the agent is left to find. It is not counted itself; it is read as a document only when `SKILL.md` or another read document names it. Still counted: `SKILL.notes.md`, `SKILL.cli.md`, `SKILL.bak.md`, `SKILL.en-help.md` (a word after the language is not a script tag), `notes.ru.md`, and a translation in a subfolder (`references/SKILL.ru.md`). Nothing to do for authors: the warning goes away for root translations; a real unnamed script or document still gets it.

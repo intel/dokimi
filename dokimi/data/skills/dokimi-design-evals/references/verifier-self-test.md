@@ -129,7 +129,8 @@ So the per-step self-test is manual: for each step, run its verifier on that ste
 reference state and on the state before it, and expect pass then fail. To run a step's
 `tests/test.sh` by hand, put that step's `tests/` at `/tests` and at `/verifier` in the
 task image and run
-`mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh`, as the harness does.
+`mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh 2>&1`.
+The harness also combines the verifier’s output streams to preserve the order of its test summaries.
 Read `/logs/verifier/reward.txt`, as the harness does; if the file is missing, exit 0
 errors the cell and a non-zero exit is a fail.
 The task needs a top-level `instruction.md`; without it the task does not load.

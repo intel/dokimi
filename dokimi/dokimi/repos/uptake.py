@@ -31,6 +31,7 @@ from (it never started, or its trace did not parse).
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from pathlib import Path
 from typing import Any
@@ -81,7 +82,7 @@ def arm_uptake(events: list[dict[str, Any]] | None, files: list[str], servers: l
         kind = ev.get("kind")
         if kind == "command" and named is not None and named.search(str(ev.get("text", ""))):
             out["commands"] += 1
-        elif shown_read(ev) and ev.get("path") in wanted:  # a failed read (``rc`` 1) showed nothing
+        elif shown_read(ev) and posixpath.normpath(str(ev.get("path") or "")) in wanted:  # a failed read showed nothing
             out["reads"] += 1
         elif kind == "tool" and prefixes and str(ev.get("name", "")).startswith(prefixes):
             out["mcp_calls"] += 1

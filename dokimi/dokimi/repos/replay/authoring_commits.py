@@ -1,0 +1,116 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""``eval tasks generate --from history``: one authoring task per bug-fix commit (contract §4.8).
+
+The commits are the first-parent, non-merge commits of the source's revision, newest first,
+whose subject the ``--subject`` pattern matches; a revert, ``fixup!``, ``squash!`` or ``amend!``
+commit is never one. Each is a :class:`.authoring.Change` from its
+parent to itself, titled by its subject and described by the rest of its message, so the
+repository needs no pull request file. A squash-merged pull request's subject ends with
+``(#<n>)``: ``n`` is its number. A squash merge gives no ``public_at`` because Git does not
+record the PR opening date. Other commits use the author date.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from ..manifest import RepoManifest
+from .authoring import Change, Options, Outcome, kept, task_of_pr, tasks_by_pr, would_write, write
+from .history import History
+from .merged import Skip
+
+# Match common bug-fix language, including subjects that describe the symptom without using "fix".
+DEFAULT_SUBJECT = (r"\b(?:bugfix(?:es)?|fix(?:es|ed|ing)?|bugs?)\b|regress|crash|wrong|incorrect|broken|no longer|\bnever\b|\bhang|\bleak|off-by|"
+                   r"mismatch|silently")
+_PR_SUFFIX = re.compile(r"\s*\(#(\d+)\)\s*$")
+# A revert ("Revert \"...", "revert: ...", "Revert fix for ...", "Back out ...") undoes a change: its oracle would undo
+# the fix. fixup!/squash!/amend! commits are halves of another commit.
+_NOT_A_FIX = re.compile(r"^(?:\[[^]\r\n]+\][ \t]*)*(?:(?:[a-z]+(?:\([^)]*\))?!?:\s*)?)(?:revert\b|back(?:ed)?[ -]out\b|fixup! |squash! |amend! )", re.I)
+# The trailer lines that name people (with their e-mail) or are git's own, with their folded (indented) continuation
+# lines: no part of a description.
+_TRAILER = re.compile(r"^(?:(?:Signed-off|Co-authored|Co-developed|Reviewed|Acked|Tested|Reported|Suggested|Helped|Requested|Bisected|Reported-and-tested)-by|Cc|"
+                      r"Change-Id):[ \t]*.*(?:\n[ \t]+\S.*)*$|^\(cherry picked from commit [0-9a-f]+\)$", re.I | re.M)
+
+
+@dataclass(frozen=True)
+class Commit:
+    sha: str
+    subject: str
+    body: str
+    authored: str  # %aI, strict ISO 8601 with an offset
+
+
+def task_id(sha: str) -> str:
+    return f"authoring_{sha[:12]}"
+
+
+def first_parent(h: History, rev: str, n: int, subject: re.Pattern[str]) -> tuple[list[Commit], int, int]:
+    """Of the newest ``n`` first-parent commits of ``rev``, the non-merge ones ``subject`` matches (no revert,
+    ``fixup!``, ``squash!`` or ``amend!``): ``(matched, n non-merge commits read, n merges left out)``. The body loses its
+    trailers: an e-mail in a ``Signed-off-by`` line is no part of the task."""
+    log = h.first_parent_log(rev, n)
+    commits = [Commit(sha, subj, without_trailers(body), at) for sha, n_parents, subj, at, body in log
+               if n_parents < 2]
+    matched = [c for c in commits if subject.search(c.subject) and not _NOT_A_FIX.match(c.subject)]
+    return matched, len(commits), len(log) - len(commits)
+
+
+def without_trailers(body: str) -> str:
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    return re.sub(r"\n{3,}", "\n\n", _TRAILER.sub("", body)).strip()
+
+
+def build_all(h: History, manifest: RepoManifest, commits: list[Commit], opts: Options, *,
+              dry_run: bool = False) -> list[Outcome]:
+    claimed = tasks_by_pr(opts.out)  # also tracks proposed tasks in a dry run
+    outcomes = []
+    for c in commits:
+        outcome = build_one(h, manifest, c, opts, dry_run=dry_run, claimed=claimed)
+        if outcome.pr is not None and outcome.task and outcome.status in ("written", "would write"):
+            claimed.setdefault(outcome.pr, outcome.task)
+        outcomes.append(outcome)
+    return outcomes
+
+
+def build_one(h: History, manifest: RepoManifest, c: Commit, opts: Options, *, dry_run: bool = False,
+              claimed: dict[int, str] | None = None) -> Outcome:
+    existing = kept(opts, None, task_id(c.sha))
+    if existing is not None:
+        return existing
+    _, number = _split_subject(c.subject)
+    other = None
+    if number is not None:
+        other = claimed.get(number) if claimed is not None else task_of_pr(opts.out, number)
+    if other is not None and other != task_id(c.sha):  # one change is one task, whichever source wrote it
+        return Outcome(number, "kept", other, f"{other} is this pull request's task; skipped {task_id(c.sha)}")
+    try:
+        return (would_write if dry_run else write)(h, manifest, change_of(h, c), opts)
+    except Skip as exc:
+        return Outcome(None, "skipped", task_id(c.sha), reason=str(exc))
+
+
+def _split_subject(subject: str) -> tuple[str, int | None]:
+    match = _PR_SUFFIX.search(subject)
+    if match is None:
+        return subject, None
+    try:
+        number = int(match[1])
+    except ValueError:
+        return subject, None
+    return subject[:match.start()], number
+
+
+def change_of(h: History, c: Commit) -> Change:
+    """``c`` as a change from its first parent; :class:`.merged.Skip` for a root commit."""
+    parents = h.parents(c.sha)
+    if not parents:
+        raise Skip("a root commit has no parent to start from")
+    title, number = _split_subject(c.subject)
+    fields = {"source_commit": c.sha, **({"source_pr": number} if number is not None else {})}
+    if re.search(DEFAULT_SUBJECT, title, re.I):
+        fields["family"] = "fix"
+    return Change(id=task_id(c.sha), number=number, title=title, body=c.body, base=parents[0], target=c.sha,
+                  public_at=(c.authored or None) if number is None else None, fields=fields)

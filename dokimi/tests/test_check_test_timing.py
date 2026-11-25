@@ -225,6 +225,12 @@ def test_a_sleep_in_a_string_or_another_name_is_not_a_call_to_count(source):
     ("from time import sleep\n[sleep(1) for _ in (0,) if sleep(2) if (sleep := None)]\n",
      {"time.sleep": 1}),
     ("from time import sleep\n[sleep(1) for _ in (0,) if (sleep := sleep(2))]\n", {"time.sleep": 1}),
+    ("import time\nmatch 1:\n    case time:\n        time.sleep(1)\n", {}),
+    ("import time\nmatch [1, 2]:\n    case [_, *time]:\n        time.sleep(1)\n", {}),
+    ("import time\nmatch {1: 2}:\n    case {1: _, **time}:\n        time.sleep(1)\n", {}),
+    ("import time\nmatch 1:\n    case 2:\n        pass\n    case _:\n        time.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\nmatch 1:\n    case time:\n        pass\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\nif 1:\n    time = 1\n    time.sleep(1)\n", {}),
 ])
 def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
@@ -256,6 +262,17 @@ def test_a_name_means_what_the_innermost_scope_that_binds_it_says(source, expect
     ("import sys\nif sys.platform == 'win32':\n    from time import sleep as wait\nelse:\n"
      "    from my_helpers import wait\nwait = print\nwait(1)\n", {}),
     ("from time import sleep as wait\nfor _ in range(2):\n    wait = print\nwait(1)\n", {"time.sleep": 1}),
+    ("import time\ntry:\n    raise ValueError\nexcept (time.sleep(0) or ValueError) as time:\n    pass\n",
+     {"time.sleep": 1}),
+    ("import time\ntry:\n    pass\nexcept ValueError as time:\n    time.sleep(1)\n", {}),
+    ("import time\nFalse and (time := None)\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n(time := None) if False else None\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\nNone if False else (time := None)\ntime.sleep(1)\n", {"time.sleep": 1}),
+    ("import time\n(time := None) and 1\ntime.sleep(1)\n", {}),
+    ("import time\n1 if (time := None) else 2\ntime.sleep(1)\n", {}),
+    ("from time import sleep\nTrue and (sleep := lambda _: None) and sleep(1)\n", {}),
+    ("from time import sleep\nFalse or (sleep := lambda _: None) or sleep(1)\n", {}),
+    ("from time import sleep\nTrue and (sleep := lambda _: None) and sleep(1)\nsleep(2)\n", {"time.sleep": 1}),
 ])
 def test_a_name_bound_differently_in_each_branch_counts_when_any_branch_makes_it_a_sleep(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])

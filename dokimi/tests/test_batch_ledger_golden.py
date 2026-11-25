@@ -37,22 +37,22 @@ GOLDEN_CLAUDE_CODE_IDS = {
 # The id moves whenever the fixture binary changes (its digest is in the id), e.g. when it gains a tool_result.
 GOLDEN_SAMPLE_CELLS = {
     "fix_add__guidance-none__m-1__r1": {
-        "id": "ac034e664259",
+        "id": "d4546308cce5",
         "tools": "all",
         "delegation": "native",
     },
     "fix_add__guidance-none__m-1__r2": {
-        "id": "ac034e664259",
+        "id": "d4546308cce5",
         "tools": "all",
         "delegation": "native",
     },
     "fix_add__guidance-raw__m-1__r1": {
-        "id": "ac034e664259",
+        "id": "d4546308cce5",
         "tools": "all",
         "delegation": "native",
     },
     "fix_add__guidance-raw__m-1__r2": {
-        "id": "ac034e664259",
+        "id": "d4546308cce5",
         "tools": "all",
         "delegation": "native",
     },
@@ -110,6 +110,7 @@ GOLDEN_RESULT_KEYS = [
     "grade",
     "harness",
     "harness_version",
+    "host_fingerprint",
     "model",
     "model_resolved",
     "process",

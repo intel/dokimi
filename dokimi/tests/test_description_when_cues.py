@@ -5,10 +5,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from dokimi.external import read_skill_manifest, review_skills
+from dokimi.external import read_skill_manifest, review_skills, when_cues
 from dokimi.external.validate import when_clause_found
+from tests.growth_timing import GROWTH_LIMIT, growth
+from tests.work_count import WORK_LIMIT, Tally, count_calls, count_pattern, work_ratio
 
 # Real-looking descriptions: a native "when" clause, the way a skill author writes it in that language.
 HAS_WHEN = [
@@ -84,6 +88,74 @@ HAS_WHEN = [
     pytest.param("当仓库中没有时自动创建目录。", id="zh-dang-closing-meiyou"),
     pytest.param("当新版本来临时自动升级。", id="zh-dang-closing-lailin"),
     pytest.param("배포 스크립트입니다. 필요한 때 사용합니다.", id="ko-piryohan-ttae"),
+    pytest.param("いつ使うか：リリース前。", id="ja-itsu-tsukau"),
+    pytest.param("当请求超时，自动重试并记录日志。", id="zh-dang-chaoshi"),
+    pytest.param("当事件到达时，发送通知。", id="zh-dang-shijian"),
+    pytest.param("Beim Erstellen eines Release verwenden.", id="de-beim-verwenden"),
+    pytest.param("Verwenden Sie diesen Skill zur Prüfung und Aktualisierung der Dokumentation beim Erstellen eines Release.", id="de-beim-long-gap"),
+    pytest.param("Beim Erstellen eines Release verwende diesen Skill.", id="de-beim-first-verwende"),
+    pytest.param("Beim Erstellen eines Release: nutze diesen Skill.", id="de-beim-first-nutze"),
+    pytest.param("Beim Erstellen eines Release benutze diesen Skill.", id="de-beim-first-benutze"),
+    pytest.param("Verwende diesen Skill z. B. beim Erstellen eines Release.", id="de-beim-abbreviation"),
+    pytest.param("Beim Deployen mit z. B. GitHub Actions verwende diesen Skill.", id="de-beim-abbreviation-capitalised"),
+    pytest.param("Beim Aktualisieren auf Python 3.14 verwende diesen Skill.", id="de-beim-version-number"),
+    pytest.param("当事人使用时自动记录。", id="zh-dangshiren-shiyongshi"),
+    pytest.param("当事人确认超时后，请使用此技能。", id="zh-dangshiren-chaoshi-hou"),
+    pytest.param("当事人需要超时处理，请使用本技能重试。", id="zh-dangshiren-chaoshi-chuli-use"),
+    pytest.param("當事人需要超時處理，請使用本技能重試。", id="zh-hant-dangshiren-chaoshi-chuli-use"),
+    pytest.param("Erstellt Berichte usw. Nutzen Sie diesen Skill beim Deployen.", id="de-abbreviation-nutzen-sie"),
+    pytest.param("Erstellt Berichte usw. Rufen Sie diesen Skill beim Deployen auf.", id="de-abbreviation-rufen-sie-auf"),
+    pytest.param("Erstellt Berichte usw. Setzen Sie diesen Skill beim Deployen ein.", id="de-abbreviation-setzen-sie-ein"),
+    pytest.param("Nutze diesen Skill beim Deployen.", id="de-nutze-beim"),
+    pytest.param("Du nutzt diesen Skill beim Deployen.", id="de-nutzt-beim"),
+    pytest.param("Einsatz: Verwende diesen Skill beim Deployen.", id="de-label-verwende-beim"),
+    pytest.param("- Nutze diesen Skill beim Deployen.", id="de-bullet-nutze-beim"),
+    pytest.param("\u201eRufe diesen Skill beim Deployen auf.", id="de-quote-ruf-beim-auf"),
+    pytest.param("Du verwendest diesen Skill beim Deployen.", id="de-verwendest-beim"),
+    pytest.param("Du benutzt diesen Skill beim Deployen.", id="de-benutzt-beim"),
+    pytest.param("Beim Deployen nutzt du diesen Skill.", id="de-beim-nutzt"),
+    pytest.param("いつ商用ではなくこのスキルを使うか。", id="ja-itsu-shiyou-after-noun"),
+    pytest.param("Benutze diesen Skill beim Deployen.", id="de-benutze-beim"),
+    pytest.param("Sie können diesen Skill beim Deployen nutzen.", id="de-nutzen-beim"),
+    pytest.param("Sie können diesen Skill beim Deployen benutzen.", id="de-benutzen-beim"),
+    pytest.param("Diesen Skill beim Deployen einsetzen.", id="de-einsetzen-beim"),
+    pytest.param("Beim Deployen diesen Skill einsetzen.", id="de-beim-einsetzen"),
+    pytest.param("Diesen Skill beim Deployen aufrufen.", id="de-aufrufen-beim"),
+    pytest.param("Beim Deployen diesen Skill aufrufen.", id="de-beim-aufrufen"),
+    pytest.param("Beim Deployen nutzen Sie diesen Skill.", id="de-beim-nutzen"),
+    pytest.param("Beim Deployen benutzen Sie diesen Skill.", id="de-beim-benutzen"),
+    pytest.param("Beim Deployen verwenden Sie diesen Skill.", id="de-beim-verwenden-sie"),
+    pytest.param("Rufe diesen Skill beim Deployen auf.", id="de-ruf-beim-auf"),
+    pytest.param("Setze diesen Skill beim Deployen ein.", id="de-setz-beim-ein"),
+    pytest.param("Beim Deployen rufe diesen Skill auf.", id="de-beim-ruf-auf"),
+    pytest.param("Beim Deployen setze diesen Skill ein.", id="de-beim-setz-ein"),
+    pytest.param("Rufe diesen Skill auf, z. B. beim Deployen.", id="de-ruf-auf-beim"),
+    pytest.param("Setze diesen Skill ein, z. B. beim Deployen.", id="de-setz-ein-beim"),
+    pytest.param("请求超时，请使用本技能重试。", id="zh-chaoshi-comma-use"),
+    pytest.param("超时，请使用本技能重试。", id="zh-chaoshi-comma-use-bare"),
+    pytest.param("延时，请使用此技能。", id="zh-yanshi-comma-use"),
+    pytest.param("遇到超时请使用本技能。", id="zh-chaoshi-qing-use"),
+    pytest.param("遇到耗时,调用本技能。", id="zh-haoshi-comma-use"),
+    pytest.param("超时使用本工具重试。", id="zh-chaoshi-shiyong-no-qing"),
+    pytest.param("请求超时触发本技能重试。", id="zh-chaoshi-chufa-no-qing"),
+    pytest.param("遇到延时运行本技能。", id="zh-yanshi-yunxing-no-qing"),
+    pytest.param("当事人签字时，生成归档报告。", id="zh-dangshiren-shi"),
+    pytest.param("いつこのスキルを使うか：リリース前。", id="ja-itsu-object-tsukau"),
+    pytest.param("いつ、このスキルを使うか。", id="ja-itsu-comma-tsukau"),
+    pytest.param("いつこのスキルを呼び出すか。", id="ja-itsu-yobidasu"),
+    pytest.param("いつこのスキルを起動する？", id="ja-itsu-kidou"),
+    pytest.param("いつこのスキルを発動する？", id="ja-itsu-hatsudou"),
+    pytest.param("いつこのスキルを実行する？", id="ja-itsu-jikkou"),
+    pytest.param("いつ参照すべきか", id="ja-itsu-sanshou"),
+    pytest.param("いつこのリポジトリのリリース前の設定ファイル検証にこのスキルを使うか。", id="ja-itsu-long-object-tsukau"),
+    pytest.param("いつ適用するか", id="ja-itsu-tekiyou"),
+    pytest.param("いつこれを利用する？", id="ja-itsu-riyou"),
+    pytest.param("いつこのスキルを使おうか？", id="ja-itsu-tsukaou"),
+    pytest.param("适用于编写 PRD、记录产品需求、准备功能规格，或评审现有 PRD。", id="zh-shiyongyu-activity-list"),
+    pytest.param("適用於撰寫 PRD、記錄產品需求，或審閱既有 PRD。", id="zh-hant-shiyongyu-activity-list"),
+    pytest.param("当 Agent 执行特定操作（文件修改、代码生成）前后自动触发检查。", id="zh-dang-qianhou-zidong-chufa"),
+    pytest.param("当请求到达前后自动调用本技能。", id="zh-dang-qianhou-zidong-diaoyong"),
+    pytest.param("當 Agent 執行特定操作前後自動觸發檢查。", id="zh-hant-dang-qianhou-zidong-chufa"),
 ]
 
 # No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
@@ -121,6 +193,16 @@ NO_WHEN = [
     pytest.param("同时调用多个 API 的封装库。", id="zh-tongshi-diaoyong-not-when"),
     pytest.param("定时调用接口的监控工具。", id="zh-dingshi-diaoyong-not-when"),
     pytest.param("支持多种使用场景的格式工具。", id="zh-shiyong-changjing-noun-not-when"),
+    pytest.param("当前后端分离的项目使用同一套配置。", id="zh-dangqianhou-duanfenli-not-when"),
+    pytest.param("适用于配置管理的工具。", id="zh-shiyongyu-noun-peizhi-not-when"),
+    pytest.param("适用于部署平台的工具。", id="zh-shiyongyu-noun-bushu-not-when"),
+    pytest.param("適用於調試器的工具。", id="zh-hant-shiyongyu-noun-tiaoshi-not-when"),
+    pytest.param("适用于配置管理的工具，支持 JSON、YAML 格式。", id="zh-activity-list-separate-clause"),
+    pytest.param("適用於配置管理的工具，支援 JSON、YAML 格式。", id="zh-hant-activity-list-separate-clause"),
+    pytest.param("适用于部署平台的工具,支持 JSON、YAML。", id="zh-activity-list-ascii-comma"),
+    pytest.param("整理当事人签约前后执行合同的记录。", id="zh-dangshiren-qianhou-records"),
+    pytest.param("整理當事人簽約前後執行合同的紀錄。", id="zh-hant-dangshiren-qianhou-records"),
+    pytest.param("相当于前后调用的工具。", id="zh-xiangdang-qianhou-not-when"),
     pytest.param("요청 시스템을 구축합니다.", id="ko-yeongcheong-siseutem-not-when"),
     pytest.param("ブラウザで起動するビューアです。", id="ja-browser-kidou-not-when"),
     pytest.param("该工具在当天的备份后执行清理。", id="zh-dangtian-not-when"),
@@ -196,6 +278,47 @@ NO_WHEN = [
     pytest.param("适用于定时任务的调度工具。", id="zh-shi-dingshi-not-when"),
     pytest.param("适用于时序数据分析的工具。", id="zh-shi-shixu-not-when"),
     pytest.param("适用于时代背景的分析工具。", id="zh-shi-daibei-not-when"),
+    pytest.param("アイデアを思いつくためのブレインストーミング支援ツール。", id="ja-omoitsuku-not-itsu"),
+    pytest.param("最新の仕様に追いつくためのドキュメント要約ツール。", id="ja-oitsuku-not-itsu"),
+    pytest.param("ユーザーが食いつくキャッチコピーを生成する。", id="ja-kuitsuku-not-itsu"),
+    pytest.param("こいつはPDFを結合するツール。", id="ja-koitsu-not-itsu"),
+    pytest.param("分析耗时调用链路并生成报告。", id="zh-haoshi-not-when"),
+    pytest.param("监控超时调用并发出告警。", id="zh-chaoshi-not-when"),
+    pytest.param("统计超时执行的任务。", id="zh-chaoshi-zhixing-not-when"),
+    pytest.param("Hilft beim Verwenden von Git.", id="de-hilft-beim-verwenden-not-when"),
+    pytest.param("Hilft beim Nutzen von Git-Hooks.", id="de-hilft-beim-nutzen-not-when"),
+    pytest.param("Unterstützt beim Aufrufen von APIs.", id="de-unterstuetzt-beim-aufrufen-not-when"),
+    pytest.param("整理当事人信息，统计接口超时。", id="zh-dangshiren-chaoshi-period-not-when"),
+    pytest.param("整理当事人信息，统计超时处理次数。", id="zh-dangshiren-chaoshi-chuli-not-when"),
+    pytest.param("支持超时处理，调用接口生成报告。", id="zh-chaoshi-chuli-bare-verb-not-when"),
+    pytest.param("Erstellt Berichte usw. Der Nutzen Sie ist groß und hilft beim Schreiben.", id="de-abbreviation-noun-sie-not-when"),
+    pytest.param("Hilft beim Schreiben von Texten und achtet auf den guten Ruf des Unternehmens.", id="de-ruf-noun-not-use"),
+    pytest.param("Hilft beim Schreiben und stärkt den Nutzen für Teams.", id="de-nutzen-noun-not-use"),
+    pytest.param("いつ発売されるかを予測する商用ツール。", id="ja-itsu-shouyou-not-use"),
+    pytest.param("支持延时执行的任务队列管理工具。", id="zh-yanshi-not-when"),
+    pytest.param("整理当事人信息，统计查询耗时。", id="zh-dangshiren-not-when"),
+    pytest.param("Hilft beim Schreiben von Commit-Nachrichten.", id="de-hilft-beim-not-when"),
+    pytest.param("Unterstützt Sie beim Erstellen von Berichten.", id="de-unterstuetzt-beim-not-when"),
+    pytest.param("Nutze das Tool. Hilft beim Schreiben.", id="de-sentence-boundary"),
+    pytest.param("Nutze das Tool. KI hilft beim Schreiben.", id="de-sentence-boundary-acronym"),
+    pytest.param("Nutze das Tool. „Hilft beim Schreiben“ beschreibt seine Funktion.", id="de-sentence-boundary-quote"),
+    pytest.param("整理当事人信息，统计查询超时记录。", id="zh-dangshiren-chaoshi-jilu-not-when"),
+    pytest.param("整理当事人信息，统计查询耗时和超时次数。", id="zh-dangshiren-two-durations-not-when"),
+    pytest.param("整理当事人信息，统计查询用时。", id="zh-dangshiren-yongshi-not-when"),
+    pytest.param("そいつを使って生成したログを解析するツール。", id="ja-soitsu-not-itsu"),
+    pytest.param("あいつを使うツール。", id="ja-aitsu-not-itsu"),
+    pytest.param("どいつを使うか判定するツール。", id="ja-doitsu-not-itsu"),
+    pytest.param("適用於延時的工具。", id="zh-hant-shiyongyu-yanshi-not-when"),
+    pytest.param("适用于监控超时的工具。", id="zh-shiyongyu-chaoshi-not-when"),
+    pytest.param("适用于统计耗时的工具。", id="zh-shiyongyu-haoshi-not-when"),
+    pytest.param("適用於統計耗時的工具。", id="zh-hant-shiyongyu-haoshi-not-when"),
+    pytest.param("適用於監控超時的工具。", id="zh-hant-shiyongyu-chaoshi-not-when"),
+    pytest.param("适用于延时的工具。", id="zh-shiyongyu-yanshi-not-when"),
+    pytest.param("整理当事人信息，统计查询耗時。", id="zh-hant-dangshiren-haoshi-not-when"),
+    pytest.param("ついつい使いたくなるアイデアを思いつくツール。", id="ja-omoitsuku-tsukau-not-itsu"),
+    pytest.param("こいつを使うツール。", id="ja-koitsu-tsukau-not-itsu"),
+    pytest.param("いつも使えるPDF結合ツール。", id="ja-itsumo-tsukae-not-itsu"),
+    pytest.param("アイデアを思いつく使い方を提案する。", id="ja-omoitsuku-tsukai-not-itsu"),
 ]
 
 
@@ -221,6 +344,78 @@ def test_a_script_no_cue_list_covers_is_not_checked(description):
     assert when_clause_found(description) is None
 
 
+def test_a_long_german_description_without_a_terminator_is_read_in_linear_time(monkeypatch):
+    searched = count_pattern(monkeypatch, when_cues, "_DE_BEIM_RE")
+    checked = count_calls(monkeypatch, when_cues, "_de_verb_in", size=lambda pattern, sentence: len(sentence))
+    for unit in ("rufe beim ", "beim nutze ", "Hilft beim Bauen "):
+
+        def run(k: int, unit: str = unit) -> object:
+            return when_clause_found(unit * k)
+
+        for tally in (searched, checked):
+            assert work_ratio(tally, run, 100) < WORK_LIMIT
+
+
+def test_repeated_itsu_without_a_use_verb_is_read_in_linear_time():
+    ratio, result = growth(lambda k: (lambda: when_clause_found("いつ " * k)), 200)
+    assert result is False
+    assert ratio < GROWTH_LIMIT
+
+
+def test_an_itsu_cue_has_no_distance_limit_inside_its_sentence():
+    assert when_clause_found("いつ" + "あ" * 81 + "使うか。") is True
+    assert when_clause_found("いつ" + "あ" * 5000 + "使う") is True
+    assert when_clause_found("いつ" + "あ" * 100 + "。使う") is False
+
+
+def test_the_changelog_states_no_distance_limit_for_the_itsu_cue():
+    fragment = Path(__file__).resolve().parent.parent / "changelog.d" / "20261113_120000_xaleryb_when-cue-followups.md"
+    assert "80 characters" not in fragment.read_text(encoding="utf-8")
+    assert "at any distance" in fragment.read_text(encoding="utf-8")
+
+
+class _CountedSentence(str):
+    """A sentence that adds the length of everything read from it, by slice or by index, to ``tally``."""
+
+    tally = Tally()
+
+    def __getitem__(self, key):
+        part = super().__getitem__(key)
+        self.tally.size += len(part)
+        return part
+
+
+def test_a_capitalised_noun_after_beim_is_checked_without_copying_the_text_before_it():
+    # each rejected `Ruf` once copied the text before it: quadratic, 200000 of them took seconds
+    pattern = when_cues._DE_USE_PARTICLE_RES[0][0]
+
+    def run(k):
+        return when_cues._de_verb_in(pattern, _CountedSentence("Hilft beim Schreiben " + "Ruf " * k))
+
+    assert work_ratio(_CountedSentence.tally, run, 500) < WORK_LIMIT
+
+
+@pytest.mark.parametrize("abbreviation", ["Nr", "Abs", "Art", "Kap", "Tel", "Bd", "Hrsg", "zzgl", "exkl", "Mio", "Mrd"])
+def test_a_german_abbreviation_does_not_end_the_sentence_with_beim(abbreviation):
+    assert when_clause_found(f"Verwende diesen Skill laut {abbreviation}. 3 beim Deployen.") is True
+    assert when_clause_found(f"Hilft beim Schreiben. Verwende diesen Skill laut {abbreviation}. 3.") is False
+
+
+@pytest.mark.parametrize("abbreviation", ["usw", "etc", "bzw", "Art", "Nr"])
+def test_a_capitalised_use_verb_after_an_abbreviation_starts_a_sentence(abbreviation):
+    assert when_clause_found(f"Erstellt Berichte, Tabellen {abbreviation}. Verwende diesen Skill beim Deployen.") is True
+    assert when_clause_found(f"Erstellt Berichte {abbreviation}. Verwende diesen Skill. Hilft beim Schreiben.") is False
+
+
+def test_an_abbreviation_before_a_noun_that_starts_like_a_use_verb_does_not_end_the_sentence():
+    assert when_clause_found("Verwende diesen Skill, um z. B. Nutzdaten beim Testen zu prüfen.") is True
+
+
+@pytest.mark.parametrize("noun", ["Ruf und Ansehen", "Nutzen und Risiken", "Setz und Ruf"])
+def test_a_capitalised_noun_that_can_be_a_verb_after_an_abbreviation_does_not_end_the_sentence(noun):
+    assert when_clause_found(f"Verwende diesen Skill, um z. B. {noun} beim Kunden zu verbessern.") is True
+
+
 def test_an_english_when_clause_still_passes_in_a_cjk_description():
     assert when_clause_found("发布说明生成器。Use when a release is cut.") is True
 
@@ -233,6 +428,7 @@ def test_a_cjk_skill_without_a_cue_gets_the_warning_end_to_end(tmp_path):
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert [f.code for f in review.findings] == ["description-no-when"]
 
 
@@ -244,6 +440,7 @@ def test_a_cjk_skill_with_a_native_cue_gets_no_warning_end_to_end(tmp_path):
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert "description-no-when" not in [f.code for f in review.findings]
 
 
@@ -263,6 +460,7 @@ def test_a_script_no_cue_list_covers_gets_no_warning_end_to_end(tmp_path, descri
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert "description-no-when" not in [f.code for f in review.findings]
 
 
@@ -283,6 +481,7 @@ def test_a_script_no_cue_list_covers_is_reported_as_not_checked(tmp_path, descri
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert [(f.level, f.code) for f in review.findings] == [("note", "description-when-not-checked")]
 
 
@@ -294,6 +493,7 @@ def test_a_cue_found_description_gets_no_not_checked_note(tmp_path):
         encoding="utf-8",
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review is not None
     assert "description-when-not-checked" not in [f.code for f in review.findings]
 
 
