@@ -143,10 +143,12 @@ def test_escaped_brackets_in_inline_and_reference_labels():
         assert llms_txt.check(text + definition) == []
 
 
-def test_unknown_full_reference_falls_back_to_shortcut():
-    text = GOOD.replace('[Quickstart](https://acme.test/quickstart.md)', '[Guide][unknown]')
-    findings = llms_txt.check(text + '\n[Guide]: guide.md\n')
-    assert [(f.severity, f.line, f.identity) for f in findings] == [('warn', 15, 'Guide|guide.md')]
+def test_unknown_full_reference_does_not_mask_a_following_valid_reference():
+    inline = '[Quickstart](https://acme.test/quickstart.md): first charge in five minutes'
+    text = GOOD.replace(inline, '[Guide][unknown]') + '\n[Guide]: guide.md\n'
+    assert [(f.check, f.severity, f.line) for f in llms_txt.check(text)] == [('links', 'fail', 0)]
+    chained = text.replace('[Guide][unknown]', '[Guide][unknown][other]') + '[other]: other.md\n'
+    assert [f.identity for f in llms_txt.check(chained)] == ['unknown|other.md']
 
 
 def test_escaped_backtick_opens_no_code_span_around_a_real_comment():

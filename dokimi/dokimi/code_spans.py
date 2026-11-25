@@ -98,6 +98,14 @@ class _Runs:
                 return None  # past the stop no later run can close it, and the text may end
 
 
+def _escaped_tick(text: str, begin: int) -> bool:
+    """An odd backslash run consumes the first tick outside a Markdown code span."""
+    cursor = begin
+    while cursor and text[cursor - 1] == "\\":
+        cursor -= 1
+    return (begin - cursor) % 2 == 1
+
+
 class CodeSpanScanner:
     """Finds the code spans of one text from any position on, reading each run of backticks once.
 
@@ -132,14 +140,9 @@ class CodeSpanScanner:
             begin, n = runs.starts[i], runs.lens[i]
             i += 1
             if self.escape_openers:
-                cursor = begin
-                while cursor and text[cursor - 1] == "\\":
-                    cursor -= 1
-                if (begin - cursor) % 2:
-                    # Markdown consumes the first backtick as a literal. Inside a span,
-                    # backslashes are literal: closer searches still use the original runs.
-                    begin += 1
-                    n -= 1
+                escaped = _escaped_tick(text, begin)
+                begin += escaped
+                n -= escaped
             if n < self.min_run or (self.not_after and begin > 0 and text[begin - 1] in self.not_after):
                 continue
             closer = runs.closer(n, begin + n)
