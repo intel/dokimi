@@ -45,6 +45,9 @@ from dokimi.repos.cli_traces import shell_reads
     ("export POSIXLY_CORRECT=1 >|/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # ``>|`` is one redirect
     ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >|/dev/null; head AGENTS.md -n 0", []),  # it cannot fail
     ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >|/missing/f; head AGENTS.md -n 0", ["AGENTS.md"]),  # it may: both stay
+    ("export POSIXLY_CORRECT+; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # ``NAME+`` is no identifier: nothing is marked
+    ("export POSIXLY_CORRECT=1; command export -n POSIXLY_CORRECT+; head AGENTS.md -n 0", ["AGENTS.md"]),  # and nothing is unmarked
+    ("export POSIXLY_CORRECT+=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # an append assignment exports
     ("true || {\n :;\n} || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # the ``{`` keeps the exit of ``true``
     ("false || {\n :;\n} || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # the group's last ``:`` exits 0
     ("{\n :;\n} || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),

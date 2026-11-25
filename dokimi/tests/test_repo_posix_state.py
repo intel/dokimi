@@ -18,6 +18,9 @@ from dokimi.repos.cli_traces import shell_reads
     ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT 2>&1; } 2>&-; head AGENTS.md -n 0", []),  # it closed another descriptor
     ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } 1>&-; head AGENTS.md -n 0", []),  # and nothing in it copies stdout
     ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT 2>&1; } 1>&- 1>/dev/null; head AGENTS.md -n 0", []),  # reopened
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT 1>/dev/null 2>&1; } 1>&-; head AGENTS.md -n 0", []),  # its own ``1>`` reopens stdout first
+    ("export POSIXLY_CORRECT=1; { { unset POSIXLY_CORRECT; } 1>/dev/null 2>&1; } 1>&-; head AGENTS.md -n 0", []),  # as does a nested group's
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT 2>&1 1>/dev/null; } 1>&-; head AGENTS.md -n 0", ["AGENTS.md"]),  # opened after the copy
     ("export POSIXLY_CORRECT=1; declare +x POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # ``+x`` drops the export mark
     ("export POSIXLY_CORRECT=1; typeset +x POSIXLY_CORRECT; head AGENTS.md -n 0", []),
     ("export POSIXLY_CORRECT=1; declare +x OTHER; head AGENTS.md -n 0", ["AGENTS.md"]),

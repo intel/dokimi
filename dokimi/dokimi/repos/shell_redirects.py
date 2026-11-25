@@ -70,9 +70,20 @@ def may_fail_redirect(part: str) -> bool:
 
 
 def copied_fds(part: str) -> set[str]:
-    """The descriptors ``part`` copies (``2>&1``: ``1``), which fail when a group around it has closed one."""
-    copies = (_FD_COPY.fullmatch(m.group()) for m in _REDIRECT.finditer(masked(part)))
-    return {c[1] for c in copies if c and c[1] != "-"}
+    """The descriptors ``part`` copies (``2>&1``: ``1``), which fail when a group around it has closed one; a copy of one
+    the same command opened first (``1>/dev/null 2>&1``) does not."""
+    copied: set[str] = set()
+    opened: set[str] = set()
+    for m in _REDIRECT.finditer(masked(part)):
+        copy = _FD_COPY.fullmatch(m.group())
+        fd = _redirected_fd(m.group())
+        if copy and copy[1] == "-":
+            opened.discard(fd)
+            continue
+        if copy and copy[1] not in opened:
+            copied.add(copy[1])
+        opened |= {fd, "2"} if m.group().startswith("&") else {fd}
+    return copied
 
 
 def closed_fds(redirects: str) -> set[str]:

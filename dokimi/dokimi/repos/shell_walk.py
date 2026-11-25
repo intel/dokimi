@@ -502,7 +502,7 @@ def _posix_after(words: list[str], functions: Functions, state: _PosixState, tim
         return frozenset({state})
     if set(flags) - set({"export": "fnp", "unset": "fnv"}.get(builtin, _DECLARE_FLAGS)) or set(plus) - set(_DECLARE_OFF):  # an option it refuses: no change
         return frozenset({state})
-    names = operands if builtin == "unset" else [w.partition("=")[0].removesuffix("+") for w in operands]  # ``unset NAME=1`` fails
+    names = operands if builtin == "unset" else [_operand_name(w) for w in operands]  # ``unset NAME=1`` fails
     if "f" in flags or name not in names:
         return frozenset({state})
     if builtin == "unset":  # a readonly variable is not unset
@@ -516,6 +516,13 @@ def _posix_after(words: list[str], functions: Functions, state: _PosixState, tim
     if builtin != "export" and "x" not in flags:  # ``declare NAME=1`` sets it in this shell, and exports it only under allexport
         return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly, array)})
     return frozenset({(True, True, allexport, readonly, array) if valued else (is_set, True, allexport, readonly, array)})
+
+
+def _operand_name(word: str) -> str:
+    """The variable an ``export`` or ``declare`` operand names: ``NAME``, ``NAME=v`` and ``NAME+=v``; a bare ``NAME+`` is
+    no identifier, and the builtin refuses it."""
+    name, eq, _ = word.partition("=")
+    return name.removesuffix("+") if eq else name
 
 
 def _untimed(words: list[str], timed: bool) -> list[str]:
