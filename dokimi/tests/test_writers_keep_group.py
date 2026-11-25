@@ -110,6 +110,18 @@ def test_a_ledger_write_replaces_a_link_that_loops_back_to_itself(tmp_path):
     assert not ledger.is_symlink() and json.loads(ledger.read_text(encoding="utf-8")) == {"x": 1}
 
 
+def test_a_ledger_write_replaces_a_link_that_points_below_a_regular_file(tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    ledger = tmp_path / "result.json"
+    ledger.symlink_to("blocker/child")
+
+    batch_ledger.write_json(ledger, {"x": 1})
+
+    assert not ledger.is_symlink() and json.loads(ledger.read_text(encoding="utf-8")) == {"x": 1}
+    assert blocker.read_text(encoding="utf-8") == "x"
+
+
 def test_an_atomic_write_whose_stat_fails_for_another_reason_raises_and_keeps_the_file(tmp_path, monkeypatch):
     target = tmp_path / "spend.json"
     target.write_text("old", encoding="utf-8")

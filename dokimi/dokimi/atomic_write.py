@@ -262,6 +262,6 @@ def _existing_stat(path: Path) -> os.stat_result | None:
     except FileNotFoundError:
         return None
     except OSError as exc:
-        if exc.errno == errno.ELOOP:
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
             return None
         raise
