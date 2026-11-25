@@ -56,6 +56,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from dokimi import process
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.process_io import text_file_bytes
 from dokimi.utils import key_bytes, retry_writable
 
 from .events import convert
@@ -312,7 +314,7 @@ def build_workspace(tree: RepoTree, files: list[str], workspace: Path, salt: str
             text = tree.read_text(path)
         except (UnicodeDecodeError, SourceError) as exc:
             raise ReachError(f"cannot read guidance file {path}: {exc}") from exc
-        target.write_text(seed_text(text, path, head, tail), encoding="utf-8")
+        _write_seeded(target, text, path, head, tail)
         links = tuple(aliases.get(path, ()))
         kind = _write_aliases(workspace, path, links) if links else None
         seeded.append(SeededFile(path, head, tail, links, kind))
@@ -331,6 +333,11 @@ def build_workspace(tree: RepoTree, files: list[str], workspace: Path, salt: str
             why = "timed out" if proc.timed_out else f"exit {proc.returncode}"
             raise ReachError(f"git {args[0]} in the probe workspace failed: {why} {proc.stderr.strip()}")
     return seeded
+
+
+def _write_seeded(target: Path, text: str, path: str, head: str, tail: str) -> None:
+    """Write the seeded ``text``; a lone surrogate of a non-UTF-8 name in the token lines is a ``?``, as the model's label."""
+    write_bytes_in_place_or_atomic(target, text_file_bytes(seed_text(text, path, head, tail)))
 
 
 def _write_aliases(workspace: Path, path: str, links: tuple[str, ...]) -> str:
@@ -483,7 +490,7 @@ def _write_shadow(workspace: Path, item: SeededFile, dirs: list[Path], written: 
             (workspace / parent).mkdir()
             dirs.append(workspace / parent)
     written.append(target)  # before the write: one that fails part way can leave the file
-    target.write_text(seed_text(SHADOW_TEXT, item.path, item.head, item.tail), encoding="utf-8")
+    _write_seeded(target, SHADOW_TEXT, item.path, item.head, item.tail)
 
 
 def _score_row(row: dict[str, Any], transcript: Transcript | None, known: set[str],
