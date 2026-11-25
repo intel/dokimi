@@ -186,9 +186,8 @@ MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
     ("dokimi subjects run", "--judge", "switch"): (True,
         "a switch that adds the LLM-as-judge; the registry's role_models `--judge` takes "
         "PROVIDER/MODEL. The clash issue #94 names (sec. 2.4, D10); F1b moves this leaf to `--judge P/M`"),
-    ("dokimi eval tasks generate", "--from", "choices"): (frozenset({"graph", "prs", "replay"}),
-        "a source kind (graph, prs, replay; #94's owner decision of 11-01 lists history where "
-        "the code has prs); the registry's `--from RUN` is the inputs concept. Decide the row at F1b"),
+    ("dokimi eval tasks generate", "--from", "choices"): (frozenset({"graph", "history", "prs", "replay"}),
+        "selects a task source kind; the registry's `--from RUN` is the inputs concept. Decide the row at F1b"),
     ("dokimi repo reach", "--from", "metavar"): ("REACH_JSON",
         "takes a REACH_JSON file, not a RUN; the registry's `--from RUN` is the inputs concept. "
         "Not one of the #94 audit rows: rename it or split the concept at F1b"),
