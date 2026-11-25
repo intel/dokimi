@@ -2277,8 +2277,8 @@ output prints them after the warnings, on one `incomplete: ...` line, and when
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
 `unresolved` needs a human look.
-Dead links name the missing target. A literal configuration path such as
-`config/app.yaml` also fails when the snapshot lacks its parent directory.
+Dead links name the missing target. A literal configuration path also
+fails when the snapshot lacks its parent directory.
 For one release, `--fail-on-fail` accepts the same gate and warns on stderr.
 
 **A gate any repository can adopt (#851).** Three things keep `--fail-on fail` from failing on noise

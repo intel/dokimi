@@ -3,10 +3,7 @@
 
 """The generic L0 claim checks: links, paths, identifiers and pasted shell (contract §8).
 
-Every check reads one snapshot through :class:`~dokimi.repos.source.RepoTree`,
-so a scan needs no checkout. Status per claim: ``ok`` (``ok_basename`` when only
-a bare file name or a glob of one matched), ``unresolved`` (needs a human look, not a failure)
-or ``fail``.
+A scan reads one snapshot through :class:`~dokimi.repos.source.RepoTree`.
 """
 
 from __future__ import annotations
@@ -29,8 +26,7 @@ from .identifiers import is_identifier
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 from .rule_links import loaded_text, rule_link_targets
 
-# Files whose words are prose, not code: an identifier found only there is not in the code.
-# Build inputs that happen to end in .txt are code.
+# Identifiers found only in prose are not in the code.
 DOC_SUFFIXES = (".md", ".rst", ".txt", ".adoc")
 ROOT_FILES = frozenset({
     *MAKEFILE_NAMES, "CMakeLists.txt", "MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel",
@@ -568,7 +564,6 @@ class Scan:
         if _PATHLIKE.match(span) or span in ROOT_FILES:
             r = self.resolve_path(file, span)
             if r:
-                # A literal configuration file is a repository input even when its parent is absent.
                 if r[0] == "unresolved" and r[1].startswith("tried ") and ";" not in r[1] and _LITERAL_CONFIG.fullmatch(span):
                     r = "fail", f"{span} does not exist"
                 self.add(file, line, "path", span, r[0], r[1], ctx)
