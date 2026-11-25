@@ -94,14 +94,18 @@ def test_inline_code_comment_delimiter_keeps_following_links():
     assert llms_txt.check(text) == []
 
 
-def test_escaped_backticks_do_not_hide_a_real_comment():
+def test_a_commented_out_link_after_an_escaped_backtick_fails_the_links_check():
     text = GOOD.replace('- [Quickstart](https://acme.test/quickstart.md)', r'\`<!-- [Hidden](url) -->\`')
-    assert 'links' in _checks(text)
+    assert [(f.check, f.severity, f.message) for f in llms_txt.check(text)] == [
+        ("links", "fail", "no Markdown links to the documentation")
+    ]
 
 
 def test_inline_examples_are_not_links_and_code_descriptions_are_visible():
     text = GOOD.replace('- [Quickstart](https://acme.test/quickstart.md)', 'Write links as `[Example](url)`')
-    assert 'links' in _checks(text)
+    assert [(f.check, f.severity, f.message) for f in llms_txt.check(text)] == [
+        ("links", "fail", "no Markdown links to the documentation")
+    ]
     assert not _checks(GOOD.replace('first charge in five minutes', '`quickstart`'))
 
 
