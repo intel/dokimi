@@ -42,6 +42,12 @@ from dokimi.repos.cli_traces import shell_reads
     ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT $(echo X) >/missing/f; head AGENTS.md -n 0", ["AGENTS.md"]),  # may not run
     ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT $(echo X) >/dev/null; head AGENTS.md -n 0", []),
     ("export POSIXLY_CORRECT=$(echo 1) | cat >/dev/null; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 >|/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # ``>|`` is one redirect
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >|/dev/null; head AGENTS.md -n 0", []),  # it cannot fail
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >|/missing/f; head AGENTS.md -n 0", ["AGENTS.md"]),  # it may: both stay
+    ("true || {\n :;\n} || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # the ``{`` keeps the exit of ``true``
+    ("false || {\n :;\n} || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # the group's last ``:`` exits 0
+    ("{\n :;\n} || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
 ])
 def test_shell_reads_follows_posixly_correct_through_expansions_prefixes_and_arrays(command, reads):
     assert shell_reads(command) == reads

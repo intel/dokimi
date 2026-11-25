@@ -259,6 +259,8 @@ class _Walk:
             state_words = state_words[1:]
         if state_words == ["}"]:  # the ``}`` that closes a group has no exit of its own: the group's last command's
             return
+        if not state_words and part.split() == ["{"]:  # the ``{`` that opens one has none either: ``true || {\n :;\n} || ...``
+            return
         body = state_words
         while body and body[0] in _KEYWORDS:  # ``then export P=1``: the branch may not run, so both states stay
             body = body[1:]
