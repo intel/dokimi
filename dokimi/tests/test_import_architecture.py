@@ -81,7 +81,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.llm_sampling",
         "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
         "dokimi.atomic_write", "dokimi.digest", "dokimi.files", "dokimi.frontmatter", "dokimi.model_names",
-        "dokimi.provenance", "dokimi.records", "dokimi.registry", "dokimi.write_probe",
+        "dokimi.provenance", "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
         "dokimi.yaml_unique",
         "dokimi.judge_rule", "dokimi.text_spans",
         "dokimi.code_spans",
@@ -474,6 +474,27 @@ def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
 @pytest.fixture(scope="module")
 def imports() -> Imports:
     return build_imports(PROJECT)
+
+
+def test_legacy_utils_exports_still_resolve():
+    from dokimi import digest, files, frontmatter, model_names, records, utils
+
+    modules = {
+        digest: ("GitTree", "digest_text", "file_contents", "file_digest", "git_tree", "key_bytes", "link_text", "tree_digest"),
+        files: ("InputError", "is_symlink_loop", "read_json_input", "read_json_input_bytes", "refuse_device", "retry_writable"),
+        frontmatter: ("describe_yaml_error", "parse_frontmatter", "parse_frontmatter_strict"),
+        model_names: ("check_bedrock_model", "model_identity", "same_evaluator", "same_model",
+                      "warn_judge_independence", "warn_recorded_self_judge"),
+        records: ("question_id",),
+    }
+    for module, names in modules.items():
+        for name in names:
+            assert getattr(utils, name) is getattr(module, name)
+
+
+def test_package_imports_utils_from_the_new_modules(imports):
+    users = sorted(module for module, deps in imports.edges.items() if "dokimi.utils" in deps)
+    assert not users, f"{users} import dokimi.utils; import the names from their defining modules"
 
 
 def test_every_module_is_in_a_layer(imports):
