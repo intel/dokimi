@@ -3,9 +3,10 @@
 
 """The read of one chat response: its first choice's text, tool calls and finish reason.
 
-:func:`parse_turn` is the one reader. The adapter (:mod:`dokimi.llm`) reads leniently;
-the tool-choice probe (:mod:`dokimi.commands.tools`) reads strictly. Both read the same
-fields the same way. No provider SDK is imported here.
+:func:`parse_turn` is the reader of the adapter and the tool-choice probe;
+:mod:`dokimi.eval.agent_runner` still has its own. The adapter (:mod:`dokimi.llm`) reads
+leniently; the tool-choice probe (:mod:`dokimi.commands.tools`) reads strictly. Both read the
+same fields the same way. No provider SDK is imported here.
 """
 
 from __future__ import annotations
