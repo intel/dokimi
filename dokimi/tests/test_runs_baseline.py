@@ -425,6 +425,24 @@ def test_rm_of_a_pointer_removed_after_the_listing_says_there_is_no_such_baselin
         2, "Error: no baseline main under the runs root results/\n")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a symlink needs a privilege on Windows")
+@pytest.mark.parametrize("argv", [["baseline", "save", "main", A], ["baseline", "rm", "main"],
+                                  ["baseline", "list"], ["gc", "--older-than", "0d", "--keep-baselines"]])
+def test_a_store_that_leads_outside_the_root_is_neither_read_nor_changed(
+        root, monkeypatch, capsys, tmp_path, argv):
+    # docs/runs.md: nothing outside the root is touched, a linked .baselines included
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "main").write_text(B + "\n", encoding="utf-8")
+    (root / ".baselines").symlink_to(outside, target_is_directory=True)
+
+    assert _run(monkeypatch, capsys, *argv)[::2] == (
+        2, "Error: results/.baselines leads outside the runs root results/, so the baselines are "
+           "not read or changed there\n")
+    assert sorted(os.listdir(outside)) == ["main"] and (outside / "main").read_text() == B + "\n"
+    assert (root / "a" / "eval.json").exists() and (root / "b" / "arms.json").exists()
+
+
 def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):
     _run(monkeypatch, capsys, "baseline", "save", "main", A)
 
