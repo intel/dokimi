@@ -54,7 +54,8 @@ _NEGATION = re.compile(
     r"\b(not|never|no|cannot|can't|don't|doesn't|isn't|unsupported|deprecated|without)\b", re.I)
 # A sentence ends at . ! ? followed by whitespace or the end, or at a newline; "3.0" and
 # "a.b" do not end one.
-_SENTENCE = re.compile(r"[^\n]+?(?:[.!?](?=\s|$)|$)", re.M)
+_SENTENCE = re.compile(r"[^\n]+?(?:(?:(?<!(?i:e\.g|i\.e))\.|[!?])(?=\s|$)|$)", re.M)
+_ABBREVIATION = re.compile(r"(?<!\w)(?:e\.g|i\.e)\.(?!\w)", re.I)
 _STOP = frozenset(
     "a an the is are was were be been to of in on for and or with by as at it this that "
     "these those you your can will may must should use uses used from into not no do does "
@@ -124,7 +125,7 @@ def _content(text: str) -> set[str]:
     flag must still pair with the atom that names the right one. Numbers are left out;
     they are what a contradiction changes, so they cannot be what pairs it.
     """
-    parts = {p.lower() for w in _WORD.findall(text) for p in re.split(r"[-/._]+", w)}
+    parts = {p.lower() for w in _WORD.findall(_ABBREVIATION.sub(" ", text)) for p in re.split(r"[-/._]+", w)}
     return {p for p in parts if p.isalpha()} - _STOP
 
 
@@ -135,7 +136,7 @@ def _values(text: str) -> set[str]:
 
 def _distinctive(text: str) -> set[str]:
     """Tokens that name one thing: flags, dotted/underscored identifiers, CamelCase."""
-    return {w.lower() for w in (token.rstrip(".") for token in _WORD.findall(text))
+    return {w.lower() for w in (token.rstrip(".") for token in _WORD.findall(_ABBREVIATION.sub(" ", text)))
             if w.startswith("-") or "_" in w or re.search(r"[a-z][A-Z]", w)
             or re.fullmatch(r"[A-Za-z]+\.[A-Za-z_.]+", w)}
 

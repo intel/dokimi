@@ -106,3 +106,12 @@ def test_version_conflict_quotes_the_driver_version():
 def test_version_prefix_does_not_change_the_value():
     assert lexical_conflict("The accelerator requires driver 2.1.",
                             "The accelerator needs driver v2.1.") is None
+
+
+def test_abbreviations_neither_split_sentences_nor_anchor_pairs():
+    answer = "Use the cache, e.g. for builds. Use _build, i.e. the fallback."
+    assert [sentence.text for sentence in split_sentences(answer)] == [
+        "Use the cache, e.g. for builds.", "Use _build, i.e. the fallback.",
+    ]
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use other drivers, e.g. virtual drivers."})
+    assert pair_atoms("Use the cache, e.g. for builds.", [atom]) == []
