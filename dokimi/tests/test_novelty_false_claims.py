@@ -189,6 +189,7 @@ def test_only_a_final_standalone_numeric_confidence_line_is_metadata():
     report = find_false_claims(answer, ATOMS)
     assert report.n_sentences == 2
     assert any(claim.atom_id == "a_windows" for claim in report.claims)
+    assert [sentence.text for sentence in split_sentences("Restart.\rConfidence: 0.7")] == ["Restart."]
     for text in ("Confidence: this is prohibited.", "Restart. Confidence: 0.7", "Confidence: 0.7\nRestart."):
         assert any(sentence.text.startswith("Confidence:") for sentence in split_sentences(text))
 
@@ -203,6 +204,11 @@ def test_distinctive_tokens_pair_without_an_alphabetic_word_anchor(token):
     assert [claim.quote for claim in report.claims] == [quote]
 
 
-def test_a_bare_number_does_not_pair_without_a_word_anchor():
-    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use 12."})
-    assert pair_atoms("Use 12.", [atom]) == []
+@pytest.mark.parametrize(("statement", "answer"), [
+    ("Use 12.", "Use 12."),
+    ("Use 1_000.", "1_000 is unsupported."),
+    ("Use --fp16.", "--fp16.extra is unsupported."),
+])
+def test_partial_or_numeric_tokens_do_not_pair_without_a_word_anchor(statement, answer):
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": statement})
+    assert pair_atoms(answer, [atom]) == []

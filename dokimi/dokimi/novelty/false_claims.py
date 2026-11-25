@@ -48,7 +48,8 @@ Return ONLY JSON: {{"verdict": "contradicts|supports|unrelated",
 "quote": "<the exact words of SENTENCE that conflict, or empty>"}}
 """
 
-_WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
+_WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_.\-/]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
+_FLAG = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*")
 # Recognize common quantities without treating arbitrary alphanumeric names as numbers.
 _TIME_UNITS = {
     "ns": -9, "nanosecond": -9, "nanoseconds": -9,
@@ -130,9 +131,9 @@ class FalseClaimsReport:
 def split_sentences(answer: str) -> list[Sentence]:
     """Sentences with offsets, excluding a final standalone numeric confidence line."""
     answer = (answer or "").rstrip()
-    before_final_line, _, final_line = answer.rpartition("\n")
-    if _CONFIDENCE.fullmatch(final_line.strip()):
-        answer = before_final_line
+    final_line_start = max(answer.rfind("\n"), answer.rfind("\r")) + 1
+    if _CONFIDENCE.fullmatch(answer[final_line_start:].strip()):
+        answer = answer[:final_line_start]
     out = []
     for m in _SENTENCE.finditer(answer):
         text = m.group(0).strip()
@@ -181,8 +182,8 @@ def _scale_decimal(quantity: Decimal, shift: int) -> Decimal:
 def _distinctive(text: str) -> set[str]:
     """Flags and identifiers that can anchor pairing, even when their case changes."""
     words = (token.rstrip(".") for token in _WORD.findall(_ABBREVIATION.sub(" ", text)))
-    return {w.lower() for w in words
-            if w.startswith("-") or "_" in w or _DOTTED_IDENTIFIER.fullmatch(w)}
+    return {w.lower() for w in words if _FLAG.fullmatch(w) or _DOTTED_IDENTIFIER.fullmatch(w)
+            or ("_" in w and w.isidentifier() and not w.strip("_").isdigit())}
 
 def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) -> list[Atom]:
     """Atoms the sentence is plausibly *about*: a shared distinctive token, or word overlap.
