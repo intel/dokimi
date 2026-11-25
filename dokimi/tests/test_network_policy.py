@@ -190,6 +190,7 @@ def test_a_public_verifier_joins_bridge_only_after_an_offline_solve(tmp_path, mo
     assert cli.env_file(verify_call)["HTTPS_PROXY"] == "http://user:pw@proxy.corp:912"
     assert "HTTPS_PROXY" not in verify_call.argv and "--env-file" in verify_call.argv
     assert not any("proxy.corp" in x for x in verify_call.argv)
+    assert cli.env_file(_call_of(cli, "solve.sh")) == {}
     assert not any("PROXY" in x for x in args[oracle])
     assert metrics["network"]["verify"]["source"] == "cli"
 
@@ -204,6 +205,7 @@ def test_an_allowlisted_verifier_goes_through_its_own_sidecar(tmp_path):
     env_file = cli.env_file(verify_call)
     assert env_file["HTTPS_PROXY"] == "http://egress:3128" and "HTTPS_PROXY" not in verify_call.argv
     assert env_file["NO_PROXY"] == env_file["no_proxy"] == "localhost,127.0.0.1,::1"
+    assert cli.env_file(_call_of(cli, "solve.sh")) == {}
     oracle = args[_index(args, _exec_of("solve.sh"))]
     assert not any("PROXY" in x for x in oracle)
     assert metrics["network"]["verify_egress"]["status"] == "ok"
