@@ -72,6 +72,7 @@ def _seeded(file, line, message):
         ("Rename the helper that reads `with_docs`", []),
         ("Replace the documentation link for `with_docs`. The baseline is correct.", []),
         ("Use `baseline` rather than `without_docs` in the report heading", []),
+        ("Replace `without_docs` with `baseline` in the report heading", []),
         ("with_docs is renamed to baseline, so stored keys change", ["key_rename"]),
         ("The persisted key `with_docs` is now `with_context`", ["key_rename"]),
         ("The writer renamed the persisted with_docs key to with_context", ["key_rename"]),
@@ -91,6 +92,9 @@ def test_seed_keywords_accept_common_wordings():
                      "narrows answers.v1 in place; add answers.v2 or keep it optional (nullable is fine)")
     assert schema["seeds_hit"] == ["schema_in_place"]
     assert schema["decoys_flagged"] == []
+    grounding = _seeded("dokimi/dokimi/schemas/answers.v1.json", 37,
+                        "Making grounding required in answers.v1 rejects older answers.")
+    assert grounding["seeds_hit"] == ["schema_in_place"]
 
 
 def test_a_nullable_score_complaint_that_says_narrow_is_the_decoy_not_the_schema_seed():
@@ -100,8 +104,11 @@ def test_a_nullable_score_complaint_that_says_narrow_is_the_decoy_not_the_schema
     assert grade["decoys_flagged"] == ["nullable_grounding_scores"]
 
 
-def test_a_nullable_decoy_with_in_place_wording_is_not_a_version_change():
-    grade = _seeded("dokimi/dokimi/schemas/answers.v1.json", 89,
-                    "The score types are too narrow. Make score, baseline_score and lift nullable in place.")
+@pytest.mark.parametrize("message", [
+    "The score types are too narrow. Make score, baseline_score and lift nullable in place.",
+    "Make score, baseline_score and lift nullable by updating `answers.v1` in place.",
+])
+def test_a_nullable_decoy_with_in_place_wording_is_not_a_version_change(message):
+    grade = _seeded("dokimi/dokimi/schemas/answers.v1.json", 89, message)
     assert grade["seeds_hit"] == []
     assert grade["decoys_flagged"] == ["nullable_grounding_scores"]
