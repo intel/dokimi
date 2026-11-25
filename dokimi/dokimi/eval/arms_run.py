@@ -286,16 +286,17 @@ def validate_expected_skills(questions: list[dict], treatments) -> None:
 
 def check_sampling_support(config: ArmsRunConfig) -> None:
     """Reject sampling flags the answer provider would refuse on every answer."""
-    from dokimi.llm import unsupported_sampling_params
+    from dokimi.llm import sampling_refusals
+    from dokimi.llm_sampling import refusal_clause
 
-    bad = unsupported_sampling_params(
+    bad = sampling_refusals(
         config.model, config.provider,
         temperature=config.temperature,
         seed=config.seed,
     )
     if bad:
         raise ValueError(
-            f"Provider '{config.provider}' does not support {', '.join(bad)} for "
+            f"Provider '{config.provider}' does not support {refusal_clause(bad)} for "
             f"model '{config.model}'. Drop the flag(s); every answer would "
             "otherwise fail and the report would show null scores."
         )
@@ -364,21 +365,22 @@ def _treatments(config: ArmsRunConfig, specs: list[str], questions: list[dict]):
 def _check_judge(config: ArmsRunConfig, questions: list[dict]) -> None:
     """Refuse what the judge would refuse on every score, before any answer is paid for."""
     from dokimi.eval.question_text import require_question_text
-    from dokimi.llm import unsupported_sampling_params
+    from dokimi.llm import sampling_refusals
+    from dokimi.llm_sampling import refusal_clause
 
     # The judge refuses a blank question; here, that is before any answer is paid for.
     # Every question is answered and then judged, so every one is checked.
     for i, q in enumerate(questions):
         require_question_text(q, i)
     check_bedrock_model(config.judge_provider, config.judge_model)  # before any answer is paid for
-    bad_judge = unsupported_sampling_params(
+    bad_judge = sampling_refusals(
         config.judge_model, config.judge_provider,
         temperature=config.judge_temperature,
     )
     if bad_judge:
         raise ValueError(
             f"Judge provider '{config.judge_provider}' does not support "
-            f"{', '.join(bad_judge)} for model '{config.judge_model}'. Drop the "
+            f"{refusal_clause(bad_judge)} for model '{config.judge_model}'. Drop the "
             "flag; every score would otherwise be null."
         )
     probe_sampling(config.judge_model, config.judge_provider, config.judge_temperature, None)

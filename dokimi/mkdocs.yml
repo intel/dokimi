@@ -162,6 +162,7 @@ nav:
       - methodology.md
       - difficulty-rubric.md
       - example-execution.md
+      - product-experiment-replay.md
       - ingestion-docling.md
       - research-register.md
   - User journeys:

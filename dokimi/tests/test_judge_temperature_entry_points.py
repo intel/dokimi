@@ -208,7 +208,7 @@ def test_a_judge_whose_sampling_probe_fails_exits_1_before_any_judgement(tmp_pat
 
 def test_a_judge_the_provider_table_refuses_exits_2_with_no_call(tmp_path, routed, monkeypatch, capsys):
     # A refusal from the static table is an input refusal: no request is sent, so exit 2.
-    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params", lambda *a, **k: ["temperature"])
+    monkeypatch.setattr("dokimi.llm.sampling_refusals", lambda *a, **k: {"temperature": "parameter unsupported"})
     with refusal() as exc:
         _run([*_reliability_argv("cross-judge", tmp_path, tmp_path / "out.json"), "--judge-temperature", "0"])
     assert exc.code == 2
@@ -278,3 +278,70 @@ def test_arms_run_sampling_litellm_refuses_before_any_call_exits_2(tmp_path, cli
                        "--out-md", str(tmp_path / "a.md"), *flags]) == 2
     assert client_refused == []
     assert "Error: cannot build arms/plugins" in capsys.readouterr().err
+
+
+# A judge temperature the route refuses (Haiku 5.5 on Bedrock takes only the default) is refused
+# before any answer is paid for, by every entry point that runs a judge, not only the reliability commands.
+
+_HAIKU_JUDGE = dict(judge_provider="amazon-bedrock", judge_model="us.anthropic.claude-haiku-5-5",
+                    judge_temperature=0.0)
+
+
+@pytest.fixture
+def haiku_requests(requests, monkeypatch):
+    import litellm
+
+    monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **_: ["temperature"])
+
+    def optional_params(*, model, custom_llm_provider, temperature):
+        if custom_llm_provider == "bedrock" and model.startswith(_HAIKU_JUDGE["judge_model"]) and temperature != 1:
+            raise litellm.UnsupportedParamsError("Only temperature=1 is supported", model=model,
+                                                 llm_provider=custom_llm_provider)
+        return {}
+
+    monkeypatch.setattr(litellm, "get_optional_params", optional_params)
+    return requests
+
+
+def test_benchmark_refuses_a_judge_temperature_the_route_refuses_before_any_call(haiku_requests):
+    from dokimi.commands.benchmark import _refuse_judge_sampling
+    from dokimi.utils import InputError
+
+    with pytest.raises(InputError, match="temperature"):
+        _refuse_judge_sampling(SimpleNamespace(**_HAIKU_JUDGE))
+    assert haiku_requests == []
+
+
+def test_evaluate_refuses_a_judge_temperature_the_route_refuses_before_any_call(haiku_requests):
+    from dokimi.commands.orchestrate import cmd_evaluate
+    from dokimi.utils import InputError
+
+    with pytest.raises(InputError, match="temperature"):
+        cmd_evaluate(SimpleNamespace(repo="owner/repo", description=None, product="p",
+                                     **_HAIKU_JUDGE))
+    assert haiku_requests == []
+
+
+@pytest.mark.parametrize("argv", [
+    ["evaluate", "--product", "onedal", "--description", "x"],
+    ["benchmark", "run", "--library", "onedal"],
+])
+def test_an_empty_bedrock_judge_model_is_reported_before_sampling(monkeypatch, argv):
+    import litellm
+
+    from dokimi.utils import InputError
+
+    monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **_: ["max_tokens"])
+    args = build_parser().parse_args([*argv, "--judge-provider", "amazon-bedrock", "--judge-model", "",
+                                      "--judge-temperature", "1"])
+    with pytest.raises(InputError, match="Bedrock has no model ''"):
+        args.func(args)
+
+
+def test_a_judge_constructed_with_a_refused_temperature_fails_before_any_call(haiku_requests):
+    from dokimi.eval.judge import Judge
+    from dokimi.llm_cli import SamplingError
+
+    with pytest.raises(SamplingError, match="temperature"):
+        Judge(model="us.anthropic.claude-haiku-5-5", provider="amazon-bedrock", temperature=0.0)
+    assert haiku_requests == []

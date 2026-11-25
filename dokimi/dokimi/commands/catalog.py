@@ -19,7 +19,6 @@ import json
 import sys
 from pathlib import Path
 
-from dokimi import cli_flags
 from dokimi.commands.catalog_scan import (
     ROW_STATES, fail_on_reason, fails_on_finding, is_plain_markdown, listing_failed, listing_total, not_checked, row_ignore,
     ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
@@ -61,6 +60,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
     skills = [entry for entry, _ in pairs]
     reviews = review_skills(skills)  # every skill is reviewed: the cross-catalog checks need them all
+    _upstream_findings(args, skills, reviews)
     online = _online_checks(args, skills, reviews, report)
     only = getattr(args, "only", None)  # `skill check SKILL` reports this one skill (#94 M3)
     if only is not None and only not in {entry.name for entry in skills}:
@@ -107,6 +107,17 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     failed = listing_failed(args, report, as_json) or failed  # before the granularity section: after the counts
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
+
+
+def _upstream_findings(args: argparse.Namespace, skills, reviews) -> None:
+    """Add the ``--upstream`` / ``--upstream-manifest`` findings to the reviews; nothing is added without those flags."""
+    if not (getattr(args, "upstream", None) or getattr(args, "upstream_manifest", None)):
+        return
+    from dokimi.external import upstream
+    from dokimi.external.upstream_findings import add_upstream_findings
+
+    index = upstream.build(getattr(args, "upstream", None) or (), getattr(args, "upstream_manifest", None) or ())
+    add_upstream_findings(index, skills, reviews, ignore=frozenset(getattr(args, "ignore", None) or ()))
 
 
 def _online_checks(args: argparse.Namespace, skills, reviews, report: dict) -> dict | None:
@@ -257,6 +268,24 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         raise InputError("--per-skill, --skip-nested, --ignore, --fail-on-code, --jsonl, --concurrency, --resume, --online and "
                          "--listing-budget apply to skills; drop them or use --kind skills|all")
     _refuse_unchecked_fail_on(args)
+    _refuse_upstream_with(args)
+
+
+def _refuse_upstream_with(args: argparse.Namespace) -> None:
+    """``--upstream`` and ``--upstream-manifest`` check the skills of the whole catalog, in this process: not per-skill, not tasks."""
+    if not (getattr(args, "upstream", None) or getattr(args, "upstream_manifest", None)):
+        from dokimi.external.upstream_codes import UPSTREAM_FINDING_CODES
+
+        upstream = sorted(set(args.fail_on or ()) & set(UPSTREAM_FINDING_CODES))
+        if upstream:
+            raise InputError(f"--fail-on-code {', '.join(upstream)}: only --upstream or --upstream-manifest reports it; "
+                             "add one of them")
+        return
+    if args.per_skill:
+        # The upstream index is built once here; --jobs workers would each need their own copy of it.
+        raise InputError("--upstream and --upstream-manifest check the whole catalog at once and do not combine with --per-skill")
+    if args.kind == "tasks":
+        raise InputError("--upstream and --upstream-manifest apply to skills; drop them or use --kind skills|all")
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
@@ -589,6 +618,8 @@ def register(sub, positive_int, eval_sub) -> None:
     library.add_list_show_product(list_p, show_p)
     subjects.add_list_show_subject(list_p)
 
+    from dokimi import cli_flags
+
     scan_p = catalog_sub.add_parser(
         "check", help="Report which skills/tasks under --root load cleanly"
     )
@@ -630,6 +661,17 @@ def register(sub, positive_int, eval_sub) -> None:
         "--ignore", action="append", default=None, metavar="CODE",
         help="Leave the findings with this code out of the scan: they are not printed, and they "
              "do not set the state or --strict's exit. Repeatable; an unknown code is a usage error",
+    )
+    cli_flags.add(
+        scan_p, "upstream", "--upstream", action="append", default=None, metavar="CHECKOUT",
+        help="Match each skill to a local git checkout of an upstream (see `catalog provenance`) and add the "
+             "upstream-stale, license-dropped-from-upstream and risk-inherited-from-upstream findings. Repeatable; "
+             "ties favor checkouts before manifests, then the first listed within each type. Offline. Not with --per-skill",
+    )
+    cli_flags.add(
+        scan_p, "upstream", "--upstream-manifest", action="append", default=None, metavar="FILE",
+        help="The same as --upstream, for a dokimi.upstream.v1 JSON manifest of one upstream. Repeatable. "
+             "Ties favor checkouts before manifests, then the first listed within each type",
     )
     scan_p.add_argument(
         "--fail-on-code", dest="fail_on", action="append", default=None, metavar="CODE",
