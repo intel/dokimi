@@ -260,16 +260,31 @@ def build_args(pol: PhasePolicy) -> list[str]:
 
 
 _ARG_INSTRUCTION = re.compile(r"\s*ARG\s+(.*)", re.IGNORECASE)
+_PARSER_DIRECTIVE = re.compile(r"\s*#\s*([a-zA-Z][a-zA-Z0-9]*)\s*=\s*(.+?)\s*")
+
+
+def _escape_token(lines: list[str]) -> str:
+    """The continuation character a Dockerfile sets with an ``# escape=`` parser directive, else ``\\``.
+    Docker reads directives only at the top of the file, up to the first line that is not one."""
+    for line in lines:
+        directive = _PARSER_DIRECTIVE.fullmatch(line)
+        if not directive:
+            break
+        if directive.group(1).lower() == "escape" and directive.group(2) in ("\\", "`"):
+            return directive.group(2)
+    return "\\"
 
 
 def dockerfile_arg_names(text: str) -> set[str]:
-    """The names a Dockerfile declares with ``ARG`` (``ARG a=1 b``), with ``\\`` continuations joined."""
+    """The names a Dockerfile declares with ``ARG`` (``ARG a=1 b``), with continuations joined."""
     names: set[str] = set()
     pending = ""
-    for raw in text.splitlines():
+    lines = text.splitlines()
+    escape = _escape_token(lines)
+    for raw in lines:
         if raw.lstrip().startswith("#") or not raw.strip():  # docker drops these, also inside a continuation
             continue
-        if raw.rstrip().endswith("\\"):
+        if raw.rstrip().endswith(escape):
             pending += raw.rstrip()[:-1]  # docker joins the lines as they are, with no separator
             continue
         found = _ARG_INSTRUCTION.fullmatch((pending + raw).strip())
