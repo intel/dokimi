@@ -310,18 +310,67 @@ def test_main_lock_exempts_only_security_bumps_younger_than_the_cooldown() -> No
 
 
 def test_the_published_package_builds_with_the_locked_backend() -> None:
-    """package-smoke and the release job build without isolation, from the tools lock's setuptools:
+    """Every workflow that builds the package builds without isolation, from the tools lock's setuptools:
     an isolated build would resolve `[build-system] requires` from PyPI with no hashes."""
-    for workflow in ("ci.yml", "release.yml"):
+    for workflow in ("ci.yml", "release.yml", "conda-forge.yml"):
         text = (ROOT.parent / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
-        builds = [line.strip() for line in text.splitlines() if '/build-venv/bin/python" -m build' in line]
+        code = [line.strip() for line in text.splitlines() if not line.lstrip().startswith("#")]
+        builds = [line for line in code if re.search(r"python\S* -m build\b", line)]
         assert builds and all("--no-isolation" in line for line in builds), (workflow, builds)
+        tools = [line for line in code if "pip install" in line and "requirements-ci.lock.txt" in line]
+        assert tools and all("--require-hashes" in line for line in tools), (workflow, tools)
     locked = pins("requirements-ci.lock.txt")
     backend = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["build-system"]["requires"]
     for spec in map(Requirement, backend):
         versions = locked.get(canonical(spec.name), set())
         assert any(spec.specifier.contains(v) for v in versions), (
             f"requirements-ci.lock.txt has {sorted(versions)} for the build backend {spec}")
+
+
+NPM_LOCK_DIRS = sorted(p.parent for p in (ROOT.parent / ".github" / "npm").glob("*/package.json"))
+
+
+def test_workflows_install_npm_packages_only_from_a_lockfile() -> None:
+    """`npm ci` checks each package against the hash in its lockfile; `npm install <name>@<version>`
+    pins one version and resolves everything under it fresh."""
+    assert NPM_LOCK_DIRS
+    for path in sorted((ROOT.parent / ".github" / "workflows").glob("*.y*ml")):
+        code = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()
+                if not line.lstrip().startswith("#")]
+        bad = [line for line in code if re.search(r"\bnpm\s+(install|i|add|update)\b", line)]
+        assert not bad, (path.name, bad)
+
+
+@pytest.mark.parametrize("lock_dir", NPM_LOCK_DIRS, ids=lambda p: p.name)
+def test_npm_lock_pins_every_package_by_hash(lock_dir: Path) -> None:
+    """Each lockfile holds its package.json's exact versions, and a registry URL and a hash for every package."""
+    wanted = json.loads((lock_dir / "package.json").read_text(encoding="utf-8"))["dependencies"]
+    packages = json.loads((lock_dir / "package-lock.json").read_text(encoding="utf-8"))["packages"]
+    assert wanted
+    for name, version in wanted.items():
+        assert packages[f"node_modules/{name}"]["version"] == version, name
+    unpinned = [name for name, entry in packages.items() if name and not (
+        entry.get("integrity", "").startswith("sha512-")
+        and entry.get("resolved", "").startswith("https://registry.npmjs.org/"))]
+    assert not unpinned, unpinned
+
+
+def test_each_npm_install_step_names_the_version_its_lockfile_holds() -> None:
+    """A step under .github/npm/ runs `npm ci` and `npm ls <name>@<version>` with package.json's version."""
+    seen = set()
+    for path in sorted((ROOT.parent / ".github" / "workflows").glob("*.y*ml")):
+        for job in yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"].values():
+            for step in job.get("steps", []):
+                cwd = str(step.get("working-directory", ""))
+                if not cwd.startswith(".github/npm/"):
+                    continue
+                wanted = json.loads((ROOT.parent / cwd / "package.json").read_text(encoding="utf-8"))["dependencies"]
+                lines = [line.strip() for line in str(step["run"]).splitlines()]
+                assert "npm ci" in lines, (path.name, cwd)
+                named = dict(re.findall(r"^npm ls (\S+)@([^@\s]+)$", "\n".join(lines), flags=re.M))
+                assert named == wanted, (path.name, cwd, named)
+                seen.add(ROOT.parent / cwd)
+    assert seen == set(NPM_LOCK_DIRS), "a lockfile no workflow installs, or the reverse"
 
 
 def _release_jobs() -> dict[str, dict]:
@@ -664,3 +713,9 @@ def test_security_md_names_every_audited_lock() -> None:
     """SECURITY.md says which locks pip-audit covers: every renovated lock is listed."""
     text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     assert [lock for lock in RENOVATE_LOCKS if f"`{lock}`" not in text] == []
+
+
+def test_no_stray_uv_lock_is_committed() -> None:
+    # The locks above are pip-compile files; a ``uv.lock`` beside them is a stray
+    # (6882 lines once, which the large-file check refuses).
+    assert not (ROOT / "uv.lock").exists()

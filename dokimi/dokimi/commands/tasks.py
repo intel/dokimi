@@ -265,13 +265,13 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
 
     harnesses = [h.strip() for h in args.harnesses.split(",") if h.strip()]
     if not harnesses:
-        raise InputError("No harnesses selected. Pass --harnesses codex,claude-code.")
+        raise InputError("No harnesses selected. Pass --harness codex,claude-code.")
     _refuse_repeats("harness", harnesses)
     if args.baseline_harness and args.baseline_harness not in harnesses:
         print(f"Also running baseline harness: {args.baseline_harness}")
         harnesses.insert(0, args.baseline_harness)
     if "docker-null" in harnesses and "docker-oracle" not in harnesses:
-        raise InputError("docker-null gives a verdict only with its oracle: add docker-oracle to --harnesses.")
+        raise InputError("docker-null gives a verdict only with its oracle: add docker-oracle to --harness.")
     for mismatch in _launch_mismatches(harnesses, args.baseline_harness):
         print(f"WARNING: {mismatch}; their pass rates come from different sandboxes and "
               "should not be compared", file=sys.stderr)
@@ -367,12 +367,11 @@ def register(sub, positive_int, eval_sub) -> None:
     group = run_p.add_mutually_exclusive_group(required=True)
     group.add_argument("--tasks", default="", help="Comma-separated task names or paths")
     group.add_argument("--all", action="store_true", help="Run all discovered tasks")
-    run_p.add_argument(
-        "--harnesses",
-        required=True,
-        help=("Comma-separated harness ids: codex, claude-code, terminal-bench:<agent>, docker-oracle, "
-              "docker-null (docker-null needs docker-oracle; exit 1 unless every task passes both)"),
-    )
+    cli_flags.add(run_p, "harness", "--harness", required=True, dest="harnesses",
+                  action=cli_flags.JoinedValues, metavar="NAME",
+                  help=("Harness ids, repeatable or comma-separated: codex, claude-code, terminal-bench:<agent>, "
+                        "docker-oracle, docker-null (docker-null needs docker-oracle; exit 1 unless every task "
+                        "passes both)"))
     run_p.add_argument("--baseline-harness", default=None, dest="baseline_harness")
     run_p.add_argument("--model", default=None, help="Model ref passed to the harness")
     run_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)

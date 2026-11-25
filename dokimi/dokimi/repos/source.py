@@ -28,6 +28,8 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
 
 from dokimi import process
+from dokimi.repos.links import _LinkLoop, _walk_links
+from dokimi.repos.source_errors import SourceArgumentError, SourceError, _NoSuchPath
 from dokimi.utils import key_bytes
 
 # A revision is a SHA, tag or branch (a "/" is allowed: origin/main, refs/heads/x), optionally
@@ -45,20 +47,6 @@ _FETCH_TRIES = 3  # a fetch that lost a ref to another run's fetch into the cach
 _REF_LOST = ("cannot lock ref", "incorrect old value provided", "reference already exists")  # git's texts for it
 _FETCH_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})  # untranslated: its error is matched
 READ_MANY_LIMIT = 2 * 1024 * 1024  # bytes; larger files are not text guidance or code to search
-
-
-class SourceError(ValueError):
-    """Raised for an unusable source spec or a git operation that failed."""
-
-
-class _NoSuchPath(SourceError):
-    """A path walks up out of a directory the tree does not have, which a checkout answers with ENOENT."""
-
-
-class SourceArgumentError(SourceError):
-    """A source or a path that is wrong as given or as laid out: a local path that is not the repository
-    root, a path that leaves the tree, a link that goes nowhere. No git operation failed, so a caller
-    reports it as a usage error; a SourceError that is not this one is a failed clone, fetch or `git show`."""
 
 
 @dataclass(frozen=True)
@@ -136,10 +124,14 @@ class WorkTree:
         self.skipped_dirs: set[str] = set()  # the skipped paths that are directories whose content could not be listed
 
     def _resolve(self, path: str) -> Path:
-        target = (self.root / path).resolve()
-        if not target.is_relative_to(self.root):
-            raise SourceArgumentError(f"path escapes the repository: {path}")
-        return target
+        """The file ``path`` names, walked as :meth:`GitTree._follow` walks it (#1084): a link whose ``..``
+        goes above the root escapes even if it comes back in by the root's own name; an absolute one is
+        followed where it lands inside the root."""
+        try:
+            return _walk_links(self.root, path)
+        except _LinkLoop:
+            (self.root / path).resolve()  # Python before 3.13 raises RuntimeError on a loop, as callers expect
+            raise
 
     def _walk_failed(self, exc: OSError) -> None:
         """``os.walk`` could not list a directory: name it in ``skipped``, as for a listed path."""
@@ -189,10 +181,16 @@ class WorkTree:
         return self._files
 
     def is_file(self, path: str) -> bool:
-        return self._resolve(path).is_file()
+        try:
+            return self._resolve(path).is_file()
+        except (_LinkLoop, _NoSuchPath):
+            return False
 
     def is_dir(self, path: str) -> bool:
-        return self._resolve(path).is_dir()
+        try:
+            return self._resolve(path).is_dir()
+        except (_LinkLoop, _NoSuchPath):
+            return False
 
     def read_text(self, path: str) -> str:
         return self._resolve(path).read_text(encoding="utf-8")
