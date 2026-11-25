@@ -93,7 +93,7 @@ def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunit
     found = []
     for outcome, kind, why, action, effort, weight in plans:
         rate = paired.get(outcome)
-        if type(rate) not in (float, int) or not 0 <= rate <= 1:
+        if not isinstance(rate, (float, int)) or isinstance(rate, bool) or not 0 <= rate <= 1:
             raise InputError(f"novelty {outcome} must be a rate between 0 and 1")
         counts = paired.get("counts", {})
         if not isinstance(counts, dict):
