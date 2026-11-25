@@ -121,6 +121,7 @@ def test_cli_overrides_win_over_the_task(tmp_path):
     ("verify=bridge", "expected one of none, allowlist, public"),
     ("verify=allowlist", "allowlist needs hosts"),
     ("build=allowlist:pypi.org", "the image build takes none or public"),
+    ("allowlist:pypi.org", r"Use --network solve,verify=allowlist:pypi\.org"),
     ("verify=public:pypi.org", "only valid with mode allowlist"),
     ("verify=allowlist:https://pypi.org/simple", "expected host"),
 ])

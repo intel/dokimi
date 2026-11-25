@@ -116,10 +116,10 @@ def parse_override(spec: str) -> dict[str, PhasePolicy]:
                          f"expected {', '.join(PHASES)} or all")
     pol = policy(mode, [h for h in hosts.split(",") if h.strip()], "cli")
     if pol.mode == "allowlist" and not pol.hosts:
-        raise ValueError(f"--network {spec!r}: allowlist needs hosts, e.g. allowlist:pypi.org")
+        raise ValueError(f"--network {spec!r}: allowlist needs hosts, e.g. solve=allowlist:pypi.org")
     if pol.mode == "allowlist" and "build" in phases:
         raise ValueError(f"--network {spec!r}: the image build takes none or public (docker build "
-                         "cannot route through the egress sidecar)")
+                         f"cannot route through the egress sidecar). Use --network solve,verify={value}")
     return {p: pol for p in phases}
 
 
