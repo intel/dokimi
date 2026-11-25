@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The arms, cells, baseline and harness moves (issue #94 §2.4, F1b).
+"""The arms, baseline and harness moves (issue #94 §2.4, F1b).
 
 Old spellings tombstone with the new argv; the new spellings parse to the same value, and a
 repeated flag joins into the comma list the old flag took.
@@ -40,10 +40,11 @@ def test_an_old_spelling_tombstones_with_the_new_argv(old, new, capsys):
     assert " ".join(new) in text
 
 
-def test_the_moved_old_flag_is_not_accepted_by_the_parser():
+def test_the_moved_old_flag_is_not_accepted_by_the_parser(capsys):
     parser = cli.build_parser()
     with pytest.raises(SystemExit):
-        parser.parse_args(["arms", "run", "--product", "p", "--questions", "q", "--arms", "baseline"])
+        parser.parse_args(["arms", "run", "--product", "p", "--questions", "q", "--arm", "x", "--arms", "baseline"])
+    assert "unrecognized arguments: --arms baseline" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(("argv", "dest", "value"), [
