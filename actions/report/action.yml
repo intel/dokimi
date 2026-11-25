@@ -17,7 +17,8 @@ inputs:
       the out-dir output of actions/setup. Every top-level `*.json` there must be a
       cli_output.v1 document, else it is an `invalid` row; other files (a receipt, a
       `--out` result) go in a subdirectory. A directory with no `*.json` file fails this
-      step (exit 2); the step creates a missing `out-dir`, so it fails the same way. The rendered summary goes to its `summary/` subdirectory.
+      step (exit 2); the step creates a missing `out-dir`, so it fails the same way.
+      The rendered summary goes to its `summary/` subdirectory.
     required: true
   comment:
     description: "false, or sticky: create or update one comment on the pull request"
