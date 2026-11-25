@@ -136,9 +136,8 @@ class _ArithmeticReader:
             self.pos = max(self.pos, upto + 1)  # no mark before it: a later call does not look again
 
     def skip(self, to: int) -> None:
-        """Go on from ``to``, past a heredoc body, with no quote open; a span still open stays so."""
-        if not self.depth:
-            self.pos, self.quote = max(self.pos, to), ""
+        """Go on from ``to``, past a heredoc body, with no quote open; a span left open has been read to the end of the text, so ``to`` is no further."""
+        self.pos, self.quote = max(self.pos, to), ""
 
 
 @dataclass(frozen=True)
