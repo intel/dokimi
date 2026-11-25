@@ -664,3 +664,9 @@ def test_security_md_names_every_audited_lock() -> None:
     """SECURITY.md says which locks pip-audit covers: every renovated lock is listed."""
     text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     assert [lock for lock in RENOVATE_LOCKS if f"`{lock}`" not in text] == []
+
+
+def test_no_stray_uv_lock_is_committed() -> None:
+    # The locks above are pip-compile files; a ``uv.lock`` beside them is a stray
+    # (6882 lines once, which the large-file check refuses).
+    assert not (ROOT / "uv.lock").exists()
