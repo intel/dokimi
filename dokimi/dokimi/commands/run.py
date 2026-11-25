@@ -197,7 +197,8 @@ def register(sub, positive_int) -> None:
 def register_compare(sub, positive_int) -> None:
     """Add the `docs compare` subparser."""
     cmp_p = sub.add_parser("compare", help="Compare two saved benchmark snapshots")
-    cmp_p.add_argument("--base", required=True)
+    cli_flags.add(cmp_p, "baseline", "--baseline", required=True, dest="base", metavar="FILE",
+                  help="The snapshot to compare against (the baseline)")
     cmp_p.add_argument("--candidate", required=True)
     cmp_p.add_argument("--spec", default=None, help="Spec file for regression thresholds")
     cli_flags.add(cmp_p, "output", "--out", dest="out_json", default="reports/compare.json")
