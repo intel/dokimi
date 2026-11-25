@@ -289,6 +289,8 @@ saved baseline skill/a@main -> 20261029T140211Z-3f9a0c1e (1 artifact); before: 2
   `flock`). A `.baselines` that leads outside the root (a symlink out of it) is
   neither read nor changed: every `runs baseline` command, and `runs gc
   --keep-baselines`, exits 2; one that links to a directory under the root is used.
+  A symlink in `.baselines/` is never followed: a pointer that is one is named as
+  unreadable (`rm` removes it), and a `.lock` that is one exits 2 (`cannot lock`).
 - The copies `baseline save --from-eval` makes under `baselines/eval/` are another
   store: `runs baseline` does not read or change them. `runs gc --keep-baselines`
   keeps the runs of both.

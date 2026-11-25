@@ -81,15 +81,29 @@ def locked(root: Path) -> Iterator[None]:
     with contextlib.ExitStack() as stack:
         try:
             directory.mkdir(exist_ok=True)
-            fh = stack.enter_context(open(directory / LOCK, "a+b"))
-            _lock(fh.fileno())  # ENOLCK on a file system that does not lock
+            fd = _open_unlinked(directory / LOCK, os.O_RDWR | os.O_CREAT)
+            stack.callback(os.close, fd)
+            _lock(fd)  # ENOLCK on a file system that does not lock
         except OSError as exc:
             reason = "not a directory" if isinstance(exc, FileExistsError) else exc.strerror or str(exc)
             raise InputError(f"{plain(directory.as_posix())}/: cannot lock: {reason}") from exc
         try:
             yield
         finally:
-            _unlock(fh.fileno())
+            _unlock(fd)
+
+
+def _open_unlinked(path: Path, flags: int) -> int:
+    """``os.open(path)``, refusing a symlink (``OSError``): one in the store may lead out of the root.
+    ``O_NOFOLLOW`` closes the gap after the check where the platform has it."""
+    if os.path.islink(path):
+        raise OSError(errno.ELOOP, "a symlink, not followed")
+    try:
+        return os.open(path, flags | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0), 0o666)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise OSError(errno.ELOOP, "a symlink, not followed") from exc
+        raise
 
 
 def _lock(fd: int) -> None:
@@ -128,7 +142,7 @@ def _read(path: Path) -> str | None:
 def _read_with_mtime(path: Path) -> tuple[str, float] | None:
     """:func:`_read`, and the mtime of the file it read: one open file, so both are of one save."""
     try:  # O_NONBLOCK: opening a FIFO with no writer would wait for one
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+        fd = _open_unlinked(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
         return None
     with os.fdopen(fd, "rb") as fh:
@@ -169,7 +183,7 @@ def _entry(directory: Path, file_name: str) -> Pointer | Unreadable:
         return Unreadable(where, "not a baseline name")
     try:
         read = _read_with_mtime(directory / file_name)
-        if read is None:  # listed, but gone or a link to nothing
+        if read is None:  # listed, but gone since
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT))
     except (OSError, UnicodeDecodeError) as exc:
         return Unreadable(where, read_error_reason(exc))
@@ -308,7 +322,7 @@ def remove(root: Path, name: str) -> str | None:
             other = _same_but_case(store(root), name)
             raise InputError(str(missing) + (f" (baseline {plain(other)} differs only in case)"
                                              if other else ""))
-        try:  # None: a link to nothing, or a pointer another process removed since the listing
+        try:  # None: a pointer another process removed since the listing
             held = _read(path) or ""
         except (OSError, UnicodeDecodeError):
             held = ""  # removed all the same: a pointer that cannot be read points nowhere

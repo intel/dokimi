@@ -426,6 +426,34 @@ def test_rm_of_a_pointer_removed_after_the_listing_says_there_is_no_such_baselin
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a symlink needs a privilege on Windows")
+def test_a_pointer_that_links_out_of_the_root_is_not_read(root, monkeypatch, capsys, tmp_path):
+    # docs/runs.md, On disk: nothing outside the root is read, a link in .baselines/ included
+    (tmp_path / "main").write_text(A + "\n", encoding="utf-8")
+    (root / ".baselines").mkdir()
+    (root / ".baselines" / "main").symlink_to(tmp_path / "main")
+
+    assert _run(monkeypatch, capsys, "baseline", "list")[1].endswith(
+        "0 baselines under results/\nunreadable: .baselines/main: cannot read: a symlink, not followed\n")
+    assert _run(monkeypatch, capsys, "gc", "--older-than", "0d", "--keep-baselines")[0] == 2
+    assert (root / "a" / "eval.json").exists() and (root / "b" / "arms.json").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a symlink needs a privilege on Windows")
+@pytest.mark.parametrize("argv", [["baseline", "save", "main", A], ["baseline", "rm", "main"],
+                                  ["gc", "--older-than", "0d", "--keep-baselines"]])
+def test_a_lock_that_links_out_of_the_root_is_neither_made_nor_taken(
+        root, monkeypatch, capsys, tmp_path, argv):
+    (root / ".baselines").mkdir()
+    (root / ".baselines" / "main").write_text(B + "\n", encoding="utf-8")
+    (root / ".baselines" / ".lock").symlink_to(tmp_path / "lockfile")
+
+    assert _run(monkeypatch, capsys, *argv)[::2] == (
+        2, "Error: results/.baselines/: cannot lock: a symlink, not followed\n")
+    assert not os.path.lexists(tmp_path / "lockfile")
+    assert _pointer(root, "main") == B + "\n" and (root / "b" / "arms.json").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a symlink needs a privilege on Windows")
 @pytest.mark.parametrize("argv", [["baseline", "save", "main", A], ["baseline", "rm", "main"],
                                   ["baseline", "list"], ["gc", "--older-than", "0d", "--keep-baselines"]])
 def test_a_store_that_leads_outside_the_root_is_neither_read_nor_changed(
