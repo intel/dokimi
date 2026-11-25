@@ -90,6 +90,9 @@ def test_shell_reads_drops_the_copy_a_nested_groups_redirect_reopens(command, re
     ("f() { export POSIXLY_CORRECT=1; }; f; head AGENTS.md -n 0", ["AGENTS.md"]),  # the function exports it here
     ("f() { export POSIXLY_CORRECT=1; }; g() { f; }; g; head AGENTS.md -n 0", ["AGENTS.md"]),  # also through another
     ("f() { set -a; }; f; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("f() { set -a; }; f; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # its allexport stays
+    ("declare -a POSIXLY_CORRECT; f() { unset POSIXLY_CORRECT; export POSIXLY_CORRECT=1; }; f; head AGENTS.md -n 0",
+     ["AGENTS.md"]),  # it unsets the array and exports a scalar
     ("f() { eval \"$X\"; }; f; head /w/AGENTS.md -n 0", ["/w/AGENTS.md"]),
     ("f() { source ./env.sh; }; f; head /w/AGENTS.md -n 0", ["/w/AGENTS.md"]),
     ("export POSIXLY_CORRECT=1; f() { unset POSIXLY_CORRECT; }; f; head AGENTS.md -n 0", ["AGENTS.md"]),  # it may not unset it

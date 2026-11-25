@@ -539,9 +539,11 @@ def _after_call(called: list[str], functions: Functions, state: _PosixState) -> 
     if not (called and called[0] in functions and may_change_posix(called[0], functions)):
         return frozenset({state})
     is_set, _, allexport, readonly, array = state
-    states = {state, (True, False, allexport, readonly, array), (True, not array, allexport, readonly, array),
-              (is_set, not array, allexport, readonly, array)}
-    return frozenset(states if readonly else states | {(False, False, allexport, False, False)})
+    states = {state}
+    for ae in (allexport, True, False):  # its ``set -a`` or ``set +a`` stays after the call
+        for arr in {array} if readonly else {array, False}:  # its ``unset`` then ``export P=1`` makes a scalar
+            states |= {(True, False, ae, readonly, arr), (True, not arr, ae, readonly, arr), (is_set, not arr, ae, readonly, arr)}
+    return frozenset(states if readonly else states | {(False, False, ae, False, False) for ae in (allexport, True, False)})
 
 
 def _operand_name(word: str) -> str:
