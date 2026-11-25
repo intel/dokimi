@@ -5,6 +5,7 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -385,13 +386,29 @@ def test_reply_errors_visible_in_offline_report(pack, monkeypatch):
 def test_failed_workspace_setup_is_inconclusive(pack, monkeypatch):
     def prepare(image, script, mounts, *args, **kwargs):
         assert mounts, "verifier must not run after failed setup"
-        return process.reply(returncode=121, stderr="workspace unavailable")
+        marker = re.search(r"delivery-workspace-[0-9a-f]+", script)
+        assert marker
+        return process.reply(returncode=121, stderr=f"workspace unavailable\n{marker[0]}\n")
 
     monkeypatch.setattr(delivery, "container", prepare)
     row = delivery.run(pack)["observations"][0]
     assert row["outcome"] == "INCONCLUSIVE"
     assert "workspace unavailable" in row["reason"]
     assert row["evidence"]["verifier_exit"] is None
+    assert row["evidence"]["stderr"] == "workspace unavailable\n"
+
+
+def test_consumer_exit_121_reaches_verifier(pack, monkeypatch):
+    def run(image, script, mounts, *args, **kwargs):
+        if mounts:
+            return process.reply(returncode=121, stderr="consumer failed")
+        assert script.startswith("consumer_exit=121\n")
+        return process.reply(returncode=10)
+
+    monkeypatch.setattr(delivery, "container", run)
+    row = delivery.run(pack)["observations"][0]
+    assert row["outcome"] == "FAIL"
+    assert row["evidence"]["verifier_exit"] == 10
 
 
 def test_scan_rejects_empty_corpus(pack):

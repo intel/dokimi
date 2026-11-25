@@ -149,9 +149,23 @@ def attempt(
         else:
             script = answer["script"]
             row["claimed_success"] = answer.get("claimed_success")
-    budget = task["timeout"]
+    return _grade(manifest, product, initial, script, hidden, verifier, task["timeout"], row)
+
+
+def _grade(
+    manifest: dict,
+    product: bytes,
+    initial: str,
+    script: str,
+    hidden: bytes,
+    verifier: str,
+    budget: int,
+    row: dict,
+) -> str:
     if type(budget) is not int or budget <= 0:
         raise ValueError("timeout must be a positive integer")
+    image = manifest["image"]
+    setup_marker = "delivery-workspace-" + uuid.uuid4().hex
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "delivery"
         path.write_bytes(product)
@@ -162,9 +176,10 @@ def attempt(
         start.chmod(0o444)
         result = container(
             image,
-            'workspace=$(mktemp -d) || exit 121\n'
-            'cd "$workspace" || exit 121\n'
-            "cp /initial ./consumer.sh || exit 121\n"
+            f"workspace_failed() {{ printf '%s\\n' '{setup_marker}' >&2; exit 121; }}\n"
+            'workspace=$(mktemp -d) || workspace_failed\n'
+            'cd "$workspace" || workspace_failed\n'
+            "cp /initial ./consumer.sh || workspace_failed\n"
             + manifest["install"]
             + " || exit 120\n"
             + script,
@@ -174,15 +189,18 @@ def attempt(
             manifest.get("gpu", False),
             manifest["platform"],
         )
+    marker_line = setup_marker + "\n"
+    setup_failed = result.returncode == 121 and result.stderr.endswith(marker_line)
+    stderr = result.stderr.removesuffix(marker_line) if setup_failed else result.stderr
     row["evidence"] = {
         "script": script,
         "exit": result.returncode,
-        "stderr": result.stderr,
+        "stderr": stderr,
         "stdout": result.stdout,
         "verifier_exit": None,
     }
-    if result.returncode == 121:
-        raise ValueError(f"could not prepare consumer workspace: {result.stderr}")
+    if setup_failed:
+        raise ValueError(f"could not prepare consumer workspace: {stderr}")
     grade = container(
         image,
         f"consumer_exit={result.returncode}\n" + verifier,
