@@ -48,6 +48,7 @@ TARGETS = {"time": {"sleep"}, "threading": {"Timer"}}
 WATCHED = {**TARGETS, "importlib": {"import_module"}}
 COUNTED = {f"{module}.{name}" for module, names in TARGETS.items() for name in names}
 WAIVER = re.compile(r"#\s*timing-ok\b(?::(?P<reason>.*))?$")
+MARKERS = re.compile("|".join([*(re.escape(n) for names in TARGETS.values() for n in names), "timing-ok"]))
 HINT = "(python scripts/check_test_timing.py --update)"
 
 
@@ -442,9 +443,8 @@ def _waivers(text: str) -> tuple[set[int], list[int]]:
     return ok, bare
 
 
-def scan(text: str, filename: str) -> tuple[dict[str, int], list[int]]:
-    """``({"time.sleep": n, "threading.Timer": m}, bare waiver lines)`` of one file's source."""
-    tree = ast.parse(text, filename=filename)
+def count(tree: ast.Module, text: str) -> tuple[dict[str, int], list[int]]:
+    """``scan`` of a parsed file, without the shortcut for a file that cannot hold a call."""
     ok, bare = _waivers(text)
     counts: dict[str, int] = {}
     for node, target in _calls(tree):
@@ -452,6 +452,16 @@ def scan(text: str, filename: str) -> tuple[dict[str, int], list[int]]:
         if not lines & ok:
             counts[target] = counts.get(target, 0) + 1
     return counts, bare
+
+
+def scan(text: str, filename: str) -> tuple[dict[str, int], list[int]]:
+    """``({"time.sleep": n, "threading.Timer": m}, bare waiver lines)`` of one file's source. A call and a
+    waiver both spell ``sleep``, ``Timer`` or ``timing-ok``, so an ASCII file with none of them (identifiers
+    are NFKC-folded, so a non-ASCII one may) is parsed, for its syntax, and not walked."""
+    tree = ast.parse(text, filename=filename)
+    if text.isascii() and not MARKERS.search(text):
+        return {}, []
+    return count(tree, text)
 
 
 def measure(root: Path) -> tuple[dict[str, int], dict[str, int], list[str]]:

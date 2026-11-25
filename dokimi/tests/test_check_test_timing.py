@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import sys
 from pathlib import Path
@@ -306,6 +307,27 @@ def test_a_name_bound_differently_in_each_branch_counts_when_any_branch_makes_it
 ])
 def test_a_module_loaded_by_a_literal_name_counts_like_an_imported_one(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("def test_a():\n    assert 1 + 1 == 2\n", ({}, [])),
+    ("import time\nprint(time.monotonic())\n", ({}, [])),
+    ("import time\ntime.sleep(1)\n", ({"time.sleep": 1}, [])),
+    ("x = 1  # timing-ok\n", ({}, [1])),
+    ("import time\ntime.ｓleep(1)\n", ({"time.sleep": 1}, [])),
+    ("from threading import Ｔimer\nＴimer(1, print)\n", ({"threading.Timer": 1}, [])),
+])
+def test_a_file_that_cannot_hold_a_call_is_not_walked_and_scans_as_if_it_were(source, expected, monkeypatch):
+    assert ctt.count(ast.parse(source), source) == expected
+    assert ctt.scan(source, "x.py") == expected
+    if source.isascii() and not any(word in source for word in ("sleep", "Timer", "timing-ok")):
+        monkeypatch.setattr(ctt, "_calls", lambda tree: pytest.fail("walked a file with no marker"))
+        assert ctt.scan(source, "x.py") == expected
+
+
+def test_a_file_with_no_marker_is_still_parsed_for_its_syntax():
+    with pytest.raises(SyntaxError):
+        ctt.scan("def (:\n", "x.py")
 
 
 def test_a_waiver_with_a_reason_is_not_counted():
