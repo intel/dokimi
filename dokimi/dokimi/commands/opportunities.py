@@ -21,6 +21,21 @@ from dokimi.commands._output import write_report_text
 from dokimi.utils import InputError
 
 
+def _looks_like_json(path: str, text: str) -> bool:
+    suffix = Path(path).suffix.lower()
+    start = text.lstrip()
+    return bool(suffix == ".json" or start.startswith("{") or (
+        suffix not in {".txt", ".md"} and start.startswith("[")
+        and not re.match(r"\[[^\n\]]+\](?:\(|\[|:)", start)
+    ))
+
+
+def _check_json_unicode(path: str, data: object) -> None:
+    try:
+        json.dumps(data, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise InputError(f"{path}: JSON contains an unpaired Unicode surrogate") from exc
+
 def _read(path: str, repository: str | None) -> tuple[str, list[opportunities.Opportunity]]:
     try:
         text = Path(path).read_text(encoding="utf-8-sig")
@@ -29,18 +44,10 @@ def _read(path: str, repository: str | None) -> tuple[str, list[opportunities.Op
     try:
         data = json.loads(text)
     except ValueError as e:
-        suffix = Path(path).suffix.lower()
-        start = text.lstrip()
-        if suffix == ".json" or start.startswith("{") or (
-            suffix not in {".txt", ".md"} and start.startswith("[")
-            and not re.match(r"\[[^\n\]]+\](?:\(|\[|:)", start)
-        ):
+        if _looks_like_json(path, text):
             raise InputError(f"{path}: not valid JSON ({e})") from e
         return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text), target=path)
-    try:
-        json.dumps(data, ensure_ascii=False).encode("utf-8")
-    except UnicodeEncodeError as exc:
-        raise InputError(f"{path}: JSON contains an unpaired Unicode surrogate") from exc
+    _check_json_unicode(path, data)
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
         if errors := schema_errors("repo_static.v1", data):
             raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
