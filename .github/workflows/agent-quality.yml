@@ -150,7 +150,7 @@ jobs:
           python cli.py tasks run \
             --tasks onetbb-histogram-local-aggregation \
             --tasks-root "${{ runner.temp }}/uxl-skills/evaluation/harbor/tasks" \
-            --harnesses docker-oracle,docker-probe \
+            --harness docker-oracle,docker-probe \
             --out "${{ github.workspace }}/logs/external-catalog-smoke/runs.json"
       # The base the merge commit (refs/pull/N/merge) was built on, its first parent; not origin/$BASE_REF, which may have moved since.
       # A PR that does not merge records nothing. A later docs-only push skips only while origin/$BASE_REF is still this one.

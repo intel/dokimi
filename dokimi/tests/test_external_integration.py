@@ -99,7 +99,7 @@ def test_catalog_discovered_task_runs_through_tasks_cli_dry_run(tmp_path):
         "tasks", "run",
         "--tasks", task_name,
         "--tasks-root", str(tmp_path / "evaluation" / "harbor" / "tasks"),
-        "--harnesses", f"docker-claude-skill:{skill_path},docker-oracle",
+        "--harness", f"docker-claude-skill:{skill_path},docker-oracle",
         "--baseline-harness", "docker-oracle",
         "--out", str(out),
         "--dry-run",

@@ -158,14 +158,14 @@ questions = ["{questions.as_posix()}"]
 
 def _arms_run(io, *flags: str) -> list[str]:
     return ["arms", "run", "--product", "demo", "--questions", str(io["questions"]),
-            "--arms", f"baseline,docs:local:{io['docs']}",
+            "--arm", f"baseline,docs:local:{io['docs']}",
             "--out", str(io["out"] / "arms.json"), "--out-md", str(io["out"] / "arms.md"),
             *flags]
 
 
 def _matrix_run(io, *flags: str) -> list[str]:
     return ["arms", "matrix-run", "--product", "demo", "--questions", str(io["questions"]),
-            "--arms", f"baseline,docs:local:{io['docs']}", "--matrix-cells", str(io["cells"]),
+            "--arm", f"baseline,docs:local:{io['docs']}", "--matrix-cells", str(io["cells"]),
             "--out-dir", str(io["out"]), *flags]
 
 
