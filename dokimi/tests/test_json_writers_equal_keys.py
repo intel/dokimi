@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 import pytest
 
@@ -23,6 +24,11 @@ CHAR = "\U0001F600"
 _MATCH = "two object keys are the same"
 _COLLISIONS = [{1: "a", "1": "b"}, {PAIR: 1, CHAR: 2}]
 _IDS = ["int-beside-string", "pair-beside-character"]
+
+
+def _platform_newlines(data: bytes) -> bytes:
+    """The bytes a text-mode write of ``data`` leaves on this platform (``\\r\\n`` on Windows)."""
+    return data.replace(b"\n", os.linesep.encode())
 
 
 def _only(tmp_path, name):
@@ -58,7 +64,7 @@ def test_write_json_atomic_writes_the_same_bytes_for_a_payload_with_no_repeated_
 
     write_json_atomic(out, {"k": {"k": 1}, "rows": [{"k": 2}], 3: "é", "lone": "\ud800"})
 
-    assert out.read_bytes() == b'{\n  "k": {\n    "k": 1\n  },\n  "rows": [\n    {\n      "k": 2\n    }\n  ],\n  "3": "\xc3\xa9",\n  "lone": "?"\n}\n'
+    assert out.read_bytes() == _platform_newlines(b'{\n  "k": {\n    "k": 1\n  },\n  "rows": [\n    {\n      "k": 2\n    }\n  ],\n  "3": "\xc3\xa9",\n  "lone": "?"\n}\n')
 
 
 @pytest.mark.parametrize("keys", _COLLISIONS, ids=_IDS)
@@ -80,7 +86,7 @@ def test_report_write_json_keeps_an_existing_file_on_a_refusal_and_writes_a_vali
     assert out.read_text() == "old"
 
     write_json({"a": {"a": 1}, 2: "é"}, out)
-    assert out.read_bytes() == b'{\n  "a": {\n    "a": 1\n  },\n  "2": "\\u00e9"\n}'
+    assert out.read_bytes() == _platform_newlines(b'{\n  "a": {\n    "a": 1\n  },\n  "2": "\\u00e9"\n}')
 
 
 @pytest.mark.parametrize("keys", _COLLISIONS, ids=_IDS)
@@ -153,7 +159,7 @@ def test_write_items_writes_the_items_for_distinct_keys(tmp_path):
 
     _write_items(str(out), [{"parameters": {"a": 1, "b": 2}}])
 
-    assert out.read_bytes() == b'[\n {\n  "parameters": {\n   "a": 1,\n   "b": 2\n  }\n }\n]'
+    assert out.read_bytes() == _platform_newlines(b'[\n {\n  "parameters": {\n   "a": 1,\n   "b": 2\n  }\n }\n]')
 
 
 def _items_out(tmp_path, monkeypatch, sources):
