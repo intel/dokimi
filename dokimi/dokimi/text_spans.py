@@ -53,11 +53,11 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
     return "".join(out) + text[pos:]
 
 
-_QUOTE_MARKS = re.compile(r"[\\'\"\n#]")
+_QUOTE_MARKS = re.compile(r"[\\'\"\n#$()]")
 
 
 def _starts_word(text: str, at: int) -> bool:
-    """Whether the character at ``at`` begins a shell word: at the start, after a blank, or after a ``;&|()`` no backslash escapes."""
+    """Whether the character at ``at`` begins a shell word: at the start, after a blank, or after a ``;&|()`` no backslash escapes; a line continuation before it is removed first."""
     if at == 0:
         return True
     before = text[at - 1]
@@ -66,27 +66,46 @@ def _starts_word(text: str, at: int) -> bool:
     first = at - 1
     while first and text[first - 1] == "\\":
         first -= 1
-    return (at - 1 - first) % 2 == 0
+    if (at - 1 - first) % 2 == 0:
+        return True
+    return before == "\n" and _starts_word(text, at - 2)  # `a \<newline># c`: the shell joins the lines, so the `#` follows the blank
+
+
+def _inert(quote: str) -> bool:
+    """Whether a quote or a comment is open at the end of the ``quote`` stack: ``<<`` and ``$((`` there open nothing."""
+    return quote[-1:] in ("'", '"', "#")
 
 
 def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
-    """The quote open after the mark ``m`` (one of ``_QUOTE_MARKS``) where ``quote`` was open, and where the scan goes on."""
+    """The quote stack after the mark ``m`` (one of ``_QUOTE_MARKS``) where ``quote`` was open, and where the scan goes on.
+
+    The stack holds ``'``, ``"``, ``#`` (a comment, which runs to the end of its line) and ``(`` for each open ``$(`` (or ``(`` inside one):
+    the quotes in a command substitution are its own, apart from the double quote around it.
+    """
     mark, at = m.group(), m.end()
+    top = quote[-1:]
     if mark == "\n":  # a comment ends here; a quote runs on to its closing mark, over lines
-        return ("" if quote == "#" else quote), at
-    if quote == "#":
+        return (quote[:-1] if top == "#" else quote), at
+    if top == "#":
         return quote, at
     if mark == "#":  # `a#b`, `$#` and `\;#` start no comment: only a blank or an unescaped `;&|()` before it does
-        return ("#" if not quote and _starts_word(text, m.start()) else quote), at
+        return (quote + "#" if top in ("", "(") and _starts_word(text, m.start()) else quote), at
     if mark == "\\":
-        return quote, at + (quote != "'")
-    if not quote:
-        return mark, at
-    return ("" if quote == mark else quote), at
+        return quote, at + (top != "'")
+    if mark == "$":
+        opens = top != "'" and text.startswith("(", at)
+        return (quote + "(" if opens else quote), at + opens
+    if mark == "(":
+        return (quote + "(" if top == "(" else quote), at
+    if mark == ")":
+        return (quote[:-1] if top == "(" else quote), at
+    if top in ("", "("):
+        return quote + mark, at
+    return (quote[:-1] if top == mark else quote), at
 
 
 def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
-    """The quote (``'``, ``"``, ``#`` for a comment, which runs to the end of its line, or none) open at ``end``, scanning ``text`` from ``at`` where ``quote`` was open."""
+    """The quote stack (see :func:`_quote_step`) open at ``end``, scanning ``text`` from ``at`` where ``quote`` was open."""
     while (m := _QUOTE_MARKS.search(text, at, end)) is not None:
         quote, at = _quote_step(text, m, quote)
     return quote, max(at, end)
@@ -98,8 +117,8 @@ _ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$]")
 def _arithmetic_opener(text: str, mark: str, at: int, quote: str) -> int:
     """How many characters from ``at`` (after ``mark``) complete a ``$((`` or a bare ``((``, such as ``((x=1<<3))`` or a ``for ((...))`` header; 0 when ``mark`` opens none."""
     if mark == "$":
-        return 2 if quote not in ("'", "#") and text.startswith("((", at) else 0
-    return 1 if mark == "(" and not quote and text.startswith("(", at) else 0
+        return 2 if quote[-1:] not in ("'", "#") and text.startswith("((", at) else 0
+    return 1 if mark == "(" and quote[-1:] in ("", "(") and text.startswith("(", at) else 0
 
 
 class _ArithmeticReader:
@@ -130,7 +149,7 @@ class _ArithmeticReader:
             elif taken := _arithmetic_opener(text, mark, self.pos, self.quote):
                 self.start, self.depth, self.outer, self.quote = m.start(), 2, self.quote, ""  # inside, quotes start afresh
                 self.pos += taken
-            elif mark not in "()$":
+            else:
                 self.quote, self.pos = _quote_step(text, m, self.quote)
         if not self.depth:
             self.pos = max(self.pos, upto + 1)  # no mark before it: a later call does not look again
@@ -236,7 +255,7 @@ class HeredocPattern:
                 next_span += 1
             in_arithmetic = next_span < len(arithmetic) and arithmetic[next_span][0] <= o.start()
             escaped = scanned > o.start()  # a backslash before the first ``<`` made it a literal one: ``echo \<< f``
-            if quote or in_arithmetic or escaped:  # ``grep '<<EOF' f``, ``$((1<<3))``: ``<<`` opens nothing
+            if _inert(quote) or in_arithmetic or escaped:  # ``grep '<<EOF' f``, ``$((1<<3))``: ``<<`` opens nothing
                 start = o.start() + 1
                 continue
             if o.end() > eol:  # delimiters end in increasing order, so one newline serves every opener before it
@@ -254,7 +273,7 @@ class HeredocPattern:
         A quote still open at the end of that line leaves no body to pass. Otherwise each body runs to the first line that is its delimiter, or to the end.
         """
         quote, scanned = _quote_after(text, scanned, eol, quote)
-        if quote in ("'", '"'):
+        if quote[-1:] in ("'", '"'):
             return quote, scanned
         reader.read(eol)
         pos = eol + 1
@@ -267,7 +286,7 @@ class HeredocPattern:
             else:
                 pos = len(text) + 1
         reader.skip(pos)
-        return "", max(scanned, pos)
+        return quote.removesuffix("#"), max(scanned, pos)
 
     def sub(self, repl: Callable[[re.Match[str]], str], text: str) -> str:
         """``full.sub(repl, text)``."""

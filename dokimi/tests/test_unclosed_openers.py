@@ -542,6 +542,32 @@ def test_a_hash_after_an_even_run_of_backslashes_and_a_blank_still_starts_a_comm
     assert _cli_heredocs(text) == text
 
 
+@pytest.mark.parametrize("text", ["echo hi \\\n# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi \\\n\\\n# usage: cat <<EOF\ncat AGENTS.md\n", "echo hi;\\\n# usage: cat <<EOF\ncat AGENTS.md\n"])
+def test_a_comment_after_a_line_continuation_and_a_blank_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo a\\\n# <<EOF\nbody\nEOF\nrm f\n", "echo a\\\\\\\n# <<EOF\nbody\nEOF\nrm f\n"])
+def test_a_hash_after_a_line_continuation_that_follows_a_word_starts_no_comment(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert "body" not in _cli_heredocs(text)
+
+
+@pytest.mark.parametrize("text", ['echo "$(printf "%s" "<<EOF")"\ncat AGENTS.md\n', 'echo "$(printf "%s" "<<EOF")" # c\ncat AGENTS.md\n',
+                                  "echo \"$(printf '%s' \"a <<EOF\" \"b\")\" \"x\"\ncat AGENTS.md\n", 'echo "$(echo "$(echo "<<EOF")")"\ncat AGENTS.md\n'])
+def test_quotes_in_a_command_substitution_are_apart_from_the_quote_around_it_so_a_shift_in_them_opens_no_heredoc(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ['echo "$(cat <<EOF\nbody\nEOF\n)"\nrm f\n', 'echo "$(printf "%s" x)" $(cat <<EOF\nbody\nEOF\n)\nrm f\n',
+                                  'echo "$(echo $((1 << 3)) "a")"\ncat <<EOF\nbody\nEOF\nrm f\n'])
+def test_a_heredoc_inside_a_command_substitution_or_after_one_is_still_cut(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert "body" not in _cli_heredocs(text)
+
+
 class _CountedSlices(str):
     """A text that adds up the length of every slice taken from it."""
 
