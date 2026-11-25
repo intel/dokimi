@@ -32,7 +32,7 @@ server (no model is called), normalizes the request and:
 
 The golden tests skip when `claude 2.1.318` is not on PATH. CI runs them in the
 `fidelity` job (`DOKIMI_FIDELITY_REQUIRED=1` makes a missing binary a failure), which
-installs `@anthropic-ai/claude-code@2.1.318` from npm.
+installs `@anthropic-ai/claude-code@2.1.318` with `npm ci` from the lockfile in `.github/npm/fidelity/`.
 
 ## Refreshing the golden
 
