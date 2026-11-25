@@ -9,6 +9,8 @@ A release engineer can test an RC using just the installer, binary or wheel, a p
 
 The offline report renders Markdown. Redirect it to a file to attach it to an RC or AX review.
 
+The real-container fixture is a manual test. Set `DOKIMI_DELIVERY_IMAGE` to the immutable ID of a local Linux/amd64 image such as the Ubuntu image below, then run `pytest tests/test_delivery.py -k real_delivery`. Other delivery tests use stand-ins for Docker.
+
 ## Try the consumer fixture
 
 From the `dokimi/` project directory, with Docker available, create the external pack once. The image ID includes the operating system and every preinstalled dependency. On CI, preload that exact image. The demo expects Linux x86-64.
