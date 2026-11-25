@@ -204,7 +204,8 @@ def _emitted_codes() -> set[str]:
     for path in package.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Finding"
-                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)):
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
                 codes.add(node.args[1].value)
             if path.name in ("content_checks.py", "command_checks.py") and isinstance(node, ast.Constant) \
                     and isinstance(node.value, str):
@@ -244,6 +245,20 @@ def test_a_command_check_code_can_be_ignored(tmp_path, capsys, code):
         f["code"] for f in row["findings"]}
 
 
+def test_ignore_not_loaded_does_not_clear_an_unloaded_skill(tmp_path, capsys):
+    # The CLI never emits not-loaded (only review_skill_dir does): an unloaded skill is an error from
+    # its load error, and ignoring the code must not let it pass (docs/finding-codes.md, the --ignore paragraph).
+    bad = tmp_path / "skills" / "bad"
+    bad.mkdir(parents=True)
+    (bad / "SKILL.md").write_text("---\n---\n# Body\n", encoding="utf-8")
+
+    row, code = _json_row(tmp_path, capsys, "--ignore", "not-loaded")
+
+    assert row["state"] == "error" and row["error"]
+    assert row["ignored"] == ["not-loaded"] and row["findings"] == []
+    assert code == 1
+
+
 def _fail_on_catalog(root: Path) -> None:
     """One skill with a warn-level finding only (``description-no-when``); a second with none."""
     _skill(root / "skills", "cue", name="cue", description="A tool.")
@@ -273,6 +288,18 @@ def test_fail_on_is_repeatable_and_ignore_filters_first(tmp_path, capsys):
     assert _run([*base, "--fail-on-code", "link-missing", "--fail-on-code", "description-no-when"], capsys)[1] == 1
     ignored = [*base, "--fail-on-code", "description-no-when", "--ignore", "description-no-when"]
     assert _run(ignored, capsys)[1] == 0
+
+
+@pytest.mark.parametrize("extra, code", [
+    (["--per-skill", "--fail-on-code", "duplicate", "--ignore", "duplicate"], "duplicate"),
+    (["--fail-on-code", "link-dead", "--ignore", "link-dead"], "link-dead"),
+])
+def test_a_code_in_both_fail_on_and_ignore_is_not_refused_for_the_mode(tmp_path, capsys, extra, code):
+    """#942: --ignore filters first, so a mode-restricted code in both flags is not checked (docs/external-content.md)."""
+    _fail_on_catalog(tmp_path)
+    assert _run(["--root", str(tmp_path), "--kind", "skills", *extra], capsys)[1] == 0
+    unignored = extra[:-2]  # the same call without --ignore is still refused
+    assert _run(["--root", str(tmp_path), "--kind", "skills", *unignored], capsys)[1] == 2
 
 
 def test_fail_on_json_marks_the_failing_subject(tmp_path, capsys):

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The files a ``grep``, ``egrep``, ``fgrep``, ``rg`` or ``git grep`` command line searches and shows lines of, for
-``guidance_searched`` (contract §4.1). The walker of :mod:`~dokimi.repos.cli_traces` calls it for each command word it
+``guidance_searched`` (contract §4.1). The walker of :mod:`~dokimi.repos.shell_walk` calls it for each command word it
 follows; the option tables are :mod:`~dokimi.repos.probes`'s."""
 
 from __future__ import annotations
@@ -156,7 +156,9 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
 
     None for a run that prints no line of a file: ``-q``, ``-l``, ``-L`` (not rg's), ``-c``, ``--files`` and the long
     forms, ``--help`` and ``--version`` as options (``grep -e --help f`` searches for the text), a match limit of zero
-    (``-m0``, ``-m +0``). A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
+    (``-m0``, ``-m +0``), and ``git grep`` of a revision (``git grep x HEAD~1 -- f``), which shows an older blob, not the
+    workspace file. Without ``--``, git needs the repository to distinguish a revision from a path; this parser returns
+    such operands as paths. A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
     operands, _, flags, limit = search_words(program, args)
     short = _SHORT_NO_LINE.get(program, _SHORT_NO_LINE_DEFAULT)
     if any(f in _SHOWS_NO_LINE or (len(f) == 2 and f[1] in short) for f in flags):
@@ -164,4 +166,10 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
     digits = limit[1:] if limit is not None and limit.startswith("+") else limit  # strtoimax and Rust's parse take a leading +
     if "--help" in flags or "--version" in flags or (digits is not None and digits.isdecimal() and not any(int(c) for c in digits)):
         return []
+    if program == "git grep" and "--" in args:  # words before ``--`` are revisions: it searches their trees, not the workspace
+        after = len(args) - list(args).index("--") - 1
+        head = operands[: max(len(operands) - after, 0)]  # before ``--``; the words after it are paths
+        if any(o not in ("(", ")") for o in head):
+            return []
+        operands = operands[len(head):]  # grouping words of the expression name no file
     return [o for o in operands if o != "-"]

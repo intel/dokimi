@@ -13,6 +13,7 @@ Paths, saving, the rollup and exit codes stay with the commands.
 
 from __future__ import annotations
 
+import copy
 import functools
 import logging
 from collections.abc import Callable
@@ -285,16 +286,17 @@ def validate_expected_skills(questions: list[dict], treatments) -> None:
 
 def check_sampling_support(config: ArmsRunConfig) -> None:
     """Reject sampling flags the answer provider would refuse on every answer."""
-    from dokimi.llm import unsupported_sampling_params
+    from dokimi.llm import sampling_refusals
+    from dokimi.llm_sampling import refusal_clause
 
-    bad = unsupported_sampling_params(
+    bad = sampling_refusals(
         config.model, config.provider,
         temperature=config.temperature,
         seed=config.seed,
     )
     if bad:
         raise ValueError(
-            f"Provider '{config.provider}' does not support {', '.join(bad)} for "
+            f"Provider '{config.provider}' does not support {refusal_clause(bad)} for "
             f"model '{config.model}'. Drop the flag(s); every answer would "
             "otherwise fail and the report would show null scores."
         )
@@ -355,29 +357,30 @@ def _treatments(config: ArmsRunConfig, specs: list[str], questions: list[dict]):
     print(f"Arms: {', '.join(t.name for t in treatments)}")
     if config.matrix_cell:
         print(f"Matrix cell: {config.matrix_cell}")
-    if plugin_set["plugins"]:
-        print(f"Plugins: {plugin_set['plugin_set']} ({plugin_set['plugin_set_id']})")
+    print(f"Model: {config.provider}/{config.model}, harness: {config.harness}")
+    print(f"Plugins: {plugin_set['plugin_set']} ({plugin_set['plugin_set_id']})")
     return treatments, library_id, plugin_set
 
 
 def _check_judge(config: ArmsRunConfig, questions: list[dict]) -> None:
     """Refuse what the judge would refuse on every score, before any answer is paid for."""
     from dokimi.eval.question_text import require_question_text
-    from dokimi.llm import unsupported_sampling_params
+    from dokimi.llm import sampling_refusals
+    from dokimi.llm_sampling import refusal_clause
 
     # The judge refuses a blank question; here, that is before any answer is paid for.
     # Every question is answered and then judged, so every one is checked.
     for i, q in enumerate(questions):
         require_question_text(q, i)
     check_bedrock_model(config.judge_provider, config.judge_model)  # before any answer is paid for
-    bad_judge = unsupported_sampling_params(
+    bad_judge = sampling_refusals(
         config.judge_model, config.judge_provider,
         temperature=config.judge_temperature,
     )
     if bad_judge:
         raise ValueError(
             f"Judge provider '{config.judge_provider}' does not support "
-            f"{', '.join(bad_judge)} for model '{config.judge_model}'. Drop the "
+            f"{refusal_clause(bad_judge)} for model '{config.judge_model}'. Drop the "
             "flag; every score would otherwise be null."
         )
     probe_sampling(config.judge_model, config.judge_provider, config.judge_temperature, None)
@@ -486,14 +489,30 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     return PreparedArms(runner=runner, judge=judge, library_id=library_id)
 
 
-def run_prepared(prepared: PreparedArms, config: ArmsRunConfig, questions: list[dict]) -> dict:
+def partial_output(runner: ArmRunner, config: ArmsRunConfig, records: list[dict]) -> dict:
+    """The ``arms.v1`` output of a run that is still answering: the questions done so far, unjudged,
+    with a ``partial`` block saying how many of the questions asked for they are (#228 step 4)."""
+    # A copy: build_output stamps the records, and the run's own records must reach the judge as they are.
+    output = runner.build_output(config.product, copy.deepcopy(records), baseline_arm=config.baseline_arm)
+    output["partial"] = {"questions_requested": runner.questions_requested, "questions_recorded": len(records)}
+    return output
+
+
+def run_prepared(prepared: PreparedArms, config: ArmsRunConfig, questions: list[dict],
+                 on_partial: Callable[[dict], None] | None = None) -> dict:
     """Answer *questions* with a prepared run, judge them when it has a judge, and return the
-    ``arms.v1`` output. A failure here is a run failure (exit 1), not a refused input."""
+    ``arms.v1`` output. A failure here is a run failure (exit 1), not a refused input.
+
+    *on_partial* gets the :func:`partial_output` each time a question is answered, so a caller can
+    save what is paid for before the run ends; an exception from it stops the run.
+    """
     records = prepared.runner.run(
         library_name=config.product,
         questions=questions,
         library_id=prepared.library_id,
         concurrency=config.concurrency,
+        on_record=None if on_partial is None else (
+            lambda done: on_partial(partial_output(prepared.runner, config, done))),
     )
     evaluations = None if prepared.judge is None else _judge_records(prepared.runner, prepared.judge, config, records)
     output = prepared.runner.build_output(
@@ -540,10 +559,12 @@ def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor],
 def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: list[str],
                questions: list[dict],
                on_cell: Callable[[MatrixCellDescriptor, dict], None],
-               before_run: Callable[[], None] | None = None) -> None:
+               before_run: Callable[[], None] | None = None,
+               on_partial: Callable[[MatrixCellDescriptor, dict], None] | None = None) -> None:
     """Run *config* in every cell in turn, handing each cell and its ``arms.v1`` output to
     *on_cell* as soon as the cell finishes, so a later cell's failure keeps the earlier ones.
-    *before_run* is called once every cell is set up, before the first answer.
+    *before_run* is called once every cell is set up, before the first answer; *on_partial*
+    gets the cell and its partial output as each question is answered (:func:`run_prepared`).
 
     Every cell is checked (:func:`check_matrix`) before the first one is paid for. A cell
     that fails raises :class:`MatrixCellError` naming it, with ``usage`` set when the cell was
@@ -564,7 +585,8 @@ def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: 
         before_run()
     for cell, cell_cfg, prepared in prepared_cells:
         try:
-            output = run_prepared(prepared, cell_cfg, questions)
+            output = run_prepared(prepared, cell_cfg, questions,
+                                  None if on_partial is None else functools.partial(on_partial, cell))
         except (ValueError, OSError, RecursionError) as exc:
             raise MatrixCellError(cell.name, exc, usage=False) from exc
         on_cell(cell, output)

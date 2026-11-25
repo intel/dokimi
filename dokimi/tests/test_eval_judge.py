@@ -78,11 +78,18 @@ class TestJudgeInit:
         assert judge.llm.litellm_model == "gpt-4o"
 
     def test_init_anthropic(self):
+        # Not seed=7: the Anthropic route refuses seed (litellm), so a judge given one is refused up front.
         judge = Judge(model="claude-sonnet", provider="anthropic", api_key="test",
-                      temperature=0.0, seed=7)
+                      temperature=1.0)
         llm = judge.llm.llm
-        assert (llm.provider, llm.api_key, llm.temperature, llm.seed) == ("anthropic", "test", 0.0, 7)
+        assert (llm.provider, llm.api_key, llm.temperature, llm.seed) == ("anthropic", "test", 1.0, None)
         assert judge.llm.litellm_model == "anthropic/claude-sonnet"
+
+    def test_init_passes_seed_through_on_a_route_that_takes_it(self):
+        # The seed pass-through moved here from test_init_anthropic; openai takes seed, so it reaches the LLM.
+        judge = Judge(model="gpt-4o", provider="openai", temperature=0.0, seed=7)
+        llm = judge.llm.llm
+        assert (llm.temperature, llm.seed) == (0.0, 7)
 
     def test_init_unsupported_provider(self):
         with patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):

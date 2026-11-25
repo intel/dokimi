@@ -272,7 +272,8 @@ a `--manifest` path that leaves the source tree as typed is exit 2, pinned or no
 `tools preference` exits 1 when every call failed and 3 when `--max-usd`
 or an unpriced model stopped it short. `repo run --max-usd`,
 `repo hits judge --max-usd` and the novelty commands' `--max-usd` still exit 1
-when the budget or an unpriced call stops them.
+when the budget or an unpriced call stops them (`catalog novelty` too, once it has written
+its rows, when any skill it took on is `partial`, `error` or not run).
 `eval judge agreement --judges` and `eval score pairwise` exit 1, not 2, when
 every judge call fails, a missing provider credential included.
 

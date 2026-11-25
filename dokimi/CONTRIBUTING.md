@@ -106,6 +106,10 @@ CI additionally holds a PR to:
   under `-n auto` with `--randomly-seed` 1 to 20 (`scripts/repeat_changed_tests.py`), at
   most 10 files; the log names the rest. It stops at the first failing seed and prints it
   for replay. Run it locally with `python scripts/repeat_changed_tests.py --base <remote>/main`.
+- **Not a PR check. Seeds run weekly.** The weekly and manual run of `ci.yml` also runs the `Tests (seed N)`
+  job: the whole suite on `main` (a manual run too, whichever branch it is started on) under `-n auto` in four legs, each with its own
+  `--randomly-seed` (`GITHUB_RUN_NUMBER * 10 + leg`). The `Pick the seed` step prints the seed
+  and the job summary shows it; replay a failing leg with `pytest -n auto --randomly-seed=<seed>`.
 - **User outcomes hold.** `pytest --outcomes` checks each promise in
   `tests/outcomes/*.json` (what a doc tells the user, the code that keeps it,
   and evidence ids) against the tests that ran. A test claims an id with
@@ -281,8 +285,9 @@ move onto the registry, `cli_flags.py` is data only: no command reads it.
 - **Snapshot.** From `dokimi/`, after `make dev`, run `make cli-snapshot` and commit
   `docs/reference/cli-interface.json` with the change. CI's `typecheck` job and
   `tests/test_cli_flags.py` check it against the code, so a flag change without a
-  regenerated snapshot fails the PR. The ratchet compares spellings only: a reviewer checks
-  that the option's type matches the `kind` of its concept.
+  regenerated snapshot fails the PR. The ratchet checks spellings, switch or value shape,
+  explicit metavars, choices and the parser types for `int`, `float` and `usd` kinds. A
+  reviewer checks the parser types for other kinds.
 - **Non-canonical spelling.** Only if the flag must keep it, add one row to
   `tests/data/cli_flags_allowlist.txt` with the reason after `#`, for example
   `--sample-size  # the spelling the external runner already passes`. An allowlist row
