@@ -392,9 +392,8 @@ def test_a_proxy_arg_is_not_flagged_without_credentials_without_the_arg_or_offli
 
 
 def test_an_uppercase_proxy_arg_with_credentials_is_flagged_by_its_exact_name(monkeypatch):
-    for var in PROXY_VARS:
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("HTTPS_PROXY", "http://svc:s3cret@proxy:912")
+    monkeypatch.setattr("dokimi.harnesses.network_policy.build_env",
+                        lambda _policy: {"HTTPS_PROXY": "http://svc:s3cret@proxy:912"})
     assert credential_build_args("ARG HTTPS_PROXY\n", PhasePolicy("public")) == ["HTTPS_PROXY"]
     assert credential_build_args("ARG https_proxy\n", PhasePolicy("public")) == []
 
