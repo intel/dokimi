@@ -171,7 +171,10 @@ def lexical_conflict(statement: str, sentence: str) -> tuple[str, str] | None:
     if a and b and not (a & b):
         flags = tuple(any(re.match(r"--?[a-z]", value) for value in values) for values in (a, b))
         if flags[0] == flags[1]:
-            quote = next(m.group(0) for m in _VALUE.finditer(sentence))
+            shapes = {("." in value, bool(re.match(r"--?[a-z]", value))) for value in a}
+            quotes = [m.group(0) for m in _VALUE.finditer(sentence)]
+            quote = next((raw for raw in quotes
+                          if ("." in raw, bool(re.match(r"--?[a-z]", raw, re.I))) in shapes), quotes[0])
             return "lexical:value", quote
     neg_a, neg_b = _NEGATION.search(statement), _NEGATION.search(sentence)
     if bool(neg_a) != bool(neg_b):

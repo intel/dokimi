@@ -93,3 +93,8 @@ def test_an_exact_flag_is_enough_to_pair():
 def test_a_negative_default_differs_from_the_positive_default():
     assert lexical_conflict("The request timeout defaults to -1.",
                             "The request timeout defaults to 1.") == ("lexical:value", "1")
+
+
+def test_version_conflict_quotes_the_driver_version():
+    assert lexical_conflict("The accelerator requires driver version 2.1.",
+                            "Windows 11 needs driver version 3.0.") == ("lexical:value", "3.0")
