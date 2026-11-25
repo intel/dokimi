@@ -11,6 +11,7 @@ returned no usage, and no call at all.
 from __future__ import annotations
 
 import itertools
+from dataclasses import replace
 
 import pytest
 
@@ -255,3 +256,16 @@ def test_the_cap_keeps_its_positional_constructor_under_its_old_import():
     assert (child.spent_usd, cap.spent_usd, cap.calls) == (0.25, 1.5, 4)
     with pytest.raises(SpendCapReached, match=r"spend cap reached: \$2\.00 of \$2\.00"):
         NestedSpendCap(5.0, parent=OldImport(2.0, 2.0)).before_call("b")
+
+
+def test_the_judge_reads_a_provider_row_with_numeric_strings_as_numbers():
+    """``_extract_usage`` copies the provider's usage fields as they come; the judge still counts them."""
+    from types import SimpleNamespace
+
+    from dokimi.llm import _extract_usage
+
+    response = SimpleNamespace(usage=SimpleNamespace(prompt_tokens="12", completion_tokens=3,
+                                                     total_tokens="15"))
+    row = replace(_extract_usage(response, "m", "openai"), cost_usd=0.1)
+    assert _both_judge_records(_judge(row, UsageRecord(prompt_tokens="x", cost_usd="0.2"))) == (
+        _judge_metrics(2, 1, 0.1, 12, 3, 15))

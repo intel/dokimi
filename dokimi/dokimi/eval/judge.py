@@ -588,7 +588,7 @@ class Judge:
     
     def _accumulate_usage(self, usage) -> None:
         """Count one judge call (thread-safe); a reply with no ``UsageRecord`` is a call with no price."""
-        row = usage if isinstance(usage, UsageRecord) else None
+        row = _numeric(usage) if isinstance(usage, UsageRecord) else None
         with self._usage_lock:
             self._spend.add(row)
             if row is not None:
@@ -654,6 +654,28 @@ class Judge:
     def _get_timestamp() -> str:
         from datetime import datetime, timezone
         return datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
+
+
+def _count(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _numeric(usage: UsageRecord) -> UsageRecord:
+    """The row with its counts as ints (``"12"`` from a provider is 12, what does not convert 0) and a non-number cost unpriced.
+
+    _extract_usage copies the provider's fields as they come, and a telemetry row must not stop a judgement.
+    """
+    cost = usage.cost_usd
+    priced = cost if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None
+    return replace(usage, prompt_tokens=_count(usage.prompt_tokens),
+                   completion_tokens=_count(usage.completion_tokens), total_tokens=_count(usage.total_tokens),
+                   cache_read_tokens=_count(usage.cache_read_tokens),
+                   cache_write_tokens=_count(usage.cache_write_tokens), n_calls=_count(usage.n_calls),
+                   cost_known_calls=_count(usage.cost_known_calls),
+                   cost_usd=None if priced is None else float(priced))
 
 
 def judge_ask(model: str, provider: str) -> Callable[..., str]:
