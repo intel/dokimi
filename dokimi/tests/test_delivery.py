@@ -246,6 +246,17 @@ def test_mounted_starter_preserves_the_pinned_bytes_on_windows(pack, monkeypatch
         assert row["initial_sha256"] == delivery.digest((pack.tasks.parent / "consumer.sh").read_bytes())
 
 
+@pytest.mark.skipif(not os.environ.get("DOKIMI_DELIVERY_IMAGE"), reason="requires a preloaded Docker runtime image")
+def test_consumer_can_modify_its_starter(pack):
+    manifest = json.loads(pack.manifest.read_text())
+    original_path = pack.manifest.parent / manifest["docs"]["path"]
+    original_path.write_bytes(b"printf 'shipcalc double\\n' > consumer.sh && sh consumer.sh")
+    manifest["docs"]["sha256"] = delivery.digest(original_path.read_bytes())
+    pack.manifest.write_text(json.dumps(manifest))
+    row = delivery.run(pack)["observations"][0]
+    assert row["outcome"] == "PASS", row["evidence"]
+
+
 def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):
     from dokimi.cli import parse_args
 

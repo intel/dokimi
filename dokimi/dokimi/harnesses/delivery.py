@@ -186,6 +186,7 @@ def _grade(
             'workspace=$(mktemp -d) || workspace_failed\n'
             'cd "$workspace" || workspace_failed\n'
             "cp /initial ./consumer.sh || workspace_failed\n"
+            "chmod u+w ./consumer.sh || workspace_failed\n"
             + manifest["install"]
             + " || exit 120\n"
             + script,
