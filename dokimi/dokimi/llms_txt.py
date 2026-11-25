@@ -10,8 +10,13 @@ positioning sections agents use to decide when a tool applies and when it does n
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
+
+from markdown_it import MarkdownIt
+from markdown_it.rules_inline import StateInline, link
+from markdown_it.token import Token
 
 from dokimi.code_spans import CodeSpanScanner
 
@@ -20,9 +25,7 @@ TOKEN_BUDGET = 2000
 
 _H1 = re.compile(r"^ {0,3}#\s+\S")
 _H2 = re.compile(r"^ {0,3}##\s+(.+?)\s*$")
-_LINK_START = re.compile(r"(?<![!\\])\[([^\]]+)\]\(")
-_LINK_END = re.compile(r"""(?:[ \t]+(?:"[^"]*"|'[^']*'))?\)""")
-_DESTINATION_MARK = re.compile(r"\\.|[()\s]")
+_DESCRIPTION = re.compile(r"[^\S\n]*:[^\S\n]*\S")
 _WHEN_NOT = re.compile(r"\bwhen\s+not\b|\bnot\s+for\b|\bavoid\b|\balternatives?\b", re.I)
 _WHEN = re.compile(r"\bwhen\s+to\s+use\b|\buse\s+(it\s+)?(for|when)\b|\buse\s+cases?\b", re.I)
 
@@ -76,32 +79,58 @@ def _section_findings(lines: list[str]) -> list[Finding]:
     return found
 
 
-def _links(line: str) -> Iterator[tuple[str, str, int]]:
-    for label in _LINK_START.finditer(line):
-        depth = 0
-        for mark in _DESTINATION_MARK.finditer(line, label.end()):
-            char = mark[0]
-            if char == "(":
-                depth += 1
-            elif char == ")" and depth:
-                depth -= 1
-            elif char == ")" or char.isspace():
-                end = _LINK_END.match(line, mark.start()) if depth == 0 else None
-                if end is not None and mark.start() > label.end():
-                    yield label[1], line[label.end():mark.start()], end.end()
-                break
+def _mark_link(state: StateInline, silent: bool) -> bool:
+    """Keep the source offsets and label of each parsed Markdown link."""
+    start, first = state.pos, len(state.tokens)
+    if not link(state, silent):
+        return False
+    if not silent:
+        opening = next(token for token in state.tokens[first:] if token.type == "link_open")
+        label_end = state.md.helpers.parseLinkLabel(state, start, True)
+        state.tokens[-1].meta["llms_txt_link"] = (
+            start, state.pos, state.src[start + 1:label_end], opening.attrGet("href"),
+        )
+    return True
 
 
-def _link_findings(lines: list[str]) -> list[Finding]:
-    links = [(i, title, target, end) for i, line in enumerate(lines, 1) for title, target, end in _links(line)]
+_LINK_PARSER = MarkdownIt("commonmark")
+_LINK_PARSER.inline.ruler.at("link", _mark_link)
+
+
+def _inline_links(token: Token, in_list: bool) -> Iterator[tuple[int, str, str, bool]]:
+    if token.map is None:
+        return
+    children = token.children or []
+    newlines = [m.start() for m in re.finditer("\n", token.content)]
+    for child in children:
+        mark = child.meta.get("llms_txt_link")
+        if mark is None:
+            continue
+        start, end, title, target = mark
+        if target:
+            line = token.map[0] + bisect_left(newlines, start) + 1
+            yield line, title, target, in_list and _DESCRIPTION.match(token.content, end) is None
+
+
+def _links(text: str) -> Iterator[tuple[int, str, str, bool]]:
+    lists = 0
+    for token in _LINK_PARSER.parse(text):
+        if token.type in {"bullet_list_open", "ordered_list_open"}:
+            lists += 1
+        elif token.type in {"bullet_list_close", "ordered_list_close"}:
+            lists -= 1
+        elif token.type == "inline":
+            yield from _inline_links(token, lists > 0)
+
+
+def _link_findings(text: str) -> list[Finding]:
+    links = list(_links(text))
     if not links:
         return [Finding("links", "fail", 0, "no Markdown links to the documentation",
                         "List key pages as `- [Title](url): one-line description`.")]
-    return [Finding("links", "warn", i, f"link to {target} has no description",
+    return [Finding("links", "warn", line, f"link to {target} has no description",
                     "Add `: <what the page answers>` after the link.", f"{title}|{target}")
-            for i, title, target, end in links
-            if re.match(r"^\s*(?:[-*+]|\d+[.)])\s+", lines[i - 1])
-            and not re.match(r"\s*:\s*\S", lines[i - 1][end:])]
+            for line, title, target, missing_description in links if missing_description]
 
 
 _BLOCK = re.compile(r"\n(?=[ \t]*(?:\n|$)| {0,3}(?:#{1,6}(?:\s|$)|>|[-+*] |\d+[.)] |`{3,}|~{3,}))")
@@ -188,7 +217,7 @@ def _structure_lines(text: str) -> list[str]:
 def check(text: str, *, token_budget: int = TOKEN_BUDGET) -> list[Finding]:
     """Every finding for one llms.txt text, in check order; empty when it passes."""
     lines = _structure_lines(text)
-    found = _title_findings(lines) + _section_findings(lines) + _link_findings(lines)
+    found = _title_findings(lines) + _section_findings(lines) + _link_findings("\n".join(lines))
     tokens = estimate_tokens(text)
     if tokens > token_budget:
         found.append(Finding("size", "warn", 0, f"~{tokens} tokens, over {token_budget}",

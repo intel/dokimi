@@ -36,6 +36,7 @@ requirements:
       - datasets >=2.20,<6
       - openai >=1.51,<3
       - regex >=2024.11.6
+      - markdown-it-py >=4.2,<5
 
 test:
     imports:

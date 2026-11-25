@@ -112,3 +112,33 @@ def test_inline_examples_are_not_links_and_code_descriptions_are_visible():
 def test_code_span_across_a_soft_break_keeps_a_comment_literal():
     text = GOOD.replace('## Docs', '## Docs\n\nWrite `example\n<!--` to begin a comment.')
     assert not _checks(text)
+
+
+def test_reference_links_resolve_their_definition_after_use():
+    text = GOOD.replace(
+        '[Quickstart](https://acme.test/quickstart.md): first charge in five minutes',
+        '[Quickstart][quick]: first charge in five minutes',
+    )
+    assert llms_txt.check(text + '\n[quick]: https://acme.test/quickstart.md\n') == []
+    assert {(f.check, f.severity) for f in llms_txt.check(text)} == {('links', 'fail')}
+
+
+def test_link_labels_can_contain_brackets_and_images():
+    text = GOOD.replace('[Quickstart]', '[Node [LTS]]')
+    assert llms_txt.check(text) == []
+    linked_logo = GOOD.replace('[Quickstart]', '[![Logo](logo.png)]')
+    assert llms_txt.check(linked_logo) == []
+
+
+def test_angle_destination_and_parenthesized_title():
+    text = GOOD.replace('https://acme.test/quickstart.md', '<docs/Getting Started.md> (Quickstart)')
+    assert llms_txt.check(text) == []
+
+
+def test_list_link_warning_uses_the_physical_line_and_resolved_target():
+    text = GOOD.replace(
+        '- [Quickstart](https://acme.test/quickstart.md): first charge in five minutes',
+        '- More information\n  [Quickstart][quick]: <!-- empty description -->\n\n[quick]: guide.md',
+    )
+    line = next(i for i, value in enumerate(text.split('\n'), 1) if '[Quickstart]' in value)
+    assert [(f.line, f.identity, f.severity) for f in llms_txt.check(text)] == [(line, 'Quickstart|guide.md', 'warn')]
