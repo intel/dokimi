@@ -37,7 +37,8 @@ def test_as_float_returns_a_finite_float_or_none(value, expected):
 
 
 def test_as_float_of_a_small_int_is_a_float():
-    assert isinstance(as_float(7), float) and math.isfinite(as_float(7))
+    result = as_float(7)
+    assert isinstance(result, float) and math.isfinite(result)
 
 
 def test_summarize_task_results_counts_a_reward_beyond_the_float_range_as_unscored():
@@ -78,12 +79,22 @@ def test_task_runs_report_shows_a_reward_beyond_the_float_range_as_null():
 def test_summarize_task_results_survives_other_fields_beyond_the_float_range(field):
     from dokimi.harnesses.runner import summarize_task_results
 
-    row = {"task": "t", "harness": "h", "passed": True, "elapsed_sec": 1, "reward": 1.0, "metrics": {}}
+    metrics: dict[str, object] = {}
+    row: dict[str, object] = {"task": "t", "harness": "h", "passed": True, "elapsed_sec": 1,
+                              "reward": 1.0, "metrics": metrics}
     if field == "elapsed_sec":
         row[field] = 10**400
     else:
-        row["metrics"][field] = 10**400
+        metrics[field] = 10**400
     stats = summarize_task_results([row])["per_harness"]["h"]
     assert stats["avg_reward"] == 1.0
     if field == "operation_count":
         assert stats["operation_count"] == 10**400
+
+
+def test_a_zero_skill_invocation_count_is_a_reported_row():
+    from dokimi.harnesses.runner import summarize_task_results
+
+    row = {"task": "t", "harness": "h", "passed": True, "elapsed_sec": 1, "reward": 1.0,
+           "metrics": {"n_skill_invocations": 0}}
+    assert summarize_task_results([row])["per_harness"]["h"]["skill_invocation_n"] == 1
