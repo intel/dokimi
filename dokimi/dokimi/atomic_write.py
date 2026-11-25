@@ -260,3 +260,7 @@ def _existing_stat(path: Path) -> os.stat_result | None:
         return path.stat()
     except FileNotFoundError:
         return None
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            return None
+        raise

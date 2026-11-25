@@ -87,6 +87,15 @@ def test_a_ledger_write_replaces_a_dangling_link_and_a_directory(tmp_path):
     assert json.loads((tmp_path / "b.json").read_text(encoding="utf-8")) == {"y": 2}
 
 
+def test_a_ledger_write_replaces_a_link_that_loops_back_to_itself(tmp_path):
+    ledger = tmp_path / "result.json"
+    ledger.symlink_to("result.json")
+
+    batch_ledger.write_json(ledger, {"x": 1})
+
+    assert not ledger.is_symlink() and json.loads(ledger.read_text(encoding="utf-8")) == {"x": 1}
+
+
 def test_a_failed_ledger_write_leaves_the_old_file_and_no_tmp(tmp_path, monkeypatch):
     ledger = tmp_path / "spend.json"
     ledger.write_text("old", encoding="utf-8")
