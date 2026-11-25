@@ -9,7 +9,7 @@ and renders a headline, a difficulty rollup, the per-harness comparison, a
 per-task pass/cost table, and a per-cell answer detail.
 
 Aggregates are keyed by the **full harness id**, so a run with several harnesses
-(``--harnesses codex,claude-code`` or two skill harnesses) keeps them distinct
+(``--harness codex,claude-code`` or two skill harnesses) keeps them distinct
 rather than collapsing them into one bucket.
 
 The per-cell detail contrasts the verifier verdict with the model's own

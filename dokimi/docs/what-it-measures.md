@@ -13,7 +13,7 @@ For the full capability inventory, diagrams and availability boundaries, use the
 An *arm* is one context condition. Every arm runs the same question or task
 set against the same model, and the report gives the per-arm delta against the
 baseline with paired statistics. Arms are given as specs (`dokimi arms run
---arms …`):
+--arm …`):
 
 | Arm | What the agent gets |
 |---|---|
