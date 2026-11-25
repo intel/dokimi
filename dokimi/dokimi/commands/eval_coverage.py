@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 METRICS = ("weighted", "core_rare_critical", "rare_critical")

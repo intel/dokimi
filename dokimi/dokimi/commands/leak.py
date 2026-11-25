@@ -32,7 +32,7 @@ from pathlib import Path
 
 from dokimi.cli_types import positive_fraction, positive_int
 from dokimi.exit_codes import EXIT_INCONCLUSIVE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _same_file(a: str, b: str) -> bool:

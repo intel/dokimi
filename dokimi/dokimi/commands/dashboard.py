@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 from dokimi import cli_flags
 from dokimi.commands._output import exit_on_rejected
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def cmd_dashboard_generate(args: argparse.Namespace) -> None:

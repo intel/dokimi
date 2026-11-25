@@ -28,7 +28,7 @@ from dokimi.external.validate import (
     _tokens,
 )
 from dokimi.skills import Skill
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _skill(root: Path, rel: str, name: str, description: str) -> None:

@@ -219,7 +219,7 @@ def test_a_windows_manifest_path_leaving_an_unpinned_tree_is_refused_as_typed(tm
     from types import SimpleNamespace
 
     from dokimi.commands import repo_run
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     source = SimpleNamespace(location=str(tmp_path), remote=False, rev=None, subdir=None)
     # What Windows does with `..\x`, written back with `/` so the posix tree compares.
@@ -237,7 +237,7 @@ def test_a_windows_drive_manifest_is_refused_for_an_unpinned_tree(tmp_path, monk
     from types import SimpleNamespace
 
     from dokimi.commands import repo_run
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     source = SimpleNamespace(location=str(tmp_path), remote=False, rev=None, subdir=None)
     windows_path = SimpleNamespace(normpath=ntpath.normpath, sep="\\", splitdrive=ntpath.splitdrive)
@@ -253,7 +253,7 @@ def test_a_windows_manifest_path_leaving_a_pinned_tree_is_refused_as_typed(monke
     from types import SimpleNamespace
 
     from dokimi.commands import repo_run
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     pinned = SimpleNamespace(location="https://example.invalid/r.git", remote=True, rev="a" * 40, subdir=None)
     windows_path = SimpleNamespace(normpath=ntpath.normpath, sep="\\", splitdrive=ntpath.splitdrive)  # as Windows
@@ -270,7 +270,7 @@ def test_a_pinned_source_gets_only_the_tree_path_check_for_a_manifest_that_stays
     from types import SimpleNamespace
 
     from dokimi.commands import repo_run
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     pinned = SimpleNamespace(location="https://example.invalid/r.git", remote=True, rev="a" * 40, subdir=None)
     repo_run._refuse_typed(pinned, SimpleNamespace(manifest="sub/../ok.yaml", manifest_file=None))

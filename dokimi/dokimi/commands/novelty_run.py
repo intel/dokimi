@@ -121,7 +121,7 @@ def add_panel_args(parser: argparse.ArgumentParser) -> None:
 def panel_clients(args: argparse.Namespace, make_client) -> tuple:
     """Clients for the judges after the first ``--judge`` (the first is the judge client)."""
     from dokimi.novelty.cost import judge_refs
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     try:
         refs = judge_refs(args)

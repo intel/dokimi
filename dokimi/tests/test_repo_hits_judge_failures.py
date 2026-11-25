@@ -37,7 +37,7 @@ def test_an_input_error_after_the_judge_calls_with_json_prints_an_input_document
                                                                                                judge_llm, monkeypatch):  # noqa: F811
     # an InputError raised after the paid calls (here in summary) exits 2 with its document, and the cost of the calls
     import dokimi.repos.hits_judge as hits_judge
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     batch = _batch(tmp_path)
     _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])

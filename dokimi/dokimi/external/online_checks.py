@@ -34,7 +34,7 @@ from dokimi.code_spans import iter_code_spans
 from dokimi.external.skill_markdown import outside_fences
 from dokimi.external.validate import Finding, SkillReview
 from dokimi.process_io import joined_pairs
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 if TYPE_CHECKING:
     from dokimi.skills import Skill

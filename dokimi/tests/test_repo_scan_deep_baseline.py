@@ -10,7 +10,7 @@ import argparse
 import pytest
 
 from dokimi.commands.repo_scan import baseline_from
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def test_a_deeply_nested_baseline_is_an_input_error(tmp_path):

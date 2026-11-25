@@ -11,7 +11,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.context import TraceError, read_trace
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.context.trace import parse_trace
 
 

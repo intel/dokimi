@@ -13,7 +13,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from dokimi.utils import question_id
+from dokimi.records import question_id
 from dokimi.artifacts import save_artifact
 from dokimi.defaults import (
     ANSWERING_METHOD_VERSION,

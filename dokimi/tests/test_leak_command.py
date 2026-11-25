@@ -18,7 +18,7 @@ import pytest
 
 from dokimi.artifacts import schema_errors
 from dokimi.commands.leak import cmd_eval_leak
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 ANSWER = "the flag writes each kernel timing into the chrome trace file under the output directory"
 SPLIT = {"dev": ["1"], "val": ["2"], "test": ["3"]}

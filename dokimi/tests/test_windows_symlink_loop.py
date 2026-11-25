@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.utils import InputError, is_symlink_loop
+from dokimi.files import InputError, is_symlink_loop
 
 
 class _WindowsError(OSError):

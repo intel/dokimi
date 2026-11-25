@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi import llm_cli
-from dokimi.utils import same_model
+from dokimi.model_names import same_model
 
 
 def test_an_alias_and_its_full_id_are_one_model_for_the_identity_checks():

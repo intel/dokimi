@@ -35,7 +35,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from dokimi.skills import load_skill  # noqa: E402
-from dokimi.utils import parse_frontmatter  # noqa: E402
+from dokimi.frontmatter import parse_frontmatter  # noqa: E402
 
 # Must match the cap the skill arm renders with, in `treatments/arms.py`. A different cap
 # here would make the control differ from the skill arm by content as well as channel.

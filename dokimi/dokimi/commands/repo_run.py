@@ -25,8 +25,8 @@ from dokimi import docker_cmd
 from dokimi.exit_codes import EXIT_INFRA
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.repos.source import SourceArgumentError, tree_path
-from dokimi.utils import tree_digest
-from dokimi.utils import InputError
+from dokimi.digest import tree_digest
+from dokimi.files import InputError
 
 
 def _refuse_typed(source, args: argparse.Namespace) -> None:

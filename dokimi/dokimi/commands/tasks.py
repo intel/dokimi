@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dokimi import cli_flags
 from dokimi.commands.explore import list_localization_tasks
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 _TASKS_ROOT_HELP = (
     "Directory holding one sub-directory per task (each with task.toml or task.md). "

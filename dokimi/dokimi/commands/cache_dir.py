@@ -22,7 +22,7 @@ def usable_cache_dir(raw: str | None, use: str = RETENTION_USE, *, label: str = 
     call or a clone (#701, #765). ``use`` closes the message: "pass a directory <use>"; ``label`` names the
     setting at its start (``--cache-dir`` unless the caller says otherwise: #826).
     """
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     if not raw:
         return None
@@ -53,7 +53,7 @@ def resolved_cache_dir(raw: str | None, use: str, *, label: str) -> Path | None:
     A path that cannot be resolved (an unreadable ancestor, a symbolic link loop) raises ``InputError`` naming ``label``.
     The resolved path is returned: the cache is made there.
     """
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     if not raw:
         return None

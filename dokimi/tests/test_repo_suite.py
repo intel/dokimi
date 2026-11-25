@@ -16,7 +16,7 @@ import yaml
 from dokimi.cli import build_parser
 from dokimi.repos.source import RepoSource, open_source
 from dokimi.repos.suite import SuiteError, load_suite, parse_suite, resolve_suite
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from repo_eval_fixture import PROFILE, FakeRunner, fake_harness, git, make_repo, write
 from test_repo_host import AMD_CPUINFO, HostRunner, _probe_out
 from test_repo_host import _check as _host_check

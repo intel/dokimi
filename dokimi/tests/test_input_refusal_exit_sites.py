@@ -121,7 +121,7 @@ def literal_exit_2_problems(modules: dict[str, Path], baseline: dict[str, tuple[
         lines = literal_exit_2_lines(path.read_text(encoding="utf-8"))
         allowed = baseline.get(mod, (0, ""))[0]
         if len(lines) > allowed:
-            problems.append(f"{mod} exits 2 at lines {lines}; raise InputError (dokimi.utils) with the message "
+            problems.append(f"{mod} exits 2 at lines {lines}; raise InputError (dokimi.files) with the message "
                             "and let cli.main print it and exit 2")
         elif len(lines) < allowed:
             problems.append(f"{mod} has {len(lines)} literal exit(s) 2, baseline {allowed}: lower EXIT2_BASELINE")

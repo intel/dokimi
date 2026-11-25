@@ -139,7 +139,7 @@ def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
     # and the strict one raises the YAML error its docstring names.
     import yaml
 
-    from dokimi.utils import parse_frontmatter, parse_frontmatter_strict
+    from dokimi.frontmatter import parse_frontmatter, parse_frontmatter_strict
 
     text = "---\ndate: 2026-02-30\n---\nbody"
     assert parse_frontmatter(text) == ({}, "body")
@@ -165,7 +165,7 @@ def test_a_malformed_tagged_scalar_is_invalid_frontmatter(text: str) -> None:
     # Lenient readers return no metadata; strict ones raise the YAML error the docstring names.
     import yaml
 
-    from dokimi.utils import parse_frontmatter, parse_frontmatter_strict
+    from dokimi.frontmatter import parse_frontmatter, parse_frontmatter_strict
 
     meta, body = parse_frontmatter(text)
     assert meta == {}

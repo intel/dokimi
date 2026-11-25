@@ -18,7 +18,7 @@ import pytest
 
 from dokimi import cli, cli_output
 from dokimi.artifacts import schema_errors
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 def _leaves(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()):
     """Every leaf parser under ``parser`` as (path, parser); an alias is the same parser twice."""

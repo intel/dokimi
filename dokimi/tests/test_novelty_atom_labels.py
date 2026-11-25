@@ -12,7 +12,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.novelty.atom_labels import label_shares, load_atom_labels
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_refusal import refusal
 from tests.test_novelty_atom_verdicts import _analyze, _run
 from tests.test_novelty_atom_verdicts import mixed_models as _mixed_models

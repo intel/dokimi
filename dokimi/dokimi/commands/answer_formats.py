@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from dokimi.utils import InputError, read_json_input
+from dokimi.files import InputError, read_json_input
 
 
 def cmd_questions_import(args: argparse.Namespace) -> None:
@@ -50,7 +50,7 @@ def cmd_eval_reference(args: argparse.Namespace) -> None:
     except ValueError as e:  # ArtifactValidationError: names the record and the fix
         raise InputError(str(e)) from e
     if not args.no_judge:
-        from dokimi.utils import warn_recorded_self_judge
+        from dokimi.model_names import warn_recorded_self_judge
 
         warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval score reference")
     try:

@@ -208,7 +208,7 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
     from dokimi.novelty import cost
     from dokimi.novelty.measure import parse_arms
     from dokimi.novelty.spans import segment
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     try:
         arms = parse_arms(args.arms)

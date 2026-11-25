@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 if TYPE_CHECKING:
     from dokimi.eval.arms_run import ArmsRunConfig

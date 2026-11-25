@@ -19,7 +19,7 @@ from typing import Any
 
 from dokimi import __version__
 from dokimi.artifacts import save_artifact
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 _OUTPUTS = ("catalog.json", "plan.json", "result.json", "report.md")
 _REPORT_HEADER = "# Catalog static evaluation"

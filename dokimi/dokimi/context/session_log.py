@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.text_spans import replace_pairs
-from dokimi.utils import InputError, refuse_device
+from dokimi.files import InputError, refuse_device
 
 # Input keys whose value is file content or a model-facing brief, not the agent's intent: left out of an event's text.
 _CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", "edits",

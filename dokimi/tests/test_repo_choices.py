@@ -431,7 +431,7 @@ def test_a_deeply_nested_baseline_is_refused_as_input_not_a_crash(tmp_path):
     import argparse
 
     from dokimi.commands.repo_scan import baseline_from
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     path = tmp_path / "deep.json"
     path.write_text("[" * 5000 + "]" * 5000, encoding="utf-8")

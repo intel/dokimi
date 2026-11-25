@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 ENTRY = "alpha: Use when alpha runs."  # 27 characters: the name, ": ", the description
 

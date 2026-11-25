@@ -14,7 +14,7 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 HEAD_TEXT = (
     "---\nname: pdf\ndescription: Use when reading PDFs and forms.\nlicense: MIT\nallowed-tools: Read\n---\n"

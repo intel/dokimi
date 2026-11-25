@@ -13,7 +13,7 @@ from dokimi import cli_routes
 from dokimi.cli import build_parser, parse_args
 from dokimi.cli_routes import AmbiguousRetiredFlag, moved_argv
 from dokimi.commands.catalog import cmd_catalog_list, cmd_catalog_show
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_refusal import refusal
 
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi import process
-from dokimi.utils import retry_writable
+from dokimi.files import retry_writable
 
 from .models import HarnessResult, OperationRecord
 from .operations import load_operations

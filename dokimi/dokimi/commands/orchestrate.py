@@ -13,8 +13,8 @@ from dokimi import cli_flags
 from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import CALLER_CHOICES
 from dokimi.llm_cli import SamplingError
-from dokimi.utils import check_bedrock_model
-from dokimi.utils import warn_judge_independence as _warn_judge_independence
+from dokimi.model_names import check_bedrock_model
+from dokimi.model_names import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -23,7 +23,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:

@@ -41,7 +41,7 @@ from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import finite_delta, stats as arm_stats
 from dokimi.report import fmt
 from dokimi.report.compare_limits import no_delta_limitation
-from dokimi.utils import InputError, read_json_input
+from dokimi.files import InputError, read_json_input
 
 try:
     from zoneinfo import ZoneInfo
@@ -57,7 +57,7 @@ except ImportError:
 
 
 def load_run(path: str) -> dict[str, Any]:
-    """Load a judged arms JSON file, an :class:`~dokimi.utils.InputError` naming it when it is not one."""
+    """Load a judged arms JSON file, an :class:`~dokimi.files.InputError` naming it when it is not one."""
     data = read_json_input(path)
     if not isinstance(data, dict):
         raise InputError(f"{path} is not a judged arms file: expected a JSON object, got {type(data).__name__}")

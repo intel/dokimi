@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dokimi.utils import InputError, refuse_device
+from dokimi.files import InputError, refuse_device
 
 # Tools whose call can change what a later identical call returns; one ends every earlier repeat.
 MUTATING = frozenset({"Bash", "Edit", "MultiEdit", "NotebookEdit", "Write"})

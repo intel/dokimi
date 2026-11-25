@@ -18,7 +18,7 @@ from typing import Any, NoReturn
 
 from dokimi import cli_flags
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 # The probe's flags, unset by default: --from refuses any of them given, even at its default value.
 _PROBE_ONLY = {"only": None, "salt": None, "work_dir": None, "keep": False, "bin": None, "dry_run": False,

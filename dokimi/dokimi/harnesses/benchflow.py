@@ -677,7 +677,7 @@ def _trajectory_events(rollout_dir: Path) -> list[dict[str, Any]]:
 def treatment_names(skills_root: Path) -> Optional[frozenset[str]]:
     """Names the arm's treatment skills answer to: each pack's dir name and
     its frontmatter ``name``. ``None`` when the root holds no pack."""
-    from dokimi.utils import parse_frontmatter
+    from dokimi.frontmatter import parse_frontmatter
 
     names: set[str] = set()
     for skill_md in sorted(skills_root.glob("*/SKILL.md")):

@@ -23,7 +23,7 @@ from dokimi import records
 from dokimi.artifacts import ENVELOPE_KEYS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge_context import PROTOCOL_MIXED
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _read_json(path) -> Any:

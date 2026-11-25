@@ -11,7 +11,7 @@ import json
 import pytest
 
 from dokimi.novelty import cost as novelty_cost
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill

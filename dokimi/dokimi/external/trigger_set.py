@@ -38,7 +38,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
-from dokimi.utils import question_id
+from dokimi.records import question_id
 from dokimi.skills import Skill
 
 ExpectedSkill = Union[str, List[str], None]

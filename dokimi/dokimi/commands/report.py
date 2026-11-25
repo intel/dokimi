@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -> None:

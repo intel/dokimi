@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.repos.arms import ArmError, Skill, check_arms, resolve_skills, skill_usage, tree_sha256
 from dokimi.repos.events import convert
 from dokimi.repos.report import format_report, summarize

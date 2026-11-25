@@ -10,7 +10,7 @@ treating them as rival models reports that noise as a model ranking.
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.report.model_compare import (
     check_run_consistency,
     group_replicates,

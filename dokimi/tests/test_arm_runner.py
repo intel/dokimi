@@ -1125,7 +1125,7 @@ def test_material_that_does_not_match_its_digest_is_not_used(monkeypatch, skill_
 
 def test_an_artifact_without_materials_falls_back_as_before():
     from dokimi.eval.judge_context import JudgeContextStore
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     # No judge_materials key at all; record has digest but material is missing
     store = JudgeContextStore.from_artifact({
@@ -1138,7 +1138,7 @@ def test_an_artifact_without_materials_falls_back_as_before():
 def test_judge_materials_guard_requires_material_for_stored_scores(caplog):
     """The guard against missing material does not skip records with no digest."""
     from dokimi.eval.judge_context import JudgeContextStore
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     # Record with no digest — should be skipped without error.
     store = JudgeContextStore.from_artifact({

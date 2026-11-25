@@ -28,9 +28,9 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
 
 from dokimi import process
+from dokimi.digest import key_bytes
 from dokimi.repos.links import _LinkLoop, _walk_links
 from dokimi.repos.source_errors import SourceArgumentError, SourceError, _NoSuchPath
-from dokimi.utils import key_bytes
 
 # A revision is a SHA, tag or branch (a "/" is allowed: origin/main, refs/heads/x), optionally
 # with ^ / ~N suffixes. No leading "-" (so a revision can never be read as a git option);

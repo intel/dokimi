@@ -21,7 +21,7 @@ from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.commands.repo_scan import (_loaded_with_default, _print_scan_text, _scan_gate, _scan_reason,
                                          _typecheck_or_exit)
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:

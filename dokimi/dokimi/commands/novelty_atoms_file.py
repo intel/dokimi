@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def warn_unread(spans: list, consequence: str) -> None:
@@ -203,7 +203,7 @@ def score_candidates(args: argparse.Namespace, spans: list, atoms: list, scored:
 def warn_answer_key(saved: dict, answerer, judge) -> None:
     """Warn when the saved answer key was written by the model under measurement, or by the judge's model or family."""
     from dokimi.novelty.client import _REMEDY_PROBE, warn_extractor_judge
-    from dokimi.utils import same_model
+    from dokimi.model_names import same_model
 
     extractor = saved.get("extractor")
     if not isinstance(extractor, str):

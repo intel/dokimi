@@ -56,7 +56,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from dokimi import process
-from dokimi.utils import key_bytes, retry_writable
+from dokimi.digest import key_bytes
+from dokimi.files import retry_writable
 
 from .events import convert
 from .transcript import Transcript

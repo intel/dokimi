@@ -24,7 +24,7 @@ from dokimi.commands.catalog_scan import (
     ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
 )
 from dokimi.external.catalog_rates import RateTally, text_lines
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _print_strict_reasons(rows: list, strict: bool) -> None:
@@ -489,7 +489,7 @@ def cmd_catalog_formats(args: argparse.Namespace) -> None:
 
 def _question_sources(specs: list) -> list:
     """Each ``--questions PATH=LABEL`` as a (questions, rule) source."""
-    from dokimi.utils import read_json_input
+    from dokimi.files import read_json_input
 
     sources = []
     for spec in specs:
@@ -512,7 +512,7 @@ def _trigger_set_sources(specs: list, catalog) -> list:
     any other source. TARGET names the skill a skill-creator set was written for.
     """
     from dokimi.external import trigger_set as ts
-    from dokimi.utils import read_json_input
+    from dokimi.files import read_json_input
 
     names = {s.name for s in catalog}
     out = []

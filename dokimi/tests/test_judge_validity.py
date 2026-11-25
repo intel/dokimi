@@ -1428,7 +1428,7 @@ def test_wrong_numbers_survives_a_digit_run_too_long_for_a_float(tail):
 
 def _with_materials(skill_text="FULL SKILL BODY"):
     """`_answers()` as an arms artifact that keeps its judge materials."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = {"answers": _answers(), "judge_materials": {}}
     for rec in data["answers"]:
@@ -1739,7 +1739,7 @@ def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_pa
     import json
 
     from dokimi.cli import build_parser
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     # A judge that ranks the longer answer lower fails the gate (intact must win).
     failing = _stored_cli(tmp_path, monkeypatch, "--context", "stored", "--bases", "3",
@@ -1797,7 +1797,7 @@ def test_sequential_stored_context_reports_pool_and_dropped_answers():
     """Only answers with verified material count toward the pool, so an exhausted pool is 'pool'."""
     from dokimi.eval.judge_context import JudgeContextStore
     from dokimi.eval.judge_sequential import run_sequential
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     digest = digest_text("FULL SKILL BODY")
     answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
@@ -1818,7 +1818,7 @@ def test_sequential_stored_context_reports_pool_and_dropped_answers():
 
 def _starvable(n=30, with_material=3):
     """n baseline answers and n skill answers, of which only ``with_material`` hold material."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     empty, body = digest_text(""), digest_text("FULL SKILL BODY")
     answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?", "arms": {
@@ -1856,7 +1856,7 @@ def test_an_arm_with_material_but_no_sampled_base_is_refused():
 def test_a_scorer_without_a_context_argument_is_refused_before_pairs_are_built():
     from dokimi.eval.judge_context import JudgeContextStore
     from dokimi.eval.judge_validity import NoUsablePairs
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     digest = digest_text("FULL SKILL BODY")
     data = {"answers": [{"question_id": "Q0", "question_text": "q?", "arms": {
@@ -1872,7 +1872,7 @@ def test_a_noop_variant_leaving_an_arm_unpaired_is_refused_before_scoring():
     verified material, gets no pair. The refusal names it and no judge call is made."""
     from dokimi.eval.judge_context import JudgeContextStore
     from dokimi.eval.judge_validity import NoUsablePairs
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     digest = digest_text("FULL SKILL BODY")
     empty = digest_text("")
@@ -1899,7 +1899,7 @@ def test_fixed_mode_arm_with_material_and_only_noop_bases_is_refused():
     """A fixed-mode run where one arm gets no scored base refuses despite material."""
     from dokimi.eval.judge_context import JudgeContextStore
     from dokimi.eval.judge_validity import NoUsablePairs
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     digest = digest_text("FULL SKILL BODY")
     empty = digest_text("")
@@ -1933,7 +1933,7 @@ def test_sequential_stopped_by_counts_kept_answers_not_sampled_ones():
     """kept > max_bases: a higher --max-bases would add bases, so an undecided variant is 'cap'."""
     from dokimi.eval.judge_context import JudgeContextStore
     from dokimi.eval.judge_sequential import run_sequential
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     digest = digest_text("FULL SKILL BODY")
     plain = "Plain prose answer without any code block, long enough to count. " * 30
@@ -1972,7 +1972,7 @@ def test_sequential_reports_the_bases_scored_not_the_pool_built():
     """An early SPRT stop scores fewer bases than --max-bases built; the summary says which."""
     from dokimi.eval.judge_context import JudgeContextStore
     from dokimi.eval.judge_sequential import run_sequential
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     digest = digest_text("FULL SKILL BODY")
     answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
@@ -1995,7 +1995,7 @@ def test_sequential_per_arm_scored_counts_differ():
     """Sequential mode tracks bases scored per arm, pinning the per-arm filter."""
     from dokimi.eval.judge_context import JudgeContextStore
     from dokimi.eval.judge_sequential import run_sequential
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     # Just verify that the "scored" field is populated per-arm in sequential mode.
     # The mutation is that the per-arm filter is removed, so all arms print the same total.
@@ -2055,7 +2055,7 @@ def test_refusal_still_says_raise_the_sample_when_a_kept_base_was_not_drawn():
 
 def _baseline_heavy_arms():
     """100 baseline + 3 skill answers, each citing its verified material."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = {"answers": [], "judge_materials": {}}
     for i in range(103):
@@ -2121,7 +2121,7 @@ def test_sequential_reports_a_fail_even_when_an_arm_was_never_scored(seed):
 
 def _fenced_baseline_arms(n_skill):
     """100 baseline answers with a code fence, ``n_skill`` skill answers without one."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = {"answers": [], "judge_materials": {}}
     for i in range(100 + n_skill):
@@ -2157,7 +2157,7 @@ def test_sequential_padding_alone_does_not_cover_an_arm(n_skill):
 def test_sequential_unscored_arm_refusal_names_every_arm_sorted():
     from dokimi.eval.judge_context import JudgeContextStore
     from dokimi.eval.judge_sequential import run_sequential
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = {"answers": [], "judge_materials": {}}
     for i in range(106):

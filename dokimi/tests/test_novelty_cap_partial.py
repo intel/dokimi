@@ -21,7 +21,7 @@ from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
 from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.client import LLMClient, SpendCap
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_paths import novelty_argv
 
 ROWS = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 201)) + "\n"

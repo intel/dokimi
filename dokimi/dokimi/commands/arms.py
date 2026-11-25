@@ -16,7 +16,8 @@ from dokimi import cli_flags
 from dokimi.commands.novelty_budget import fresh_partial_destination
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
-from dokimi.utils import InputError, question_id
+from dokimi.files import InputError
+from dokimi.records import question_id
 from dokimi.write_probe import can_write
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (

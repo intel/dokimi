@@ -60,7 +60,7 @@ from typing import Any
 
 from dokimi.measure import as_float, is_number
 from dokimi.provenance import STATUSES, UNKNOWN
-from dokimi.utils import same_model
+from dokimi.model_names import same_model
 
 from .batch_ledger import recorded_execution
 from .grading import SCORE_BOUND, read_grade_json

@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.cli import build_parser
 from dokimi.external.trigger_set import TriggerQuery, to_reach, to_skill_creator
 from dokimi.harnesses import discover_tasks

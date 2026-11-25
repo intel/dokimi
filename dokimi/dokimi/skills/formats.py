@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES, skill_files
-from dokimi.utils import parse_frontmatter
+from dokimi.frontmatter import parse_frontmatter
 
 FORMAT_AGENT_SKILL = "agent-skill"
 FORMAT_CURSOR_RULE = "cursor-rule"

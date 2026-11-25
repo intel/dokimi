@@ -20,7 +20,7 @@ from dokimi.ingest import docling_loader
 from dokimi.ingest.docling_loader import SOURCES_NAME, materialize_markdown
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.process import reply
-from dokimi.utils import InputError
+from dokimi.files import InputError
 # _hermetic is autouse: no operator Claude settings, provider env or host `claude` reach a test.
 from tests.test_docker_solver_harness import _fixture_task, _hermetic, _pipeline  # noqa: F401
 

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.cli import build_parser
 from dokimi.harnesses import create_harness
 from dokimi.harnesses import swebench_grade as grader

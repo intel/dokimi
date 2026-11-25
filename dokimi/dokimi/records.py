@@ -45,7 +45,7 @@ Values are read, not normalised: a question id stays the ``str`` or ``int`` it w
 written as and an aggregate stays the ``int`` or ``float`` it was written as, so a
 report that prints them prints what the file says.
 
-Errors: :class:`RecordError` (an :class:`~dokimi.utils.InputError`, so the CLI exits 2 with its message) for a missing or unparseable file, an
+Errors: :class:`RecordError` (an :class:`~dokimi.files.InputError`, so the CLI exits 2 with its message) for a missing or unparseable file, an
 artifact with no record list, a record that is not an object, has no
 ``question_id`` or has one that is neither a string nor an integer, a condition payload that is neither an object nor ``null``, an
 ``arms``/``scores`` field that is not an object, an ``expected_skill`` that is not a
@@ -60,9 +60,9 @@ import math
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
-from dokimi.utils import InputError, read_json_input
+from dokimi.files import InputError, read_json_input
 
 #: The binary context arm, under its persisted key.
 CONTEXT = "with_docs"
@@ -670,3 +670,15 @@ def _score(payload: Mapping[str, Any], *, key: str = "aggregate") -> Score:
     # A score block keeps its aggregate under ``aggregate``; the legacy inline
     # ``arms[name].evaluation`` kept it under ``aggregate_score``.
     return Score(aggregate=_number(payload.get(key)), error=_text(payload.get("error")), raw=payload)
+
+
+def question_id(q: Dict[str, Any]) -> Any:
+    """The question's ``id`` or ``question_id``; ``None`` when neither is set.
+
+    ``0`` is an id (``questions.v1`` allows integer ids), so ``q.get("id") or ...``
+    — which reads it as missing — is not a substitute.
+    """
+    for key in ("id", "question_id"):
+        if q.get(key) not in (None, ""):
+            return q[key]
+    return None

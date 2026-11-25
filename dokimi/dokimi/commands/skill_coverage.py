@@ -19,7 +19,7 @@ from pathlib import Path
 
 from dokimi.cli_types import positive_usd
 from dokimi.exit_codes import EXIT_FAILURE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 def _model_ref(value: str) -> tuple[str, str]:
     from dokimi.eval.judge import JUDGE_PROVIDERS

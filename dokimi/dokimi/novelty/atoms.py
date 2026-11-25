@@ -30,7 +30,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from dokimi.atomic_write import write_text_atomic
-from dokimi.utils import InputError, read_json_input
+from dokimi.files import InputError, read_json_input
 
 from .atoms_refusal import partial_atoms_refusal
 from .batching import or_stop, retry_wording
@@ -633,7 +633,7 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
     An ``atoms.json`` written before the ``extraction`` record existed marks nothing; it
     cannot say whether a span went unread. A ``sampled_atom_ids`` that names an atom the file
     does not hold, or names one twice, is not a valid atoms file (:func:`recorded_sample` reads
-    it). Raises :class:`~dokimi.utils.InputError`, see :func:`load_atoms_record`.
+    it). Raises :class:`~dokimi.files.InputError`, see :func:`load_atoms_record`.
     """
     atoms, spans, _record = load_atoms_record(path)
     return atoms, spans
@@ -769,7 +769,7 @@ def _check_bundle_shape(bundle) -> None:
 def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     """The atoms, the spans and the parsed record of an atoms file: the one entry point to read it.
 
-    Raises :class:`~dokimi.utils.InputError` naming the file when it cannot be read, is not JSON,
+    Raises :class:`~dokimi.files.InputError` naming the file when it cannot be read, is not JSON,
     UTF-8 or an atom set (a ``bundle`` with mistyped fields included), or is marked partial.
     """
     data = read_json_input(path)

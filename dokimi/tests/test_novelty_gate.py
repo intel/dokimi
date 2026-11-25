@@ -231,7 +231,7 @@ def test_cell_warnings_reach_the_subject_warning_list():
 def test_an_attached_artifact_must_validate(tmp_path):
     import json
 
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     bad = tmp_path / "novelty.json"
     bad.write_text(json.dumps({"schema_version": "novelty.v1"}), encoding="utf-8")

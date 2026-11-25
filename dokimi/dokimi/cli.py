@@ -358,7 +358,7 @@ def main() -> None:
     tolerate_console_encoding()
     from dokimi import cli_output
     from dokimi.artifacts import run_id
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     cli_output.reset()  # before the parse: a usage error prints its document from there
     args = parse_args()

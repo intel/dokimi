@@ -26,7 +26,7 @@ from typing import Mapping
 
 from dokimi.artifacts import INPUT_KINDS, is_run_id
 from dokimi.runs.kinds import FIELDS, VERSION_KINDS, read_field
-from dokimi.utils import InputError, is_symlink_loop
+from dokimi.files import InputError, is_symlink_loop
 
 ENV_VAR = "DOKIMI_RUNS_DIR"
 DEFAULT_ROOT = Path("results")
@@ -63,7 +63,7 @@ class RunsRoot:
     def exists(self) -> bool:
         """True when the root is a directory; False when the default root is not there yet.
 
-        Raises :class:`~dokimi.utils.InputError` when ``DOKIMI_RUNS_DIR`` names a missing path,
+        Raises :class:`~dokimi.files.InputError` when ``DOKIMI_RUNS_DIR`` names a missing path,
         when the root is something other than a directory, or when it cannot be looked up.
         """
         named = plain(f"{ENV_VAR}={self.path}" if self.from_env else str(self.path))

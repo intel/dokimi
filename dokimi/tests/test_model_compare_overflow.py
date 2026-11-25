@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.report.model_compare import extract_scores, generate_section_report, pool_replicate_scores
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _run(baseline: float, treatment: float) -> dict:

@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def cmd_memory_lint(args: argparse.Namespace) -> None:

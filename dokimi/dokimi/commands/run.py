@@ -21,7 +21,7 @@ from dokimi.report.markdown_report import write_compare_report, write_run_report
 from dokimi.runner.compare import CompareInputError, compare_snapshots
 from dokimi.runner.run import DocLoadError, load_benchmark_spec, run_benchmark, save_snapshot
 from dokimi.runner.spec import DocSelectionError
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 logger = logging.getLogger(__name__)
 

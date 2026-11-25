@@ -16,7 +16,7 @@ from typing import Any
 from dokimi import process
 from dokimi.eval import binary_stats
 from dokimi.eval.stats import adjust_pvalues
-from dokimi.utils import key_bytes
+from dokimi.digest import key_bytes
 
 from .docker_solver import DockerSolverHarness
 from .models import HarnessResult, OperationRecord, TaskRunResult

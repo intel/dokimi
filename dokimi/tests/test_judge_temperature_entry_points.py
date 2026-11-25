@@ -305,7 +305,7 @@ def haiku_requests(requests, monkeypatch):
 
 def test_benchmark_refuses_a_judge_temperature_the_route_refuses_before_any_call(haiku_requests):
     from dokimi.commands.benchmark import _refuse_judge_sampling
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     with pytest.raises(InputError, match="temperature"):
         _refuse_judge_sampling(SimpleNamespace(**_HAIKU_JUDGE))
@@ -314,7 +314,7 @@ def test_benchmark_refuses_a_judge_temperature_the_route_refuses_before_any_call
 
 def test_evaluate_refuses_a_judge_temperature_the_route_refuses_before_any_call(haiku_requests):
     from dokimi.commands.orchestrate import cmd_evaluate
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     with pytest.raises(InputError, match="temperature"):
         cmd_evaluate(SimpleNamespace(repo="owner/repo", description=None, product="p",
@@ -329,7 +329,7 @@ def test_evaluate_refuses_a_judge_temperature_the_route_refuses_before_any_call(
 def test_an_empty_bedrock_judge_model_is_reported_before_sampling(monkeypatch, argv):
     import litellm
 
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **_: ["max_tokens"])
     args = build_parser().parse_args([*argv, "--judge-provider", "amazon-bedrock", "--judge-model", "",

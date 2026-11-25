@@ -15,7 +15,7 @@ from dokimi.novelty.controls import PLACEBO_ARM, clustered_ci, placebo_gated
 from dokimi.novelty.measure import ERRORED, ProbeRun, paired_outcomes, run_measurement
 from dokimi.novelty.probes import Probe
 from dokimi.novelty.report import build_probe_record
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 RIGHT, WRONG = "correct_complete", "wrong_other"
 

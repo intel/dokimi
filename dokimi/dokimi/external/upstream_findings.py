@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
-from dokimi.utils import parse_frontmatter
+from dokimi.frontmatter import parse_frontmatter
 
 from .allowed_tools import RISKY_COMMAND_CODES, grants_unrestricted_bash
 from .command_checks import skill_md_findings

@@ -112,7 +112,7 @@ def expected_n(path: Path, artifact: dict, sizes: dict[str, int]) -> tuple[int |
 def profile_digest(profile_path: Path) -> str:
     """The digest the artifacts must carry for *profile_path*'s current text."""
     from dokimi.agent_profiles import load_agent_profile
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     return digest_text(load_agent_profile(profile_path).system_prompt)
 

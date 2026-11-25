@@ -59,6 +59,6 @@ def test_the_default_judge_resolves_on_bedrock(monkeypatch):
 
 
 def test_an_unknown_bare_name_is_left_alone(monkeypatch):
-    # A judge run refuses it before any answer (utils.check_bedrock_model, test_llm_callers.py).
+    # A judge run refuses it before any answer (model_names.check_bedrock_model, test_llm_callers.py).
     monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "us.anthropic.sonnet")
     assert bedrock("some-model") == "bedrock/some-model"

@@ -14,7 +14,7 @@ from typing import Any, Callable, List, cast
 from dokimi import cli_flags
 from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, PROVIDERS, credential_env_var, resolve_api_key, resolve_model
-from dokimi.utils import warn_judge_independence as _warn_judge_independence
+from dokimi.model_names import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -30,7 +30,8 @@ from dokimi.defaults import (
 from dokimi.commands.library import _load_registry
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.llm_cli import SamplingError
-from dokimi.utils import InputError, check_bedrock_model, refuse_device
+from dokimi.files import InputError, refuse_device
+from dokimi.model_names import check_bedrock_model
 
 
 def _refuse_judge_sampling(args: argparse.Namespace) -> None:

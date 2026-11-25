@@ -26,7 +26,7 @@ from dokimi.runs.scan import (
     read_error_reason,
     scan,
 )
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 #: Entries of the artifact's directory that ``runs show`` names; the rest are only counted.
 MAX_SIBLINGS = 20

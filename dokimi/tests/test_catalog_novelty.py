@@ -18,7 +18,7 @@ from dokimi.cli import build_parser
 from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.client import SpendCapReached
 from dokimi.novelty import cost as novelty_cost
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.test_novelty_analyze import SKILL, _scripted
 
 COST = 0.01  # every fake call is priced at this, so a budget is a number of calls

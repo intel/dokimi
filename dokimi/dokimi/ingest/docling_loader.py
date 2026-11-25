@@ -22,7 +22,7 @@ from pathlib import Path
 
 from dokimi.artifacts import load_artifact, save_artifact
 from dokimi.atomic_write import write_text_atomic
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 logger = logging.getLogger(__name__)
 

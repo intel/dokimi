@@ -13,11 +13,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.artifacts import _write_target, save_artifact
 from dokimi.atomic_write import write_bytes_atomic
-from dokimi.utils import model_identity, same_model
+from dokimi.model_names import model_identity, same_model
 from dokimi.commands import baseline_regression
 from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_INVALID
-from dokimi.utils import InputError, read_json_input, read_json_input_bytes
+from dokimi.files import InputError, read_json_input, read_json_input_bytes
 
 BASELINES_DIR = Path("baselines/eval")
 

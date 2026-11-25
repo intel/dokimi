@@ -19,7 +19,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Optional
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 #: The statuses a row can have. Only ``ok`` rows are measured and kept by a resumed run.
 STATUSES = ("ok", "partial", "error")

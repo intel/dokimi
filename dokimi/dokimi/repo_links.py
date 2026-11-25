@@ -10,7 +10,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from dokimi.utils import _plain_path, is_symlink_loop
+from dokimi.digest import _plain_path
+from dokimi.files import is_symlink_loop
 
 
 def _real(path: Path) -> Path | None:

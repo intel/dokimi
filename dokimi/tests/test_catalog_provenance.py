@@ -18,7 +18,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.external import upstream
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 V1 = (
     "---\nname: pdf\ndescription: Use when reading PDFs and forms.\nlicense: MIT\n---\n"

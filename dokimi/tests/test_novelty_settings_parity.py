@@ -37,7 +37,7 @@ import pytest
 
 from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.test_novelty_analyze import SKILL, _scripted
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "novelty_settings_main.json"

@@ -29,7 +29,7 @@ from dokimi.context.prefilter import (
     status_of,
 )
 from dokimi.context.session_log import parse_session
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 GUIDE = """# Guide
 

@@ -21,7 +21,7 @@ from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_run import (attach_panel, exit_if_analyze_partial,
                                          judge2_client, panel_clients, save_panel_verdicts, stamp,
                                          usable_cache_dir)
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 if TYPE_CHECKING:
     from dokimi.novelty.tiers import RunSettings

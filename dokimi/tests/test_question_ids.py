@@ -6,12 +6,12 @@
 `questions.v1` allows integer ids, and ``q.get("id") or ...`` reads ``0`` as
 missing: a question with id 0 was renamed, dropped, or given a fallback id
 depending on which module read it. Every site now goes through
-``dokimi.utils.question_id``.
+``dokimi.records.question_id``.
 """
 
 import pytest
 
-from dokimi.utils import question_id
+from dokimi.records import question_id
 
 
 @pytest.mark.parametrize("q, expected", [

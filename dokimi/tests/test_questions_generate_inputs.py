@@ -220,7 +220,7 @@ def test_require_local_doc_source_reports_a_permission_error_as_unreadable(monke
     from pathlib import Path
 
     from dokimi.mcp.factory import require_local_doc_source
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     def denied(self):
         raise PermissionError(13, "Permission denied", str(self))
@@ -237,7 +237,7 @@ def test_require_local_doc_source_reports_a_denied_directory_when_exists_answers
     from pathlib import Path
 
     from dokimi.mcp.factory import require_local_doc_source
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     restricted = tmp_path / "restricted"
     (restricted / "docs").mkdir(parents=True)
@@ -293,7 +293,7 @@ def test_require_local_doc_source_reports_an_existing_unreadable_file_as_unreada
     import os
 
     from dokimi.mcp.factory import require_local_doc_source
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     doc = tmp_path / "docs.md"
     doc.write_text("# docs\n")
@@ -312,7 +312,7 @@ def test_require_local_doc_source_reports_a_directory_without_search_permission_
     import os
 
     from dokimi.mcp.factory import require_local_doc_source
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     docs = tmp_path / "docs"
     docs.mkdir()

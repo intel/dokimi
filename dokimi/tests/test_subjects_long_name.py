@@ -13,7 +13,7 @@ import pytest
 
 from dokimi.commands.subjects import cmd_subjects_list, cmd_subjects_show
 from dokimi.subjects import load_subject
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def test_load_subject_reads_a_name_past_the_limit_as_a_missing_file(tmp_path: Path):

@@ -17,7 +17,7 @@ import pytest
 
 from tests.exists_mock import exists_for_prefix
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.mcp.context7 import Context7Client
 from dokimi.mcp.url_client import URLClient
 from dokimi.questions.ragas_seed import RagasSeedExtractor

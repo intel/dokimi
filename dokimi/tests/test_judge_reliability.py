@@ -447,7 +447,7 @@ BODY = "full skill body"
 
 def _material_run(body=BODY, n=8):
     """An arms file whose skill records and scores all cite ``body``, kept in judge_materials."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = _stamped_run()
     data["answers"], data["evaluations"] = data["answers"][:n], data["evaluations"][:n]
@@ -618,7 +618,7 @@ def test_cross_judge_refuses_to_rescore_against_unreproducible_stored_scores(tmp
 def test_cross_judge_judges_with_intact_materials_runs_end_to_end(tmp_path, monkeypatch, capsys):
     """--judges with intact judge_materials runs and gate passes."""
     import json
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
@@ -693,7 +693,7 @@ def test_cross_judge_judges_refuses_file_without_materials(tmp_path, monkeypatch
 def test_cross_judge_judges_with_int_question_ids(tmp_path, monkeypatch, capsys):
     """--judges with int question ids (including 0) works end to end."""
     import json
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
@@ -736,7 +736,7 @@ def test_cross_judge_judges_with_int_question_ids(tmp_path, monkeypatch, capsys)
 def test_cross_judge_judges_and_pairwise_refuse_together(tmp_path, monkeypatch, capsys):
     """--judges + --pairwise refuses even with intact materials."""
     import json
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
@@ -772,7 +772,7 @@ def test_cross_judge_judges_and_pairwise_refuse_together(tmp_path, monkeypatch, 
 def test_cross_judge_judges_refuses_altered_material_text(tmp_path, monkeypatch, capsys):
     """--judges refuses when judge_materials text doesn't match recorded digest."""
     import json
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
@@ -807,7 +807,7 @@ def test_cross_judge_judges_refuses_altered_material_text(tmp_path, monkeypatch,
 def test_cross_judge_judges_refuses_records_without_digest(tmp_path, monkeypatch, capsys):
     """--judges refuses when arm records are missing the digest."""
     import json
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
@@ -845,7 +845,7 @@ def test_cross_judge_judges_refuses_records_without_digest(tmp_path, monkeypatch
 def test_cross_judge_judges_refuses_mismatched_digest_between_arms_and_scores(tmp_path, monkeypatch, capsys):
     """--judges refuses when arm records cite different digest than scores."""
     import json
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
@@ -995,7 +995,7 @@ def test_cross_judge_judges_refuses_a_score_citing_other_material_than_the_recor
     tmp_path, monkeypatch, capsys
 ):
     """Both digests are in judge_materials, so only comparing them catches it."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = _material_run()
     other = "OTHER SKILL BODY"
@@ -1014,7 +1014,7 @@ def test_cross_judge_judges_refuses_one_damaged_question_among_eight(
     tmp_path, monkeypatch, capsys, damage
 ):
     """The gate must look past the first evaluation: question 5 alone is damaged."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = _material_run()
     other = "OTHER SKILL BODY"
@@ -1048,7 +1048,7 @@ def test_cross_judge_judges_gates_an_arm_that_read_material_when_it_is_the_basel
     tmp_path, monkeypatch, capsys, damage
 ):
     """--baseline-arm skill picks the reference, it does not make the skill arm read nothing."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = _material_run()
     # As the arms run writes it: the baseline arm cites the empty text.
@@ -1082,7 +1082,7 @@ def test_cross_judge_judges_skips_an_evaluation_with_no_answer_record(tmp_path, 
 
 
 def test_cross_judge_judges_refuses_one_damaged_int_question_among_eight(tmp_path, monkeypatch, capsys):
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = _material_run()
     for i, (ans, ev) in enumerate(zip(data["answers"], data["evaluations"], strict=True)):
@@ -1127,7 +1127,7 @@ def test_cross_judge_judges_on_an_answers_only_file_hands_the_judge_the_material
 
 
 def test_cross_judge_judges_with_no_stored_hands_the_judge_the_material(tmp_path, monkeypatch):
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = _material_run()
     # A stored score that would fail the gate: --no-stored skips it, not the reader.
@@ -1170,7 +1170,7 @@ def test_cross_judge_judges_refuses_one_damaged_question_among_eight_int_ids(
     tmp_path, monkeypatch, capsys
 ):
     """The gate reads int ids too: question 5 alone is damaged, and its id is the int 5."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     data = _material_run()
     for i, (ans, ev) in enumerate(zip(data["answers"], data["evaluations"], strict=True)):
@@ -1200,7 +1200,7 @@ def test_from_artifact_refuses_a_malformed_answer_list_and_non_scalar_ids():
 def test_digest_text_tells_a_lone_surrogate_from_its_removal():
     """errors="ignore" would hash a lone-surrogate text and its stripped form alike."""
     from dokimi.eval.judge_context import JudgeContextStore
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     assert digest_text("a\ud83db") != digest_text("ab")
     data = _material_run(body="a\ud83db", n=1)
@@ -1238,7 +1238,7 @@ def test_significance_uses_the_unrounded_holm_p():
 
 def test_digest_text_surrogatepass_handles_lone_surrogates():
     """digest_text uses surrogatepass to handle lone surrogates without raising."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     # A lone surrogate pair should not raise but produce a digest
     result = digest_text("a\ud83db")
@@ -1577,7 +1577,7 @@ def test_score_measure_with_no_scored_answer_is_context_none_even_with_a_store()
 
 def _material_arms_run(material="FULL SKILL BODY"):
     """An arms file that keeps its judge material, with digests on answers and stored scores."""
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     digest = digest_text(material)
     return {

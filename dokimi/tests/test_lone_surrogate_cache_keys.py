@@ -22,7 +22,7 @@ from tests.exists_mock import exists_for_prefix
 from dokimi.repos import WorkTree, load_manifest
 from dokimi.repos.reach import run_reach
 from dokimi.repos.harness_profile import load_profile
-from dokimi.utils import key_bytes
+from dokimi.digest import key_bytes
 from tests.test_repo_reach import _profile, _repo
 
 HIGH = "n\ud800"

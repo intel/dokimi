@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi import __version__
-from dokimi.utils import key_bytes
+from dokimi.digest import key_bytes
 
 from .loader import awareness_arm_specs, work_arm_specs
 from .models import SubjectDescriptor
@@ -248,7 +248,7 @@ def _digest_ref_kind(ref: str | None, *, base: Path) -> tuple[str | None, bytes]
     if _is_dir(path):
         kind = b"d"
         h.update(b"d")
-        # POSIX names, ordered by their parts as utils.tree_digest does, so the same tree digests the same on Windows
+        # POSIX names, ordered by their parts as dokimi.digest.tree_digest does, so the same tree digests the same on Windows
         files = [Path(top, name) for top, _, names in os.walk(path, onerror=_raise) for name in names]
         for child in sorted((p for p in files if _is_file(p)), key=lambda p: p.relative_to(path).parts):
             h.update(_field(child.relative_to(path).as_posix()))

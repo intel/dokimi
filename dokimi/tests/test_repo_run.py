@@ -16,7 +16,7 @@ import yaml
 from dokimi.cli import build_parser
 from dokimi.repos.container import CONTENT_DIR, HARNESS_DIR, RUN_DIR, SOURCE_DIR, WORKSPACE
 from dokimi.repos.report import format_report, summarize, wilson
-from dokimi.utils import same_model
+from dokimi.model_names import same_model
 from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
 
 

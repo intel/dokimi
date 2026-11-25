@@ -61,7 +61,7 @@ from dokimi.metrics.bundle_coverage import (  # noqa: F401
     named_exclusions,
 )
 from dokimi.digest_entries import listed_entries
-from dokimi.utils import key_bytes
+from dokimi.digest import key_bytes
 
 from .answer_key import ABSENT, AnswerKeyRecord, parse_answer_key, shown
 from .artifact import load_artifact_text

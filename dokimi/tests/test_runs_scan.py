@@ -18,7 +18,7 @@ import pytest
 from dokimi.artifacts import INPUT_KINDS, SCHEMA_VERSIONS, SUPERSEDED_VERSIONS, run_id, save_artifact
 from dokimi.runs import kinds, runs_root, scan
 from dokimi.runs.scan import HEAD_BYTES, RunsRoot
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
 # The module, not the scan() that dokimi.runs re-exports under the same name.

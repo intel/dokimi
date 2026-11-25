@@ -11,7 +11,7 @@ import stat
 from pathlib import Path
 from typing import Callable, Mapping
 
-from dokimi.utils import _entries, _tracked_modes, file_digest, link_text
+from dokimi.digest import _entries, _tracked_modes, file_digest, link_text
 
 
 def listed_entries(root: Path, drop: Callable[[Path], bool] | None = None) -> list[Path]:

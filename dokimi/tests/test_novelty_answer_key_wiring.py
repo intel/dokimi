@@ -15,7 +15,7 @@ from dokimi.novelty.answer_key import AnswerKeyRecord
 from dokimi.novelty.atoms import save_atoms
 from dokimi.novelty.bundle import load_bundle
 from dokimi.novelty.spans import segment
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 _SKILL = """\
 ---

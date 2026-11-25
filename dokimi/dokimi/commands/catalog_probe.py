@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from dokimi import cli_flags
 from dokimi.atomic_write import write_text_atomic
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.write_probe import can_write
 
 

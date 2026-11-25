@@ -18,7 +18,7 @@ from pathlib import Path
 from dokimi import llms_txt, opportunities
 from dokimi.artifacts import schema_errors
 from dokimi.commands._output import write_report_text
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:

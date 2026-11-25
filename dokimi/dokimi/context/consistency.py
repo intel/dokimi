@@ -51,7 +51,7 @@ from dokimi.context.trace import TraceError
 from dokimi.eval.stats import _mean as stats_mean
 from dokimi.eval.stats import _pow2_scale as pow2_scale
 from dokimi.eval.stats import _sample_sd as sample_sd
-from dokimi.utils import InputError, refuse_device
+from dokimi.files import InputError, refuse_device
 
 _WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 RULES = ("requires", "forbids", "before", "after_last", "last_ok")

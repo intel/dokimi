@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def load_view_inputs(novelty_path: str, atoms_path: str):

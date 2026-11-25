@@ -11,7 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _refuse_bad_sources(tools: list[str], headers: list[str], libraries: list[str],

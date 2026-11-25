@@ -89,7 +89,7 @@ from typing import Optional, Sequence
 import yaml
 
 from dokimi.skills import Skill
-from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
+from dokimi.frontmatter import describe_yaml_error, parse_frontmatter_strict
 
 from .description_overlap import (NEAR_DUPLICATE_JACCARD, NEAR_DUPLICATE_MIN_SHARED, SIMILAR_JACCARD,
                                   _candidate_pairs, _jaccard, _tokens)

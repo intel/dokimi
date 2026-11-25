@@ -318,7 +318,7 @@ def test_preflight_refuses_an_unreadable_key_file_on_a_keyless_route(
 @pytest.mark.parametrize("command", ["run", "batch"])
 def test_run_and_batch_refuse_an_unreadable_key_file_on_a_vertex_route(command, tmp_path, monkeypatch):
     from dokimi.commands.benchmark import _refuse_missing_credentials
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     monkeypatch.setenv("GEMINI_API_KEY", f"file:{tmp_path / 'no-such-key'}")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")

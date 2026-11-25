@@ -17,7 +17,7 @@ import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos.replay import authoring_prompt
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from repo_eval_fixture import FakeRunner, git, write
 
 MANIFEST = {

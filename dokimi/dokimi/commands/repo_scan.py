@@ -16,7 +16,7 @@ import sys
 import shutil
 
 from dokimi.repos.l0.config import new_failures
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _typecheck_or_exit(args: argparse.Namespace):

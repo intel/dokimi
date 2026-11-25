@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, NoReturn
 
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 from ._output import exit_on_unwritable
 

@@ -24,7 +24,7 @@ from dokimi.cli import build_parser
 from dokimi.datasets_export import export_artifact
 from dokimi.questions.artifact import load_questions, save_questions_artifact, upgrade_questions
 from dokimi.questions.normalizer import canonical_question, normalize_question
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.artifact_fixtures import artifact_fixture
 from tests.cli_refusal import refusal
 

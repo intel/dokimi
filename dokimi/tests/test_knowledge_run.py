@@ -19,7 +19,7 @@ from dokimi.cli import build_parser
 from dokimi.eval.arms_refusals import refuse_task_harness
 from dokimi.eval.arms_run import ArmsRunConfig, prepare_arms, run_arms
 from dokimi.process import FakeRunner, reply
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_refusal import refusal
 
 QUESTIONS = [

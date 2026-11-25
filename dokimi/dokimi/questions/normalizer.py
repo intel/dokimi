@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from dokimi.utils import question_id
+from dokimi.records import question_id
 
 _DIFFICULTY_MAP: Dict[Any, str] = {
     1: "beginner",   "1": "beginner",  "beginner": "beginner",
@@ -83,7 +83,7 @@ def canonical_question(q: Dict[str, Any]) -> Dict[str, Any]:
 def record_id(q: Dict[str, Any], idx: int) -> Any:
     """The id of the record at position ``idx`` of its set: its own, else ``q{idx:04d}``.
 
-    Its own is ``id``, else ``question_id`` (:func:`~dokimi.utils.question_id`; ``0`` is an id).
+    Its own is ``id``, else ``question_id`` (:func:`~dokimi.records.question_id`; ``0`` is an id).
     """
     own = question_id(q)
     return f"q{idx:04d}" if own is None else own

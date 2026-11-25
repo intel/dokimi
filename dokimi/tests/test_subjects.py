@@ -12,7 +12,7 @@ import pytest
 
 import dokimi.eval.arm_runner as arm_runner_mod
 from tests.cli_refusal import refusal
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi import __version__
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser

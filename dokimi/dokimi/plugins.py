@@ -26,7 +26,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Optional
 
 from dokimi.treatments.base import AgentConfig, Treatment
-from dokimi.utils import digest_text
+from dokimi.digest import digest_text
 
 
 EMPTY_PLUGIN_SET_ID = "sha256:e3b0c44298fc1c149afbf4c8996fb924"

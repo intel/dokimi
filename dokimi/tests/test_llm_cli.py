@@ -19,7 +19,7 @@ from tests.cli_refusal import refusal
 from dokimi import llm, llm_cli, process
 from dokimi.metrics.usage import UsageRecord
 from dokimi.process import FakeRunner, reply
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _ok(text: str = "PONG", **over) -> str:

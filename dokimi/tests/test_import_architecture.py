@@ -80,7 +80,8 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
         "dokimi.llm_sampling",
         "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
-        "dokimi.atomic_write", "dokimi.provenance", "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
+        "dokimi.atomic_write", "dokimi.digest", "dokimi.files", "dokimi.frontmatter", "dokimi.model_names",
+        "dokimi.provenance", "dokimi.records", "dokimi.registry", "dokimi.write_probe",
         "dokimi.yaml_unique",
         "dokimi.judge_rule", "dokimi.text_spans",
         "dokimi.code_spans",
@@ -458,7 +459,7 @@ def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
     for mod, lines in sorted(counts.items()):
         allowed = baseline.get(mod, (0, ""))[0]
         if len(lines) > allowed:
-            problems.append(f"{mod} ends the process at lines {lines}; raise InputError (dokimi.utils) "
+            problems.append(f"{mod} ends the process at lines {lines}; raise InputError (dokimi.files) "
                             "and let cli.main exit 2")
     for mod, (allowed, _) in sorted(baseline.items()):
         now = len(counts.get(mod, []))

@@ -20,7 +20,7 @@ from dokimi.cli import build_parser
 from dokimi.harnesses.registry import known_harnesses
 from dokimi.harnesses.skill_treatment import check_skill
 from dokimi.repos.budget import LISTING_TEXT_CAP
-from dokimi.utils import parse_frontmatter
+from dokimi.frontmatter import parse_frontmatter
 
 SKILLS = Path(__file__).resolve().parents[1] / "data" / "skills"
 BUNDLED = sorted(d for d in SKILLS.iterdir() if (d / "SKILL.md").is_file())
