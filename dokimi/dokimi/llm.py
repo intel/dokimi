@@ -74,58 +74,21 @@ from dokimi import caching, llm_cli, llm_sampling
 from dokimi.defaults import bedrock_profile
 from dokimi.llm_json import extract_json_array as extract_json_array
 from dokimi.llm_json import extract_json_object as extract_json_object
+from dokimi.llm_providers import (
+    ANSWER_PROVIDERS as ANSWER_PROVIDERS,
+    CALLER_CHOICES as CALLER_CHOICES,
+    CALLER_PROVIDERS as CALLER_PROVIDERS,
+    PROVIDER_ALIASES as PROVIDER_ALIASES,
+    PROVIDERS as PROVIDERS,
+    canonical_provider,
+    check_caller_provider as check_caller_provider,
+    credential_env_var as credential_env_var,
+)
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-
-# ── Providers ─────────────────────────────────────────────────────────────────
-
-#: Canonical provider names, as the CLI offers them, and the variable each key is read from.
-PROVIDERS: Dict[str, str] = {
-    "openai": "OPENAI_API_KEY",
-    "openai-codex": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "amazon-bedrock": "AWS_BEARER_TOKEN_BEDROCK",
-    "google-vertex": "GEMINI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-}
-
-#: ``--provider`` choices: the API providers, then the CLI backends.
-ANSWER_PROVIDERS: Tuple[str, ...] = (*PROVIDERS, *llm_cli.BACKENDS)
-
-#: ``--provider`` choices of the commands that build the answerer or generators: not openai-codex.
-CALLER_CHOICES: Tuple[str, ...] = tuple(p for p in ANSWER_PROVIDERS if p != "openai-codex")
-
-#: Providers the answerer, judge and generators take: those, and google, gemini and vertex_ai.
-CALLER_PROVIDERS: Tuple[str, ...] = (*CALLER_CHOICES, "google", "gemini", "vertex_ai")
-
-
-def check_caller_provider(provider: str) -> None:
-    """Raise ``ValueError`` for a provider the answerer, judge and generators do not take."""
-    if provider not in CALLER_PROVIDERS:
-        raise ValueError(
-            f"Unsupported provider: '{provider}'. "
-            "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
-        )
-
-#: Other spellings of a canonical provider.
-PROVIDER_ALIASES: Dict[str, str] = {
-    "google": "google-vertex",
-    "gemini": "google-vertex",
-    "vertex_ai": "google-vertex",
-}
-
-
-def _canonical(provider: str) -> str:
-    return PROVIDER_ALIASES.get(provider, provider)
-
-
-def credential_env_var(provider: str) -> Optional[str]:
-    """The environment variable holding *provider*'s key; ``None`` off the table (litellm reads it)."""
-    return PROVIDERS.get(_canonical(provider))
-
 
 def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
     """*api_key*, else the provider's environment variable; a ``file:<path>`` value is read.
@@ -166,7 +129,7 @@ def resolve_model(model: str, provider: str) -> str:
     A name with a ``/`` passes through, except on OpenRouter and openai-codex, which add
     their own prefix, on openai and Vertex, where only a litellm route counts, and on Bedrock.
     """
-    name = _canonical(provider)
+    name = canonical_provider(provider)
     if name == "openrouter":
         return model if model.startswith("openrouter/") else f"openrouter/{model}"
     if name == "openai-codex":
@@ -237,7 +200,7 @@ def sampling_refusals(
     """Return the reason for each refused sampling option."""
     return llm_sampling.refusals_for_route(
         _sampling_kwargs(temperature=temperature, seed=seed), provider,
-        cli=llm_cli.backend(_canonical(provider)),
+        cli=llm_cli.backend(canonical_provider(provider)),
         load=_litellm,
         resolve=lambda: resolve_model(model, provider))
 
@@ -758,7 +721,7 @@ class LLM:
             model=self.model, provider=self.provider,
         )
         key = caching.response_cache_key(
-            litellm_model=self.model if _canonical(self.provider) == "openai" else self.litellm_model,
+            litellm_model=self.model if canonical_provider(self.provider) == "openai" else self.litellm_model,
             messages=messages, extra=caching.draw_extra(self._cache_extra(stream, max_tokens), draw),
         )
         hit = caching.load_response(key)
