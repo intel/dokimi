@@ -137,6 +137,17 @@ def test_compact_unit_conflict_quotes_the_whole_value():
     assert lexical_conflict("Throughput is 30MB/s.", "Throughput is 60MB/s.") == ("lexical:value", "60MB/s")
 
 
+def test_quantity_variants_share_dimensions_and_preserve_quotes():
+    assert lexical_conflict("Timeout defaults to 30 seconds.", "Timeout defaults to 60 sec.") == (
+        "lexical:value", "60 sec")
+    assert lexical_conflict("Throughput is 30 MB/s.", "Throughput is 60 GB/s.") == ("lexical:value", "60 GB/s")
+    assert lexical_conflict("Throughput is 1000 MB/s.", "Throughput is 1 GB/s.") is None
+    assert lexical_conflict("Retry after 1 second with a 30 ms timeout.",
+                            "Retry after 1000 ms with a 60 ms timeout.") == ("lexical:value", "60 ms")
+    assert lexical_conflict("Retry after 1 second.", "60 ms and 1 second are supported retry values.") is None
+    assert lexical_conflict("Size is 1,000.", "Size is 2,000.") == ("lexical:value", "2,000")
+
+
 def test_case_sensitive_cli_flags_remain_distinct():
     atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Pass -O to enable optimization."})
     answer = "Use -o to optimize."

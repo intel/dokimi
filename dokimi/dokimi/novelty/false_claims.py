@@ -26,6 +26,7 @@ Two passes:
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -48,21 +49,25 @@ Return ONLY JSON: {{"verdict": "contradicts|supports|unrelated",
 """
 
 _WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
-# Common compact duration and storage units; arbitrary alphanumeric words are identifiers.
-_DURATION_EXPONENT = {
+# Recognize common quantities without treating arbitrary alphanumeric names as numbers.
+_TIME_UNITS = {
     "ns": -9, "nanosecond": -9, "nanoseconds": -9,
     "us": -6, "µs": -6, "μs": -6, "microsecond": -6, "microseconds": -6,
-    "ms": -3, "millisecond": -3, "milliseconds": -3,
-    "s": 0, "second": 0, "seconds": 0,
+    "ms": -3, "msec": -3, "milliseconds": -3, "millisecond": -3,
+    "s": 0, "sec": 0, "secs": 0, "second": 0, "seconds": 0,
 }
-_STORAGE_UNITS = r"(?:[KMGT]i?B|kB)(?:/s)?"
-_UNITS = "|".join((*_DURATION_EXPONENT, _STORAGE_UNITS, r"(?:[kMG])?Hz", "%"))
-_QUANTITY = r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+_BYTE_UNITS = {
+    unit: divisor**exponent
+    for units, divisor in ((('kB', 'MB', 'GB', 'TB'), 1000), (('KiB', 'MiB', 'GiB', 'TiB'), 1024))
+    for exponent, unit in enumerate(units, 1)
+}
+_BYTE_UNITS.update(B=1, KB=1000)
+_FREQUENCY_UNITS = {"Hz": 0, "kHz": 3, "MHz": 6, "GHz": 9}
+_UNITS = "|".join((*_TIME_UNITS, *_BYTE_UNITS, *_FREQUENCY_UNITS, "%"))
 _VALUE = re.compile(
-    r"(?<![\w.-])(?:"
-    r"(?P<flag>--?[A-Za-z][\w-]*)"
-    rf"|(?P<quantity>{_QUANTITY})[ \t]*(?P<unit>{_UNITS})(?!/)"
-    r"|(?P<number>[+-]?[vV]?\d+(?:\.\d+)*))(?!\w)"
+    r"(?<![\w.-])(?:(?P<flag>--?[A-Za-z][\w-]*)|"
+    r"(?P<number>[+-]?[vV]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)*)"
+    rf"(?:[ \t]*(?P<unit>(?:{_UNITS})(?:/s)?)(?![\w/]))?)(?!\w)"
 )
 _DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
 _NEGATION = re.compile(
@@ -144,24 +149,28 @@ def _content(text: str) -> set[str]:
     return {p for p in parts if p.isalpha()} - _STOP
 
 
-def _value_key(match: re.Match[str]) -> str | tuple[Decimal, str]:
+def _value_key(match: re.Match[str]) -> tuple[str, str | Decimal]:
     if flag := match["flag"]:
-        return flag
-    if unit := match["unit"]:
-        quantity = Decimal(match["quantity"].replace(",", ""))
-        if unit in _DURATION_EXPONENT:
-            sign, digits, exponent = quantity.as_tuple()
-            assert isinstance(exponent, int)
-            return Decimal((sign, digits, exponent + _DURATION_EXPONENT[unit])), "s"
-        return quantity, unit
-    return re.sub(r"^([+-]?)v(?=\d)", r"\1", match["number"].lower()).removeprefix("+")
-
-
-def _value_shape(match: re.Match[str]) -> tuple[bool, str | None]:
+        return "flag", flag
+    number = re.sub(r"^([+-]?)v(?=\d)", r"\1", match["number"].lower()).removeprefix("+").replace(",", "")
     unit = match["unit"]
-    if unit:
-        return False, "s" if unit in _DURATION_EXPONENT else unit
-    return bool(match["number"] and "." in match["number"]), "flag" if match["flag"] else None
+    if unit is None or number.count(".") > 1:
+        return ("version" if "." in number else "number"), number
+    quantity = Decimal(number)
+    if unit in _TIME_UNITS:
+        return "duration", _scale_decimal(quantity, _TIME_UNITS[unit])
+    if unit in _FREQUENCY_UNITS:
+        return "frequency", _scale_decimal(quantity, _FREQUENCY_UNITS[unit])
+    byte_unit = unit.removesuffix("/s")
+    if byte_unit in _BYTE_UNITS:
+        return ("byte rate" if byte_unit != unit else "bytes"), quantity * _BYTE_UNITS[byte_unit]
+    return unit, quantity
+
+
+def _scale_decimal(quantity: Decimal, shift: int) -> Decimal:
+    sign, digits, exponent = quantity.as_tuple()
+    assert isinstance(exponent, int)
+    return Decimal((sign, digits, exponent + shift))
 
 
 def _distinctive(text: str) -> set[str]:
@@ -198,15 +207,20 @@ def lexical_conflict(statement: str, sentence: str) -> tuple[str, str] | None:
     * polarity: exactly one side carries a negation.
     These are candidates for a judge, not findings; precision is low by construction.
     """
-    documented, proposed = list(_VALUE.finditer(statement)), list(_VALUE.finditer(sentence))
-    if documented and proposed and not ({_value_key(m) for m in documented} & {_value_key(m) for m in proposed}):
-        matching_shapes = {_value_shape(m) for m in documented}
-        for match in proposed:
-            if _value_shape(match) in matching_shapes:
-                return "lexical:value", match.group(0)
-        # Retain number-to-version comparisons when neither side uses flags or units.
-        if all(match["number"] for match in documented + proposed):
-            return "lexical:value", proposed[0].group(0)
+    documented = Counter(_value_key(match) for match in _VALUE.finditer(statement))
+    proposed = [(_value_key(match), match.group(0)) for match in _VALUE.finditer(sentence)]
+    common = documented & Counter(key for key, _ in proposed)
+    remaining_shapes = {shape for shape, _ in documented - common}
+    for key, quote in proposed:
+        if common[key]:
+            common[key] -= 1
+        elif key[0] in remaining_shapes:
+            return "lexical:value", quote
+    # Preserve the fallback for a lone number compared to a lone dotted version.
+    if len(documented) == len(proposed) == 1 and not (documented.keys() & {proposed[0][0]}):
+        expected_shape = next(iter(documented))[0]
+        if {expected_shape, proposed[0][0][0]} == {"number", "version"}:
+            return "lexical:value", proposed[0][1]
     neg_a, neg_b = _NEGATION.search(statement), _NEGATION.search(sentence)
     if bool(neg_a) != bool(neg_b):
         # When the sentence drops the atom's negation there is no word to quote: the
