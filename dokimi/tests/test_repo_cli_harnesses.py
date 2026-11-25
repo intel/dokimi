@@ -263,6 +263,21 @@ def test_codex_review_findings_does_not_join_a_path_across_a_line_break():
     assert convert_answer("codex-review", text, "/ws") == text  # one marker, no finding: no block
 
 
+@pytest.mark.parametrize("lines", ["9" * 5000, "1-" + "9" * 5000])
+def test_codex_review_header_with_a_line_number_too_long_to_read_is_no_finding(lines):
+    text = f"- [P1] t — /workspace/a.py:{lines}\n  body\n"
+    assert codex_review_findings(text, "/workspace") == []
+    assert convert_answer("codex-review", text, "/workspace") == text  # one marker, no finding: no block
+
+
+@pytest.mark.parametrize("pad", ["0" * 9, "0" * 5000], ids=["nine-zeros", "5000-zeros"])
+def test_codex_review_header_keeps_a_zero_padded_line_number(pad):
+    text = f"- [P1] t — /workspace/a.py:{pad}12-{pad}14\n  body\n- [P2] u — /workspace/b.py:4\n  more\n"
+    found = codex_review_findings(text, "/workspace")
+    assert [(f["file"], f["line"], f["end_line"]) for f in found] == [("a.py", 12, 14), ("b.py", 4, 4)]
+    assert convert_answer("codex-review", text, "/workspace") != text  # both parsed: the block is there
+
+
 def test_convert_answer_does_not_count_a_bullet_inside_a_finding_body():
     # a [Pn] inside a body is prose: the one parsed finding keeps its block
     text = "- [P1] t — /workspace/a.py:3\n  see [P1] earlier\n  - [P2] sub bullet\n"

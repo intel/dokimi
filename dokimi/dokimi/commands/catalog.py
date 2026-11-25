@@ -19,11 +19,11 @@ import json
 import sys
 from pathlib import Path
 
-from dokimi import cli_flags
 from dokimi.commands.catalog_scan import (
     ROW_STATES, fail_on_reason, fails_on_finding, is_plain_markdown, listing_failed, listing_total, not_checked, row_ignore,
     ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
 )
+from dokimi.external.catalog_rates import RateTally, text_lines
 from dokimi.utils import InputError
 
 
@@ -60,6 +60,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
     skills = [entry for entry, _ in pairs]
     reviews = review_skills(skills)  # every skill is reviewed: the cross-catalog checks need them all
+    _upstream_findings(args, skills, reviews)
     online = _online_checks(args, skills, reviews, report)
     only = getattr(args, "only", None)  # `skill check SKILL` reports this one skill (#94 M3)
     if only is not None and only not in {entry.name for entry in skills}:
@@ -69,6 +70,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     unchecked = 0
     failed = False
     ignore = row_ignore(args)
+    rates = RateTally(root)
     fail_on = frozenset(args.fail_on or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
         if only is not None and skill.name != only:
@@ -77,6 +79,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         counts[row["state"]] += 1
         plain += is_plain_markdown(row)
         unchecked += not_checked(row)
+        rates.add(row)
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict;
         # a finding selected by --fail-on-code (#942) fails whatever its level.
@@ -84,6 +87,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         load_failed = row["error"] is not None  # None for a skill_format exemption, decided before --ignore (skill_row)
         if load_failed or unreadable or fails_on_finding(row, fail_on) or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
+    report["rates"] = rates.summary()
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
@@ -96,11 +100,24 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         _print_strict_reasons(report["skills"], args.strict)
         _print_fail_on_reasons(report["skills"], frozenset(args.fail_on or ()))
         _print_online(online)
+        for line in text_lines(report["rates"]):
+            print(line)
         print()
     report["listing"] = {"chars": listing_total(report["skills"])}
     failed = listing_failed(args, report, as_json) or failed  # before the granularity section: after the counts
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
+
+
+def _upstream_findings(args: argparse.Namespace, skills, reviews) -> None:
+    """Add the ``--upstream`` / ``--upstream-manifest`` findings to the reviews; nothing is added without those flags."""
+    if not (getattr(args, "upstream", None) or getattr(args, "upstream_manifest", None)):
+        return
+    from dokimi.external import upstream
+    from dokimi.external.upstream_findings import add_upstream_findings
+
+    index = upstream.build(getattr(args, "upstream", None) or (), getattr(args, "upstream_manifest", None) or ())
+    add_upstream_findings(index, skills, reviews, ignore=frozenset(getattr(args, "ignore", None) or ()))
 
 
 def _online_checks(args: argparse.Namespace, skills, reviews, report: dict) -> dict | None:
@@ -208,8 +225,8 @@ ONLINE_CODES = ("link-dead", "package-not-found")
 
 
 def _refuse_unchecked_fail_on(args: argparse.Namespace) -> None:
-    """Raise InputError when --fail-on-code names a code this scan mode never reports."""
-    given = set(args.fail_on or ())
+    """Raise InputError when --fail-on-code names, and --ignore does not, a code this scan mode never reports."""
+    given = set(args.fail_on or ()) - set(args.ignore or ())  # --ignore filters first: a code in both is not checked
     cross = sorted(given & set(CROSS_CATALOG_CODES))
     if cross and args.per_skill:
         raise InputError(f"--fail-on-code {', '.join(cross)}: --per-skill does not run the cross-catalog checks, "
@@ -251,6 +268,24 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         raise InputError("--per-skill, --skip-nested, --ignore, --fail-on-code, --jsonl, --concurrency, --resume, --online and "
                          "--listing-budget apply to skills; drop them or use --kind skills|all")
     _refuse_unchecked_fail_on(args)
+    _refuse_upstream_with(args)
+
+
+def _refuse_upstream_with(args: argparse.Namespace) -> None:
+    """``--upstream`` and ``--upstream-manifest`` check the skills of the whole catalog, in this process: not per-skill, not tasks."""
+    if not (getattr(args, "upstream", None) or getattr(args, "upstream_manifest", None)):
+        from dokimi.external.upstream_codes import UPSTREAM_FINDING_CODES
+
+        upstream = sorted(set(args.fail_on or ()) & set(UPSTREAM_FINDING_CODES))
+        if upstream:
+            raise InputError(f"--fail-on-code {', '.join(upstream)}: only --upstream or --upstream-manifest reports it; "
+                             "add one of them")
+        return
+    if args.per_skill:
+        # The upstream index is built once here; --jobs workers would each need their own copy of it.
+        raise InputError("--upstream and --upstream-manifest check the whole catalog at once and do not combine with --per-skill")
+    if args.kind == "tasks":
+        raise InputError("--upstream and --upstream-manifest apply to skills; drop them or use --kind skills|all")
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
@@ -583,6 +618,8 @@ def register(sub, positive_int, eval_sub) -> None:
     library.add_list_show_product(list_p, show_p)
     subjects.add_list_show_subject(list_p)
 
+    from dokimi import cli_flags
+
     scan_p = catalog_sub.add_parser(
         "check", help="Report which skills/tasks under --root load cleanly"
     )
@@ -624,6 +661,17 @@ def register(sub, positive_int, eval_sub) -> None:
         "--ignore", action="append", default=None, metavar="CODE",
         help="Leave the findings with this code out of the scan: they are not printed, and they "
              "do not set the state or --strict's exit. Repeatable; an unknown code is a usage error",
+    )
+    cli_flags.add(
+        scan_p, "upstream", "--upstream", action="append", default=None, metavar="CHECKOUT",
+        help="Match each skill to a local git checkout of an upstream (see `catalog provenance`) and add the "
+             "upstream-stale, license-dropped-from-upstream and risk-inherited-from-upstream findings. Repeatable; "
+             "ties favor checkouts before manifests, then the first listed within each type. Offline. Not with --per-skill",
+    )
+    cli_flags.add(
+        scan_p, "upstream", "--upstream-manifest", action="append", default=None, metavar="FILE",
+        help="The same as --upstream, for a dokimi.upstream.v1 JSON manifest of one upstream. Repeatable. "
+             "Ties favor checkouts before manifests, then the first listed within each type",
     )
     scan_p.add_argument(
         "--fail-on-code", dest="fail_on", action="append", default=None, metavar="CODE",

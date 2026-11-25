@@ -90,6 +90,42 @@
               "string",
               "null"
             ]
+          },
+          "judge_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "judge_resolved_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "judge_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "judge_context": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "judge_temperature": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "judge_prompt_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": true
