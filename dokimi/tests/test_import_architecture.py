@@ -54,7 +54,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.config_check", "dokimi.context", "dokimi.coverage", "dokimi.dashboard",
         "dokimi.datasets_export", "dokimi.eval_coverage", "dokimi.explore", "dokimi.external", "dokimi.harnesses",
         "dokimi.memory",
-        "dokimi.novelty", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
+        "dokimi.novelty", "dokimi.opportunities", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
         "dokimi.runner", "dokimi.runs", "dokimi.schema_check", "dokimi.schema_compat",
         "dokimi.skill_coverage",
         "dokimi.subjects", "dokimi.task_formats", "dokimi.tool_preference",
@@ -67,7 +67,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # Content loaders and pure scoring: doc sources, skills, agent profiles, Markdown
     # ingest, static metrics, gates.
     ("components", (
-        "dokimi.agent_profiles", "dokimi.digest_entries", "dokimi.gate", "dokimi.ingest", "dokimi.mcp",
+        "dokimi.agent_profiles", "dokimi.digest_entries", "dokimi.gate", "dokimi.ingest", "dokimi.llms_txt", "dokimi.mcp",
         "dokimi.metrics", "dokimi.repo_claims", "dokimi.repo_config", "dokimi.repo_glob", "dokimi.repo_links",
         "dokimi.skills",
     )),
@@ -78,8 +78,10 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.cli_output", "dokimi.cli_types", "dokimi.exit_codes", "dokimi.config", "dokimi.console",
         "dokimi.container_policy", "dokimi.defaults", "dokimi.docker_cmd",
         "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
+        "dokimi.llm_sampling",
         "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
         "dokimi.atomic_write", "dokimi.provenance", "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
+        "dokimi.yaml_unique",
         "dokimi.judge_rule", "dokimi.spend", "dokimi.text_spans",
         "dokimi.code_spans",
         # Token/cost record the LLM chokepoint fills; it lives under metrics/ but

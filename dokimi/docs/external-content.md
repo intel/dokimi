@@ -286,7 +286,8 @@ are common, so `--strict` does not fail on them. A code span that names a file
 under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
 `examples/`, `resources/`), alone or inside a command such as
 `python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
-have that file. Folders, flat names, placeholders (`scripts/<name>.py`),
+have that file. A code span that is the label of an inline link to a URL (`[`examples/a.py`](https://...)`) or of a full reference to one (`[`examples/a.py`][ref]`) is the link's text and is not checked; one in a shortcut or collapsed reference (`[`examples/a.py`]`, `[`examples/a.py`][]`) is still checked.
+Folders, flat names, placeholders (`scripts/<name>.py`),
 user-local `*.local.md` files (`references/secrets.local.md`, which the user keeps out of git)
 and repo-root paths such as `src/app.py` are not checked, and
 neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
@@ -338,8 +339,9 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
 (`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
-an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
-package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
+an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm`, `pnpm` (`add`, `install`, `i`, `dlx`), `pnpx` or `npx` install that names a
+package with no version is a `warn` with the count of distinct packages for the skill (`install-unpinned`); the
+same install shown twice is one, and a command inside the quoted text of an `echo` or `printf` is not an install (unless a `$(...)` or backtick substitution in it runs it, or the output is piped to a shell); a requirements
 file, a local path, a URL or a `git+` source is not counted. These checks read a Cyrillic or Greek look-alike letter, or a fullwidth letter, as its Latin letter, so `сurl | bash` with a Cyrillic `с` is still a `pipe-to-shell`; the letter list is short, and a look-alike outside it escapes. Installs are read from code only: the fenced
 blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
 text file, such as a script. The scan reads at most 200
@@ -378,6 +380,14 @@ they do not change the exit code.
 text output and `--format json` (one object: `state`, `findings`,
 `content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
 `duplicate_of`, for a script or a CI gate) are the same either way.
+
+The `rates` object reports the share of skills in each state and the share with each finding code.
+Each skill belongs to the nearest directory containing a `.git` entry between its directory and the
+scanned root, or to the scanned root if none has one. `rate` weights each skill equally. `repo_rate`
+weights each repository equally by averaging its within-repository share. An empty scan reports
+`null` for both shares. An `ok` row with an unchecked description or format contributes to
+`not_checked`. A row with state `skipped` contributes to `skipped`. With two or more repositories,
+the text output includes both shares for each state and up to five codes, ranked by the larger share.
 
 After the skill rows, `catalog check` prints a `# granularity` section: skill pairs
 that look like merge candidates (similar descriptions, shared trigger clauses, overlapping
@@ -481,7 +491,9 @@ A large catalog is easier to scan one skill at a time:
   stays `ok`. `--ignore` filters first, so a code in both is not checked. An unknown
   code is a usage error, and so is `--kind tasks`, and so is a code this scan never reports:
   `duplicate`, `name-conflict`, `mirror-drift` and `description-near-duplicate` with `--per-skill`,
-  `link-dead` and `package-not-found` without `--online`. `--strict` keeps its meaning. With
+  `link-dead` and `package-not-found` without `--online`, `upstream-stale`,
+  `license-dropped-from-upstream` and `risk-inherited-from-upstream` without `--upstream` or
+  `--upstream-manifest`. `--strict` keeps its meaning. With
   `--json` the skill's subject has verdict `fail`. `--resume` applies the current
   `--fail-on-code` to the rows it keeps, so changing it needs no rescan.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
@@ -510,10 +522,13 @@ skill in `path`.
 A skill copied from another repository drifts from it: the upstream is updated and the
 copy is not, or the copy is edited and drops the licence. `catalog provenance` matches each
 skill under `--root` to a version of an upstream you name, offline. Dokimi ships no
-upstream list: give it the upstreams yourself.
+upstream list: give it the upstreams yourself. When sources tie, checkouts come before manifests.
+Within each type, the first source listed wins.
 
-- `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. Clone it yourself; a full clone
-  gives the exact count of commits behind, a shallow one says it sees only its own history.
+- `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. For a blobless clone, fetch the skill history before running Dokimi.
+  A full clone reads the history reachable from `HEAD`. Other branch and tag tips are not scanned.
+  On linear history the commit count is exact. With parallel branches,
+  the count can include a change on a sibling branch. A shallow clone sees only its own history.
 - `--upstream-manifest FILE` (repeatable) is a JSON file of one upstream, for an upstream that
   is not a git checkout. Its `schema` field is the version-1 upstream schema string shown here:
 
@@ -547,7 +562,29 @@ then counts only the commits that touched the old path. A copy that does not loa
 broken YAML) is matched by its bytes like the others, and the copy's frontmatter `name`, not its
 directory name, is the name for a `similar` match. A checkout that lacks blobs of its history (a
 partial clone) reports `history: partial` with `missing_blobs`; fetch them for an exact count.
-`--format json` adds the upstreams, one row per skill and a `summary`.
+When a manifest leaves the head of the matched path unspecified, the behind column reads
+`unknown`. Its JSON fields `at_head`, `behind_commits`, and `behind_months` are null. `--format json` adds the upstreams, one row per skill and a `summary`.
+
+### Upstream findings in `catalog check` (`--upstream`, `--upstream-manifest`)
+
+Give `catalog check` the same upstreams as `catalog provenance` and each loaded skill that matches one gets
+up to three more findings. Nothing is fetched, and none of them is an error:
+
+- `upstream-stale` (note): the copy matches an older version of a path whose head is known. For manifests,
+  an entry of the same path must carry `"head": true`. The top-level `head` describes the repository. A note
+  preserves the state and exit code. The message says how many commits and months behind the head it is, where the
+  history gives them.
+- `license-dropped-from-upstream` (warn): the copy is edited, its upstream version declares a `license`, and the copy
+  declares none. An edited copy that changes the license to another value is not reported. An unedited copy has the
+  upstream bytes, so it cannot drop one.
+- `risk-inherited-from-upstream` (warn): the copy keeps a risk its upstream version has too. The risks are the ones the
+  scan already reports: unrestricted Bash (`allowed-tools-unrestricted-bash`), `pipe-to-shell` and
+  `permission-bypass-flag`. The copy's side is its own findings, bundled files included. The upstream side is that
+  version's `SKILL.md` alone, since an upstream version is one file, not a folder.
+
+The warnings follow the usual rules: they do not fail `--strict`, and `--ignore` takes each code. The flags do not
+combine with `--per-skill` (the upstream index is built once, in one process) or with `--kind tasks`.
+
 
 ## 2. The awareness half: question sets
 

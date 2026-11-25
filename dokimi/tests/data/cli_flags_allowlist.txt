@@ -38,6 +38,7 @@
 --checklist
 --claude  # catalog trigger-probe (#217) adds it: backend choice has no registry concept yet
 --command-template
+--commits  # eval tasks generate --from history (#41) adds it: how many first-parent commits to read; no registry concept yet
 --competitors
 --context
 --context7-id
@@ -266,4 +267,5 @@
 --summary-out  # catalog novelty: write the summary as JSON; no registry concept yet
 --bootstrap-resamples  # catalog novelty: resamples per bootstrap interval; no registry concept yet
 --atom-labels  # skill novelty view (#1133): the labels file joined to --atom-verdicts; no registry concept yet
+--label-host  # host label mode (contract §4.3) has no registry concept yet; F1b moves it with --allow-unsupported
 --fail-on-code  # catalog check (#942): selects finding codes, not the {warn,fail} severity of the fail_on concept

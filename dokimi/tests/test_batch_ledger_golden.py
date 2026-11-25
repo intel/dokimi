@@ -110,6 +110,7 @@ GOLDEN_RESULT_KEYS = [
     "grade",
     "harness",
     "harness_version",
+    "host_fingerprint",
     "model",
     "model_resolved",
     "process",

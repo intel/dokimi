@@ -474,7 +474,7 @@ value before the request is sent): Claude Opus 4.7 and later, the 5.x Claude
 models (`claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`,
 `claude-fable-5-1`, on Anthropic and on Bedrock), and OpenAI `gpt-5`, `gpt-5.5`,
 `gpt-6.1-sol` and `gpt-6-luna` (`gpt-5.1` and `gpt-5.2` accept a temperature unless a reasoning
-effort is set, which dokimi does not do). The run stops at the probe below, before
+effort is set, which dokimi does not do). The static sampling check rejects values that litellm’s rules disallow before
 any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
 pinned, only measured: run the same configuration several times
@@ -498,11 +498,11 @@ pinned, only measured: run the same configuration several times
   several judge roles and record their spread and agreement. An unknown role is
   rejected when the command line is parsed.
 
-A flag the provider is known to reject (Bedrock rejects `seed`) fails the run
-before any answer is generated. The check reads litellm's capability table, so
-a model that table misdescribes still fails per answer. A value the provider
-rejects (`temperature=0` on a model that accepts only 1) is caught by one short
-probe call per answer and judge model, also before any answer is generated.
+Before generating answers, `arms run` checks each model’s requested sampling options against
+litellm’s capability table and route-specific value rules. A known refusal, such as `seed` on
+Bedrock or `temperature=0` on a model that accepts only 1, stops the run without a model call.
+Settings that pass the static checks are tried in one short probe call per answer and judge model
+when sampling is requested. The probe catches refusals that litellm’s local rules do not describe.
 
 The judge re-draws a reply it cannot parse, up to three attempts. At a pinned
 judge temperature the same prompt tends to return the same malformed reply, so

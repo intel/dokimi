@@ -124,6 +124,7 @@ nav:
       - catalog-jsonl.md
       - Q&A pipeline tutorial: quickstart.md
       - runs.md
+      - opportunities.md
       - user-flow.md
       - benchmarking-and-comparison.md
       - adding-doc-source.md
@@ -162,6 +163,7 @@ nav:
       - methodology.md
       - difficulty-rubric.md
       - example-execution.md
+      - product-experiment-replay.md
       - ingestion-docling.md
       - research-register.md
   - User journeys:

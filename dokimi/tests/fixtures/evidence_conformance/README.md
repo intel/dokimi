@@ -1,0 +1,21 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
+# skill_evidence.v1 conformance fixtures
+
+Each file is a valid `skill_evidence.v1` document with one result. A consumer passes when:
+
+| File | Expectation |
+|---|---|
+| `verdict_without_rule.json` | The result has a `verdict` but no `verdict_rule`: mark it non-comparable. |
+| `verdict_with_rule.json` | Recomputing the verdict from `delta`, `p_value`, `verdict_rule` and `metric_spec` gives the stated `improved`. |
+| `judge_snapshot_older.json`, `judge_snapshot_newer.json` | The same protocol resolved against judge snapshots `…-20260901` and `…-20261101`: the `protocol.digest` values differ, and the newer result is non-comparable to the older one. |
+
+`protocol.digest` is `sha256:` + the hex sha256 of `protocol.resolved` as JSON with sorted keys, no whitespace, UTF-8 and no NaN, recursively normalizing integral floats to integers (for example `0.0` to `0`). Protocol version 2 resolves `family_tested`, the number of results the multiple-comparison correction ran over. A pair whose protocol id or version the consumer does not write is non-comparable: its required inputs cannot be checked. `tests/test_evidence_protocol.py` runs these checks against `dokimi.subjects.evidence_check`.
+
+The stored `comparable` flag describes the checks on one result. For a pair, run
+`compare()` to also check that the required protocol inputs are resolved and the
+digests match. A CLI judge's single recorded model snapshot supplies the model
+input. With multiple recorded snapshots, the model input is unresolved.
