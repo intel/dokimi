@@ -28,14 +28,14 @@ class ToolCall:
     arguments: str = "{}"
 
 
-def _tool_calls(message: Any) -> Tuple[ToolCall, ...]:
+def _tool_calls(message: Any, *, allow_malformed_function: bool = False) -> Tuple[ToolCall, ...]:
     """Normalize a litellm message's tool calls (objects or dicts)."""
     calls = getattr(message, "tool_calls", None)
     out = []
     for tc in calls or ():
         if isinstance(tc, dict):
-            fn = tc.get("function")
-            if not isinstance(fn, dict):
+            fn = tc.get("function") or {}
+            if allow_malformed_function and not isinstance(fn, dict):
                 fn = {}
             out.append(ToolCall(tc.get("id"), fn.get("name"), fn.get("arguments") or "{}"))
         else:
@@ -71,6 +71,7 @@ def parse_turn(resp: Any, *, strict: bool = False) -> ChatTurn:
     routes bill as a 200, reads as an empty turn; its callers price it. Strict: no choice
     raises instead, as a caller that needs an answer wants (``IndexError`` for an empty
     list, ``TypeError`` for ``None``, ``AttributeError`` for a choice with no ``message``).
+    The strict tool probe keeps malformed dict tool calls and reports an empty name.
     """
     if strict:
         choice = resp.choices[0]
@@ -81,6 +82,6 @@ def parse_turn(resp: Any, *, strict: bool = False) -> ChatTurn:
         message = getattr(choice, "message", None)
     return ChatTurn(
         text=getattr(message, "content", None),
-        tool_calls=_tool_calls(message),
+        tool_calls=_tool_calls(message, allow_malformed_function=strict),
         finish_reason=getattr(choice, "finish_reason", None),
     )

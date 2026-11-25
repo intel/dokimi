@@ -4,7 +4,7 @@
 """parse_turn: the one read of a chat response's first choice.
 
 Lenient (the adapter's reading): no choice is an empty turn. Strict (the tool-choice probe's
-reading): no choice raises. Both read the same fields the same way.
+reading): no choice raises. Both read well-formed fields the same way.
 """
 
 from __future__ import annotations
@@ -193,3 +193,10 @@ def test_probe_measures_latency_when_the_wall_clock_steps_back(monkeypatch, no_c
 def test_probe_keeps_a_dict_call_with_a_malformed_function(monkeypatch, no_cost):
     out = _caller(monkeypatch, _resp(None, [{"id": "c", "function": "read"}]))
     assert out["called"] == [""]
+
+
+def test_adapter_keeps_its_existing_malformed_tool_error(monkeypatch, no_cost):
+    resp = _resp(None, [{"id": "c", "function": "read"}])
+    monkeypatch.setattr(litellm, "completion", lambda **kw: resp)
+    with pytest.raises(AttributeError):
+        LiteLLMAdapter()(Request("m", "openai", "m", []))
