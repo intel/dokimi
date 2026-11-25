@@ -136,7 +136,8 @@ calls a model.
 pull-request check, and it has no `pull_request` trigger.
 
 - One job per harness. Each checks its credential, installs its CLI only when the credential and the model
-  variable are both present (pinned versions: `@anthropic-ai/claude-code`, `@openai/codex`, `@github/copilot`), and
+  variable are both present (`npm ci` from the lockfile in `.github/npm/reach-<harness>/`, which pins
+  `@anthropic-ai/claude-code`, `@openai/codex` or `@github/copilot` and every package under it by hash), and
   runs `run` with the model from a repository variable (`REACH_MODEL_CLAUDE_CODE`, `REACH_MODEL_CODEX`,
   `REACH_MODEL_COPILOT`). With no variable, the harness is recorded as skipped.
 - Each job gets only its own secret in its environment. The Claude Code job uses the Anthropic key when it is set;
@@ -161,7 +162,7 @@ A case is a directory under `data/reach-conformance/` with the guidance files it
 `expectations.yaml` for every harness whose documentation says something about it. `check` must pass.
 
 A harness is a `Harness` in `HARNESSES` (`dokimi/repos/conformance.py`), with its CLI and the credential
-names its profile forwards, a profile under `dokimi/repos/profiles/`, its npm pin in the workflow, and a
+names its profile forwards, a profile under `dokimi/repos/profiles/`, its npm pin (`.github/npm/reach-<harness>/`), and a
 job in the workflow. Its documented states go in `expectations.yaml` with the vendor page as `why`.
 
 Both schemas are versioned (`reach_conformance.v1`, `reach_matrix.v1`). Compatible widening may edit the existing

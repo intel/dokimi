@@ -774,7 +774,7 @@ def _matrix_run(monkeypatch, tmp_path, cli_model, arms_spec, capsys):
 
     monkeypatch.setattr(arms_run, "run_arms", cell_must_not_run)
     monkeypatch.setattr(sys, "argv", ["dokimi", "arms", "matrix-run", "--product", "p",
-                                      "--questions", str(questions), "--arms", arms_spec,
+                                      "--questions", str(questions), "--arm", arms_spec,
                                       "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "out")])
     with refusal() as out:  # a usage error: exit 2, as the other input errors
         cli.main()
@@ -823,7 +823,7 @@ def test_matrix_cells_that_name_a_cli_model_pass_the_parse_gate_whatever_the_top
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
     args = cli.parse_args(["arms", "matrix-run", "--product", "p", "--questions", str(questions),
-                           "--arms", "baseline", "--matrix-cells", str(cells), "--provider", "claude-cli",
+                           "--arm", "baseline", "--matrix-cells", str(cells), "--provider", "claude-cli",
                            "--out-dir", str(tmp_path / "out")])
     assert args.provider == "claude-cli"
 
@@ -873,7 +873,7 @@ def test_the_login_check_runs_with_the_same_reduced_env_as_the_call(monkeypatch)
 def test_the_session_turns_flag_defaults_to_none():
     from dokimi.cli import parse_args
 
-    args = parse_args(["arms", "run", "--product", "p", "--questions", "q.json", "--arms", "baseline",
+    args = parse_args(["arms", "run", "--product", "p", "--questions", "q.json", "--arm", "baseline",
                        "--provider", "claude-cli", "--model", "sonnet"])
     assert args.session_turns is None
 

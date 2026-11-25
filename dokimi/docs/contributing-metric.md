@@ -142,7 +142,7 @@ snapshot you took before the change (there is no committed baseline — see
 
 ```bash
 python cli.py docs compare \
-  --base baselines/baseline.json \
+  --baseline baselines/baseline.json \
   --candidate baselines/current.json \
   --spec benchmarks/spec.v1.yaml \
   --out-md reports/compare.md
