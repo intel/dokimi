@@ -204,15 +204,15 @@ def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
 def _pair(text: str) -> tuple[str, str]:
     name, sep, path = text.partition("=")
     if not sep or not name or not path:
-        raise ValueError(f"--cache takes NAME=PATH, got {text!r}")
+        raise ValueError(f"--cache takes NAME=DIR, got {text!r}")
     return name, path
 
 
 def _check_cache_flags(args: argparse.Namespace) -> None:
-    """Refuse a ``--cache-root`` or a ``--cache NAME=PATH`` path no cache directory can be made in (exit 2) (#826).
+    """Refuse a ``--cache-root`` or a ``--cache NAME=DIR`` path no cache directory can be made in (exit 2) (#826).
 
     They need no manifest, so they are checked before the source is opened (a remote one is cloned or fetched).
-    A ``--cache`` that is not ``NAME=PATH`` is left to ``_context``.
+    A ``--cache`` that is not ``NAME=DIR`` is left to ``_context``.
     """
     from dokimi.commands.cache_dir import CACHE_USE, resolved_cache_dir
 

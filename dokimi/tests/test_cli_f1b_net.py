@@ -9,6 +9,7 @@ import pytest
 
 from dokimi import cli, cli_routes
 from dokimi.cli import build_parser
+from dokimi.commands.repo_run import _pair
 from dokimi.harnesses import network_policy
 
 
@@ -93,6 +94,11 @@ def test_a_moved_timeout_flag_with_no_value_does_not_index_past_the_end():
 def test_a_moved_timeout_flag_without_a_value_leaves_the_next_flag_intact():
     argv = ["repo", "run", "src", "--build-timeout", "--arm", "guidance:none"]
     assert cli_routes.moved_flags_argv(argv) == ["repo", "run", "src", "--timeout", "build=", "--arm", "guidance:none"]
+
+
+def test_a_cache_override_refusal_matches_the_cli_metavar():
+    with pytest.raises(ValueError, match="--cache takes NAME=DIR"):
+        _pair("cache")
 
 
 def test_a_bare_network_mode_means_every_phase():
