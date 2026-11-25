@@ -21,7 +21,6 @@ Two passes:
    ``unrelated`` and a verbatim quote; a quote that is not a substring of the sentence is
    dropped and the pair is reported ``unverified_quote`` rather than trusted.
 
-See ``docs/proposals/false-claims.md`` for the method and its validity risks.
 """
 
 from __future__ import annotations
