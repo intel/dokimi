@@ -83,3 +83,8 @@ def test_sentence_final_identifier_still_pairs():
     atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement":
                           "cache_size configures the maximum number of entries stored in the accelerator cache."})
     assert pair_atoms("There is no cache_size.", [atom]) == [atom]
+
+
+def test_an_exact_flag_is_enough_to_pair():
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use --cache to enable caching."})
+    assert pair_atoms("--cache is unsupported.", [atom]) == [atom]

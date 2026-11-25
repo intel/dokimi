@@ -47,7 +47,7 @@ Return ONLY JSON: {{"verdict": "contradicts|supports|unrelated",
 "quote": "<the exact words of SENTENCE that conflict, or empty>"}}
 """
 
-_WORD = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
+_WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
 # A value: a version, a number with optional unit, or a CLI flag.
 _VALUE = re.compile(r"(?<![\w.])(?:--?[a-z][\w-]*|v?\d+(?:\.\d+)*%?)(?![\w])", re.I)
 _NEGATION = re.compile(
@@ -153,7 +153,7 @@ def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) ->
         if not anchor:
             continue
         common = len(anchor & words)
-        if ((_distinctive(atom.statement) - _values(atom.statement)) & ident
+        if (_distinctive(atom.statement) & ident
                 or (common >= min(2, len(anchor)) and common / len(anchor) >= min_overlap)):
             paired.append(atom)
     return paired
