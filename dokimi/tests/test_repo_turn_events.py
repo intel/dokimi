@@ -250,6 +250,28 @@ def test_a_result_that_omits_a_cache_count_leaves_the_remainder_null():
     assert [e for e in closed.events if e["kind"] == "usage_remainder"][0]["cache_read"] == 0
 
 
+def test_a_tree_result_model_that_omits_a_count_leaves_that_total_null():
+    call = _call("a", {"input_tokens": 2, "cache_read_input_tokens": 30, "cache_creation_input_tokens": 0,
+                       "output_tokens": 4}, "2026-11-14T10:00:00Z")
+    result = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "result": "ok",
+              "usage": {"input_tokens": 2, "output_tokens": 4},
+              "modelUsage": {"main": {"inputTokens": 2, "outputTokens": 4, "cacheReadInputTokens": 30,
+                                      "cacheCreationInputTokens": 0},
+                             "helper": {"inputTokens": 1, "outputTokens": 1, "cacheReadInputTokens": 0}}}
+    remainder = [e for e in convert("claude-stream-json", _lines(call, result)).events
+                 if e["kind"] == "usage_remainder"][0]
+    assert remainder["cache_read"] == 0  # every model reports it, so the sum is known
+    assert remainder["cache_write"] is None  # the helper does not report it
+
+
+def test_a_result_with_a_null_count_leaves_the_remainder_null():
+    call = _call("a", {"input_tokens": 2, "cache_read_input_tokens": 30, "output_tokens": 4}, "2026-11-14T10:00:00Z")
+    result = _result({"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": None})
+    remainder = [e for e in convert("claude-stream-json", _lines(call, result)).events
+                 if e["kind"] == "usage_remainder"][0]
+    assert remainder["cache_read"] is None
+
+
 def test_a_streamed_message_counts_its_largest_output_once():
     raw = _lines(_call("a", {"input_tokens": 4, "output_tokens": 3}, "2026-11-14T10:00:00Z"),
                  _call("a", {"output_tokens": 7}, "2026-11-14T10:00:00.200Z"),

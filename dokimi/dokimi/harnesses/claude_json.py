@@ -106,7 +106,7 @@ def reported_counts(obj: dict) -> frozenset[str]:
     if found is None:
         return frozenset()
     _, keys, blocks = found
-    return frozenset(f for f in _FIELDS if all(keys[f] in b for b in blocks))
+    return frozenset(f for f in _FIELDS if all(b.get(keys[f]) is not None for b in blocks))
 
 
 def _main_model(model_usage: object) -> str:
