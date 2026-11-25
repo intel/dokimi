@@ -493,6 +493,26 @@ def test_catalog_check_fallback_digest_comes_from_the_preview_read(tmp_path, cap
     assert rows["first-line"]["listing_chars"] == 22
 
 
+def test_catalog_check_unreadable_first_read_is_a_null_preview_row(tmp_path, capsys, monkeypatch):
+    """#1087: a first read that fails gives the skill a null `listing`; the preview does not read again and abort the scan."""
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "first-line").mkdir(parents=True)
+    (skills / "first-line" / "SKILL.md").write_text("---\nname: first-line\n---\nSort logs.\n", encoding="utf-8")
+    from dokimi.commands import catalog_scan
+    real = catalog_scan._listing_source
+    calls = []
+
+    def fail_first(entry):
+        calls.append(entry)
+        return None if len(calls) == 1 else real(entry)
+
+    monkeypatch.setattr(catalog_scan, "_listing_source", fail_first)
+    row = _check_rows(skills, capsys)["first-line"]
+    assert row["listing"] is None
+    assert row["listing_chars"] is None
+    assert len(calls) == 1
+
+
 def test_catalog_check_listing_is_null_without_text(tmp_path, capsys):
     """#1087: no description and an empty body leaves nothing to list, so `listing` is null."""
     skills = tmp_path / ".claude" / "skills"

@@ -64,18 +64,22 @@ def _name_fits_spec(read) -> bool:
     return bool(NAME_PATTERN.fullmatch(declared)) and len(declared) <= NAME_MAX and (at_root or declared == dir_name)
 
 
-def listing_preview(entry, source=None) -> Optional[dict]:
+_READ = object()  # ``listing_preview`` was given no source: read the file itself
+
+
+def listing_preview(entry, source=_READ) -> Optional[dict]:
     """What ``repo budget`` would list for the skill: its text, where it came from, and its characters.
 
     ``source`` is ``frontmatter`` or ``body`` (the first non-empty line, used when ``description`` is
     omitted, #943). ``listing_chars`` is the ``repo budget`` charge (name plus the text, capped), whether
     or not the skill is listed now. None when SKILL.md cannot be read, resolves outside the catalog root,
-    or there is no text to list. ``source`` may be the result of ``_listing_source``, to read the file once.
+    or there is no text to list. ``source`` may be the result of ``_listing_source`` (None included), to read the file once.
     """
     from dokimi.repos.budget import LISTING_TEXT_CAP
     from dokimi.skills.listing import listing_description, listing_text_chars
 
-    source = source or _listing_source(entry)
+    if source is _READ:
+        source = _listing_source(entry)
     if source is None:
         return None
     _, meta, body, dir_name, _, _ = source
