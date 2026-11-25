@@ -25,6 +25,35 @@ def _tombstone(argv: list[str], capsys) -> str:
     return capsys.readouterr().err
 
 
+@pytest.mark.parametrize("leaf", cli_flags.JUDGE_MOVED_LEAVES)
+@pytest.mark.parametrize(("options", "ref"), [
+    (["--judge-provider", "openai", "--judge", "gpt-4o"], "openai/gpt-4o"),
+    (["--judge=gpt-4o", "--judge-provider=openai"], "openai/gpt-4o"),
+    (["--judge-provider", "openai", "--judge", "anthropic/claude-sonnet-5-5"], "anthropic/claude-sonnet-5-5"),
+    (["--judge", "anthropic/claude-sonnet-5-5", "--judge-provider", "openai"], "anthropic/claude-sonnet-5-5"),
+    (["--judge-provider", "openai", "--judge", "gpt-4o", "--judge-model", "gpt-4o-mini"], "openai/gpt-4o-mini"),
+])
+def test_a_retired_judge_provider_combines_with_the_last_judge_model(leaf, options, ref):
+    assert cli_routes.moved_flags_argv([*leaf, *options]) == [*leaf, "--judge", ref]
+
+
+def test_the_mixed_judge_tombstone_prints_a_command_that_uses_the_named_provider(capsys):
+    required = ["benchmark", "run", "--library", "onetbb"]
+    text = _tombstone([*required, "--judge-provider", "openai", "--judge", "gpt-4o"], capsys)
+    suggested = shlex.split(text.split("moved: ", 1)[1].strip())
+    assert suggested == ["dokimi", *required, "--judge", "openai/gpt-4o"]
+    args = cli.parse_args(suggested[1:])
+    assert (args.judge_provider, args.judge_model) == ("openai", "gpt-4o")
+
+
+def test_the_retired_answer_provider_joins_a_model_with_a_slash():
+    base = ["benchmark", "run", "--library", "onetbb"]
+    old = [*base, "--provider", "openrouter", "--model", "anthropic/claude-sonnet-5-5"]
+    assert cli_routes.moved_flags_argv(old) == [
+        *base, "--model", "openrouter/anthropic/claude-sonnet-5-5",
+    ]
+
+
 @pytest.mark.parametrize(("old", "new"), [
     (["benchmark", "run", "--library", "x", "--output-dir", "d"],
      ["benchmark", "run", "--library", "x", "--out-dir", "d"]),

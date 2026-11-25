@@ -22,6 +22,9 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 from dokimi.cli_flags import FLAG_JOINS, FLAG_MOVES, FlagJoin, FlagMove
+from dokimi.llm_providers import ANSWER_PROVIDERS, PROVIDER_ALIASES
+
+_MODEL_PROVIDERS = frozenset((*ANSWER_PROVIDERS, *PROVIDER_ALIASES))
 
 SECTIONS: tuple[str, ...] = ("The loop", "Subjects", "Evals", "Analysis and data")
 
@@ -549,17 +552,12 @@ def moved_argv(
     return None
 
 
-def _fold_provider(tokens: list[str], join: FlagJoin) -> list[str] | None:
-    """``tokens`` with ``join.provider V`` and ``join.model M`` folded into ``join.new V/M``, or None.
-
-    The last of each flag wins, as argparse does. A provider with no model becomes ``V/<MODEL>``.
-    A model with no provider is left alone (it still runs on the leaf's default provider).
-    """
+def _joined_flag_spans(tokens: list[str], join: FlagJoin) -> list[tuple[int, int, str, str]]:
     spans: list[tuple[int, int, str, str]] = []  # (index, width, flag, value) for each flag with a value
     i = 0
     while i < len(tokens) and tokens[i] != "--":
         name, equals, value = tokens[i].partition("=")
-        if name in (join.provider, join.model):
+        if name in (join.provider, join.model, join.new):
             if equals:
                 spans.append((i, 1, name, value))
                 i += 1
@@ -570,20 +568,33 @@ def _fold_provider(tokens: list[str], join: FlagJoin) -> list[str] | None:
                 i += 1  # no value: argparse reports it
         else:
             i += 1
+    return spans
+
+
+def _joined_model(provider: str, model: str, *, replacement: bool) -> str:
+    prefix, slash, _ = model.partition("/")
+    if replacement and slash and prefix in _MODEL_PROVIDERS:
+        return model
+    return f"{provider}/{model}"
+
+
+def _fold_provider(tokens: list[str], join: FlagJoin) -> list[str] | None:
+    """Fold a retired provider and the last old or new model flag into one model reference."""
+    spans = _joined_flag_spans(tokens, join)
     providers = [span for span in spans if span[2] == join.provider]
     if not providers:
         return None
-    models = [span for span in spans if span[2] == join.model]
-    provider = providers[-1][3]
-    model = models[-1][3] if models else "<MODEL>"
-    at = models[-1][0] if models else providers[-1][0]  # the joined value takes the model's place
+    models = [span for span in spans if span[2] != join.provider]
+    at, _, flag, model = models[-1] if models else (providers[-1][0], 0, join.model, "<MODEL>")
+    replacement = flag == join.new != join.model
+    ref = _joined_model(providers[-1][3], model, replacement=replacement)
     drop: set[int] = set()
     for index, width, _, _ in spans:
         drop.update(range(index, index + width))
     out: list[str] = []
     for index, token in enumerate(tokens):
         if index == at:
-            out.extend([join.new, f"{provider}/{model}"])
+            out.extend([join.new, ref])
         if index not in drop:
             out.append(token)
     return out
