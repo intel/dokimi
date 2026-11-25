@@ -287,6 +287,13 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
         print(f"  {arm:<24} judge delta {delta_s}, n={row.get('n', 0)}")
 
 
+_ARM_HELP = (
+    "Arm spec, repeatable or comma-separated. Examples: "
+    "'baseline,docs', 'baseline,docs:local:./docs,profile:data/agent_profiles/concise_expert.md', "
+    "'baseline,mcp:http=https://mcp.context7.com/mcp,skill:/path/to/skills-repo/skills/<name>'"
+)
+
+
 def register(sub, positive_int) -> None:
     """Add the `arms` subcommand group."""
     arms_p = sub.add_parser(
@@ -301,12 +308,8 @@ def register(sub, positive_int) -> None:
     )
     arms_run_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     arms_run_p.add_argument("--questions", required=True, help="Path to questions JSON file")
-    arms_run_p.add_argument(
-        "--arms", required=True,
-        help="Comma-separated arm specs. Examples: "
-             "'baseline,docs', 'baseline,docs:local:./docs,profile:data/agent_profiles/concise_expert.md', "
-             "'baseline,mcp:http=https://mcp.context7.com/mcp,skill:/path/to/skills-repo/skills/<name>'",
-    )
+    cli_flags.add(arms_run_p, "arm", "--arm", required=True, dest="arms", action=cli_flags.JoinedValues,
+                  metavar="SPEC", help=_ARM_HELP)
     arms_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     arms_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                             choices=ANSWER_PROVIDERS)
@@ -399,10 +402,8 @@ def register(sub, positive_int) -> None:
         "plugin-delta",
         help="Compare paired arms artifacts that differ only by plugin set",
     )
-    plugin_delta_p.add_argument(
-        "--baseline-json", required=True, dest="baseline_json",
-        help="arms.v1 artifact for the baseline/no-plugin cell",
-    )
+    cli_flags.add(plugin_delta_p, "baseline", "--baseline", required=True, dest="baseline_json",
+                  metavar="FILE", help="arms.v1 artifact for the baseline/no-plugin cell")
     plugin_delta_p.add_argument(
         "--plugin-json", required=True, dest="plugin_json",
         help="arms.v1 artifact for the plugin-enabled cell",
@@ -415,12 +416,8 @@ def register(sub, positive_int) -> None:
 def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False) -> None:
     parser.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     parser.add_argument("--questions", required=True, help="Path to questions JSON file")
-    parser.add_argument(
-        "--arms", required=True,
-        help="Comma-separated arm specs. Examples: "
-             "'baseline,docs', 'baseline,docs:local:./docs,profile:data/agent_profiles/concise_expert.md', "
-             "'baseline,mcp:http=https://mcp.context7.com/mcp,skill:/path/to/skills-repo/skills/<name>'",
-    )
+    cli_flags.add(parser, "arm", "--arm", required=True, dest="arms", action=cli_flags.JoinedValues,
+                  metavar="SPEC", help=_ARM_HELP)
     parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                         choices=ANSWER_PROVIDERS)

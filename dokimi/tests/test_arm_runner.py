@@ -328,7 +328,7 @@ def _parse_arms_run(argv):
 
     return build_parser().parse_args(
         ["arms", "run", "--product", "oneTBB",
-         "--questions", "questions.json", "--arms", "baseline"] + argv
+         "--questions", "questions.json", "--arm", "baseline"] + argv
     )
 
 
@@ -355,7 +355,7 @@ def test_matrix_run_also_exposes_stats_correction():
 
     args = build_parser().parse_args(
         ["arms", "matrix-run", "--product", "oneTBB",
-         "--questions", "questions.json", "--arms", "baseline",
+         "--questions", "questions.json", "--arm", "baseline",
          "--matrix-cells", "cells.json", "--correction", "bh"]
     )
     assert args.stats_correction == "bh"
@@ -518,7 +518,7 @@ def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_
     monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **kw: ran.append(1))
     args = build_parser().parse_args(
         ["arms", "matrix-run", "--product", "oneTBB", "--questions", str(questions),
-         "--arms", "baseline", "--matrix-cells", str(cells), "--seed", "1",
+         "--arm", "baseline", "--matrix-cells", str(cells), "--seed", "1",
          "--out-dir", str(tmp_path / "out")])
     with refusal() as exc: args.func(args)
     assert exc.code == 2 and ran == []

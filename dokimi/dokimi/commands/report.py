@@ -280,3 +280,7 @@ def register(sub, positive_int) -> None:
                            "lines), or sarif (SARIF 2.1.0 for code scanning in GitHub, Azure DevOps, GitLab, Jenkins)")
     sm_p.add_argument("--out", default=None, help="Write to this file instead of stdout")
     sm_p.set_defaults(func=cmd_report_summary)
+
+    from dokimi.commands import opportunities
+
+    opportunities.register(report_sub, positive_int)  # report opportunities

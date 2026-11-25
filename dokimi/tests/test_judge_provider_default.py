@@ -161,7 +161,7 @@ def test_a_library_matrix_judge_is_not_moved_by_an_unused_claude_cli_top_level_p
 
 
 def test_a_library_matrix_judge_left_out_is_the_cli_matrix_judge_with_a_claude_cli_top_level_provider(tmp_path):
-    args = parse_args(["arms", "matrix-run", "--product", "p", "--questions", "q.jsonl", "--arms", "a.json",
+    args = parse_args(["arms", "matrix-run", "--product", "p", "--questions", "q.jsonl", "--arm", "a.json",
                        "--matrix-cells", str(tmp_path / "cells.json"), "--judge", "--provider", "claude-cli",
                        "--model", "sonnet"])
     assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
@@ -266,7 +266,7 @@ def test_preflight_refuses_the_judge_that_run_refuses(capsys):
 def test_a_matrix_run_takes_no_top_level_model_as_its_answerer(tmp_path):
     # Every matrix cell sets its own model, so the default top-level --model is not the answerer.
     args = parse_args(["arms", "matrix-run", "--product", "p", "--questions", "q.jsonl",
-                       "--arms", "a.json", "--matrix-cells", str(tmp_path / "cells.json"),
+                       "--arm", "a.json", "--matrix-cells", str(tmp_path / "cells.json"),
                        "--judge", "--judge-provider", "openai"])
     assert args.judge_model == DEFAULT_GENERATOR_MODEL
 

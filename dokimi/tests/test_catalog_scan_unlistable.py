@@ -48,7 +48,7 @@ def test_a_skill_with_a_subdirectory_that_cannot_be_listed_has_no_digest(tmp_pat
 @pytest.mark.parametrize(("digest", "kept"), [(None, False), ("abc", True)])
 def test_resume_keeps_a_prior_row_only_when_its_digest_is_a_digest(tmp_path: Path, digest: str | None, kept: bool):
     row = {"name": "skill", "relpath": "skill", "state": "ok", "error": None, "findings": [], "content_sha256": None,
-           "skill_sha256": digest, "listing_chars": 1, "listing_name": "skill", "ignored": [],
+           "skill_sha256": digest, "listing_chars": 1, "listing": None, "listing_name": "skill", "ignored": [],
            "dokimi_version": __version__}
     jsonl = tmp_path / "scan.jsonl"
     jsonl.write_text(json.dumps(row) + "\n", encoding="utf-8")
