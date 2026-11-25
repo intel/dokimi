@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -16,6 +15,7 @@ from typing import Any
 from dokimi import process
 from dokimi.eval import binary_stats
 from dokimi.eval.stats import adjust_pvalues
+from dokimi.measure import as_float
 from dokimi.utils import key_bytes
 
 from .docker_solver import DockerSolverHarness
@@ -157,7 +157,7 @@ def summarize_task_results(
         stats["errored"] += 1 if errored else 0
         reward = row.get("reward")
         # bool is an int subclass: reward=True is not a score of 1.
-        reward = _num(reward)
+        reward = as_float(reward)
         if reward is not None and not errored:
             stats["reward_sum"] += reward
             stats["reward_n"] += 1
@@ -168,12 +168,12 @@ def summarize_task_results(
             stats["operations_by_type"][op_type] = stats["operations_by_type"].get(op_type, 0) + count
         # Cost/token telemetry (present when an LLM harness emitted a UsageRecord).
         # bool is an int subclass: cost_usd=True is not a price.
-        cost = _num(metrics.get("cost_usd"))
+        cost = as_float(metrics.get("cost_usd"))
         if cost is not None:
             stats["_cost_sum"] += cost
             stats["_cost_known"] += 1
         for key in stats["_tokens"]:
-            val = _num(metrics.get(key))
+            val = as_float(metrics.get(key))
             if val is not None:
                 stats["_tokens"][key] += int(val)
                 stats["_tokens_known"][key] += 1
@@ -388,15 +388,6 @@ def _is_control_harness(harness: str) -> bool:
         return True
     prefix, _, rest = harness.partition(":")
     return prefix in _BENCHFLOW_PREFIXES and rest.split(":", 1)[0] == "oracle"
-
-
-def _num(value: Any) -> float | None:
-    """A finite number as float, else ``None``. A bool is a flag, not a
-    number (bool is an int subclass); nan / inf are not values."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    value = float(value)
-    return value if math.isfinite(value) else None
 
 
 def _count(value: Any) -> int | None:
