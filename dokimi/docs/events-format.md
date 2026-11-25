@@ -37,7 +37,7 @@ depend on the kind:
 | `choice` | `candidate`, `act` (install, import, use or remove), `path` (edit path or null). The runner writes these after their source event when the run names candidates. |
 | `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output` (on Claude, the call's `output_tokens` as its assistant records streamed them: records that share a message id merge to the largest count, and the streamed count can be below the billed one, see `usage_remainder`), `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it is low when a part is `null`) |
 | `compaction` | `turn`: the index of the turn it came after, `null` before the first call |
-| `usage_remainder` | `input`, `output`, `cache_read`, `cache_write`: the result's token totals (the scope `usage_scope` names) minus the `turn` events of that scope, each `null` when a turn in the scope has a `null` for it; no `turn`, `t` is `null`. Written once, after the turns, on a Claude trace whose result has usage. Negative when the turns sum above the total |
+| `usage_remainder` | `input`, `output`, `cache_read`, `cache_write`: the result's token totals (the scope `usage_scope` names) minus the `turn` events of that scope, each `null` when a turn in the scope has a `null` for it, or the result does not report that total as a number (a `modelUsage` entry in the scope that lacks it counts); no `turn`, `t` is `null`. Written once, after the turns, on a Claude trace whose result has usage. Negative when the turns sum above the total |
 
 A `turn` is one model call, so a Claude run's trace has one per call. A call
 whose assistant record has no `usage` object writes no `turn`; a `compaction`
@@ -47,7 +47,7 @@ trace, the `input`, `cache_read` and `cache_write` sums of its main-thread `turn
 `cache_creation_input_tokens`): the parent's billed counts. The result's `modelUsage`
 totals, which `result.json` reports, can exceed them: a helper model's call (a title or
 a classifier) leaves no assistant record in the trace. So the `turn` sums plus the
-`usage_remainder` line equal the totals `result.json` reports, in its scope.
+`usage_remainder` line equal the totals `result.json` reports, in its scope, where the result reports them: a total the result omits is `null` in the remainder, though `result.json` shows it as 0.
 `output` does not reconcile to the billed output the same way: the streamed counts can
 sum to less than the result's `usage.output_tokens` (in one live run, 27 against 675),
 so read a Claude `output` as the streamed count, and the remainder's `output` as its gap.

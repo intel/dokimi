@@ -97,6 +97,15 @@ def token_counts(obj: dict) -> Optional[tuple[str, tuple[int, int, int, int]]]:
     return scope, (i, o, r, w)
 
 
+def _parses(value: object) -> bool:
+    """Whether :func:`token_counts` reads a count from the value, rather than counting it as 0."""
+    try:
+        int(value)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def reported_counts(obj: dict) -> frozenset[str]:
     """The fields (``input``, ``output``, ``cache_read``, ``cache_write``) that every summed block carries.
 
@@ -106,7 +115,7 @@ def reported_counts(obj: dict) -> frozenset[str]:
     if found is None:
         return frozenset()
     _, keys, blocks = found
-    return frozenset(f for f in _FIELDS if all(b.get(keys[f]) is not None for b in blocks))
+    return frozenset(f for f in _FIELDS if all(_parses(b.get(keys[f])) for b in blocks))
 
 
 def _main_model(model_usage: object) -> str:

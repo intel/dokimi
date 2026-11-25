@@ -272,6 +272,23 @@ def test_a_result_with_a_null_count_leaves_the_remainder_null():
     assert remainder["cache_read"] is None
 
 
+def test_a_result_with_a_count_that_is_not_a_number_leaves_the_remainder_null():
+    call = _call("a", {"input_tokens": 2, "cache_read_input_tokens": 30, "output_tokens": 4}, "2026-11-14T10:00:00Z")
+    result = _result({"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": "abc"})
+    remainder = [e for e in convert("claude-stream-json", _lines(call, result)).events
+                 if e["kind"] == "usage_remainder"][0]
+    assert remainder["cache_read"] is None
+
+
+def test_a_model_usage_without_token_counts_falls_back_to_the_result_usage():
+    call = _call("a", {"input_tokens": 2, "cache_read_input_tokens": 30, "output_tokens": 4}, "2026-11-14T10:00:00Z")
+    result = {**_result({"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 30}),
+              "modelUsage": {"x": {"costUSD": 1.0}}}
+    remainder = [e for e in convert("claude-stream-json", _lines(call, result)).events
+                 if e["kind"] == "usage_remainder"][0]
+    assert remainder["cache_read"] == 0 and remainder["input"] == 0
+
+
 def test_a_streamed_message_counts_its_largest_output_once():
     raw = _lines(_call("a", {"input_tokens": 4, "output_tokens": 3}, "2026-11-14T10:00:00Z"),
                  _call("a", {"output_tokens": 7}, "2026-11-14T10:00:00.200Z"),
