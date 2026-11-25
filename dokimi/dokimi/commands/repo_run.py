@@ -606,6 +606,9 @@ def _timeout_flag(p: argparse.ArgumentParser, phases: tuple[str, ...], positive_
 
     def phase_seconds(text: str) -> tuple[str, int]:
         phase, sep, value = text.rpartition("=")
+        if not sep and "solve" not in phases:
+            forms = " or ".join(f"{phase}=SEC" for phase in phases)
+            raise argparse.ArgumentTypeError(f"use {forms}; got {text!r}")
         phase = phase if sep else "solve"
         if phase not in phases:
             raise argparse.ArgumentTypeError(f"{phase!r} is not a phase of this command "
@@ -617,7 +620,7 @@ def _timeout_flag(p: argparse.ArgumentParser, phases: tuple[str, ...], positive_
         "build": "build=SEC the image build (default 10800, 3 hours)",
         "verify": "verify=SEC each grade or oracle run (default 3600)",
     }
-    cli_flags.add(p, "timeout", "--timeout", type=phase_seconds, action=_PhaseSeconds, default=2700,
+    cli_flags.add(p, "timeout", "--timeout", type=phase_seconds, action=_PhaseSeconds, default=2700 if "solve" in phases else None,
                   metavar="[PHASE=]SEC", help="Seconds per phase: " + "; ".join(texts[ph] for ph in phases))
     p.set_defaults(build_timeout=docker_cmd.BUILD_TIMEOUT_S, grade_timeout=3600)
 

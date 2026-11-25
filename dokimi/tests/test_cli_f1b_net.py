@@ -57,11 +57,12 @@ def test_a_timeout_phase_sets_the_dest_the_phase_always_set(argv, dest, value):
     assert getattr(build_parser().parse_args(argv), dest) == value
 
 
-def test_a_bare_seconds_value_is_refused_on_eval_check():
+def test_a_bare_seconds_value_is_refused_on_eval_check(capsys):
     """eval check has no solve phase: a bare SEC (the agent run) is refused, not read as some other phase."""
     with pytest.raises(SystemExit) as exc:
         build_parser().parse_args(["eval", "check", "src", "--timeout", "900"])
     assert exc.value.code == 2
+    assert "use build=SEC or verify=SEC" in capsys.readouterr().err
 
 
 def test_an_unknown_timeout_phase_is_refused(capsys):
@@ -79,7 +80,9 @@ def test_a_moved_timeout_value_after_a_flag_is_still_prefixed():
 
 def test_the_timeout_defaults_are_the_documented_seconds():
     args = build_parser().parse_args(REPO_RUN)
-    assert (args.timeout, args.grade_timeout) == (2700, 3600)
+    assert (args.timeout, args.build_timeout, args.grade_timeout) == (2700, 10800, 3600)
+    check = build_parser().parse_args(["eval", "check", "src"])
+    assert (check.timeout, check.build_timeout, check.grade_timeout) == (None, 10800, 3600)
 
 
 def test_a_moved_timeout_flag_with_no_value_does_not_index_past_the_end():
