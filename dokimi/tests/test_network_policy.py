@@ -116,7 +116,9 @@ def test_cli_overrides_win_over_the_task(tmp_path):
 
 
 @pytest.mark.parametrize("spec, why", [
-    ("verify", "expected one of none, allowlist, public"),  # a bare MODE is every phase now: "verify" is no mode
+    ("verify", r"--network .*expected .*MODE, e.g. verify=none"),
+    ("agent", r"--network .*expected .*MODE, e.g. verify=none"),
+    ("all", r"--network .*expected .*MODE, e.g. verify=none"),
     ("grade=none", "unknown phase grade"),
     ("verify=bridge", "expected one of none, allowlist, public"),
     ("verify=allowlist", "allowlist needs hosts"),

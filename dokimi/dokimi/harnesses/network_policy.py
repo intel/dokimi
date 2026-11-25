@@ -104,7 +104,7 @@ def parse_override(spec: str) -> dict[str, PhasePolicy]:
     phases_raw, sep, value = spec.partition("=")
     if not sep:  # a bare MODE[:hosts] is every phase (the --network registry spelling, #94 §2.4)
         phases_raw, value = "all", spec
-    if not value:
+    if not value or (not sep and value.strip().lower() in (*PHASES, *_PHASE_ALIASES)):
         raise ValueError(f"--network {spec!r}: expected [PHASE=]MODE, e.g. verify=none or "
                          "solve=allowlist:pypi.org,files.pythonhosted.org")
     mode, _, hosts = value.partition(":")
