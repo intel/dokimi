@@ -52,3 +52,36 @@ def test_clean_review_fails_if_a_supported_flag_is_reported_as_blocking():
     assert _grade(CLEAN, "```json\n[]\n```")["pass"] is True
     assert grade["pass"] is False
     assert grade["decoys_flagged"] == ["supported_threshold_flag"]
+    fence = "\x60" * 3
+    minor = {"file": "dokimi/docs/benchmarking-and-comparison.md", "line": 206,
+             "severity": "minor", "message": "The heading could be clearer."}
+    assert _grade(CLEAN, f"{fence}json\n{json.dumps([minor])}\n{fence}")["pass"] is True
+
+
+def _seeded(file, line, message):
+    finding = {"file": file, "line": line, "severity": "major", "message": message}
+    return _grade(SEEDED, "\x60\x60\x60json\n" + json.dumps([finding]) + "\n\x60\x60\x60")
+
+
+def test_key_rename_needs_the_rename_not_just_both_key_names():
+    grounding = "dokimi/dokimi/eval/grounding.py"
+    unrelated = _seeded(grounding, 40, "lift compares the with_docs answer to the baseline answer; document the sign")
+    assert "key_rename" not in unrelated["seeds_hit"]
+    renamed = _seeded(grounding, 40, "with_docs is renamed to baseline, so stored keys change")
+    assert renamed["seeds_hit"] == ["key_rename"]
+
+
+def test_seed_keywords_accept_common_wordings():
+    assert _seeded("dokimi/dokimi/eval/grounding.py", 40,
+                   "len(contexts) > min_contexts should be >=")["seeds_hit"] == ["logic_off_by_one"]
+    schema = _seeded("dokimi/dokimi/schemas/answers.v1.json", 85,
+                     "narrows answers.v1 in place; add answers.v2 or keep it optional (nullable is fine)")
+    assert schema["seeds_hit"] == ["schema_in_place"]
+    assert schema["decoys_flagged"] == []
+
+
+def test_a_nullable_score_complaint_that_says_narrow_is_the_decoy_not_the_schema_seed():
+    grade = _seeded("dokimi/dokimi/schemas/answers.v1.json", 89,
+                    "The grounding score types are too narrow; make score, baseline_score and lift nullable.")
+    assert grade["seeds_hit"] == []
+    assert grade["decoys_flagged"] == ["nullable_grounding_scores"]

@@ -40,7 +40,8 @@ Process metrics are reported and never gated. They come from `events.jsonl` and 
 - `artifacts_added`, `mypy_overrides_grew`
 - `read_docs`
 
-The review tasks use the built-in seeded-review grader. It reads the final fenced
+The review tasks report no process metrics (`read_docs`, `ran_pytest` and the rest above):
+the built-in seeded-review grader writes only the seed metrics. It reads the final fenced
 JSON array and measures recall, unmatched findings and decoy flags. The seeded
 task rejects prose that only mentions the defects. The clean task fails when the
 reviewer reports a blocker or major issue. Read credited findings before treating
@@ -67,7 +68,11 @@ The tasks pin historical code. `guidance:raw` retains the task base's
 the historical file. `guidance:rev:` replaces the matched files with the
 ones at the selected revision, keeping the task base fixed. To compare two
 versions of the guide, pass both revisions as separate `guidance:rev:` arms
-and choose one as the baseline. A guidance-only `patch:` arm can isolate
+and choose one as the baseline.
+The task bases predate several files `AGENTS.md` names (`.venv`, `make ci-local`,
+`scripts/mutate_changed.py`, `docs/documentation-index.md` and others), so a
+`guidance:rev:` arm also measures how an agent copes with commands that do not
+exist at the pinned base. A guidance-only `patch:` arm can isolate
 changes to an individual file.
 
 ## Adding a task

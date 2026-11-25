@@ -8,7 +8,7 @@
         36,
         37
       ],
-      "kw": "\\b(?:backward compatib\\w*|breaking schema change|version bump)\\b"
+      "kw": "\\b(?:backward compatib\\w*|breaking schema change|version bump|answers\\.v2|new (?:schema )?version|in place)\\b"
     },
     {
       "id": "mypy_override",
@@ -27,7 +27,7 @@
         117,
         118
       ],
-      "kw": "\\b(?:with_context|baseline)\\b.{0,100}\\b(?:with_docs|without_docs)\\b|\\b(?:with_docs|without_docs)\\b.{0,100}\\b(?:with_context|baseline)\\b"
+      "kw": "\\b(?:renam\\w*|in place of|stored keys?|persisted keys?)\\b.{0,100}\\b(?:with_docs|without_docs)\\b|\\b(?:with_docs|without_docs)\\b.{0,100}\\b(?:renam\\w*|in place of|stored keys?|persisted keys?)\\b"
     },
     {
       "id": "logic_off_by_one",
@@ -36,7 +36,7 @@
       "lines": [
         108
       ],
-      "kw": "\\boff[- ]by[- ]one\\b|\\bexactly\\b.{0,80}\\b(?:contexts?|snippets?|min_contexts)\\b"
+      "kw": "\\boff[- ]by[- ]one\\b|>=|\\b(?:inclusive|boundary)\\b|\\bexactly\\b.{0,80}\\b(?:contexts?|snippets?|min_contexts)\\b"
     },
     {
       "id": "docs_flag_drift",
