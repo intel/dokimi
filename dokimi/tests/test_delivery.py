@@ -259,9 +259,9 @@ def test_consumer_can_modify_its_starter(pack):
 
 
 @pytest.mark.skipif(not shutil.which("sh"), reason="requires a POSIX shell")
-def test_multiline_installer_output_is_kept_out_of_consumer_output(pack, monkeypatch):
+def test_multiline_installer_keeps_its_streams_separate_from_the_consumer(pack, monkeypatch):
     manifest = json.loads(pack.manifest.read_text())
-    manifest["install"] = "printf 'installing\\n'\n" + manifest["install"] + "\nprintf 'installed\\n'"
+    manifest["install"] = "cat >/dev/null\nprintf 'installing\\n'\n" + manifest["install"] + "\nprintf 'installed\\n'"
     pack.manifest.write_text(json.dumps(manifest))
 
     def container(image, script, mounts, data, *args, **kwargs):
@@ -275,6 +275,17 @@ def test_multiline_installer_output_is_kept_out_of_consumer_output(pack, monkeyp
     assert row["outcome"] == "PASS", row["evidence"]
     assert row["evidence"]["stdout"] == "cpu:34\ncpu:-8\n"
     assert row["evidence"]["stderr"] == "installing\ninstalled\n"
+
+
+@pytest.mark.skipif(not os.environ.get("DOKIMI_DELIVERY_IMAGE"), reason="requires a preloaded Docker runtime image")
+def test_installer_cannot_drain_the_hidden_input(pack):
+    manifest = json.loads(pack.manifest.read_text())
+    manifest["install"] = "cat >/dev/null\n" + manifest["install"]
+    pack.manifest.write_text(json.dumps(manifest))
+
+    rows = delivery.run(pack)["observations"]
+    assert [row["outcome"] for row in rows] == ["PASS", "PASS"], rows
+    assert all(row["evidence"]["stdout"] == "cpu:34\ncpu:-8\n" for row in rows)
 
 
 def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):

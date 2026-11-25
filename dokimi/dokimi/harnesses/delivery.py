@@ -189,7 +189,7 @@ def _grade(
             "chmod u+w ./consumer.sh || workspace_failed\n"
             "{\n"
             + manifest["install"]
-            + "\n} >&2 || exit 120\n"
+            + "\n} </dev/null >&2 || exit 120\n"
             + script,
             {"delivery": path, "initial": start},
             hidden,
