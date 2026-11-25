@@ -389,3 +389,10 @@ def test_failed_workspace_setup_is_inconclusive(pack, monkeypatch):
     assert row["outcome"] == "INCONCLUSIVE"
     assert "workspace unavailable" in row["reason"]
     assert row["evidence"]["verifier_exit"] is None
+
+
+def test_scan_rejects_empty_corpus(pack):
+    pack.mode = "scan"
+    pack.corpus.write_text('{"sources": []}')
+    with pytest.raises(delivery.InputError, match="at least one source"):
+        delivery.run(pack)

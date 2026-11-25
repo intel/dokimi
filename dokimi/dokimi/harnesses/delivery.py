@@ -280,6 +280,8 @@ def run(args: argparse.Namespace) -> dict:
         if args.model and args.provider in llm_cli.BACKENDS:
             identity["harness_version"] = llm_cli.cli_version(args.provider) or None
         sources = corpus["sources"]
+        if isinstance(sources, list) and not sources:
+            raise InputError("corpus needs at least one source")
         if not isinstance(sources, list) or not all(
             isinstance(src, dict) and src.get("url") and src.get("captured_at") for src in sources
         ):
