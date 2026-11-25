@@ -25,7 +25,7 @@ from dokimi.commands.catalog_scan import (
     ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
 )
 from dokimi.external.catalog_rates import RateTally, text_lines
-from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.llm import ANSWER_PROVIDERS, PROVIDER_ALIASES, is_litellm_route
 from dokimi.utils import InputError
 
 
@@ -746,7 +746,8 @@ def register(sub, positive_int, eval_sub) -> None:
                       help="Rewrite each question into first-person user voice (model sees only the question)")
     add_model_flag(
         ts_p, "--model", dest="model", provider_dest="provider",
-        providers=ANSWER_PROVIDERS, default_model=None, default_provider="openai",
+        providers=(*ANSWER_PROVIDERS, *PROVIDER_ALIASES), extra_provider=is_litellm_route,
+        default_model=None, default_provider="openai",
         help="Model for --rewrite (PROVIDER/MODEL or MODEL; default provider openai)",
     )
     cli_flags.add(ts_p, "fail_on", "--fail-on", choices=("warn",), default=None,

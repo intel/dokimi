@@ -154,6 +154,12 @@ def _litellm() -> Any:
     return litellm
 
 
+def is_litellm_route(provider: str) -> bool:
+    """Whether LiteLLM recognizes a provider prefix."""
+    litellm = _litellm()
+    return provider in litellm.provider_list or litellm.JSONProviderRegistry.exists(provider)
+
+
 def resolve_model(model: str, provider: str) -> str:
     """The litellm model string for *model* at *provider*.
 
@@ -167,11 +173,12 @@ def resolve_model(model: str, provider: str) -> str:
         return f"openai/{model}"
     if name == "openai":
         # A name litellm does not take for OpenAI's (glm-5.3, meta-llama/x, claude-*) gets openai/.
+        if "/" in model:
+            return model if is_litellm_route(model.split("/", 1)[0]) else f"openai/{model}"
         litellm = _litellm()
         known = litellm.open_ai_chat_completion_models | litellm.open_ai_text_completion_models
         ours = model in known or "ft:gpt-3.5-turbo" in model or "ft:gpt-4" in model  # as litellm
-        routed = (p := model.split("/", 1)[0]) in litellm.provider_list or litellm.JSONProviderRegistry.exists(p) if "/" in model else ours
-        return model if routed else f"openai/{model}"
+        return model if ours else f"openai/{model}"
     if name == "google-vertex":  # a Model Garden name (meta/llama-...) has a "/" but no route
         return model if model.startswith(("gemini/", "vertex_ai/")) else f"vertex_ai/{model}"
     if "/" in model and (name != "amazon-bedrock" or model.startswith("bedrock/")):

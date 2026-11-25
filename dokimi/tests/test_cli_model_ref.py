@@ -47,3 +47,16 @@ def test_malformed_qualified_references_fail_at_parse(argv, option, ref, message
         parse_args([*argv, option, ref])
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("ref", "model", "provider"), [
+    ("google/gemini-2.5-pro", "gemini-2.5-pro", "google"),
+    ("gemini/gemini-2.5-pro", "gemini-2.5-pro", "gemini"),
+    ("vertex_ai/gemini-2.5-pro", "gemini-2.5-pro", "vertex_ai"),
+    ("groq/llama-3.3-70b-versatile", "llama-3.3-70b-versatile", "groq"),
+    ("meta-llama/llama", "meta-llama/llama", "openai"),
+])
+def test_trigger_rewrites_recognize_legacy_providers_and_keep_bare_names(ref, model, provider):
+    args = parse_args(["eval", "triggers", "generate", "--catalog", "c", "--out", "o.json",
+                       "--rewrite", "--model", ref])
+    assert (args.model, args.provider) == (model, provider)

@@ -12,7 +12,7 @@ A value whose part before the first slash is a provider on the leaf sets the pro
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from dokimi.llm import ANSWER_PROVIDERS, PROVIDER_ALIASES
 
@@ -28,16 +28,18 @@ class ProviderModelAction(argparse.Action):
     """
 
     def __init__(self, option_strings, dest, *, provider_dest: str, providers: Iterable[str],
-                 known: Iterable[str] = (), named_dest: str | None = None, **kwargs):
+                 known: Iterable[str] = (), named_dest: str | None = None,
+                 extra_provider: Callable[[str], bool] | None = None, **kwargs):
         self.provider_dest = provider_dest
         self.providers = tuple(providers)
         self.known = frozenset(known)
         self.named_dest = named_dest
+        self.extra_provider = extra_provider
         super().__init__(option_strings, dest, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         provider, sep, model = str(values).partition("/")
-        if sep and provider in self.providers:
+        if sep and (provider in self.providers or (self.extra_provider and self.extra_provider(provider))):
             if not model.strip():
                 parser.error(f"{option_string} {provider}/ has no model: pass {option_string} {provider}/<MODEL>")
             setattr(namespace, self.provider_dest, provider)
@@ -58,14 +60,16 @@ class ProviderModelAction(argparse.Action):
 
 def add_model_flag(parser: argparse.ArgumentParser, option: str, *, dest: str, provider_dest: str,
                    providers: Iterable[str], default_model: object, default_provider: str | None,
-                   named_dest: str | None = None, help: str | None = None) -> argparse.Action:
+                   named_dest: str | None = None, extra_provider: Callable[[str], bool] | None = None,
+                   help: str | None = None) -> argparse.Action:
     """Add ``option PROVIDER/MODEL`` storing the model in ``dest`` and the provider in ``provider_dest``.
 
     ``default_provider`` is the provider a bare model (or no model) runs on, the default ``--provider`` used to be.
     """
     action = parser.add_argument(
         option, dest=dest, action=ProviderModelAction, provider_dest=provider_dest, providers=tuple(providers),
-        known=_KNOWN_PROVIDERS, named_dest=named_dest, default=default_model, metavar="PROVIDER/MODEL", help=help,
+        known=_KNOWN_PROVIDERS, named_dest=named_dest, extra_provider=extra_provider,
+        default=default_model, metavar="PROVIDER/MODEL", help=help,
     )
     parser.set_defaults(**{provider_dest: default_provider})
     return action
