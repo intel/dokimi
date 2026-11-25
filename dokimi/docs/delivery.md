@@ -54,7 +54,7 @@ python cli.py delivery release --manifest "$pack/zero-rc.json" --tasks "$pack/re
 
 ## Reports and CI
 
-`--out` stores a `delivery.v1` artifact. `--json` prints its payload under `data` in the standard `cli_output.v1` envelope. `delivery report` validates and rereads the saved artifact offline and preserves its exit status. Example summary fields for the good release and fixture scan are shown below (scan excerpt).
+`--out` stores a `delivery.v1` artifact. `--json` prints its payload under `data` in the standard `cli_output.v1` envelope. `delivery report` validates and rereads the saved artifact offline and preserves its exit status. When some recorded calls lack usable pricing, the JSON envelope totals the known spend and sets `cost.priced` to `false`. Example summary fields for the good release and fixture scan are shown below (scan excerpt).
 
 ```json
 {"verdict":"PASS","checks":{"double":"PASS","binary-double":"PASS"}}

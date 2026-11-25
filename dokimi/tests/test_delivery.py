@@ -369,6 +369,46 @@ def test_offline_reports_accept_schema_valid_partial_evidence(tmp_path, capsys, 
             assert all(fragment in output for fragment in text)
 
 
+@pytest.mark.parametrize(
+    ("amounts", "spent", "priced"),
+    [
+        (("unknown", 0.02), 0.02, False),
+        ((True, 0.02), 0.02, False),
+        ((-0.1, 0.02), 0.02, False),
+        ((10**400, 0.02), 0.02, False),
+        ((float("inf"), 0.02), 0.02, False),
+        ((1e308, 1e308), 1e308, False),
+        ((None, 0.02), 0.02, False),
+        ((0, 0.02), 0.02, True),
+    ],
+)
+def test_offline_reports_keep_known_spend_from_schema_valid_observations(
+    tmp_path, capsys, amounts, spent, priced
+):
+    from dokimi import artifacts
+    from dokimi.cli import parse_args
+
+    fixture = Path(__file__).parent / "fixtures" / "artifacts" / "delivery.v1.json"
+    data = json.loads(fixture.read_text(encoding="utf-8"))
+    for row, amount in zip(data["observations"], amounts, strict=True):
+        row.update(model_calls=1, cost_usd=amount)
+    path = tmp_path / "delivery.json"
+    # Valid JSON numeric syntax can still exceed the host's float range.
+    path.write_text(json.dumps(data).replace("Infinity", "1e999"), encoding="utf-8")
+    assert artifacts.load_artifact("delivery", path)["mode"] == "release"
+
+    args = parse_args(["delivery", "report", str(path)])
+    args.func(args)
+    assert "**PASS**" in capsys.readouterr().out
+
+    args = parse_args(["delivery", "report", str(path), "--json"])
+    args.func(args)
+    output = capsys.readouterr().out
+    assert "Infinity" not in output
+    cost = json.loads(output)["cost"]
+    assert (cost["calls"], cost["spent_usd"], cost["priced"]) == (2, spent, priced)
+
+
 def test_claim_without_grader_is_visible(pack, monkeypatch):
     pack.mode = "scan"
 

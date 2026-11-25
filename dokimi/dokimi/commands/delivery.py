@@ -3,6 +3,7 @@
 """CLI for release contracts and AX scans."""
 
 import argparse
+import math
 from pathlib import Path
 
 from dokimi import artifacts, cli_output
@@ -11,6 +12,27 @@ from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.harnesses.delivery import run
 from dokimi.report.delivery import render
 from dokimi.utils import InputError
+
+
+def _cost_summary(observations: list[dict]) -> dict:
+    calls = 0
+    priced = 0
+    spent = 0.0
+    for row in observations:
+        if not row.get("model_calls"):
+            continue
+        calls += 1
+        value = row.get("cost_usd")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            continue
+        try:
+            total = spent + value
+        except OverflowError:
+            continue
+        if math.isfinite(total):
+            spent = total
+            priced += 1
+    return {"calls": calls, "spent_usd": spent, "priced": priced == calls if calls else None}
 
 
 def command(args: argparse.Namespace) -> None:
@@ -27,13 +49,13 @@ def command(args: argparse.Namespace) -> None:
     summary = data["summary"]
     verdict = summary.get("verdict")
     if args.json:
-        calls = [row for row in data["observations"] if row.get("model_calls")]
-        costs = [row.get("cost_usd") for row in calls]
-        cost = {
-            "calls": len(calls),
-            "spent_usd": sum(c for c in costs if c is not None),
-            "priced": all(c is not None for c in costs) if calls else None,
-        }
+        cost = _cost_summary(data["observations"])
+        if args.mode == "report":
+            for row in data["observations"]:
+                # A valid JSON exponent can decode to infinity, which JSON output cannot represent.
+                value = row.get("cost_usd")
+                if isinstance(value, float) and not math.isfinite(value):
+                    row["cost_usd"] = None
         cli_output.emit(
             cli_output.envelope(
                 args.cli_kind,
