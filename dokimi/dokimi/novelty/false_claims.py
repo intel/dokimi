@@ -49,12 +49,19 @@ Return ONLY JSON: {{"verdict": "contradicts|supports|unrelated",
 
 _WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
 # Common compact duration and storage units; arbitrary alphanumeric words are identifiers.
-_DURATION_EXPONENT = {"ns": -9, "us": -6, "µs": -6, "μs": -6, "ms": -3, "s": 0}
-_UNITS = "|".join((*_DURATION_EXPONENT, "KiB", "MiB", "GiB", "TiB", "kB", "KB", "MB", "GB", "TB", "Hz", "kHz", "MHz", "GHz"))
+_DURATION_EXPONENT = {
+    "ns": -9, "nanosecond": -9, "nanoseconds": -9,
+    "us": -6, "µs": -6, "μs": -6, "microsecond": -6, "microseconds": -6,
+    "ms": -3, "millisecond": -3, "milliseconds": -3,
+    "s": 0, "second": 0, "seconds": 0,
+}
+_STORAGE_UNITS = r"(?:[KMGT]i?B|kB)(?:/s)?"
+_UNITS = "|".join((*_DURATION_EXPONENT, _STORAGE_UNITS, r"(?:[kMG])?Hz", "%"))
+_QUANTITY = r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 _VALUE = re.compile(
     r"(?<![\w.-])(?:"
     r"(?P<flag>--?[A-Za-z][\w-]*)"
-    rf"|(?P<quantity>[+-]?\d+(?:\.\d+)?)[ \t]*(?P<unit>{_UNITS}|%)"
+    rf"|(?P<quantity>{_QUANTITY})[ \t]*(?P<unit>{_UNITS})(?!/)"
     r"|(?P<number>[+-]?[vV]?\d+(?:\.\d+)*))(?!\w)"
 )
 _DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
@@ -141,7 +148,7 @@ def _value_key(match: re.Match[str]) -> str | tuple[Decimal, str]:
     if flag := match["flag"]:
         return flag
     if unit := match["unit"]:
-        quantity = Decimal(match["quantity"])
+        quantity = Decimal(match["quantity"].replace(",", ""))
         if unit in _DURATION_EXPONENT:
             sign, digits, exponent = quantity.as_tuple()
             assert isinstance(exponent, int)
@@ -158,9 +165,9 @@ def _value_shape(match: re.Match[str]) -> tuple[bool, str | None]:
 
 
 def _distinctive(text: str) -> set[str]:
-    """Case-sensitive flags and dotted or underscored identifiers."""
+    """Flags and identifiers that can anchor pairing, even when their case changes."""
     words = (token.rstrip(".") for token in _WORD.findall(_ABBREVIATION.sub(" ", text)))
-    return {w if w.startswith("-") else w.lower() for w in words
+    return {w.lower() for w in words
             if w.startswith("-") or "_" in w or _DOTTED_IDENTIFIER.fullmatch(w)}
 
 def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) -> list[Atom]:

@@ -130,9 +130,18 @@ def test_compact_unit_conflict_quotes_the_whole_value():
     assert lexical_conflict(statement, "The request timeout defaults to 60 ms.") == ("lexical:value", "60 ms")
     assert lexical_conflict("The request timeout defaults to 1000ms.", "The request timeout defaults to 1s.") is None
     assert lexical_conflict("Use product 30alpha.", "Use product 60alpha.") is None
+    assert lexical_conflict("Timeout defaults to 30 ms.", "Timeout defaults to 60 milliseconds.") == (
+        "lexical:value", "60 milliseconds")
+    assert lexical_conflict("Timeout defaults to 1,000ms.", "Timeout defaults to 2,000ms.") == (
+        "lexical:value", "2,000ms")
+    assert lexical_conflict("Throughput is 30MB/s.", "Throughput is 60MB/s.") == ("lexical:value", "60MB/s")
 
 
 def test_case_sensitive_cli_flags_remain_distinct():
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Pass -O to enable optimization."})
+    answer = "Use -o to optimize."
+    report = find_false_claims(answer, [atom], judge=lambda _: {"verdict": "contradicts", "quote": "-o"})
+    assert report.n_pairs == 1 and [claim.quote for claim in report.claims] == ["-o"]
     assert lexical_conflict("Pass -O to enable optimization.",
                             "Pass -o to enable optimization.") == ("lexical:value", "-o")
     assert lexical_conflict("Pass -o to enable optimization.",
