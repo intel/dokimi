@@ -404,7 +404,7 @@ def register(sub, positive_int) -> None:
         help="Compare paired arms artifacts that differ only by plugin set",
     )
     cli_flags.add(plugin_delta_p, "baseline", "--baseline", required=True, dest="baseline_json",
-                  help="arms.v1 artifact for the baseline/no-plugin cell")
+                  metavar="FILE", help="arms.v1 artifact for the baseline/no-plugin cell")
     plugin_delta_p.add_argument(
         "--plugin-json", required=True, dest="plugin_json",
         help="arms.v1 artifact for the plugin-enabled cell",
