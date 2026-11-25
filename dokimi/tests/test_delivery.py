@@ -146,7 +146,7 @@ def test_live_adapter_and_offline_report(pack, monkeypatch, capsys):
         assert "17" not in prompt and "cpu:34" not in prompt
         if len(payload["sources"]) == 2:
             raise RuntimeError("provider unavailable")
-        return json.dumps({"script": "shipcalc double", "claimed_success": True}), UsageRecord(
+        return '```json\n{"script":"shipcalc double","claimed_success":true}\n```', UsageRecord(
             cost_usd=0.01
         )
 
@@ -356,3 +356,22 @@ def test_priced_pairs_count_only_their_own_claims(pack, monkeypatch, capsys):
     assert envelope["cost"]["priced"] is True and envelope["cost"]["calls"] == 4
     assert envelope["data"]["summary"]["A"]["false_success"] == [2, 2]
     assert envelope["data"]["summary"]["B"]["false_success"] == [0, 0]
+
+
+def test_reply_errors_visible_in_offline_report(pack, monkeypatch):
+    from dokimi import llm
+    from dokimi.metrics.usage import UsageRecord
+
+    def answer(prompt, *args, **kwargs):
+        text = "no answer" if len(json.loads(prompt)["sources"]) == 1 else '{"script": 7}'
+        return text, UsageRecord(cost_usd=0.01)
+
+    monkeypatch.setattr(llm, "llm_call_with_usage", answer)
+    monkeypatch.setattr(delivery, "container", lambda *a, **kw: process.reply())
+    pack.mode, pack.model, pack.fixture = "scan", "test-model", False
+    data = delivery.run(pack)
+    assert data["identity"]["harness"] == "litellm-shell-v2"
+    assert all(row["outcome"] == "FAIL" for row in data["observations"])
+    report = render(data)
+    assert "model reply contains no usable JSON object" in report
+    assert "answer has no string script field" in report

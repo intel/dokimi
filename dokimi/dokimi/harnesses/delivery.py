@@ -18,6 +18,7 @@ from pathlib import Path
 from dokimi import docker_cmd, llm_cli, process
 from dokimi.container_policy import ContainerPolicy
 from dokimi.gate.delivery import compare_pairs, evaluate, score
+from dokimi.llm_json import extract_json_object
 from dokimi.utils import InputError, read_json_input_bytes
 
 
@@ -134,15 +135,16 @@ def attempt(
                 cost_usd=0 if usage.replayed else usage.cost_usd,
             )
             try:
-                answer = json.loads(reply)
+                answer = extract_json_object(reply)
             except ValueError:
+                row["agent_error"] = "model reply contains no usable JSON object"
                 answer = None
         else:
             answer = task["fixture"].get(
                 digest("\n".join(supplied).encode()), task["fixture"]["default"]
             )
         if not isinstance(answer, dict) or not isinstance(answer.get("script"), str):
-            row["agent_error"] = "agent returned no executable answer"
+            row.setdefault("agent_error", "answer has no string script field")
             script = "exit 64"
         else:
             script = answer["script"]
@@ -266,7 +268,7 @@ def run(args: argparse.Namespace) -> dict:
         corpus, corpus_id = document(args.corpus)
         identity.update(
             corpus=corpus_id,
-            harness="litellm-shell-v1" if args.model else "recorded-fixture",
+            harness="litellm-shell-v2" if args.model else "recorded-fixture",
             model=args.model,
             provider=args.provider if args.model else None,
         )

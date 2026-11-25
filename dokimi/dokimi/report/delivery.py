@@ -81,7 +81,7 @@ def render(data: dict) -> str:
         "|---|---|---:|---|---|---|",
     ]
     for i, row in enumerate(data["observations"]):
-        detail = row.get("reason") or row.get("finding_id") or ""
+        detail = row.get("reason") or row.get("agent_error") or row.get("finding_id") or ""
         lines.append(
             f"| {cell(row['task'])} | {row['arm']} | {row['repeat']} | {row['outcome']} | "
             f"{cell(row.get('owner', ''))} | `#/observations/{i}` {cell(detail)} |"
