@@ -110,6 +110,7 @@ def reported_counts(obj: dict) -> frozenset[str]:
     """The fields (``input``, ``output``, ``cache_read``, ``cache_write``) that every summed block carries.
 
     A total without one is unknown, not 0: a block that lacks the field would add a made-up 0 to the sum.
+    A ``modelUsage`` entry with no token count at all (a cost-only model) is not a summed block.
     """
     found = _usage_blocks(obj)
     if found is None:

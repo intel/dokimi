@@ -7,7 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 
 - **`events.jsonl` closes a Claude run's `turn` events against its result totals.** A new turn-less
   `usage_remainder` line holds the result's token totals minus the turns of the same scope, so the
-  turns plus the remainder equal the totals `result.json` reports. The gap is the tokens the turns
+  turns plus the remainder equal the totals `result.json` reports. A total the result omits, or does not
+  give as a number, is `null` in the remainder. The gap is the tokens the turns
   do not count: the calls that left no assistant record (a helper model's) and, for output, the streamed
   undercount. Additive: `repo_event.v2` is unchanged in version.
 
