@@ -8,7 +8,7 @@ block that are not negated, plus the judge checks' ``reference``. A judge check 
 its ``criterion`` instead, at full weight (it is a stand-in for an answer, used only where there is no
 reference; there is no lower weight for it). Each text is cut into runs of ``ngram`` words (8 by default;
 ``\\w+``, lower-cased). An item is flagged when at least ``min_fraction`` of its runs also occur in the skill's
-text (SKILL.md and every other UTF-8 file beside it). A second rule flags an item on any single verbatim run of
+text (SKILL.md and every other UTF-8 file beside it, except an entry named ``evals`` at the skill root). A second rule flags an item on any single verbatim run of
 ``verbatim`` words (12 by default) from its expected text, whatever the share: a copied passage can be a small
 share of a long answer. Both rules cut the allowlist first. Questions are not compared: a skill may restate a
 question. An allowlist of terms (API names, file paths, identifiers that legitimately appear in both) is cut
@@ -54,6 +54,7 @@ LITERAL = frozenset({"match", "fuzzy", "exact", "choice", "json"})
 PASS, BLOCKED, INCONCLUSIVE = "pass", "blocked", "inconclusive"
 _WORD = re.compile(r"\w+")
 _SKIP_DIRS = frozenset({".git", "__pycache__"})
+_OWN_EVALS_DIR = "evals"  # build_plugin leaves this root entry out of the agent's copy
 
 
 def read_skill(path: Path | str, skipped: Optional[list[str]] = None) -> dict[str, str]:
@@ -61,7 +62,11 @@ def read_skill(path: Path | str, skipped: Optional[list[str]] = None) -> dict[st
 
     ``path`` is the skill directory, or a file (SKILL.md) whose directory is the skill. Files that are not
     UTF-8 text and symbolic links are not read; each one is named in ``skipped`` (a list the caller passes)
-    as a warning, since a file that is not read is not checked. Raises OSError when there is no such directory,
+    as a warning, since a file that is not read is not checked. An entry named ``evals`` directly under the skill
+    root (a directory, or a file) is not part of the skill text and is not read, nor named in ``skipped``: the
+    agent's plugin copy leaves it out, and the directory holds the questions under test. An ``evals`` directory
+    deeper down stays.
+    Raises OSError when there is no such directory,
     and ValueError when it holds no text file at all (nothing could be checked).
     """
     root = Path(path)
@@ -73,6 +78,8 @@ def read_skill(path: Path | str, skipped: Optional[list[str]] = None) -> dict[st
     for p in sorted(root.rglob("*")):
         rel = p.relative_to(root)
         if any(part in _SKIP_DIRS for part in rel.parts) or not (p.is_symlink() or p.is_file()):
+            continue
+        if rel.parts[0] == _OWN_EVALS_DIR:
             continue
         text = _text_of(p, rel.as_posix(), skipped)
         if text is not None:

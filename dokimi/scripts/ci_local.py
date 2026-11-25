@@ -14,7 +14,7 @@ a step added to CI is run here without anyone editing this file.
 Differences from CI, all printed as notices:
 
 - `uses:` steps (checkout, setup-python, setup-micromamba, upload-artifact)
-  are skipped, and so are `pip install` steps and the global npm install of the
+  are skipped, and so are `pip install` steps and the npm install of the
   pinned Claude Code (the `claude` on PATH is used): the tools come from the venv
   `make dev` builds, which installs exactly what those steps install (`tools`
   subcommand below). Jobs that install the package itself (package-smoke,

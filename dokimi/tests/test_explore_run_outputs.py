@@ -19,7 +19,7 @@ def _run(tmp_path, *extra):
     tasks.mkdir(exist_ok=True)
     (tasks / "t.yaml").write_text(TASK, encoding="utf-8")
     args = build_parser().parse_args([
-        "explore", "run", "--all", "--arms", "oracle,empty", "--tasks-root", str(tasks),
+        "explore", "run", "--all", "--arm", "oracle,empty", "--tasks-root", str(tasks),
         "--repo-root", str(tmp_path), "--out-dir", str(tmp_path / "out"), *extra,
     ])
     args.func(args)

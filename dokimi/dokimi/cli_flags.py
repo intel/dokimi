@@ -8,8 +8,10 @@ This is the registry of issue #94 §2.4 (stage F1a). A leaf adds a registry flag
 The contract test in ``tests/test_cli_flags.py`` runs in ratchet mode: a
 spelling that is neither canonical here nor on ``tests/data/cli_flags_allowlist.txt``
 fails the build, and so does a banned synonym whose concept has a canonical spelling,
-unless that spelling is on the allowlist. The check looks at spellings only: an option's
-type and action are not compared with ``kind``.
+unless that spelling is on the allowlist. The same test also compares every use of a canonical
+spelling with its registry row: switch or value (``kind``), metavar (``value``), choices and
+type (``int``, ``float`` and ``usd`` rows). ``meaning_clashes`` in ``tests/test_cli_flags.py`` says what is compared; a
+flag's repeatability is not compared.
 
 A concept is one row of the §2.4 audit. Its ``canonical`` spellings are the ones new
 commands use. ``banned`` lists the synonyms the audit found for it. A banned spelling
@@ -30,6 +32,7 @@ __all__ = [
     "Concept",
     "Flag",
     "FlagMove",
+    "JoinedValues",
     "add",
     "registry_problems",
 ]
@@ -116,7 +119,7 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="context-framing",
         help="the context preamble a novelty measurement puts before the artifact",
-        canonical=(Flag("--context-framing", "reference|neutral", "text",
+        canonical=(Flag("--context-framing", "reference|neutral", "choice",
                         meaning="neutral says the text may be irrelevant (the placebo-abstention control)"),),
     ),
     Concept(
@@ -226,6 +229,14 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--run-id", "--run-ids", "--batch"),
     ),
     Concept(
+        name="retention",
+        help="which runs housekeeping removes and which it keeps",
+        canonical=(
+            Flag("--older-than", "AGE", "text", meaning="runs whose newest artifact is older than AGE (30d)"),
+            Flag("--keep-baselines", kind="flag", meaning="keep the runs a saved baseline holds"),
+        ),
+    ),
+    Concept(
         name="network",
         help="network policy, per phase",
         canonical=(Flag("--network", "[PHASE=]MODE[:hosts]", "text"),),
@@ -247,7 +258,8 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="timeout",
         help="time limits, per phase",
-        canonical=(Flag("--timeout", "[PHASE=]SEC", "text"),),
+        # F1b adds the phase prefix (#94 §2.4). Current repo leaves parse whole seconds.
+        canonical=(Flag("--timeout", "[PHASE=]SEC", "int"),),
         banned=("--grade-timeout", "--build-timeout"),
     ),
     Concept(
@@ -385,6 +397,14 @@ def registry_problems(concepts: Iterable[Concept] = CONCEPTS) -> list[str]:
     return problems
 
 
+class JoinedValues(argparse.Action):
+    """A repeatable flag whose values join with commas: ``--arm a --arm b,c`` is ``a,b,c``."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        prior = getattr(namespace, self.dest, None)
+        setattr(namespace, self.dest, values if prior is None else f"{prior},{values}")
+
+
 def add(parser: argparse.ArgumentParser, concept: str, *args: str, **kwargs: object) -> argparse.Action:
     """Add a flag of ``concept`` to ``parser``. Every option string must be a canonical spelling of it."""
     spellings = {flag.spelling for c in CONCEPTS if c.name == concept for flag in c.canonical}
@@ -458,5 +478,12 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--estimate-only", "--dry-run", leaves=(
         ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
     )),
+    # Arm concept (F1b): a subject arm list is repeatable --arm; the old comma list is the same value.
+    FlagMove("--arms", "--arm", leaves=(("arms", "run"), ("arms", "matrix-run"), ("explore", "run"))),
+    # Harness concept (F1b): the list of harnesses a tasks run uses, repeatable or comma-separated.
+    FlagMove("--harnesses", "--harness", leaves=(("tasks", "run"),)),
+    # Baseline concept (F1b): the artifact or snapshot a comparison is made against.
+    FlagMove("--baseline-json", "--baseline", leaves=(("arms", "plugin-delta"),)),
+    FlagMove("--base", "--baseline", leaves=(("docs", "compare"),)),
 )
 

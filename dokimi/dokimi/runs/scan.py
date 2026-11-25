@@ -39,14 +39,14 @@ _HEAD = re.compile(rb'\A\s*\{\s*"schema_version"\s*:\s*"([^"\\\x00-\x1f]{1,100})
 _ABSENT = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
 
 
-def lookup(path: Path | str) -> os.stat_result | None:
-    """``os.stat(path)`` (symlinks followed), or ``None`` when nothing is there.
+def lookup(path: Path | str, follow_symlinks: bool = True) -> os.stat_result | None:
+    """``os.stat(path, follow_symlinks=...)``, or ``None`` when nothing is there.
 
     Raises ``OSError`` for any other error, such as no permission to search a parent: on
     Python 3.14 ``Path.exists()`` returns ``False`` for that, and the reason is lost.
     """
     try:
-        return os.stat(path)
+        return os.stat(path, follow_symlinks=follow_symlinks)
     except OSError as exc:
         if exc.errno in _ABSENT or is_symlink_loop(exc):
             return None
@@ -86,6 +86,11 @@ def runs_root(environ: Mapping[str, str] | None = None) -> RunsRoot:
     return RunsRoot(Path(value), True) if value else RunsRoot(DEFAULT_ROOT, False)
 
 
+def identity(found: os.stat_result) -> tuple[int, int, int, int]:
+    """Device, inode, mtime and size: a file replaced at the same path (a new save) differs."""
+    return (found.st_dev, found.st_ino, found.st_mtime_ns, found.st_size)
+
+
 @dataclass(frozen=True)
 class Artifact:
     """One artifact under the root: its kind and what it says it is about."""
@@ -98,6 +103,8 @@ class Artifact:
     generated_at: str | None
     size_bytes: int
     mtime: float
+    #: What was read, by :func:`identity`; ``runs rm``/``gc`` remove the path only while it holds that.
+    identity: tuple[int, int, int, int] | None = field(default=None, compare=False)
 
     @property
     def kind(self) -> str:
@@ -217,7 +224,7 @@ def read_artifact(root: Path, path: Path, version: str, data: dict | None = None
                     subjects=read_field(data, fields.subject),
                     models=read_field(data, fields.model),
                     generated_at=times[0] if times else None,
-                    size_bytes=stat.st_size, mtime=stat.st_mtime)
+                    size_bytes=stat.st_size, mtime=stat.st_mtime, identity=identity(stat))
 
 
 def _skip_reason(name: str) -> str | None:
@@ -283,13 +290,15 @@ def _is_link(path: Path) -> bool:
         return False
 
 
-def newest_first(artifacts: list[Artifact]) -> list[Artifact]:
-    """By the time the artifact records (its file's mtime when it records none), then path."""
-    def when(artifact: Artifact) -> float:
-        stamp = artifact.recorded_at
-        return stamp.timestamp() if stamp else artifact.mtime
+def timestamp(artifact: Artifact) -> float:
+    """The time the artifact records, in POSIX seconds; its file's mtime when it records none."""
+    stamp = artifact.recorded_at
+    return stamp.timestamp() if stamp else artifact.mtime
 
-    return sorted(artifacts, key=lambda a: (-when(a), a.path.as_posix()))
+
+def newest_first(artifacts: list[Artifact]) -> list[Artifact]:
+    """By :func:`timestamp`, then path."""
+    return sorted(artifacts, key=lambda a: (-timestamp(a), a.path.as_posix()))
 
 
 def scan(root: Path) -> ScanResult:

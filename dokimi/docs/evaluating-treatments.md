@@ -108,7 +108,7 @@ once with no plugin and once with the plugin enabled, then compare the two
 
 ```bash
 python cli.py arms plugin-delta \
-  --baseline-json results/arms/oneTBB-none.json \
+  --baseline results/arms/oneTBB-none.json \
   --plugin-json results/arms/oneTBB-caveman.json \
   --out results/arms/oneTBB-caveman-delta.json
 ```
@@ -123,15 +123,15 @@ carry the same stamped judge model, provider and `judge_context`.
 > prompt. It is **not** a `persona` — in this repo a persona is a synthetic
 > *user* who asks questions (`dokimi/personas`).
 
-> **One arm, no docs:** `--arms baseline` alone is a knowledge run, the reference for a comparison;
+> **One arm, no docs:** `--arm baseline` alone is a knowledge run, the reference for a comparison;
 > see [knowledge-runs.md](knowledge-runs.md).
 >
 > **Which commands run treatments:** `arms run`, `arms matrix-run`, and the
 > `subjects` commands — they are the only callers of `create_treatments`. The
 > legacy answer path (`benchmark run`, `answers generate`) predates arms: it has
-> only the two fixed `with_docs`/`without_docs` conditions, no `--arms` flag, and
+> only the two fixed `with_docs`/`without_docs` conditions, no `--arm` flag, and
 > no way to send a system prompt at all, so a `profile:` arm cannot be expressed
-> there. `explore --arms` is an unrelated flag (`oracle`/`empty`/`command:`), not
+> there. `explore --arm` is an unrelated flag (`oracle`/`empty`/`command:`), not
 > a treatment list.
 
 ## Quick start
@@ -140,7 +140,7 @@ carry the same stamped judge model, provider and `judge_context`.
 python cli.py arms run \
   --product oneTBB \
   --questions <content-checkout>/questions/onetbb_golden.json \
-  --arms "baseline,docs,profile:data/agent_profiles/concise_expert.md,skill:<content-checkout>/skills/onetbb-quickstart" \
+  --arm "baseline,docs,profile:data/agent_profiles/concise_expert.md,skill:<content-checkout>/skills/onetbb-quickstart" \
   --judge \
   --out results/arms/oneTBB.json \
   --out-md results/arms/oneTBB.md
@@ -195,7 +195,7 @@ JSON
 python cli.py arms matrix-run \
   --product oneTBB \
   --questions <content-checkout>/questions/onetbb_golden.json \
-  --arms "baseline,docs,skill:<content-checkout>/skills/onetbb-quickstart" \
+  --arm "baseline,docs,skill:<content-checkout>/skills/onetbb-quickstart" \
   --matrix-cells results/arms/matrix.json \
   --judge \
   --out-dir results/arms/oneTBB-matrix
@@ -321,7 +321,7 @@ artifact per cell, a `matrix_rollup.v1` JSON/Markdown report, and paired
   path may contain `+` (`skill:/skills/c++-guide`); a spec that *starts* with
   `mcp:` is never split, because an MCP URL may carry `+` in its query.
 
-**Specs are not names.** `--arms` takes specs; the artifact's `arms` list, the
+**Specs are not names.** `--arm` takes specs; the artifact's `arms` list, the
 report and `--baseline-arm` use arm *names*: `docs:<source>` is named `docs`,
 `mcp:<ref>` is `mcp_doc`, `agent[:<source>]` is `agent`, and `profile:`,
 `skill:` and `skill-agent:` arms are named after the content they load —
@@ -335,7 +335,7 @@ Example comparing injection vs agentic use of the same MCP server:
 
 ```bash
 python cli.py arms run --product oneTBB --questions <content-checkout>/questions/onetbb_golden.json \
-  --arms "baseline,mcp:http=https://mcp.context7.com/mcp,agent:mcp:http=https://mcp.context7.com/mcp" \
+  --arm "baseline,mcp:http=https://mcp.context7.com/mcp,agent:mcp:http=https://mcp.context7.com/mcp" \
   --judge --max-iterations 6
 ```
 
@@ -347,13 +347,13 @@ SKILL=<content-checkout>/skills/onetbb-quickstart
 
 # 4-way comparison: baseline, docs-only, skill-only, and docs+skill combined
 python cli.py arms run --product oneTBB --questions "$QUESTIONS" \
-  --arms "baseline,docs,skill:$SKILL,docs+skill:$SKILL" \
+  --arm "baseline,docs,skill:$SKILL,docs+skill:$SKILL" \
   --context7-id "uxlfoundation/onetbb" \
   --judge
 
 # Or just baseline vs combined (to test synergy hypothesis)
 python cli.py arms run --product oneTBB --questions "$QUESTIONS" \
-  --arms "baseline,docs+skill:$SKILL" \
+  --arm "baseline,docs+skill:$SKILL" \
   --context7-id "uxlfoundation/onetbb" \
   --judge
 ```
@@ -369,20 +369,20 @@ as: `(docs+skill)_delta - docs_delta - skill_delta`. Positive = synergy, negativ
 ```bash
 # Docs + profile (expert persona with comprehensive reference)
 python cli.py arms run --product oneTBB --questions "$QUESTIONS" \
-  --arms "baseline,docs+profile:data/agent_profiles/concise_expert.md" \
+  --arm "baseline,docs+profile:data/agent_profiles/concise_expert.md" \
   --context7-id "uxlfoundation/onetbb" \
   --judge
 
 # Triple combination (docs + profile + skill)
 python cli.py arms run --product oneTBB --questions "$QUESTIONS" \
-  --arms "baseline,docs+profile:data/agent_profiles/concise_expert.md+skill:$SKILL" \
+  --arm "baseline,docs+profile:data/agent_profiles/concise_expert.md+skill:$SKILL" \
   --context7-id "uxlfoundation/onetbb" \
   --judge
 
 # Test if multiple skills complement each other
 OTHER_SKILL=<content-checkout>/skills/onetbb-flow-graph
 python cli.py arms run --product oneTBB --questions "$QUESTIONS" \
-  --arms "baseline,skill:$SKILL,skill:$OTHER_SKILL,skill:$SKILL+skill:$OTHER_SKILL" \
+  --arm "baseline,skill:$SKILL,skill:$OTHER_SKILL,skill:$SKILL+skill:$OTHER_SKILL" \
   --judge
 ```
 
@@ -572,7 +572,7 @@ misroute, false-trigger rate):
 
 ```bash
 python cli.py arms run --product <p> --questions trigger_questions.json \
-  --arms skill-catalog:<skills-checkout>/skills --model <model>
+  --arm skill-catalog:<skills-checkout>/skills --model <model>
 ```
 
 `expected_skill` labels are checked against the offered skills before any call. A cell
@@ -865,7 +865,8 @@ python cli.py eval leak skills/candidate questions.json --split split.json \
   reference (there is no lower weight for a criterion), and only where there is no reference.
   Negated checks are left out.
   The skill's text is every UTF-8 file beside SKILL.md, each cut separately so a run does not
-  span two files. Questions are not compared: restating one is fine.
+  span two files. An entry named `evals` directly under the skill (the skill's own `evals/` directory) is not indexed,
+  as the agent's plugin copy leaves it out too, so questions imported from its `evals/evals.json` are not flagged against themselves. Questions are not compared: restating one is fine.
 - **threshold**: 0.10 was set on eight saved unitrace GEPA candidates and their eval items. The
   benign candidates peaked at 0.073 of their runs in common with an item (the
   boilerplate: headers, flag names), and the candidates that copied an answer sentence reached

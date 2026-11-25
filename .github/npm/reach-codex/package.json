@@ -1,0 +1,7 @@
+{
+  "name": "dokimi-ci-reach-codex",
+  "private": true,
+  "dependencies": {
+    "@openai/codex": "0.166.0"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "dokimi-ci-reach-claude-code",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.316"
+  }
+}

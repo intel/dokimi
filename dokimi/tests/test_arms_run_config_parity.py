@@ -158,14 +158,14 @@ questions = ["{questions.as_posix()}"]
 
 def _arms_run(io, *flags: str) -> list[str]:
     return ["arms", "run", "--product", "demo", "--questions", str(io["questions"]),
-            "--arms", f"baseline,docs:local:{io['docs']}",
+            "--arm", f"baseline,docs:local:{io['docs']}",
             "--out", str(io["out"] / "arms.json"), "--out-md", str(io["out"] / "arms.md"),
             *flags]
 
 
 def _matrix_run(io, *flags: str) -> list[str]:
     return ["arms", "matrix-run", "--product", "demo", "--questions", str(io["questions"]),
-            "--arms", f"baseline,docs:local:{io['docs']}", "--matrix-cells", str(io["cells"]),
+            "--arm", f"baseline,docs:local:{io['docs']}", "--matrix-cells", str(io["cells"]),
             "--out-dir", str(io["out"]), *flags]
 
 
@@ -273,12 +273,12 @@ def test_arms_run_hands_a_panel_its_roles_and_the_judge_settings(runner_calls, i
     # --judge-model left out: parse_args puts the --judge-provider default judge in its place, not the
     # answerer's family (a claude answerer, so the openai judge is the generator).
     _run(_arms_run(io, "--judge", "--judge-panel", "technical_expert,doc_reviewer",
-                   "--model", "claude-sonnet-5-5", "--judge-provider", "openai", "--judge-temperature", "0.5"))
+                   "--model", "claude-sonnet-5-5", "--judge-provider", "openai", "--judge-temperature", "1"))
 
     assert runner_calls.runs == [{
         **_defaults(io), "judge": None, "model": "claude-sonnet-5-5",
-        "panel": [("technical_expert", DEFAULT_GENERATOR_MODEL, "openai", 0.5, None),
-                  ("doc_reviewer", DEFAULT_GENERATOR_MODEL, "openai", 0.5, None)],
+        "panel": [("technical_expert", DEFAULT_GENERATOR_MODEL, "openai", 1.0, None),
+                  ("doc_reviewer", DEFAULT_GENERATOR_MODEL, "openai", 1.0, None)],
     }]
 
 
@@ -316,11 +316,11 @@ def test_matrix_run_with_nothing_set_hands_each_cell_the_defaults(runner_calls, 
 
 def test_matrix_run_hands_a_panel_its_roles_in_each_cell(runner_calls, io):
     _run(_matrix_run(io, "--judge", "--judge-panel", "technical_expert",
-                     "--model", "claude-sonnet-5-5", "--judge-provider", "openai", "--judge-temperature", "0.5"))
+                     "--model", "claude-sonnet-5-5", "--judge-provider", "openai", "--judge-temperature", "1"))
 
     assert runner_calls.runs == _cells({
         **_defaults(io), "judge": None,
-        "panel": [("technical_expert", DEFAULT_GENERATOR_MODEL, "openai", 0.5, None)],
+        "panel": [("technical_expert", DEFAULT_GENERATOR_MODEL, "openai", 1.0, None)],
     })
 
 

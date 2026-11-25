@@ -264,3 +264,25 @@ def test_unpinned_panel_role_redraws_the_same_prompt(monkeypatch):
     vote = JudgePanel(judges=[cfg])._call_judge(cfg, "q", "a", "L", "")
     assert (vote.error, vote.aggregate, len(sent)) == (None, 80.0, 2)
     assert sent[0] == sent[1]
+
+
+@pytest.mark.parametrize("prefix", ["bedrock/", "bedrock/converse/"])
+def test_panel_refuses_sampling_for_a_bedrock_arn(monkeypatch, prefix):
+    import litellm
+
+    from dokimi.eval.panel import JudgeConfig, JudgePanel
+    from dokimi.llm_cli import SamplingError
+
+    arn = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-haiku-5-5-v1:0"
+    monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **_: ["temperature"])
+
+    def optional_params(*, model, custom_llm_provider, temperature):
+        if (model, custom_llm_provider, temperature) == (arn, "bedrock", 0.0):
+            raise litellm.UnsupportedParamsError(message="Temperature refused", model=model,
+                                                 llm_provider=custom_llm_provider)
+        return {}
+
+    monkeypatch.setattr(litellm, "get_optional_params", optional_params)
+    with pytest.raises(SamplingError, match=r"refuses temperature=0\.0"):
+        JudgePanel(judges=[JudgeConfig(role="technical_expert", model=prefix + arn,
+                                       provider="amazon-bedrock", temperature=0.0)])
