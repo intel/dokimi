@@ -1,0 +1,64 @@
+{
+  "seeds": [
+    {
+      "id": "schema_in_place",
+      "class": "compatibility",
+      "file": "dokimi/dokimi/schemas/answers.v1.json",
+      "lines": [
+        36,
+        37
+      ],
+      "kw": "\\b(?:backward compatib\\w*|breaking schema change|version bump)\\b"
+    },
+    {
+      "id": "mypy_override",
+      "class": "typing",
+      "file": "dokimi/pyproject.toml",
+      "lines": [
+        117
+      ],
+      "kw": "\\b(?:ignore_errors|mypy (?:overrides?|exemptions?))\\b"
+    },
+    {
+      "id": "key_rename",
+      "class": "compatibility",
+      "file": "dokimi/dokimi/eval/grounding.py",
+      "lines": [
+        117,
+        118
+      ],
+      "kw": "\\b(?:with_context|baseline)\\b.{0,100}\\b(?:with_docs|without_docs)\\b|\\b(?:with_docs|without_docs)\\b.{0,100}\\b(?:with_context|baseline)\\b"
+    },
+    {
+      "id": "logic_off_by_one",
+      "class": "correctness",
+      "file": "dokimi/dokimi/eval/grounding.py",
+      "lines": [
+        108
+      ],
+      "kw": "\\boff[- ]by[- ]one\\b|\\bexactly\\b.{0,80}\\b(?:contexts?|snippets?|min_contexts)\\b"
+    },
+    {
+      "id": "docs_flag_drift",
+      "class": "docs",
+      "file": "dokimi/docs/benchmarking-and-comparison.md",
+      "lines": [
+        201,
+        208
+      ],
+      "kw": "--min-docs\\b"
+    }
+  ],
+  "decoys": [
+    {
+      "id": "nullable_grounding_scores",
+      "file": "dokimi/dokimi/schemas/answers.v1.json",
+      "lines": [
+        89,
+        90,
+        91
+      ],
+      "kw": "\\b(?:null|nullable|nullability)\\b"
+    }
+  ]
+}

@@ -109,9 +109,10 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 | Step | Command | Cost |
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
+| 1a. How much guidance starts in the prompt? | `dokimi repo budget <repo> --harness <name>` | free |
 | 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--max-usd-per-cell`; to see whether a Bash read of a nested file loads its directory's guidance (agents that read with `cat`), `--scenarios bash` (or `--scenarios bash --only bash=<dir>`) | capped by `--max-usd-per-cell` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi skill novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
-| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --max-usd-per-cell <usd> --max-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--max-usd-per-cell` defaults to $2.00 per agent run with no batch cap unless you pass `--max-usd` |
+| 4. Does the guidance change task outcomes? | Run `dokimi eval check <repo>` with the task manifest, then run `dokimi repo run <repo> --manifest <path> --model <id> --batch <name> --arm 'guidance:none,guidance:rev:<sha>' --agent-network host --max-usd-per-cell <usd> --max-usd <usd>` with the guide revision substituted. Use `guidance:raw` to measure the guidance already present at each task base. | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--max-usd-per-cell` defaults to $2.00 per agent run with no batch cap unless you pass `--max-usd` |
 
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
@@ -132,6 +133,9 @@ A glob that matches no file is only a warning. To scan a file the globs leave ou
 add `also_scan: ["CONTRIBUTING.md"]` under `guidance`: `also_scan` names files the
 repository has and the gate must see, so a missing one makes the scan `incomplete`
 and `repo scan --fail-on fail` exits 1.
+If the repository uses `REVIEW.md`, include it in `guidance.globs` when the
+comparison should add or remove it, and point the reviewer to the file.
+Use `also_scan` to check the file without adding or removing it.
 
 The `id` must be lowercase: start with a letter or digit, then use only letters, digits, `.`, `_` and `-`.
 `reach` always adds the harness's own guidance file names (for example `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md`).

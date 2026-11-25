@@ -6,24 +6,30 @@ answers and task outcomes. The content it measures (skills, executable tasks,
 golden question sets) lives in content repositories and is passed in by path:
 `skill:<path>`, `--tasks-root`, `--questions`.
 
-All code, tests and CI live in the `dokimi/` project directory; run commands
-from there. The importable package is `dokimi` (`dokimi/dokimi/`); the CLI is
-`python cli.py --help`.
+Run package commands from `dokimi/`. The importable package is
+`dokimi/dokimi/` relative to the root. Repository self-evals live in
+[`.agent-eval/`](.agent-eval/README.md) and workflows in `.github/workflows/`.
+For PR review, open [REVIEW.md](REVIEW.md) and scan the full diff before
+investigating individual findings.
 
 ## Done means `make ci-local` is green
 
 ```bash
-make dev        # once, repo root: .venv with CI's Python, the lock, every CI tool
-make ci-local   # every PR CI step, read from .github/workflows/; pass/fail/skip table
+make dev        # once, from the repo root
+cd dokimi
+../.venv/bin/python cli.py --help
+make ci-local   # runs local equivalents of PR checks and reports skips
 make ci-local CI_LOCAL_ARGS='--offline --jobs static,typecheck'   # fast inner loop
 ```
 
-A change is ready for a PR when no row of the `make ci-local` table is `FAIL`.
-`ci-local` diffs against the remote whose URL is `intel/dokimi`, whatever it is
-called (`CI_LOCAL_ARGS='--remote <name>'` overrides). The full `pytest` run takes
-2–3 minutes, longer than a default 2-minute command timeout: give it a 10-minute
-timeout, and run the test files you touched first. Beyond lint and tests, CI
-also holds a PR to:
+Run touched tests first with `../.venv/bin/python -m pytest` and allow a
+10-minute timeout for the full suite. Before opening a PR, resolve every
+`FAIL` and confirm the relevant checks ran. Report any relevant skips.
+If you pipe a check through `head`, `tail` or `tee`, enable `set -o pipefail`
+so the check's failure reaches the shell. See [CONTRIBUTING.md](dokimi/CONTRIBUTING.md)
+for local coverage and skips. `ci-local` finds the remote pointing to
+`intel/dokimi` by URL (`CI_LOCAL_ARGS='--remote <name>'` overrides it).
+CI also holds a PR to:
 
 - 80% coverage of changed lines (when 20+ are measurable): add tests with the change.
 - mypy on the whole package, no module exempt: fix a type error rather than
@@ -31,45 +37,23 @@ also holds a PR to:
 - Imports follow the layers in `dokimi/tests/test_import_architecture.py`: no
   upward import, no new cycle, LLM SDKs only in `dokimi.llm`, spawns only in
   `dokimi.process`. Its baselines only shrink.
-- No growth: a file over 800 lines (tests 1000) or a function over complexity 10
-  fails unless `scripts/growth_baseline.json` holds it, and then it may only
-  shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
-- No new clones: a block of 40+ AST nodes copied elsewhere in `dokimi/`, `scripts/`
-  or `cli.py` (locals renamed or not) fails `scripts/check_duplicates.py` unless
-  `scripts/duplicates_baseline.json` holds it. Extract the shared code instead.
-- Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
-  checks types, echoes its input, only checks a mock was called, asserts nothing or
-  repeats another (`python scripts/audit_test_quality.py` lists them).
-- No silent test narrowing (`scripts/check_test_narrowing.py`): removing a test,
-  dropping a check, adding skip/xfail, dropping `match=` or widening
-  `pytest.raises`, loosening a tolerance or cutting `parametrize` cases fails
-  unless a commit message or a comment in the test says `Test-narrowed: <reason>`.
-  So does a skip at the top of a module, and a `collect_ignore*` or
-  `pytest_ignore_collect` a `conftest.py` gains (waived by a commit line).
-- Docs that name a command, flag, path or module must match the tree
-  (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
-- Tests run offline: a connection off loopback fails the test, so mock LLM and
-  network calls.
-- Tests wait on a condition, not on time: a test that waits for a thread, process
-  or timer uses `tests/waiting.py`, never `time.sleep` or `threading.Timer`.
-  `scripts/check_test_timing.py` fails a new one unless its baseline holds it (it
-  only shrinks) or the line says `# timing-ok: <reason>`. A complexity test counts
-  work or uses `tests/growth_timing.py`, never an elapsed-time assertion.
-- Comments of at most two lines (`scripts/check_comment_blocks.py`): say the
-  constraint or the reason, and end with an issue or PR URL when a reader needs
-  the backstory. A block of three or more `#` lines fails once the PR adds or
-  edits a line in it, so shorten an old block when you touch it.
-- No silent `except` (ruff BLE001, S110, S112): catch the exception you expect, or
-  log it with its traceback, or re-raise. A site that must catch everything says
-  what happens to the failure in `# noqa: BLE001 - <reason>`
-  (`tests/test_noqa_reasons.py` fails a bare code).
-- User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
-  test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
-  weaken or drop it only together with the doc and the contract. The same
-  session checks the journey trace (`tests/outcomes/journeys.yaml` against
-  `docs/user-journeys/journeys.md`) and writes `journeys-result.json`; removing
-  a marked `cjm-*` test fails it, even when `outcomes-result.json` says pass,
-  if the criterion it evidences has `enforce: true`.
+- No growth without a rationale: split files over 800 lines (tests 1000) or
+  functions over complexity 10. Lower recorded baselines after shrinking with
+  `python scripts/check_growth.py --update`. See the contributing guide for
+  the rationale required to add or raise a baseline entry.
+- Extract shared code instead of copying it. `scripts/check_duplicates.py`
+  detects clones of 40+ AST nodes even when locals are renamed.
+- Tests assert observable behavior. Mock network and LLM calls. Wait on
+  conditions with `tests/waiting.py` and measure complexity by counting work
+  or using `tests/growth_timing.py`. See `scripts/check_test_timing.py` for
+  `# timing-ok: <reason>` and `scripts/check_test_narrowing.py` for
+  `Test-narrowed: <reason>` when reducing existing coverage.
+- Keep touched comment blocks to two lines and link to any backstory.
+  Catch expected exceptions, log unexpected ones with their traceback, or
+  re-raise. Explain a necessary broad catch in `# noqa: BLE001 - <reason>`.
+- Keep outcome tests and their documented promises in sync. `pytest --outcomes`
+  checks `tests/outcomes/`, including enforced journey criteria that require
+  passing `cjm-*` evidence. See [CONTRIBUTING.md](dokimi/CONTRIBUTING.md).
 
 ## Before changing a subsystem, read its doc
 
@@ -83,10 +67,13 @@ also holds a PR to:
 - Executable tasks (Docker + oracle solution + pytest verifier) or harnesses:
   `dokimi/docs/contributing-terminal-bench-task.md`. Tasks live in a
   content repository; the framework reads a checkout via `--tasks-root`.
-- Anything else: the index, `dokimi/docs/documentation-index.md`. A new page
-  at any depth under `dokimi/docs/` goes in that index
-  (`dokimi/tests/test_docs_links.py` checks it) and in the `nav:` of
-  `dokimi/mkdocs.yml`, the published site.
+- Docs or CLI: update code references when a command, flag, path or module
+  changes. Add every new doc page to the index used by
+  `dokimi/tests/test_docs_links.py` (`dokimi/docs/documentation-index.md`, or
+  `dokimi/docs/README.md` on older branches) and to `nav:` in `dokimi/mkdocs.yml`.
+  From `dokimi/`, run
+  `../.venv/bin/python -m pytest tests/test_docs_links.py tests/test_docs_code_refs.py`
+  to check the page, links and CLI references.
 
 Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
@@ -102,8 +89,11 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   `dokimi/dokimi/schemas/` (`<kind>.vN.json`). Edit a version in place only
   to widen it. A change that would reject an artifact already written under it
   is a new version: add `<kind>.v<N+1>.json`, point
-  `artifacts.SCHEMA_VERSIONS` at it, list the old one in `SUPERSEDED_VERSIONS`.
-  CI's `schema_compat` step (ci.yml, `static`) checks this against the PR base.
+  `artifacts.SCHEMA_VERSIONS` at it, and list the old version in `SUPERSEDED_VERSIONS`.
+  Keep the old fixture and add one for the new version under
+  `dokimi/tests/fixtures/artifacts/`. Check both with `tests/test_schema_compat.py`
+  and verify a normal writer emits the new version. CI's `schema_compat` step
+  (`ci.yml`, `static`) checks compatibility against the PR base.
 - Answer and eval JSON name the two answer conditions `with_docs` and
   `without_docs`, and every stored run uses them: writers, readers, schemas
   and data files keep those keys. Text people read (report headings, console
@@ -146,7 +136,7 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   `Fragment for package changes` step in `ci.yml`'s `static` job enforces it. Versioning and releases:
   `dokimi/docs/releasing.md`.
 - Every change to `main` is a PR opened from a fork, based on `main`. Add the
-  fork as its own remote so `origin` keeps pointing at `intel/dokimi`:
+  fork as its own remote:
   `gh repo fork --remote --remote-name fork`, then `git push -u fork <branch>`
   and `gh pr create -R intel/dokimi --base main --head <you>:<branch>`. Push
   branches only to the fork, even with write access to `intel/dokimi` (bot
@@ -156,19 +146,15 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
 ## Before opening a PR
 
-Review it yourself the way `REVIEW.md` asks a reviewer to, so the first round
-finds little:
+Review your diff against [REVIEW.md](REVIEW.md). For the commands below, set
+`base_ref` to the upstream `main` ref named by `make ci-local`, for example
+`intel/main` or `origin/main`.
 
-- For each test of changed behaviour, break the code it covers (flip a
-  condition, drop a branch), confirm the test fails, then revert the break.
-  CI's `Mutation of changed lines` job (`dokimi/scripts/mutate_changed.py`)
-  does this for the package lines a PR changes, up to 40 mutants, and lists
-  each surviving mutant in its step summary. A survivor whose module has a
-  candidate test file that did not run is `inconclusive`, not a gap. It warns,
-  it does not fail: kill
-  a survivor with an assertion, or say in the description why it is
-  equivalent. Run it locally with
-  `python scripts/mutate_changed.py --base origin/main` from `dokimi/`.
+- For each test of changed behavior, break the behavior, confirm the test fails,
+  then revert the break. From `dokimi/`, run
+  `../.venv/bin/python scripts/mutate_changed.py --base "$base_ref"` to reproduce
+  CI's advisory mutation check. Cover meaningful survivors and explain
+  equivalent ones in the PR.
 - For a bug fix, find every other site with the same bug class. Fix the ones
   within this PR's scope; list the rest in the description or an issue.
 - Where it applies, run the changed command on a bad input: missing file,
@@ -177,9 +163,10 @@ finds little:
 - Trace new error paths and tests to the contract: a new `raise`, `sys.exit`
   or refusal names, in its message, docstring or the PR, the doc, contract or
   issue that asks for it; a test of new behaviour cites the doc line it checks.
-  `python scripts/list_new_error_paths.py --base origin/main` (from `dokimi/`) lists the sites
-  of a `raise`, a `sys.exit` or `SystemExit` call, or a literal `exit_code=N`;
-  refusals through `parser.error` or `return N` are not listed.
+  From `dokimi/`, run `../.venv/bin/python scripts/list_new_error_paths.py --base "$base_ref"`.
+  It lists a `raise`, a `sys.exit` or `SystemExit` call, or a literal `exit_code=N`
+  in the committed PR diff. Check uncommitted edits, `parser.error` and numeric
+  returns directly.
 - An unclear requirement goes in the PR description's "Open questions", not
   into code that guesses: no error path or test the spec cannot be quoted for.
 - Check that the PR title, description, docstrings and changelog fragment say
