@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from dokimi.novelty.atoms import Atom
 from dokimi.novelty.false_claims import find_false_claims, lexical_conflict, pair_atoms, split_sentences
 
@@ -174,3 +176,33 @@ def test_dotted_identifiers_with_digits_reach_the_judge():
     version = Atom.from_dict({**FIXTURE["atoms"][0], "statement":
                               "Version 32.1.6 configures the numeric precision used for accelerator computations."})
     assert pair_atoms("Version 32.1.6 is unsupported.", [version]) == []
+
+
+def test_only_a_final_standalone_numeric_confidence_line_is_metadata():
+    answer = ("Confidence: the accelerator is supported on Windows.\n"
+              "Restart the shell afterwards.\n  Confidence: .9e0  \n\n")
+    sentences = split_sentences(answer)
+    assert [sentence.text for sentence in sentences] == [
+        "Confidence: the accelerator is supported on Windows.", "Restart the shell afterwards.",
+    ]
+    assert all(answer[sentence.start:sentence.end] == sentence.text for sentence in sentences)
+    report = find_false_claims(answer, ATOMS)
+    assert report.n_sentences == 2
+    assert any(claim.atom_id == "a_windows" for claim in report.claims)
+    for text in ("Confidence: this is prohibited.", "Restart. Confidence: 0.7", "Confidence: 0.7\nRestart."):
+        assert any(sentence.text.startswith("Confidence:") for sentence in split_sentences(text))
+
+
+@pytest.mark.parametrize("token", ["--fp16", "api2.float32"])
+def test_distinctive_tokens_pair_without_an_alphabetic_word_anchor(token):
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": f"Use {token}."})
+    quote = f"{token} is unsupported"
+    report = find_false_claims(f"{quote}.", [atom],
+                               judge=lambda _: {"verdict": "contradicts", "quote": quote})
+    assert report.n_pairs == 1 and report.n_unchecked == 0
+    assert [claim.quote for claim in report.claims] == [quote]
+
+
+def test_a_bare_number_does_not_pair_without_a_word_anchor():
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use 12."})
+    assert pair_atoms("Use 12.", [atom]) == []

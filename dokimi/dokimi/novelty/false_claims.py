@@ -76,6 +76,7 @@ _NEGATION = re.compile(
 # "a.b" do not end one.
 _SENTENCE = re.compile(r"[^\n]+?(?:(?:(?<!(?i:e\.g|i\.e))\.|[!?])(?=\s|$)|$)", re.M)
 _ABBREVIATION = re.compile(r"(?<!\w)(?:e\.g|i\.e)\.(?!\w)", re.I)
+_CONFIDENCE = re.compile(r"confidence:[ \t]*[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?", re.I)
 _STOP = frozenset(
     "a an the is are was were be been to of in on for and or with by as at it this that "
     "these those you your can will may must should use uses used from into not no do does "
@@ -127,11 +128,15 @@ class FalseClaimsReport:
 
 
 def split_sentences(answer: str) -> list[Sentence]:
-    """Sentences of ``answer`` with offsets; a final line ``confidence: x`` is not a claim."""
+    """Sentences with offsets, excluding a final standalone numeric confidence line."""
+    answer = (answer or "").rstrip()
+    before_final_line, _, final_line = answer.rpartition("\n")
+    if _CONFIDENCE.fullmatch(final_line.strip()):
+        answer = before_final_line
     out = []
-    for m in _SENTENCE.finditer(answer or ""):
+    for m in _SENTENCE.finditer(answer):
         text = m.group(0).strip()
-        if not text or text.lower().startswith("confidence:") or not _WORD.search(text):
+        if not text or not _WORD.search(text):
             continue
         start = m.start() + m.group(0).index(text)
         out.append(Sentence(text, start, start + len(text)))
@@ -190,11 +195,9 @@ def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) ->
     paired = []
     for atom in atoms:
         anchor = _content(atom.statement)
-        if not anchor:
-            continue
         common = len(anchor & words)
         if (_distinctive(atom.statement) & ident
-                or (common >= min(2, len(anchor)) and common / len(anchor) >= min_overlap)):
+                or (anchor and common >= min(2, len(anchor)) and common / len(anchor) >= min_overlap)):
             paired.append(atom)
     return paired
 
