@@ -22,7 +22,7 @@ from dokimi.utils import InputError
 from ._output import save_artifact_or_exit, write_text_or_exit
 
 
-def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
+def _read(path: str, repository: str | None) -> tuple[str, list[opportunities.Opportunity]]:
     try:
         text = Path(path).read_text(encoding="utf-8-sig")
     except (OSError, UnicodeError) as e:
@@ -43,7 +43,7 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
         if errors := schema_errors("repo_static.v1", data):
             raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
         return "repo_static", opportunities.from_repo_static(
-            data, target=path, repository=str(data.get("repo") or "repository"))
+            data, target=path, repository=repository or path)
     if isinstance(data, dict) and isinstance(data.get("paired"), dict):
         try:
             return "novelty", opportunities.from_novelty(data)
@@ -52,11 +52,11 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
     raise InputError(f"{path}: not a novelty artifact, a repo_static.v1 output or an llms.txt file")
 
 
-def build(paths: list[str]) -> dict:
+def build(paths: list[str], *, repository: str | None = None) -> dict:
     """The ``opportunities.v1`` payload (without its envelope) for these input files."""
     inputs, items = [], []
     for path in dict.fromkeys(paths):
-        kind, found = _read(path)
+        kind, found = _read(path, repository)
         inputs.append({"path": path, "kind": kind})
         items.extend(found)
     return {"inputs": inputs, "items": opportunities.rank(items)}
@@ -65,7 +65,7 @@ def build(paths: list[str]) -> dict:
 def cmd_report_opportunities(args: argparse.Namespace) -> None:
     from dokimi.artifacts import stamp, validate_artifact
 
-    doc = build(args.inputs)
+    doc = build(args.inputs, repository=args.repository)
     if args.format == "json":
         doc = stamp("opportunities", doc)
         validate_artifact("opportunities", doc)
@@ -87,6 +87,7 @@ def register(report_sub, positive_int) -> None:
         help="Rank novelty, repo_static and llms.txt findings into a queue of fixes (no model calls)")
     p.add_argument("inputs", nargs="+", metavar="PATH",
                    help="novelty artifact JSON, repo_static.v1 JSON, or an llms.txt file")
+    p.add_argument("--repository", help="Repository identity for repo_static source keys (default: each input path)")
     p.add_argument("--format", default="markdown", choices=["markdown", "json"],
                    help="markdown table (PR comment, terminal) or an opportunities.v1 document")
     p.add_argument("--top-n", type=positive_int, default=10, help="Rows in the markdown table (default 10)")

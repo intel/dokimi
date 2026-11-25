@@ -16,7 +16,9 @@ and replace the `Run the checks` step with yours. Each check writes its findings
 the top level of `$OUT/opportunities`: a novelty artifact, a `repo_static.v1` document or
 an `llms.txt` file (`*.json` and `*.txt` are read; anything else is left out).
 `dokimi report opportunities` accepts those same three inputs and reads each supplied
-path once. Malformed or unsupported JSON exits with status 2.
+path once. Each repo_static input path identifies its repository for `source_key`. When
+comparing snapshots of one repository across runs, pass `--repository OWNER/REPO`
+to give its findings the same identity across artifact paths. Malformed or unsupported JSON exits with status 2.
 
 ## Who can run it
 

@@ -97,3 +97,18 @@ def test_llms_identity_survives_staging_in_another_directory(tmp_path):
     a, b = (cmd.build([str(path)]) for path in (first, second))
     assert a["inputs"] != b["inputs"]
     assert a["items"] == b["items"]
+
+
+def test_repo_static_keys_distinguish_inputs_and_follow_explicit_repository(tmp_path):
+    paths = [tmp_path / name / 'static.json' for name in ('a', 'b')]
+    for path in paths:
+        path.parent.mkdir()
+        path.write_text(json.dumps(STATIC), encoding='utf-8')
+    keys = [item['source_key'] for item in cmd.build(list(map(str, paths)))['items']]
+    assert len(set(keys)) == 2
+    named = []
+    for path in paths:
+        output = subprocess.check_output([sys.executable, 'cli.py', 'report', 'opportunities', str(path),
+                                          '--format', 'json', '--repository', 'acme/example'], text=True)
+        named.append(json.loads(output)['items'][0]['source_key'])
+    assert named[0] == named[1]
