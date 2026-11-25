@@ -11,7 +11,7 @@
     "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
     "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
     "inputs": {"type": "array", "items": {"type": "object", "required": ["path", "kind"], "properties": {
-      "path": {"type": "string"}, "kind": {"enum": ["novelty", "repo_static", "llms_txt"]}}}},
+      "path": {"type": "string"}, "kind": {"enum": ["novelty", "repo_static", "llms_txt", "catalog_eval", "judge_validity"]}}}},
     "items": {"type": "array", "items": {
       "type": "object",
       "required": ["rank", "kind", "title", "why", "next_action", "target", "impact", "effort", "quadrant", "source_key", "execution_prompt", "evidence"],
