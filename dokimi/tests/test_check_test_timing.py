@@ -278,6 +278,36 @@ def test_a_name_bound_differently_in_each_branch_counts_when_any_branch_makes_it
     assert ctt.scan(source, "x.py") == (expected, [])
 
 
+@pytest.mark.parametrize(("source", "expected"), [
+    ('__import__("time").sleep(1)\n', {"time.sleep": 1}),
+    ('import importlib\nimportlib.import_module("time").sleep(1)\n', {"time.sleep": 1}),
+    ('import importlib as il\nil.import_module("time").sleep(1)\n', {"time.sleep": 1}),
+    ('from importlib import import_module\nimport_module("time").sleep(1)\n', {"time.sleep": 1}),
+    ('from importlib import import_module as load\nload("time").sleep(1)\n', {"time.sleep": 1}),
+    ('__import__("threading").Timer(1, print)\n', {"threading.Timer": 1}),
+    ('import importlib\nimportlib.import_module("threading").Timer(1, print)\n', {"threading.Timer": 1}),
+    ('__import__("time").sleep(1)  # timing-ok: the child must outlive the parent\n', {}),
+    ('__import__(name).sleep(1)\n', {}),
+    ('__import__("ti" + "me").sleep(1)\n', {}),
+    ('__import__("time", fromlist=["sleep"]).sleep(1)\n', {}),
+    ('__import__("os").getcwd()\n', {}),
+    ('__import__("time").monotonic()\n', {}),
+    ('__import__("time").Timer(1, print)\n', {}),
+    ('def test_a(__import__):\n    __import__("time").sleep(1)\n', {}),
+    ('def test_a():\n    def __import__(name):\n        pass\n    __import__("time").sleep(1)\n', {}),
+    ('__import__ = print\n__import__("time").sleep(1)\n', {}),
+    ('import importlib\n\n\ndef test_a(importlib):\n    importlib.import_module("time").sleep(1)\n', {}),
+    ('from importlib import import_module\n\n\ndef test_a():\n    import_module = print\n'
+     '    import_module("time").sleep(1)\n', {}),
+    ('import importlib\nimportlib.import_module(name).sleep(1)\n', {}),
+    ('import_module("time").sleep(1)\n', {}),
+    ('import mylib\nmylib.import_module("time").sleep(1)\n', {}),
+    ('from importlib import import_module\nimport_module("time")\n', {}),
+])
+def test_a_module_loaded_by_a_literal_name_counts_like_an_imported_one(source, expected):
+    assert ctt.scan(source, "x.py") == (expected, [])
+
+
 def test_a_waiver_with_a_reason_is_not_counted():
     source = "import time\ntime.sleep(60)  # timing-ok: child must outlive the parent\n"
     assert ctt.scan(source, "x.py") == ({}, [])

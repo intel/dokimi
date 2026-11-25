@@ -7,8 +7,11 @@ A test that waits for a thread, process or timer with ``time.sleep`` or ``thread
 on a fast machine and fails on a busy runner: wait on the condition with ``tests/waiting.py``
 instead. This counts, per file under ``tests/``, the calls the file's imports resolve to
 ``time.sleep`` or ``threading.Timer`` (``import time``, ``import time as t``, ``from time import
-sleep as nap``, ``from time import *``, and the same for ``threading``). Only imports are followed: a
-name assigned from them (``nap = time.sleep``) is not. Where branches meet (``if``/``else``, ``try``/
+sleep as nap``, ``from time import *``, and the same for ``threading``), and the calls on a module
+loaded by name with a string literal: ``__import__("time").sleep(1)``, ``importlib.import_module("time").sleep(1)``
+and ``import_module("time").sleep(1)`` after ``from importlib import import_module``. Only imports are
+followed: a name assigned from them (``nap = time.sleep``) is not, and neither is a module named by
+anything but a literal. Where branches meet (``if``/``else``, ``try``/
 ``except``, ``case``), a name counts when any branch binds it to a sleep or timer. A ``sleep`` in a string, such as a child's shell
 command, is not a call. ``tests/waiting.py`` is the one file not counted.
 
@@ -30,7 +33,7 @@ import json
 import re
 import sys
 import tokenize
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -41,6 +44,9 @@ BASELINE = PROJECT / "scripts" / "test_timing_baseline.json"
 #: The helper module is where the polling loop lives, so it alone may sleep.
 EXEMPT = "waiting.py"
 TARGETS = {"time": {"sleep"}, "threading": {"Timer"}}
+#: Names the imports are followed for: the targets, and the loader that can fetch one by its name.
+WATCHED = {**TARGETS, "importlib": {"import_module"}}
+COUNTED = {f"{module}.{name}" for module, names in TARGETS.items() for name in names}
 WAIVER = re.compile(r"#\s*timing-ok\b(?::(?P<reason>.*))?$")
 HINT = "(python scripts/check_test_timing.py --update)"
 
@@ -189,11 +195,11 @@ def _bind_import(node: ast.Import | ast.ImportFrom, names: Names, path: Arms) ->
         if isinstance(node, ast.Import):
             bound = alias.asname or alias.name.split(".")[0]
             full = alias.name if alias.asname else alias.name.split(".")[0]
-            _note(names, bound, pos, full if full in TARGETS else None, path=path)
-        elif node.module in TARGETS and node.level == 0 and alias.name == "*":
-            for target in TARGETS[node.module]:
+            _note(names, bound, pos, full if full in WATCHED else None, path=path)
+        elif node.module in WATCHED and node.level == 0 and alias.name == "*":
+            for target in WATCHED[node.module]:
                 _note(names, target, pos, f"{node.module}.{target}", path=path)
-        elif node.module in TARGETS and node.level == 0 and alias.name in TARGETS[node.module]:
+        elif node.module in WATCHED and node.level == 0 and alias.name in WATCHED[node.module]:
             _note(names, alias.asname or alias.name, pos, f"{node.module}.{alias.name}", path=path)
         else:
             _note(names, alias.asname or alias.name, pos, None, path=path)
@@ -317,12 +323,27 @@ def _resolve(call: ast.Call, scopes: list[Scope]) -> str | None:
 
     func = call.func
     if isinstance(func, ast.Name):
-        return next((m for m in meanings(func.id) if m and "." in m), None)
-    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-        for module in meanings(func.value.id):
-            if module in TARGETS and func.attr in TARGETS[module]:
-                return f"{module}.{func.attr}"
-    return None
+        return next((m for m in meanings(func.id) if m in COUNTED), None)
+    if not isinstance(func, ast.Attribute):
+        return None
+    modules = (meanings(func.value.id) if isinstance(func.value, ast.Name)
+               else [_loaded(func.value, meanings)] if isinstance(func.value, ast.Call) else [])
+    return next((f"{m}.{func.attr}" for m in modules if m in TARGETS and func.attr in TARGETS[m]), None)
+
+
+def _loaded(load: ast.Call, meanings: Callable[[str], list[str | None]]) -> str | None:
+    """The module ``__import__("m")`` or ``importlib.import_module("m")`` loads, for a literal ``m``; the
+    builtin is a name no scope binds, and ``import_module`` is one an import of it binds."""
+    arg = load.args[0] if len(load.args) == 1 and not load.keywords else None
+    if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+        return None
+    fn = load.func
+    if isinstance(fn, ast.Name):
+        found = fn.id == "__import__" and not meanings(fn.id) or "importlib.import_module" in meanings(fn.id)
+    else:
+        found = (isinstance(fn, ast.Attribute) and fn.attr == "import_module" and isinstance(fn.value, ast.Name)
+                 and "importlib" in meanings(fn.value.id))
+    return arg.value if found else None
 
 
 def _outer_parts(node: ast.AST) -> list[ast.AST]:
