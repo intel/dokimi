@@ -82,7 +82,7 @@ def test_cross_judge_scores_with_an_openai_compatible_judge(litellm_routes, tmp_
         encoding="utf-8")
     out = tmp_path / "cj.json"
     args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers), "--no-stored",
-                                      "--judges", "openai/glm-5.3", "--output", str(out)])
+                                      "--judge", "openai/glm-5.3", "--output", str(out)])
     args.func(args)
     assert litellm_routes == ["openai/glm-5.3"] * 6  # three questions, two arms
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["arms"]["skill"]["label"] != "NOT MEASURED"

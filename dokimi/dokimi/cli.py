@@ -282,7 +282,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
     args = parser.parse_args(raw)
     # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
-    args.judge_provider_named = any(_names_judge_provider(t) for t in raw)
+    # ``--judge PROVIDER/MODEL`` sets it too (ProviderModelAction), so keep what the parser stored.
+    args.judge_provider_named = bool(getattr(args, "judge_provider_named", False)) or any(
+        _names_judge_provider(t) for t in raw)
     args.model_named = any(_names_model(t) for t in raw)
     # A command that reads its answerer from a descriptor (subjects run) resolves the judge itself, once it is loaded.
     if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER and not getattr(args, "defer_judge_default", False):
@@ -309,8 +311,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model) \
             and not getattr(args, "matrix_cells", None):
         # The default answer model is not a Claude model: left out, every call would fail.
-        parser.error(f"--provider {provider} takes a Claude model (sonnet, haiku, opus or a claude-* id), "
-                     f"not {model!r}: pass --model")
+        parser.error(f"--model {provider}/ takes a Claude model (sonnet, haiku, opus or a claude-* id), "
+                     f"not {model!r}: pass --model {provider}/<Claude model>")
     # A CLI that takes any model name would be sent the default (an API model name) when --model is left out.
     if provider in llm_cli.BACKENDS and llm_cli.BACKENDS[provider].any_model and model is not None \
             and not getattr(args, "model_named", True) and not getattr(args, "matrix_cells", None):

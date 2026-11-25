@@ -421,7 +421,7 @@ def test_cross_judge_rescoring_shows_the_judge_each_arms_context(tmp_path, monke
                       "context_chunks": [{"snippet": "first"}, {"snippet": "second"}]},
         }}]}), encoding="utf-8")
     args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers), "--no-stored",
-                                      "--judges", "amazon-bedrock/m", "--output", str(tmp_path / "cj.json")])
+                                      "--judge", "amazon-bedrock/m", "--output", str(tmp_path / "cj.json")])
     args.func(args)
     assert seen == {"skill answer": "first\nsecond", "base answer": "(No documentation retrieved)"}
 
@@ -485,7 +485,7 @@ def _cross_judge(tmp_path, monkeypatch, data, *extra, judges=True):
     path.write_text(json.dumps(data), encoding="utf-8")
     argv = ["eval", "judge", "agreement", "--answers", str(path), "--output", str(tmp_path / "cj.json")]
     if judges:
-        argv += ["--judges", "amazon-bedrock/m"]
+        argv += ["--judge", "amazon-bedrock/m"]
     args = build_parser().parse_args(argv + list(extra))
     with refusal() as outcome:
         args.func(args)
@@ -603,7 +603,7 @@ def test_cross_judge_refuses_to_rescore_against_unreproducible_stored_scores(tmp
     monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(_stamped_run()), encoding="utf-8")
-    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judge", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with refusal() as exc:
@@ -645,7 +645,7 @@ def test_cross_judge_judges_with_intact_materials_runs_end_to_end(tmp_path, monk
     data["judge_materials"] = {digest: skill_body}
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judge", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     # Should not raise SystemExit; gate should pass because materials are intact.
@@ -682,7 +682,7 @@ def test_cross_judge_judges_refuses_file_without_materials(tmp_path, monkeypatch
     # No judge_materials, but scores claim to be stored (no file before judge_context exists).
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judge", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with refusal() as exc:
@@ -722,7 +722,7 @@ def test_cross_judge_judges_with_int_question_ids(tmp_path, monkeypatch, capsys)
     data["judge_materials"] = {digest: skill_body}
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judge", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     args.func(args)
@@ -761,7 +761,7 @@ def test_cross_judge_judges_and_pairwise_refuse_together(tmp_path, monkeypatch, 
     pairwise.write_text(json.dumps({"verdicts": {"baseline": {}, "skill": {}}, "summary": {"judge": "p/m"}}), encoding="utf-8")
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judge", "amazon-bedrock/m",
             "--pairwise", str(pairwise), "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with refusal() as exc:
@@ -796,7 +796,7 @@ def test_cross_judge_judges_refuses_altered_material_text(tmp_path, monkeypatch,
     data["judge_materials"] = {digest: "ALTERED TEXT"}
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judge", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with refusal() as exc:
@@ -834,7 +834,7 @@ def test_cross_judge_judges_refuses_records_without_digest(tmp_path, monkeypatch
             del ans["arms"]["skill"]["judge_context_sha256"]
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judge", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with refusal() as exc:
@@ -870,7 +870,7 @@ def test_cross_judge_judges_refuses_mismatched_digest_between_arms_and_scores(tm
     data["judge_materials"] = {digest1: skill_body}
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judge", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with refusal() as exc:
@@ -1624,7 +1624,7 @@ def _recording_judge(monkeypatch, seen):
 def test_cross_judge_judges_hands_the_arms_material_to_the_rescored_judge(tmp_path, monkeypatch):
     seen = {}
     _recording_judge(monkeypatch, seen)
-    args = _cross_judge_args(tmp_path, _material_arms_run(), "--judges", "amazon-bedrock/m")
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--judge", "amazon-bedrock/m")
     args.func(args)
     assert seen["skill 0"] == "FULL SKILL BODY"
 
@@ -1635,7 +1635,7 @@ def test_cross_judge_judges_refuses_edited_material(tmp_path, monkeypatch, capsy
     data = _material_arms_run()
     digest = next(iter(data["judge_materials"]))
     data["judge_materials"][digest] = "EDITED"
-    args = _cross_judge_args(tmp_path, data, "--judges", "amazon-bedrock/m")
+    args = _cross_judge_args(tmp_path, data, "--judge", "amazon-bedrock/m")
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2 and "skill" in exc.err
@@ -1645,7 +1645,7 @@ def test_cross_judge_judges_refuses_edited_material(tmp_path, monkeypatch, capsy
 def test_cross_judge_judges_with_pairwise_refuses_stored_scores(tmp_path, monkeypatch, capsys):
     seen = {}
     _recording_judge(monkeypatch, seen)
-    args = _cross_judge_args(tmp_path, _material_arms_run(), "--judges", "amazon-bedrock/m",
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--judge", "amazon-bedrock/m",
                              "--pairwise", str(tmp_path / "pw.json"))
     with refusal() as exc:
         args.func(args)

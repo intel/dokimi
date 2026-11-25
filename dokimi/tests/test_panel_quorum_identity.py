@@ -299,8 +299,7 @@ def test_panel_summary_handles_a_single_judge_with_no_agreement(tmp_path, monkey
     out = tmp_path / "panel.json"
     args = build_parser().parse_args([
         "eval", "score", "panel", "--product", "L", "--answers", str(answers),
-        "--output", str(out), "--provider", "amazon-bedrock", "--model", "us.anthropic.x",
-        "--roles", "technical_expert", "--concurrency", "1"])
+        "--output", str(out), "--model", "amazon-bedrock/us.anthropic.x", "--roles", "technical_expert", "--concurrency", "1"])
     args.func(args)
     assert "Mean agreement score:     n/a" in capsys.readouterr().out
     assert json.loads(out.read_text())["evaluations"][0]["with_docs"]["std"] is None
@@ -332,8 +331,7 @@ def test_panel_summary_counts_the_questions_left_out_for_no_quorum(tmp_path, mon
     out = tmp_path / "panel.json"
     args = build_parser().parse_args([
         "eval", "score", "panel", "--product", "L", "--answers", str(answers),
-        "--output", str(out), "--provider", "amazon-bedrock", "--model", "us.anthropic.x",
-        "--roles", "technical_expert,developer_advocate,doc_reviewer", "--concurrency", "1"])
+        "--output", str(out), "--model", "amazon-bedrock/us.anthropic.x", "--roles", "technical_expert,developer_advocate,doc_reviewer", "--concurrency", "1"])
     args.func(args)
     printed = capsys.readouterr().out
     assert "Questions left out (no quorum or no answer): 1/2" in printed
@@ -346,8 +344,7 @@ def test_panel_summary_counts_the_questions_left_out_for_no_quorum(tmp_path, mon
         for q in ("Q1", "Q2")]), encoding="utf-8")
     args = build_parser().parse_args([
         "eval", "score", "panel", "--product", "L", "--answers", str(all_bad),
-        "--output", str(tmp_path / "panel_all_bad.json"), "--provider", "amazon-bedrock",
-        "--model", "us.anthropic.x", "--roles", "technical_expert,developer_advocate,doc_reviewer",
+        "--output", str(tmp_path / "panel_all_bad.json"), "--model", "amazon-bedrock/us.anthropic.x", "--roles", "technical_expert,developer_advocate,doc_reviewer",
         "--concurrency", "1"])
     args.func(args)
     assert "Questions left out (no quorum or no answer): 2/2" in capsys.readouterr().out

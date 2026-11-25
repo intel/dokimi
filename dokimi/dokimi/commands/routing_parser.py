@@ -8,6 +8,7 @@ Both leaves take the same routing options; `cmd_routing` in `dokimi.commands.nov
 
 from __future__ import annotations
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi import cli_flags
 from dokimi.commands.novelty_routing import cmd_routing, cmd_skill_routing
 from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
@@ -91,10 +92,12 @@ def _add_routing_options(routing_p, positive_int, refused: bool = False) -> None
                                 "Derive queries from the artifact's headings. Triage only: the "
                                 "artifact then sets its own problem scope and relevance, and "
                                 "the result is stamped as such")
-    routing_p.add_argument("--model", default=None,
-                           help="Also ask this model to pick from the same cards. Optional: "
-                                "without it only the free lexical floor is computed")
-    routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
+    add_model_flag(
+        routing_p, "--model", dest="model", provider_dest="provider",
+        providers=PROVIDERS, default_model=None, default_provider=DEFAULT_ANSWER_PROVIDER,
+        help="Also ask this model to pick from the same cards. Optional: "
+                                "without it only the free lexical floor is computed",
+    )
     cli_flags.add(routing_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     routing_p.add_argument("--seed", type=int, default=0,
                            help="Seeds only the card order (a seeded permutation per query, so "

@@ -80,9 +80,8 @@ def test_without_the_flag_there_is_no_cap():
 
 def test_the_extractor_runs_on_the_named_provider_and_every_role_gets_max_tokens():
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x",
-                  "--model", "claude-haiku-4-5", "--provider", "anthropic",
-                  "--judge-model", "claude-sonnet-5-5", "--extract-model", "gpt-4o",
-                  "--extract-provider", "openai", "--max-output-tokens", "777")
+                  "--model", "anthropic/claude-haiku-4-5",
+                  "--judge-model", "claude-sonnet-5-5", "--extract-model", "openai/gpt-4o", "--max-output-tokens", "777")
     extractor, answerer, judge = novelty_cost.clients(args)
     assert (extractor.model, extractor.provider) == ("gpt-4o", "openai")
     assert (judge.model, judge.provider) == ("claude-sonnet-5-5", "anthropic")

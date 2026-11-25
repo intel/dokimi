@@ -17,8 +17,8 @@ cd dokimi
 pip install -e .                 # installs the `dokimi` command
 ```
 
-The `novelty` and `arms` steps take `--model` and `--provider`; `arms run` also
-needs `--judge-provider` (it does not fall back to `--provider` for the judge);
+The `novelty` and `arms` steps take `--model PROVIDER/MODEL`; `arms run` also
+needs `--judge-provider` (it does not fall back to the answerer's provider for the judge);
 `tasks run` and `repo` take `--model` only. The provider is one of `openai`,
 `anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter`, `openai-codex` or
 `claude-cli` (a logged-in Claude Code CLI, no key; see
@@ -33,7 +33,7 @@ credentials (`GOOGLE_APPLICATION_CREDENTIALS`, with `VERTEXAI_PROJECT` and
 gateway), use provider `openai` with `OPENAI_API_BASE` (or `OPENAI_BASE_URL`)
 set to its `/v1` URL. A model name that litellm does not take for OpenAI's own
 goes to that server, such as `glm-5.3` or `meta-llama/Llama-3.1-8B`
-(`--judges openai/glm-5.3` in `eval judge agreement`); so does a bare `claude-*`,
+(`--judge openai/glm-5.3` in `eval judge agreement`); so does a bare `claude-*`,
 Bedrock or Vertex id, which needs its cloud's provider to reach that cloud. A
 name that starts with a litellm provider prefix (`deepseek/`, `groq/`,
 `ollama/`) keeps that provider's route: write it as `openai/<name>` to send it
@@ -44,8 +44,8 @@ litellm has no price for such a model, so cost is reported as unknown and
 The judge must be a different model from the one under measurement, because a
 model that grades its own answers inflates the scores. `novelty`, `arms run` and
 `subjects run` refuse a judged run whose default judge is the model under measurement:
-the command exits 2 with `pass --judge-model as well`, so name
-`--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
+the command exits 2 with `pass --judge as well`, so name
+`--judge --judge <judge-provider>/<other>` yourself.
 For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answerer only warns on stderr.
 `novelty` does not: it refuses that judge unless you also pass `--allow-self-judge`.
 
@@ -56,8 +56,8 @@ For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answ
 | 1. Does it load? | `dokimi catalog check --root <catalog> --kind skills [--strict]` | free |
 | 2. Is it ever picked? | `dokimi skill routing skill:<dir> --against <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --dry-run` | free |
-| 4. What does it add? | the same command without `--dry-run`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
-| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <model> --provider <provider> --judge --judge-model <judge-model> --judge-provider <judge-provider>` | one answer and one grade per question and arm |
+| 4. What does it add? | the same command without `--dry-run`, plus `--model PROVIDER/MODEL`, `--judge-model` and `--max-usd` | ~100 calls |
+| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <provider>/<model> --judge --judge <judge-provider>/<judge-model>` | one answer and one grade per question and arm |
 | 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](coding-harnesses.md)) | one agent run per task and harness; needs Docker and Claude credentials (`AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), not the provider keys above; run with `--dry-run` first |
 
 - **Competitors** are the other skills an agent sees next to this one when it

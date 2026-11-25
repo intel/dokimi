@@ -55,8 +55,7 @@ def _exit_code(argv):
 def test_eval_score_forwards_and_records_judge_temperature(tmp_path, requests, flag, expected):
     out = tmp_path / "eval.json"
     _run(["eval", "score", "pointwise", "--product", "L", "--answers", _answers(tmp_path), "--output", str(out),
-          "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.x",
-          "--concurrency", "1", *flag])
+          "--judge", "amazon-bedrock/us.anthropic.x", "--concurrency", "1", *flag])
     assert len(requests) == 2
     assert [r.get("temperature") for r in requests] == [expected, expected]
     assert ("temperature" in requests[0]) is (expected is not None)
@@ -66,8 +65,7 @@ def test_eval_score_forwards_and_records_judge_temperature(tmp_path, requests, f
 def test_eval_panel_score_forwards_judge_temperature_to_every_judge(tmp_path, requests):
     out = tmp_path / "panel.json"
     _run(["eval", "score", "panel", "--product", "L", "--answers", _answers(tmp_path),
-          "--output", str(out), "--provider", "amazon-bedrock", "--model", "us.anthropic.x",
-          "--roles", "technical_expert,doc_reviewer", "--concurrency", "1",
+          "--output", str(out), "--model", "amazon-bedrock/us.anthropic.x", "--roles", "technical_expert,doc_reviewer", "--concurrency", "1",
           "--judge-temperature", "0"])
     assert len(requests) == 4
     assert all(r["temperature"] == 0.0 for r in requests)
@@ -93,8 +91,7 @@ def test_evaluate_pipeline_forwards_and_records_judge_temperature(tmp_path, requ
     monkeypatch.setattr(EvaluationPipeline, "run", run)
     with pytest.raises(SystemExit):
         _run(["evaluate", "--product", "L", "--description", "d", "--out-dir", str(tmp_path),
-              "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.x",
-              "--judge-temperature", "0"])
+              "--judge", "amazon-bedrock/us.anthropic.x", "--judge-temperature", "0"])
     assert len(requests) == 2 and all(r["temperature"] == 0.0 for r in requests)
     assert json.loads((tmp_path / "eval" / "L.json").read_text())["judge_temperature"] == 0.0
 
@@ -141,7 +138,7 @@ def _reliability_argv(command, tmp_path, out):
 
     arms = tmp_path / "run.json"
     arms.write_text(json.dumps(ARMS), encoding="utf-8")
-    judge = ["--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.x"]
+    judge = ["--judge", "amazon-bedrock/us.anthropic.x"]
     if command == "pairwise":
         return ["eval", "score", "pairwise", "--answers", str(arms), *judge, "--concurrency", "1",
                 "--output", str(out)]
@@ -164,7 +161,7 @@ def _reliability_argv(command, tmp_path, out):
                 "--variants", "truncate_20", "--mode", "pairwise", *judge, "--concurrency", "1",
                 "--output", str(out)]
     return ["eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
-            "--judges", "amazon-bedrock/us.anthropic.x", "--concurrency", "1", "--output", str(out)]
+            "--judge", "amazon-bedrock/us.anthropic.x", "--concurrency", "1", "--output", str(out)]
 
 
 RELIABILITY_COMMANDS = ["pairwise", "checklist", "judge-wording", "cross-judge", "judge-validity-pairwise"]
@@ -191,14 +188,14 @@ def test_judge_reliability_commands_send_no_sampling_without_the_flag(tmp_path, 
 
 @pytest.mark.parametrize("extra", [
     ["--escalate-model", "us.anthropic.only-t1"],
-    ["--judges", "amazon-bedrock/us.anthropic.x,amazon-bedrock/us.anthropic.only-t1"],
+    ["--judge", "amazon-bedrock/us.anthropic.x", "--judge", "amazon-bedrock/us.anthropic.only-t1"],
 ], ids=["pairwise-escalation", "cross-judge"])
 def test_a_judge_whose_sampling_probe_fails_exits_1_before_any_judgement(tmp_path, routed, capsys, extra):
     # The probe is one real call; its failure is a run failure (1), the same code arms run gives.
     command = "pairwise" if extra[0] == "--escalate-model" else "cross-judge"
     argv = _reliability_argv(command, tmp_path, tmp_path / "out.json")
     if command == "cross-judge":
-        argv = argv[:argv.index("--judges")] + argv[argv.index("--judges") + 2:]
+        argv = argv[:argv.index("--judge")] + argv[argv.index("--judge") + 2:]
     with refusal() as exc:
         _run([*argv, *extra, "--judge-temperature", "0"])
     assert exc.code == 1
@@ -259,7 +256,7 @@ def client_refused(monkeypatch):
 def test_a_judge_temperature_litellm_refuses_before_any_call_exits_2(tmp_path, client_refused, capsys):
     # litellm's own parameter table refuses the value without sending a request: an input refusal.
     argv = _reliability_argv("pairwise", tmp_path, tmp_path / "out.json")
-    argv = argv[:argv.index("--judge-model") + 1] + ["us.anthropic.temp1-only"] + argv[argv.index("--judge-model") + 2:]
+    argv = argv[:argv.index("--judge") + 1] + ["amazon-bedrock/us.anthropic.temp1-only"] + argv[argv.index("--judge") + 2:]
     assert _exit_code([*argv, "--judge-temperature", "0"]) == 2
     assert client_refused == []
     assert not (tmp_path / "out.json").exists()  # refused before judging, not after every judgement failed
@@ -268,7 +265,7 @@ def test_a_judge_temperature_litellm_refuses_before_any_call_exits_2(tmp_path, c
 
 @pytest.mark.parametrize("flags", [
     ["--judge", "--judge-provider", "anthropic", "--judge-model", "temp1-only", "--judge-temperature", "0"],
-    ["--provider", "anthropic", "--model", "temp1-only", "--temperature", "0"],
+    ["--model", "anthropic/temp1-only", "--temperature", "0"],
 ], ids=["judge", "answer"])
 def test_arms_run_sampling_litellm_refuses_before_any_call_exits_2(tmp_path, client_refused, capsys, flags):
     from tests.test_exit_codes_boundaries import _questions
@@ -332,8 +329,7 @@ def test_an_empty_bedrock_judge_model_is_reported_before_sampling(monkeypatch, a
     from dokimi.utils import InputError
 
     monkeypatch.setattr(litellm, "get_supported_openai_params", lambda **_: ["max_tokens"])
-    args = build_parser().parse_args([*argv, "--judge-provider", "amazon-bedrock", "--judge-model", "",
-                                      "--judge-temperature", "1"])
+    args = build_parser().parse_args([*argv, "--judge", "amazon-bedrock/", "--judge-temperature", "1"])
     with pytest.raises(InputError, match="Bedrock has no model ''"):
         args.func(args)
 

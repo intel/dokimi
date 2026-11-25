@@ -449,8 +449,7 @@ def test_an_answers_file_of_a_knowledge_run_stamps_its_run_intent(tmp_path):
     questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "What?"}]}), encoding="utf-8")
     out = tmp_path / "answers.json"
     args = build_parser().parse_args(["answers", "generate", "--product", "oneTBB", "--questions",
-                                      str(questions), "--doc-source", "none", "--provider", "amazon-bedrock",
-                                      "--model", "claude-haiku-5-5", "--output", str(out)])
+                                      str(questions), "--doc-source", "none", "--model", "amazon-bedrock/claude-haiku-5-5", "--output", str(out)])
     with mock.patch("dokimi.eval.answerer.Answerer.generate_answers", return_value=[]):
         args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["run_intent"] == "knowledge"

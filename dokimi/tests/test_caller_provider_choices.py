@@ -36,8 +36,12 @@ LLM_FLAGS = [
     "eval questions analyze", "eval questions review", "eval score panel", "arms run",
     "arms matrix-run", "subjects run", "skill novelty analyze", "skill novelty atoms",
     "skill novelty probe", "skill shorten", "skill routing", "catalog routing", "catalog novelty",
-    "tools preference",
+    "tools preference", "eval triggers generate",
 ]
+
+
+def _offered(action):
+    return tuple(getattr(action, "providers", None) or action.choices or ())
 
 
 def _provider_choices(parser, path=()):
@@ -45,8 +49,8 @@ def _provider_choices(parser, path=()):
         if isinstance(action, argparse._SubParsersAction):
             for name, sub in action.choices.items():
                 yield from _provider_choices(sub, path + (name,))
-        elif action.dest == "provider" and action.choices:
-            yield " ".join(path), tuple(action.choices)
+        elif getattr(action, "provider_dest", action.dest) == "provider" and _offered(action):
+            yield " ".join(path), _offered(action)
 
 
 def test_every_provider_flag_is_one_of_the_two_kinds():
@@ -76,9 +80,9 @@ def test_the_commands_that_call_dokimi_llm_keep_openai_codex():
 ])
 def test_openai_codex_is_refused_before_the_run(argv, capsys):
     with pytest.raises(SystemExit) as exc:
-        build_parser().parse_args([*argv, "--provider", "openai-codex"])
+        build_parser().parse_args([*argv, "--model", "openai-codex/m"])
     assert exc.value.code == 2
-    assert "invalid choice: 'openai-codex'" in capsys.readouterr().err
+    assert "is not a provider for this command" in capsys.readouterr().err
 
 
 CALLERS = {

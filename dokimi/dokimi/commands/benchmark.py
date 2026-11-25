@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, cast
 
 from dokimi import cli_flags
+from dokimi.cli_model_ref import add_model_flag
 from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, PROVIDERS, credential_env_var, resolve_api_key, resolve_model
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
@@ -580,12 +581,12 @@ def register(sub, positive_int) -> None:
                              help="Override doc/context source (default: first in registry entry)")
     cli_flags.add(bench_run_p, "output", "--out-dir", default=None, dest="output_dir",
                   help="Output directory (default: results/{target}_final)")
-    bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
-    bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
-                             help=JUDGE_MODEL_HELP)
-    bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
-                             choices=JUDGE_PROVIDERS)
+    add_model_flag(bench_run_p, "--model", dest="model", provider_dest="provider", providers=CALLER_CHOICES,
+                   default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER)
+    add_model_flag(bench_run_p, "--judge", dest="judge_model", provider_dest="judge_provider",
+                   providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER,
+                   default_provider=DEFAULT_JUDGE_PROVIDER, named_dest="judge_provider_named",
+                   help=JUDGE_MODEL_HELP)
     bench_run_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                              help="Judge sampling temperature, recorded as judge_temperature in the eval output (default: provider default)")
     bench_run_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
@@ -621,11 +622,12 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--library", "--target", required=True, dest="library", help="Target key from registry (e.g., onetbb)")
     bench_pre_p.add_argument("--doc-source", default=None, dest="doc_source", help="Override doc/context source")
     cli_flags.add(bench_pre_p, "output", "--out-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
-    bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
-    bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
-                             help=JUDGE_MODEL_HELP)
-    bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
+    add_model_flag(bench_pre_p, "--model", dest="model", provider_dest="provider", providers=CALLER_CHOICES,
+                   default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER)
+    add_model_flag(bench_pre_p, "--judge", dest="judge_model", provider_dest="judge_provider",
+                   providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER,
+                   default_provider=DEFAULT_JUDGE_PROVIDER, named_dest="judge_provider_named",
+                   help=JUDGE_MODEL_HELP)
     # Preflight makes no LLM call, but it plans the run that `benchmark run` makes, so it refuses the judge that run refuses.
     bench_pre_p.set_defaults(judge=True)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
@@ -646,12 +648,12 @@ def register(sub, positive_int) -> None:
     bench_batch_p.add_argument("--all", action="store_true", dest="all_libraries",
                                help="Run for all libraries in registry")
     cli_flags.add(bench_batch_p, "output", "--out-dir", default="results", dest="output_dir")
-    bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
-    bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
-                               help=JUDGE_MODEL_HELP)
-    bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
-                               choices=JUDGE_PROVIDERS)
+    add_model_flag(bench_batch_p, "--model", dest="model", provider_dest="provider", providers=CALLER_CHOICES,
+                   default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER)
+    add_model_flag(bench_batch_p, "--judge", dest="judge_model", provider_dest="judge_provider",
+                   providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER,
+                   default_provider=DEFAULT_JUDGE_PROVIDER, named_dest="judge_provider_named",
+                   help=JUDGE_MODEL_HELP)
     cli_flags.add(bench_batch_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
                   default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                   help="Max tokens to retrieve per question from doc source (default: 4000)")

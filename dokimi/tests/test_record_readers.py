@@ -460,7 +460,7 @@ def test_the_arm_judges_send_no_binary_answer_to_a_judge():
 @pytest.mark.parametrize("command", [
     ["score", "pairwise", "--baseline-arm", "without_docs"],
     ["score", "checklist", "--baseline-arm", "without_docs"],
-    ["judge", "agreement", "--judges", "amazon-bedrock/m", "--baseline-arm", "without_docs"],
+    ["judge", "agreement", "--judge", "amazon-bedrock/m", "--baseline-arm", "without_docs"],
 ])
 def test_the_arm_judges_refuse_a_binary_answers_file_before_any_call(tmp_path, monkeypatch, capsys, command):
     """Base: no judge call and exit 2 (pairwise, checklist) or an empty table; never paid calls."""
@@ -601,7 +601,7 @@ def test_cross_judge_refuses_a_missing_result_file_before_any_judge_call(tmp_pat
     seen: dict = {}
     _recording_judge(monkeypatch, seen)
     missing = tmp_path / "missing.json"
-    args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judges", "amazon-bedrock/m",
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judge", "amazon-bedrock/m",
                              flag, str(missing))
     with pytest.raises(InputError) as exc:
         args.func(args)
@@ -742,7 +742,7 @@ def test_cross_judge_names_a_result_entry_of_the_wrong_shape_before_any_judge_ca
     _recording_judge(monkeypatch, seen)
     wrong = tmp_path / "wrong.json"
     wrong.write_text(json.dumps(content), encoding="utf-8")
-    args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judges", "amazon-bedrock/m",
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judge", "amazon-bedrock/m",
                              flag, str(wrong))
     with pytest.raises(InputError) as exc:
         args.func(args)

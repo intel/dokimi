@@ -337,7 +337,7 @@ def test_ragas_refusal_propagates_through_the_command_wrapper(monkeypatch, capsy
 @pytest.mark.parametrize("cmd", [
     ["eval", "score", "pairwise"],
     ["eval", "score", "checklist", "--questions", "{questions}"],
-    ["eval", "judge", "agreement", "--no-stored", "--judges", "anthropic/claude-haiku-4-5"],
+    ["eval", "judge", "agreement", "--no-stored", "--judge", "anthropic/claude-haiku-4-5"],
 ])
 def test_no_probe_call_before_the_refusal(cmd, tmp_path, monkeypatch, capsys):
     from dokimi import cli

@@ -9,6 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi import cli_flags
 from dokimi.llm import CALLER_CHOICES
 from dokimi.commands.evaluate import _require_ragas, _run_ragas_eval
@@ -164,8 +165,11 @@ def register(sub, positive_int) -> None:
                          help="Run tag for multi-model comparison (e.g. gpt4o). "
                               "Sets output to results/{product}_{run_id}/answers/{product}.json")
     gen_a_p.add_argument("--output", default=None, help="Output file (default: answers/{product}.json)")
-    gen_a_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for answering")
-    gen_a_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
+    add_model_flag(
+        gen_a_p, "--model", dest="model", provider_dest="provider",
+        providers=CALLER_CHOICES, default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER,
+        help="LLM model for answering",
+    )
     cli_flags.add(gen_a_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION,
                   dest="max_tokens", help="Max tokens to retrieve per question")
     gen_a_p.add_argument("--top-k", type=positive_int, default=None, help=f"Number of docs to retrieve before reranking (default from config/products.yaml retrieval.top_k or {DEFAULT_RETRIEVAL_TOP_K})")

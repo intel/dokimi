@@ -34,7 +34,7 @@ repository guidance or a task's pass rate; for those see [coding-harnesses.md](c
 | A. plain answers file | `answers generate --doc-source none` | `answers.v1` with `without_docs` only | `eval score reference` (grading checks), `eval score pointwise` (judge) |
 | B. one-arm comparison | `arms run --arms baseline` | `arms.v1` with one arm, `baseline` | `--judge` on the run, or `eval score reference` on its output |
 
-Both take `--model`/`--provider`, and both accept a CLI answerer (below). Use route B
+Both take `--model PROVIDER/MODEL`, and both accept a CLI answerer (below). Use route B
 when the same run should later sit next to a `docs` or `skill:` arm: the arm file already
 has the shape `arms run` writes for a comparison.
 
@@ -42,7 +42,7 @@ has the shape `arms run` writes for a comparison.
 
 ```bash
 python cli.py answers generate --product demo --questions questions/demo.json \
-  --doc-source none --provider amazon-bedrock --model claude-haiku-5-5 \
+  --doc-source none --model amazon-bedrock/claude-haiku-5-5 \
   --output knowledge/demo-answers.json
 python cli.py eval score reference --answers knowledge/demo-answers.json \
   --questions questions/demo.json -o knowledge/demo-eval.json --no-judge
@@ -69,8 +69,8 @@ knowledge/demo-answers.json --output knowledge/demo-judged.json`. Its per-questi
 
 ```bash
 python cli.py arms run --product demo --questions questions/demo.json \
-  --arms baseline --provider amazon-bedrock --model claude-haiku-5-5 \
-  --judge --judge-model claude-sonnet-5-5 --judge-provider amazon-bedrock \
+  --arms baseline --model amazon-bedrock/claude-haiku-5-5 \
+  --judge --judge amazon-bedrock/claude-sonnet-5-5 \
   --out knowledge/demo-arms.json --out-md knowledge/demo-arms.md
 ```
 
@@ -81,7 +81,7 @@ delta is `null`. Without `--judge` the run only answers, which is cheap, and
 
 ## Answering through an agent CLI
 
-An answerer does not have to be an API. `--provider claude-cli` answers through the Claude
+An answerer does not have to be an API. `--model claude-cli/<model>` answers through the Claude
 Code CLI the machine is signed in to. The CLI runs with no tools, no settings files and no
 MCP servers, and the call's system prompt is the plain one dokimi sends. What the CLI still
 adds to each call is covered in [subscription-backends.md](subscription-backends.md), which
@@ -89,9 +89,9 @@ also covers the login. It works on both routes:
 
 ```bash
 python cli.py answers generate --product demo --questions questions/demo.json \
-  --doc-source none --provider claude-cli --model sonnet --output knowledge/demo-cli.json
+  --doc-source none --model claude-cli/sonnet --output knowledge/demo-cli.json
 python cli.py arms run --product demo --questions questions/demo.json --arms baseline \
-  --provider claude-cli --model sonnet --out knowledge/demo-cli-arms.json
+  --model claude-cli/sonnet --out knowledge/demo-cli-arms.json
 ```
 
 Two limits apply. `claude-cli` takes no temperature or seed, so `arms run` refuses either
@@ -99,8 +99,8 @@ flag before it starts. An agentic arm (`agent:`, `skill-agent:`, `skill-catalog:
 refused on it too, because the CLI runs one prompt with no tools. A knowledge run has
 neither, so that refusal does not affect this page.
 
-`--provider copilot-cli` answers through the GitHub Copilot CLI the same way, on both routes.
-`--provider codex-cli` answers through the OpenAI Codex CLI on a comparison, but not on a
+`--model copilot-cli/<model>` answers through the GitHub Copilot CLI the same way, on both routes.
+`--model codex-cli/<model>` answers through the OpenAI Codex CLI on a comparison, but not on a
 knowledge run: Codex has no switch that turns its own tools off, so `--doc-source none` and
 `arms run --arms baseline` refuse it before any call (exit 2). Use `copilot-cli` or `claude-cli`
 for a knowledge run. Each CLI must be installed and signed in (`codex login`, or Copilot's own
@@ -108,13 +108,13 @@ login). `python cli.py backends` lists what dokimi can see, with no model call:
 
 ```bash
 python cli.py answers generate --product demo --questions questions/demo.json \
-  --doc-source none --provider copilot-cli --model claude-sonnet-4.5 --output knowledge/demo-copilot.json
+  --doc-source none --model copilot-cli/claude-sonnet-4.5 --output knowledge/demo-copilot.json
 ```
 
 The model name is passed to the CLI as given; dokimi does not check it against the CLI's
 catalogue. Both are answering-only: no conversation. `copilot-cli` runs with no tools
 (`--available-tools __none__`). `codex-cli` has no switch for its tools, so it is refused on a knowledge
-run. Pass `--judge-model` and `--judge-provider` for an API judge, as the judge runs on an API
+run. Pass `--judge PROVIDER/MODEL` for an API judge (`--judge-model` and `--judge-provider` on `arms run`), as the judge runs on an API
 provider. See
 [subscription-backends.md](subscription-backends.md) for the login and the per-call costs.
 
@@ -153,8 +153,8 @@ does for `claude-cli`. An agentic arm is refused on all three, for the same reas
 `command:*`, `terminal-bench:*`, `benchflow*` and `docker-*` name agent-CLI harnesses (`tasks run`,
 `repo run`; see [coding-harnesses.md](coding-harnesses.md)): they run an agent in a sandbox
 against executable tasks. `arms run --harness codex` is refused for that reason, because the
-label would stamp answers that the model behind `--provider` produced. Use `--provider
-codex-cli` (or `claude-cli`, `copilot-cli`) to answer through a CLI, or leave `--harness` out.
+label would stamp answers that the model behind `--model` produced. Use `--model
+codex-cli/<model>` (or `claude-cli/<model>`, `copilot-cli/<model>`) to answer through a CLI, or leave `--harness` out.
 
 ## Questions with grading checks
 
@@ -184,7 +184,7 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
   keeps the paired report. On a binary knowledge run each question's diagnosis is
   `⚪ One condition (no delta)`, not insufficient data, and `eval score pointwise` gives the per-condition score the same way.
 - Keep the answerer fixed across the knowledge run and the with-docs run that follows:
-  the same `--provider`, `--model`, questions file and judge. A knowledge run made with
+  the same `--model` (provider included), questions file and judge. A knowledge run made with
   `arms run --arms baseline` sends the same prompt as the `baseline` arm of the comparison,
   so the two line up question by question. The answers are sampled again, so they will not
   match word for word. A knowledge run made with `answers generate --doc-source none` uses a
@@ -192,8 +192,8 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
 
 ```bash
 python cli.py arms run --product demo --questions questions/demo.json \
-  --arms "baseline,docs" --provider amazon-bedrock --model claude-haiku-5-5 \
-  --judge --judge-model claude-sonnet-5-5 --judge-provider amazon-bedrock \
+  --arms "baseline,docs" --model amazon-bedrock/claude-haiku-5-5 \
+  --judge --judge amazon-bedrock/claude-sonnet-5-5 \
   --out results/arms/demo-with-docs.json
 ```
 

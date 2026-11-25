@@ -18,7 +18,7 @@ ANSWERS = [{"question_id": "Q1", "question_text": "q", "question": "q",
             "with_docs": {"answer": "an answer", "doc_source": "x", "retrieved_docs": ["d"]},
             "without_docs": {"answer": "without docs"}}]
 
-JUDGE = ["--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.x"]
+JUDGE = ["--judge", "amazon-bedrock/us.anthropic.x"]
 
 
 @pytest.fixture

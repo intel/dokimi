@@ -117,8 +117,7 @@ dokimi answers generate \
   --product oneTBB \
   --questions questions/oneTBB.json \
   --output answers/oneTBB.json \
-  --model gpt-6.1-sol \
-  --provider openai \
+  --model openai/gpt-6.1-sol \
   --top-k 3 \
   --rerank-threshold 0.3 \
   --debug-retrieval
@@ -136,8 +135,7 @@ dokimi eval score pointwise \
   --product oneTBB \
   --answers answers/oneTBB.json \
   --output eval/oneTBB.json \
-  --judge-model claude-sonnet-5-5 \
-  --judge-provider anthropic
+  --judge anthropic/claude-sonnet-5-5
 ```
 
 LLM-as-judge scores each answer on five 0–100 dimensions
@@ -194,7 +192,7 @@ dokimi eval personas discover --product $PRODUCT --repo $REPO --count 5 && \
 dokimi eval personas validate --file personas/$PRODUCT.json && \
 dokimi eval questions generate --product $PRODUCT --personas personas/$PRODUCT.json --validate && \
 dokimi answers generate --product $PRODUCT --questions questions/$PRODUCT.json --model gpt-6.1-sol && \
-dokimi eval score pointwise --product $PRODUCT --answers answers/$PRODUCT.json --judge-model claude-sonnet-5-5 --judge-provider anthropic && \
+dokimi eval score pointwise --product $PRODUCT --answers answers/$PRODUCT.json --judge anthropic/claude-sonnet-5-5 && \
 dokimi report generate --product $PRODUCT --eval eval/$PRODUCT.json --questions questions/$PRODUCT.json --output reports/$PRODUCT.md
 ```
 
@@ -274,7 +272,7 @@ or an unpriced model stopped it short. `repo run --max-usd`,
 `repo hits judge --max-usd` and the novelty commands' `--max-usd` still exit 1
 when the budget or an unpriced call stops them (`catalog novelty` too, once it has written
 its rows, when any skill it took on is `partial`, `error` or not run).
-`eval judge agreement --judges` and `eval score pairwise` exit 1, not 2, when
+`eval judge agreement` with a repeated `--judge` and `eval score pairwise` exit 1, not 2, when
 every judge call fails, a missing provider credential included.
 
 `trace inspect`, `trace consistency` and `trace prefilter` exit 2 when no trace or session reads.
@@ -283,7 +281,7 @@ every judge call fails, a missing provider credential included.
 
 | Symptom | Fix |
 | --- | --- |
-| LLM calls fail / wrong provider | All providers go through LiteLLM (`dokimi/llm.py`); set the matching `*_API_KEY` and pass `--provider`/`--model`. LangChain is used only by `eval score ragas`, which wraps its judge in `ChatOpenAI`/`ChatAnthropic`; it and ragas come with the `ragas` extra (`pip install 'dokimi[ragas]'`). |
+| LLM calls fail / wrong provider | All providers go through LiteLLM (`dokimi/llm.py`); set the matching `*_API_KEY` and pass `--model PROVIDER/MODEL`. LangChain is used only by `eval score ragas`, which wraps its judge in `ChatOpenAI`/`ChatAnthropic`; it and ragas come with the `ragas` extra (`pip install 'dokimi[ragas]'`). |
 | `No module named numpy` | Pipeline falls back to exact-text dedup; install numpy for embedding-based dedup |
 | `GitHub client not available` | Pipeline uses `gh` CLI fallback; `pip install PyGithub` to silence |
 | Context7 timeout | Raise `context7.timeout` in `dokimi/config/products.yaml` (or in a config/products.yaml of your own in the working directory) |

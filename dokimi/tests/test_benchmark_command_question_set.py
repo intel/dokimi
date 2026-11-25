@@ -198,7 +198,7 @@ def test_preflight_reports_the_questions_root(monkeypatch, tmp_path, capsys):
         "--doc-source", "local:docs",
         "--out-dir", str(tmp_path / "out"),
         "--questions-root", str(questions_root),
-        "--provider", "openai", "--judge-provider", "openai",
+        "--model", "openai/gpt-6.1-sol", "--judge", "openai/gpt-5.5",
     ])
     args.func(args)
 
@@ -254,7 +254,7 @@ def _preflight(monkeypatch, tmp_path, *extra, env=("OPENAI_API_KEY",)):
     args = build_parser().parse_args([
         "benchmark", "preflight", "--library", "onetbb",
         "--doc-source", "local:docs",
-        "--provider", "openai", "--judge-provider", "openai",
+        "--model", "openai/gpt-6.1-sol", "--judge", "openai/gpt-5.5",
         *extra,
     ])
     if "--out-dir" not in extra:
@@ -352,7 +352,7 @@ def _preflight_with_doc_source(monkeypatch, tmp_path, *extra, error=None, creden
     args = build_parser().parse_args([
         "benchmark", "preflight", "--library", "onetbb",
         "--doc-source", "local:docs",
-        "--provider", "openai", "--judge-provider", "openai",
+        "--model", "openai/gpt-6.1-sol", "--judge", "openai/gpt-5.5",
         "--out-dir", str(tmp_path / "out"), *extra,
     ])
     args.func(args)
@@ -425,7 +425,7 @@ def test_preflight_questions_from_skips_root_check(monkeypatch, tmp_path, capsys
         "--out-dir", str(tmp_path / "out"),
         "--questions-from", str(questions_dir / "onetbb.json"),
         "--questions-root", str(empty_root),
-        "--provider", "openai", "--judge-provider", "openai",
+        "--model", "openai/gpt-6.1-sol", "--judge", "openai/gpt-5.5",
     ])
     args.func(args)
 

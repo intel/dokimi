@@ -62,7 +62,6 @@ def test_a_cli_answerer_left_without_model_is_refused_at_parse(provider, capsys)
     from dokimi import cli
 
     with pytest.raises(SystemExit) as exc:
-        cli.parse_args(["answers", "generate", "--product", "p", "--questions", "q.json", "--provider", provider])
-    assert exc.value.code == 2 and "needs --model" in capsys.readouterr().err
-    assert cli.parse_args(["answers", "generate", "--product", "p", "--questions", "q.json", "--provider", provider,
-                           "--model", "gpt-5"]).model == "gpt-5"
+        cli.parse_args(["answers", "generate", "--product", "p", "--questions", "q.json", "--model", f"{provider}/"])
+    assert exc.value.code == 2 and "takes a Claude model" in capsys.readouterr().err
+    assert cli.parse_args(["answers", "generate", "--product", "p", "--questions", "q.json", "--model", "openai/gpt-5"]).model == "gpt-5"

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi import cli_flags
 from dokimi.cli_types import unit_interval
 from dokimi.commands.novelty_run import add_judge2_args, add_panel_args, add_spend_cap
@@ -78,10 +79,12 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
 
 
 def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
-    parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL,
-                        help="The model under measurement — novelty is a property of the "
-                             "(artifact, model) pair, not of the file")
-    parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
+    add_model_flag(
+        parser, "--model", dest="model", provider_dest="provider",
+        providers=PROVIDERS, default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER,
+        help="The model under measurement — novelty is a property of the "
+                             "(artifact, model) pair, not of the file",
+    )
     parser.add_argument("--judge-model", default=None, dest="judge_model",
                         help="Grading model; must differ from --model (default: "
                              f"{DEFAULT_JUDGE_PROVIDER}/{DEFAULT_JUDGE_MODEL}, or "
@@ -93,11 +96,12 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                              "that runs on this provider; if none does, the run exits asking "
                              "for --judge-model")
     add_panel_args(parser)
-    parser.add_argument("--extract-model", default=None, dest="extract_model",
-                        help="Extractor/adjudicator model (defaults to --judge-model, so the "
-                             "answering model never writes its own answer key)")
-    parser.add_argument("--extract-provider", default=None, dest="extract_provider",
-                        choices=PROVIDERS)
+    add_model_flag(
+        parser, "--extract-model", dest="extract_model", provider_dest="extract_provider",
+        providers=PROVIDERS, default_model=None, default_provider=None,
+        help="Extractor/adjudicator model (defaults to --judge-model, so the "
+                             "answering model never writes its own answer key)",
+    )
     cli_flags.add(parser, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None,
                   dest="max_tokens", help="Output-token ceiling. Raise for reasoning models, which can "
                   "spend the provider default on reasoning and return empty text")

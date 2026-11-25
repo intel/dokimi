@@ -74,13 +74,13 @@ def _questions_file(tmp_path):
 
 def _judge_argv(tmp_path):
     a, q, out = str(_arms_file(tmp_path)), str(_questions_file(tmp_path)), str(tmp_path / "o.json")
-    j = ["--judge-provider", "openai"]
+    j = ["--judge", "openai/gpt-6.1-sol"]
     return {
         "dokimi.commands.judge_reliability": [
             ["eval", "score", "pairwise", "--answers", a, "--output", out, *j],
             ["eval", "score", "checklist", "--answers", a, "--questions", q, "--output", out, *j],
             ["eval", "judge", "wording", "--answers", a, "--output", out, *j],
-            ["eval", "judge", "agreement", "--answers", a, "--no-stored", "--judges", "openai/gpt-6.1-sol",
+            ["eval", "judge", "agreement", "--answers", a, "--no-stored", "--judge", "openai/gpt-6.1-sol",
              "--output", out],
         ],
         "dokimi.commands.evaluate": [
@@ -156,7 +156,7 @@ def test_validate_pairwise_checks_the_escalation_judge(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(evaluate, "warn_recorded_self_judge", _stop_recording(seen))
     args = parse_args(["eval", "judge", "validate", "--answers", str(_arms_file(tmp_path)),
-                       "--mode", "pairwise", "--judge-provider", "anthropic", "--escalate-model", "gpt-6.1-sol",
+                       "--mode", "pairwise", "--judge", "anthropic/claude-sonnet-5-5", "--escalate-model", "gpt-6.1-sol",
                        "--escalate-provider", "openai", "--output", str(tmp_path / "o.json")])
     with pytest.raises(Stop):
         args.func(args)
@@ -169,7 +169,7 @@ def test_pairwise_checks_the_escalation_judge_too(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(judge_reliability, "warn_recorded_self_judge", _stop_recording(seen))
     args = parse_args(["eval", "score", "pairwise", "--answers", str(_arms_file(tmp_path)),
-                       "--judge-provider", "anthropic", "--escalate-model", "gpt-6.1-sol",
+                       "--judge", "anthropic/claude-sonnet-5-5", "--escalate-model", "gpt-6.1-sol",
                        "--escalate-provider", "openai", "--output", str(tmp_path / "o.json")])
     with pytest.raises(Stop):
         args.func(args)
@@ -188,7 +188,7 @@ def test_escalation_defaults_to_the_judge_provider_and_is_in_the_label(tmp_path,
 
     monkeypatch.setattr("dokimi.eval.judge.Judge", FakeJudge)
     args = parse_args(["eval", "score", "pairwise", "--answers", str(_arms_file(tmp_path)),
-                       "--judge-provider", "anthropic", "--escalate-model", "claude-opus-5-5"])
+                       "--judge", "anthropic/claude-sonnet-5-5", "--escalate-model", "claude-opus-5-5"])
     assert _pairwise_judges(args)[1] == ("claude-opus-5-5", "anthropic")
     _, label = pairwise_judge(args)
     assert label.endswith(" pairwise → anthropic/claude-opus-5-5")  # stored as the measure name
@@ -206,7 +206,7 @@ def test_validate_with_a_typed_scorer_does_not_warn(tmp_path, monkeypatch):
                         lambda *a, **k: SimpleNamespace(name="typed", effective_max_len=None))
     monkeypatch.setattr(evaluate, "warn_recorded_self_judge", _stop_recording(seen))
     args = parse_args(["eval", "judge", "validate", "--answers", str(_arms_file(tmp_path)),
-                       "--scorer", "typed:laya", "--judge-provider", "openai",
+                       "--scorer", "typed:laya", "--judge", "openai/gpt-6.1-sol",
                        "--output", str(tmp_path / "o.json")])
     with pytest.raises(Stop):
         args.func(args)
@@ -250,7 +250,7 @@ def test_checklist_on_a_binary_answers_file_refuses_without_warning(tmp_path, ca
     p.write_text(json.dumps({**SELF, "answers": [{"question_id": "Q1", "question_text": "q",
                                                   "answer": "a" + LONG}]}), encoding="utf-8")
     args = parse_args(["eval", "score", "checklist", "--answers", str(p), "--questions",
-                       str(_questions_file(tmp_path)), "--judge-provider", "openai",
+                       str(_questions_file(tmp_path)), "--judge", "openai/gpt-6.1-sol",
                        "--output", str(tmp_path / "o.json")])
     with pytest.raises((SystemExit, ValueError)):  # InputError is a ValueError; main turns it into exit 2
         args.func(args)

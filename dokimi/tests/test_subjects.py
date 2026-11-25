@@ -137,10 +137,7 @@ questions = ["questions.json"]
         "subjects",
         "run",
         str(descriptor_path),
-        "--model",
-        "custom-model",
-        "--provider",
-        "openrouter",
+        "--model", "openrouter/custom-model",
     ])
 
     cell = _matrix_config_for_run(descriptor, args)["matrix"]["cells"][0]

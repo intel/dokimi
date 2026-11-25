@@ -21,7 +21,7 @@ import shlex
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
-from dokimi.cli_flags import FLAG_MOVES
+from dokimi.cli_flags import FLAG_JOINS, FLAG_MOVES, FlagJoin, FlagMove
 
 SECTIONS: tuple[str, ...] = ("The loop", "Subjects", "Evals", "Analysis and data")
 
@@ -548,24 +548,102 @@ def moved_argv(
     return None
 
 
+def _fold_provider(tokens: list[str], join: FlagJoin) -> list[str] | None:
+    """``tokens`` with ``join.provider V`` and ``join.model M`` folded into ``join.new V/M``, or None.
+
+    The last of each flag wins, as argparse does. A provider with no model becomes ``V/<MODEL>``.
+    A model with no provider is left alone (it still runs on the leaf's default provider).
+    """
+    spans: list[tuple[int, int, str, str]] = []  # (index, width, flag, value) for each flag with a value
+    i = 0
+    while i < len(tokens) and tokens[i] != "--":
+        name, equals, value = tokens[i].partition("=")
+        if name in (join.provider, join.model):
+            if equals:
+                spans.append((i, 1, name, value))
+                i += 1
+            elif i + 1 < len(tokens):
+                spans.append((i, 2, name, tokens[i + 1]))
+                i += 2
+            else:
+                i += 1  # no value: argparse reports it
+        else:
+            i += 1
+    providers = [span for span in spans if span[2] == join.provider]
+    if not providers:
+        return None
+    models = [span for span in spans if span[2] == join.model]
+    provider = providers[-1][3]
+    model = models[-1][3] if models else "<MODEL>"
+    at = models[-1][0] if models else providers[-1][0]  # the joined value takes the model's place
+    drop: set[int] = set()
+    for index, width, _, _ in spans:
+        drop.update(range(index, index + width))
+    out: list[str] = []
+    for index, token in enumerate(tokens):
+        if index == at:
+            out.extend([join.new, f"{provider}/{model}"])
+        if index not in drop:
+            out.append(token)
+    return out
+
+
+def _split_flag(tokens: list[str], i: int, equals: str, value: str, move: FlagMove) -> tuple[list[str], int]:
+    """The new flag repeated once per item of a split old flag's value, and the index after it."""
+    if equals:
+        raw, nxt = value, i + 1
+    elif i + 1 < len(tokens):
+        raw, nxt = tokens[i + 1], i + 2
+    else:
+        raw, nxt = "", i + 1
+    out: list[str] = []
+    for item in (part.strip() for part in raw.split(move.split)):
+        if item:
+            out.extend([move.new, item])
+    return out, nxt
+
+
 def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
-    """``argv`` with each moved spelling rewritten to its new one, or None when none moved."""
+    """``argv`` with each moved spelling rewritten to its new one, or None when none moved.
+
+    A provider and a model that moved together (``--provider X --model M``) fold into one
+    ``--model X/M`` first; a flag that moved alone is renamed; a split value (``--judges a,b``)
+    becomes one flag per item.
+    """
     canon = _canonical(tuple(argv))
     leaf = max((leaf.path for leaf in LEAVES if canon[: len(leaf.path)] == leaf.path),
                key=len, default=())
-    rewritten = list(argv)
     changed = False
-    for index, token in enumerate(rewritten):
+    tokens = list(argv)
+    for join in FLAG_JOINS:
+        if join.leaves and leaf not in join.leaves:
+            continue
+        folded = _fold_provider(tokens, join)
+        if folded is not None:
+            tokens, changed = folded, True
+    out: list[str] = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
         if token == "--":  # the end of options: what follows is positional
+            out.extend(tokens[i:])
             break
         name, equals, value = token.partition("=")
-        for move in FLAG_MOVES:
-            if name == move.old and (not move.leaves or leaf in move.leaves):
-                # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
-                rewritten[index] = move.new if "=" in move.new else f"{move.new}{equals}{value}"
-                changed = True
-                break
-    return rewritten if changed else None
+        move = next((m for m in FLAG_MOVES
+                     if name == m.old and (not m.leaves or leaf in m.leaves)), None)
+        if move is None:
+            out.append(token)
+            i += 1
+            continue
+        changed = True
+        if move.split:
+            items, i = _split_flag(tokens, i, equals, value, move)
+            out.extend(items)
+            continue
+        # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
+        out.append(move.new if "=" in move.new else f"{move.new}{equals}{value}")
+        i += 1
+    return out if changed else None
 
 
 def moved_text(argv: list[str]) -> str:

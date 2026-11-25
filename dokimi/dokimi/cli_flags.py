@@ -418,6 +418,43 @@ class FlagMove:
     old: str
     new: str
     leaves: tuple[tuple[str, ...], ...] = ()
+    split: str = ""  # a value that held several items (``--judges a,b``) becomes one ``new`` per item
+
+
+@dataclass(frozen=True)
+class FlagJoin:
+    """Two old flags that became one value: ``provider`` and ``model`` are now ``new PROVIDER/MODEL``.
+
+    A provider with no model gets the placeholder ``<MODEL>`` in the printed argv. ``leaves`` limits
+    the join as in ``FlagMove``; the empty tuple means every leaf.
+    """
+
+    provider: str
+    model: str
+    new: str
+    leaves: tuple[tuple[str, ...], ...] = ()
+
+
+# The leaves whose judge was ``--judge-model``/``--judge-provider`` and is now ``--judge PROVIDER/MODEL``.
+# arms run, arms matrix-run, subjects run and catalog/skill novelty keep both spellings (their ``--judge``
+# is a switch or a panel there), so they are not listed.
+JUDGE_MOVED_LEAVES: tuple[tuple[str, ...], ...] = (
+    ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
+    ("eval", "judge", "validate"), ("eval", "judge", "wording"),
+    ("eval", "score", "checklist"), ("eval", "score", "pairwise"),
+    ("eval", "score", "pointwise"), ("eval", "score", "reference"),
+    ("evaluate",),
+)
+
+
+FLAG_JOINS: tuple[FlagJoin, ...] = (
+    # Model concept (F1b): the provider moved into the model value, `--model PROVIDER/MODEL`.
+    FlagJoin("--provider", "--model", "--model"),
+    FlagJoin("--judge-provider", "--judge-model", "--judge", leaves=JUDGE_MOVED_LEAVES),
+    FlagJoin("--extract-provider", "--extract-model", "--extract-model", leaves=(
+        ("catalog", "novelty"), ("skill", "novelty", "analyze"), ("skill", "novelty", "probe"),
+    )),
+)
 
 
 FLAG_MOVES: tuple[FlagMove, ...] = (
@@ -464,6 +501,9 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--budget", "--max-usd-per-cell", leaves=(
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
     )),
+    # Model concept (F1b): a bare judge model moves to `--judge` (the provider is in the value).
+    FlagMove("--judge-model", "--judge", leaves=JUDGE_MOVED_LEAVES),
+    FlagMove("--judges", "--judge", leaves=(("eval", "judge", "agreement"),), split=","),
     # Dry-run concept (F1b): estimate, make no paid call. `subjects run --work-dry-run` is not moved:
     # it gates only executable-task agents, so it has no matching canonical meaning (see the allowlist).
     FlagMove("--estimate-only", "--dry-run", leaves=(

@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi import cli_flags, llm_cli
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable, write_report_text
@@ -256,9 +257,11 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--out-dir", default=None, dest="out_dir")
     cli_flags.add(run_p, "output", "--out", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md")
-    run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help=argparse.SUPPRESS)
-    run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                       choices=ANSWER_PROVIDERS)
+    add_model_flag(
+        run_p, "--model", dest="model", provider_dest="provider",
+        providers=ANSWER_PROVIDERS, default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER,
+        help=argparse.SUPPRESS,
+    )
     run_p.add_argument("--harness", default="arms-runner", help=argparse.SUPPRESS)
     run_p.add_argument("--context7-id", default=None, dest="context7_id")
     run_p.add_argument("--judge", action="store_true")

@@ -115,10 +115,11 @@ def refuse_judge_model(provider: str, model: str, *, named: bool, answerer_provi
     picks another family, not for a flag the user did not pass.
     """
     if not named and provider == answerer_provider:
-        return (f"--judge-model {model!r} is not a Claude model (sonnet, haiku, opus or a claude-* id), and the judge "
-                f"follows --provider {provider}: pass --judge-provider (e.g. openai) for a non-Claude judge")
-    return (f"--judge-provider {provider} takes a Claude model (sonnet, haiku, opus or a claude-* id), "
-            f"not {model!r}: pass --judge-model")
+        return (f"judge {model!r} is not a Claude model (sonnet, haiku, opus or a claude-* id), and the judge "
+                f"follows --model {provider}: pass a judge from another family, --judge PROVIDER/MODEL "
+                f"(arms run: --judge-provider and --judge-model)")
+    return (f"--judge {provider}/ takes a Claude model (sonnet, haiku, opus or a claude-* id), "
+            f"not {model!r}: pass --judge {provider}/<Claude model> (arms run: --judge-model)")
 
 
 def follow_answerer_cli(args, *, matrix: bool, named: bool) -> None:

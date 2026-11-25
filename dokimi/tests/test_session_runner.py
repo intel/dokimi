@@ -489,7 +489,7 @@ def test_a_whitespace_reply_ends_the_session_as_an_empty_one(fake_llm):
 @pytest.mark.parametrize("cmd", [
     ["eval", "score", "pairwise"],
     ["eval", "score", "checklist", "--questions", "{questions}"],
-    ["eval", "judge", "agreement", "--no-stored", "--judges", "anthropic/claude-haiku-4-5"],
+    ["eval", "judge", "agreement", "--no-stored", "--judge", "anthropic/claude-haiku-4-5"],
 ])
 def test_a_session_artifact_is_refused_by_every_judge_command(cmd, fake_llm, tmp_path,
                                                               monkeypatch, capsys):

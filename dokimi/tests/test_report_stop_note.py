@@ -200,8 +200,8 @@ def judge_replies(monkeypatch):
 
 
 @pytest.mark.parametrize("argv", [
-    ["pointwise", "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.x"],
-    ["panel", "--provider", "amazon-bedrock", "--model", "us.anthropic.x", "--roles", "technical_expert"],
+    ["pointwise", "--judge", "amazon-bedrock/us.anthropic.x"],
+    ["panel", "--model", "amazon-bedrock/us.anthropic.x", "--roles", "technical_expert"],
 ])
 def test_a_judged_eval_of_a_stopped_answers_file_keeps_its_terminated_block(tmp_path, judge_replies, argv):
     out = tmp_path / "eval.json"

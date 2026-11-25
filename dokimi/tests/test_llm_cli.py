@@ -310,7 +310,7 @@ def test_the_backend_doc_names_tools_as_the_command_that_refuses_a_cli_provider(
 
     text = (Path(__file__).resolve().parents[1] / "docs" / "subscription-backends.md").read_text(encoding="utf-8")
     assert "claude-cli" not in tools.PROVIDERS
-    assert "`--provider` or `--judge-provider`, except `tools`" in text
+    assert "`--model`, `--judge`) or `--judge-provider`, except `tools`" in text
 
 
 def test_the_reviewing_guide_lists_every_answer_provider():
@@ -440,8 +440,8 @@ def test_the_preflight_probes_a_cli_provider_once_for_its_error_and_its_warning(
 
 
 @pytest.mark.parametrize("argv", [
-    ["eval", "score", "pointwise", "--judge-provider", "claude-cli", "--judge-temperature", "0"],
-    ["eval", "score", "panel", "--provider", "claude-cli", "--judge-temperature", "0"],
+    ["eval", "score", "pointwise", "--judge", "claude-cli/opus", "--judge-temperature", "0"],
+    ["eval", "score", "panel", "--model", "claude-cli/sonnet", "--judge-temperature", "0"],
 ])
 def test_a_cli_judge_given_a_temperature_is_an_error_line_and_exit_2(argv, tmp_path, monkeypatch, capsys):
     from dokimi import cli
@@ -485,7 +485,7 @@ def test_the_default_judge_runs_on_the_cli():
 def test_a_cli_provider_needs_a_claude_model_on_the_command_line():
     from dokimi.cli import parse_args
 
-    base = ["answers", "generate", "--product", "p", "--questions", "q.json", "--provider", "claude-cli"]
+    base = ["answers", "generate", "--product", "p", "--questions", "q.json", "--model", "claude-cli/gpt-6.1-sol"]
     with pytest.raises(SystemExit):
         parse_args(base)  # the default answer model is not a Claude model
     assert parse_args([*base, "--model", "haiku"]).model == "haiku"
@@ -499,11 +499,11 @@ def test_a_cli_provider_needs_a_claude_model_on_the_command_line():
 def test_a_cli_judge_given_a_non_claude_model_is_refused_at_parse_time(command):
     from dokimi.cli import parse_args
 
-    base = [*command, "--judge-provider", "claude-cli"]
+    base = [*command, "--judge", "claude-cli/opus"]
     with refusal() as out:
-        parse_args([*base, "--judge-model", "gpt-6.1-sol"])  # refused before persona or answer work
+        parse_args([*base, "--judge", "gpt-6.1-sol"])  # refused before persona or answer work
     assert out.code == 2
-    assert parse_args([*base, "--judge-model", "claude-sonnet-5-5"]).judge_model == "claude-sonnet-5-5"
+    assert parse_args([*base, "--judge", "claude-sonnet-5-5"]).judge_model == "claude-sonnet-5-5"
     assert parse_args(base).judge_model  # left out, the default judge is a Claude model and parses
 
 
@@ -661,20 +661,19 @@ def test_every_command_with_a_hidden_or_default_model_refuses_the_cli_without_a_
     from dokimi.cli import parse_args
 
     cases = [
-        ["answers", "generate", "--product", "p", "--questions", "q.json", "--provider", "claude-cli"],
-        ["eval", "questions", "generate", "--product", "p", "--personas", "p.json", "--provider", "claude-cli"],
-        ["eval", "questions", "analyze", "--questions", "q.json", "--product", "p", "--provider", "claude-cli"],
-        ["eval", "questions", "review", "--questions", "q.json", "--product", "p", "--provider", "claude-cli"],
-        ["eval", "personas", "discover", "--product", "p", "--provider", "claude-cli"],
-        ["subjects", "run", "subject.toml", "--provider", "claude-cli"],
+        ["answers", "generate", "--product", "p", "--questions", "q.json", "--model", "claude-cli/gpt-6.1-sol"],
+        ["eval", "questions", "generate", "--product", "p", "--personas", "p.json", "--model", "claude-cli/gpt-6.1-sol"],
+        ["eval", "questions", "analyze", "--questions", "q.json", "--product", "p", "--model", "claude-cli/gpt-6.1-sol"],
+        ["eval", "questions", "review", "--questions", "q.json", "--product", "p", "--model", "claude-cli/gpt-6.1-sol"],
+        ["eval", "personas", "discover", "--product", "p", "--model", "claude-cli/gpt-6.1-sol"],
+        ["subjects", "run", "subject.toml", "--model", "claude-cli/gpt-6.1-sol"],
     ]
     for argv in cases:
         with pytest.raises(SystemExit):
             parse_args(argv)
         # the refusal is the model gate, not an unrelated argparse error
         assert "takes a Claude model" in capsys.readouterr().err, argv
-    assert parse_args(["subjects", "run", "subject.toml", "--provider", "claude-cli",
-                       "--model", "haiku"]).model == "haiku"
+    assert parse_args(["subjects", "run", "subject.toml", "--model", "claude-cli/haiku"]).model == "haiku"
 
 
 def test_every_agentic_arm_kind_is_refused_on_the_cli_including_wrapped_and_combined(demo_skill):
@@ -823,7 +822,7 @@ def test_matrix_cells_that_name_a_cli_model_pass_the_parse_gate_whatever_the_top
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
     args = cli.parse_args(["arms", "matrix-run", "--product", "p", "--questions", str(questions),
-                           "--arms", "baseline", "--matrix-cells", str(cells), "--provider", "claude-cli",
+                           "--arms", "baseline", "--matrix-cells", str(cells), "--model", "claude-cli/sonnet",
                            "--out-dir", str(tmp_path / "out")])
     assert args.provider == "claude-cli"
 
@@ -833,7 +832,7 @@ def test_evaluate_with_a_cli_judge_given_a_temperature_exits_2_like_the_other_ju
     from dokimi import cli
 
     monkeypatch.setattr("sys.argv", ["dokimi", "evaluate", "--product", "demo", "--description", "demo",
-                                     "--judge-provider", "claude-cli", "--judge-temperature", "0"])
+                                     "--judge", "claude-cli/opus", "--judge-temperature", "0"])
     with refusal() as out:
         cli.main()
     err = capsys.readouterr().err
@@ -848,7 +847,7 @@ def test_benchmark_run_with_a_cli_judge_given_a_temperature_refuses_before_any_a
     built = []
     monkeypatch.setattr(orchestrator, "EvaluationPipeline", lambda **kwargs: built.append(kwargs))
     monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", "run", "--library", "onetbb",
-                                     "--judge-provider", "claude-cli", "--judge-temperature", "0"])
+                                     "--judge", "claude-cli/opus", "--judge-temperature", "0"])
     with refusal() as out:
         cli.main()
     err = capsys.readouterr().err
@@ -874,7 +873,7 @@ def test_the_session_turns_flag_defaults_to_none():
     from dokimi.cli import parse_args
 
     args = parse_args(["arms", "run", "--product", "p", "--questions", "q.json", "--arms", "baseline",
-                       "--provider", "claude-cli", "--model", "sonnet"])
+                       "--model", "claude-cli/sonnet"])
     assert args.session_turns is None
 
 
@@ -984,9 +983,7 @@ def test_benchmark_preflight_exit_status_follows_the_cli_login(monkeypatch, tmp_
     monkeypatch.setattr(process, "run", _auth_runner(status))
     args = build_parser().parse_args([
         "benchmark", "preflight", "--library", "onetbb", "--doc-source", "local:docs",
-        "--provider", answer, "--model", "sonnet" if answer == "claude-cli" else "gpt-4o",
-        "--judge-provider", "claude-cli", "--judge-model", "opus",
-        "--out-dir", str(tmp_path / "out"),
+        "--model", f"{answer}/" + ("sonnet" if answer == "claude-cli" else "gpt-4o"), "--judge", "claude-cli/opus", "--out-dir", str(tmp_path / "out"),
     ])
     if exits:
         with refusal() as out:

@@ -97,8 +97,8 @@ def test_benchmark_preflight_missing_credential_exits_2(tmp_path, monkeypatch, c
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(
         "sys.argv",
-        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "openai",
-         "--judge-provider", "openai", "--judge-model", "judge-x", "--out-dir", str(tmp_path / "out")],
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--model", "openai/gpt-6.1-sol",
+         "--judge", "openai/judge-x", "--out-dir", str(tmp_path / "out")],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -157,10 +157,10 @@ def test_benchmark_run_with_both_keys_set_reaches_the_pipeline(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize(
-    "flag, vertex", [("--provider", "google-vertex"), ("--judge-provider", "google-vertex"),
-                     ("--judge-provider", "google")],
+    "flag, spec", [("--model", "google-vertex/gemini-2.5-pro"), ("--judge", "google-vertex/gemini-2.5-pro"),
+                   ("--judge", "google/gemini-2.5-pro")],
 )
-def test_benchmark_run_vertex_adc_needs_no_gemini_key(flag, vertex, tmp_path, monkeypatch):
+def test_benchmark_run_vertex_adc_needs_no_gemini_key(flag, spec, tmp_path, monkeypatch):
     """#967: Vertex reads application-default credentials (docs/reviewing.md), so no `GEMINI_API_KEY`."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "k")
@@ -177,11 +177,7 @@ def test_benchmark_run_vertex_adc_needs_no_gemini_key(flag, vertex, tmp_path, mo
 
     monkeypatch.setattr("dokimi.orchestrator.EvaluationPipeline", _Pipeline)
     argv = ["dokimi", "benchmark", "run", "--library", "onetbb", "--out-dir", str(tmp_path / "out"),
-            flag, vertex]
-    if flag == "--provider":
-        argv += ["--model", "gemini-2.5-pro"]
-    else:
-        argv += ["--judge-model", "gemini-2.5-pro"]
+            flag, spec]
     monkeypatch.setattr("sys.argv", argv)
     cli.main()
     assert len(built) == 1
@@ -213,8 +209,7 @@ def test_benchmark_run_bedrock_iam_credentials_need_no_bearer_token(tmp_path, mo
     monkeypatch.setenv("AWS_REGION", "us-east-1")
     built, _ = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "amazon-bedrock", "--model", "us.anthropic.claude-sonnet-4-6",
-         "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.claude-haiku-4-5"],
+        ["--model", "amazon-bedrock/us.anthropic.claude-sonnet-4-6", "--judge", "amazon-bedrock/us.anthropic.claude-haiku-4-5"],
     )
     cli.main()
     assert len(built) == 1
@@ -226,8 +221,7 @@ def test_benchmark_run_unreadable_bedrock_token_file_exits_2(tmp_path, monkeypat
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     built, out = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "openai", "--model", "gpt-4o",
-         "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.claude-haiku-4-5"],
+        ["--model", "openai/gpt-4o", "--judge", "amazon-bedrock/us.anthropic.claude-haiku-4-5"],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -243,8 +237,7 @@ def test_benchmark_run_unreadable_bedrock_token_file_on_bedrock_route_exits_2(tm
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     built, _ = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "openai", "--model", "gpt-4o",
-         "--judge-provider", "anthropic", "--judge-model", "bedrock/us.anthropic.claude-haiku-4-5"],
+        ["--model", "openai/gpt-4o", "--judge", "anthropic/bedrock/us.anthropic.claude-haiku-4-5"],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -259,8 +252,7 @@ def test_benchmark_run_bedrock_route_with_configured_key_ignores_unreadable_aws_
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     built, _ = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "anthropic", "--model", "bedrock/us.anthropic.claude-sonnet-4-6",
-         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+        ["--model", "anthropic/bedrock/us.anthropic.claude-sonnet-4-6", "--judge", "openai/gpt-4o"],
     )
     cli.main()
     assert len(built) == 1
@@ -273,8 +265,7 @@ def test_benchmark_run_gemini_route_without_a_gemini_key_exits_2(tmp_path, monke
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     built, out = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "google-vertex", "--model", "gemini/gemini-2.5-pro",
-         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+        ["--model", "google-vertex/gemini/gemini-2.5-pro", "--judge", "openai/gpt-4o"],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -290,8 +281,7 @@ def test_benchmark_run_gemini_route_takes_google_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     built, _ = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "google-vertex", "--model", "gemini/gemini-2.5-pro",
-         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+        ["--model", "google-vertex/gemini/gemini-2.5-pro", "--judge", "openai/gpt-4o"],
     )
     cli.main()
     assert len(built) == 1
@@ -304,8 +294,7 @@ def test_benchmark_run_gemini_route_takes_gemini_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     built, _ = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "openai", "--model", "gpt-4o",
-         "--judge-provider", "google", "--judge-model", "gemini/gemini-2.5-pro"],
+        ["--model", "openai/gpt-4o", "--judge", "google/gemini/gemini-2.5-pro"],
     )
     cli.main()
     assert len(built) == 1
@@ -316,8 +305,7 @@ def test_benchmark_run_explicit_vertex_route_needs_no_provider_key(tmp_path, mon
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     built, _ = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "anthropic", "--model", "vertex_ai/gemini-2.5-pro",
-         "--judge-provider", "google-vertex", "--judge-model", "gemini-2.5-pro"],
+        ["--model", "anthropic/vertex_ai/gemini-2.5-pro", "--judge", "google-vertex/gemini-2.5-pro"],
     )
     cli.main()
     assert len(built) == 1
@@ -329,8 +317,7 @@ def test_benchmark_run_explicit_gemini_route_needs_no_provider_key(tmp_path, mon
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.setenv("OPENAI_API_KEY", "k")
-    argv = ["--provider", "anthropic", "--model", "gemini/gemini-2.5-pro",
-            "--judge-provider", "openai", "--judge-model", "gpt-4o"]
+    argv = ["--model", "anthropic/gemini/gemini-2.5-pro", "--judge", "openai/gpt-4o"]
     built, _ = _run_with_fake_pipeline(monkeypatch, tmp_path, argv)
     cli.main()
     assert len(built) == 1
@@ -349,8 +336,7 @@ def test_benchmark_run_off_table_route_needs_no_provider_key(tmp_path, monkeypat
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     built, _ = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "anthropic", "--model", "azure/my-deployment",
-         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+        ["--model", "anthropic/azure/my-deployment", "--judge", "openai/gpt-4o"],
     )
     cli.main()
     assert len(built) == 1
@@ -372,8 +358,7 @@ def test_benchmark_run_cli_provider_with_a_cloud_route_model_still_needs_its_log
     _no_codex(monkeypatch)
     built, out = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "codex-cli", "--model", "vertex_ai/gemini-2.5-pro",
-         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+        ["--model", "codex-cli/vertex_ai/gemini-2.5-pro", "--judge", "openai/gpt-4o"],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -389,7 +374,7 @@ def test_benchmark_run_unreadable_gemini_key_file_is_not_rescued_by_google_api_k
     monkeypatch.setenv("GEMINI_API_KEY", f"file:{tmp_path / 'nope'}")
     built, out = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--judge-provider", "google-vertex", "--judge-model", "gemini/gemini-2.5-pro"],
+        ["--judge", "google-vertex/gemini/gemini-2.5-pro"],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -409,8 +394,8 @@ def test_benchmark_run_cross_provider_route_checks_the_route_key(provider, model
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv(route_key, "k")
     judge = "anthropic" if route_key == "ANTHROPIC_API_KEY" else "openai"
-    argv = ["--provider", provider, "--model", model, "--judge-provider", judge,
-            "--judge-model", "claude-haiku-4-5" if judge == "anthropic" else "gpt-4o"]
+    argv = ["--model", f"{provider}/{model}",
+            "--judge", f"{judge}/" + ("claude-haiku-4-5" if judge == "anthropic" else "gpt-4o")]
     built, _ = _run_with_fake_pipeline(monkeypatch, tmp_path, argv)
     cli.main()
     assert len(built) == 1
@@ -427,7 +412,7 @@ def test_benchmark_run_warns_when_the_login_cannot_be_checked(tmp_path, monkeypa
     _no_codex(monkeypatch, authenticated=None, installed=True)
     built, _ = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "codex-cli", "--model", "gpt-5", "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+        ["--model", "codex-cli/gpt-5", "--judge", "openai/gpt-4o"],
     )
     cli.main()
     assert len(built) == 1
@@ -442,8 +427,7 @@ def test_benchmark_run_unreadable_key_file_of_the_configured_provider_is_refused
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
     built, out = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "openai", "--model", "anthropic/claude-sonnet-4-5",
-         "--judge-provider", "anthropic", "--judge-model", "claude-haiku-4-5"],
+        ["--model", "openai/anthropic/claude-sonnet-4-5", "--judge", "anthropic/claude-haiku-4-5"],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -461,8 +445,7 @@ def test_benchmark_run_unreadable_key_file_of_the_configured_provider_is_refused
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     built, out = _run_with_fake_pipeline(
         monkeypatch, tmp_path,
-        ["--provider", "anthropic", "--model", "gemini/gemini-2.5-pro",
-         "--judge-provider", "openai", "--judge-model", "gpt-4o"],
+        ["--model", "anthropic/gemini/gemini-2.5-pro", "--judge", "openai/gpt-4o"],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -473,8 +456,8 @@ def test_benchmark_run_unreadable_key_file_of_the_configured_provider_is_refused
 
 @pytest.mark.parametrize(
     "argv_tail",
-    [["--provider", "anthropic", "--model", "vertex_ai/gemini-2.5-pro"],
-     ["--provider", "google-vertex", "--model", "gemini-2.5-pro"]],
+    [["--model", "anthropic/vertex_ai/gemini-2.5-pro"],
+     ["--model", "google-vertex/gemini-2.5-pro"]],
 )
 def test_benchmark_preflight_skips_the_credentials_run_skips(argv_tail, tmp_path, monkeypatch, capsys):
     """#967: `preflight` and `run` share the route rule, so ADC and `vertex_ai/` routes need no key in either."""
@@ -491,7 +474,7 @@ def test_benchmark_preflight_skips_the_credentials_run_skips(argv_tail, tmp_path
     monkeypatch.setattr(
         "sys.argv",
         ["dokimi", "benchmark", "preflight", "--library", "onetbb", *argv_tail,
-         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
+         "--judge", "openai/gpt-4o", "--out-dir", str(tmp_path / "out")],
     )
     try:
         cli.main()

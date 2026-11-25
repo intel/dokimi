@@ -556,7 +556,7 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
 def test_the_extractor_defaults_to_the_judge_provider_not_the_answerer(tmp_path):
     from dokimi.novelty.cost import role_models
 
-    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--provider", "anthropic",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--model", "anthropic/claude-haiku-4-5",
                   "--judge-model", "judge-m", "--judge-provider", "openai", "--dry-run")
     models = role_models(args)
     assert models["judge"] == ("judge-m", "openai")
@@ -584,7 +584,7 @@ def test_estimate_only_stdout_stays_json_for_a_model_litellm_cannot_route(tmp_pa
     (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                    encoding="utf-8")
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
-                  "--dry-run", "--model", "foo-bar-9", "--provider", "openai")
+                  "--dry-run", "--model", "openai/foo-bar-9")
     args.func(args)
     payload = json.loads(capsys.readouterr().out)
     assert payload["expected_usd"] is None

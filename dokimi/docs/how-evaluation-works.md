@@ -64,7 +64,7 @@ How an author uses it:
 
 ```bash
 python cli.py skill novelty analyze --artifact skill:path/to/skill \
-    --model <model under measurement> --judge-model <a different model> \
+    --model <model under measurement> --judge <a different model> \
     --token-budgets 0.75 0.5
 ```
 

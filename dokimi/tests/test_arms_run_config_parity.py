@@ -181,7 +181,7 @@ def _run(argv: list[str]) -> None:
 #: Every flag the three entry points share (``subjects run`` takes only these), away from its
 #: default. ``--judge-model`` is left to ``--judge-provider`` in the panel case below.
 _SHARED_FLAGS = (
-    "--model", "answer-model", "--provider", "openrouter", "--context7-id", "/demo/docs",
+    "--model", "openrouter/answer-model", "--context7-id", "/demo/docs",
     "--judge", "--judge-model", "judge-model", "--judge-provider", "openai",
     "--top-k", "7", "--rerank-threshold", "0.55", "--max-iterations", "3",
     "--max-output-tokens", "32000", "--grounded-from-topics", "--concurrency", "2",
@@ -293,7 +293,7 @@ def test_arms_run_hands_the_session_fields_to_the_runner(runner_calls, io):
 
 
 def test_arms_run_with_a_named_cell_takes_the_cell_over_the_flags(runner_calls, io):
-    _run(_arms_run(io, "--judge", "--model", "flag-model", "--provider", "openai",
+    _run(_arms_run(io, "--judge", "--model", "openai/flag-model",
                    "--plugins", "plugin:truncate:400",
                    "--matrix-cells", str(io["cells"]), "--matrix-cell", "cell-b"))
 

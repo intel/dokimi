@@ -92,25 +92,26 @@ warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves t
 novelty judge to `openai/gpt-6.1-sol`, and a judging run that answers with it on the
 default judge's provider is refused (see below). Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
-natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
+natural tie-break above the Sonnet judge. On `--model amazon-bedrock/...` or `--judge amazon-bedrock/...` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
 `us.anthropic.*` inference profiles of the same name; outside the US, set
 `ANTHROPIC_DEFAULT_SONNET_MODEL` (or `_OPUS_`/`_HAIKU_`) to the regional profile of
 the same model (`eu.anthropic.claude-sonnet-5-5`), or pass the full profile id or ARN.
 A variable naming another model is ignored for these names. The `novelty` judge no
-longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
+longer follows `--model`: with no judge flags it runs on `anthropic`, so a
 Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
-`--provider amazon-bedrock`). `--judge-provider` alone takes the default judge that
-runs on that provider, the same on every surface: `claude-sonnet-5-5` on `anthropic`
-and `amazon-bedrock`, `opus` on `claude-cli` (`sonnet` when the answerer is `opus`),
-`gpt-6.1-sol` on `openai`. When that judge is the model under measurement (`gpt-6.1-sol`
-on `openai`, the default answer model) a judging run exits before its first answer
-and asks for `--judge-model`; so does `--model claude-sonnet-5-5` with the default
-`--judge-provider anthropic`. `eval score` and `eval judge` have no answerer and judge
-with `gpt-6.1-sol` on `openai`. On any other provider (`google`, `google-vertex`,
-`openrouter`) the run exits before the first call and asks for `--judge-model`. A
-matrix (`arms matrix-run --matrix-cells`) has one judge for all its cells; a cell
-whose model is that judge is warned about, not refused.
+`--model amazon-bedrock/<model>`). On `arms run`, `arms matrix-run` and `subjects run`,
+`--judge-provider` alone takes the default judge that runs on that provider, the same
+on every surface: `claude-sonnet-5-5` on `anthropic` and `amazon-bedrock`, `opus` on
+`claude-cli` (`sonnet` when the answerer is `opus`), `gpt-6.1-sol` on `openai`. The
+other commands name the judge as `--judge PROVIDER/MODEL`, model included. When that
+judge is the model under measurement (`gpt-6.1-sol` on `openai`, the default answer
+model) a judging run exits before its first answer and asks for a judge model; so does
+`--model anthropic/claude-sonnet-5-5` with `--judge-provider anthropic`. `eval score`
+and `eval judge` have no answerer and judge with `gpt-6.1-sol` on `openai`. On any
+other provider (`google`, `google-vertex`, `openrouter`) the run exits before the first
+call and asks for a judge model. A matrix (`arms matrix-run --matrix-cells`) has one
+judge for all its cells; a cell whose model is that judge is warned about, not refused.
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
@@ -119,7 +120,7 @@ judged with `claude-sonnet-4-5-20250929`, while `arms`, `subjects`, `evaluate`,
 obsolete small OpenAI model. A score, delta or cost produced with default flags before that date
 is not comparable with one produced after: re-run the baseline (the same question
 set via `--questions-from`, the same arms) under the new defaults, or pin the old
-models with `--model`/`--judge-model` to extend an old series. On the surfaces
+models with `--model`/`--judge` to extend an old series. On the surfaces
 that used the small model, a default-flag run now costs roughly 13-17x more per token.
 
 For registered libraries, prefer the one-command wrapper:
@@ -127,10 +128,8 @@ For registered libraries, prefer the one-command wrapper:
 ```bash
 python cli.py benchmark run \
   --library onetbb \
-  --model gpt-6.1-sol \
-  --provider openai \
-  --judge-model claude-sonnet-5-5 \
-  --judge-provider anthropic \
+  --model openai/gpt-6.1-sol \
+  --judge anthropic/claude-sonnet-5-5 \
   --out-dir results/onetbb_sol
 ```
 
@@ -158,8 +157,7 @@ For stability-sensitive claims, run the same configuration several times:
 python cli.py benchmark run \
   --library onetbb \
   --model gpt-6.1-sol \
-  --judge-model claude-sonnet-5-5 \
-  --judge-provider anthropic \
+  --judge anthropic/claude-sonnet-5-5 \
   --reps 3 \
   --out-dir results/onetbb_sol
 ```
@@ -176,8 +174,7 @@ create or choose a seed run:
 python cli.py benchmark run \
   --library onedal \
   --model gpt-6.1-sol \
-  --judge-model claude-sonnet-5-5 \
-  --judge-provider anthropic \
+  --judge anthropic/claude-sonnet-5-5 \
   --out-dir results/onedal_seed
 ```
 
@@ -187,19 +184,15 @@ Then reuse that question set for each model:
 python cli.py benchmark run \
   --library onedal \
   --questions-from results/onedal_seed \
-  --model gpt-6-astra \
-  --provider openai \
-  --judge-model claude-sonnet-5-5 \
-  --judge-provider anthropic \
+  --model openai/gpt-6-astra \
+  --judge anthropic/claude-sonnet-5-5 \
   --out-dir results/onedal_astra
 
 python cli.py benchmark run \
   --library onedal \
   --questions-from results/onedal_seed \
-  --model claude-opus-5-5 \
-  --provider anthropic \
-  --judge-model claude-sonnet-5-5 \
-  --judge-provider anthropic \
+  --model anthropic/claude-opus-5-5 \
+  --judge anthropic/claude-sonnet-5-5 \
   --out-dir results/onedal_opus55
 ```
 
@@ -231,16 +224,14 @@ python cli.py answers generate \
   --product oneTBB \
   --questions <content-checkout>/questions/onetbb_golden.json \
   --output results/onetbb_golden/answers/onetbb.json \
-  --model gpt-6.1-sol \
-  --provider openai \
+  --model openai/gpt-6.1-sol \
   --debug-retrieval
 
 python cli.py eval score pointwise \
   --product oneTBB \
   --answers results/onetbb_golden/answers/onetbb.json \
   --output results/onetbb_golden/eval/onetbb.json \
-  --judge-model claude-sonnet-5-5 \
-  --judge-provider anthropic
+  --judge anthropic/claude-sonnet-5-5
 
 python cli.py report eval \
   --product oneTBB \
@@ -490,7 +481,7 @@ pinned, only measured: run the same configuration several times
   score panel` (every panel judge) and `evaluate` take the same flag and record
   it as `judge_temperature` in their output. So do `eval score pairwise` (and its
   escalation judge), `eval score checklist`, `eval judge wording`, `eval judge agreement`
-  (every `--judges` entry) and `eval judge validate --mode pairwise`; each
+  (every `--judge` entry) and `eval judge validate --mode pairwise`; each
   probes every judge model with the setting first, before any judgement: a judge
   the provider table refuses exits 2 with no call made, and a probe call that the
   judge rejects exits 1, as `arms run` does.
@@ -580,7 +571,7 @@ pair, which counts as a miss, so lower it when the summary shows errors.
 
 ```bash
 python cli.py eval judge validate --answers run.json --sequential \
-  --judge-provider amazon-bedrock --judge-model openai.gpt-oss-120b-1:0 \
+  --judge amazon-bedrock/openai.gpt-oss-120b-1:0 \
   --mode pairwise --output validity_pairwise.json
 ```
 
@@ -616,7 +607,7 @@ measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` o
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
 `NOT MEASURED` when no voting measure compared a single question (every call
 errored, or every judge was gated out); `--strict` exits 3 on that, and 4 on a `JUDGE-DEPENDENT` arm. A
-`--judges` judge that leaves answers unscored prints how many and its first
+A `--judge` that leaves answers unscored prints how many and its first
 error, which the report keeps under `unscored`; one that scored none of its
 answers exits 1 once the report is written, with or without `--strict`, as
 `eval score pairwise` does when every comparison fails (a run failure, not bad input). With
@@ -629,9 +620,9 @@ the same context: a `--context stored` report for measures scored with material,
 a `--context none` report (or one without `context`) for the rest. A stored file
 whose scores all fell back to snippets counts as `none`; one that mixes stored and
 snippet scores counts as `mixed`, which no PASS validates (a FAIL still reaches it). Re-scoring resolves each arm's
-context the way the arms run does, from the file's `judge_materials`, so a `--judges`
+context the way the arms run does, from the file's `judge_materials`, so a `--judge`
 judge sees what the stored judge saw. A file written before `judge_materials` has
-only the report snippets; with stored scores on such material, `--judges` refuses
+only the report snippets; with stored scores on such material, `--judge` refuses
 (exit 2), and `--pairwise` or `--checklist` always do, since those judges see only
 the answers. `--no-stored` compares those judges with each other. The gate itself
 passes no context by default (`eval score pairwise` and `eval score checklist` never pass
@@ -648,7 +639,7 @@ measured on another model's answers.
 
 ```bash
 python cli.py eval judge agreement --answers run.json --questions golden.json --grounded --both \
-  --judges amazon-bedrock/us.anthropic.claude-haiku-5-5,amazon-bedrock/openai.gpt-oss-120b-1:0 \
+  --judge amazon-bedrock/us.anthropic.claude-haiku-5-5 --judge amazon-bedrock/openai.gpt-oss-120b-1:0 \
   --pairwise run_pairwise.json --validity validity_haiku.json --validity validity_pairwise.json
 ```
 

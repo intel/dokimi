@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi.commands import eval_coverage, eval_graph
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.cli_types import non_negative_int
@@ -470,8 +471,12 @@ def register(sub, positive_int):
     score_p.add_argument("--run-id", default=None, dest="run_id",
                          help="Run tag (e.g. gpt4o). Sets output to results/{product}_{run_id}/eval/{product}.json")
     score_p.add_argument("--output", default=None, help="Output file (default: eval/{product}.json)")
-    score_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
-    score_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
+    add_model_flag(
+        score_p, "--judge", dest="judge_model", provider_dest="judge_provider",
+        providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help=JUDGE_MODEL_HELP,
+        named_dest="judge_provider_named",
+    )
     score_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel judge calls (default: 5)")
     score_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                          help="Judge sampling temperature, recorded as judge_temperature in the output")
@@ -541,8 +546,12 @@ def register(sub, positive_int):
                             help="Also escalate pairs called TIE in both orders (default: only order-inconsistent)")
     validity_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY,
                             help=f"Parallel judge calls (default: {DEFAULT_CONCURRENCY})")
-    validity_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
-    validity_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
+    add_model_flag(
+        validity_p, "--judge", dest="judge_model", provider_dest="judge_provider",
+        providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help=JUDGE_MODEL_HELP,
+        named_dest="judge_provider_named",
+    )
     validity_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                             help="Judge sampling temperature; match arms run --judge-temperature to certify the same judge")
     validity_p.add_argument("--scorer", default="judge",
@@ -586,8 +595,11 @@ def register(sub, positive_int):
     panel_p.add_argument("--answers", required=True, help="Path to answers JSON file")
     panel_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     panel_p.add_argument("--output", default=None, help="Output file (default: eval/{product}_panel.json)")
-    panel_p.add_argument("--model", default=DEFAULT_JUDGE_MODEL, help="Default LLM model for all judges")
-    panel_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=ANSWER_PROVIDERS)
+    add_model_flag(
+        panel_p, "--model", dest="model", provider_dest="provider",
+        providers=ANSWER_PROVIDERS, default_model=DEFAULT_JUDGE_MODEL, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help="Default LLM model for all judges",
+    )
     panel_p.add_argument("--roles", default=None,
                          help="Comma-separated judge roles (default: technical_expert,developer_advocate,doc_reviewer)")
     panel_p.add_argument(

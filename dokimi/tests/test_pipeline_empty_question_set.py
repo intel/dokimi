@@ -74,8 +74,8 @@ def test_an_empty_cached_question_set_is_an_input_refusal_before_any_model_call(
     monkeypatch.setattr(EvaluationPipeline, "_discover_personas", no_personas)
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
     args = build_parser().parse_args([
-        "benchmark", "run", "--library", "onetbb", "--out-dir", str(out), "--provider", "openai",
-        "--judge-provider", "openai", "--judge-model", "judge-x",
+        "benchmark", "run", "--library", "onetbb", "--out-dir", str(out), "--model", "openai/gpt-6.1-sol",
+        "--judge", "openai/judge-x",
     ])
 
     with refusal() as outcome:

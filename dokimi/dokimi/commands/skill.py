@@ -10,6 +10,7 @@ is the one-skill routing that ``novelty routing`` used to be (#94 M3).
 
 from __future__ import annotations
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi import cli_flags
 import argparse
 
@@ -116,11 +117,13 @@ def register_skill(skill_sub, positive_int) -> None:
     _add_common(atoms_p, positive_int)
     # The extractor writes the answer key; `analyze` gives that role to the judge, so the
     # two paths default to the same model and a saved atom set matches an analyze run.
-    atoms_p.add_argument("--model", default=DEFAULT_JUDGE_MODEL,
-                         help="Extractor model when --extract-model is not given "
-                              f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)")
+    add_model_flag(
+        atoms_p, "--model", dest="model", provider_dest="provider",
+        providers=PROVIDERS, default_model=DEFAULT_JUDGE_MODEL, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help="Extractor model when --extract-model is not given "
+                              f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)",
+    )
     atoms_p.add_argument("--extract-model", default=None, dest="extract_model")
-    atoms_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=PROVIDERS)
     cli_flags.add(atoms_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     atoms_p.add_argument("--no-verify", action="store_true", dest="no_verify")
     atoms_p.add_argument("--out", default=None)
@@ -214,11 +217,13 @@ def register_skill(skill_sub, positive_int) -> None:
     shorten_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
     # Same model as the retention oracle inside `analyze` (its extractor, i.e. the judge):
     # adjudications are cached per model, and a different one would score other verdicts.
-    shorten_p.add_argument("--model", default=DEFAULT_JUDGE_MODEL,
-                           help="Retention adjudicator model "
-                                f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)")
+    add_model_flag(
+        shorten_p, "--model", dest="model", provider_dest="provider",
+        providers=PROVIDERS, default_model=DEFAULT_JUDGE_MODEL, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help="Retention adjudicator model "
+                                f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)",
+    )
     shorten_p.add_argument("--extract-model", default=None, dest="extract_model")
-    shorten_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=PROVIDERS)
     cli_flags.add(shorten_p, "tokens", "--max-output-tokens", metavar="N", type=positive_int, default=None, dest="max_tokens")
     shorten_p.add_argument("--lexical-only", action="store_true", dest="lexical_only",
                            help="Run the retention oracle without an LLM adjudicator. Cheap and "
