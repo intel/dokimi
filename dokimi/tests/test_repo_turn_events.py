@@ -215,7 +215,8 @@ def test_a_claude_usage_missing_counts_are_null_not_zero():
     raw = _lines(_call("a", {"input_tokens": 10, "output_tokens": 2}, "2026-11-14T10:00:00Z"),
                  _call("b", {"input_tokens": 5}, "2026-11-14T10:00:01Z"),
                  _call("b", {"output_tokens": 4}, "2026-11-14T10:00:02Z"),
-                 _call("c", {"input_tokens": 3}, "2026-11-14T10:00:03Z"))
+                 _call("c", {"input_tokens": 3}, "2026-11-14T10:00:03Z"),
+                 _call("d", {"input_tokens": 1, "output_tokens": 0}, "2026-11-14T10:00:04Z"))
     assert _turns(convert("claude-stream-json", raw).events) == [
         {"kind": "turn", "t": 0.0, "turn": 0, "input": 10, "output": 2, "cache_read": None, "cache_write": None,
          "prompt_tokens": 10},
@@ -223,7 +224,20 @@ def test_a_claude_usage_missing_counts_are_null_not_zero():
          "prompt_tokens": 5},
         {"kind": "turn", "t": 3.0, "turn": 2, "input": 3, "output": None, "cache_read": None, "cache_write": None,
          "prompt_tokens": 3},
+        {"kind": "turn", "t": 4.0, "turn": 3, "input": 1, "output": 0, "cache_read": None, "cache_write": None,
+         "prompt_tokens": 1},
     ]
+
+
+def _result(usage: dict) -> dict:
+    return {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1, "result": "ok", "usage": usage}
+
+
+def test_a_zero_output_closes_the_remainder_to_zero_not_null():
+    raw = _lines(_call("a", {"input_tokens": 2, "output_tokens": 0}, "2026-11-14T10:00:00Z"),
+                 _result({"input_tokens": 2, "output_tokens": 0}))
+    remainder = [e for e in convert("claude-stream-json", raw).events if e["kind"] == "usage_remainder"][0]
+    assert remainder["output"] == 0 and remainder["input"] == 0
 
 
 def test_a_streamed_message_counts_its_largest_output_once():
