@@ -22,7 +22,7 @@ def _plugin_delta(tmp_path: Path, *out: str) -> None:
     baseline.write_text(json.dumps(_arms_artifact()), encoding="utf-8")
     plugin.write_text(json.dumps(_arms_artifact("caveman:full")), encoding="utf-8")
     args = build_parser().parse_args([
-        "arms", "plugin-delta", "--baseline-json", str(baseline), "--plugin-json", str(plugin), *out,
+        "arms", "plugin-delta", "--baseline", str(baseline), "--plugin-json", str(plugin), *out,
     ])
     args.func(args)
 
@@ -86,7 +86,7 @@ def test_matrix_run_exits_2_naming_an_uncreatable_out_dir(tmp_path, capsys):
     questions = tmp_path / "questions.json"
     questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "What is x?"}]}), encoding="utf-8")
     out_dir = _blocker(tmp_path) / "out"
-    args = _args("matrix-run", "--product", "p", "--questions", str(questions), "--arms", "baseline",
+    args = _args("matrix-run", "--product", "p", "--questions", str(questions), "--arm", "baseline",
                  "--matrix-cells", str(cells), "--out-dir", str(out_dir))
     with refusal() as exc:
         args.func(args)
@@ -100,7 +100,7 @@ def test_plugin_delta_exits_2_on_a_deeply_nested_artifact(tmp_path, capsys):
     deep.write_text("[" * 100000, encoding="utf-8")
     plugin = tmp_path / "plugin.json"
     plugin.write_text(json.dumps(_arms_artifact("caveman:full")), encoding="utf-8")
-    args = _args("plugin-delta", "--baseline-json", str(deep), "--plugin-json", str(plugin))
+    args = _args("plugin-delta", "--baseline", str(deep), "--plugin-json", str(plugin))
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2
@@ -113,7 +113,7 @@ def _matrix_run(tmp_path: Path, out_dir: Path, *extra: str):
     cells.write_text(json.dumps({"cells": [{"name": "c1", "model": "m", "provider": "anthropic", "harness": "arms-runner"}]}), encoding="utf-8")
     questions = tmp_path / "questions.json"
     questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "What is x?"}]}), encoding="utf-8")
-    return _args("matrix-run", "--product", "p", "--questions", str(questions), "--arms", "baseline",
+    return _args("matrix-run", "--product", "p", "--questions", str(questions), "--arm", "baseline",
                  "--matrix-cells", str(cells), "--out-dir", str(out_dir), *extra)
 
 
@@ -167,7 +167,7 @@ def test_arms_run_exits_2_on_an_unreadable_questions_file(tmp_path, capsys, kind
         questions.mkdir()
     else:
         questions.write_text("[" * 100000, encoding="utf-8")
-    args = build_parser().parse_args(["arms", "run", "--product", "p", "--arms", "a:spec.yaml",
+    args = build_parser().parse_args(["arms", "run", "--product", "p", "--arm", "a:spec.yaml",
                                       "--questions", str(questions)])
     with refusal() as exc:
         args.func(args)

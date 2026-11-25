@@ -83,7 +83,7 @@ and times become ISO strings, and YAML sets sorted lists.
 ### SWE-bench rows: `tasks run --swe-bench`
 
 `python cli.py tasks run --swe-bench <rows.jsonl> --tasks <instance_id>[,...]
---harnesses docker-oracle,docker-claude` runs SWE-bench rows (Lite, Verified,
+--harness docker-oracle,docker-claude` runs SWE-bench rows (Lite, Verified,
 or any file with the same fields) with the `docker-*` harnesses; `--all`
 runs every row. Each row is staged under `<output-dir>/swe-bench-tasks/<id>/`
 as a task the harness already runs, by `dokimi/harnesses/swebench.py`:
@@ -874,13 +874,13 @@ Run one task through Codex and compare it to Claude Code:
 python cli.py tasks run \
   --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --tasks onetbb-parallel-reduce \
-  --harnesses claude-code,codex \
+  --harness claude-code,codex \
   --baseline-harness claude-code \
   --model anthropic/claude-opus-4-6 \
   --out results/task-runs/onetbb-reduce.json
 ```
 
-If `--baseline-harness` is not listed in `--harnesses`, the CLI adds it to the
+If `--baseline-harness` is not listed in `--harness`, the CLI adds it to the
 run matrix and prints that it will also run the baseline harness.
 
 Run all tasks through a custom wrapper:
@@ -889,7 +889,7 @@ Run all tasks through a custom wrapper:
 python cli.py tasks run \
   --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --all \
-  --harnesses command \
+  --harness command \
   --command-template "my-agent --task {task_path} --model {model} --out {output_dir}" \
   --model my-model
 ```
@@ -960,7 +960,7 @@ per-task breakdown — lands in one schema-validated artifact:
 python cli.py tasks run \
   --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --tasks intel-perf-serial-accumulator,intel-perf-false-sharing,intel-perf-missing-restrict \
-  --harnesses docker-claude,docker-claude-skill:<content-checkout>/skills/intel-performance-patterns/SKILL.md \
+  --harness docker-claude,docker-claude-skill:<content-checkout>/skills/intel-performance-patterns/SKILL.md \
   --baseline-harness docker-claude \
   --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
   --reps 3 \
@@ -1063,7 +1063,7 @@ Run all three together:
 ```bash
 python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --tasks onetbb-transpose \
-  --harnesses docker-claude,docker-claude-skill:<skill>,docker-claude-skill-discover:<skill> \
+  --harness docker-claude,docker-claude-skill:<skill>,docker-claude-skill-discover:<skill> \
   --baseline-harness docker-claude --model <model> --reps 3 \
   --out results/onetbb-discover.json
 ```
@@ -1134,7 +1134,7 @@ still writes the artifact:
 ```bash
 python cli.py tasks run --tasks <task-name> \
   --tasks-root <checkout>/evaluation/harbor/tasks \
-  --harnesses docker-oracle --out results/oracle-check.json
+  --harness docker-oracle --out results/oracle-check.json
 ```
 
 ## Output Artifact
@@ -1354,7 +1354,7 @@ use the entries it reports the same way as local ones:
 # with-skill treatment arm using an external skill
 python cli.py tasks run --tasks onetbb-histogram-local-aggregation \
   --tasks-root /tmp/uxl-skills/evaluation/harbor/tasks \
-  --harnesses docker-oracle,docker-claude-skill:/tmp/uxl-skills/skills/uxl-onetbb \
+  --harness docker-oracle,docker-claude-skill:/tmp/uxl-skills/skills/uxl-onetbb \
   --baseline-harness docker-oracle
 
 # or hand an external task straight to Harbor
@@ -1382,7 +1382,7 @@ SkillsBench tasks (`task.md`) run through the `benchflow:*` harnesses:
 git clone https://github.com/benchflow-ai/skillsbench /tmp/skillsbench
 python cli.py tasks run --tasks parallel-tfidf-search \
   --tasks-root /tmp/skillsbench/tasks \
-  --harnesses benchflow:claude-agent-acp,benchflow-skill:claude-agent-acp \
+  --harness benchflow:claude-agent-acp,benchflow-skill:claude-agent-acp \
   --baseline-harness benchflow:claude-agent-acp \
   --model aws-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
