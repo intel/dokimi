@@ -161,7 +161,7 @@ def summarize_task_results(
         if reward is not None and not errored:
             stats["reward_sum"] += reward
             stats["reward_n"] += 1
-        stats["elapsed_sec"] += float(row.get("elapsed_sec") or 0.0)
+        stats["elapsed_sec"] += as_float(row.get("elapsed_sec")) or 0.0
         metrics = row.get("metrics", {})
         stats["operation_count"] += _count(metrics.get("operation_count")) or 0
         for op_type, count in metrics.get("operations_by_type", {}).items():
@@ -395,6 +395,8 @@ def _count(value: Any) -> int | None:
     count (bool is an int subclass); ``1.0`` from a JSON round-trip is 1."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
+    if isinstance(value, int):  # float() of an int past the float range raises
+        return value if value >= 0 else None
     if value < 0 or not float(value).is_integer():  # also rejects nan / inf
         return None
     return int(value)

@@ -72,3 +72,18 @@ def test_task_runs_report_shows_a_reward_beyond_the_float_range_as_null():
         "summary": summarize_task_results(rows),
     })
     assert "| `h` | 1 | null |" in md
+
+
+@pytest.mark.parametrize("field", ["elapsed_sec", "operation_count", "n_skill_invocations"])
+def test_summarize_task_results_survives_other_fields_beyond_the_float_range(field):
+    from dokimi.harnesses.runner import summarize_task_results
+
+    row = {"task": "t", "harness": "h", "passed": True, "elapsed_sec": 1, "reward": 1.0, "metrics": {}}
+    if field == "elapsed_sec":
+        row[field] = 10**400
+    else:
+        row["metrics"][field] = 10**400
+    stats = summarize_task_results([row])["per_harness"]["h"]
+    assert stats["avg_reward"] == 1.0
+    if field == "operation_count":
+        assert stats["operation_count"] == 10**400
