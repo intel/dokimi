@@ -129,7 +129,8 @@ def _content(text: str) -> set[str]:
 
 
 def _values(text: str) -> set[str]:
-    return {v.lower() for v in _VALUE.findall(text)}
+    return {re.sub(r"^([+-]?)v(?=\d)", r"\1", value.lower()).removeprefix("+")
+            for value in _VALUE.findall(text)}
 
 
 def _distinctive(text: str) -> set[str]:

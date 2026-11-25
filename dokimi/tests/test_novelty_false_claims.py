@@ -101,3 +101,8 @@ def test_a_negative_default_differs_from_the_positive_default():
 def test_version_conflict_quotes_the_driver_version():
     assert lexical_conflict("The accelerator requires driver version 2.1.",
                             "Windows 11 needs driver version 3.0.") == ("lexical:value", "3.0")
+
+
+def test_version_prefix_does_not_change_the_value():
+    assert lexical_conflict("The accelerator requires driver 2.1.",
+                            "The accelerator needs driver v2.1.") is None
