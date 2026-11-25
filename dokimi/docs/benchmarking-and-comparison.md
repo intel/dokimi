@@ -120,8 +120,13 @@ judged with `claude-sonnet-4-5-20250929`, while `arms`, `subjects`, `evaluate`,
 obsolete small OpenAI model. A score, delta or cost produced with default flags before that date
 is not comparable with one produced after: re-run the baseline (the same question
 set via `--questions-from`, the same arms) under the new defaults, or pin the old
-models with `--model`/`--judge` to extend an old series. On the surfaces
-that used the small model, a default-flag run now costs roughly 13-17x more per token.
+models to extend the series. Use `--model PROVIDER/MODEL` for the answerer and
+`--judge PROVIDER/MODEL` on commands with a qualified judge flag. For `arms run`,
+`arms matrix-run`, and `subjects run`, enable judging with `--judge` and pin it
+with `--judge-provider PROVIDER --judge-model MODEL`. Novelty supports the same
+separate model and provider flags or a qualified `--judge PROVIDER/MODEL` panel entry.
+On the surfaces that used the small model, a default-flag run now costs roughly
+13-17x more per token.
 
 For registered libraries, prefer the one-command wrapper:
 
