@@ -615,12 +615,25 @@ def _split_flag(tokens: list[str], i: int, equals: str, value: str, move: FlagMo
     return out, nxt
 
 
+def _last_split_flags(tokens: Sequence[str], moves: Sequence[FlagMove]) -> dict[str, int]:
+    """Find the final occurrence of each retired list flag before the positional separator."""
+    split = {move.old for move in moves if move.split}
+    last: dict[str, int] = {}
+    for index, token in enumerate(tokens):
+        if token == "--":
+            break
+        name = token.partition("=")[0]
+        if name in split:
+            last[name] = index
+    return last
+
+
 def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
     """``argv`` with each moved spelling rewritten to its new one, or None when none moved.
 
     A provider and a model that moved together (``--provider X --model M``) fold into one
-    ``--model X/M`` first; a flag that moved alone is renamed; a split value (``--judges a,b``)
-    becomes one flag per item.
+    ``--model X/M`` first; a flag that moved alone is renamed; the final value of a split
+    flag (``--judges a,b``) becomes one flag per item.
     """
     canon = _canonical(tuple(argv))
     leaf = max((leaf.path for leaf in LEAVES if canon[: len(leaf.path)] == leaf.path),
@@ -633,6 +646,8 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
         folded = _fold_provider(tokens, join)
         if folded is not None:
             tokens, changed = folded, True
+    moves = [move for move in FLAG_MOVES if not move.leaves or leaf in move.leaves]
+    last_split = _last_split_flags(tokens, moves)
     out: list[str] = []
     i = 0
     while i < len(tokens):
@@ -641,16 +656,17 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
             out.extend(tokens[i:])
             break
         name, equals, value = token.partition("=")
-        move = next((m for m in FLAG_MOVES
-                     if name == m.old and (not m.leaves or leaf in m.leaves)), None)
+        move = next((m for m in moves if name == m.old), None)
         if move is None:
             out.append(token)
             i += 1
             continue
         changed = True
         if move.split:
+            original = i
             items, i = _split_flag(tokens, i, equals, value, move)
-            out.extend(items)
+            if original == last_split[name]:
+                out.extend(items)
             continue
         # a new spelling that carries its value (--fail-on=warn) takes no stray value from the old one
         out.append(move.new if "=" in move.new else f"{move.new}{equals}{value}")

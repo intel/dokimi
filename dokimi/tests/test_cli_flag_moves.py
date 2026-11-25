@@ -54,6 +54,27 @@ def test_the_retired_answer_provider_joins_a_model_with_a_slash():
     ]
 
 
+@pytest.mark.parametrize(("first", "last"), [
+    (["--judges", "openai/a,openai/b"], ["--judges", "anthropic/c,anthropic/d"]),
+    (["--judges=openai/a,openai/b"], ["--judges=anthropic/c,anthropic/d"]),
+    (["--judges", "openai/a,openai/b"], ["--judges=anthropic/c,anthropic/d"]),
+    (["--judges=openai/a,openai/b"], ["--judges", "anthropic/c,anthropic/d"]),
+])
+def test_repeated_retired_judges_split_only_the_last_value(first, last, capsys):
+    base = ["eval", "judge", "agreement", "--answers", "a.json"]
+    text = _tombstone([*base, *first, "--no-stored", *last], capsys)
+    suggested = shlex.split(text.split("moved: ", 1)[1].strip())
+    assert suggested == ["dokimi", *base, "--no-stored", "--judge", "anthropic/c", "--judge", "anthropic/d"]
+    assert cli.parse_args(suggested[1:]).judges == ["anthropic/c", "anthropic/d"]
+
+
+def test_retired_judge_panel_scan_stops_at_the_end_of_options():
+    argv = ["eval", "judge", "agreement", "--judges=openai/a,openai/b", "--", "--judges", "anthropic/c"]
+    assert cli_routes.moved_flags_argv(argv) == [
+        "eval", "judge", "agreement", "--judge", "openai/a", "--judge", "openai/b", "--", "--judges", "anthropic/c",
+    ]
+
+
 @pytest.mark.parametrize(("old", "new"), [
     (["benchmark", "run", "--library", "x", "--output-dir", "d"],
      ["benchmark", "run", "--library", "x", "--out-dir", "d"]),
