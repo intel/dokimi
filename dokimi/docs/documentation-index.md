@@ -67,7 +67,8 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 - [runs.md](runs.md) — what the runs have written: `cli.py runs list` lists
   every artifact under `results/` (or `DOKIMI_RUNS_DIR`), one run's together,
   and counts what it skipped, `cli.py runs show` checks one against its schema
-  or lists one run. No LLM call.
+  or lists one run, `cli.py runs rm` and `cli.py runs gc --older-than` remove
+  runs. No LLM call.
 - [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
   preflight, run, then pin the question set so runs stay comparable.
 - [benchmarking-and-comparison.md](benchmarking-and-comparison.md) — how to
@@ -85,6 +86,7 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
+- [product-experiment-replay.md](product-experiment-replay.md) — replay a frozen product experiment and its verifier evidence
 - [knowledge-runs.md](knowledge-runs.md) — ask one question set of one agent
   or model with no docs injected and grade it (`arms run --arms baseline`,
   `answers generate --doc-source none`): the reference before a with-docs comparison.

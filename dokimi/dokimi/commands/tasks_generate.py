@@ -5,7 +5,8 @@
 
 ``--from graph`` reads a SCIP code index; ``--from replay`` reads a threads file of merged pull requests
 (the former ``repo tasks replay``, #94 D11 and M3); ``--from prs`` reads a file of merged pull requests and
-writes authoring tasks (contract §4.8, #94 D11).
+writes authoring tasks (contract §4.8, #94 D11); ``--from history`` writes the same authoring tasks from the
+source's bug-fix commits (§4.8, "From commits").
 """
 
 from __future__ import annotations
@@ -23,10 +24,11 @@ from dokimi.utils import InputError
 if TYPE_CHECKING:
     from dokimi.repos.graph_tasks import Plan
 
-SOURCES = ("graph", "prs", "replay")
+SOURCES = ("graph", "history", "prs", "replay")
 SOURCE_HELP = ("Repository source: a local directory, <dir>@<rev> or <https-or-ssh-url>@<rev> (cloned bare into the "
                "cache). --from graph needs <rev>, the revision the index was built from, and its full SHA is the base "
-               "of every graph task; replay and prs read the pull requests' commits from the source's git history, "
+               "of every graph task; history reads the first-parent commits of <rev>, each task's base the commit's "
+               "parent; replay and prs read the pull requests' commits from the source's git history, "
                "and a task's base is the merge base of a revision of its pull request with the base branch as it "
                "merged (mergeCommit^1)")
 
@@ -36,10 +38,12 @@ SOURCE_HELP = ("Repository source: a local directory, <dir>@<rev> or <https-or-s
 FLAG_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
     "index": ("--index", ("graph",)), "references": ("--references", ("graph",)),
     "derives": ("--derives", ("graph",)), "seed": ("--seed", ("graph",)), "max_turns": ("--max-turns", ("graph",)),
-    "dry_run": ("--dry-run", ("graph",)), "threads": ("--threads", ("replay",)), "window": ("--window", ("replay",)),
-    "manifest": ("--manifest", ("replay", "prs")), "manifest_file": ("--manifest-file", ("replay", "prs")),
-    "prompt_file": ("--prompt-file", ("replay", "prs")), "prs": ("--prs", ("prs",)),
-    "max_lines": ("--max-lines", ("prs",)),
+    "dry_run": ("--dry-run", ("graph", "history")), "threads": ("--threads", ("replay",)), "window": ("--window", ("replay",)),
+    "manifest": ("--manifest", ("replay", "prs", "history")),
+    "manifest_file": ("--manifest-file", ("replay", "prs", "history")),
+    "prompt_file": ("--prompt-file", ("replay", "prs", "history")), "prs": ("--prs", ("prs",)),
+    "max_lines": ("--max-lines", ("prs", "history")), "commits": ("--commits", ("history",)),
+    "subject": ("--subject", ("history",)),
 }
 NEEDS = {"replay": ("threads", "--from replay needs --threads FILE, the merged pull requests with their reviewThreads"),
          "prs": ("prs", "--from prs needs --prs FILE, the merged pull requests with their descriptions")}
@@ -47,12 +51,13 @@ DEFAULTS: dict[str, dict[str, object]] = {
     "graph": {"references": 9, "derives": 3, "seed": 7, "max_turns": 40},
     "replay": {"window": 5, "manifest": ".agent-eval/repo-eval.yaml"},
     "prs": {"max_lines": 400, "manifest": ".agent-eval/repo-eval.yaml"},
+    "history": {"commits": 300, "max_lines": 400, "manifest": ".agent-eval/repo-eval.yaml"},
 }
 
 
 def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
-    """Build tasks from ``--from``: graph (enumeration tasks, gold from a SCIP index), replay (review threads) or
-    prs (authoring tasks with hidden tests)."""
+    """Build tasks from ``--from``: graph (enumeration tasks, gold from a SCIP index), replay (review threads),
+    prs (authoring tasks with hidden tests) or history (the same authoring tasks from bug-fix commits)."""
     source = args.from_kind
     if source in NEEDS and getattr(args, NEEDS[source][0]) is None:
         raise InputError(NEEDS[source][1])
@@ -66,6 +71,8 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
         from .repo_run import cmd_repo_tasks_authoring
 
         return cmd_repo_tasks_authoring(args)
+    if source == "history":
+        return _generate_history(args)
     _generate_graph(args)
 
 
@@ -126,6 +133,67 @@ def _generate_graph(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _generate_history(args: argparse.Namespace) -> None:
+    """One dokimi:hidden_tests task per bug-fix commit of the source's first-parent history (no LLM, no GitHub)."""
+    import re
+
+    from dokimi.repos import open_source
+    from dokimi.repos.replay import History
+    from dokimi.repos.replay.authoring import Options
+    from dokimi.repos.replay.authoring_commits import DEFAULT_SUBJECT, build_all, first_parent
+    from dokimi.repos.replay.authoring_prompt import DEFAULT_INSTRUCTION
+    from dokimi.repos.source import GitTree, is_shallow
+    from dokimi.repos.workspace import source_git_dir
+
+    from .repo import _cache_dir, _load_manifest, _parse_source
+    from .repo_run import _errors, _refuse_typed
+
+    try:
+        if args.subject == "":
+            raise InputError("--subject is empty (give '.' for every commit)")
+        subject = re.compile(DEFAULT_SUBJECT if args.subject is None else args.subject, re.I)
+    except (re.error, OverflowError, RecursionError) as exc:
+        raise InputError(f"--subject {args.subject!r} is not a regular expression: {exc}") from None
+    source = _parse_source(args)
+    if not source.rev:
+        raise InputError(f"pin the revision whose history to read: {args.source}@<rev> (a branch, tag or SHA)")
+    _refuse_typed(source, args)  # before the prompt file: a source refusal is not masked by an unreadable one
+    try:
+        text = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_INSTRUCTION
+        if not text:
+            raise ValueError(f"the prompt file {args.prompt_file} is empty")
+        tree = open_source(source, _cache_dir(args))
+        if not isinstance(tree, GitTree):  # a pinned source always opens as a git tree; kept for the type
+            raise ValueError(f"{tree.label} is not a git revision")
+        manifest = _load_manifest(tree, args)
+        opts = Options(out=Path(args.out), max_lines=args.max_lines, instruction=text, force=args.force)
+        git_dir = source_git_dir(source, tree, _cache_dir(args))
+        if is_shallow(git_dir):
+            raise InputError("history generation needs a full clone; run git fetch --unshallow")
+        h = History(git_dir)
+        commits, n_read, n_merges = first_parent(h, tree.sha, args.commits, subject)
+        outcomes = build_all(h, manifest, commits, opts, dry_run=args.dry_run)
+    except _errors() as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"{len(commits)} of {n_read} first-parent commit(s) of {tree.label} have a subject --subject matches"
+          + (f"; {n_merges} merge commit(s) left out" if n_merges else ""))
+    for o in outcomes:
+        d = o.dropped
+        what = (f"{o.task}: {o.n_hidden} hidden test file(s), {o.n_lines} line(s) outside the tests; the prompt "
+                f"dropped {d.get('test_lines', 0)} line(s) naming a hidden test, {d.get('code_blocks', 0)} quoted "
+                f"block(s), {d.get('links', 0)} link(s)") if o.status in ("written", "would write") \
+            else f"{o.task}: {o.reason}"
+        print(f"{o.status} {what}")
+    n = {k: sum(o.status == k for o in outcomes) for k in ("written", "would write", "kept", "skipped")}
+    done = n["would write"] if args.dry_run else n["written"]
+    print(f"{done} task(s) {'to write' if args.dry_run else 'written'}, {n['kept']} kept, {n['skipped']} commit(s) "
+          f"skipped; in {opts.out}")
+    if not done and not n["kept"]:
+        print("✗ no commit gave a task", file=sys.stderr)
+        sys.exit(1)
+
+
 def _print_coverage(p: Plan) -> None:
     print(f"{p.documents_in_tree}/{p.documents} index documents in the tree"
           + (f" under {p.root_prefix}" if p.root_prefix else "")
@@ -153,16 +221,20 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
         "from a SCIP code index; --from replay writes one dokimi:review_replay task per merged pull request of a "
         "threads file; --from prs writes one dokimi:hidden_tests task per merged pull request of a pull request "
         "file (its description as the prompt, its test files hidden until grading, the rest of its diff as the "
-        "oracle). Exits 2 on a usage error, among them a malformed source, an unpinned remote, a local source "
+        "oracle); --from history writes the same tasks from the bug-fix commits of the revision's first-parent "
+        "history, no pull request file needed. Exits 2 on a usage error, among them a malformed source, an unpinned remote, a local source "
         "that is not a directory or a --cache-dir that is not a usable directory (so is a $DOKIMI_REPO_CACHE, without the flag). With graph, also 2 on an index that does not read or matches no file "
         "of the source, and 1 when no target of the index gave a task, the tasks cannot be written or the source "
         "cannot be resolved at the revision. With replay or prs, 1 when no pull request gave a task, a task cannot "
         "be written, the source cannot be opened, or the threads or pull request file, the manifest or the prompt "
-        "file cannot be used")
+        "file cannot be used. With history, 2 on an unpinned source or a --subject that is empty or not a "
+        "regular expression, and 1 when no commit gave a task, a task cannot be written, the source is a shallow "
+        "clone, or the source's history, the "
+        "manifest or the prompt file cannot be used")
     gen_p.add_argument("source", help=SOURCE_HELP)
     gen_p.add_argument("--from", required=True, choices=SOURCES, dest="from_kind",
-                       help="What the tasks are built from: graph (a code index), prs (a pull request file) or replay "
-                       "(a threads file)")
+                       help="What the tasks are built from: graph (a code index), history (the source's commits), prs "
+                       "(a pull request file) or replay (a threads file)")
     gen_p.add_argument("--threads", default=None, metavar="FILE",
                        help="--from replay: JSON holding the merged pull requests with their reviewThreads, as the "
                        "query in the contract (§4.6) returns them; pages of --paginate --slurp are read too")
@@ -170,20 +242,27 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
                        help="--from prs: JSON holding the merged pull requests, as the query in the contract (§4.8) "
                        "returns them; pages of --paginate --slurp are read too")
     gen_p.add_argument("--manifest", default=None,
-                       help="--from replay or prs: manifest path relative to the repository root (default "
+                       help="--from replay, prs or history: manifest path relative to the repository root (default "
                        ".agent-eval/repo-eval.yaml): its guidance globs and eval_dir are left out of every task")
     gen_p.add_argument("--manifest-file", default=None, dest="manifest_file",
-                       help="--from replay or prs: read the manifest from this local file instead of from the tree")
+                       help="--from replay, prs or history: read the manifest from this local file instead of from the tree")
     gen_p.add_argument("--window", type=positive_int, default=None,
                        help="--from replay: task.json `window`, and how near a thread's line a later commit of the PR "
                        "must change the file for `addressed` (default 5)")
     gen_p.add_argument("--max-lines", type=positive_int, default=None, dest="max_lines",
-                       help="--from prs: skip a pull request whose diff outside its tests and the left-out files adds "
-                       "and removes more lines than this (default 400)")
+                       help="--from prs or history: skip a pull request or commit whose diff outside its tests and the "
+                       "left-out files adds and removes more lines than this (default 400)")
+    gen_p.add_argument("--commits", type=positive_int, default=None, metavar="N",
+                       help="--from history: read the newest N first-parent commits of the revision, merges left out "
+                       "(default 300)")
+    gen_p.add_argument("--subject", default=None, metavar="REGEX",
+                       help="--from history: the commits whose subject this matches, case-insensitive (default: fix, "
+                       "bug, regress, crash, wrong, ... ; '.' takes every commit); a revert, fixup!, squash! or amend! "
+                       "commit is never one")
     gen_p.add_argument("--prompt-file", default=None, dest="prompt_file",
                        help="--from replay: the agent's prompt (default: a review prompt asking for the findings JSON); "
                        "--from prs: the instruction after the PR's title and description (default: implement the "
-                       "change; its tests are hidden)")
+                       "change; its tests are hidden); --from history: the same, after the commit's subject and message")
     gen_p.add_argument("--index", default=None, metavar="FILE",
                        help="A SCIP code index of the source at its revision (scip-python, scip-clang, ...); "
                        "dokimi never builds one")
@@ -197,9 +276,10 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
     gen_p.add_argument("--max-turns", type=positive_int, default=None, dest="max_turns",
                        help="task.json max_turns (default 40)")
     gen_p.add_argument("--force", action="store_true",
-                       help="Rewrite a task directory that has a task.json (default: keep it and its edits)")
+                       help="Rewrite a task directory that has a task.json (default: keep it and its edits); with prs or "
+                            "history, a pull request's task from the other source is kept even so")
     gen_p.add_argument("--dry-run", action="store_true", dest="dry_run",
-                       help="Print the chosen tasks without writing them")
+                       help="--from graph or history: print the chosen tasks without writing them")
     gen_p.add_argument("--cache-dir", default=None, dest="cache_dir",
                        help="Clone cache directory (default: $DOKIMI_REPO_CACHE or ~/.cache/dokimi/repos)")
     gen_p.set_defaults(func=cmd_eval_tasks_generate)

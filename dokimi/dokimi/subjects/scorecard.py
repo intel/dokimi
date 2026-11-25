@@ -57,12 +57,22 @@ def build_subject_scorecard(
             cells.append({
                 "product": run["product"],
                 "questions": run["questions"],
+                # The digest of this run's own question file: a suite with one file per product
+                # measures a different set in each cell, and suite.question_set_hash covers them all.
+                "questions_digest": _digest_values((run["questions"],), require_files=True),
                 "matrix_cell": cell.get("matrix_cell"),
                 "artifact": cell.get("artifact"),
                 "model": cell.get("model"),
                 "provider": cell.get("provider"),
                 "harness": cell.get("harness"),
                 "baseline_arm": cell.get("baseline_arm"),
+                "judge_model": cell.get("judge_model"),
+                "judge_provider": cell.get("judge_provider"),
+                "judge_context": cell.get("judge_context"),
+                "judge_temperature": cell.get("judge_temperature"),
+                "judge_prompt_sha256": cell.get("judge_prompt_sha256"),
+                **({"judge_resolved_models": cell["judge_resolved_models"]}
+                   if "judge_resolved_models" in cell else {}),
                 "plugin_set": cell.get("plugin_set"),
                 "summary": cell.get("summary", {}),
                 "cost_summary": cell.get("cost_summary", {}),
@@ -97,7 +107,7 @@ def build_subject_scorecard(
         "suite": {
             "products": list(descriptor.suite.products),
             "questions": list(descriptor.suite.questions),
-            "question_set_hash": _digest_values(descriptor.suite.questions),
+            "question_set_hash": _digest_values(descriptor.suite.questions, require_files=True),
             "tasks": list(descriptor.suite.tasks),
         },
         "baseline": descriptor.baseline,
@@ -169,7 +179,7 @@ def _is_dir(path: Path) -> bool:
     return mode is not None and stat.S_ISDIR(mode)
 
 
-def _digest_values(values: tuple[str, ...]) -> str:
+def _digest_values(values: tuple[str, ...], *, require_files: bool = False) -> str | None:
     """Per value: its text's digest, then a tag for file or no file, then the file's digest when it names one."""
     h = hashlib.sha256()
     for value in values:
@@ -177,6 +187,8 @@ def _digest_values(values: tuple[str, ...]) -> str:
         path = Path(value)
         if _is_file(path):
             h.update(b"f" + hashlib.sha256(path.read_bytes()).digest())
+        elif require_files:
+            return None
         else:
             h.update(b"t")
     return "sha256:" + h.hexdigest()

@@ -16,8 +16,8 @@ import json
 from pathlib import Path
 
 from dokimi.artifacts import SCHEMA_VERSIONS, load_artifact
-from dokimi.atomic_write import write_chunks_atomic
-from dokimi.process_io import json_utf8_bytes
+from dokimi.atomic_write import write_bytes_in_place_or_atomic, write_chunks_atomic
+from dokimi.process_io import json_utf8_bytes, text_file_bytes
 
 # Which list inside each artifact carries the per-row records.
 RECORD_KEY = {
@@ -192,8 +192,6 @@ def export_artifact(
         raise ValueError(f"Unknown format: {fmt!r} (expected jsonl|parquet|hf)")
 
     columns = sorted({c for row in rows for c in row}) if rows else []
-    (out_dir / "README.md").write_text(
-        dataset_card(kind, Path(input_path), len(rows), columns, source_version=source_version),
-        encoding="utf-8",
-    )
+    card = dataset_card(kind, Path(input_path), len(rows), columns, source_version=source_version)
+    write_bytes_in_place_or_atomic(out_dir / "README.md", text_file_bytes(card))
     return primary
