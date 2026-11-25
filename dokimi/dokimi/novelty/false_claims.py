@@ -48,8 +48,8 @@ Return ONLY JSON: {{"verdict": "contradicts|supports|unrelated",
 "quote": "<the exact words of SENTENCE that conflict, or empty>"}}
 """
 
-_WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_.\-/]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
-_FLAG = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*")
+_WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
+_FLAG = re.compile(r"(?<![\w.-])--?[A-Za-z][A-Za-z0-9_-]*(?![\w-]|\.[\w.-])")
 # Recognize common quantities without treating arbitrary alphanumeric names as numbers.
 _TIME_UNITS = {
     "ns": -9, "nanosecond": -9, "nanoseconds": -9,
@@ -77,7 +77,7 @@ _NEGATION = re.compile(
 # "a.b" do not end one.
 _SENTENCE = re.compile(r"[^\n]+?(?:(?:(?<!(?i:e\.g|i\.e))\.|[!?])(?=\s|$)|$)", re.M)
 _ABBREVIATION = re.compile(r"(?<!\w)(?:e\.g|i\.e)\.(?!\w)", re.I)
-_CONFIDENCE = re.compile(r"confidence:[ \t]*[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?", re.I)
+_CONFIDENCE = re.compile(r"confidence:\s*[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?", re.I)
 _STOP = frozenset(
     "a an the is are was were be been to of in on for and or with by as at it this that "
     "these those you your can will may must should use uses used from into not no do does "
@@ -181,9 +181,10 @@ def _scale_decimal(quantity: Decimal, shift: int) -> Decimal:
 
 def _distinctive(text: str) -> set[str]:
     """Flags and identifiers that can anchor pairing, even when their case changes."""
-    words = (token.rstrip(".") for token in _WORD.findall(_ABBREVIATION.sub(" ", text)))
-    return {w.lower() for w in words if _FLAG.fullmatch(w) or _DOTTED_IDENTIFIER.fullmatch(w)
-            or ("_" in w and w.isidentifier() and not w.strip("_").isdigit())}
+    text = _ABBREVIATION.sub(" ", text)
+    flags = {flag.lower() for flag in _FLAG.findall(text)}
+    words = (token.rstrip(".") for token in _WORD.findall(text))
+    return flags | {w.lower() for w in words if _DOTTED_IDENTIFIER.fullmatch(w) or ("_" in w and w.isidentifier())}
 
 def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) -> list[Atom]:
     """Atoms the sentence is plausibly *about*: a shared distinctive token, or word overlap.
