@@ -12,8 +12,16 @@ import pytest
 from dokimi import cli, cli_flags, cli_routes
 from dokimi.cli import build_parser
 
-_MOVED = {"--run-id", "--batch", "--force-regen", "--stats-correction"}
-_MOVES = [m for m in cli_flags.FLAG_MOVES if m.old in _MOVED]
+_MOVES = [
+    cli_flags.FlagMove("--run-id", "--name", leaves=(
+        ("answers", "generate"), ("eval", "score", "pointwise"), ("report", "eval"),
+    )),
+    cli_flags.FlagMove("--batch", "--name", leaves=(("repo", "run"),)),
+    cli_flags.FlagMove("--force-regen", "--force", leaves=(("benchmark", "run"), ("benchmark", "batch"))),
+    cli_flags.FlagMove("--stats-correction", "--correction", leaves=(
+        ("arms", "run"), ("arms", "matrix-run"), ("report", "model-compare"),
+    )),
+]
 _CASES = [(m.old, m.new, leaf) for m in _MOVES for leaf in m.leaves]
 _VALUE = {"--force-regen": None, "--force": None, "--stats-correction": "bh", "--correction": "bh"}
 # the arguments each leaf needs to parse at all, so a parse failure means the flag, not a missing argument
@@ -67,6 +75,11 @@ def _tombstone(argv: list[str], capsys) -> str:
 
 def _id(value) -> str:
     return " ".join(value) if isinstance(value, tuple) else value
+
+
+def test_the_migration_registry_contains_every_expected_move():
+    spellings = {move.old for move in _MOVES}
+    assert {move for move in cli_flags.FLAG_MOVES if move.old in spellings} == set(_MOVES)
 
 
 @pytest.mark.parametrize(("old", "new", "leaf"), _CASES, ids=_id)
