@@ -259,8 +259,8 @@ CONCEPTS: tuple[Concept, ...] = (
         name="timeout",
         help="time limits, per phase",
         # F1b adds the phase prefix (#94 §2.4): the phases are the network's (build, solve, verify).
-        # A bare SEC is the agent run (solve). The value is text now: the phase is part of it.
-        canonical=(Flag("--timeout", "[PHASE=]SEC", "text"),),
+        # A bare SEC is the agent run (solve). The value is seconds with an optional phase prefix.
+        canonical=(Flag("--timeout", "[PHASE=]SEC", "int"),),
         banned=("--grade-timeout", "--build-timeout"),
     ),
     Concept(
