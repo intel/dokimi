@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """parse_turn: the one read of a chat response's first choice.
 
 Lenient (the adapter's reading): no choice is an empty turn. Strict (the tool-choice probe's
@@ -13,7 +16,8 @@ import pytest
 
 from dokimi import llm as llm_mod
 from dokimi.commands.tools import CutBeforeToolCall, _first_turn_caller
-from dokimi.llm import ChatTurn, LiteLLMAdapter, Request, ToolCall, parse_turn, response_usage
+from dokimi.llm import LiteLLMAdapter, Request, ToolCall, response_usage
+from dokimi.llm_turn import ChatTurn, parse_turn
 
 
 def _tc(name, id="t1"):
