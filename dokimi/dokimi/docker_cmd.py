@@ -21,6 +21,7 @@ flags, which each call site keeps as its argv has always had it.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from collections.abc import Callable, Iterable, Mapping
 
@@ -85,18 +86,20 @@ def env_args(set: Mapping[str, str] | None = None, pass_names: Iterable[str] = (
     return out
 
 
+_ENV_FILE_UNSUPPORTED = re.compile(r"[\r\n\ud800-\udfff]")
+
+
 def write_env_file(directory: str | os.PathLike[str], env: Mapping[str, str]) -> tuple[str, dict[str, str]]:
     """*env* as a 0600 ``--env-file`` in *directory*: ``(path, values)``. The caller owns the file's removal
-    (the directory's). A value with a newline or a carriage return cannot go in an env file (the reader
-    splits lines and strips a trailing CR); it is returned apart in *values*, to pass as ``-e NAME`` with
-    the CLI's environment."""
+    (the directory's). Docker reads a UTF-8 env file one line at a time. Values with a line break or a
+    surrogate are returned in *values*, to pass as ``-e NAME`` with the CLI's environment."""
     fd, name = tempfile.mkstemp(dir=directory, prefix="env-")
-    multiline = {k: v for k, v in env.items() if "\n" in v or "\r" in v}
+    by_name = {key: value for key, value in env.items() if _ENV_FILE_UNSUPPORTED.search(value)}
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         for key in sorted(env):
-            if key not in multiline:
+            if key not in by_name:
                 fh.write(f"{key}={env[key]}\n")
-    return name, multiline
+    return name, by_name
 
 
 def build_args(context: str | os.PathLike[str], dockerfile: str | os.PathLike[str], tag: str, *,

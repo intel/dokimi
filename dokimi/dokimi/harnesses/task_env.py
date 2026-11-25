@@ -66,13 +66,13 @@ def exec_env_file(task: TaskSpec, table: str, net: Optional[PhasePolicy] = None,
     The proxy values go in a 0600 ``--env-file`` in a scratch directory that is removed on exit;
     the argv carries ``--env-file <path>`` and the literal ``-e`` pairs. The client's environment
     is the operator's own, so the step's proxy cannot change the route of the docker CLI (a tcp
-    ``DOCKER_HOST``); only a value with a newline or carriage return travels as ``-e NAME`` with the client's env.
+    ``DOCKER_HOST``); values with line breaks or non-UTF-8 bytes travel as ``-e NAME`` with the client's env.
     """
     literal, proxy = _exec_env(task, table, net, credentials=credentials)
     with tempfile.TemporaryDirectory(prefix="dokimi-env-") as scratch:
-        name, multiline = docker_cmd.write_env_file(Path(scratch), proxy)
-        flags = ["--env-file", name, *(a for key in multiline for a in ("-e", key)), *literal]
-        yield flags, multiline
+        name, by_name = docker_cmd.write_env_file(Path(scratch), proxy)
+        flags = ["--env-file", name, *(a for key in by_name for a in ("-e", key)), *literal]
+        yield flags, by_name
 
 
 def unresolved_env(task: TaskSpec, table: str) -> list[str]:

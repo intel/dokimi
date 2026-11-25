@@ -266,16 +266,15 @@ class ContainerSandbox:
 
         The agent's env goes in a 0600 ``--env-file``, never on argv. The client
         keeps the operator's own environment: the agent's ``HOME`` and proxy would
-        change which daemon and route the ``docker`` CLI itself uses. A value with
-        a newline or carriage return cannot go in an env file; that variable alone
-        travels as ``-e NAME`` in the client's env.
+        change which daemon and route the ``docker`` CLI itself uses. A value with line
+        breaks or non-UTF-8 bytes travels as ``-e NAME`` in the client's env.
         """
         assert self._scratch is not None
-        name, multiline = docker_cmd.write_env_file(self._scratch, env)
-        names = [a for k in sorted(multiline) for a in ("-e", k)]
+        name, by_name = docker_cmd.write_env_file(self._scratch, env)
+        names = [a for k in sorted(by_name) for a in ("-e", k)]
         argv_out = docker_cmd.argv("exec", "-u", AGENT_UID, "-w", self.workdir, "--env-file", name, *names,
                                    container, *argv)
-        return argv_out, {**os.environ, **multiline}
+        return argv_out, {**os.environ, **by_name}
 
     def run_probe(self, container: str, task_path: Path, source: dict[str, str],
                   extra: Optional[dict[str, str]], docker: Docker, log,
