@@ -51,7 +51,7 @@ def container(
 ) -> process.Completed:
     name = "dokimi-delivery-" + uuid.uuid4().hex
     policy = ContainerPolicy(
-        network="none", cap_drop_all=True, no_new_privileges=True, pids_limit=128
+        network="none", cap_drop_all=True, no_new_privileges=True, pids_limit=128, cpus=2, memory="1g"
     )
     options = [
         "--rm",
@@ -66,7 +66,7 @@ def container(
         options.extend(["--gpus", "all"])
     mounts_argv = docker_cmd.mount_args((path, "/" + dest, True) for dest, path in mounts.items())
     spec = docker_cmd.run_spec(
-        policy, [options, "network", "hardening", "pids", mounts_argv], image, ["-c", script]
+        policy, [options, "network", "hardening", "pids", "resource", mounts_argv], image, ["-c", script]
     )
     env = process.Env.inherit()
     result = process.run(docker_cmd.argv(*spec), input=data, env=env, timeout=timeout)

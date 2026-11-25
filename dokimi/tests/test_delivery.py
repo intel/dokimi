@@ -200,6 +200,9 @@ def test_container_protocol(monkeypatch):
         delivery.container("image", "true", {}, b"", 1, gpu=True)
     assert calls[0][:2] == ["docker", "run"] and "--gpus" in calls[0]
     assert calls[0][calls[0].index("--network") + 1] == "none"
+    assert calls[0][calls[0].index("--cpus") + 1] == "2"
+    assert calls[0][calls[0].index("--memory") + 1] == "1g"
+    assert "--user" not in calls[0]
     assert calls[1][:3] == ["docker", "rm", "-f"]
 
 
