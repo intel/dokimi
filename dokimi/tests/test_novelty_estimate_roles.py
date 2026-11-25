@@ -79,8 +79,7 @@ def test_panel_judges_after_the_first_count_under_judge(tmp_path, capsys):
 
 
 def test_an_unpriced_model_gives_null_role_dollars_and_no_least_sure_role(tmp_path, capsys):
-    _, payload, err = _estimate(tmp_path, capsys, "--tier", "standard", "--model", "foo-bar-9",
-                                "--provider", "openai")
+    _, payload, err = _estimate(tmp_path, capsys, "--tier", "standard", "--model", "openai/foo-bar-9")
     assert payload["expected_usd"] is None
     assert payload["usd_by_role"] is None
     assert payload["least_sure_role"] is None
@@ -88,8 +87,7 @@ def test_an_unpriced_model_gives_null_role_dollars_and_no_least_sure_role(tmp_pa
 
 
 def test_role_usd_is_none_for_an_unpriced_role(tmp_path, capsys):
-    args, payload, _ = _estimate(tmp_path, capsys, "--tier", "standard", "--model", "foo-bar-9",
-                                 "--provider", "openai")
+    args, payload, _ = _estimate(tmp_path, capsys, "--tier", "standard", "--model", "openai/foo-bar-9")
     assert role_usd(args, payload["tokens"], payload["estimate"]["by_role"], "standard") is None
 
 
