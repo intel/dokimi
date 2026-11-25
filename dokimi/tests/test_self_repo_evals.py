@@ -73,6 +73,7 @@ def _seeded(file, line, message):
         ("Replace the documentation link for `with_docs`. The baseline is correct.", []),
         ("Use `baseline` rather than `without_docs` in the report heading", []),
         ("Replace `without_docs` with `baseline` in the report heading", []),
+        ("`baseline` replaces `without_docs` in the report heading", []),
         ("with_docs is renamed to baseline, so stored keys change", ["key_rename"]),
         ("The persisted key `with_docs` is now `with_context`", ["key_rename"]),
         ("The writer renamed the persisted with_docs key to with_context", ["key_rename"]),
