@@ -108,6 +108,7 @@ def _subject_run(d):
     (lambda d: _explore_run(d, "command:"), "'command:' arm requires a template"),
     (lambda d: _explore_run(d, "bogus"), "Unknown explore arm: 'bogus'"),
     (lambda d: _explore_run(d, ","), "No arms selected"),
+    (lambda d: _explore_run(d, ""), "No arms selected"),
     (lambda d: ["tasks", "run", "--tasks", ",", "--tasks-root", str(_tasks_root(d)), "--harness", "codex"],
      "No tasks selected"),
     (lambda d: ["tasks", "run", "--tasks", ",", "--swe-bench", str(d / "missing.jsonl"), "--harness", "codex"],
@@ -119,7 +120,7 @@ def _subject_run(d):
                 str(d / "missing.json"), "--claude", "python3", "--out", str(d / "probe.json")],
      "--trigger-set: "),
 ], ids=["catalog-formats-root", "explore-run-command-arm-without-template", "explore-run-unknown-arm",
-        "explore-run-no-arms", "tasks-run-no-tasks", "tasks-run-swebench-no-tasks", "tasks-run-no-harnesses", "subjects-run-unknown-work-harness",
+        "explore-run-no-arms", "explore-run-empty-arm", "tasks-run-no-tasks", "tasks-run-swebench-no-tasks", "tasks-run-no-harnesses", "subjects-run-unknown-work-harness",
         "trigger-probe-unreadable-trigger-set"])
 def test_helper_matches_cli_main_for_the_remaining_converted_refusals(
         argv_for, expect, tmp_path, monkeypatch, capsys):

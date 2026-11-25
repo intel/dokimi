@@ -109,7 +109,8 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
             _no_tasks(root)
         raise InputError("No tasks selected. Pass --tasks <id[,id]> or --all.")
 
-    specs = [s.strip() for s in (args.arms or "oracle,empty").split(",") if s.strip()]
+    arms_value = "oracle,empty" if args.arms is None else args.arms
+    specs = [s.strip() for s in arms_value.split(",") if s.strip()]
     if not specs:
         raise InputError("No arms selected. Pass --arm oracle,empty[,command:<tmpl>].")
     output_root = Path(args.output_dir)
