@@ -414,6 +414,12 @@ def test_a_named_judge_provider_is_kept_for_a_claude_cli_answerer_when_the_judge
     assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
 
 
+@pytest.mark.parametrize("command", sorted(ANSWERED_COMMANDS - KEPT_SPELLING))
+def test_a_qualified_judge_provider_is_kept_for_a_claude_cli_answerer(command):
+    args = parse_args([*COMMANDS[command], "--model", "claude-cli/haiku", "--judge", "anthropic/claude-sonnet-5-5"])
+    assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
+
+
 def test_a_copilot_or_codex_answerer_keeps_the_api_default_judge():
     from dokimi.judge_rule import default_judge
 
