@@ -53,22 +53,26 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
     return "".join(out) + text[pos:]
 
 
-_QUOTE_MARKS = re.compile(r"[\\'\"\n#$()]")
+_QUOTE_MARKS = re.compile(r"[\\'\"\n#$()`}]")
+_SCOPES = {"(": "(", "{": "{"}  # the character after a `$` that opens a scope
+_CLOSERS = {")": "(", "}": "{"}
 
 
 def _starts_word(text: str, at: int) -> bool:
     """Whether the character at ``at`` begins a shell word: at the start, after a blank, or after a ``;&|()`` no backslash escapes; a line continuation before it is removed first."""
-    if at == 0:
-        return True
-    before = text[at - 1]
-    if not (before.isspace() or before in ";&|()"):
-        return False
-    first = at - 1
-    while first and text[first - 1] == "\\":
-        first -= 1
-    if (at - 1 - first) % 2 == 0:
-        return True
-    return before == "\n" and _starts_word(text, at - 2)  # `a \<newline># c`: the shell joins the lines, so the `#` follows the blank
+    while at:
+        before = text[at - 1]
+        if not (before.isspace() or before in ";&|()"):
+            return False
+        first = at - 1
+        while first and text[first - 1] == "\\":
+            first -= 1
+        if (at - 1 - first) % 2 == 0:
+            return True
+        if before != "\n":
+            return False
+        at -= 2  # `a \<newline># c`: the shell joins the lines, so the `#` follows the blank
+    return True
 
 
 def _inert(quote: str) -> bool:
@@ -76,11 +80,17 @@ def _inert(quote: str) -> bool:
     return quote[-1:] in ("'", '"', "#")
 
 
+def _backtick(quote: str) -> str:
+    """The quote stack after a backtick: it closes the open substitution, opens one, and is plain text in single quotes."""
+    top = quote[-1:]
+    return quote if top == "'" else quote[:-1] if top == "`" else quote + "`"
+
+
 def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
     """The quote stack after the mark ``m`` (one of ``_QUOTE_MARKS``) where ``quote`` was open, and where the scan goes on.
 
-    The stack holds ``'``, ``"``, ``#`` (a comment, which runs to the end of its line) and ``(`` for each open ``$(`` (or ``(`` inside one):
-    the quotes in a command substitution are its own, apart from the double quote around it.
+    The stack holds ``'``, ``"``, ``#`` (a comment, which runs to the end of its line), ``(`` for each open ``$(`` (or ``(`` inside one), `` ` `` for a backtick substitution and ``{`` for a ``${``:
+    the quotes in a substitution or an expansion are its own, apart from the double quote around it, and a ``#`` in a ``${...}`` starts no comment.
     """
     mark, at = m.group(), m.end()
     top = quote[-1:]
@@ -89,17 +99,19 @@ def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
     if top == "#":
         return quote, at
     if mark == "#":  # `a#b`, `$#` and `\;#` start no comment: only a blank or an unescaped `;&|()` before it does
-        return (quote + "#" if top in ("", "(") and _starts_word(text, m.start()) else quote), at
+        return (quote + "#" if top in ("", "(", "`") and _starts_word(text, m.start()) else quote), at
     if mark == "\\":
         return quote, at + (top != "'")
     if mark == "$":
-        opens = top != "'" and text.startswith("(", at)
-        return (quote + "(" if opens else quote), at + opens
+        scope = _SCOPES.get(text[at:at + 1], "") if top != "'" else ""
+        return quote + scope, at + len(scope)
     if mark == "(":
         return (quote + "(" if top == "(" else quote), at
-    if mark == ")":
-        return (quote[:-1] if top == "(" else quote), at
-    if top in ("", "("):
+    if mark in _CLOSERS:
+        return (quote[:-1] if top == _CLOSERS[mark] else quote), at
+    if mark == "`":
+        return _backtick(quote), at
+    if top in ("", "(", "`", "{"):
         return quote + mark, at
     return (quote[:-1] if top == mark else quote), at
 
@@ -111,14 +123,14 @@ def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
     return quote, max(at, end)
 
 
-_ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$]")
+_ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$`}]")
 
 
 def _arithmetic_opener(text: str, mark: str, at: int, quote: str) -> int:
     """How many characters from ``at`` (after ``mark``) complete a ``$((`` or a bare ``((``, such as ``((x=1<<3))`` or a ``for ((...))`` header; 0 when ``mark`` opens none."""
     if mark == "$":
         return 2 if quote[-1:] not in ("'", "#") and text.startswith("((", at) else 0
-    return 1 if mark == "(" and quote[-1:] in ("", "(") and text.startswith("(", at) else 0
+    return 1 if mark == "(" and quote[-1:] in ("", "(", "`") and text.startswith("(", at) else 0
 
 
 class _ArithmeticReader:
@@ -144,7 +156,7 @@ class _ArithmeticReader:
                     if not self.depth:
                         self.spans.append((self.start, self.pos))
                         self.quote = self.outer  # `"$((1<<3))"`: the quote around the span is still open after it
-                elif mark not in "()$":
+                elif mark not in "()$`}":
                     self.quote, self.pos = _quote_step(text, m, self.quote)
             elif taken := _arithmetic_opener(text, mark, self.pos, self.quote):
                 self.start, self.depth, self.outer, self.quote = m.start(), 2, self.quote, ""  # inside, quotes start afresh
@@ -155,8 +167,8 @@ class _ArithmeticReader:
             self.pos = max(self.pos, upto + 1)  # no mark before it: a later call does not look again
 
     def skip(self, to: int) -> None:
-        """Go on from ``to``, past a heredoc body, with no quote open; a span left open has been read to the end of the text, so ``to`` is no further."""
-        self.pos, self.quote = max(self.pos, to), ""
+        """Go on from ``to``, past a heredoc body, with the quotes and substitutions open at its opener's line still open; a span left open has been read to the end of the text, so ``to`` is no further."""
+        self.pos = max(self.pos, to)
 
 
 @dataclass(frozen=True)
