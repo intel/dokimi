@@ -93,6 +93,19 @@ def test_build_with_no_docker_binary_is_a_container_error(tmp_path):
         DockerRunner(runner=FakeRunner(missing)).build(tmp_path, tmp_path / "Dockerfile", "t:1")
 
 
+def test_build_warns_about_a_proxy_arg_with_credentials(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("https_proxy", "http://u:pw@proxy:912")
+    monkeypatch.setenv("http_proxy", "http://proxy:912")  # no credentials: no warning
+    (tmp_path / "Dockerfile").write_text("FROM x\nARG https_proxy http_proxy\n", encoding="utf-8")
+    fake = FakeRunner(lambda call: reply())
+    with caplog.at_level("WARNING", logger=container_mod.__name__):
+        DockerRunner(runner=fake).build(tmp_path, tmp_path / "Dockerfile", "t:1")
+    assert [r.getMessage().split(" carries")[0] for r in caplog.records] == [
+        "[build] WARNING: Dockerfile declares ARG https_proxy and the host's https_proxy"]
+    assert "pw@" not in caplog.text
+    assert len(fake.calls) == 1  # the build still runs
+
+
 def test_image_exists_follows_the_inspect_exit_code():
     assert DockerRunner(runner=FakeRunner(lambda c: reply())).image_exists("t:1") is True
     assert DockerRunner(runner=FakeRunner(lambda c: reply(returncode=1))).image_exists("t:1") is False
