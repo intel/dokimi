@@ -32,7 +32,8 @@ _REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D+([01](?:\.\d+)?)", r
 # In a reward file: the token after a label, up to a separator (`reward=0.5;n=3`); `1.e3`, `1_000` stay whole.
 # Its sign or point may start it only after a gap (`v.5`, `..5` are none); an ellipsis is a gap (`reward...0.5`).
 _FILE_REWARD_RE = re.compile(
-    r"(?:reward|score|pass[_ -]?rate)[^\d\n:=]*?(?:[:=]\W*?)?"  # after its `:` or `=`, no word before the number
+    r"(?:reward|score|pass[_ -]?rate)"  # after its `:` or `=`, or alone on its line: no word before the number
+    r"(?:[^\d\n:=]*?(?:[:=]\W*?)?|[^\w\n:=]*\n\s*)"
     r"((?:(?<![\w.+-])[-+]?\.?|(?<=\.\.\.))\d[\w.+-]*)", re.IGNORECASE)
 # What may follow it on its line and make it no reward: a thousands comma, a percent, a fraction, a count.
 _NOT_A_REWARD_RE = re.compile(r",\d|[ \t]*[%/]|[ \t]+(?:out[ \t]+)?of[ \t]+\d", re.IGNORECASE)
