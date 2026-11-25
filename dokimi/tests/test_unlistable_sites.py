@@ -153,9 +153,18 @@ def test_uncopyable_raises_for_a_directory_that_cannot_be_listed(tmp_path: Path)
         _uncopyable(skill)
 
 
-def _clobber_args(skill: Path, out: Path) -> argparse.Namespace:
+def _clobber_args(skill: Path, out: Path | None) -> argparse.Namespace:
     return argparse.Namespace(skill=str(skill), questions=None, split=None, proposer=None, allow_file=None,
-                              out=str(out), lock=None)
+                              out=str(out) if out else None, lock=None)
+
+
+def test_leak_output_guard_does_not_list_the_skill_when_no_file_is_written(tmp_path: Path):
+    skill = _write(_skill(tmp_path), {"evals/q.json": "{}"})
+    with unlistable(skill / "evals"):
+        _refuse_clobber(_clobber_args(skill, None), None)
+        assert len(read_skill(skill)) == 3
+        with pytest.raises(InputError, match="evals"):
+            _refuse_clobber(_clobber_args(skill, tmp_path / "leak.json"), None)
 
 
 def test_leak_output_guard_refuses_when_it_cannot_list_the_skill(tmp_path: Path):

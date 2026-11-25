@@ -54,6 +54,13 @@ def _refuse_clobber(args: argparse.Namespace, lock_path: Path | None) -> None:
     save_artifact also writes and removes ``<out>.rejected``, so that sibling is an output too. The skill is
     every file under its directory, since --out can name any of them. A hard link to an input is the input.
     """
+    outputs = []
+    if args.out:
+        outputs += [str(args.out), f"{args.out}.rejected"]
+    if lock_path is not None:
+        outputs.append(str(lock_path))
+    if not outputs:
+        return  # nothing is written, so the walk below would only list what read_skill leaves out
     skill_root = Path(args.skill)
     if skill_root.is_file():
         skill_root = skill_root.parent  # read_skill reads the directory of a SKILL.md argument
@@ -63,11 +70,6 @@ def _refuse_clobber(args: argparse.Namespace, lock_path: Path | None) -> None:
         raise InputError(str(e)) from e
     inputs = [str(p) for p in [args.skill, args.questions, args.split, args.proposer, args.allow_file] if p]
     inputs += skill_files
-    outputs = []
-    if args.out:
-        outputs += [str(args.out), f"{args.out}.rejected"]
-    if lock_path is not None:
-        outputs.append(str(lock_path))
     clobbered = [o for o in outputs if any(_same_file(o, i) for i in inputs)]
     # two outputs that are one file: the artifact would replace the lock, or the sibling would
     clobbered += [o for i, o in enumerate(outputs) if any(_same_file(o, p) for p in outputs[i + 1:])]
