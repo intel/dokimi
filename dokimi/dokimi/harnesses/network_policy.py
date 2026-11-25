@@ -29,7 +29,9 @@ Where a phase's policy comes from, later wins:
    ``public`` is not extended to an agent: Harbor defaults to public and catalogs
    copy it, so honouring it would hand every agent the internet. An agent gets
    the internet only from an explicit ``[agent]`` policy or the operator.
-3. The operator: ``dokimi tasks run --network PHASE=MODE[:host,...]``.
+3. The operator: ``dokimi tasks run --network [PHASE=]MODE[:host,...]``.
+   Bare ``none`` and ``public`` apply to every phase, including ``build``.
+   Use ``solve`` or ``verify`` (or both) for ``allowlist``.
 
 The effective plan, with each phase's source, is recorded in every run's
 ``metrics.network``, so two runs can be checked for the same network before

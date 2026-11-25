@@ -125,7 +125,7 @@ class DockerSolverHarness:
     kind: str = "docker"
     env: dict[str, str] = field(default_factory=dict)
     agent_location: str = "container"
-    network: tuple[str, ...] = ()  # --network PHASE=MODE overrides (see :mod:`.network_policy`)
+    network: tuple[str, ...] = ()  # --network [PHASE=]MODE overrides (see :mod:`.network_policy`)
     runner: process.Runner = field(default=process.run, compare=False, repr=False)
     skill_notice: bool = True
 

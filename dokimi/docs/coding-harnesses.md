@@ -681,11 +681,14 @@ decisions land in `metrics.network.verify_egress`). Later sources win:
    deprecated `allow_internet`), then `[agent]` and `[verifier]` overrides,
    and `environment.egress` for an agent's solve. An unknown mode refuses
    the cell, and its `network.json` holds the reason.
-3. The operator: `dokimi tasks run --network PHASE=MODE[:host,...]`,
-   repeatable, with `all` for every phase. For example
-   `--network verify=none` grades a public task offline, and
-   `--network solve=allowlist:pypi.org,files.pythonhosted.org` lets every
-   arm install packages.
+3. The operator: `dokimi tasks run --network [PHASE=]MODE[:host,...]`,
+   repeatable. Bare `none` or `public`, or `all=none` or `all=public`,
+   applies to every phase. Bare `none` also disables build networking, so
+   image builds fail if their `RUN` steps need network access. Use
+   `--network verify=none` to grade offline while keeping the build policy.
+   An allowlist requires `solve`, `verify` or both. For example,
+   `--network solve,verify=allowlist:pypi.org,files.pythonhosted.org` lets
+   both phases reach those package hosts.
 
 Under `allowlist`, HTTPS goes through the sidecar's CONNECT proxy. A bare
 allowlist entry is `host:443`, so a plain-HTTP request to that host (port 80) is
