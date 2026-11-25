@@ -139,10 +139,16 @@ def _row_problem(row: Any) -> Optional[str]:
     if row["status"] == "ok" and not ("new_lenient" in row and (row["new_lenient"] is None
                                                                 or _is_number(row["new_lenient"]))):
         return "`new_lenient` must be a number or null"
-    for field in ("new_strict", "tokens"):
-        if row.get(field) is not None and not _is_number(row[field]):
-            return f"`{field}` must be a number or null"
-    if isinstance(row.get("tokens"), (int, float)) and row["tokens"] < 0:
+    if row.get("new_strict") is not None and not _is_number(row["new_strict"]):
+        return "`new_strict` must be a number or null"
+    return _tokens_problem(row.get("tokens"))
+
+
+def _tokens_problem(tokens: Any) -> Optional[str]:
+    """Why a row's `tokens` is refused (a whole number of at least 0, or null), or None."""
+    if tokens is not None and not (type(tokens) is int and _is_number(tokens)):
+        return "`tokens` must be a whole number or null"
+    if tokens is not None and tokens < 0:
         return "`tokens` must not be negative"
     return None
 
@@ -229,7 +235,7 @@ def ranking(rows: Iterable[dict]) -> list[dict]:
         for r in latest.values()
         if r["new_lenient"] is not None and r.get("tokens")
     ]
-    scored.sort(key=lambda s: (-s["new_per_1k_tokens"], s["key"]))
+    scored.sort(key=lambda s: (-s["new_lenient"] / s["tokens"], s["key"]))
     return scored
 
 

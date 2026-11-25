@@ -268,11 +268,11 @@ def test_summary_lines_list_the_ranking_after_the_stratum_table():
 
 def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
     """Two sweeps into one JSONL measure `a` twice: the ranking has one entry for it, the later one,
-    and the identical digest is counted once in the overall figures."""
-    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b"), _ok("a", 0.5, tokens=800, digest="a")]
+    and a skill edited between the sweeps (two digests, one key) is counted twice in the overall figures."""
+    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b"), _ok("a", 0.5, tokens=800, digest="a2")]
     summary = summarize(rows, resamples=50)
     assert [(r["key"], r["new_lenient"]) for r in summary["ranking"]] == [("a", 0.5), ("b", 0.6)]
-    assert summary["overall"]["n"] == 2
+    assert summary["overall"]["n"] == 3
 
 
 def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
@@ -297,6 +297,8 @@ def test_ranking_keeps_an_earlier_ok_row_past_a_later_error():
     '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": Infinity, "tokens": 800}\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": Infinity}\n',
     '{"key": "a", "name": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": "800"}\n',
+    '{"key": "x", "name": "x", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 1e-320}\n',
+    '{"key": "x", "name": "x", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 800.5}\n',
     '{"key": "a", "status": "ok", "usd": 0.1, "new_lenient": 0.5, "tokens": 800}\n',
 ])
 def test_a_row_of_the_wrong_shape_is_a_line_numbered_input_error(tmp_path, bad):
