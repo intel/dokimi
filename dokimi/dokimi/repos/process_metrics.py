@@ -19,7 +19,7 @@ The framework counts what every repository asks of a trace:
   tells them): a multi-file read (``cat a missing``) keeps its reads, as its exit does not say which file failed;
 - ``guidance_searched``: the sorted workspace paths, under the same rules as ``guidance_read``, in the ``searched`` list of
   a ``command`` event not denied (a ``grep``, ``egrep``, ``fgrep``, ``rg`` or ``git grep`` that showed lines of the file) or of
-  a Claude Code ``Grep`` ``tool`` event (``output_mode`` ``content``). The files are not in ``guidance_read``, and the
+  a Claude Code ``Grep`` or Copilot ``grep`` ``tool`` event (``output_mode`` ``content``). The files are not in ``guidance_read``, and the
   search is no ``read`` event, so ``tool_calls`` does not count it;
 - ``unknown_reads``: the relative shell reads the trace made at a directory the converter could not follow
   (after ``source env.sh``, say), which have no ``read`` event: ``guidance_read`` may miss them. It comes from
