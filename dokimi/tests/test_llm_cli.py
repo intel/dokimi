@@ -822,7 +822,7 @@ def test_matrix_cells_that_name_a_cli_model_pass_the_parse_gate_whatever_the_top
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
     args = cli.parse_args(["arms", "matrix-run", "--product", "p", "--questions", str(questions),
-                           "--arm", "baseline", "--matrix-cells", str(cells), "--model", "claude-cli/sonnet",
+                           "--arm", "baseline", "--matrix-cells", str(cells), "--model", "claude-cli/gpt-6.1-sol",
                            "--out-dir", str(tmp_path / "out")])
     assert args.provider == "claude-cli"
 
