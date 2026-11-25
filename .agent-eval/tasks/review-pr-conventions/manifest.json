@@ -27,7 +27,7 @@
         117,
         118
       ],
-      "kw": "\\b(?:renam\\w*|in place of|stored keys?|persisted keys?)\\b.{0,100}\\b(?:with_docs|without_docs)\\b|\\b(?:with_docs|without_docs)\\b.{0,100}\\b(?:renam\\w*|in place of|stored keys?|persisted keys?)\\b"
+      "kw": "[`'\"]?\\b(?:with_docs|without_docs)\\b[`'\"]?(?:\\s+(?:keys?|fields?|conditions?))?\\s+(?:(?:is|are|was|were|gets?|got)\\s+)?(?:now|renam\\w*\\s+to|replac\\w*\\s+(?:with|by))\\s+[`'\"]?\\b(?:with_context|baseline)\\b[`'\"]?|[`'\"]?\\b(?:with_context|baseline)\\b[`'\"]?(?:\\s+(?:keys?|fields?|conditions?))?\\s+(?:replac\\w*|instead\\s+of|in\\s+place\\s+of|rather\\s+than)\\s+[`'\"]?\\b(?:with_docs|without_docs)\\b[`'\"]?|\\b(?:renam\\w*|replac\\w*)\\s+(?:(?:the|stored|persisted)\\s+){0,3}[`'\"]?\\b(?:with_docs|without_docs)\\b[`'\"]?(?:\\s+(?:keys?|fields?|conditions?))?\\s+(?:to|with|by)\\s+[`'\"]?\\b(?:with_context|baseline)\\b[`'\"]?"
     },
     {
       "id": "logic_off_by_one",

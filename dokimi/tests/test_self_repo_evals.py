@@ -6,6 +6,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from dokimi.repos.graders import review
 
 TASKS = Path(__file__).resolve().parents[2] / ".agent-eval" / "tasks"
@@ -63,13 +65,21 @@ def _seeded(file, line, message):
     return _grade(SEEDED, "\x60\x60\x60json\n" + json.dumps([finding]) + "\n\x60\x60\x60")
 
 
-def test_key_rename_needs_the_rename_not_just_both_key_names():
-    grounding = "dokimi/dokimi/eval/grounding.py"
-    unrelated = _seeded(grounding, 40, "lift compares the with_docs answer to the baseline answer; document the sign")
-    assert "key_rename" not in unrelated["seeds_hit"]
-    renamed = _seeded(grounding, 40, "with_docs is renamed to baseline, so stored keys change")
-    assert renamed["seeds_hit"] == ["key_rename"]
-
+@pytest.mark.parametrize(
+    ("message", "hits"),
+    [
+        ("lift compares the with_docs answer to the baseline answer; document the sign", []),
+        ("Rename the helper that reads `with_docs`", []),
+        ("Replace the documentation link for `with_docs`. The baseline is correct.", []),
+        ("with_docs is renamed to baseline, so stored keys change", ["key_rename"]),
+        ("The persisted key `with_docs` is now `with_context`", ["key_rename"]),
+        ("The writer renamed the persisted with_docs key to with_context", ["key_rename"]),
+        ("`with_context` and `baseline` replace `with_docs` and `without_docs`", ["key_rename"]),
+    ],
+)
+def test_key_rename_needs_the_rename_not_just_both_key_names(message, hits):
+    grade = _seeded("dokimi/dokimi/eval/grounding.py", 40, message)
+    assert grade["seeds_hit"] == hits
 
 def test_seed_keywords_accept_common_wordings():
     assert _seeded("dokimi/dokimi/eval/grounding.py", 40,
