@@ -10,8 +10,9 @@ instead. This counts, per file under ``tests/``, the calls the file's imports re
 sleep as nap``, ``from time import *``, and the same for ``threading``), and the calls on a module
 loaded by name with a string literal: ``__import__("time").sleep(1)``, ``importlib.import_module("time").sleep(1)``
 and ``import_module("time").sleep(1)`` after ``from importlib import import_module``. Only imports are
-followed: a name assigned from them (``nap = time.sleep``) is not, and neither is a module named by
-anything but a literal. Where branches meet (``if``/``else``, ``try``/
+followed: a name assigned from them (``nap = time.sleep``, ``mod = __import__("time")``) is not, and
+neither is a module named by anything but one positional literal and no other argument
+(``import_module(name="time")`` and ``__import__("time", globals())`` are not). Where branches meet (``if``/``else``, ``try``/
 ``except``, ``case``), a name counts when any branch binds it to a sleep or timer. A ``sleep`` in a string, such as a child's shell
 command, is not a call. ``tests/waiting.py`` is the one file not counted.
 

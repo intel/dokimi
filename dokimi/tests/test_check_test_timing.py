@@ -304,6 +304,12 @@ def test_a_name_bound_differently_in_each_branch_counts_when_any_branch_makes_it
     ('import_module("time").sleep(1)\n', {}),
     ('import mylib\nmylib.import_module("time").sleep(1)\n', {}),
     ('from importlib import import_module\nimport_module("time")\n', {}),
+    ('from importlib import *\nimport_module("time").sleep(1)\n', {"time.sleep": 1}),
+    ('__import__("time", globals()).sleep(1)\n', {}),
+    ('import importlib\nimportlib.import_module(name="time").sleep(1)\n', {}),
+    ('__import__(name="time").sleep(1)\n', {}),
+    ('mod = __import__("time")\nmod.sleep(1)\n', {}),
+    ('import importlib\nt = importlib.import_module("time")\nt.sleep(1)\n', {}),
 ])
 def test_a_module_loaded_by_a_literal_name_counts_like_an_imported_one(source, expected):
     assert ctt.scan(source, "x.py") == (expected, [])
