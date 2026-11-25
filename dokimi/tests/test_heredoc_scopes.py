@@ -141,6 +141,19 @@ def test_an_escaped_opener_before_the_real_one_on_a_substitution_line_in_arithme
     assert "cat AGENTS.md" in _cli_heredocs(text)
 
 
+@pytest.mark.parametrize("text", [
+    'echo $((1 << 3 + $(cat <<"${" >/dev/null; echo 0\nbody\n${\n) ))\ncat AGENTS.md\n',
+    "echo $((1 << 3 + $(cat <<EOF >/dev/null; printf '%s' 0\nit's\nEOF\n) ))\n((x=1<<3))\ncat AGENTS.md\n",
+    "echo $((1 << 3 + $(cat <<EOF >/dev/null # note\nit's\nEOF\n) ))\ncat AGENTS.md\n",
+])
+def test_a_substitution_in_arithmetic_whose_heredoc_has_a_literal_delimiter_a_quote_or_a_comment_on_its_line_names_its_body(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert "body" not in _cli_heredocs(text)
+    assert "it's\nEOF" not in _cli_heredocs(text)
+    assert _cli_heredocs(text).endswith("cat AGENTS.md\n")
+    assert "<< 3" in _cli_heredocs(text)
+
+
 @pytest.mark.parametrize("text", ["echo $(( $( ((x=1<<3)); echo 1) + 1 ))\ncat AGENTS.md\n", "echo $(( `((x=1<<3)); echo 1` + 1 ))\ncat AGENTS.md\n"])
 def test_a_bare_arithmetic_command_in_a_substitution_in_arithmetic_opens_no_heredoc(text: str) -> None:
     assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"

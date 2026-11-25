@@ -137,7 +137,7 @@ def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
     return quote, max(at, end)
 
 
-_ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$`}]")
+_ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$`}<]")
 
 
 def _arithmetic_opener(text: str, mark: str, at: int, quote: str) -> int:
@@ -177,7 +177,10 @@ class _ArithmeticReader:
         text = self.text
         while (m := _ARITHMETIC_MARKS.search(text, self.pos, limit)) is not None:
             mark, self.pos = m.group(), m.end()
-            if self.depth:
+            if mark == "<":
+                if self.depth and self.quote[-1:] in ("(", "`") and (o := self.heredoc.opener.match(text, m.start())):
+                    self.pos = o.end()  # the delimiter is literal text: ``<<"${"`` opens no expansion
+            elif self.depth:
                 if mark in "()" and not self.quote:
                     self.depth += 1 if mark == "(" else -1
                     if not self.depth:
@@ -198,15 +201,18 @@ class _ArithmeticReader:
 
     def _inner(self, m: re.Match[str]) -> None:
         """Read the mark ``m`` inside the open span, and keep where a substitution begins and ends there; a heredoc opened on a line of a substitution has its body skipped, as its quotes are not read."""
-        was = self.quote[-1:] in ("(", "`")
+        before = self.quote
+        was = before[-1:] in ("(", "`")
         self.quote, self.pos = self._inner_step(m)
         if m.group() == "\n":
-            if was and (words := self.heredoc.line_words(self.text, self.line, m.start(), self.line_quote)):
+            if before.removesuffix("#")[-1:] in ("(", "`") and (words := self.heredoc.line_words(self.text, self.line, m.start(), self.line_quote)):  # a comment after the opener ends here
                 self.pos = max(self.pos, self.heredoc.bodies_end(self.text, m.start(), words))
             self.line, self.line_quote = self.pos, self.quote
         now = self.quote[-1:] in ("(", "`")
         if now and not was:
-            self.entered, self.line, self.line_quote = self.pos, self.pos, self.quote  # the line's arithmetic before it holds no heredoc opener
+            self.entered = self.pos
+            if len(self.quote) > len(before):  # a new substitution, not the return to the one a quote or comment was opened in: its line holds no opener before it
+                self.line, self.line_quote = self.pos, self.quote
         elif was and not now:
             self.substitutions.append((self.entered, m.start()))
             self.entered = -1
