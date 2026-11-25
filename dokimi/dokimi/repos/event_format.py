@@ -20,7 +20,7 @@ TOOL_KINDS = frozenset({"command", "read", "edit", "tool"})
 #: The per-model-call kinds (:mod:`dokimi.repos.turn_events`): not tool calls.
 TURN_KINDS = frozenset({"turn", "compaction"})
 #: The token-accounting kind a converter writes, not named in ``repo_event.v2.json``: naming it there adds an
-#: ``allOf`` entry, which ``schema_compat`` reads as breaking (open question in the PR).
+#: ``allOf`` entry, which ``schema_compat`` reads as breaking.
 ACCOUNTING_KINDS = frozenset({"usage_remainder"})
 #: The tool and turn kinds the converters write in version 2 (version 1 wrote the tool kinds only).
 #: ``ACCOUNTING_KINDS`` adds the remainder; readers accept any other kind.
