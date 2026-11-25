@@ -10,7 +10,11 @@ on:
     paths:
       - 'dokimi/fuzz/**'
       - 'dokimi/dokimi/llm_json.py'
-      - 'dokimi/dokimi/utils.py'
+      - 'dokimi/dokimi/frontmatter.py'
+      - 'dokimi/dokimi/files.py'
+      - 'dokimi/dokimi/records.py'
+      - 'dokimi/dokimi/digest.py'
+      - 'dokimi/dokimi/model_names.py'
       - 'dokimi/dokimi/eval/checklist.py'
       - 'dokimi/dokimi/eval/pairwise.py'
       - 'dokimi/dokimi/eval/reference_checks.py'

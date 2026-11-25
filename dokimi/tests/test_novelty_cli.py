@@ -25,7 +25,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
 )
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_paths import artifact_flag, novelty_argv
 
 
@@ -100,7 +100,7 @@ def test_a_judge_provider_with_no_default_judge_there_exits(argv):
 
 @pytest.mark.parametrize("model", ["sonnet", "opus", "haiku", "claude-opus-5-5"])
 def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_family(model):
-    from dokimi.utils import same_model
+    from dokimi.model_names import same_model
 
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", model,
                   "--provider", "claude-cli")

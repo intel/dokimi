@@ -10,7 +10,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.novelty.atoms import save_atoms
 from dokimi.novelty.spans import segment
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_paths import artifact_flag, novelty_argv
 
 

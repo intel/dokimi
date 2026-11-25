@@ -570,7 +570,7 @@ def test_unreadable_input_is_a_usage_error_not_a_traceback(tmp_path, monkeypatch
     import argparse
 
     from dokimi.commands import repo_security
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     _cell(tmp_path, "t", BASE, 0, events=[_cmd("pytest")])
 

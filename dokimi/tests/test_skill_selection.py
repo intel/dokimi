@@ -12,7 +12,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.cli import build_parser
 from dokimi.eval.agent_runner import _summarize_tool_usage
 from dokimi.eval.arm_summary import summarize_skill_selection
@@ -302,7 +302,7 @@ def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
 
 
 def test_read_json_input_reports_a_json_recursion_error_as_an_input_error(tmp_path, monkeypatch):
-    from dokimi.utils import InputError, read_json_input
+    from dokimi.files import InputError, read_json_input
 
     qfile = tmp_path / "q.json"
     qfile.write_text("[]", encoding="utf-8")

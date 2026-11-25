@@ -22,7 +22,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.novelty import client as client_mod
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_paths import artifact_flag, novelty_argv
 from tests.test_novelty_analyze import SKILL, _scripted
 

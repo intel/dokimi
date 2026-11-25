@@ -31,7 +31,7 @@ from dokimi.runs.scan import (
     select,
 )
 from dokimi.runs.show import Shown, ShownRun, show_target
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _untimed(artifact: Artifact) -> bool:

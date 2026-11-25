@@ -20,7 +20,7 @@ from typing import TypeGuard
 
 from dokimi.eval.correlation import pearson
 from dokimi.novelty.measure import BASELINE_ARM
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 NOISE_Z = 1.96  # two-sided 95%
 SMALL_SAMPLE_N = 10  # below this many items the floor is a rough guide, not a bound

@@ -18,7 +18,8 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
-from dokimi.utils import InputError, read_json_input, warn_recorded_self_judge
+from dokimi.files import InputError, read_json_input
+from dokimi.model_names import warn_recorded_self_judge
 from dokimi.commands._output import save_artifact_or_exit, write_text_or_exit
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_INVALID
 
@@ -308,7 +309,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     report = CrossJudgeReport(baseline_arm=baseline, require_validated=args.require_validated)
     from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
-    from dokimi.utils import question_id
+    from dokimi.records import question_id
 
     # What the arms run's judge saw, when the file keeps it (judge_materials). Built
     # once and only for --judges: it is the store the gate checks and the judge reads.

@@ -125,7 +125,7 @@ from dokimi.eval.sign_flip import (
 )
 from dokimi.eval.stats import correct_family
 from dokimi.eval.finite_delta import checked_delta, checked_mean
-from dokimi.utils import same_model
+from dokimi.model_names import same_model
 
 from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
                              read_judged)

@@ -15,7 +15,7 @@ from dokimi.novelty.sweep import (
     ALL, UNASSIGNED, group_stats, load_strata, make_row, measured_fields, new_share,
     read_rows, resumable, stratum_of, summarize, summary_lines,
 )
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 SETTINGS = {"max_atoms": 120}
 

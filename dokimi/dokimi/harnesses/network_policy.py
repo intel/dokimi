@@ -45,7 +45,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence
 
-from dokimi.utils import parse_frontmatter
+from dokimi.frontmatter import parse_frontmatter
 
 from .egress_proxy import normalize_entry
 

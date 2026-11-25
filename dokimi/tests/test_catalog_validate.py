@@ -14,7 +14,7 @@ import yaml
 from dokimi.cli import build_parser
 from dokimi.external import read_skill_manifest, review_skills
 from dokimi.skills import discover_skills
-from dokimi.utils import parse_frontmatter, parse_frontmatter_strict
+from dokimi.frontmatter import parse_frontmatter, parse_frontmatter_strict
 
 
 def _skill(root: Path, rel: str, name: str | None = None, description: str = "Use for things.",

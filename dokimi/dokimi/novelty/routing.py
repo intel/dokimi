@@ -43,7 +43,8 @@ from typing import TYPE_CHECKING
 
 from dokimi.external.listing import only_description_too_long
 from dokimi.skills import Skill
-from dokimi.utils import InputError, parse_frontmatter
+from dokimi.files import InputError
+from dokimi.frontmatter import parse_frontmatter
 
 from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
 from .client import LLMClient, OutputTruncated, SpendCapReached, parse_json_object

@@ -17,7 +17,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Iterable, Optional
 
-from dokimi.utils import InputError, question_id
+from dokimi.files import InputError
+from dokimi.records import question_id
 
 # answers.v1 writes ``question_text``; ``question``/``text`` are the
 # question-set spellings, accepted for hand-built inputs.
@@ -27,7 +28,7 @@ _KEYS = ("question_text", "question", "text")
 class EmptyQuestionError(InputError):
     """A record handed to a judge has no question text.
 
-    An :class:`~dokimi.utils.InputError`: the CLI reports it as ``Error: ...`` with
+    An :class:`~dokimi.files.InputError`: the CLI reports it as ``Error: ...`` with
     exit 2, the code for bad input (1 is the verdict code of ``--strict`` gates and
     ``eval judge validate``).
     """

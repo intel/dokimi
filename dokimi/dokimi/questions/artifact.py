@@ -47,7 +47,8 @@ from dokimi.artifacts import (
 )
 from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
 from dokimi.questions.normalizer import canonical_question, record_id
-from dokimi.utils import question_id, read_json_input
+from dokimi.records import question_id
+from dokimi.files import read_json_input
 
 logger = logging.getLogger(__name__)
 
@@ -256,8 +257,8 @@ def load_questions(path: Path | str, *, validate: bool = True, flag: str | None 
     refuse the set.
 
     With ``flag`` (the option the file was given to) the file is read by
-    :func:`dokimi.utils.read_json_input`: an unreadable, non-UTF-8 or non-JSON file raises
-    :class:`~dokimi.utils.InputError` ``<flag> <path>: <reason>``. Without it the read is bare.
+    :func:`dokimi.files.read_json_input`: an unreadable, non-UTF-8 or non-JSON file raises
+    :class:`~dokimi.files.InputError` ``<flag> <path>: <reason>``. Without it the read is bare.
     """
     # the raw value goes to the reader: ``Path("")`` is ``.``, which would hide an empty path
     raw = json.loads(Path(path).read_text(encoding="utf-8")) if flag is None else read_json_input(path, flag=flag)

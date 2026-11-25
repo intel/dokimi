@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""dokimi.utils.tree_digest: the one tree hash the build context and the repo config share."""
+"""dokimi.digest.tree_digest: the one tree hash the build context and the repo config share."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.utils import tree_digest
+from dokimi.digest import tree_digest
 
 symlinks = pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 
@@ -213,7 +213,7 @@ def test_a_root_link_through_a_subdirectory_to_the_root_digests_differently_from
 
 def test_a_windows_extended_path_prefix_is_read_as_the_plain_path():
     # os.readlink on Windows returns the \\?\ form of an absolute link target; the containment check needs the plain one
-    from dokimi.utils import _plain_path
+    from dokimi.digest import _plain_path
 
     assert _plain_path("\\\\?\\C:\\checkout\\tree\\q.json") == "C:\\checkout\\tree\\q.json"
     assert _plain_path("\\\\?\\UNC\\srv\\share\\q.json") == "\\\\srv\\share\\q.json"
@@ -333,7 +333,7 @@ def test_an_absolute_link_that_leaves_the_tree_and_comes_back_digests_the_same_a
 
 def test_an_absolute_link_in_a_subdirectory_that_leaves_the_tree_and_comes_back_is_read_from_its_directory(tmp_path):
     # sub/l -> <root>/../t/x folds to the root's x, so the text climbs out of sub first: ../x, not x
-    from dokimi.utils import link_text
+    from dokimi.digest import link_text
 
     root = _write(tmp_path / "t", {"x": "x\n", "sub/x": "inner\n"})
     try:
@@ -345,7 +345,7 @@ def test_an_absolute_link_in_a_subdirectory_that_leaves_the_tree_and_comes_back_
 
 def test_an_absolute_link_into_a_sibling_whose_name_starts_with_the_roots_is_outside_the_tree(tmp_path):
     # <tmp>/t2/q.json shares the prefix <tmp>/t but not the directory: it is external, not the relative 2/q.json
-    from dokimi.utils import link_text
+    from dokimi.digest import link_text
 
     root = _write(tmp_path / "t", {"2/q.json": "[]\n"})
     sibling = _write(tmp_path / "t2", {"q.json": "[]\n"})
@@ -390,7 +390,7 @@ def test_crlf_text_digests_as_its_bytes_outside_git(tmp_path):
 
 
 def test_a_relative_link_target_is_hashed_with_forward_slashes_on_any_os():
-    from dokimi.utils import _posix_separators
+    from dokimi.digest import _posix_separators
 
     assert _posix_separators("..\\vendor\\a", "\\") == "../vendor/a"  # Windows: os.readlink gives the native separator
     assert _posix_separators("../vendor/a", "/") == "../vendor/a"

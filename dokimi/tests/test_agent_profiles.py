@@ -16,7 +16,7 @@ from dokimi.treatments.arms import (
     SkillTreatment,
 )
 from dokimi.treatments.factory import create_treatment, create_treatments
-from dokimi.utils import digest_text
+from dokimi.digest import digest_text
 
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "data" / "agent_profiles"
 SKILL_DIR = Path(__file__).resolve().parents[1] / "data" / "skills"

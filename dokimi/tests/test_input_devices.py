@@ -22,7 +22,7 @@ from dokimi.commands import benchmark
 from dokimi.commands.inputs import read_text_or_exit
 from dokimi.orchestrator.pipeline import EvaluationPipeline
 from dokimi.registry import ProductEntry
-from dokimi.utils import InputError, read_json_input, refuse_device
+from dokimi.files import InputError, read_json_input, refuse_device
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="/dev/null is a POSIX device")
 

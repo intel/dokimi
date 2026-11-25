@@ -12,7 +12,7 @@ import pytest
 from dokimi.novelty.atoms import load_atoms_record
 from dokimi.novelty.atoms_refusal import has_visible_text
 from dokimi.novelty.client import SpendCap, SpendCapReached
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 _BLOCK = {"reason": "spend_cap", "message": "stopped"}
 

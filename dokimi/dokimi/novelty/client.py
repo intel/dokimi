@@ -353,7 +353,7 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
 
 def same_client(a: LLMClient, b: LLMClient) -> bool:
     """Whether two clients run one model: the same name, or a CLI alias and a full id of its family."""
-    from dokimi.utils import same_model
+    from dokimi.model_names import same_model
 
     return a.model == b.model or same_model(a.model, b.model)
 
@@ -380,9 +380,9 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
 
     Takes a name, not a client: a saved atoms file records only the extractor's model id.
     """
-    from dokimi.utils import same_model
+    from dokimi.model_names import same_model
 
-    # the same id behind a routing prefix or a Bedrock spelling is one model (utils.same_model, the one rule)
+    # the same id behind a routing prefix or a Bedrock spelling is one model (dokimi.model_names.same_model, the one rule)
     identical = extractor_model == judge.model or same_model(extractor_model, judge.model)
     vendor = vendor_of(extractor_model)
     return {

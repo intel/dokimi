@@ -72,7 +72,8 @@ import yaml
 
 from dokimi import process
 from dokimi.process_io import joined_pairs
-from dokimi.utils import key_bytes, retry_writable
+from dokimi.digest import key_bytes
+from dokimi.files import retry_writable
 
 from .events import convert
 from .harness_profile import HarnessProfile

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Sequence
 
 from dokimi.process import Env, run
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 #: A C identifier prefix: a C identifier that ends in an underscore (``cblas_``, ``LAPACKE_``).
 _PREFIX = re.compile(r"[A-Za-z_]\w*_")

@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import sys
 from dokimi.exit_codes import EXIT_INCONCLUSIVE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _ask(args: argparse.Namespace):

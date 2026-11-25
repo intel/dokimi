@@ -19,7 +19,7 @@ from dokimi import process
 from dokimi.cli import build_parser
 from dokimi.harnesses import create_harness, known_harnesses, load_task, null_check
 from dokimi.harnesses.docker_solver import DockerSolverHarness
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 from docker_cli_fake import DockerCLI, reply
 

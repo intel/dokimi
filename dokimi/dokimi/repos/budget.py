@@ -646,7 +646,7 @@ def _normalize(path: str) -> str:
 
 
 def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
-    from dokimi.utils import parse_frontmatter
+    from dokimi.frontmatter import parse_frontmatter
 
     out = []
     for path in paths:

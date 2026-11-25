@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _skill(root: Path, name: str) -> None:

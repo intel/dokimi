@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from dokimi import caching
 from dokimi.eval.question_text import question_text_of
 from dokimi.llm import LLM
-from dokimi.utils import question_id
+from dokimi.records import question_id
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)

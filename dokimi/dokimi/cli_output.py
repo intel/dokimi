@@ -16,7 +16,7 @@ from typing import Any
 from dokimi._version import __version__
 from dokimi import artifacts
 from dokimi.artifacts import SCHEMA_DIR
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 SCHEMA_VERSION = "cli_output.v1"
 STATUSES = ("complete", "partial", "budget_stopped", "cancelled", "failed")

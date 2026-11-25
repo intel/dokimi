@@ -26,7 +26,8 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.commands._output import save_artifact_or_exit
 from dokimi.exit_codes import EXIT_INCONCLUSIVE
-from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
+from dokimi.files import InputError
+from dokimi.model_names import warn_judge_independence, warn_recorded_self_judge
 
 
 _warn_judge_independence = warn_judge_independence

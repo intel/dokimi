@@ -25,7 +25,7 @@ from dokimi.artifacts import load_artifact, stamp, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.treatments import BaselineTreatment
 from dokimi.treatments.base import AgentConfig, Treatment
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_refusal import refusal
 
 PROJECT = Path(__file__).resolve().parents[1]

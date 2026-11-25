@@ -18,7 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 FIELDS = ("skill", "atom_id", "label")
 UNLABELLED = "unlabelled"

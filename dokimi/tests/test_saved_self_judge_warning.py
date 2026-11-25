@@ -11,7 +11,7 @@ import json
 import pytest
 
 from dokimi.cli import parse_args
-from dokimi.utils import warn_recorded_self_judge
+from dokimi.model_names import warn_recorded_self_judge
 
 WARN = "Evaluator independence warning"
 SELF = {"model": "gpt-6.1-sol", "provider": "openai"}
@@ -88,7 +88,7 @@ def _judge_argv(tmp_path):
             ["eval", "score", "ragas", "--answers", a, "--ragas-provider", "openai",
              "--ragas-model", "gpt-6.1-sol"],
         ],
-        "dokimi.utils": [
+        "dokimi.model_names": [
             ["eval", "score", "reference", "--answers", a, "--questions", q, "--output", out, *j],
         ],
         "dokimi.commands.questions": [
@@ -105,7 +105,7 @@ CASES = [  # (module whose warn_recorded_self_judge the command calls, command w
     ("dokimi.commands.judge_reliability", ("eval", "judge", "agreement")),
     ("dokimi.commands.evaluate", ("eval", "judge", "validate")),
     ("dokimi.commands.evaluate", ("eval", "score", "ragas")),
-    ("dokimi.utils", ("eval", "score", "reference")),
+    ("dokimi.model_names", ("eval", "score", "reference")),
     ("dokimi.commands.questions", ("eval", "questions", "analyze")),
     ("dokimi.commands.questions", ("eval", "questions", "review")),
 ]
@@ -135,11 +135,11 @@ def test_command_checks_the_recorded_model(module, words, tmp_path, monkeypatch)
 
 
 def test_reference_with_no_judge_does_not_warn(tmp_path, monkeypatch):
-    from dokimi.utils import warn_recorded_self_judge as real
-    import dokimi.utils
+    from dokimi.model_names import warn_recorded_self_judge as real
+    import dokimi.model_names
 
     calls = []
-    monkeypatch.setattr(dokimi.utils, "warn_recorded_self_judge", lambda *a, **k: calls.append(a) or real(*a, **k))
+    monkeypatch.setattr(dokimi.model_names, "warn_recorded_self_judge", lambda *a, **k: calls.append(a) or real(*a, **k))
     args = parse_args(["eval", "score", "reference", "--answers", str(_arms_file(tmp_path)),
                        "--questions", str(_questions_file(tmp_path)), "--no-judge",
                        "--output", str(tmp_path / "o.json")])

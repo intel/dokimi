@@ -15,7 +15,9 @@ from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEF
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
-from dokimi.utils import InputError, key_bytes, read_json_input, refuse_device, same_evaluator
+from dokimi.digest import key_bytes
+from dokimi.files import InputError, read_json_input, refuse_device
+from dokimi.model_names import same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ def _canonical(questions: List[Dict[str, Any]]) -> List[str]:
     Labels the run adds on reading (``source_type``, ``persona_id``) are left out, so a set
     is equal to what was read unless a record was added, dropped or reworded.
     """
-    from dokimi.utils import question_id
+    from dokimi.records import question_id
 
     return sorted(json.dumps([repr(question_id(q)), q.get("question", q.get("text"))],
                              default=str) for q in questions)
@@ -779,7 +781,6 @@ class EvaluationPipeline:
         """Generate comprehensive report."""
         from dokimi.report import ReportGenerator
         
-        # Load data
         eval_data = json.loads(self.eval_path.read_text(encoding="utf-8"))
         questions_data = {
             "product": self.product,
@@ -794,7 +795,6 @@ class EvaluationPipeline:
             output_format="markdown"
         )
         
-        # Save report
         write_bytes_in_place_or_atomic(self.report_path, text_file_bytes(report))
         
         return report

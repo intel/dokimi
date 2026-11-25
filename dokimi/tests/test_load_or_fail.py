@@ -17,7 +17,7 @@ from dokimi.artifacts import SCHEMA_VERSIONS, load_artifact
 from dokimi.novelty.atoms import load_atoms_record
 from dokimi.records import load as load_records
 from dokimi.report.model_compare import load_run
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 MISSING, NOT_UTF8, BAD_JSON, NOT_AN_OBJECT, WRONG_SCHEMA = (
     "missing", "not_utf8", "bad_json", "not_an_object", "wrong_schema")
@@ -64,7 +64,7 @@ def test_a_bad_input_file_is_an_input_error_naming_it(tmp_path, loader, mode):
 
 def test_a_path_with_a_nul_byte_is_an_input_error_naming_it():
     # Path.read_text raises a bare ValueError here; it must not escape as a traceback.
-    from dokimi.utils import read_json_input
+    from dokimi.files import read_json_input
 
     with pytest.raises(InputError) as exc:
         read_json_input("bad\x00name.json")
@@ -76,7 +76,7 @@ def test_a_path_with_a_nul_byte_is_an_input_error_naming_it():
     (None, 'cannot read "": no file given'),
 ])
 def test_an_empty_path_is_refused_quoted_not_read_as_the_current_directory(flag, message):
-    from dokimi.utils import read_json_input
+    from dokimi.files import read_json_input
 
     with pytest.raises(InputError) as exc:
         read_json_input("", flag=flag)

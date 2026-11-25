@@ -24,7 +24,7 @@ from dokimi.defaults import (
     DEFAULT_MAX_TOKENS_PER_QUESTION,
     DEFAULT_RETRIEVAL_TOP_K,
 )
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _load_runtime_config() -> dict:

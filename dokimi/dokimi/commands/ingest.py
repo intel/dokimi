@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def cmd_ingest_docling(args: argparse.Namespace) -> None:

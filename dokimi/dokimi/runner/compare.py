@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.gate.regression import detect_regressions
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 _REQUIRED_SUMMARY_KEYS = {"docs", "score", "coverage", "freshness_lite", "readability"}

@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_paths import novelty_argv
 
 

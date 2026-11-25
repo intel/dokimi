@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi import tool_preference as tp
 from dokimi.artifacts import validate_artifact
 from tests.cli_refusal import refusal

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from .client import LLMClient, SpendCapReached, same_client
 from .panel import RULES, aggregate as aggregate_votes
 

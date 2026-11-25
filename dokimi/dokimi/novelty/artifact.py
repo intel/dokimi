@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def load_artifact_text(ref: str) -> tuple[str, str, str, str, str]:
@@ -42,7 +42,7 @@ def load_artifact_text(ref: str) -> tuple[str, str, str, str, str]:
 
 
 def load_artifact_ref(ref: str) -> tuple[str, str, str, str, str]:
-    """:func:`load_artifact_text` for a command's ``--artifact``: an :class:`~dokimi.utils.InputError`
+    """:func:`load_artifact_text` for a command's ``--artifact``: an :class:`~dokimi.files.InputError`
     naming ``ref`` when it is missing, unreadable, not UTF-8 or has no frontmatter to read."""
     try:
         return load_artifact_text(ref)

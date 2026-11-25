@@ -40,7 +40,7 @@ from dokimi.records import (
     BASELINE, CONTEXT, KNOWLEDGE_INTENT, PAIRED_INTENT, Answer, Record, RecordError, Run, arm_scores, knowledge_only,
     read, record,
 )
-from dokimi.utils import same_evaluator
+from dokimi.model_names import same_evaluator
 
 #: The ``arm_kind`` of a ``DocTreatment`` arm (``treatments/factory.py``): retrieval into the prompt.
 _DOC_KINDS = frozenset({"docs", "mcp_doc"})

@@ -40,7 +40,7 @@ from dokimi.atomic_write import write_text_atomic
 from dokimi.cli_types import unit_interval
 from dokimi.commands.novelty_run import stops_at_cap
 from dokimi.novelty.sweep import bundle_instances, read_rows, resumable, summarize, summary_lines
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 if TYPE_CHECKING:
     from dokimi.novelty.client import SpendCap
@@ -113,7 +113,7 @@ class _Item:
 def _skill_digest(skill_md: Path) -> str:
     """The digest a resumed run compares: the directory tree, and the entry point's loaded content
     (a symlinked SKILL.md changes its target's text without changing the link the tree digest reads)."""
-    from dokimi.utils import tree_digest
+    from dokimi.digest import tree_digest
 
     entry = hashlib.sha256(skill_md.read_bytes()).hexdigest()
     tree = tree_digest(skill_md.parent.resolve(), tracked={})  # resolved: tree_digest hashes a symlinked ROOT by its link text

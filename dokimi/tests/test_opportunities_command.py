@@ -9,7 +9,7 @@ import pytest
 
 from dokimi.artifacts import validate_artifact
 from dokimi.commands import opportunities as cmd
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 STATIC = {"schema": "repo_static.v1", "claims": [
     {"file": "AGENTS.md", "line": 9, "status": "fail_missing_path"},

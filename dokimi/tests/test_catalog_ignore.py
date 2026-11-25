@@ -15,7 +15,7 @@ import pytest
 import dokimi.external as external
 from dokimi.cli import build_parser
 from dokimi.external.validate import FINDING_CODES
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _skill(root: Path, rel: str, name: str, description: str = "Use for things.") -> None:

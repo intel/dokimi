@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from dokimi.utils import parse_frontmatter
+from dokimi.frontmatter import parse_frontmatter
 
 if TYPE_CHECKING:
     from dokimi.skills.loader import Skill

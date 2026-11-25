@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from dokimi.artifacts import save_artifact
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def cmd_novelty_retest(args: argparse.Namespace) -> None:

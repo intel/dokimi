@@ -19,7 +19,7 @@ from dokimi.novelty.grounding import (add_checks, help_identifiers, help_text, i
                                      verify_keys)
 from dokimi.novelty.measure import MeasureResult, ProbeRun, resolve_verdict, run_checks, run_measurement
 from dokimi.novelty.probes import build_probes
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 PERF_HELP = """
  usage: perf report [<options>]

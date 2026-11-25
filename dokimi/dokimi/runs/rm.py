@@ -33,7 +33,7 @@ from dokimi.runs.scan import (
     timestamp,
 )
 from dokimi.runs.show import contained, find_run
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 _AGE = re.compile(r"(\d{1,5})d")
 

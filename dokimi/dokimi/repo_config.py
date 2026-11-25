@@ -32,7 +32,7 @@ from dokimi.repo_claims import _ancestor_of, _claims, _suite_only_dirs, _suite_p
 from dokimi.repo_glob import glob_links as _glob_links, glob_paths as _glob_paths
 from dokimi.repo_links import _declared_links, _hops, _inside, _real, _under, _walk, _within
 from dokimi.digest_entries import target_digest
-from dokimi.utils import GitTree, _tracked_modes, file_contents, git_tree, link_text, tree_digest
+from dokimi.digest import GitTree, _tracked_modes, file_contents, git_tree, link_text, tree_digest
 
 KIND = "dokimi_config"
 CONFIG_CANDIDATES = (".github/dokimi/config.yaml", ".dokimi/config.yaml")

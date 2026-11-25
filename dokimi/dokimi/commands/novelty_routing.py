@@ -35,7 +35,7 @@ from dokimi.commands.novelty_routing_report import (
     stop_if_partial,
     warn_blind_skills,
 )
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:

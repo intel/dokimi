@@ -11,7 +11,7 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from typing import Iterator
 
 from dokimi import llm_cli
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 class Outcome:

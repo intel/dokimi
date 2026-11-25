@@ -37,7 +37,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from .atoms import Atom
 from .client import LLMClient, SpendCapReached
 from .routing_stop import stop_if_run_wide

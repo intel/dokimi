@@ -26,7 +26,7 @@ from dokimi.novelty.measure import (
 from dokimi.novelty.panel import aggregate, panel_warnings, shared_vendors
 from dokimi.novelty.panel_record import panel_record
 from dokimi.novelty.probes import Probe
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 CC, CMQ, PC = "correct_complete", "correct_missing_qualifier", "partially_correct"
 WO, WR, AB = "wrong_other", "wrong_reversed", "abstained"

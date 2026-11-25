@@ -80,7 +80,7 @@ def test_unterminated_frontmatter_reads_as_empty():
     ],
 )
 def test_the_copied_block_and_the_parsed_block_agree(text):
-    from dokimi.utils import parse_frontmatter
+    from dokimi.frontmatter import parse_frontmatter
 
     header = sync.frontmatter_block(text)
     meta, body = parse_frontmatter(text)
@@ -110,7 +110,7 @@ def test_a_bom_does_not_hide_the_frontmatter():
 
 def test_a_fence_without_a_trailing_newline_still_ends_in_one(tmp_path):
     """Otherwise the body is spliced onto the fence line and the result has no frontmatter."""
-    from dokimi.utils import parse_frontmatter
+    from dokimi.frontmatter import parse_frontmatter
 
     skill = write_skill(tmp_path, "Body.")
     profile = tmp_path / "tmp-skilltext.md"

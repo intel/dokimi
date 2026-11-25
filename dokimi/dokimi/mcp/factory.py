@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 from . import MCPClient
 

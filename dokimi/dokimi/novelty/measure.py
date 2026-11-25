@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dokimi.eval.correlation import pearson
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from .atoms import Atom
 from .client import LLMClient, SpendCapReached, parse_json_object, same_client
 from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,

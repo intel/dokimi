@@ -18,7 +18,7 @@ import pytest
 
 from dokimi.eval.panel import JudgePanel, PanelVerdict
 from dokimi.records import RecordError
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.artifact_fixtures import artifact_fixture
 
 

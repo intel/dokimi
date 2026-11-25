@@ -15,7 +15,7 @@ from dokimi.commands._output import exit_on_rejected, exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.personas.generator import PersonaGenerator
-from dokimi.utils import InputError, refuse_device
+from dokimi.files import InputError, refuse_device
 
 
 def cmd_personas_discover(args: argparse.Namespace) -> None:

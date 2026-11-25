@@ -19,7 +19,7 @@ from dokimi.report.model_compare import (
     prompt_digests,
     scored_arms,
 )
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 # ---------------------------------------------------------------------------

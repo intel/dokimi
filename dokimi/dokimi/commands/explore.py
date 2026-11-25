@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from dokimi import cli_flags
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 _TASKS_ROOT_HELP = (
     "Directory of exploration task YAML files (default: data/explore_tasks of a "

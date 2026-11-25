@@ -10,7 +10,7 @@ import os
 import pytest
 
 from dokimi.commands.cache_dir import CACHE_USE, RETENTION_USE, usable_cache_dir
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _message(raw, **kwargs) -> str:

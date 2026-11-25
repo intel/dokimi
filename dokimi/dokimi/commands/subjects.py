@@ -22,7 +22,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_HELP,
 )
 from dokimi.judge_rule import apply_default_judge, follow_answerer_cli, refuse_judge_model
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def cmd_subjects_list(args: argparse.Namespace) -> None:

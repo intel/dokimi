@@ -32,7 +32,7 @@ from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.code_index.symbols import descriptor_names, descriptors
 from dokimi.repos.environment.files import is_generated, is_test_file
 from dokimi.repos.environment.structure import detect_prefix, function_like, is_protocol_name
-from dokimi.utils import key_bytes
+from dokimi.digest import key_bytes
 
 GOLD = "gold.json"
 GRADER = "dokimi:graph_enum"

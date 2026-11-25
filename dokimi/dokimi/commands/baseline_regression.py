@@ -9,7 +9,7 @@ import argparse
 import math
 from decimal import Decimal, InvalidOperation
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.records import BASELINE, CONTEXT, Record
 
 

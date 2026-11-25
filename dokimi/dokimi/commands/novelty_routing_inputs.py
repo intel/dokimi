@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from dokimi.utils import InputError, is_symlink_loop
+from dokimi.files import InputError, is_symlink_loop
 from dokimi.write_probe import can_write
 
 if TYPE_CHECKING:

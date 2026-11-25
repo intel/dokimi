@@ -17,7 +17,7 @@ import pytest
 import dokimi.skill_coverage as sc
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient, SpendCap
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 class Transport:

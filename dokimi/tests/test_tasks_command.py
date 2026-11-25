@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.cli import build_parser
 
 

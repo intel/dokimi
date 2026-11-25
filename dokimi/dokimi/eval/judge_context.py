@@ -37,7 +37,8 @@ import threading
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from dokimi.records import arm_answers, read
-from dokimi.utils import digest_text, question_id
+from dokimi.digest import digest_text
+from dokimi.records import question_id
 
 logger = logging.getLogger(__name__)
 

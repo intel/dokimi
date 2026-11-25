@@ -16,7 +16,7 @@ import pytest
 
 from dokimi import cli
 from dokimi.report.model_compare import check_run_consistency
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.test_model_compare import _V1, _run_pair, _stamped
 
 _NULL_ARM = {"baseline_arm": "baseline", "answers": [

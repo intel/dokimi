@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional
 
 import httpx
 
-from dokimi.utils import key_bytes
+from dokimi.digest import key_bytes
 
 from . import MCPClient, MCPConnectionError
 from .utils import read_cache_text, strip_html, score_chunk, split_paragraphs, write_cache_text

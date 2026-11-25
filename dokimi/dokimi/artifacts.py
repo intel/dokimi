@@ -54,7 +54,7 @@ from typing import Any
 from dokimi._version import __version__
 from dokimi.atomic_write import write_bytes_in_place_or_atomic
 from dokimi.process_io import json_utf8_bytes
-from dokimi.utils import InputError, read_json_input
+from dokimi.files import InputError, read_json_input
 
 logger = logging.getLogger(__name__)
 
@@ -292,14 +292,14 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       process that last saved it, so an artifact built from a loaded one takes the new run's id.
       ``data`` itself is not mutated.
     - A ``novelty`` payload with ``status`` or ``partial`` (what a ``--max-usd`` stop keeps) is
-      refused with :class:`~dokimi.utils.InputError`, as :func:`load_artifact` refuses it: nothing
+      refused with :class:`~dokimi.files.InputError`, as :func:`load_artifact` refuses it: nothing
       is written, since ``runs`` would list the file as a finished run.
     - The payload is validated first. :class:`ArtifactValidationError` means nothing was
       written at ``path`` (a file already there is untouched); the rejected payload is kept
       at ``<name>.rejected`` so a paid run is not lost to a schema problem. A later valid
       save to ``path`` removes that ``<name>.rejected`` (only that sibling), so a leftover
       always belongs to the latest attempt; if it cannot be removed the save still stands and
-      a warning is logged. :class:`~dokimi.utils.InputError` means ``DOKIMI_RUN_ID`` is malformed
+      a warning is logged. :class:`~dokimi.files.InputError` means ``DOKIMI_RUN_ID`` is malformed
       (``cli.main`` refuses it before a command runs): nothing is written at ``path`` and the payload
       is kept at ``<name>.rejected`` the same way. ``KeyError`` means ``kind`` is not registered in
       :data:`SCHEMA_VERSIONS`.
@@ -389,7 +389,7 @@ def _is_partial_novelty(kind: str, data: dict) -> bool:
 def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict:
     """Read and (optionally) validate an artifact of ``kind`` from ``path``.
 
-    Every failure is an :class:`~dokimi.utils.InputError` naming ``path``: a file that is
+    Every failure is an :class:`~dokimi.files.InputError` naming ``path``: a file that is
     missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema, and
     the partial file of an unfinished novelty or arms run.
     """

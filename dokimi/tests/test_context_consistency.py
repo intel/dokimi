@@ -16,7 +16,7 @@ from dokimi.context.consistency import (_cv, apply_outcomes, check_contract, jsd
                                         load_contract, load_outcomes, parse_contract, parse_run,
                                         pass_at, pass_hat, profile, run_from_events, seq_distance)
 from dokimi.context.shell import program as _program
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.context.shell import written as _written
 
 

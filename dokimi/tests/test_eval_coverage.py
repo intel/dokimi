@@ -16,7 +16,7 @@ from dokimi.cli import build_parser
 from dokimi.eval_coverage import LabelledEval, coverage_report, exact_shares, graph_digest, load_graph, read_labels
 from dokimi.novelty.needs import NeedGraph, NeedNode
 from dokimi.novelty.needs import load_graph as novelty_load_graph
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_refusal import refusal
 
 NODES = [

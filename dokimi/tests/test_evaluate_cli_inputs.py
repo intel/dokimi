@@ -21,7 +21,7 @@ from tests.cli_refusal import refusal
 
 from dokimi.cli import build_parser
 from dokimi.orchestrator.pipeline import EvaluationPipeline, load_questions_payload
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _evaluate(*extra: str):

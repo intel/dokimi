@@ -19,7 +19,7 @@ from dokimi.novelty import symbols
 from dokimi.novelty.atoms import Atom, Span, load_atoms_record, save_atoms
 from dokimi.novelty.grounding import add_checks, identifiers_check, verify_keys
 from dokimi.novelty.symbols import header_names, nm_names, symbol_pattern, symbols_check
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.growth_timing import GROWTH_LIMIT, growth
 
 PREFIXES = ("cblas_", "LAPACKE_", "mkl_")

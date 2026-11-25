@@ -20,7 +20,8 @@ from dokimi.llm_cli import BACKENDS
 from dokimi.personas.generator import PersonaGenerator
 from dokimi.questions.llm_gen import QuestionGenerator
 from dokimi.questions.validator import QuestionValidator
-from dokimi.utils import InputError, check_bedrock_model
+from dokimi.files import InputError
+from dokimi.model_names import check_bedrock_model
 
 CALLERS = {
     "judge": lambda model, provider, api_key: Judge(model=model, provider=provider, api_key=api_key),

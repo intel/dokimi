@@ -1,0 +1,464 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Content digests of text, single files and whole trees, read through git where a repository holds them.
+
+A tree digest takes each tracked file's blob id from git (a :class:`GitTree` snapshot of the work tree's
+index and ignore rules), so a CRLF checkout under core.autocrlf digests as its LF twin does. A link digests
+by its text.
+"""
+
+import errno
+import hashlib
+import os
+import stat
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping
+
+from dokimi.process_io import disk_path_text, exact_path_text, flagged, worktree_changed
+
+if TYPE_CHECKING:
+    from dokimi.process import Env
+
+
+def digest_text(text: str) -> str:
+    """Content-digest a prompt or other text blob.
+
+    Uses the ``sha256:<hexdigest>`` prefix convention the plugin-set and subject
+    digests already use, so provenance fields read the same way across artifacts.
+    The digest itself is the full 64-char hex: the plugin-set digest is truncated
+    to 32, so the two are comparable in shape but never equal for the same input.
+
+    Args:
+        text: The text to digest.
+
+    Returns:
+        ``"sha256:"`` followed by the hex digest of the UTF-8 encoding.
+    """
+    import hashlib
+
+    return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
+
+
+def key_bytes(text: str) -> bytes:
+    """Bytes a cache key hashes: ``surrogateescape``; NUL-led text gets ``\\0e``; a surrogate it cannot map (U+D800..U+DC7F, U+DD00..U+DFFF) tags the text ``\\0sp`` and uses ``surrogatepass``."""
+    try:
+        return b"\0e" * text.startswith("\0") + text.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError:  # a JSON `\ud800` has no escape
+        return b"\0sp" + text.encode("utf-8", "surrogatepass")
+
+
+def _plain_path(text: str) -> str:
+    r"""A Windows absolute path without its extended-length prefix. os.readlink gives an absolute link target as
+    \\?\C:\... (or \\?\UNC\...), while the anchors are plain: the two read as different drives.
+    Any other text is returned unchanged."""
+    if text.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + text[len("\\\\?\\UNC\\"):]
+    if text.startswith("\\\\?\\"):
+        return text[len("\\\\?\\"):]
+    return text
+
+
+def _settled(target: str) -> str:
+    """An absolute ``target`` with each ``..`` that follows a real directory folded into it, as the kernel reads the
+    path. A ``..`` that follows a link is kept: the kernel resolves it from the link's target, which a fold would miss."""
+    anchor, *names = Path(target).parts
+    kept: list[str] = []
+    for name in names:
+        if name == "..":
+            top = kept[-1] if kept else None
+            here = os.path.join(anchor, *kept)
+            if top not in (None, "..") and os.path.isdir(here) and not os.path.islink(here):
+                kept.pop()
+                continue
+        kept.append(name)
+    return os.path.join(anchor, *kept)
+
+
+def _posix_separators(text: str, sep: str = os.sep) -> str:
+    """``text`` with its native separator ``sep`` written as ``/``, so a relative link target digests the same on Windows
+    (where os.readlink gives backslashes) as on POSIX. On POSIX a backslash is part of a name and is kept."""
+    return text if sep == "/" else text.replace(sep, "/")
+
+
+@dataclass(frozen=True)
+class GitTree:
+    """A work tree a digest reads through git: its top (a real path), the walk's base (top-relative, "" for the top), the
+    untracked, ignored paths git leaves out (top-relative, a directory by its name as ``ls-files --directory`` gives it),
+    and the blob ids of the tracked files git finds unchanged (their index entries). A tree is a snapshot: build one per
+    digest. ``indexed`` is left out of the hash only: a mapping cannot hash, and equality must see the snapshot.
+    ``tracked`` holds every path the top's index holds and each directory above one: git stores those, so a nested
+    repository's rules never leave them out. ``nested`` is filled as a walk meets directories: for one holding ``.git``
+    (a nested repository or submodule), the paths its own git ignores, relative to it; None for any other. It is a
+    cache, so equality and the hash leave it out."""
+
+    top: Path
+    base: str
+    ignored: frozenset[str]
+    indexed: Mapping[str, str] = field(hash=False)
+    tracked: frozenset[str] = frozenset()
+    nested: dict[str, frozenset[str] | None] = field(default_factory=dict, hash=False, compare=False, repr=False)
+
+    def top_rel(self, path: Path) -> str | None:
+        """``path`` relative to the top, as POSIX, its own link (if it is one) not followed; None outside the tree."""
+        real = Path(os.path.realpath(path.parent)) / path.name
+        try:
+            return real.relative_to(self.top).as_posix()
+        except ValueError:
+            return None
+
+    def skipped(self, path: Path) -> bool:
+        """True for what git leaves out: an ignored path below the base, by the top's rules or (unless the top tracks it)
+        by those of a nested repository holding it, or anything under a ``.git`` (a nested repository's own). An ignored
+        directory above the base is not this walk's to apply. OSError when git cannot read such a nested repository."""
+        rel = self.top_rel(path)
+        if rel is None:
+            return False
+        parts = rel.split("/")
+        first = len(self.base.split("/")) + 1 if self.base else 1
+        if ".git" in parts or any("/".join(parts[:i]) in self.ignored for i in range(first, len(parts) + 1)):
+            return True
+        return rel not in self.tracked and any(self._inner_skips(parts, j, first) for j in range(1, len(parts)))
+
+    def _inner_skips(self, parts: list[str], j: int, first: int) -> bool:
+        """True when the directory ``parts[:j]`` is a nested repository that ignores ``parts[j:]`` or a directory of it
+        below the base (``first``: the walk's first own part)."""
+        inner = self._inner_ignored("/".join(parts[:j]))
+        if not inner:
+            return False
+        return any("/".join(parts[j:i]) in inner for i in range(max(first, j + 1), len(parts) + 1))
+
+    def _inner_ignored(self, rel: str) -> frozenset[str] | None:
+        if rel not in self.nested:  # read once per nested repository, no git call for a directory without .git
+            here = self.top / rel
+            if not os.path.lexists(here / ".git"):
+                self.nested[rel] = None
+            elif (why := _not_own_top(here)) is not None:
+                raise OSError(errno.EIO, f"git cannot read this nested repository: {why}", os.fspath(here))
+            elif (inner := _ignored_paths(os.fspath(here))) is not None:
+                self.nested[rel] = inner
+            else:  # leaving nothing out would hash its ignored files only where git cannot read it
+                raise OSError(errno.EIO, "git cannot read this nested repository", os.fspath(here))
+        return self.nested[rel]
+
+
+def _not_own_top(here: Path) -> str | None:
+    """Why git does not read ``here`` as its own work tree's top: git's message, or the top it found instead (git skips
+    a ``.git`` it cannot read as a repository and walks up to the enclosing one). None when it does."""
+    from dokimi.process import run
+
+    top = run(["git", "-C", os.fspath(here), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
+    if not top.ok:
+        return top.stderr.strip() or f"exit {top.returncode}"
+    found = os.fsdecode(top.stdout_bytes).removesuffix("\n")  # git ends the name with one newline
+    return None if Path(os.path.realpath(found)) == Path(os.path.realpath(here)) else f"git reads {found} instead"
+
+
+def _git_env() -> "Env":
+    from dokimi.process import Env
+
+    # GIT_* variables (a hook's GIT_DIR or GIT_INDEX_FILE) would point git at some other repository
+    return Env.only(allow=[k for k in os.environ if not k.startswith("GIT_")])
+
+
+def git_tree(base: Path) -> GitTree | None:
+    """The work tree holding ``base``, with what git leaves out of it. None when ``base`` is in no work tree (or git
+    cannot say): the digest then hashes the bytes on disk and leaves nothing out."""
+    from dokimi.process import run
+
+    try:
+        top = run(["git", "-C", os.fspath(base), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
+        if not top.ok:
+            return None
+        top_dir = os.fsdecode(top.stdout_bytes).removesuffix("\n")  # only git's newline: a name may end in " " or "\r"
+        ignored = _ignored_paths(top_dir)
+    except OSError:
+        return None
+    if ignored is None:
+        return None
+    top_real = Path(os.path.realpath(top_dir))
+    try:
+        base_rel = Path(os.path.realpath(base)).relative_to(top_real).as_posix()
+    except ValueError:
+        return None
+    return GitTree(top_real, "" if base_rel == "." else base_rel, ignored, *_index_blobs(top_dir))
+
+
+def _ignored_paths(top: str) -> frozenset[str] | None:
+    """The untracked, ignored paths of the work tree at ``top`` that git would not descend into (a directory by its
+    name), relative to ``top``; a tracked file is never listed. None if git fails; OSError if it cannot start."""
+    from dokimi.process import run
+
+    listed = run(["git", "-C", top, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+                 timeout=120, env=_git_env(), capture_limit=None)
+    if not listed.ok:
+        return None
+    return frozenset(disk_path_text(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
+
+
+def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
+    """The index's blob id for each tracked file that git finds unchanged in the work tree. ``hash-object`` does not read
+    the index, so it would fold a committed CRLF file under core.autocrlf. Flagged entries (skip-worktree, assume-unchanged)
+    are left out: git does not look at those files, so their disk content is hashed. Second, every path the index holds
+    and each directory above one (``GitTree.tracked``). No blob id if any git call fails; no path if ``ls-files`` does."""
+    from dokimi.process import run
+
+    env = _git_env()
+    staged = run(["git", "-C", top, "ls-files", "-s", "-z"], timeout=120, env=env, capture_limit=None)
+    tags = run(["git", "-C", top, "ls-files", "-v", "-z"], timeout=120, env=env, capture_limit=None)
+    # --no-optional-locks: status refreshes its view in memory and does not rewrite the index
+    dirty = run(["git", "-C", top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-uno"], timeout=120,
+                env=env, capture_limit=None)
+    trusted = staged.ok and tags.ok and dirty.ok  # a failed ls-files prints no entry, so ``held`` stays empty
+    changed = worktree_changed(dirty.stdout_bytes) | flagged(tags.stdout_bytes)
+    out: dict[str, str] = {}
+    held: set[str] = set()
+    for entry in staged.stdout_bytes.split(b"\0"):
+        meta, _, name = entry.partition(b"\t")
+        fields = meta.split()
+        if not name:
+            continue
+        rel = exact_path_text(name)
+        if rel is None:  # a replaced name would stand for the real file that has it
+            continue
+        held.update(rel.rsplit("/", i)[0] for i in range(rel.count("/") + 1))  # the path and each directory above it
+        if trusted and len(fields) == 3 and fields[2] == b"0" and rel not in changed:
+            out[rel] = os.fsdecode(fields[1])
+    return out, frozenset(held)
+
+
+_ARG_BUDGET = 24_000  # bytes of path arguments per git call: under the smallest command line limit (Windows, 32 KB)
+
+
+def _blob_ids(top: Path, rels: list[str], *, as_args: bool = False) -> list[str] | None:
+    """``git hash-object`` of each path (relative to ``top``) with the work tree's filters: on stdin in one call, or
+    with ``as_args`` on the command line in batches under ``_ARG_BUDGET``, for a name ``--stdin-paths`` misreads (it
+    splits lines, unquotes, drops a CR). A batch that fails fails them all."""
+    if not as_args:
+        return _hash_objects(top, rels, as_args=False)
+    ids: list[str] = []
+    batch: list[str] = []
+    size = 0
+    for rel in [*rels, None]:
+        if rel is None or (batch and size + len(os.fsencode(rel)) + 1 > _ARG_BUDGET):
+            got = _hash_objects(top, batch, as_args=True)
+            if got is None:
+                return None
+            ids += got
+            batch, size = [], 0
+        if rel is not None:
+            batch.append(rel)
+            size += len(os.fsencode(rel)) + 1
+    return ids
+
+
+def _hash_objects(top: Path, rels: list[str], *, as_args: bool) -> list[str] | None:
+    from dokimi.process import run
+
+    names = ["--", *rels] if as_args else ["--stdin-paths"]
+    data = None if as_args else b"".join(os.fsencode(rel) + b"\n" for rel in rels)
+    try:
+        done = run(["git", "-C", os.fspath(top), "hash-object", *names], timeout=600, env=_git_env(),
+                   input=data, capture_limit=None)
+    except OSError:
+        return None
+    if not done.ok:  # git's own words name the file or filter to fix
+        why = "timed out" if done.timed_out else done.stderr.strip() or f"exit code {done.returncode}"
+        raise OSError(errno.EIO, f"git hash-object failed: {why}", os.fspath(top))
+    ids = [os.fsdecode(i) for i in done.stdout_bytes.split()]
+    return ids if len(ids) == len(rels) else None
+
+
+def file_contents(paths: Iterable[Path], tree: GitTree | None) -> dict[Path, bytes]:
+    """What a digest holds for each file: git's blob id for a file in ``tree`` (the index's when git finds it unchanged,
+    else ``hash-object``'s with the work tree's filters). Otherwise the sha256 of its bytes: no tree or a file outside
+    it. A ``hash-object`` that fails raises ``OSError``, as a repository git cannot read does."""
+    found = list(dict.fromkeys(paths))
+    out = _blob_contents(found, tree) if tree is not None else {}
+    for path in found:
+        if path not in out:
+            out[path] = hashlib.sha256(path.read_bytes()).digest()
+    return out
+
+
+def _blob_contents(paths: list[Path], tree: GitTree) -> dict[Path, bytes]:
+    out: dict[Path, bytes] = {}
+    plain: list[tuple[Path, str]] = []
+    odd: list[tuple[Path, str]] = []  # names --stdin-paths misreads: hashed as arguments, so edited reads as committed
+    for path in paths:
+        rel = tree.top_rel(path)
+        if rel is None:
+            continue
+        if rel in tree.indexed:
+            out[path] = bytes.fromhex(tree.indexed[rel])
+        else:
+            (odd if "\n" in rel or rel.startswith('"') or rel.endswith("\r") else plain).append((path, rel))
+    for hashed, as_args in ((plain, False), (odd, True)):
+        ids = _blob_ids(tree.top, [rel for _, rel in hashed], as_args=as_args) if hashed else []
+        if ids is None:  # a sha256 of the bytes here would move the digest with the host load that failed git
+            raise OSError(errno.EIO, "git hash-object failed", os.fspath(tree.top))
+        out.update({path: bytes.fromhex(blob) for (path, _), blob in zip(hashed, ids, strict=True)})
+    return out
+
+
+def file_digest(content: bytes, executable: bool) -> str:
+    """The digest of one file alone, as :func:`tree_digest` gives a file ``root`` (its path is ``.``)."""
+    return hashlib.sha256(b"F .\0" + f"{int(executable)}\0".encode() + content).hexdigest()
+
+
+def link_text(link: Path, root: Path) -> str:
+    """A symlink's target as the digests hold it: as written, except an absolute target inside ``root``, which is
+    written relative to the link. So a tree digests the same at another checkout path (the link's text is the same).
+    A ``..`` in such a target is kept as written: after a link the kernel resolves it from the link's target, so
+    collapsing it lexically would hash two different files alike."""
+    target = os.readlink(link)
+    if not os.path.isabs(target):
+        return _posix_separators(target)
+    target = _plain_path(target)
+    if link == root:  # the root is hashed by its target, not walked: kept as written, so a loop through it stays a loop
+        return target
+    # the tree may be named by a path with links in it: match the target under the name as given and as resolved
+    # (a link that is the root itself is not resolved, or its own target would count as inside it)
+    anchors = [os.fspath(root)] if root.is_symlink() else [os.fspath(root), os.path.realpath(root)]
+    for anchor in anchors:
+        # Windows folds case in paths (and drive letters), so the comparison is on the normalized spelling; the target
+        # keeps its own spelling in the text it returns
+        key, key_anchor = os.path.normcase(target), os.path.normcase(anchor)
+        try:
+            inside = os.path.commonpath([key, key_anchor]) == key_anchor and key.startswith(key_anchor)
+        except ValueError:  # different drives, or a relative path mixed in
+            continue
+        if inside:
+            rest = [part for part in target[len(anchor):].split(os.sep) if part not in ("", ".")]
+            depth = len(link.relative_to(root).parent.parts)  # the link's directory, as the text is read from there
+            slash = "/" if target.endswith((os.sep, os.sep + ".")) else ""  # "x/" and "x/." need a directory
+            if ".." in rest:
+                # a target whose ".." leads out of the tree (and does not come back in) is external: hashed as written,
+                # so two trees whose external targets differ do not digest alike
+                lexical = os.path.normcase(os.path.normpath(target))
+                if lexical != key_anchor and not lexical.startswith(key_anchor.rstrip(os.sep) + os.sep):
+                    return target
+                # a ".." that leaves the tree and comes back in (tree/../tree/x) is folded, so the name of the checkout's
+                # directory does not reach the digest; the ".." after a link stays, as the kernel reads it
+                settled = _settled(target)
+                key_settled = os.path.normcase(settled)
+                if key_settled != key_anchor and not key_settled.startswith(key_anchor.rstrip(os.sep) + os.sep):
+                    return target
+                rest = [part for part in settled[len(anchor):].split(os.sep) if part not in ("", ".")]
+                return ("/".join([".."] * depth + rest) or ".") + slash  # the root itself is "." before the slash
+            here = os.path.join(anchor, *link.relative_to(root).parent.parts)
+            return os.path.relpath(os.path.join(anchor, *rest), here).replace(os.sep, "/") + slash
+    return target  # outside the tree: as written
+
+
+def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
+    """The executable bit git records (mode 100755) for each file ``spec`` names under ``base``, keyed by the path
+    relative to ``base``. Empty when git cannot say (no git, or ``base`` is not in a repository)."""
+    from dokimi.process import Env, run
+
+    # GIT_* variables (a hook's GIT_DIR or GIT_INDEX_FILE) would point git at some other repository's index
+    env = Env.only(allow=[k for k in os.environ if not k.startswith("GIT_")])
+    try:
+        # literal: the name is a path, not a pattern; no capture limit: a large tree's listing must be read whole
+        done = run(["git", "--literal-pathspecs", "-C", os.fspath(base), "ls-files", "--stage", "-z", "--", spec],
+                   timeout=60, env=env, capture_limit=None)
+    except OSError:
+        return {}
+    if not done.ok:
+        return {}
+    modes: dict[str, bool] = {}
+    for record in done.stdout_bytes.split(b"\0"):
+        meta, tab, name = record.partition(b"\t")
+        key = exact_path_text(name)
+        if tab and key is not None:  # a name Windows cannot decode would take the key of a real file
+            modes[key] = meta.split()[0] == b"100755"
+    return modes
+
+
+def _entries(root: Path, skip: tuple[str, ...], *, strict: bool, drop: Callable[[Path], bool] | None = None) -> list[Path]:
+    """Every entry under ``root``, directories included, a symlink as itself and never descended into. Entries under
+    a ``skip`` prefix, and those ``drop`` names, are not read. Non-strict is ``rglob``, which skips a directory it cannot
+    read (and the files behind it); strict raises that error, so a digest cannot leave out what it could not read."""
+    if not strict:
+        return [p for p in root.rglob("*") if drop is None or not drop(p)]
+    found: list[Path] = []
+    pending = [root]
+    while pending:
+        with os.scandir(pending.pop()) as it:
+            for entry in it:
+                path = Path(entry.path)
+                rel = path.relative_to(root).as_posix()
+                if any(rel == e or rel.startswith(e + "/") for e in skip) or (drop is not None and drop(path)):
+                    continue
+                found.append(path)
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+    return found
+
+
+def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False,
+                tracked: Mapping[str, bool] | None = None, git: GitTree | bool | None = False) -> str:
+    """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
+
+    A file ``root`` digests as itself (its path is ``.``), and so does a symlink ``root``
+    (by its target, dangling or not; it is not walked). Entries whose path, relative to
+    ``root``, equals one of ``exclude`` or sits under it are left out, so a skill's digest can
+    leave its eval directory out. Output is deterministic: sorted walk, no timestamps.
+
+    The same tree digests the same on every OS: a file's mode bit is the one git records (the index, so a
+    Windows checkout with no exec bit still matches), and an untracked file takes its owner's exec bit
+    from the disk. A link inside ``root`` with an absolute target is hashed by a relative target (see
+    ``link_text``); one pointing outside ``root`` is hashed as written.
+
+    ``strict``: a directory under ``root`` that cannot be read raises its OSError (the default skips it silently).
+    ``tracked``: the executable bits git records, keyed by path relative to ``root`` (to its parent for a file root),
+    as :func:`_tracked_modes` returns them; None reads them from git. A caller digesting many files reads them once.
+    ``git``: hash what git stores, not the bytes on disk. A file digests as its blob id (:func:`file_contents`), so a
+    CRLF checkout with core.autocrlf matches the LF one; what git leaves out (ignored paths, by a nested repository's
+    own rules too, and a nested ``.git``) is skipped, and so are directories, which git does not store. A ``GitTree``
+    is a work tree already read; True reads it from ``root``; None (or no work tree) hashes the bytes on disk and
+    leaves nothing out.
+    """
+    skip = tuple(e.strip("/") for e in exclude)
+    # a symlink is never looked through here: its target may be unreadable (or gone), and it digests by its text
+    is_link = root.is_symlink()
+    as_file = not is_link and root.is_file()
+    if isinstance(git, GitTree):
+        tree: GitTree | None = git
+    else:
+        tree = git_tree(root.parent if is_link or as_file else root) if git else None
+    # sorted by the parts of the relative path, compared as code points: the same order on every OS (Path
+    # ordering folds case on Windows)
+    entries = ([root] if is_link or as_file
+               else sorted(_entries(root, skip, strict=strict, drop=tree.skipped if tree else None),
+                           key=lambda p: p.relative_to(root).parts))
+    if tree is not None:
+        entries = [p for p in entries if p.is_symlink() or not p.is_dir()]
+    base, spec = (root.parent, root.name) if as_file else (root, ".")
+    modes: Mapping[str, bool]
+    if tracked is None:
+        modes = _tracked_modes(base, spec) if any(not p.is_symlink() and p.is_file() for p in entries) else {}
+    else:  # the caller read the index already: keyed as below, by the path relative to ``base``
+        modes = tracked
+    holds = file_contents([p for p in entries if not p.is_symlink() and p.is_file()], tree)
+    h = hashlib.sha256()
+    for path in entries:
+        rel = "." if path == root else path.relative_to(root).as_posix()
+        if any(rel == e or rel.startswith(e + "/") for e in skip):
+            continue
+        # names and link targets are bytes on POSIX and may hold undecodable bytes: encode them as the OS does
+        name = os.fsencode(rel)
+        if path.is_symlink():
+            h.update(b"L " + name + b"\0" + os.fsencode(link_text(path, root)) + b"\0")
+        elif path.is_file():
+            key = path.relative_to(base).as_posix()
+            if key in modes:
+                executable = modes[key]
+            else:
+                executable = bool(os.lstat(path).st_mode & stat.S_IXUSR)
+            h.update(b"F " + name + f"\0{int(executable)}\0".encode())
+            h.update(holds[path])
+        elif path.is_dir():
+            h.update(b"D " + name + b"\0")
+    return h.hexdigest()

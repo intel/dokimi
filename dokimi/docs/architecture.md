@@ -73,7 +73,7 @@ points up:
 | tracks | `runner`, `runs`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, `task_formats`, and the checkers `config_check`, `schema_check`, `schema_compat` |
 | evaluation | `eval`, `personas`, `questions`, `treatments`, `plugins` |
 | components | `ingest`, `metrics`, `gate`, `mcp`, `skills`, `agent_profiles` |
-| foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `container_policy`, `docker_cmd`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
+| foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `container_policy`, `docker_cmd`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `digest`, `files`, `frontmatter`, `model_names`, `utils`, `metrics/usage.py` |
 
 So `report` (a track) can call `gate` (a component), and `gate` cannot import
 `report`. The sections below follow the tracks, not the layers.
@@ -477,7 +477,7 @@ deterministic checks on it; `dokimi memory lint`. Guide: [memory.md](memory.md).
   decides who owns each pipe, so an interrupted launch closes its streams exactly once
   and Windows reader threads close theirs at EOF. `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
-- Bad input: a library loader raises `dokimi.utils.InputError`, naming the file, and
+- Bad input: a library loader raises `dokimi.files.InputError`, naming the file, and
   never ends the process. `cli.main` prints `Error: <message>` and exits 2; exit 1 stays
   the verdict of a gate. `tests/test_import_architecture.py` allows an exit only in the
   frontend.

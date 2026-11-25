@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 from dokimi import cli_flags
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _rel(skill_dir: Path, root: Path) -> str:

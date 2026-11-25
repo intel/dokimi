@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.write_probe import can_write
 
 

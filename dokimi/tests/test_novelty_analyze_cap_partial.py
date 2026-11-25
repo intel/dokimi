@@ -23,7 +23,7 @@ from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty import cost as novelty_cost
 from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
 from dokimi.novelty.client import LLMClient, SpendCap
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_paths import novelty_argv
 from tests.test_novelty_analyze import SKILL, _scripted
 

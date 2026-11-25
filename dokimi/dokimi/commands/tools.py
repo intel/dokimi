@@ -18,7 +18,7 @@ from dokimi.llm import PROVIDERS as API_PROVIDERS
 from dokimi.cli_types import positive_usd
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_USAGE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 PROVIDERS = list(API_PROVIDERS)  # tool calling: no CLI backend
 

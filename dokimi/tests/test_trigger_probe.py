@@ -381,7 +381,7 @@ def test_cli_passes_every_flag_to_the_probe(tmp_path, monkeypatch):
 
 
 def test_cli_refuses_a_bad_out_or_target_before_any_run(tmp_path, monkeypatch):
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     with pytest.raises(InputError, match="not a writable file path"):
         _cli(tmp_path, monkeypatch, "--out", "nodir/probe.json")
@@ -390,7 +390,7 @@ def test_cli_refuses_a_bad_out_or_target_before_any_run(tmp_path, monkeypatch):
 
 
 def test_cli_refuses_a_label_that_names_no_catalog_skill(tmp_path, monkeypatch):
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     with pytest.raises(InputError, match="names no skill in --catalog: sum-fsat"):
         _cli(tmp_path, monkeypatch, "--out", "probe.json", expected="sum-fsat")
@@ -588,7 +588,7 @@ def test_no_known_positive_skips_the_guard(tmp_path, monkeypatch):
 def test_cli_refuses_an_empty_catalog_before_the_guard_picks_a_skill(tmp_path, monkeypatch):
     # A negative-only set has no label naming a skill, so only the guard's default target could
     # name one; with no skill in the catalog that was an IndexError, not an input error.
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     (tmp_path / "cat").mkdir()
     with pytest.raises(InputError, match="--catalog holds no skills"):

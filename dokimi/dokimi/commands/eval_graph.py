@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi.exit_codes import EXIT_FAILURE
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 if TYPE_CHECKING:
     from dokimi.novelty.needs import NeedGraph

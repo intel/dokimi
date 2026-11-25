@@ -19,7 +19,7 @@ def analysis_digest(artifact: dict) -> str:
     import json
 
     from dokimi.artifacts import ENVELOPE_KEYS
-    from dokimi.utils import digest_text
+    from dokimi.digest import digest_text
 
     saved = json.loads(json.dumps(artifact))
     body = {key: value for key, value in saved.items() if key not in ENVELOPE_KEYS and key != "schema_version"}

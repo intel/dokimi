@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_INVALID
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 #: Shorter canaries match by chance, and the report keeps the last 4 characters of each.
 MIN_CANARY = 12

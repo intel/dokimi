@@ -22,7 +22,7 @@ import shlex
 from dokimi.eval.reference_checks import (LONG_FLAG, REGEX_TIMEOUT, grade_check, identifier_names,
                                           scope_options, scope_pairs, validate_grading)
 from dokimi.process import Env, run
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 #: A rejection names the unknown argument, and exit status cannot tell it from a listing
 #: (some tools exit nonzero after printing real help). A line opening with an option is a listing.

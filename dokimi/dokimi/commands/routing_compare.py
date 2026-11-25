@@ -9,7 +9,7 @@ import argparse
 import json
 from pathlib import Path
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 #: How many changed picks the console lists; the whole list is in ``--out``.
 SHOWN_CHANGES = 20

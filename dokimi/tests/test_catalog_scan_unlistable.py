@@ -17,7 +17,7 @@ import pytest
 
 from dokimi import __version__
 from dokimi.commands.catalog_scan import _load_prior, skill_dir_digest
-from dokimi.utils import tree_digest
+from dokimi.digest import tree_digest
 
 
 def _skill(tmp_path: Path) -> Path:

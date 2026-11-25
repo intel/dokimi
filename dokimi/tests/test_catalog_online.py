@@ -13,7 +13,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.external import online_checks, read_skill_manifest, review_skills
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.growth_timing import GROWTH_LIMIT, growth
 from tests.test_catalog_validate import _skill
 

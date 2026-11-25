@@ -18,7 +18,7 @@ import pytest
 from dokimi import records
 from dokimi.cli import build_parser
 from dokimi.commands.headroom import cmd_eval_headroom
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.eval.headroom import (
     CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, _fmt, check_thresholds, format_table,
     headroom,

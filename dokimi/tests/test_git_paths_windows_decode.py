@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi import process_io, utils
+from dokimi import digest, process_io
 from dokimi.external import catalog_git
 
 BAD = b"l\xffint/SKILL.md"
@@ -65,15 +65,15 @@ def test_the_fixture_decodes_as_windows_does(windows_decoding):
 
 
 def test_git_tree_holds_a_path_that_is_not_utf8(repo, windows_decoding):
-    tree = utils.git_tree(repo / "skill")
+    tree = digest.git_tree(repo / "skill")
     assert tree is not None
     assert REPLACED not in tree.tracked and "skill/SKILL.md" in tree.tracked  # the replaced name is no file's
     assert "skill/SKILL.md" in tree.indexed
 
 
 def test_tree_digest_with_git_reads_an_index_with_a_path_that_is_not_utf8(repo, windows_decoding):
-    digest = utils.tree_digest(repo / "skill", git=True)
-    assert len(digest) == 64 and digest == utils.tree_digest(repo / "skill", git=True)
+    first = digest.tree_digest(repo / "skill", git=True)
+    assert len(first) == 64 and first == digest.tree_digest(repo / "skill", git=True)
 
 
 @pytest.fixture
@@ -91,18 +91,18 @@ def colliding_repo(tmp_path) -> Path:
 
 
 def test_a_name_that_collides_after_replacement_does_not_set_the_mode_of_a_real_file(colliding_repo, windows_decoding):
-    assert utils._tracked_modes(colliding_repo, ".") == {REPLACED: False}
+    assert digest._tracked_modes(colliding_repo, ".") == {REPLACED: False}
 
 
 def test_the_digest_ignores_the_mode_of_a_name_that_collides_after_replacement(colliding_repo, windows_decoding):
-    plain = utils.tree_digest(colliding_repo, git=True, tracked={REPLACED: False})
-    assert utils.tree_digest(colliding_repo, git=True) == plain
+    plain = digest.tree_digest(colliding_repo, git=True, tracked={REPLACED: False})
+    assert digest.tree_digest(colliding_repo, git=True) == plain
 
 
 def test_a_name_that_collides_after_replacement_gives_the_real_file_its_own_index_blob(colliding_repo, windows_decoding):
     """The missing file's status entry is not read as the real file's: the real file, unchanged, keeps its own blob, never
     the other entry's."""
-    blobs, held = utils._index_blobs(os.fspath(colliding_repo))
+    blobs, held = digest._index_blobs(os.fspath(colliding_repo))
     assert blobs == {REPLACED: _git(colliding_repo, "hash-object", REPLACED).decode().strip()}
     assert REPLACED.split("/")[0] in held
 
@@ -114,7 +114,7 @@ def test_a_changed_file_with_an_encoded_surrogate_name_takes_no_index_blob(tmp_p
     root.mkdir()
     _git(root, "init", "-q")
     _index_entry(root, "100644", b"skill/\xed\xa0\x80.sh")
-    assert utils._index_blobs(os.fspath(root))[0] == {}
+    assert digest._index_blobs(os.fspath(root))[0] == {}
 
 
 def test_the_status_and_flag_readers_name_a_file_with_an_encoded_surrogate_as_the_index_does(windows_decoding):
@@ -127,7 +127,7 @@ def test_git_tree_holds_an_ignored_path_that_is_not_utf8(repo, windows_decoding)
     (repo / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
     with open(os.fsencode(repo) + b"/skill/a\xff.tmp", "wb") as handle:
         handle.write(b"x")
-    tree = utils.git_tree(repo / "skill")
+    tree = digest.git_tree(repo / "skill")
     assert tree is not None and "skill/a�.tmp" in tree.ignored
 
 
@@ -156,7 +156,7 @@ def test_git_tree_ignored_directory_with_a_lone_surrogate_name_keeps_its_name(re
     os.mkdir(os.fsencode(repo) + b"/skill/\xed\xa0\x80cache")
     with open(os.fsencode(repo) + b"/skill/\xed\xa0\x80cache/f", "wb") as handle:
         handle.write(b"x")
-    assert utils._ignored_paths(str(repo)) == {"skill/\ud800cache"}
+    assert digest._ignored_paths(str(repo)) == {"skill/\ud800cache"}
 
 
 def test_a_listed_name_windows_cannot_decode_is_still_replaced(windows_decoding):
@@ -170,7 +170,7 @@ def test_the_index_readers_skip_a_name_that_is_not_utf8(windows_decoding):
 
 
 def test_tracked_modes_keeps_a_path_that_is_not_utf8(repo, windows_decoding):
-    assert utils._tracked_modes(repo, ".") == {"skill/SKILL.md": False}
+    assert digest._tracked_modes(repo, ".") == {"skill/SKILL.md": False}
 
 
 def test_catalog_paths_report_a_path_that_is_not_utf8(repo, windows_decoding):
@@ -247,7 +247,7 @@ def nested_repo(tmp_path) -> Path:
 
 
 def test_an_index_name_that_collides_after_replacement_does_not_unignore_a_nested_file(nested_repo, windows_decoding):
-    tree = utils.git_tree(nested_repo)
+    tree = digest.git_tree(nested_repo)
     assert tree is not None and REPLACED not in tree.tracked
     assert tree.skipped(nested_repo / REPLACED) is True
 
@@ -262,7 +262,7 @@ def test_tracked_modes_keeps_the_mode_of_a_name_with_an_encoded_surrogate(tmp_pa
     root.mkdir()
     _git(root, "init", "-q")
     _index_entry(root, "100755", b"skill/\xed\xa0\x80.sh")
-    assert utils._tracked_modes(root, ".") == {"skill/\ud800.sh": True}
+    assert digest._tracked_modes(root, ".") == {"skill/\ud800.sh": True}
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX keeps the byte; Windows replaces it")

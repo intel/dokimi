@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 
-from dokimi.utils import describe_yaml_error, parse_frontmatter, parse_frontmatter_strict
+from dokimi.frontmatter import describe_yaml_error, parse_frontmatter, parse_frontmatter_strict
 
 # Directory names that hold a scaffold to copy, not a skill to use (see discover_skills).
 TEMPLATE_DIR_NAMES = frozenset({"template", "templates"})

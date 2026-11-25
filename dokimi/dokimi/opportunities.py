@@ -15,7 +15,7 @@ import hashlib
 from dataclasses import asdict, dataclass, field
 
 from dokimi.llms_txt import Finding
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 EFFORTS = ("low", "medium", "high")
 QUADRANTS = ("act_now", "plan", "if_capacity", "deprioritize")

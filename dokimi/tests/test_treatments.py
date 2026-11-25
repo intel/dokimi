@@ -6,7 +6,7 @@
 import pytest
 from tests.conftest import DEMO_SKILL_MARKER
 
-from dokimi.utils import parse_frontmatter
+from dokimi.frontmatter import parse_frontmatter
 from dokimi.treatments import (
     AgentConfig,
     BaselineTreatment,

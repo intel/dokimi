@@ -15,7 +15,7 @@ from dokimi.commands.novelty_run import usable_cache_dir
 from dokimi.novelty import cost as novelty_cost
 from dokimi.novelty.atoms import Atom, save_atoms
 from dokimi.novelty.spans import segment
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.cli_refusal import refusal
 
 

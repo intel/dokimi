@@ -197,16 +197,16 @@ def test_an_explicit_skill_path_must_be_spelled_as_on_disk(tmp_path, monkeypatch
 @pytest.mark.parametrize("added", [True, False], ids=["tracked", "untracked"])
 def test_a_suite_of_many_files_reads_the_git_index_once(tmp_path, monkeypatch, added):
     # each eval file used to start its own git ls-files: one per file, for every subject's suite hash
-    from dokimi import repo_config, utils
+    from dokimi import digest, repo_config
 
     calls: list[Path] = []
-    read = utils._tracked_modes
+    read = digest._tracked_modes
 
     def counting(base, spec):
         calls.append(base)
         return read(base, spec)
 
-    monkeypatch.setattr(utils, "_tracked_modes", counting)
+    monkeypatch.setattr(digest, "_tracked_modes", counting)
     monkeypatch.setattr(repo_config, "_tracked_modes", counting)
     files = {"skills/a/SKILL.md": "a\n", **{f"evaluation/t{i}/q.json": "[]\n" for i in range(30)}}
     root = _tree(tmp_path / "repo", {

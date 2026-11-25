@@ -14,7 +14,7 @@ import pytest
 from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _parse(*argv):

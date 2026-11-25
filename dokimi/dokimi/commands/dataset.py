@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def cmd_dataset_export(args: argparse.Namespace) -> None:

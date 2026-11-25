@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-from dokimi.utils import parse_frontmatter
+from dokimi.frontmatter import parse_frontmatter
 
 
 @dataclass

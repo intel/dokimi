@@ -11,7 +11,7 @@ import socket
 import pytest
 
 from dokimi.external import online_checks
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.test_catalog_online import _no_environment_proxy  # noqa: F401  (autouse)
 
 

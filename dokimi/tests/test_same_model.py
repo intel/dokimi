@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.defaults import BEDROCK_MODEL_IDS
-from dokimi.utils import model_identity, same_model
+from dokimi.model_names import model_identity, same_model
 
 # (a, b, same) with a route-qualified name ("provider/model") where the route is part of the input.
 CASES = [

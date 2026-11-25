@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from dokimi import cli_flags
 from dokimi.cli_types import non_negative_int
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 if TYPE_CHECKING:
     from dokimi.repos.graph_tasks import Plan

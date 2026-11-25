@@ -139,7 +139,7 @@ def test_a_cyclic_config_symlink_is_a_warning(tmp_path, capsys, monkeypatch):
 
 
 def test_an_unreadable_baseline_is_an_input_error(tmp_path, capsys):
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     (tmp_path / "b.json").write_text("{}", encoding="utf-8")
     with pytest.raises(InputError, match="not a repo_readiness.v1 report"):
@@ -291,7 +291,7 @@ def test_a_static_claim_cannot_bring_its_own_baselined_mark(tmp_path, capsys):
 
 @pytest.mark.parametrize("claims", ["[null]", "[1]", '["a"]'])
 def test_a_baseline_claim_that_is_not_an_object_is_an_input_error(tmp_path, capsys, claims):
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     (tmp_path / "b.json").write_text('{"claims": %s}' % claims, encoding="utf-8")
     with pytest.raises(InputError, match="must be an object"):

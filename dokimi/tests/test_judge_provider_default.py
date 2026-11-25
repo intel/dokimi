@@ -352,7 +352,7 @@ def test_subjects_run_resolves_an_explicit_judge_model_once_the_descriptor_is_lo
 def test_subjects_run_refuses_a_judge_model_the_cli_judge_it_moves_to_cannot_take():
     # parse_args checks the model before the descriptor moves the judge; the move is checked again here
     from dokimi.commands.subjects import resolve_judge
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet",
                        "--judge-model", "gpt-4o"])
@@ -375,7 +375,7 @@ def test_a_judge_model_refusal_does_not_name_a_judge_provider_that_was_not_passe
 
 def test_subjects_run_refuses_a_default_judge_that_is_the_implicit_cell_answerer():
     from dokimi.commands.subjects import resolve_judge
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     argv = [*COMMANDS["subjects run"], "--judge", "--model", "claude-sonnet-5-5"]
     with pytest.raises(InputError, match="model under measurement"):

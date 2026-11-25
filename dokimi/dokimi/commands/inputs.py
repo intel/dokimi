@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from dokimi.utils import InputError, refuse_device
+from dokimi.files import InputError, refuse_device
 
 
 def read_text_or_exit(path: str | None, flag: str) -> str | None:

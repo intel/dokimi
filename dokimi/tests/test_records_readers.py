@@ -22,7 +22,8 @@ from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.records import RecordError
 from dokimi.report.arms_report import render_arms_report
 from dokimi.report.model_compare import check_run_consistency, extract_scores, load_run
-from dokimi.utils import InputError, digest_text
+from dokimi.files import InputError
+from dokimi.digest import digest_text
 
 ARTIFACTS = Path(__file__).parent / "fixtures" / "artifacts"
 

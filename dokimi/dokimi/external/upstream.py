@@ -36,7 +36,8 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
 from dokimi import process
-from dokimi.utils import InputError, parse_frontmatter
+from dokimi.files import InputError
+from dokimi.frontmatter import parse_frontmatter
 
 from .catalog_git import _git
 

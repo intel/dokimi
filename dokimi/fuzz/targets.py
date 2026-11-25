@@ -20,7 +20,7 @@ from dokimi.eval.pairwise import parse_choice
 from dokimi.eval.reference_checks import parse_json
 from dokimi.llm_json import extract_json_array, extract_json_object
 from dokimi.novelty.retention import parse_verdict
-from dokimi.utils import parse_frontmatter, parse_frontmatter_strict
+from dokimi.frontmatter import parse_frontmatter, parse_frontmatter_strict
 
 
 def yes_no(text: str) -> None:

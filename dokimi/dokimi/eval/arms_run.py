@@ -31,7 +31,9 @@ from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
 from dokimi.judge_rule import JudgeIsAnswerer, default_judge
 from dokimi.llm_cli import backend as cli_backend
-from dokimi.utils import InputError, check_bedrock_model, question_id, same_model, warn_judge_independence
+from dokimi.files import InputError
+from dokimi.model_names import check_bedrock_model, same_model, warn_judge_independence
+from dokimi.records import question_id
 
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel

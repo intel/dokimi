@@ -11,7 +11,7 @@ import fnmatch
 import os
 from pathlib import Path
 
-from dokimi.utils import is_symlink_loop
+from dokimi.files import is_symlink_loop
 
 
 def _missing(exc: OSError) -> bool:

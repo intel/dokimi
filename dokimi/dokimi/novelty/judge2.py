@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 from concurrent.futures import ThreadPoolExecutor
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from .client import LLMClient, same_client
 from .measure import ERRORED, LENIENT_CORRECT, MeasureResult, _grade
 from .provenance import vendor_of

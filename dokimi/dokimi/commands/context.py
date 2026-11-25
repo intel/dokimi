@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from dokimi.cli_types import non_negative_int, unit_interval
-from dokimi.utils import InputError, refuse_device
+from dokimi.files import InputError, refuse_device
 
 
 def cmd_context_trace(args: argparse.Namespace) -> None:

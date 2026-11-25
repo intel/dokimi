@@ -3,8 +3,8 @@
 
 """The one default-judge rule, shared by every surface that judges.
 
-It lives beside :mod:`dokimi.utils` (for :func:`same_model`) rather than in
-:mod:`dokimi.defaults`, which utils imports: a defaults module importing utils would close
+It lives beside :mod:`dokimi.model_names` (for :func:`same_model`) rather than in
+:mod:`dokimi.defaults`, which model_names imports: a defaults module importing model_names would close
 an import cycle.
 """
 
@@ -15,7 +15,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
 )
-from dokimi.utils import same_model
+from dokimi.model_names import same_model
 
 #: The Claude CLI aliases, in the order a judge is picked from them.
 _CLI_ALIASES = ("opus", "sonnet", "haiku")

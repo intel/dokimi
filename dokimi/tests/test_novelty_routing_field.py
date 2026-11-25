@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from dokimi.cli import build_parser
 from dokimi.commands.novelty_routing_inputs import routing_field
 from dokimi.novelty.routing import (

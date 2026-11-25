@@ -17,7 +17,7 @@ from dokimi.novelty.controls import reversal_by_arm, reversal_paired
 from dokimi.novelty.judge2 import agreement, cohen_kappa, regrade
 from dokimi.novelty.measure import ERRORED, MeasureResult, ProbeRun
 from dokimi.novelty.probes import Probe
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 RIGHT, WRONG, REVERSED = "correct_complete", "wrong_other", "wrong_reversed"
 

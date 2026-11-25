@@ -19,7 +19,7 @@ from dokimi.novelty.all_vs_all import (
 )
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.routing import Candidate, RoutingInputError
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 PERF = Candidate(name="linux-perf", description="Profile a slow Linux binary with perf")
 DB = Candidate(name="db-tuner", description="Tune a slow database query with an index")

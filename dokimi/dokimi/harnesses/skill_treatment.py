@@ -47,7 +47,7 @@ from typing import Any, Iterator, Optional
 
 from dokimi.skills import load_skill
 from dokimi.skills.listing import listing_description, listing_text_chars
-from dokimi.utils import parse_frontmatter
+from dokimi.frontmatter import parse_frontmatter
 
 TREATMENT_NOTICE = (
     "A skill named `{skill_id}` is installed. Load it with the Skill tool before you "

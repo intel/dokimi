@@ -26,14 +26,14 @@ from dokimi import __version__
 from dokimi.external.catalog_rates import RateTally, text_lines
 from dokimi.external.listing import listed_chars
 from dokimi.external.skill_format import NOT_CHECKED_CODES, not_checked
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _listing_source(entry):
     """``(file, meta, body, directory name, at root, sha256 of the bytes read)`` of the SKILL.md ``repo budget`` would read for the entry, None when
     it is not named ``SKILL.md``, cannot be read or resolves outside the catalog root. The directory name and ``at root`` are
     those of the directory the skill is listed in, not of a symlink target."""
-    from dokimi.utils import parse_frontmatter
+    from dokimi.frontmatter import parse_frontmatter
 
     if entry.path is None:
         return None
@@ -174,7 +174,7 @@ def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
 
     Files in *outputs* (resolved paths) that sit in the directory are left out. None when it cannot be read.
     """
-    from dokimi.utils import tree_digest
+    from dokimi.digest import tree_digest
 
     path = entry.skill.path.parent if entry.loaded and entry.skill is not None else entry.path
     if path is not None and path.name == "SKILL.md":

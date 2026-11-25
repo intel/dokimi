@@ -57,8 +57,9 @@ from typing import Any
 
 from dokimi import process
 from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.digest import key_bytes
+from dokimi.files import retry_writable
 from dokimi.process_io import text_file_bytes
-from dokimi.utils import key_bytes, retry_writable
 
 from .events import convert
 from .transcript import Transcript

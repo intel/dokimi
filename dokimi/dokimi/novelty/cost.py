@@ -13,13 +13,13 @@ from __future__ import annotations
 import argparse
 import sys
 
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def judge_refs(args: argparse.Namespace) -> list[tuple[str, str]]:
     """The ``--judge PROVIDER/MODEL`` list as (model, provider) pairs; empty without the flag."""
     from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
-    from dokimi.utils import same_model
+    from dokimi.model_names import same_model
 
     refs = getattr(args, "judges", None) or []
     if refs and (getattr(args, "judge_model", None) or getattr(args, "judge_provider", None)):

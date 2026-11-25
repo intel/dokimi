@@ -18,7 +18,7 @@ import pytest
 from dokimi.commands.novelty_view_inputs import load_atom_verdicts
 from dokimi.novelty import client as client_mod
 from dokimi.novelty.atoms import load_atoms_record
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.test_novelty_analyze import _scripted
 from tests.test_novelty_journey import _run
 from tests.test_novelty_journey import skill as _journey_skill

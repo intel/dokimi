@@ -19,7 +19,7 @@ import yaml
 from dokimi.cli import build_parser
 from dokimi.external import read_skill_manifest, review_skills
 from dokimi.external.no_frontmatter import no_frontmatter_message
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests.growth_timing import GROWTH_LIMIT, growth
 
 

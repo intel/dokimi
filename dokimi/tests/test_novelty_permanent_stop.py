@@ -315,7 +315,7 @@ def test_analyze_keeps_a_partial_record_when_the_answerer_has_no_credentials(tmp
 def test_a_partial_file_of_a_provider_error_is_refused_with_advice_that_helps(tmp_path):
     from dokimi.artifacts import load_artifact
     from dokimi.novelty.atoms import load_atoms_record
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     block = {"reason": "permanent_error", "message": "permanent error: bad key"}
     atoms, novelty = tmp_path / "atoms.partial.json", tmp_path / "novelty.partial.json"

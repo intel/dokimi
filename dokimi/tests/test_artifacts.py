@@ -670,7 +670,7 @@ def test_a_rejected_payload_with_a_surrogate_is_kept_as_utf8(tmp_path, value, lo
 
 def test_a_payload_kept_for_a_malformed_run_id_holds_a_surrogate_as_utf8(monkeypatch, tmp_path):
     from dokimi.artifacts import RUN_ID_ENV
-    from dokimi.utils import InputError
+    from dokimi.files import InputError
 
     monkeypatch.setenv(RUN_ID_ENV, "-bad")
 

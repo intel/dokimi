@@ -22,7 +22,7 @@ from dokimi.novelty.atoms import (
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.spans import segment
 from dokimi.novelty.tiers import resolve_settings
-from dokimi.utils import InputError
+from dokimi.files import InputError
 from tests import test_novelty_cli as novelty_cli
 from tests.cli_paths import novelty_argv
 from tests.test_novelty_analyze import _scripted

@@ -11,7 +11,7 @@ products serve which user problems) comes from intents.yaml.
 from __future__ import annotations
 
 import argparse
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 
 def _load_custom(cls, flag: str, value):

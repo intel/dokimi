@@ -41,7 +41,7 @@ from dokimi.judged import judged_reply
 from dokimi.eval.question_text import require_question_text
 from dokimi.records import RecordLike, arm_answers, records as as_records
 from dokimi.eval.stats import mean_ci
-from dokimi.utils import question_id
+from dokimi.records import question_id
 
 logger = logging.getLogger(__name__)
 

@@ -31,7 +31,7 @@ from dokimi.artifacts import (
 )
 from dokimi.runner.plan import plan_digest
 from dokimi.runs.scan import scan
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
 RUN_KINDS = sorted(set(SCHEMA_VERSIONS) - INPUT_KINDS)

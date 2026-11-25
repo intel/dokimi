@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 from dokimi import cli_flags
-from dokimi.utils import InputError
+from dokimi.files import InputError
 
 DEFAULT_BUDGET = 0.10  # USD per scenario, for a harness whose invoke passes {budget}
 

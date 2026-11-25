@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from dokimi.agent_profiles import AgentProfile
 from dokimi.skills import Skill
-from dokimi.utils import digest_text
+from dokimi.digest import digest_text
 
 from .base import AgentConfig, Treatment
 from .specs import combined_name
