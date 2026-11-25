@@ -522,7 +522,15 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
     sources = [("SKILL.md", skill_path.read_text(encoding="utf-8-sig"))]
     if not at_root:
         sources += list(_bundled_texts(skill_path.parent))
+    return _findings_in(sources)
 
+
+def skill_md_findings(text: str) -> list[tuple[str, str]]:
+    """:func:`command_findings` for one ``SKILL.md`` text alone, with no bundled file: an upstream version's bytes."""
+    return _findings_in([("SKILL.md", text)])
+
+
+def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
     findings: list[tuple[str, str]] = []
     unpinned: list[str] = []
     for rel, raw in sources:
