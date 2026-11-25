@@ -23,6 +23,13 @@ TURN_KINDS = frozenset({"turn", "compaction"})
 KNOWN_KINDS = TOOL_KINDS | TURN_KINDS
 
 
+def plain_path(path: str) -> str:
+    """``path`` with its ``.`` components and repeated ``/`` dropped; a ``..`` stays, as the name before it may be a
+    link, which only the workspace can tell (:class:`~dokimi.repos.held_guidance.HeldGuidance`). An empty path is ``.``."""
+    lead = "/" if path.startswith("/") else ""
+    return lead + "/".join(p for p in path.split("/") if p not in ("", ".")) or "."
+
+
 def event_version(event: Mapping[str, Any]) -> int:
     """The format version of one event; an event with no ``v`` is the unversioned format, read as 1."""
     v = event.get("v")

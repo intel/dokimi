@@ -286,7 +286,9 @@ are common, so `--strict` does not fail on them. A code span that names a file
 under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
 `examples/`, `resources/`), alone or inside a command such as
 `python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
-have that file. Folders, flat names, placeholders (`scripts/<name>.py`)
+have that file. A code span that is the label of an inline link to a URL (`[`examples/a.py`](https://...)`) or of a full reference to one (`[`examples/a.py`][ref]`) is the link's text and is not checked; one in a shortcut or collapsed reference (`[`examples/a.py`]`, `[`examples/a.py`][]`) is still checked.
+Folders, flat names, placeholders (`scripts/<name>.py`),
+user-local `*.local.md` files (`references/secrets.local.md`, which the user keeps out of git)
 and repo-root paths such as `src/app.py` are not checked, and
 neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
 (`'scripts/my run.py'`, `scripts/my\ run.py`). Only `/` separators are read: a backslash path such as `scripts\run.py` is not checked. Paths joined by `,` or `;` with no space are read one by one when the next one is under a bundle folder (`scripts/a.py,scripts/b.py`); other commas, and an escaped `\,`, stay in the name. Some hits are files the skill tells the agent to
@@ -298,15 +300,17 @@ with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
 its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
 skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
-half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
+half and shares three words (`description-near-duplicate`). Under a different name, an overlap from 40% up to that line that shares at least three words is a `note` (`similar-skills-exist`) that leaves the state `ok`. The `description-no-when` cue is read in English,
 Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
 of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
-(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
+(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. A word that only states a capability is not a cue:
+Japanese いつ counts only before a use verb, Chinese 耗时, 超时 and 延时 do not count directly before 调用 or 执行 (a comma or 请 between them restores it), and German `beim`
+counts only in the same sentence as a use verb (verwenden, nutzen, ...). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
 `.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
 path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
-finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or `${CLAUDE_SKILL_DIR}/`) names every file; a link to the root from any other document names only its target. Data, images, licence, readme, changelog and `AGENTS.md`-style files, a root translation of `SKILL.md` (`SKILL.ru.md`, `SKILL.zh-CN.md`),
 `_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
 not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no `warn`; it gives a
 `note` (`bundle-file-unchecked`) that says why, when the search cannot see every name: a bundle over 2000 files, more than 50 named
@@ -335,8 +339,9 @@ at the root of the checkout has no script bundle: its bundle would be the whole 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
 (`pipe-to-shell`); an inline `python -c`, `node -e` or `ruby -e` program, or `python -m`, takes the download as data and is not, unless the program execs or evals. So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
-an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
-package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
+an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm`, `pnpm` (`add`, `install`, `i`, `dlx`), `pnpx` or `npx` install that names a
+package with no version is a `warn` with the count of distinct packages for the skill (`install-unpinned`); the
+same install shown twice is one, and a command inside the quoted text of an `echo` or `printf` is not an install (unless a `$(...)` or backtick substitution in it runs it, or the output is piped to a shell); a requirements
 file, a local path, a URL or a `git+` source is not counted. These checks read a Cyrillic or Greek look-alike letter, or a fullwidth letter, as its Latin letter, so `сurl | bash` with a Cyrillic `с` is still a `pipe-to-shell`; the letter list is short, and a look-alike outside it escapes. Installs are read from code only: the fenced
 blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
 text file, such as a script. The scan reads at most 200
@@ -375,6 +380,14 @@ they do not change the exit code.
 text output and `--format json` (one object: `state`, `findings`,
 `content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
 `duplicate_of`, for a script or a CI gate) are the same either way.
+
+The `rates` object reports the share of skills in each state and the share with each finding code.
+Each skill belongs to the nearest directory containing a `.git` entry between its directory and the
+scanned root, or to the scanned root if none has one. `rate` weights each skill equally. `repo_rate`
+weights each repository equally by averaging its within-repository share. An empty scan reports
+`null` for both shares. An `ok` row with an unchecked description or format contributes to
+`not_checked`. A row with state `skipped` contributes to `skipped`. With two or more repositories,
+the text output includes both shares for each state and up to five codes, ranked by the larger share.
 
 After the skill rows, `catalog check` prints a `# granularity` section: skill pairs
 that look like merge candidates (similar descriptions, shared trigger clauses, overlapping
@@ -445,8 +458,9 @@ $ echo $?
 
 A large catalog is easier to scan one skill at a time:
 
-- `--per-skill` reviews each skill alone. The four cross-catalog checks
-  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
+- `--per-skill` reviews each skill alone. The five cross-catalog checks
+  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`,
+  `similar-skills-exist`)
   compare a skill with the others, so they do not run in this mode; every other
   check does. The granularity hints (merge and split candidates) need the whole
   catalog too, so they are not run here; the text output says so in a
@@ -472,6 +486,16 @@ A large catalog is easier to scan one skill at a time:
   and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
   fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
+- `--fail-on-code CODE` (repeatable) exits 1 when a finding with that code is left after
+  `--ignore`, whatever its level: a `note` can fail the scan while its skill's state
+  stays `ok`. `--ignore` filters first, so a code in both is not checked. An unknown
+  code is a usage error, and so is `--kind tasks`, and so is a code this scan never reports:
+  `duplicate`, `name-conflict`, `mirror-drift` and `description-near-duplicate` with `--per-skill`,
+  `link-dead` and `package-not-found` without `--online`, `upstream-stale`,
+  `license-dropped-from-upstream` and `risk-inherited-from-upstream` without `--upstream` or
+  `--upstream-manifest`. `--strict` keeps its meaning. With
+  `--json` the skill's subject has verdict `fail`. `--resume` applies the current
+  `--fail-on-code` to the rows it keeps, so changing it needs no rescan.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--concurrency N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
@@ -492,6 +516,75 @@ JSON report and of each JSONL row in [catalog check output](catalog-jsonl.md).
 combine with `--format json`; any other misuse exits 2. From Python,
 `dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
 skill in `path`.
+
+### Provenance: which upstream a copy came from (`catalog provenance`)
+
+A skill copied from another repository drifts from it: the upstream is updated and the
+copy is not, or the copy is edited and drops the licence. `catalog provenance` matches each
+skill under `--root` to a version of an upstream you name, offline. Dokimi ships no
+upstream list: give it the upstreams yourself. When sources tie, checkouts come before manifests.
+Within each type, the first source listed wins.
+
+- `--upstream CHECKOUT` (repeatable) is the top level of a local git checkout; a folder inside another repository is refused. For a blobless clone, fetch the skill history before running Dokimi.
+  A full clone reads the history reachable from `HEAD`. Other branch and tag tips are not scanned.
+  On linear history the commit count is exact. With parallel branches,
+  the count can include a change on a sibling branch. A shallow clone sees only its own history.
+- `--upstream-manifest FILE` (repeatable) is a JSON file of one upstream, for an upstream that
+  is not a git checkout. Its `schema` field is the version-1 upstream schema string shown here:
+
+  ```json
+  {"schema": "dokimi.upstream.v1", "name": "acme-skills",
+   "head": {"commit": "2c5958e", "date": "2026-04-01T00:00:00+00:00"},
+   "skills": [{"path": "skills/pdf/SKILL.md", "content": "---\nname: pdf\n...", "head": true,
+               "commit": "9f1c2ab", "date": "2026-03-01T00:00:00+00:00"}]}
+  ```
+
+  `content` is the text of the file, hashed as UTF-8; line endings count, except that a CRLF copy also matches the LF form of its text (as `git hash-object` reads it under `core.autocrlf`), against a manifest or a checkout. `head`, `commit` and `date` are optional. The git blob
+  sha is computed from `content`, so a manifest and a checkout agree.
+
+```text
+$ dokimi catalog provenance --root ./my-plugin --upstream ~/src/acme-skills
+# upstream acme-skills: head 446e0e560cff 2026-04-01, history full
+# skills (2 under ./my-plugin: 1 exact, 1 similar, 0 unmatched; 1 edited; 0 at head; median 3.0 months behind)
+skill	match	upstream	version	behind	edited
+skills/pdf-copy	exact	acme-skills:pdf/SKILL.md	88fa89b3fcc7 2026-01-01	1 commits, 3.0 mo	no
+skills/pdf-edit	similar	acme-skills:pdf/SKILL.md	88fa89b3fcc7 2026-01-01	1 commits, 3.0 mo	yes
+```
+
+A copy is matched by its bytes first: an identical `SKILL.md` at the upstream head or in its
+history is `exact` (not edited), and the newest such version is the one reported. Otherwise
+an upstream version with the same frontmatter `name` and a word Jaccard similarity of at least
+0.8 is `similar` (edited). Anything else is `unmatched`. `behind` counts the commits that
+touched the file after the matched version, and the months run from that version's commit date
+to the upstream head. When the matched path is no longer in the upstream head tree (the skill was
+renamed or deleted), the row says `removed_at_head` and the text adds `path removed at head`: `behind`
+then counts only the commits that touched the old path. A copy that does not load (no `description`,
+broken YAML) is matched by its bytes like the others, and the copy's frontmatter `name`, not its
+directory name, is the name for a `similar` match. A checkout that lacks blobs of its history (a
+partial clone) reports `history: partial` with `missing_blobs`; fetch them for an exact count.
+When a manifest leaves the head of the matched path unspecified, the behind column reads
+`unknown`. Its JSON fields `at_head`, `behind_commits`, and `behind_months` are null. `--format json` adds the upstreams, one row per skill and a `summary`.
+
+### Upstream findings in `catalog check` (`--upstream`, `--upstream-manifest`)
+
+Give `catalog check` the same upstreams as `catalog provenance` and each loaded skill that matches one gets
+up to three more findings. Nothing is fetched, and none of them is an error:
+
+- `upstream-stale` (note): the copy matches an older version of a path whose head is known. For manifests,
+  an entry of the same path must carry `"head": true`. The top-level `head` describes the repository. A note
+  preserves the state and exit code. The message says how many commits and months behind the head it is, where the
+  history gives them.
+- `license-dropped-from-upstream` (warn): the copy is edited, its upstream version declares a `license`, and the copy
+  declares none. An edited copy that changes the license to another value is not reported. An unedited copy has the
+  upstream bytes, so it cannot drop one.
+- `risk-inherited-from-upstream` (warn): the copy keeps a risk its upstream version has too. The risks are the ones the
+  scan already reports: unrestricted Bash (`allowed-tools-unrestricted-bash`), `pipe-to-shell` and
+  `permission-bypass-flag`. The copy's side is its own findings, bundled files included. The upstream side is that
+  version's `SKILL.md` alone, since an upstream version is one file, not a folder.
+
+The warnings follow the usual rules: they do not fail `--strict`, and `--ignore` takes each code. The flags do not
+combine with `--per-skill` (the upstream index is built once, in one process) or with `--kind tasks`.
+
 
 ## 2. The awareness half: question sets
 
@@ -561,7 +654,7 @@ For a direct N-arm comparison, hand `arms run` the question file itself:
 ```bash
 python cli.py arms run --product demo \
   --questions C:/Users/Public/content-repo/questions/demo_golden.json \
-  --arms baseline,skill:C:/Users/Public/content-repo/skills/demo-skill \
+  --arm baseline,skill:C:/Users/Public/content-repo/skills/demo-skill \
   --judge --judge-model <a-different-model>
 ```
 
@@ -589,7 +682,7 @@ task set — `--dry-run` validates the wiring without Docker or a model:
 ```console
 $ python cli.py tasks run --tasks demo-widget \
     --tasks-root C:/Users/Public/content-repo/evaluation/harbor/tasks \
-    --harnesses docker-oracle,docker-claude-skill:C:/Users/Public/content-repo/skills/demo-skill \
+    --harness docker-oracle,docker-claude-skill:C:/Users/Public/content-repo/skills/demo-skill \
     --baseline-harness docker-oracle \
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
     --dry-run --out results/demo-widget.json
@@ -620,7 +713,7 @@ demo-locate-widget      demo    1 ref(s)        Where is the widget width clampe
 $ python cli.py explore run --all \
     --tasks-root C:/Users/Public/content-repo/explore_tasks \
     --repo-root C:/Users/Public/content-repo/product-checkout \
-    --arms oracle,empty --baseline-arm empty --out results/explore.json
+    --arm oracle,empty --baseline-arm empty --out results/explore.json
 Saved explore run artifact: results\explore.json
 oracle: n=1 file_f1=1.000 line_f1=n/a validity=1.000
 empty: n=1 file_f1=0.000 line_f1=n/a validity=1.000

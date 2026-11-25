@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The shell functions a script defines, for :func:`~dokimi.repos.cli_traces.shell_walk`: a call of one runs the function,
+"""The shell functions a script defines, for :func:`~dokimi.repos.shell_walk.shell_walk`: a call of one runs the function,
 not the command of its name (``cat() { echo hi; }; cat a`` reads nothing), and a call of one whose body names a
 directory builtin may move the shell, as an ``eval`` may, so the walker loses the directory there."""
 

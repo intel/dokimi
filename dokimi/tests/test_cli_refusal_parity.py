@@ -87,7 +87,7 @@ def _skill_catalog(d):
 
 
 def _explore_run(d, arms):
-    return ["explore", "run", "--tasks", "t", "--tasks-root", str(_explore_root(d)), "--arms", arms]
+    return ["explore", "run", "--tasks", "t", "--tasks-root", str(_explore_root(d)), "--arm", arms]
 
 
 def _subject_run(d):
@@ -108,18 +108,19 @@ def _subject_run(d):
     (lambda d: _explore_run(d, "command:"), "'command:' arm requires a template"),
     (lambda d: _explore_run(d, "bogus"), "Unknown explore arm: 'bogus'"),
     (lambda d: _explore_run(d, ","), "No arms selected"),
-    (lambda d: ["tasks", "run", "--tasks", ",", "--tasks-root", str(_tasks_root(d)), "--harnesses", "codex"],
+    (lambda d: _explore_run(d, ""), "No arms selected"),
+    (lambda d: ["tasks", "run", "--tasks", ",", "--tasks-root", str(_tasks_root(d)), "--harness", "codex"],
      "No tasks selected"),
-    (lambda d: ["tasks", "run", "--tasks", ",", "--swe-bench", str(d / "missing.jsonl"), "--harnesses", "codex"],
+    (lambda d: ["tasks", "run", "--tasks", ",", "--swe-bench", str(d / "missing.jsonl"), "--harness", "codex"],
      "No tasks selected. Pass --tasks <instance_id[,...]> or --all."),
-    (lambda d: ["tasks", "run", "--tasks", "task-one", "--tasks-root", str(_tasks_root(d)), "--harnesses", ","],
+    (lambda d: ["tasks", "run", "--tasks", "task-one", "--tasks-root", str(_tasks_root(d)), "--harness", ","],
      "No harnesses selected"),
     (_subject_run, "no-such-harness"),
     (lambda d: ["catalog", "trigger-probe", "--catalog", str(_skill_catalog(d)), "--trigger-set",
                 str(d / "missing.json"), "--claude", "python3", "--out", str(d / "probe.json")],
      "--trigger-set: "),
 ], ids=["catalog-formats-root", "explore-run-command-arm-without-template", "explore-run-unknown-arm",
-        "explore-run-no-arms", "tasks-run-no-tasks", "tasks-run-swebench-no-tasks", "tasks-run-no-harnesses", "subjects-run-unknown-work-harness",
+        "explore-run-no-arms", "explore-run-empty-arm", "tasks-run-no-tasks", "tasks-run-swebench-no-tasks", "tasks-run-no-harnesses", "subjects-run-unknown-work-harness",
         "trigger-probe-unreadable-trigger-set"])
 def test_helper_matches_cli_main_for_the_remaining_converted_refusals(
         argv_for, expect, tmp_path, monkeypatch, capsys):

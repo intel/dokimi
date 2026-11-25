@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi import cli_flags
+from dokimi.commands.novelty_budget import fresh_partial_destination
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import InputError, question_id
@@ -82,17 +85,19 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
         raise InputError(str(exc)) from exc
     except (ValueError, OSError, RecursionError) as exc:
         raise InputError(f"cannot build arms/plugins: {exc}") from exc
+    out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
+    out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
+    partial = _Partial(out_json)
+    partial.name()  # an --out whose partial file cannot be named is refused before any answer is paid for
     try:
-        output = run_prepared(prepared, config, questions)
+        output = run_prepared(prepared, config, questions, on_partial=partial.save)
     except EmptyQuestionError:
         raise  # a bad input record, not a run error: cli.main reports it (exit 2)
     except (ValueError, OSError, RecursionError) as exc:
-        print(f"Error running arms: {exc}", file=sys.stderr)
+        print(f"Error running arms: {exc}{partial.note()}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
 
-    out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
-    out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
-    _save_arms_output(output, out_json, out_md)
+    _save_arms_output(output, out_json, out_md, partial)
 
     if output.get("summary", {}).get("per_arm"):
         print("\nSummary (avg aggregate):")
@@ -197,22 +202,30 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
     _check_cells_dir(cells_dir)
     cell_artifacts = []
 
+    partials: dict[str, _Partial] = {}
+
+    def before_run() -> None:  # once every cell is set up; each cell names its partial file at its first save
+        _make_cells_dir(cells_dir)
+        partials.update((cell.name, _Partial(cells_dir / f"{_safe_name(cell.name)}.json")) for cell in cells)
+
     def save_cell(cell, output: dict) -> None:
         safe_name = _safe_name(cell.name)
         cell_json = cells_dir / f"{safe_name}.json"
-        _save_arms_output(output, cell_json, cells_dir / f"{safe_name}.md")
+        _save_arms_output(output, cell_json, cells_dir / f"{safe_name}.md", partials.get(cell.name))
         cell_artifacts.append((cell.name, cell_json, output))
 
     try:
         arms_run.run_matrix(config, cells, specs, loaded_questions, on_cell=save_cell,
-                            before_run=lambda: _make_cells_dir(cells_dir))
+                            before_run=before_run,
+                            on_partial=lambda cell, out: partials[cell.name].save(out))
     except EmptyQuestionError:
         raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
     except arms_run.LibraryIdError as exc:
         raise InputError(str(exc)) from exc
     except arms_run.MatrixCellError as exc:
         verb = "building" if exc.usage else "running"
-        print(f"Error {verb} matrix cell {exc.cell!r}: {exc}", file=sys.stderr)
+        kept = partials[exc.cell].note() if exc.cell in partials else ""
+        print(f"Error {verb} matrix cell {exc.cell!r}: {exc}{kept}", file=sys.stderr)
         sys.exit(EXIT_USAGE if exc.usage else EXIT_FAILURE)
 
     rollup = build_matrix_rollup(
@@ -274,6 +287,13 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
         print(f"  {arm:<24} judge delta {delta_s}, n={row.get('n', 0)}")
 
 
+_ARM_HELP = (
+    "Arm spec, repeatable or comma-separated. Examples: "
+    "'baseline,docs', 'baseline,docs:local:./docs,profile:data/agent_profiles/concise_expert.md', "
+    "'baseline,mcp:http=https://mcp.context7.com/mcp,skill:/path/to/skills-repo/skills/<name>'"
+)
+
+
 def register(sub, positive_int) -> None:
     """Add the `arms` subcommand group."""
     arms_p = sub.add_parser(
@@ -288,12 +308,8 @@ def register(sub, positive_int) -> None:
     )
     arms_run_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     arms_run_p.add_argument("--questions", required=True, help="Path to questions JSON file")
-    arms_run_p.add_argument(
-        "--arms", required=True,
-        help="Comma-separated arm specs. Examples: "
-             "'baseline,docs', 'baseline,docs:local:./docs,profile:data/agent_profiles/concise_expert.md', "
-             "'baseline,mcp:http=https://mcp.context7.com/mcp,skill:/path/to/skills-repo/skills/<name>'",
-    )
+    cli_flags.add(arms_run_p, "arm", "--arm", required=True, dest="arms", action=cli_flags.JoinedValues,
+                  metavar="SPEC", help=_ARM_HELP)
     arms_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     arms_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                             choices=ANSWER_PROVIDERS)
@@ -387,10 +403,8 @@ def register(sub, positive_int) -> None:
         "plugin-delta",
         help="Compare paired arms artifacts that differ only by plugin set",
     )
-    plugin_delta_p.add_argument(
-        "--baseline-json", required=True, dest="baseline_json",
-        help="arms.v1 artifact for the baseline/no-plugin cell",
-    )
+    cli_flags.add(plugin_delta_p, "baseline", "--baseline", required=True, dest="baseline_json",
+                  metavar="FILE", help="arms.v1 artifact for the baseline/no-plugin cell")
     plugin_delta_p.add_argument(
         "--plugin-json", required=True, dest="plugin_json",
         help="arms.v1 artifact for the plugin-enabled cell",
@@ -403,12 +417,8 @@ def register(sub, positive_int) -> None:
 def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False) -> None:
     parser.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     parser.add_argument("--questions", required=True, help="Path to questions JSON file")
-    parser.add_argument(
-        "--arms", required=True,
-        help="Comma-separated arm specs. Examples: "
-             "'baseline,docs', 'baseline,docs:local:./docs,profile:data/agent_profiles/concise_expert.md', "
-             "'baseline,mcp:http=https://mcp.context7.com/mcp,skill:/path/to/skills-repo/skills/<name>'",
-    )
+    cli_flags.add(parser, "arm", "--arm", required=True, dest="arms", action=cli_flags.JoinedValues,
+                  metavar="SPEC", help=_ARM_HELP)
     parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                         choices=ANSWER_PROVIDERS)
@@ -556,7 +566,7 @@ def _write_report(path: Path, text: str) -> None:
 
 
 def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
-    """``save_artifact``, or exit 1 naming ``path`` when it cannot be written."""
+    """``save_artifact``, or exit 2 naming ``path`` when it cannot be written."""
     from dokimi.artifacts import save_artifact
 
     try:
@@ -566,16 +576,104 @@ def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
         sys.exit(EXIT_USAGE)
 
 
-def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
+class _Partial:
+    """The file a run keeps its answered questions in until it saves *out_json* whole (#228 step 4).
+
+    ``<stem>.partial.json`` beside it, or the next name nothing holds: never a finished file, nor the
+    checkpoint of an earlier run that crashed. It is reserved (created) at the first save, so a matrix cell
+    passes over the files the cells before it finished, and a run running at the same time takes another name.
+    """
+
+    def __init__(self, out_json: Path) -> None:
+        self.out_json = out_json
+        self._path: Path | None = None
+        self._created = False
+        self.recorded = 0
+        self.failed = False
+
+    def name(self) -> Path:
+        """The name the file would take now; ``InputError`` when none can be named. Reserved at the first save."""
+        if self._path is not None:
+            return self._path
+        try:
+            return fresh_partial_destination(self.out_json)
+        except OSError as exc:
+            raise InputError(f"cannot write {self.out_json}: {exc}") from exc
+
+    def _reserve(self) -> Path:
+        """Create the file before its first save, so a run started meanwhile with the same stem takes another name."""
+        with contextlib.suppress(OSError):  # a directory that cannot be made: the save names the refusal
+            self.out_json.parent.mkdir(parents=True, exist_ok=True)  # else a missing one would reserve nothing
+        aliases = []  # names the file system takes for out's own file; kept until the next name is found
+        while self._path is None:
+            path = self.name()
+            try:
+                os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666))
+            except FileExistsError:  # another run took it since: the next name
+                continue
+            except OSError:  # not created: the save that follows fails on it and names the refusal
+                self._created = False
+            else:
+                if _same_file(self.out_json, path):  # a folding the name key missed: out's link reaches it now
+                    aliases.append(path)
+                    continue
+                self._created = True
+            self._path = path
+        for alias in aliases:
+            alias.unlink(missing_ok=True)
+        return self._path
+
+    def save(self, output: dict) -> None:
+        if self.failed:  # the run is stopping on the first failure: the questions still in flight add no message
+            return
+        try:
+            _save_artifact_or_exit("arms", output, self._reserve())
+        except BaseException:
+            self.failed = True
+            if self._created and not self.recorded:  # the empty file the reservation made holds nothing
+                with contextlib.suppress(OSError):
+                    self.name().unlink(missing_ok=True)
+            raise
+        self.recorded = output["partial"]["questions_recorded"]
+
+    def drop(self) -> None:
+        """Remove the file once the run is saved whole; one this run did not write (an earlier run's) stays."""
+        if not self.recorded:
+            return
+        self.recorded = 0
+        path = self.name()
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:  # the run is saved whole; the stale partial file only takes space
+            print(f"Warning: could not remove {path}: {exc}", file=sys.stderr)
+
+    def note(self) -> str:
+        """Where the questions this run answered went, for the message of a run that failed before its save."""
+        return f" ({self.recorded} answered questions are kept in {self.name()})" if self.recorded else ""
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    """Whether *a* and *b* are one file; ``False`` when either cannot be found."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _save_arms_output(output: dict, out_json: Path, out_md: Path, partial: _Partial | None = None) -> None:
+    """Save the run whole, then drop *partial*, the file it kept while answering."""
     from dokimi.eval.arm_runner import ArmRunner
     from dokimi.report.arms_report import render_arms_report
 
     try:
         ArmRunner.save(output, out_json)
     except OSError as exc:
-        print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
+        kept = "" if partial is None else partial.note()
+        print(f"Error: cannot write {out_json}: {exc}{kept}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     print(f"OK Saved arms comparison: {out_json}")
+    if partial is not None:
+        partial.drop()
     _write_report(out_md, render_arms_report(output))
     print(f"OK Saved arms report:     {out_md}")
 

@@ -204,7 +204,8 @@ def _emitted_codes() -> set[str]:
     for path in package.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Finding"
-                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)):
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
                 codes.add(node.args[1].value)
             if path.name in ("content_checks.py", "command_checks.py") and isinstance(node, ast.Constant) \
                     and isinstance(node.value, str):
@@ -242,3 +243,155 @@ def test_a_command_check_code_can_be_ignored(tmp_path, capsys, code):
     assert code not in {f["code"] for f in row["findings"]}
     assert {"install-unpinned", "pipe-to-shell", "permission-bypass-flag"} - {code} <= {
         f["code"] for f in row["findings"]}
+
+
+def test_ignore_not_loaded_does_not_clear_an_unloaded_skill(tmp_path, capsys):
+    # The CLI never emits not-loaded (only review_skill_dir does): an unloaded skill is an error from
+    # its load error, and ignoring the code must not let it pass (docs/finding-codes.md, the --ignore paragraph).
+    bad = tmp_path / "skills" / "bad"
+    bad.mkdir(parents=True)
+    (bad / "SKILL.md").write_text("---\n---\n# Body\n", encoding="utf-8")
+
+    row, code = _json_row(tmp_path, capsys, "--ignore", "not-loaded")
+
+    assert row["state"] == "error" and row["error"]
+    assert row["ignored"] == ["not-loaded"] and row["findings"] == []
+    assert code == 1
+
+
+def _fail_on_catalog(root: Path) -> None:
+    """One skill with a warn-level finding only (``description-no-when``); a second with none."""
+    _skill(root / "skills", "cue", name="cue", description="A tool.")
+    _skill(root / "skills", "good", name="good", description="Use when sorting invoices.")
+
+
+@pytest.mark.parametrize("mode", [[], ["--per-skill"]])
+def test_fail_on_exits_1_for_a_left_finding_and_keeps_the_report(tmp_path, capsys, mode):
+    """#942: ``--fail-on-code CODE`` fails the scan on a warn, with the same JSON rows as without it."""
+    _fail_on_catalog(tmp_path)
+    base = ["--root", str(tmp_path), "--kind", "skills", "--format", "json", *mode]
+    plain_out, plain_code = _run(base, capsys)
+    assert plain_code == 0
+
+    out, code = _run([*base, "--fail-on-code", "description-no-when"], capsys)
+    assert code == 1
+    assert json.loads(out) == json.loads(plain_out)
+
+    # A code no row has, and an empty selection, leave the exit alone.
+    assert _run([*base, "--fail-on-code", "link-missing"], capsys)[1] == 0
+
+
+def test_fail_on_is_repeatable_and_ignore_filters_first(tmp_path, capsys):
+    """#942: --fail-on-code is repeatable and --ignore filters first (docs/external-content.md, --fail-on-code bullet)."""
+    _fail_on_catalog(tmp_path)
+    base = ["--root", str(tmp_path), "--kind", "skills", "--format", "json"]
+    assert _run([*base, "--fail-on-code", "link-missing", "--fail-on-code", "description-no-when"], capsys)[1] == 1
+    ignored = [*base, "--fail-on-code", "description-no-when", "--ignore", "description-no-when"]
+    assert _run(ignored, capsys)[1] == 0
+
+
+@pytest.mark.parametrize("extra, code", [
+    (["--per-skill", "--fail-on-code", "duplicate", "--ignore", "duplicate"], "duplicate"),
+    (["--fail-on-code", "link-dead", "--ignore", "link-dead"], "link-dead"),
+])
+def test_a_code_in_both_fail_on_and_ignore_is_not_refused_for_the_mode(tmp_path, capsys, extra, code):
+    """#942: --ignore filters first, so a mode-restricted code in both flags is not checked (docs/external-content.md)."""
+    _fail_on_catalog(tmp_path)
+    assert _run(["--root", str(tmp_path), "--kind", "skills", *extra], capsys)[1] == 0
+    unignored = extra[:-2]  # the same call without --ignore is still refused
+    assert _run(["--root", str(tmp_path), "--kind", "skills", *unignored], capsys)[1] == 2
+
+
+def test_fail_on_json_marks_the_failing_subject(tmp_path, capsys):
+    """#942: with --json the skill with a selected finding has verdict fail (_emit_check docstring)."""
+    _fail_on_catalog(tmp_path)
+    out, code = _run(["--root", str(tmp_path), "--kind", "skills", "--json", "--fail-on-code", "description-no-when"], capsys)
+    doc = json.loads(out)
+    assert code == 1 and doc["verdict"] == "fail"
+    assert {s["subject"]: s["verdict"] for s in doc["subjects"]} == {"cue": "fail", "good": "pass"}
+
+
+def test_fail_on_applies_to_resumed_rows(tmp_path, capsys):
+    """#942: --resume applies the current --fail-on-code to the rows it keeps (docs/external-content.md)."""
+    _fail_on_catalog(tmp_path)
+    jsonl = tmp_path / "s.jsonl"
+    base = ["--root", str(tmp_path), "--kind", "skills", "--per-skill", "--jsonl", str(jsonl)]
+    assert _run(base, capsys)[1] == 0
+    out, code = _run([*base, "--resume", "--fail-on-code", "description-no-when"], capsys)
+    assert code == 1 and "2 resumed" in out
+    assert "fail-on-code: cue has description-no-when" in out
+
+
+def test_fail_on_unknown_code_is_a_usage_error(tmp_path, capsys):
+    """#942: an unknown --fail-on-code code is a usage error, as for --ignore (docs/external-content.md)."""
+    _fail_on_catalog(tmp_path)
+    assert _run(["--root", str(tmp_path), "--fail-on-code", "no-such-code"], capsys)[1] == 2
+
+
+def test_fail_on_refused_with_kind_tasks(tmp_path, capsys):
+    """#942: --fail-on-code applies to skills only, so --kind tasks refuses it (docs/external-content.md)."""
+    assert _run(["--root", str(tmp_path), "--kind", "tasks", "--fail-on-code", "link-missing"], capsys)[1] == 2
+
+
+@pytest.mark.parametrize("code", ["duplicate", "name-conflict", "mirror-drift", "description-near-duplicate"])
+def test_fail_on_cross_catalog_code_refused_with_per_skill(tmp_path, capsys, code):
+    """--per-skill does not run the cross-catalog checks, so a gate on their codes is refused (docs/external-content.md)."""
+    _skill(tmp_path / "skills", "a", name="same")
+    _skill(tmp_path / "skills", "b", name="same")
+    base = ["--root", str(tmp_path), "--kind", "skills", "--fail-on-code", code]
+    if code == "duplicate":
+        assert _run(base, capsys)[1] == 1
+    assert _run([*base, "--per-skill"], capsys)[1] == 2
+
+
+@pytest.mark.parametrize("code", ["link-dead", "package-not-found"])
+def test_fail_on_online_code_refused_without_online(tmp_path, capsys, code):
+    """Only --online reports the network codes, so a gate on them needs it (docs/external-content.md)."""
+    _fail_on_catalog(tmp_path)
+    assert _run(["--root", str(tmp_path), "--kind", "skills", "--fail-on-code", code], capsys)[1] == 2
+
+
+def test_fail_on_text_says_why_the_scan_failed(tmp_path, capsys):
+    """#942: the whole-catalog text output names the skill and code behind a --fail-on-code exit 1."""
+    _fail_on_catalog(tmp_path)
+    base = ["--root", str(tmp_path), "--kind", "skills"]
+    out, code = _run([*base, "--fail-on-code", "description-no-when"], capsys)
+    assert code == 1
+    assert "fail-on-code: cue has description-no-when" in out
+    assert "fail-on-code" not in _run(base, capsys)[0]
+
+
+def test_fail_on_json_reason_names_the_gate(tmp_path, capsys):
+    """#942: the reason of a --fail-on-code failure names it, and does not blame --strict."""
+    _fail_on_catalog(tmp_path)
+    base = ["--root", str(tmp_path), "--kind", "skills", "--json", "--fail-on-code", "description-no-when"]
+    assert json.loads(_run(base, capsys)[0])["reason"] == "1 subject(s) fail under --fail-on-code"
+    assert json.loads(_run([*base, "--strict"], capsys)[0])["reason"] == "1 subject(s) fail under --strict and --fail-on-code"
+
+
+def test_fail_on_code_and_listing_budget_combine_and_tasks_refuses_both(tmp_path, capsys):
+    """#942, #966: both gates apply to skills; ``--kind tasks`` refuses ``--fail-on-code`` and ``--listing-budget``."""
+    _fail_on_catalog(tmp_path)
+    base = ["--root", str(tmp_path), "--kind", "skills", "--format", "json", "--listing-budget", "5"]
+    out, code = _run([*base, "--fail-on-code", "description-no-when"], capsys)
+    assert code == 1
+    assert json.loads(out)["listing"]["over_budget"] is True
+    assert _run(base, capsys)[1] == 0
+
+    assert _run(["--root", str(tmp_path), "--kind", "tasks", "--fail-on-code", "link-missing"], capsys)[1] == 2
+    assert _run(["--root", str(tmp_path), "--kind", "tasks", "--listing-budget", "5"], capsys)[1] == 2
+
+
+@pytest.mark.parametrize("mode", [[], ["--per-skill"]])
+def test_fail_on_listing_over_budget_gates_the_scan_level_finding(tmp_path, capsys, mode):
+    """#942, #966: ``--fail-on-code listing-over-budget`` exits 1 over the cap without ``--strict``; ``--ignore`` wins."""
+    _skill(tmp_path / "skills", "good", name="good", description="Use when sorting invoices.")
+    base = ["--root", str(tmp_path), "--kind", "skills", "--listing-budget", "1", *mode]
+    assert _run(base, capsys)[1] == 0
+    gate = [*base, "--fail-on-code", "listing-over-budget"]
+    assert _run(gate, capsys)[1] == 1
+    assert _run([*gate, "--ignore", "listing-over-budget"], capsys)[1] == 0
+
+    doc = json.loads(_run([*gate, "--json"], capsys)[0])
+    assert doc["verdict"] == "fail"
+    assert {s["subject"]: s["verdict"] for s in doc["subjects"]}["catalog:listing"] == "fail"

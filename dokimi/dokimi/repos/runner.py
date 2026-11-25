@@ -80,6 +80,7 @@ from .batch_ledger import (  # re-exported: the names callers and tests take fro
 )
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
+from .choices import with_choices
 from .transcript import Transcript
 from . import run_context
 from .probes import effective_patterns, probes_for, with_probes
@@ -87,8 +88,8 @@ from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
-from .held_guidance import held_guidance
-from .host import probe_host, unmet, validate_tasks
+from .held_guidance import HeldGuidance, held_guidance
+from .host import fingerprint_id, log_labelled, match_report, probe_host, unmet, validate_tasks
 from .manifest import match_glob, scratch_name
 from .process_metrics import process_metrics
 from .workspace import OVERLAY_ARM, PrepError, Task, parse_arm, prepare_workspace
@@ -113,9 +114,11 @@ class AgentOptions:
     max_turns: int = 200
     budget_usd: float = 2.0
     probes: dict[str, tuple[str, ...]] | None = None  # the run's --probes, over the manifest's (repos/probes.py)
+    candidates: dict[str, dict[str, tuple[str, ...]]] | None = None  # the run's --candidates (repos/choices.py)
 
 
-def execution_record(opts: AgentOptions, arm: str | None = None) -> dict[str, str]:
+def execution_record(opts: AgentOptions, arm: str | None = None, *,
+                     manifest_probes: dict[str, tuple[str, ...]] | None = None) -> dict[str, str]:
     """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it.
 
     The executable is digested for each cell, not once per batch: a cell records the bytes it actually ran, so a
@@ -125,15 +128,18 @@ def execution_record(opts: AgentOptions, arm: str | None = None) -> dict[str, st
     companions = {n: harness_sha256(beside / n) if (beside / n).is_file() else None
                   for n in opts.profile.bin_companions}
     overlay = opts.profile.overlay if arm is not None and parse_arm(arm).base == OVERLAY_ARM else None
+    probes = {**(manifest_probes or {}), **(opts.probes or {})} or None
+    inputs = {"candidates": opts.candidates, "probes": probes}
     return batch_ledger.execution_record(opts.profile, opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
-                                         opts.harness_version, companions, overlay)
+                                         opts.harness_version, companions, overlay, inputs)
 
 
-def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
+def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None,
+                           *, manifest_probes: dict[str, tuple[str, ...]] | None = None) -> None:
     """Refuse, before anything runs, a batch dir whose finished cells ran with another execution than ``options``
     (see :func:`batch_ledger.check_batch_executions`). Each option's plain cells and its overlay cells are both
     this execution, so a batch may hold either kind of cell of one profile."""
-    wanted = {execution_record(o, a)["id"] for o in options for a in (None, OVERLAY_ARM)}
+    wanted = {execution_record(o, a, manifest_probes=manifest_probes)["id"] for o in options for a in (None, OVERLAY_ARM)}
     batch_ledger.check_batch_executions(batch_dir, wanted, replacing)
 
 
@@ -217,13 +223,31 @@ def _workspace_args(task: Task, opts: AgentOptions, rd: Path, meta: dict[str, An
     return present
 
 
+def _write_trace_events(rd: Path, transcript: Transcript, ctx: EvalContext, opts: AgentOptions,
+                        errors: list[str]) -> None:
+    """Write probe and choice events while keeping grading independent of either matcher."""
+    try:
+        probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes), errors)
+    except Exception as exc:  # noqa: BLE001  # the events go on without probes: the grade must not depend on them
+        probed = transcript.events
+        errors.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
+    try:
+        shown = with_choices(probed, opts.candidates or {}, transcript.added_text)
+    except Exception as exc:  # noqa: BLE001  # optional choice evidence must not cost a cell its grade
+        shown = probed
+        errors.append(f"choice matching failed ({type(exc).__name__}): {str(exc)[:200]}")
+    (rd / "events.jsonl").write_text(transcript.events_jsonl(shown), encoding="utf-8")
+
+
 def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, opts: AgentOptions,
-             force: bool = False, host: dict[str, Any] | None = None) -> dict[str, Any]:
+             force: bool = False, host: dict[str, Any] | None = None,
+             match: dict[str, Any] | None = None) -> dict[str, Any]:
     """Prepare, run the agent, grade. Returns the cell's ``result.json`` (``skipped`` when it existed).
 
-    ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``."""
+    ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``; ``match`` (a
+    labelled run's :func:`.host.match_report`) too, and in ``result.json`` as ``host_match``."""
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
-    execution = execution_record(opts, arm)
+    execution = execution_record(opts, arm, manifest_probes=ctx.manifest.probes)
     done = batch_ledger.reused_result(rd, execution, force)
     if done is not None:
         return {**done, "skipped": True}
@@ -238,8 +262,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     held = held_guidance(rd, ctx.manifest)  # before the agent runs: a file it creates is not guidance it read
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
-    if ctx.suite is not None and task.id in ctx.suite.meta:  # additive: only a suite task's base is elsewhere
-        meta["base_repo"] = ctx.suite.meta[task.id]
+    _add_origin(meta, ctx, task, match)
     present = _workspace_args(task, opts, rd, meta)
     _write_json(rd / "meta.json", meta)
     skills: dict[str, Any] | None = None
@@ -282,13 +305,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
-        # Probe events go to events.jsonl only: the counters, first_useful and skill usage score the trace's events
-        try:
-            probed = with_probes(transcript.events, probes_for(ctx.manifest.probes, opts.probes), probe_errors)
-        except Exception as exc:  # noqa: BLE001  # the events go on without probes: the grade must not depend on them
-            probed = transcript.events
-            probe_errors.append(f"probe matching failed ({type(exc).__name__}): {str(exc)[:200]}")
-        (rd / "events.jsonl").write_text(transcript.events_jsonl(probed), encoding="utf-8")
+        _write_trace_events(rd, transcript, ctx, opts, probe_errors)
         failed = transcript.is_error or not result.ok  # a crashed review is missing, not clean
         answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE, failed=failed,
                                 messages=transcript.agent_messages)
@@ -335,8 +352,19 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
-                              "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade}
+                              "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade,
+                              "host_fingerprint": fingerprint_id(host) if host is not None else None}
+    if match is not None:
+        record["host_match"] = match
     return _finish_record(record, rd, task, meta, (skills, uptake_of, events), float(agent["charged_usd"]))
+
+
+def _add_origin(meta: dict[str, Any], ctx: EvalContext, task: Task, match: dict[str, Any] | None) -> None:
+    """The additive ``meta.json`` keys: ``host_match`` of a labelled run, ``base_repo`` of a suite task."""
+    if match is not None:
+        meta["host_match"] = match
+    if ctx.suite is not None and task.id in ctx.suite.meta:  # only a suite task's base is elsewhere
+        meta["base_repo"] = ctx.suite.meta[task.id]
 
 
 def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str, Any], arm_use: tuple[Any, Any, Any],
@@ -362,7 +390,8 @@ def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]], unknown_
     (a multi-file read cannot say which file failed). None: any path the globs match."""
     globs = ctx.manifest.guidance_globs
     return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs) and (held is None or path in held),
-                           ctx.manifest.process_metrics, unknown_reads)
+                           ctx.manifest.process_metrics, unknown_reads,
+                           held.resolved if isinstance(held, HeldGuidance) else None)
 
 
 def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str],
@@ -428,6 +457,16 @@ def _clear_unsupported_markers(batch_dir: Path, cells: list, unsupported: dict) 
             (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
 
 
+def _verdicts(ctx: EvalContext, tasks: list[Task], host: dict[str, Any], label_host: bool) -> tuple[dict, dict]:
+    """``(unmet verdicts, match reports)``: a block-mode batch has the verdicts, a labelled one the reports
+    (and only the suite gaps as verdicts)."""
+    gaps = ctx.base_gaps()  # a task whose base repository is missing is unsupported, as a host miss is
+    suite = {t.id: (gaps[t.id], "suite") for t in tasks if t.id in gaps}
+    if label_host:
+        return suite, {t.id: match_report(t, host) for t in tasks}
+    return {t.id: suite.get(t.id) or unmet(t, host) for t in tasks}, {}
+
+
 def _run_unsupported(batch_dir: Path, name: str, cell: tuple[Task, str, AgentOptions, int], reason: str, verdict: Any,
                      host: Any, state: dict[str, Any], lock: threading.Lock, log: Callable[[str], None]) -> None:
     """Mark a cell of an unsupported task as not run, and count it."""
@@ -444,29 +483,33 @@ def _run_unsupported(batch_dir: Path, name: str, cell: tuple[Task, str, AgentOpt
 
 def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: list[AgentOptions], reps: int,
               batch_dir: Path, jobs: int = 1, force: bool = False, max_batch_usd: float | None = None,
-              log=print) -> dict[str, Any]:
+              log=print, label_host: bool = False) -> dict[str, Any]:
     """Every (task, arm, model, rep) cell; returns counts. Cells that crash are reported, not raised.
 
     The host is probed once, before any cell (``_eval/host.json``); a cell of a task whose ``host``
     requirements it does not meet is marked unsupported instead of run. One that already has a
     ``result.json`` (from a host that met them) keeps it, even with ``force``; one that cannot be read is
-    that cell's error."""
+    that cell's error.
+
+    ``label_host`` runs every cell whatever the host: a cell of a task whose requirements it misses runs and
+    records its :func:`.host.match_report` (``host_match`` in ``meta.json`` and ``result.json``) instead."""
     validate_tasks(tasks)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
     _refuse_shared_cells(cells)
-    check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
+    check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None,
+                           manifest_probes=ctx.manifest.probes)
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
-    gaps = ctx.base_gaps()  # a task whose base repository is missing is unsupported, as a host miss is
-    verdicts = {t.id: (gaps[t.id], "suite") if t.id in gaps else unmet(t, host) for t in tasks}
+    verdicts, matches = _verdicts(ctx, tasks, host, label_host)
     unsupported = {task_id: why for task_id, (why, _) in verdicts.items() if why}
     if force and unsupported:  # --force keeps their finished cells, so those must match this run too
         check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells
-                                                    if t.id not in unsupported})
+                                                    if t.id not in unsupported}, manifest_probes=ctx.manifest.probes)
     batch_ledger.record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
     probe_failed = _probe_failed(batch_dir, cells, verdicts)
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
+    log_labelled(matches, log)
     _clear_unsupported_markers(batch_dir, cells, unsupported)
     lock = threading.Lock()
     # The cap counts what earlier invocations of this batch spent (under the batch lock the caller holds), and
@@ -489,7 +532,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
             return
         charged, rec = 0.0, None
         try:
-            rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force, host=host)
+            rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force, host=host, match=matches.get(task.id))
         except BatchInterrupted as exc:  # dropped, with nothing recorded: only the charge of an agent that ran
             charged = exc.charged_usd
             raise

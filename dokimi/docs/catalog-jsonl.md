@@ -17,6 +17,7 @@ One JSON object on stdout (`--kind skills`; a `--kind all` scan also has `tasks`
 | `root` | string | the scanned directory |
 | `skills` | array of skill rows | one row per declared skill (the row schema below) |
 | `tasks` | array | task rows, empty unless `--kind tasks` or `--kind all` |
+| `rates` | object | number of repositories and skills, with per-skill and per-repository shares by state and finding code (see [external content](external-content.md)) |
 | `online` | object | only with `--online`: the network checks' summary |
 | `listing` | object | `chars`, the total of the rows' `listing_chars` (a mirror with the same name and `content_sha256` counts once; a name whose copies differ is left out); with `--listing-budget` also `budget` and `over_budget` |
 | `granularity` | object | only without `--per-skill`: the merge and split hints |
@@ -39,11 +40,12 @@ The text on stdout is only the counts. A run killed midway keeps the whole lines
 | `state` | `ok`, `warn`, `error` or `skipped` | `error` for a load error or an error finding, `warn` for a warning only, `skipped` for an unloaded skill no format rule read (an unsupported host's plain Markdown), else `ok`; `ignored` codes are left out |
 | `error` | string or null | the load error, when the skill did not load |
 | `disable_model_invocation` | boolean | the skill sets `disable-model-invocation: true`, so the description-quality checks skip it; the frontmatter length limit still applies |
-| `content_sha256` | string or null | digest of the SKILL.md text; null when there is no review |
-| `skill_sha256` | string or null | digest of every file in the skill's directory (the scan's own output files excluded); used by `--resume` |
+| `content_sha256` | string or null | digest of the SKILL.md text; null when there is no review, except for a skill charged for a missing `description`, which has the digest of its SKILL.md |
+| `skill_sha256` | string or null | digest of every file in the skill's directory (the scan's own output files excluded); null when the directory or a subdirectory cannot be read; used by `--resume` |
 | `dokimi_version` | string | the dokimi version that wrote the row; `--resume` redoes rows from another version |
-| `listing_chars` | integer or null | characters of the skill's entry in the routing field's listing (`name: description`, then ` - when_to_use` when it is not empty; the description and `when_to_use` count at most 1,536 characters); null when the skill is not listed (it does not load, has a spec error other than a long description, or sets `disable-model-invocation`). `--resume` redoes a row without it |
-| `listing_name` | string or null | the name the routing field knows the skill by: the loaded `SKILL.md` name, which can differ from `name` (a manifest alias); null when the skill did not load. The listing total groups copies by it. `--resume` redoes a row without it |
+| `listing_chars` | integer or null | characters of the skill's entry in the routing field's listing (`name: description`, then ` - when_to_use` when it is not empty; the description and `when_to_use` count at most 1,536 characters); a skill that fails to load only for a missing or empty `description` is listed by the body's first non-empty line and has that charge, with the `: ` an entry puts after the name (`listing.listing_chars` plus 2), and one whose `description` is only whitespace is charged for that whitespace; null when the skill is not listed (it does not load for another reason, has a spec error other than a long description, or sets `disable-model-invocation`). `--resume` redoes a row without it |
+| `listing` | object or null | the entry `repo budget` charges for the skill, listed or not: `description` (the frontmatter one, else the body's first non-empty line), `source` (`frontmatter` or `body`), `description_chars` (description plus ` - when_to_use`, before the cap) and `listing_chars` (name plus the text, capped at 1,536); null when SKILL.md cannot be read or there is no text. `--resume` redoes a row without it |
+| `listing_name` | string or null | the name the routing field knows the skill by: the loaded `SKILL.md` name, which can differ from `name` (a manifest alias); null when the skill did not load, except a skill charged for a missing `description`, which has the name it is listed under. The listing total groups copies by it. `--resume` redoes a row without it |
 | `duplicate_of` | string or null | the relpath of the identical copy this skill duplicates; null for the original |
 | `ignored` | array of strings | the `--ignore` codes in effect, sorted (`[]` when none); `--resume` redoes a row written under other codes |
 | `findings` | array of finding objects | the findings left after `--ignore` |

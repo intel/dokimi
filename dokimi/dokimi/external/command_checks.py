@@ -10,9 +10,10 @@ each a ``warn`` in :mod:`dokimi.external.validate`:
   ``| sudo bash``, ``| python3``), which runs a download without a look at it.
 - ``permission-bypass-flag``: ``--dangerously-skip-permissions``, ``--yolo`` or
   ``bypassPermissions``, which switch off a coding agent's permission prompts.
-- ``install-unpinned``: a ``pip``, ``npm`` or ``npx`` install that names a package with no
-  version. One finding per skill, with the count. A requirements file, a local path, a URL and
-  a ``git+`` source are not named packages, so they are not counted.
+- ``install-unpinned``: a ``pip``, ``npm``, ``pnpm`` or ``npx`` install that names a package with no
+  version. One finding per skill, with the count of distinct ``<manager> <name>`` pairs: the same install
+  shown twice is one, and a command inside the quoted text of an ``echo`` or ``printf`` is not an install.
+  A requirements file, a local path, a URL and a ``git+`` source are not named packages, so they are not counted.
 
 Where each check reads: ``pipe-to-shell`` and ``permission-bypass-flag`` read every line of the
 text, since their tokens are distinctive. Installs are read from code only: the fenced blocks and
@@ -32,12 +33,12 @@ import os
 import re
 import shlex
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Sequence
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
 from .lookalikes import readings
-from .skill_markdown import CODE_SPAN_RE
+from .skill_markdown import code_spans
 
 BUNDLED_MAX_BYTES = 256 * 1024
 BUNDLED_MAX_FILES = 200
@@ -56,10 +57,13 @@ _CLEAN_PROGRAM = (
 )
 # Bounded (500 pieces) so a long line of curl words stays linear; ``||`` is not a pipe, ``|&`` is.
 # A quoted string is taken whole, so a ``&`` or ``;`` in a quoted URL does not end the command.
+_PIPE_TO = (
+    r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
+    r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
+)
 PIPE_TO_SHELL = re.compile(
     r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
-    r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
-    r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?(?:"
+    + _PIPE_TO + r"(?:"
     # An inline program (`python -c`, `node -e`, `ruby -e`) or `python -m json.tool` takes the download as data,
     # unless the program execs or evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
     r"(?:(?:ba|z|da|k)?sh|fish)\b"
@@ -97,13 +101,43 @@ NPM_VALUE_OPTIONS = frozenset({
 # npx takes npm's config options, so its value options are npm's, plus its own --call; --package and -p are not
 # here, since their value is a selection
 NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
+# pnpm's value options: npm's, less ``-w``/``--workspace`` (flags in pnpm), plus a workspace filter, a directory, the
+# store and a catalog name
+PNPM_VALUE_OPTIONS = (NPM_VALUE_OPTIONS - {"-w", "--workspace"}) | frozenset(
+    {"--filter", "-F", "--dir", "-C", "--store-dir", "--save-catalog-name", "--reporter", "--modules-dir",
+     "--virtual-store-dir", "--lockfile-dir", "--global-dir"})
+# options before the subcommand: a value option takes the next word (quoted or not); any other flag stands alone,
+# with an attached quoted value; the lookahead keeps the two parses apart, so a run of them cannot backtrack
+def _pnpm_options(value_options: frozenset[str]) -> str:
+    alt = "|".join(re.escape(o) for o in sorted(value_options, key=len, reverse=True))
+    return (
+        r"(?:[ \t]+(?:(?:" + alt + r")[ \t]+(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|'\"][^\s;&|]*)"
+        r"|(?!(?:" + alt + r")(?:\s|$))-(?:[^\s;&|'\"]|'[^'\n]*'|\"[^\"\n]*\")*))*"
+    )
+
+
+PNPM = re.compile(r"(?<![\w.-])pnpm" + _pnpm_options(PNPM_VALUE_OPTIONS) + r"[ \t]+(?:install|i|add)\b" + WORDS)
+# ``pnpm dlx`` and ``pnpx`` run a package as ``npx`` does; ``--package`` before ``dlx`` is a selection (group 1)
+PNPM_DLX = re.compile(
+    r"(?<![\w.-])(?:pnpm(" + _pnpm_options(PNPM_VALUE_OPTIONS | {"--package", "-p"}) + r")[ \t]+dlx|pnpx)\b" + WORDS)
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
+# ``echo`` or ``printf`` at the start of a command, after control keywords, ``command``/``builtin``/``exec`` and
+# ``NAME=value`` assignments (``then echo "..."``, ``LC_ALL=C printf ...``)
+ECHO_COMMAND = re.compile(
+    r"[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{|command|builtin|exec)[ \t]+"
+    r"|[A-Za-z_]\w*=(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|()'\"`]*)[ \t]+)*(?:echo|printf)(?![\w.-])")
+# ``|`` at the end of a command that feeds a shell: what the command printed is run
+PIPED_SHELL = re.compile(_PIPE_TO + r"(?:(?:ba|z|da|k)?sh|fish)(?![\w.-])")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
 
 def _lines_of(text: str, matches: Iterator[re.Match]) -> list[int]:
     newlines = [m.start() for m in re.finditer("\n", text)]  # one scan, then a bisect per match (linear, not quadratic)
     return sorted({bisect.bisect_left(newlines, m.start()) + 1 for m in matches})
+
+
+MAX_NESTING = 50  # substitutions entered inside one another; deeper ones are stepped over, so the stack stays bounded
+BLOCK_END = "\0"  # ends a fenced block or code span: a quote an ``echo`` opens in one never closes in the next
 
 
 def _code_text(text: str, markdown: bool) -> str:
@@ -125,12 +159,13 @@ def _code_text(text: str, markdown: bool) -> str:
         stripped = line.strip()
         if stripped and set(stripped) == {fence[0]} and len(stripped) >= len(fence):
             fence = None
+            code.append(BLOCK_END)
         else:
             code.append(line)
     # a code span does not run across a paragraph break
     paragraphs = re.split(r"\n[ \t]*\n", "\n".join(prose))
-    spans = [m.group(2) for para in paragraphs for m in CODE_SPAN_RE.finditer(para)]
-    return "\n".join(code + spans)
+    spans = [m.group(2) for para in paragraphs for m in code_spans(para)]
+    return "\n".join(code + [part for span in spans for part in (span, BLOCK_END)])
 
 
 def _words(rest: str, value_options: frozenset[str]) -> list[str]:
@@ -190,9 +225,9 @@ def _npm_pinned(spec: str | None) -> bool:
     return spec is not None and NPM_RANGE.match(spec) is not None
 
 
-def _unpinned_npm(rest: str) -> list[str]:
+def _unpinned_npm(rest: str, value_options: frozenset[str] = NPM_VALUE_OPTIONS) -> list[str]:
     names = []
-    for word in _words(rest, NPM_VALUE_OPTIONS):
+    for word in _words(rest, value_options):
         word = word.rstrip("\"')")
         match = NPM_NAME.fullmatch(word) if word and not word.startswith("-") else None
         if not match or word.lower().endswith(NON_PACKAGE_SUFFIXES):
@@ -202,11 +237,11 @@ def _unpinned_npm(rest: str) -> list[str]:
     return names
 
 
-def _unpinned_npx(rest: str) -> list[str]:
+def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) -> list[str]:
     """npx runs the packages it is given: each ``--package``/``-p`` selection before the program, or else the program
     itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
     it. Words after the program are its own arguments: its ``-p`` is not npx's selection."""
-    words = _words(rest, NPX_VALUE_OPTIONS)
+    words = _words(rest, value_options)
     selected: list[str] = []
     executable = None
     i = 0
@@ -232,30 +267,218 @@ def _unpinned_npx(rest: str) -> list[str]:
     return names
 
 
+def _unpinned_dlx(head: str | None, rest: str) -> list[str]:
+    """``pnpm dlx``: a ``--package``/``-p`` selection before ``dlx`` names the package, as one after it does."""
+    try:
+        words = shlex.split(head or "")
+    except ValueError:  # an unbalanced quote: the words as written
+        words = (head or "").split()
+    selected: list[str] = []
+    i = 0
+    while i < len(words):  # a value option's value is not read: ``--dir 'a --package=x'`` selects nothing
+        word, i = words[i], i + 1
+        if word.startswith("--package="):
+            selected.append(word[len("--package="):])
+        elif word in ("--package", "-p") and i < len(words):
+            selected.append(words[i])
+            i += 1
+        elif word in PNPM_VALUE_OPTIONS:
+            i += 1
+        elif word.startswith("-p") and not word.startswith("--") and len(word) > 2:
+            selected.append(word[2:])
+    return _unpinned_npx(" ".join(f"--package {spec}" for spec in selected) + " " + rest, PNPM_VALUE_OPTIONS)
+
+
+def _blank(mask: list[str], pieces: Sequence[tuple[int, ...]]) -> None:
+    for start, end, *_ in pieces:
+        for k in range(start, end):
+            if mask[k] not in ("\n", BLOCK_END):
+                mask[k] = " "
+
+
+def _quoted(code: str, i: int, memo: dict, level: int) -> tuple[int, list[tuple[int, int]], list[tuple[int, int]]]:
+    """The index of the quote that closes the string opened at ``i``, the ``(start, end)`` of its text, less any
+    command substitution in it (that runs), and the pieces that substitution's own echoes print; ``-1`` when it
+    never closes in its own block or span: not a string."""
+    quote, j, seg, pieces, inner = code[i], i + 1, i + 1, [], []
+    while j < len(code) and code[j] not in (quote, BLOCK_END):
+        if quote == '"' and (code[j] == "`" or code.startswith("$(", j)):
+            pieces.append((seg, j))
+            j, printed = _substitution(code, j, memo, level)
+            seg = j
+            inner += printed
+        else:
+            j += 2 if quote == '"' and code[j] == "\\" else 1
+    if j >= len(code) or code[j] == BLOCK_END:
+        return -1, [], []
+    return j, pieces + [(seg, j)], inner
+
+
+def _substitution(code: str, i: int, memo: dict, level: int) -> tuple[int, list[tuple[int, int]]]:
+    """The index after the ``$(...)`` or backtick substitution opened at ``i``, and the text its ``echo`` and
+    ``printf`` commands print; its commands are scanned too. The text is returned, not blanked: it is the output
+    of the command around the substitution, which a pipe to a shell may run.
+
+    ``memo`` holds where each substitution ended, so one that a string failing to close makes the scan meet again is
+    not scanned again. Past :data:`MAX_NESTING` levels an opener is stepped over, not entered."""
+    stop, skip = (")", 2) if code[i] == "$" else ("`", 1)
+    if i in memo:
+        return memo[i]
+    if level >= MAX_NESTING:
+        return i + skip, []
+    printed: list[tuple[int, int]] = []
+    end = _commands(code, printed, i + skip, stop, memo, level + 1)
+    memo[i] = (end + 1 if end < len(code) and code[end] == stop else end), printed
+    return memo[i]
+
+
+# marks an echo whose stdout is redirected; a piece with a third item is blanked even when the command feeds a shell
+REDIRECTED = (-1, -1)
+# marks an echo whose stderr already goes where its stdout goes (``2>&1``): a later ``>&2`` leaves stdout where it was
+ERR_TO_OUT = (-2, -2)
+
+
+def _flush(out, echo: list, piped: bool) -> None:
+    """Add the text of a finished echo to ``out``. Piped to a shell, its text is kept (it runs), unless its stdout
+    is redirected or it is already marked as printed by a command inside it."""
+    pieces = [piece for piece in echo if piece not in (REDIRECTED, ERR_TO_OUT)]
+    if REDIRECTED in echo:
+        out += [(start, end, True) for start, end, *_ in pieces]
+    else:
+        out += [piece for piece in pieces if len(piece) == 3] if piped else pieces
+
+
+def _dup_of(code: str, i: int, fd: str) -> bool:
+    """Whether the ``>`` at ``i`` is ``>&<fd>`` for exactly that descriptor (``>&10`` is descriptor 10)."""
+    return code.startswith("&" + fd, i + 1) and not code[i + 3:i + 4].isdigit()
+
+
+def _stdout_redirected(code: str, i: int) -> bool:
+    """Whether the ``>`` at ``i`` opens a redirection of stdout to something other than stdout: not the second ``>`` of
+    ``>>``, not ``2>``/``2>>`` (a descriptor other than 1), not ``>&1``."""
+    return code[i] == ">" and code[i - 1] not in ">023456789" and not _dup_of(code, i, "1")
+
+
+def _other(code, i, start, echo):
+    """Step over the character at ``i`` (and what it escapes), or over a comment: its quotes and substitutions are
+    not shell syntax, so it runs to the end of the line, and after an ``echo`` it is text that is not run.
+    Returns ``(start, index, echo)``."""
+    if code[i] == "#" and (i == 0 or code[i - 1] in " \t\n;&|()"):
+        end = i
+        while end < len(code) and code[end] not in ("\n", BLOCK_END):
+            end += 1
+        return False, end, echo if echo is None else echo + [(i, end, True)]  # a comment never runs, even piped
+    before = code[i - 2:i - 1]
+    stderr = code[i] == ">" and code[i - 1] == "2" and (before == "" or before in " \t\n;&|()")  # a standalone ``2>``
+    if echo is not None and stderr and _dup_of(code, i, "1"):
+        echo = echo + [ERR_TO_OUT] if ERR_TO_OUT not in echo else echo
+    elif echo is not None and stderr and ERR_TO_OUT in echo and not _dup_of(code, i, "2"):
+        echo = [piece for piece in echo if piece != ERR_TO_OUT]  # stderr goes elsewhere now: ``2>&1 2>f >&2`` (``2>&2`` changes nothing)
+    elif echo is not None and REDIRECTED not in echo and _stdout_redirected(code, i):
+        if not (ERR_TO_OUT in echo and _dup_of(code, i, "2")):  # ``2>&1 >&2``: stdout is still the pipe
+            echo = echo + [REDIRECTED]  # stdout goes to a file or another descriptor: nothing reaches a pipe
+    return start and code[i] in " \t", i + (2 if code[i] == "\\" else 1), echo
+
+
+def _in_redirection(code: str, i: int) -> bool:
+    return code[i - 1:i] in (">", "<") or code[i + 1:i + 2] == ">"
+
+
+def _paren_depth(depth: int, c: str) -> int:
+    return depth + 1 if c == "(" else max(depth - 1, 0) if c == ")" else depth
+
+
+def _collect(echo, out, text, printed) -> None:
+    """The ``text`` of a string belongs to the echo being read, if any; what a substitution in it printed does too,
+    and otherwise is printed outright."""
+    if echo is not None:
+        echo += text + printed
+    else:
+        out += printed
+
+
+def _commands(code: str, out: list[tuple[int, int]], i: int, stop: str, memo: dict, level: int) -> int:
+    """Add to ``out`` the quoted text of each ``echo`` or ``printf`` from ``i`` to the ``stop`` that ends the list
+    (or a block end): the text is printed, not run, unless the command feeds a shell. A substitution in it runs.
+    Returns the index where it stopped."""
+    depth, start = 0, True
+    echo: list[tuple[int, int]] | None = None  # the text pieces of the echo or printf being read
+    while i < len(code) and code[i] != BLOCK_END and not (code[i] == stop and depth == 0):
+        c = code[i]
+        match = ECHO_COMMAND.match(code, i) if start and echo is None else None
+        if match:
+            echo, start, i = [], False, match.end()
+        elif c in "'\"" and (quoted := _quoted(code, i, memo, level))[0] >= 0:
+            _collect(echo, out, quoted[1], quoted[2])
+            start, i = False, quoted[0] + 1
+        elif c == "`" or code.startswith("$(", i):
+            i, printed = _substitution(code, i, memo, level)
+            _collect(echo, out, [], printed)
+            start = False
+        elif c == "&" and _in_redirection(code, i):
+            i += 1  # a redirection (``>&2``, ``&>f``), not a separator
+        elif c in ";&|\n()":
+            if echo:
+                _flush(out, echo, c == "|" and PIPED_SHELL.match(code, i) is not None)
+            echo, start, i = None, True, i + 1
+            depth = _paren_depth(depth, c)
+        else:
+            start, i, echo = _other(code, i, start, echo)
+    if echo:
+        _flush(out, echo, False)
+    return i
+
+
+def _without_printed(code: str) -> str:
+    """``code`` with the text ``echo`` and ``printf`` print blanked, so an install in it is not read."""
+    mask, i = list(code), 0
+    memo: dict = {}
+    printed: list[tuple[int, int]] = []
+    while i < len(code):
+        i = _commands(code, printed, i, "", memo, 0) + 1
+    _blank(mask, printed)
+    return "".join(mask)
+
+
 def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
     """``(offset in code, command, end of its arguments, ["pip name", ...])`` of each install command, with an empty
     list when all its packages are pinned. The offset is where the arguments begin, which folding a prefix
-    (``ｕｖ pip``) does not move."""
+    (``ｕｖ pip``) does not move. The quoted text of an ``echo`` or ``printf`` is blanked first, in place, so no
+    offset moves."""
+    code = _without_printed(code)
     found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
     found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
+    found += [(m.start(1), "pnpm", m.end(1), [f"pnpm {n}" for n in _unpinned_npm(m.group(1), PNPM_VALUE_OPTIONS)])
+              for m in PNPM.finditer(code)]
+    found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
+              for m in PNPM_DLX.finditer(code)]
     found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1))]) for m in NPX.finditer(code)]
     return found
+
+
+def _ends_inside_url(reading: str, end: int) -> bool:
+    """Whether the whitespace-delimited word of ``reading`` that holds index ``end`` is a URL: a fullwidth ``；``
+    there is a URL character, not a separator."""
+    start = max(reading.rfind(" ", 0, end), reading.rfind("\n", 0, end), reading.rfind("\t", 0, end)) + 1
+    stop = min((i for i in (reading.find(c, end) for c in " \n\t") if i >= 0), default=len(reading))
+    return "://" in reading[start:stop]
 
 
 def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
     """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
     once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
-    same place is counted once, with the packages of the most folded reading that finds it. A reading that finds no
-    unpinned package replaces an earlier result only when it reads the same arguments (a fullwidth ``＝＝`` pins a
-    package the raw reading calls unpinned); one that reads fewer has ended the command at a fullwidth separator,
-    which is not evidence about the arguments the earlier reading saw. A command at another place is another install."""
-    best: dict[tuple[int, str], tuple[int, list[str]]] = {}
+    same place is counted once, with the packages of the most folded reading that finds it, even when that reading
+    reads fewer arguments: it has ended the command at a fullwidth separator (a fullwidth ``＝＝`` that pins a package
+    may be followed by one). The exception is a separator inside a URL word, which the earlier reading keeps. A command at another place is another install."""
+    best: dict[tuple[int, str], tuple[int, list[str], str]] = {}
     for reading in readings(_code_text(text, markdown)):
         for offset, command, end, labels in _unpinned_at(reading):
             key = (offset, command)
-            if labels or key not in best or best[key][0] == end:
-                best[key] = (end, labels)
+            if key in best and best[key][0] != end and _ends_inside_url(best[key][2], end):
+                continue  # the earlier reading reads a URL character where this one sees a separator
+            best[key] = (end, labels, reading)
     return [label for key in sorted(best) for label in best[key][1]]
+
 
 
 def _is_skill_dir(path: Path) -> bool:
@@ -308,7 +531,15 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
     sources = [("SKILL.md", skill_path.read_text(encoding="utf-8-sig"))]
     if not at_root:
         sources += list(_bundled_texts(skill_path.parent))
+    return _findings_in(sources)
 
+
+def skill_md_findings(text: str) -> list[tuple[str, str]]:
+    """:func:`command_findings` for one ``SKILL.md`` text alone, with no bundled file: an upstream version's bytes."""
+    return _findings_in([("SKILL.md", text)])
+
+
+def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
     findings: list[tuple[str, str]] = []
     unpinned: list[str] = []
     for rel, raw in sources:
@@ -331,6 +562,7 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
             ))
         unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES))
 
+    unpinned = list(dict.fromkeys(unpinned))  # one per package across SKILL.md and the bundled files
     if unpinned:
         shown = ", ".join(unpinned[:EXAMPLES_SHOWN]) + (", ..." if len(unpinned) > EXAMPLES_SHOWN else "")
         s = "" if len(unpinned) == 1 else "s"

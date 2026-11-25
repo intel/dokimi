@@ -91,8 +91,8 @@
           }
         },
         "question_set_hash": {
-          "type": "string",
-          "description": "sha256 over each questions entry: a digest of its text, then the one-byte tag `f` and a digest of the file it names when it is a file, or the tag `t` when it names none. Digests written by earlier releases differ for the same entries."
+          "type": ["string", "null"],
+          "description": "sha256 over each questions file name digest, the tag `f` and the file content digest. A missing file leaves this null. Digests written by earlier releases differ for the same entries."
         },
         "tasks": {
           "type": "array",
@@ -238,6 +238,12 @@
                   "string",
                   "null"
                 ]
+              },
+              "judge_resolved_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               },
               "atoms": {
                 "type": "object"

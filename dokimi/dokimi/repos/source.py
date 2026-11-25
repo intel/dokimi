@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import errno
 import os
 import posixpath
 import re
 import shutil
+import stat
 import sys
 import time
 from dataclasses import dataclass
@@ -26,6 +28,8 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
 
 from dokimi import process
+from dokimi.repos.links import _LinkLoop, _walk_links
+from dokimi.repos.source_errors import SourceArgumentError, SourceError, _NoSuchPath
 from dokimi.utils import key_bytes
 
 # A revision is a SHA, tag or branch (a "/" is allowed: origin/main, refs/heads/x), optionally
@@ -43,20 +47,6 @@ _FETCH_TRIES = 3  # a fetch that lost a ref to another run's fetch into the cach
 _REF_LOST = ("cannot lock ref", "incorrect old value provided", "reference already exists")  # git's texts for it
 _FETCH_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})  # untranslated: its error is matched
 READ_MANY_LIMIT = 2 * 1024 * 1024  # bytes; larger files are not text guidance or code to search
-
-
-class SourceError(ValueError):
-    """Raised for an unusable source spec or a git operation that failed."""
-
-
-class _NoSuchPath(SourceError):
-    """A path walks up out of a directory the tree does not have, which a checkout answers with ENOENT."""
-
-
-class SourceArgumentError(SourceError):
-    """A source or a path that is wrong as given or as laid out: a local path that is not the repository
-    root, a path that leaves the tree, a link that goes nowhere. No git operation failed, so a caller
-    reports it as a usage error; a SourceError that is not this one is a failed clone, fetch or `git show`."""
 
 
 @dataclass(frozen=True)
@@ -129,15 +119,48 @@ class WorkTree:
         self.root = Path(root).resolve()
         self.label = str(self.root)
         self._files: list[str] | None = sorted(files) if files is not None else None
+        self.skipped: list[str] = []  # warnings for listed paths left out of ``files()`` because they could not be looked at
+        self.skipped_paths: list[str] = []  # those paths, parallel to ``skipped`` (a path may hold ``": "``)
+        self.skipped_dirs: set[str] = set()  # the skipped paths that are directories whose content could not be listed
 
     def _resolve(self, path: str) -> Path:
-        target = (self.root / path).resolve()
-        if not target.is_relative_to(self.root):
-            raise SourceArgumentError(f"path escapes the repository: {path}")
-        return target
+        """The file ``path`` names, walked as :meth:`GitTree._follow` walks it (#1084): a link whose ``..``
+        goes above the root escapes even if it comes back in by the root's own name; an absolute one is
+        followed where it lands inside the root."""
+        try:
+            return _walk_links(self.root, path)
+        except _LinkLoop:
+            (self.root / path).resolve()  # Python before 3.13 raises RuntimeError on a loop, as callers expect
+            raise
+
+    def _walk_failed(self, exc: OSError) -> None:
+        """``os.walk`` could not list a directory: name it in ``skipped``, as for a listed path."""
+        rel = os.path.relpath(exc.filename, self.root) if exc.filename else "."
+        self._skip(rel.replace(os.sep, "/"), exc)
+        self.skipped_dirs.add(self.skipped_paths[-1])
+
+    def _skip(self, path: str, exc: OSError) -> None:
+        # not ``exc.strerror``, which follows the locale; "are not counted" is what repo scan reads as incomplete
+        why = "Permission denied" if exc.errno in (errno.EACCES, errno.EPERM) else f"{type(exc).__name__}"
+        self.skipped.append(f"{path}: {why}; the file and anything it leads to are not counted")
+        self.skipped_paths.append(path)
+
+    def _is_entry(self, path: str) -> bool:
+        """Whether a listed path is a file or a link; one that cannot be looked at (a directory above it that
+        cannot be searched) is left out and named in ``skipped``."""
+        target = self.root / path
+        try:  # os.lstat raises on every Python; Path.is_file and Path.is_symlink stop raising on 3.14
+            mode = os.lstat(target).st_mode
+            return stat.S_ISLNK(mode) or stat.S_ISREG(mode)
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        except OSError as exc:
+            self._skip(path, exc)
+            return False
 
     def files(self) -> list[str]:
         """Every file, or inside a git working tree the files git would show: tracked or not ignored.
+        A listed path that cannot be looked at (an unsearchable directory above it) is left out and named in ``skipped``.
 
         The root may be a subdirectory of the working tree; ``ls-files -C`` lists paths relative to it.
         """
@@ -145,11 +168,10 @@ class WorkTree:
             listed = _git_entries(self.root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                                   check=False, warn=True)
             if listed:  # a link is an entry even when it dangles or names a directory, as in git
-                self._files = sorted({p for p in listed
-                                      if (self.root / p).is_file() or (self.root / p).is_symlink()})
+                self._files = sorted({p for p in dict.fromkeys(listed) if self._is_entry(p)})
         if self._files is None:
             out: list[str] = []
-            for dirpath, dirnames, filenames in os.walk(self.root):
+            for dirpath, dirnames, filenames in os.walk(self.root, onerror=self._walk_failed):
                 dirnames[:] = [d for d in dirnames if d != ".git"]
                 rel = Path(dirpath).relative_to(self.root)
                 # A link to a directory is an entry, as in git, though walk lists it as a directory.
@@ -159,10 +181,16 @@ class WorkTree:
         return self._files
 
     def is_file(self, path: str) -> bool:
-        return self._resolve(path).is_file()
+        try:
+            return self._resolve(path).is_file()
+        except (_LinkLoop, _NoSuchPath):
+            return False
 
     def is_dir(self, path: str) -> bool:
-        return self._resolve(path).is_dir()
+        try:
+            return self._resolve(path).is_dir()
+        except (_LinkLoop, _NoSuchPath):
+            return False
 
     def read_text(self, path: str) -> str:
         return self._resolve(path).read_text(encoding="utf-8")

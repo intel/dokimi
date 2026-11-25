@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ..manifest import RepoManifest
-from .authoring import Change, Options, Outcome, kept, write
+from .authoring import Change, Options, Outcome, kept, task_of_pr, tasks_by_pr, write
 from .history import History
 from .merged import Skip, base_of, check_merged
 from .threads import PullRequest, ReplayError
@@ -27,13 +27,18 @@ def task_id(pr: PullRequest) -> str:
 def build_all(h: History, manifest: RepoManifest, prs: list[PullRequest], opts: Options) -> list[Outcome]:
     if opts.fetch:
         h.fetch(sha for pr in prs for sha in (pr.merge, pr.head) if sha)
-    return [build_one(h, manifest, pr, opts) for pr in prs]
+    existing = tasks_by_pr(opts.out)
+    return [build_one(h, manifest, pr, opts, existing_tasks=existing) for pr in prs]
 
 
-def build_one(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options) -> Outcome:
+def build_one(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options, *,
+              existing_tasks: dict[int, str] | None = None) -> Outcome:
     existing = kept(opts, pr.number, task_id(pr))
     if existing is not None:
         return existing
+    other = existing_tasks.get(pr.number) if existing_tasks is not None else task_of_pr(opts.out, pr.number)
+    if other is not None and other != task_id(pr):
+        return Outcome(pr.number, "kept", other, f"{other} is this pull request's task, from its commit")
     notes: list[str] = []
     try:
         outcome = write(h, manifest, change_of(h, pr, notes), opts)
