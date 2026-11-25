@@ -20,8 +20,9 @@ TOKEN_BUDGET = 2000
 
 _H1 = re.compile(r"^ {0,3}#\s+\S")
 _H2 = re.compile(r"^ {0,3}##\s+(.+?)\s*$")
-_LINK_LABEL = re.compile(r"(?<!\\)(!?)\[([^\[\]]+)\](?:\[([^\[\]]*)\](?!\())?")
-_REFERENCE_DEF = re.compile(r'''^ {0,3}\[([^\[\]]+)\]:[ \t]*(?:<([^<>]+)>|([^\s<>]+))(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$''')
+_LABEL_CHAR = r"(?:\\.|[^\\\[\]])"
+_LINK_LABEL = re.compile(rf"(?<!\\)(?:\\\\)*(!?)\[({_LABEL_CHAR}+)\](?:\[({_LABEL_CHAR}*)\](?!\())?")
+_REFERENCE_DEF = re.compile(rf'''^ {{0,3}}\[({_LABEL_CHAR}+)\]:[ \t]*(?:<([^<>]+)>|([^\s<>]+))(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$''')
 _LINK_END = re.compile(r"""(?:[ \t]+(?:"[^"]*"|'[^']*'))?\)""")
 _DESTINATION_MARK = re.compile(r"\\.|[()\s]")
 _WHEN_NOT = re.compile(r"\bwhen\s+not\b|\bnot\s+for\b|\bavoid\b|\balternatives?\b", re.I)

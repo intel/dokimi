@@ -131,3 +131,13 @@ def test_inline_code_with_a_comment_opener_leaves_the_rest_of_the_index_visible(
     text = GOOD.replace('Payments for SaaS products.', 'Use `<!--` for a comment.')
     assert llms_txt.check(text) == []
     assert llms_txt.check(text.replace('`<!--`', '``a ` and <!--``')) == []
+
+
+def test_escaped_brackets_in_inline_and_reference_labels():
+    for link, definition in [
+        (r'[Guide \[draft](guide.md)', ''),
+        (r'[Guide \[draft][docs\]]', '\n' + r'[docs\]]: guide.md'),
+        (r'[Guide \[draft]', '\n' + r'[Guide \[draft]: guide.md'),
+    ]:
+        text = GOOD.replace('[Quickstart](https://acme.test/quickstart.md)', link)
+        assert llms_txt.check(text + definition) == []
