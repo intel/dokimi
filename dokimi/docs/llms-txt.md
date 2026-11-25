@@ -40,6 +40,3 @@ line 0 means the whole file), then a verdict line. With `--json` the findings ar
 
 The exit code is 1 when a `fail` finding exists and 0 otherwise, so a docs CI job can gate on
 it. Warnings do not fail the run. A missing file is an input error (exit 2).
-
-To turn the findings into a ranked list of fixes for a coding agent, pass the llms.txt file
-(not its directory) to `dokimi report opportunities`; it checks with the default token budget.

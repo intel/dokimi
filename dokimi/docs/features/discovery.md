@@ -82,7 +82,7 @@ Change tool wording or position while holding the request fixed. Repeat the tria
 
 **Scope and limits:** Static structure only: it does not fetch the linked pages or test whether an agent answers better with the index. Token counts are an estimate (four characters a token).
 
-**Result:** One row per finding (`fail` or `warn`, with the fix); exit 1 when a `fail` exists. `--json` prints `cli_output.v1`; `report opportunities` turns the same findings into a queue of fixes.
+**Result:** One row per finding (`fail` or `warn`, with the fix); exit 1 when a `fail` exists. `--json` prints `cli_output.v1`.
 
 **Next step:** Read the [guide](../llms-txt.md), fix the `fail` rows first, then rerun.
 

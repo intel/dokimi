@@ -125,7 +125,6 @@ nav:
       - catalog-jsonl.md
       - Q&A pipeline tutorial: quickstart.md
       - runs.md
-      - opportunities.md
       - user-flow.md
       - benchmarking-and-comparison.md
       - adding-doc-source.md
