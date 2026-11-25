@@ -781,7 +781,6 @@ class EvaluationPipeline:
         """Generate comprehensive report."""
         from dokimi.report import ReportGenerator
         
-        # Load data
         eval_data = json.loads(self.eval_path.read_text(encoding="utf-8"))
         questions_data = {
             "product": self.product,
@@ -796,7 +795,6 @@ class EvaluationPipeline:
             output_format="markdown"
         )
         
-        # Save report
         write_bytes_in_place_or_atomic(self.report_path, text_file_bytes(report))
         
         return report
