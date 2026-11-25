@@ -108,65 +108,80 @@ _BLOCK = re.compile(r"\n(?=[ \t]*(?:\n|$)| {0,3}(?:#{1,6}(?:\s|$)|>|[-+*] |\d+[.
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
+class _InlineText:
+    """Track code spans and HTML comments across soft line breaks."""
+
+    def __init__(self, text: str):
+        self.text = text
+        self.scanner = CodeSpanScanner(text, stop=_BLOCK)
+        self.span = self.scanner.find(0)
+        self.comment = text.find("<!--")
+        self.in_comment = False
+
+    def _code(self, pos: int, end: int, parts: list[str]) -> int:
+        span = self.span
+        assert span is not None
+        if span.start() >= pos:
+            back = span.start()
+            while back > pos and self.text[back - 1] == "\\":
+                back -= 1
+            if (span.start() - back) % 2:
+                parts.append(self.text[pos:span.body_begin])
+                self.span = self.scanner.find(span.body_begin)
+                return span.body_begin
+            parts.append(self.text[pos:span.start()])
+        parts.append("x")  # Code is visible prose but cannot introduce Markdown syntax.
+        return min(span.end(), end)
+
+    def visible(self, pos: int, end: int) -> str:
+        parts = []
+        while pos < end:
+            if self.in_comment:
+                close = self.text.find("-->", pos, end)
+                if close < 0:
+                    break
+                self.in_comment = False
+                pos = close + 3
+                self.span = self.scanner.find(pos)
+                continue
+            if self.span and self.span.end() <= pos:
+                self.span = self.scanner.find(pos)
+            stop = min(self.span.start(), end) if self.span else end
+            if 0 <= self.comment < pos:
+                self.comment = self.text.find("<!--", pos)
+            if pos <= self.comment < stop:
+                parts.append(self.text[pos:self.comment])
+                self.in_comment = True
+                pos = self.comment + 4
+            elif self.span and self.span.start() < end:
+                pos = self._code(pos, end, parts)
+            else:
+                parts.append(self.text[pos:end])
+                break
+        return "".join(parts)
+
+
 def _structure_lines(text: str) -> list[str]:
-    """Hide examples and comments while retaining visible code as prose and preserving line numbers."""
+    """Skip fenced examples and retain physical line numbers for diagnostics."""
     text = "\n".join(text.removeprefix("\ufeff").splitlines())
-    scanner = CodeSpanScanner(text, stop=_BLOCK)
-    span = scanner.find(0)
-    comment = text.find("<!--")
+    inline = _InlineText(text)
     fence = ""
-    in_comment = False
     start = 0
     lines = []
     for line in text.split("\n"):
         end = start + len(line)
         marker = _FENCE.match(line)
-        parts = []
         if fence:
             if marker and marker[1].startswith(fence) and not marker[2].strip():
                 fence = ""
-        elif marker and not in_comment and (marker[1][0] == "~" or "`" not in marker[2]):
+                inline.span = inline.scanner.find(end + 1)
+            lines.append("")
+        elif marker and not inline.in_comment and (marker[1][0] == "~" or "`" not in marker[2]):
             fence = marker[1]
+            lines.append("")
         else:
-            pos = start
-            while pos < end:
-                if in_comment:
-                    close = text.find("-->", pos, end)
-                    if close < 0:
-                        break
-                    in_comment = False
-                    pos = close + 3
-                    span = scanner.find(pos)
-                    continue
-                if span and span.end() <= pos:
-                    span = scanner.find(pos)
-                stop = min(span.start(), end) if span else end
-                if 0 <= comment < pos:
-                    comment = text.find("<!--", pos)
-                if pos <= comment < stop:
-                    parts.append(text[pos:comment])
-                    in_comment = True
-                    pos = comment + 4
-                elif span and span.start() < end:
-                    if span.start() >= pos:
-                        back = span.start()
-                        while back > pos and text[back - 1] == "\\":
-                            back -= 1
-                        if (span.start() - back) % 2:
-                            parts.append(text[pos:span.body_begin])
-                            pos = span.body_begin
-                            span = scanner.find(pos)
-                            continue
-                        parts.append(text[pos:span.start()])
-                    parts.append("x")  # literal content is visible, but cannot introduce Markdown syntax
-                    pos = min(span.end(), end)
-                else:
-                    parts.append(text[pos:end])
-                    break
-        lines.append("".join(parts))
+            lines.append(inline.visible(start, end))
         start = end + 1
-        if marker and not fence and not parts:
-            span = scanner.find(start)
     return lines
 
 
