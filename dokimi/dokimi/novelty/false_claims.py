@@ -12,8 +12,8 @@ a saved atoms record — and calls a model only through an injected ``judge`` ca
 Two passes:
 
 1. **Pairing** (lexical, no model). Each answer sentence is paired with the atoms whose
-   statements share enough content words or a distinctive token (a flag, a version, an
-   identifier). Unpaired sentences are never judged; they are counted as ``unchecked``,
+   statements share enough content words or a distinctive flag or identifier.
+   Unpaired sentences are never judged; they are counted as ``unchecked``,
    because "no documented atom about it" is not "true".
 2. **Verdict.** Without a judge, a pair is flagged only on a lexical signal — the same
    anchor with a different number/version/flag, or one side negated and the other not —
@@ -134,9 +134,9 @@ def _values(text: str) -> set[str]:
 
 
 def _distinctive(text: str) -> set[str]:
-    """Tokens that name one thing: flags, dotted/underscored identifiers, CamelCase."""
+    """Flags and dotted or underscored identifiers."""
     return {w.lower() for w in (token.rstrip(".") for token in _WORD.findall(_ABBREVIATION.sub(" ", text)))
-            if w.startswith("-") or "_" in w or re.search(r"[a-z][A-Z]", w)
+            if w.startswith("-") or "_" in w
             or re.fullmatch(r"[A-Za-z]+\.[A-Za-z_.]+", w)}
 
 
