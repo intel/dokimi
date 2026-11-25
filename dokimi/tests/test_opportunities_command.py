@@ -139,3 +139,12 @@ def test_build_keeps_llms_txt_path_in_finding_identity(tmp_path):
     items = cmd.build(list(map(str, paths)))["items"]
     assert {item["target"] for item in items} == set(map(str, paths))
     assert len({item["source_key"] for item in items}) == len(items)
+
+
+@pytest.mark.parametrize("paired", [{"strict": NOVELTY["paired"]["lenient"]},
+                                     {"lenient": {"n_paired": 4, "degraded": 0}}])
+def test_incomplete_novelty_is_an_input_error(tmp_path, paired):
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps({**NOVELTY, "paired": paired}), encoding="utf-8")
+    with pytest.raises(InputError, match=r"evidence\.json: novelty.*(object|required)"):
+        cmd.build([str(path)])

@@ -76,7 +76,10 @@ def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunit
     total = paired.get("n_paired")
     if type(total) is not int or total <= 0:
         raise InputError("novelty n_paired must be a positive integer")
-    target = artifact.get("artifact", {}).get("ref", "?")
+    ref = artifact.get("artifact", {})
+    target = ref.get("ref", "?") if isinstance(ref, dict) else ref
+    if not isinstance(target, str):
+        raise InputError("novelty artifact reference must be a string")
     model = artifact.get("model", "?")
     plans = (
         ("degraded", "high-severity", "the context makes the model wrong where it was right",
@@ -88,7 +91,9 @@ def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunit
     )
     found = []
     for outcome, kind, why, action, effort, weight in plans:
-        rate = paired.get(outcome, 0)
+        if outcome not in paired:
+            raise InputError(f"novelty {outcome} rate is required")
+        rate = paired[outcome]
         if type(rate) not in (float, int) or not 0 <= rate <= 1:
             raise InputError(f"novelty {outcome} must be a rate between 0 and 1")
         counts = paired.get("counts", {})

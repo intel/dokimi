@@ -27,7 +27,7 @@ def test_novelty_outcomes_become_weighted_fixes():
 
 
 def test_zero_counts_produce_no_opportunity():
-    art = {**NOVELTY, "paired": {"lenient": {"degraded": 0, "n_paired": 5}}}
+    art = {**NOVELTY, "paired": {"lenient": {"degraded": 0, "redundant": 0, "still_missing": 0, "n_paired": 5}}}
     assert opp.from_novelty(art) == []
 
 
@@ -143,3 +143,8 @@ def test_repo_claim_identity_ignores_the_report_name():
 def test_degraded_novelty_ranks_ahead_of_discovery_warning():
     items = opp.from_novelty(NOVELTY) + opp.from_llms_txt(llms_txt.check("# X\n\n- [A](a)"))
     assert opp.rank(items)[0]["kind"] == "high-severity"
+
+
+def test_novelty_probe_accepts_a_string_artifact_reference():
+    probe = {**NOVELTY, "artifact": "skill:skills/acme"}
+    assert {item.target for item in opp.from_novelty(probe)} == {"skill:skills/acme"}
