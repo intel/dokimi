@@ -18,6 +18,8 @@ make ci-local   # every PR CI step, read from .github/workflows/; pass/fail/skip
 make ci-local CI_LOCAL_ARGS='--offline --jobs static,typecheck'   # fast inner loop
 ```
 
+CI jobs that check repository guidance can run `dokimi repo scan . --json --fail-on=fail` from the checkout root.
+
 A change is ready for a PR when no row of the `make ci-local` table is `FAIL`.
 `ci-local` diffs against the remote whose URL is `intel/dokimi`, whatever it is
 called (`CI_LOCAL_ARGS='--remote <name>'` overrides). The full `pytest` run takes

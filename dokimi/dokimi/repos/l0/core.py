@@ -44,6 +44,7 @@ CONVENTION_WORDS = frozenset({"CamelCase", "camelCase", "PascalCase", "snake_cas
 _EXT = (r"h|hh|hpp|hxx|c|cc|cpp|cxx|cu|i|py|pyx|pxd|pyi|bzl|bazel|md|rst|txt|yml|yaml|json|toml|cfg|ini|"
         r"mk|cmake|in|sh|bat|ps1|ver|js|ts|go|rs|java")
 _PATHLIKE = re.compile(rf"^(?:\.{{0,2}}/)?[\w.@\-*<>{{}}]+(?:/[\w.@\-*<>{{}},]*)+$|^[\w\-*.]+\.(?:{_EXT})$")
+_LITERAL_CONFIG = re.compile(r"(?:[\w.-]+/)+[\w.-]+\.(?:ya?ml|toml|cfg|ini)$", re.IGNORECASE)
 _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
@@ -551,7 +552,8 @@ class Scan:
                          f"{path} is not in the tree; the ref may hold slashes, so this may name a branch", ctx)
             else:
                 more = f"; none of the {splits} splits of ref and path is in the tree" if splits > 1 and not found else ""
-                self.add(file, line, "link", target, "ok" if found else "fail", f"resolves to {path}{more}", ctx)
+                why = f"resolves to {path}" if found else f"{path} does not exist"
+                self.add(file, line, "link", target, "ok" if found else "fail", why + more, ctx)
 
     def check_span(self, file: str, line: int, span: str, ctx: str) -> None:
         from . import adapters
@@ -566,6 +568,9 @@ class Scan:
         if _PATHLIKE.match(span) or span in ROOT_FILES:
             r = self.resolve_path(file, span)
             if r:
+                # A literal configuration file is a repository input even when its parent is absent.
+                if r[0] == "unresolved" and r[1].startswith("tried ") and ";" not in r[1] and _LITERAL_CONFIG.fullmatch(span):
+                    r = "fail", f"{span} does not exist"
                 self.add(file, line, "path", span, r[0], r[1], ctx)
         elif is_identifier(span) and span not in CONVENTION_WORDS:
             tok = span.split("::")[-1]

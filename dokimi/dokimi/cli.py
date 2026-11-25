@@ -262,6 +262,16 @@ def _names_judge_provider(token: str) -> bool:
     return flag.startswith("--judge-p") and "--judge-provider".startswith(flag)
 
 
+def _repo_scan_compat(argv: list[str]) -> list[str]:
+    """Accept the old gate spelling for one release, keeping stdout available for JSON."""
+    if argv[:2] == ["repo", "scan"]:
+        end = argv.index("--") if "--" in argv else len(argv)
+        if "--fail-on-fail" in argv[2:end]:
+            print("Warning: --fail-on-fail is deprecated. Use --fail-on=fail.", file=sys.stderr)
+            return [("--fail-on=fail" if arg == "--fail-on-fail" else arg) for arg in argv[:end]] + argv[end:]
+    return argv
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse ``argv`` (default ``sys.argv[1:]``), then fill in defaults that hang on another flag.
 
@@ -276,11 +286,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error(str(exc))
     if moved is not None:  # a tombstone: say where the command went, do not run anything
         moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
-        _moved_exit(parser, moved, cli_routes.moved_text(moved))
+        _moved_exit(parser, moved, cli_routes.moved_text(moved, old=raw))
     moved_flags = cli_routes.moved_flags_argv(raw)
     if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
         _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
-    args = parser.parse_args(raw)
+    args = parser.parse_args(_repo_scan_compat(raw))
     # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
     args.judge_provider_named = any(_names_judge_provider(t) for t in raw)
     args.model_named = any(_names_model(t) for t in raw)

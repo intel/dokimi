@@ -111,6 +111,20 @@ def test_an_empty_graph_exits_1_and_writes_nothing(tmp_path, monkeypatch, capsys
     assert not out.exists()
 
 
+def test_graph_repairs_a_literal_control_character_and_emits_json(tmp_path, monkeypatch, capsys):
+    def transport(self, prompt, system, *, accept=None, draw=0):
+        reply = json.dumps(REPLY).replace("save the workbook", "save\tthe workbook")
+        assert accept(reply)
+        return reply, None
+
+    monkeypatch.setattr(LLMClient, "_default_transport", transport)
+    out = tmp_path / "g.json"
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--json")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["data"]["nodes"] == load_artifact("need_graph", out)["nodes"]
+    assert load_artifact("need_graph", out)["nodes"][0]["text"] == "save\tthe workbook"
+
+
 def test_prompt_version_is_a_full_sha256():
     assert PROMPT_VERSION.startswith("sha256:") and len(PROMPT_VERSION) == 7 + 64
 

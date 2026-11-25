@@ -621,7 +621,8 @@ def register(sub, positive_int, eval_sub) -> None:
     from dokimi import cli_flags
 
     scan_p = catalog_sub.add_parser(
-        "check", help="Report which skills/tasks under --root load cleanly"
+        "check", help="Report which skills/tasks under --root load cleanly",
+        description="Check skills and tasks under --root [free].",
     )
     scan_p.add_argument("--root", required=True, help="Local checkout to scan")
     scan_p.add_argument(

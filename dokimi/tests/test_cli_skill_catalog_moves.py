@@ -69,7 +69,10 @@ def test_old_path_tombstones_with_the_new_argv(old, new, capsys):
         parse_args(argv)
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert err.startswith("moved: dokimi " + shlex.join([*new, "some-arg", "--flag"])), err
+    rest = ["--root", "some-arg", "--flag", "--kind", "skills", "--format", "json"] if old == ("catalog", "scan") else [
+        "some-arg", "--flag"
+    ]
+    assert err.startswith("moved: dokimi " + shlex.join([*new, *rest])), err
 
 
 @pytest.mark.parametrize(("old", "new"), MOVES + ROOT_MOVES)
@@ -91,6 +94,18 @@ def test_new_path_shows_help(old, new, capsys):
         parse_args([*new, "--help"])
     assert exc.value.code == 0
     assert "usage: dokimi " + " ".join(new) in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("old_options", [[], ["--root=skills", "--kind", "tasks"], ["skills", "--json"]])
+def test_legacy_catalog_scan_prints_a_parseable_command(old_options, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["catalog", "scan", *old_options])
+    assert exc.value.code == 2
+    moved = shlex.split(capsys.readouterr().err.removeprefix("moved: "))
+    args = parse_args(moved[1:])
+    assert args.root == ("skills" if old_options else ".")
+    assert args.kind == ("tasks" if "--kind" in old_options else "skills")
+    assert args.json if "--json" in old_options else args.format == "json"
 
 
 STAYING = [

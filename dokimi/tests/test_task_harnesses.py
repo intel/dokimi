@@ -295,6 +295,19 @@ def test_task_suite_summary_compares_to_baseline(tmp_path, monkeypatch):
     assert output["summary"]["comparisons"]["candidate"]["pass_rate_delta"] == 1.0
 
 
+@pytest.mark.parametrize("repeats", [1, 3])
+def test_command_run_output_layout_is_the_same_for_all_repeat_counts(tmp_path, repeats):
+    task = load_task(_fixture_task(tmp_path))
+    suite = TaskSuiteRunner(
+        tasks=[task], harnesses=["fixture"], command_template="fake {task_path}",
+        output_root=tmp_path / "runs", repeats=repeats, dry_run=True,
+    )
+    rows = suite.run()["results"]
+    assert [Path(row["output_dir"]) for row in rows] == [
+        suite.output_root / task.name / "fixture" / f"run{index}" for index in range(1, repeats + 1)
+    ]
+
+
 def test_a_bad_harness_id_fails_before_any_cell_runs(tmp_path, monkeypatch):
     task = load_task(_fixture_task(tmp_path))
     ran = []
@@ -872,7 +885,7 @@ def test_cell_whose_previous_run_dir_cannot_be_cleared_is_errored_not_scored(
     (tmp_path / "agent.py").write_text("open('agent-ran', 'w').close()\n", encoding="utf-8")
     harness_id = f"command:{Path(sys.executable).as_posix()} agent.py"
     runs = tmp_path / "runs"
-    cell = runs / "toy-task" / _safe_id(harness_id)
+    cell = runs / "toy-task" / _safe_id(harness_id) / "run1"
     (cell / "old-job").mkdir(parents=True)
     (cell / "old-job" / "reward.txt").write_text("1.0")
     ran = tmp_path / "agent-ran"

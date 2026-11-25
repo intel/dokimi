@@ -147,7 +147,13 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         print(f"Warning: no price is known for {provider}/{model}, so this call could not be metered; "
               "its reply is the graph", file=sys.stderr)
     graph.provenance = {"model": f"{provider}/{model}", "prompt_version": PROMPT_VERSION, "draws": 1}
-    _publish(graph.as_dict(), out)
+    data = graph.as_dict()
+    _publish(data, out)
+    if args.json:
+        from dokimi.cli_output import emit_leaf
+
+        emit_leaf("eval graph", {"artifact": str(out), **data})
+        return
     counts = graph.summary()["by_path_class"]
     print(f"{out}: {len(graph.nodes)} nodes ("
           + ", ".join(f"{c} {n}" for c, n in counts.items() if n) + ")")
@@ -182,7 +188,7 @@ def _graph_from_unmetered(name: str, description: str, reply: str):
     from dokimi.novelty.needs import graph_from_reply
 
     try:
-        data = parse_json_object(reply)
+        data = parse_json_object(reply, strict=False)
     except ValueError:  # not a JSON object: no node, so the caller refuses it
         data = {}
     return graph_from_reply(name, description, data)
@@ -207,7 +213,8 @@ def register(eval_sub) -> None:
     p.add_argument("skill", help="Skill directory or SKILL.md; only its name and description are sent")
     p.add_argument("--out", required=True,
                    help="need_graph.v1 file to write; refused when it exists (the graph is frozen)")
+    p.add_argument("--json", action="store_true", help="Print cli_output.v1 with the published graph under data")
     p.add_argument("--extract-model", type=model_ref, default=model_ref(default), dest="extract_model",
                    metavar="PROVIDER/MODEL", help=f"Graph author (default: {default})")
     add_spend_cap(p)
-    p.set_defaults(func=stops_at_cap(cmd_eval_graph))
+    p.set_defaults(func=stops_at_cap(cmd_eval_graph), emits_cli_output=True, cli_kind="eval graph")

@@ -254,6 +254,24 @@ def _explore_list_argv(rest: list[str]) -> list[str]:
     return ["eval", "tasks", "list", "--format", "localization", *(t for t in rest if t != "--json")]
 
 
+def _catalog_scan_argv(rest: list[str]) -> list[str]:
+    """Translate the old positional catalog path and show a runnable example when omitted."""
+    if rest[:1] in (["--help"], ["-h"]):
+        return ["catalog", "check", *rest]
+    if rest and not rest[0].startswith("-"):
+        root, *rest = rest
+        rest = ["--root", root, *rest]
+    options = {arg.partition("=")[0] for arg in rest}
+    defaults = []
+    if "--root" not in options:
+        defaults.extend(["--root", "."])
+    if "--kind" not in options:
+        defaults.extend(["--kind", "skills"])
+    if not options.intersection({"--format", "--json", "--jsonl"}):
+        defaults.extend(["--format", "json"])
+    return ["catalog", "check", *rest, *defaults]
+
+
 def _novelty_routing_argv(rest: list[str]) -> list[str]:
     """The argv `novelty routing` moved to, given the argv after it (#94 M3).
 
@@ -460,7 +478,7 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("novelty", "shorten"), ("skill", "shorten")),
     Tombstone(("novelty", "routing"), ("skill", "routing"), rewrite=_novelty_routing_argv),
     Tombstone(("novelty", "view"), ("skill", "novelty", "view")),
-    Tombstone(("catalog", "scan"), ("catalog", "check")),
+    Tombstone(("catalog", "scan"), ("catalog", "check"), rewrite=_catalog_scan_argv),
     Tombstone(("library", "intents"), ("catalog", "intents")),
     Tombstone(("library", "list"), ("catalog", "list"), ("--kind", "product")),
     Tombstone(("library", "show"), ("catalog", "show"), ("--kind", "product")),
@@ -569,9 +587,13 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
     return rewritten if changed else None
 
 
-def moved_text(argv: list[str]) -> str:
+def moved_text(argv: list[str], *, old: list[str] | None = None) -> str:
     """The line a tombstone prints: the new command with the argv rewritten."""
-    return "moved: " + shlex.join(["dokimi", *argv])
+    hint = "moved: " + shlex.join(["dokimi", *argv])
+    if old is not None and old[:3] == ["repo", "tasks", "check"] and "--schema-only" not in argv:
+        source = argv[2] if len(argv) > 2 and _is_plain(argv[2]) else "."
+        hint += "\nFor schema validation without Docker: " + shlex.join(["dokimi", "eval", "check", "--schema-only", source])
+    return hint
 
 
 def _resolve(path: tuple[str, ...]) -> tuple[str, ...] | None:
