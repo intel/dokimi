@@ -348,6 +348,7 @@ def test_self_check_reserves_docker_smoke_tasks_for_harness_changes(repo, tmp_pa
             for star in ("", "_x")
         }
     )
+    # Test-narrowed: Guidance edits run repo scan. Docker smoke tasks use fixed historical content.
     guidance_only = {"AGENTS.md", "CLAUDE.md", "REVIEW.md", ".github/copilot-instructions.md"}
     assert guidance_only < set(files)
     smoke = doc["jobs"]["self"]["with"]["smoke-paths"]
