@@ -309,7 +309,7 @@ def register(sub, positive_int) -> None:
     arms_run_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     arms_run_p.add_argument("--questions", required=True, help="Path to questions JSON file")
     cli_flags.add(arms_run_p, "arm", "--arm", required=True, dest="arms", action=cli_flags.JoinedValues,
-                  metavar="[NAME=]REF", help=_ARM_HELP)
+                  metavar="SPEC", help=_ARM_HELP)
     arms_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     arms_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                             choices=ANSWER_PROVIDERS)
@@ -418,7 +418,7 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
     parser.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     parser.add_argument("--questions", required=True, help="Path to questions JSON file")
     cli_flags.add(parser, "arm", "--arm", required=True, dest="arms", action=cli_flags.JoinedValues,
-                  metavar="[NAME=]REF", help=_ARM_HELP)
+                  metavar="SPEC", help=_ARM_HELP)
     parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                         choices=ANSWER_PROVIDERS)
