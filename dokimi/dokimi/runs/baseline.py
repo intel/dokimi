@@ -121,17 +121,24 @@ def _unlock(fd: int) -> None:
 def _read(path: Path) -> str | None:
     """What the pointer at ``path`` holds, stripped; ``None`` when there is none. Raises ``OSError``
     and ``UnicodeDecodeError`` as reading does, and ``OSError`` for what is not a regular file."""
+    read = _read_with_mtime(path)
+    return None if read is None else read[0]
+
+
+def _read_with_mtime(path: Path) -> tuple[str, float] | None:
+    """:func:`_read`, and the mtime of the file it read: one open file, so both are of one save."""
     try:  # O_NONBLOCK: opening a FIFO with no writer would wait for one
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
     except FileNotFoundError:
         return None
     with os.fdopen(fd, "rb") as fh:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        found = os.fstat(fd)
+        if not stat.S_ISREG(found.st_mode):
             raise OSError(errno.EINVAL, "not a regular file")
         data = fh.read(_HEAD + 1)
         if len(data) > _HEAD:  # what follows the first 256 bytes would not be read
             raise OSError(errno.EFBIG, f"longer than a pointer ({_HEAD} bytes)")
-        return data.decode("utf-8").strip()
+        return data.decode("utf-8").strip(), found.st_mtime
 
 
 @dataclass(frozen=True)
@@ -161,13 +168,15 @@ def _entry(directory: Path, file_name: str) -> Pointer | Unreadable:
     except InputError:
         return Unreadable(where, "not a baseline name")
     try:
-        held = _read(directory / file_name)
-        mtime = os.stat(directory / file_name).st_mtime
+        read = _read_with_mtime(directory / file_name)
+        if read is None:  # listed, but gone or a link to nothing
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT))
     except (OSError, UnicodeDecodeError) as exc:
         return Unreadable(where, read_error_reason(exc))
+    held, mtime = read
     if not is_run_id(held):
         return Unreadable(where, "holds no run id")
-    return Pointer(name, str(held), mtime)
+    return Pointer(name, held, mtime)
 
 
 def _names(directory: Path) -> list[str]:

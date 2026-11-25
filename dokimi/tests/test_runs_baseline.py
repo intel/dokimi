@@ -443,6 +443,27 @@ def test_a_store_that_leads_outside_the_root_is_neither_read_nor_changed(
     assert (root / "a" / "eval.json").exists() and (root / "b" / "arms.json").exists()
 
 
+def test_list_gives_the_run_and_the_time_of_one_save(root, monkeypatch, capsys):
+    # a save between reading a pointer and looking up its time must not pair the old run with the new time
+    _run(monkeypatch, capsys, "baseline", "save", "main", A)
+    pointer = root / ".baselines" / "main"
+    os.utime(pointer, (1_000_000_000, 1_000_000_000))
+    real_stat, done = os.stat, []
+
+    def saved_meanwhile(path, *args, **kwargs):
+        if Path(path) == pointer and not done:
+            done.append(path)
+            pointer.write_text(B + "\n", encoding="utf-8")
+            os.utime(pointer, (2_000_000_000, 2_000_000_000))
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", saved_meanwhile)
+
+    [row] = baseline.read_all(root).pointers
+
+    assert (row.run_id, row.saved_at_iso) in ((A, "2001-09-09T01:46:40Z"), (B, "2033-05-18T03:33:20Z"))
+
+
 def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):
     _run(monkeypatch, capsys, "baseline", "save", "main", A)
 
