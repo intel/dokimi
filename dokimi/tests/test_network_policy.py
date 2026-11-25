@@ -352,6 +352,7 @@ def test_proxy_env_of_an_allowlist_step_is_the_sidecar(monkeypatch):
     ("ARG http_proxy \\\n# a comment in the continuation\n    https_proxy\n", {"http_proxy", "https_proxy"}),
     ("ARG \\\n\n \t\n https_proxy\nRUN true\n", {"https_proxy"}),  # blank lines in the continuation
     ("FROM x\nARG https_proxy \\", {"https_proxy"}),  # a continuation at the end of the file
+    ("ARG https_\\\nproxy\n", {"https_proxy"}),  # a continuation inside a name
     ("# ARG https_proxy\nRUN echo ARG\n", set()),
     ("FROM x\nRUN true\n", set()),
 ])
