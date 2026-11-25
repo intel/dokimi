@@ -242,3 +242,16 @@ def test_the_cap_refuses_the_call_after_spend_reaches_the_limit_exactly():
     cap.record(PRICED, "b")
     with pytest.raises(SpendCapReached, match=r"spend cap reached: \$0\.50 of \$0\.50 after 2 calls"):
         cap.before_call("c")
+
+
+def test_the_cap_keeps_its_positional_constructor_under_its_old_import():
+    from dokimi.novelty.client import NestedSpendCap, SpendCap as OldImport
+
+    cap = OldImport(2.0, 1.25, 3)
+    assert (cap.limit_usd, cap.spent_usd, cap.calls, cap.unpriced_calls) == (2.0, 1.25, 3, 0)
+    assert OldImport(2.0).limit_usd == 2.0 and OldImport(limit_usd=1.0, spent_usd=1.0, calls=4).calls == 4
+    child = NestedSpendCap(1.0, parent=cap)
+    child.record(PRICED, "a")
+    assert (child.spent_usd, cap.spent_usd, cap.calls) == (0.25, 1.5, 4)
+    with pytest.raises(SpendCapReached, match=r"spend cap reached: \$2\.00 of \$2\.00"):
+        NestedSpendCap(5.0, parent=OldImport(2.0, 2.0)).before_call("b")

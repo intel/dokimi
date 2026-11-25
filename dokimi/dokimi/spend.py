@@ -115,7 +115,7 @@ class SpendCapReached(BaseException):
         self.reason = reason
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, init=False)
 class SpendCap(Spend):
     """One USD limit shared by every client of one run.
 
@@ -128,6 +128,12 @@ class SpendCap(Spend):
 
     limit_usd: float
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def __init__(self, limit_usd: float, spent_usd: float = 0.0, calls: int = 0, **counts: int) -> None:
+        # Positional as before the move to Spend: SpendCap(limit_usd, spent_usd, calls).
+        super().__init__(spent_usd=spent_usd, calls=calls, **counts)
+        self.limit_usd = limit_usd
+        self._lock = threading.Lock()
 
     def before_call(self, model: str) -> None:
         with self._lock:

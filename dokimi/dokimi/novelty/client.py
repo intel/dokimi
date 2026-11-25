@@ -58,7 +58,7 @@ class OutputTruncated(ValueError):
         self.reply = reply[:2000]
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, init=False)
 class NestedSpendCap(SpendCap):
     """A cap for one unit of a larger run (one skill of a sweep), that also charges ``parent``.
 
@@ -70,6 +70,12 @@ class NestedSpendCap(SpendCap):
     parent: SpendCap | None = None
     # Set to stop this unit at once: the call in flight ends on its own, and no later call starts.
     hard_stop: threading.Event | None = field(default=None, repr=False, compare=False)
+
+    def __init__(self, limit_usd: float, spent_usd: float = 0.0, calls: int = 0, *,
+                 parent: SpendCap | None = None, hard_stop: threading.Event | None = None,
+                 **counts: int) -> None:
+        super().__init__(limit_usd, spent_usd, calls, **counts)
+        self.parent, self.hard_stop = parent, hard_stop
 
     def before_call(self, model: str) -> None:
         if self.hard_stop is not None and self.hard_stop.is_set():
