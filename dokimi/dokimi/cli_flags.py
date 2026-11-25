@@ -197,7 +197,7 @@ CONCEPTS: tuple[Concept, ...] = (
                  meaning="target token fractions for shortening candidates"),
         ),
         banned=("--max-tokens", "--budgets"),
-        note="--max-tokens meant retrieval in four leaves and output in ten; FLAG_MOVES moves each leaf "
+        note="--max-tokens meant retrieval in four leaves and output in eleven; FLAG_MOVES moves each leaf "
              "by what its code does.",
     ),
     Concept(
@@ -429,7 +429,7 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
     )),
-    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on ten.
+    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on eleven.
     FlagMove("--max-tokens", "--retrieval-tokens", leaves=(
         ("answers", "generate"), ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
     )),

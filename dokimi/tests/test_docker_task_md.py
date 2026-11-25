@@ -23,6 +23,7 @@ from dokimi.harnesses.docker_solver import (
     unresolved_env,
 )
 from dokimi.harnesses.refusal import _task_workdir
+from dokimi.harnesses.task_env import exec_env_file
 from dokimi.process import reply
 from docker_cli_fake import DockerCLI
 
@@ -159,16 +160,18 @@ def _clear_proxy(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
+def _exec_call(cli, script: str):
+    """The recorded ``docker exec`` whose command ends with *script* (a :class:`Call`: argv and env)."""
+    return next(c for c in cli.calls if c.argv[1:2] == ("exec",) and c.argv[-1].endswith(script))
+
+
 def _oracle_run(tmp_path, monkeypatch, text):
-    """A whole docker-oracle ``run()`` with ``_docker`` recorded."""
+    """A whole docker-oracle ``run()`` with ``_docker`` recorded: the solve and verify exec calls."""
     task = load_task(_task_md(tmp_path, text=text))
     cli = _capture()
-    calls = cli.args
     res = DockerSolverHarness(harness_id="docker-oracle", mode="oracle", runner=cli).run(
         task, output_dir=tmp_path / "out")
-    solve = next(c for c in calls if c[0] == "exec" and c[-1].endswith("/solution/solve.sh"))
-    verify = next(c for c in calls if c[0] == "exec" and c[-1].endswith("/tests/test.sh"))
-    return res, solve, verify
+    return res, _exec_call(cli, "/solution/solve.sh"), _exec_call(cli, "/tests/test.sh"), cli
 
 
 def test_run_gives_the_verifier_the_proxy_on_a_public_task_without_env_table(tmp_path, monkeypatch):
@@ -177,19 +180,20 @@ def test_run_gives_the_verifier_the_proxy_on_a_public_task_without_env_table(tmp
     monkeypatch.setenv("https_proxy", "http://proxy.example:912/")
     text = _TASK_MD.replace('  env:\n    LITERAL: "1"\n    SECRET: ${HOST_SECRET}\n', "").replace(
         "oracle:\n  env:\n    MODE: oracle\n", "")
-    res, solve, verify = _oracle_run(tmp_path, monkeypatch, text)
+    res, solve, verify, cli = _oracle_run(tmp_path, monkeypatch, text)
     assert "error" not in res.metrics
-    assert "https_proxy=http://proxy.example:912/" in verify
-    assert "https_proxy=http://proxy.example:912/" in solve
+    for call in (verify, solve):  # the value in the 0600 env-file, never on the argv
+        assert cli.env_file(call)["https_proxy"] == "http://proxy.example:912/"
+        assert "https_proxy" not in call.argv and not any("proxy.example" in a for a in call.argv)
 
 
 def test_run_gives_each_step_its_own_env_table(tmp_path, monkeypatch):
     _clear_proxy(monkeypatch)
     text = _TASK_MD.replace("    SECRET: ${HOST_SECRET}\n", "")
-    res, solve, verify = _oracle_run(tmp_path, monkeypatch, text)
+    res, solve, verify, _ = _oracle_run(tmp_path, monkeypatch, text)
     assert "error" not in res.metrics
-    assert "LITERAL=1" in verify and "MODE=oracle" not in verify
-    assert "MODE=oracle" in solve and "LITERAL=1" not in solve
+    assert "LITERAL=1" in verify.argv and "MODE=oracle" not in verify.argv
+    assert "MODE=oracle" in solve.argv and "LITERAL=1" not in solve.argv
 
 
 def test_docker_log_line_is_redacted(tmp_path, monkeypatch):
@@ -215,8 +219,8 @@ def test_exec_env_forwards_literals_not_host_references(tmp_path, monkeypatch):
     for var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY"):
         monkeypatch.delenv(var, raising=False)
     task = load_task(_task_md(tmp_path))
-    assert _exec_env(task, "verifier") == ["-e", "LITERAL=1"]
-    assert _exec_env(load_task(_harbor(tmp_path)), "verifier") == []
+    assert _exec_env(task, "verifier") == (["-e", "LITERAL=1"], {})
+    assert _exec_env(load_task(_harbor(tmp_path)), "verifier") == ([], {})
 
 
 def test_public_task_steps_get_proxy_env(tmp_path, monkeypatch):
@@ -224,21 +228,22 @@ def test_public_task_steps_get_proxy_env(tmp_path, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("https_proxy", "http://proxy.example:912/")
     task = load_task(_task_md(tmp_path))
-    proxy = ["-e", "https_proxy=http://proxy.example:912/"]
-    if os.name == "nt":
-        # os.environ upper-cases names on Windows, where the lower-case variable
-        # then appears as HTTPS_PROXY too: compare the pairs, not the exact list.
-        verifier = [a for a in _exec_env(task, "verifier") if a != "-e"]
-        assert proxy[1].lower() in [a.lower() for a in verifier] and verifier[-1] == "LITERAL=1"
-        assert proxy[1].lower() in [a.lower() for a in _exec_env(task, "oracle")]
-        return
-    assert _exec_env(task, "verifier") == [*proxy, "-e", "LITERAL=1"]
-    assert _exec_env(task, "oracle") == [*proxy, "-e", "MODE=oracle"]
+    flags, values = _exec_env(task, "verifier")
+    assert flags[-2:] == ["-e", "LITERAL=1"] and "https_proxy" not in flags  # literals only on the argv
+    assert values["https_proxy"] == "http://proxy.example:912/"
+    with exec_env_file(task, "verifier") as (argv_flags, client_env):  # the values in a 0600 env-file
+        assert "https_proxy" not in argv_flags and "http://proxy.example:912/" not in " ".join(argv_flags)
+        env_text = Path(argv_flags[1]).read_text(encoding="utf-8")
+        assert "https_proxy=http://proxy.example:912/\n" in env_text
+        assert client_env == {}  # no multi-line value: the CLI's environment is untouched
+    oracle_flags, oracle_values = _exec_env(task, "oracle")
+    assert oracle_flags[-2:] == ["-e", "MODE=oracle"] and "https_proxy" not in oracle_flags
+    assert oracle_values["https_proxy"] == "http://proxy.example:912/"
 
 
 def test_offline_task_steps_get_no_proxy_env(tmp_path, monkeypatch):
     monkeypatch.setenv("https_proxy", "http://proxy.example:912/")
-    assert _exec_env(load_task(_harbor(tmp_path)), "verifier") == []
+    assert _exec_env(load_task(_harbor(tmp_path)), "verifier") == ([], {})
 
 
 def test_container_start_carries_no_proxy_env(tmp_path, monkeypatch):
@@ -350,7 +355,7 @@ def test_exec_env_yaml_bool_and_non_scalars(tmp_path, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     text = _TASK_MD.replace('    LITERAL: "1"\n', '    LITERAL: "1"\n    FLAG: true\n    LIST: [a, b]\n    DFLT: ${K:-x}\n')
     task = load_task(_task_md(tmp_path, text=text))
-    assert _exec_env(task, "verifier") == ["-e", "LITERAL=1", "-e", "FLAG=true"]
+    assert _exec_env(task, "verifier")[0] == ["-e", "LITERAL=1", "-e", "FLAG=true"]
     assert unresolved_env(task, "verifier") == ["DFLT", "LIST", "SECRET"]
 
 
@@ -447,14 +452,39 @@ def _credentialed_proxy(monkeypatch):
     monkeypatch.setenv("http_proxy", "u:s3cret@proxy.example:912")  # scheme-less
 
 
+def test_exec_env_file_removes_its_scratch_directory_on_exit(tmp_path, monkeypatch):
+    monkeypatch.setenv("https_proxy", "http://proxy.example:912/")
+    task = load_task(_task_md(tmp_path))
+    with exec_env_file(task, "verifier") as (flags, client_env):
+        env_path = flags[1]
+        assert os.path.exists(env_path) and client_env == {}
+    assert not os.path.exists(os.path.dirname(env_path))  # the scratch dir and the env-file are gone
+    with pytest.raises(RuntimeError):  # and when the step raises inside the block
+        with exec_env_file(task, "verifier") as (flags, _):
+            raise_at = flags[1]
+            raise RuntimeError("step failed")
+    assert not os.path.exists(os.path.dirname(raise_at))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="env names are case-insensitive on Windows")
+def test_exec_env_file_passes_a_multiline_proxy_as_a_name_with_its_value_in_the_client_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("https_proxy", "http://proxy.example:912/\nX")
+    task = load_task(_task_md(tmp_path))
+    with exec_env_file(task, "verifier") as (flags, client_env):
+        assert flags[:3] == ["--env-file", flags[1], "-e"] and flags[3] == "https_proxy"
+        assert client_env == {"https_proxy": "http://proxy.example:912/\nX"}
+        assert "https_proxy=" not in Path(flags[1]).read_text(encoding="utf-8")
+
+
 def test_exec_env_can_drop_proxy_credentials(tmp_path, monkeypatch):
     _credentialed_proxy(monkeypatch)
     task = load_task(_task_md(tmp_path))
-    kept = " ".join(_exec_env(task, "verifier"))
-    dropped_args = _exec_env(task, "verifier", credentials=False)
-    dropped = " ".join(dropped_args)
-    assert "s3cret" in kept and "s3cret" not in dropped
-    assert {"https_proxy=http://proxy.example:912/", "http_proxy=proxy.example:912"} <= set(dropped_args)
+    kept_flags, kept = _exec_env(task, "verifier")
+    dropped_flags, dropped = _exec_env(task, "verifier", credentials=False)
+    assert "s3cret" in kept["https_proxy"] and "s3cret" not in dropped["https_proxy"]
+    assert dropped["https_proxy"] == "http://proxy.example:912/"
+    assert dropped["http_proxy"] == "proxy.example:912"
+    assert not any("s3cret" in a for a in kept_flags + dropped_flags)  # never on the argv
 
 
 @pytest.mark.parametrize("mode, location, credentials", [
@@ -467,12 +497,12 @@ def test_verifier_gets_proxy_credentials_only_without_in_container_agent_code(
     _credentialed_proxy(monkeypatch)
     task = load_task(_no_secret_task_md(tmp_path))
     cli = _capture()
-    calls = cli.args
     DockerSolverHarness(harness_id="h", mode=mode, agent_location=location, runner=cli)._verify(
         task, "c1", tmp_path, log=io.StringIO())
-    verify = next(c for c in calls if c[0] == "exec" and c[-1].endswith("/tests/test.sh"))
-    assert ("s3cret" in " ".join(verify)) is credentials
-    assert any(a.startswith("https_proxy=") for a in verify)
+    verify = _exec_call(cli, "/tests/test.sh")
+    assert not any("s3cret" in a for a in verify.argv)  # the value never reaches the argv
+    assert "https_proxy" in cli.env_file(verify)  # recorded: the False branch below cannot pass on an empty record
+    assert ("s3cret" in cli.env_file(verify)["https_proxy"]) is credentials
 
 
 def test_docker_output_in_run_log_is_redacted(monkeypatch):
@@ -545,7 +575,7 @@ def test_timeout_lines_in_run_log_are_redacted(tmp_path, monkeypatch):
         task, output_dir=tmp_path / "out")
     assert res.returncode == 124 and res.reward == 0.0
     assert "TIMEOUT: after 900.0s: docker exec" in res.stdout_tail
-    assert "http_proxy=http://***@proxy.example:912" in res.stdout_tail
+    assert "--env-file" in res.stdout_tail  # the values are in the env-file, not in the TIMEOUT line
     assert "s3cret" not in res.stdout_tail
     assert "s3cret" not in (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
 
@@ -587,7 +617,7 @@ def test_exec_env_forwards_numbers_and_skips_proxy_off_public(tmp_path, monkeypa
     text = _TASK_MD.replace("    SECRET: ${HOST_SECRET}\n", "    N: 3\n    F: 1.5\n").replace(
         "  network_mode: public\n", "  network_mode: no-network\n")
     task = load_task(_task_md(tmp_path, text=text))
-    assert _exec_env(task, "verifier") == ["-e", "LITERAL=1", "-e", "N=3", "-e", "F=1.5"]
+    assert _exec_env(task, "verifier") == (["-e", "LITERAL=1", "-e", "N=3", "-e", "F=1.5"], {})
 
 
 def _harbor_env(root: Path, tables: str) -> Path:
@@ -805,7 +835,7 @@ def test_exec_env_yaml_false_and_null(tmp_path, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     text = _TASK_MD.replace('    LITERAL: "1"\n', '    LITERAL: "1"\n    OFF_FLAG: false\n    EMPTY:\n')
     task = load_task(_task_md(tmp_path, text=text))
-    assert _exec_env(task, "verifier") == ["-e", "LITERAL=1", "-e", "OFF_FLAG=false"]
+    assert _exec_env(task, "verifier")[0] == ["-e", "LITERAL=1", "-e", "OFF_FLAG=false"]
     assert unresolved_env(task, "verifier") == ["EMPTY", "SECRET"]
 
 

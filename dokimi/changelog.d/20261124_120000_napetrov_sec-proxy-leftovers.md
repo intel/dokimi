@@ -1,0 +1,21 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
+### Security
+
+- **Proxy values stay off the `docker exec` command line.** The oracle and verifier steps of the `docker-*` harnesses
+  passed a public-network proxy as `-e https_proxy=<value>`, so a proxy URL with `user:password@` was visible to every
+  user of the host in the process list. The step now reads them from a 0600 `--env-file`, as the sandbox's agent exec
+  already does, and the docker CLI's own environment is left alone. Nothing changes in the container: the same variables
+  reach the step.
+- **A proxy with credentials that a task Dockerfile declares with `ARG` is warned about.** The build passes the host's
+  proxy by name, so a Dockerfile `ARG https_proxy` records the value in the image history (`docker history`). When the
+  value has `user:password@`, the run log and stderr now say so with `[build] WARNING`. Remove the `ARG` from the
+  Dockerfile to keep the credentials out of the image. The build still runs.
+
+### Fixed
+
+- **A proxy variable that is set but empty is no longer passed to `docker build`.** `--build-arg NAME` is now given only
+  for the proxy variables with a non-empty value.

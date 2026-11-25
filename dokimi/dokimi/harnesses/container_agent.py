@@ -267,16 +267,11 @@ class ContainerSandbox:
         The agent's env goes in a 0600 ``--env-file``, never on argv. The client
         keeps the operator's own environment: the agent's ``HOME`` and proxy would
         change which daemon and route the ``docker`` CLI itself uses. A value with
-        a newline cannot go in an env file; that variable alone travels as
-        ``-e NAME`` in the client's env.
+        a newline or carriage return cannot go in an env file; that variable alone
+        travels as ``-e NAME`` in the client's env.
         """
         assert self._scratch is not None
-        fd, name = tempfile.mkstemp(dir=self._scratch, prefix="env-")
-        multiline = {k: v for k, v in env.items() if "\n" in v}
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            for key in sorted(env):
-                if key not in multiline:
-                    fh.write(f"{key}={env[key]}\n")
+        name, multiline = docker_cmd.write_env_file(self._scratch, env)
         names = [a for k in sorted(multiline) for a in ("-e", k)]
         argv_out = docker_cmd.argv("exec", "-u", AGENT_UID, "-w", self.workdir, "--env-file", name, *names,
                                    container, *argv)

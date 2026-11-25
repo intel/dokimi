@@ -52,6 +52,12 @@ def test_build_args_pass_only_the_proxy_variables_that_are_set():
                     "--build-arg", "https_proxy", "/ctx"]
 
 
+def test_build_args_skip_a_proxy_variable_that_is_set_but_empty():
+    args = docker_cmd.build_args("/ctx", "/ctx/Dockerfile", "t:1",
+                                 environ={"https_proxy": "http://p:3128", "no_proxy": "", "NO_PROXY": ""})
+    assert args == ["build", "-f", "/ctx/Dockerfile", "-t", "t:1", "--build-arg", "https_proxy", "/ctx"]
+
+
 def test_build_args_pass_every_proxy_variable_in_order(monkeypatch):
     for name in docker_cmd.PROXY_BUILD_ARGS:
         monkeypatch.setenv(name, "http://p:3128")
@@ -306,3 +312,15 @@ def test_a_fifo_output_with_a_reader_finishes_when_docker_exits(tmp_path):
     assert done, "a run with a FIFO output and a reader did not finish after docker exited"
     reader.join(5)
     assert got == [b"started\n"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_write_env_file_is_0600_and_keeps_multiline_values_off_the_file(tmp_path):
+    import stat
+
+    path, multiline = docker_cmd.write_env_file(tmp_path, {"https_proxy": "http://u:p@h:912", "PEM": "a\nb",
+                                                           "CR": "x\r"})
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert Path(path).read_text(encoding="utf-8") == "https_proxy=http://u:p@h:912\n"
+    assert multiline == {"PEM": "a\nb", "CR": "x\r"}
+
