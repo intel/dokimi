@@ -193,7 +193,7 @@ def register(eval_sub, positive_int) -> None:
     discover_p.add_argument("--save-analysis", action="store_true", help="Save intermediate analysis JSON")
     cli_flags.add(discover_p, "dry_run", "--dry-run", action="store_true", dest="dry_run",
                   help="Read the repo and price the one generation call at list prices; call no model, "
-                       "build no client, write nothing")
+                       "build no client, write nothing. Output paths are checked when writing files")
     cli_flags.add(discover_p, "spend", "--max-usd", type=positive_usd, default=None, dest="max_usd", metavar="X",
                   help="Refuse before any call when the estimated list-price cost exceeds this (USD). Not a "
                        "metered cap yet: metering comes with #1183. Above it, or for a model with no list price, "

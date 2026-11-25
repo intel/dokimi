@@ -225,3 +225,9 @@ def test_save_analysis_with_a_description_writes_no_analysis(tmp_path, monkeypat
     assert _discover(monkeypatch, out, "--save-analysis") == 0
     assert "--save-analysis is ignored in description-only mode" in capsys.readouterr().err
     assert out.exists() and not (out.parent / "lib_analysis.json").exists()
+
+
+def test_discover_help_says_when_the_output_path_is_checked(monkeypatch, capsys):
+    assert _cli(monkeypatch, "eval", "personas", "discover", "--help") == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "Output paths are checked when writing files" in help_text
