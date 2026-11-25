@@ -402,11 +402,16 @@ def test_the_report_action_uploads_after_a_failed_comment_and_finds_its_own_comm
     steps = yaml.safe_load((CLI.parent.parent / "actions" / "report" / "action.yml").read_text(encoding="utf-8"))["runs"]["steps"]
     by_name = {s["name"]: s for s in steps}
     assert "always()" in by_name["Upload out-dir"]["if"]
-    sticky = by_name["Sticky pull request comment"]["run"]
+    sticky_step = by_name["Sticky pull request comment"]
+    assert "!cancelled()" in sticky_step["if"]
+    assert sticky_step["env"]["RENDER_OUTCOME"] == "${{ steps.render.outcome }}"
+    assert by_name["Render the summary"]["id"] == "render"
+    sticky = sticky_step["run"]
     assert "gh api user" in sticky and '.user.login == \\"$me\\"' in sticky
 
 
-def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False, lookup=""):
+def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False, lookup="",
+                render_outcome="success"):
     """The sticky step's script against a fake ``gh`` that has no ``/user`` and logs its calls."""
     import yaml
 
@@ -422,7 +427,7 @@ def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False, l
     (tmp_path / "summary").mkdir()
     (tmp_path / "summary" / "summary.md").write_text(body, encoding="utf-8")
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "OUT": str(tmp_path), "GH_TOKEN": token, "DEFAULT_TOKEN": default_token,
-           "PR": "1", "REPO": "o/r", "GH_LOG": str(tmp_path / "gh.log"),
+           "PR": "1", "REPO": "o/r", "GH_LOG": str(tmp_path / "gh.log"), "RENDER_OUTCOME": render_outcome,
            **({"GH_WRITE_FAILS": "1"} if write_fails else {}), **({"GH_LOOKUP": lookup} if lookup else {})}
     done = subprocess.run(["bash", "-o", "pipefail", "-c", script], env=env, capture_output=True, text=True, check=False)
     return done, (tmp_path / "gh.log").read_text(encoding="utf-8") if (tmp_path / "gh.log").exists() else ""
@@ -452,6 +457,14 @@ def test_sticky_comment_lookup_that_fails_after_an_id_posts_nothing(tmp_path):
 def test_sticky_comment_updates_the_comment_the_lookup_found(tmp_path):
     done, log = _run_sticky(tmp_path, "default-token", "default-token", lookup="ok")
     assert done.returncode == 0 and "PATCH repos/o/r/issues/comments/7" in log and "POST" not in log
+
+
+def test_sticky_comment_replaces_a_stale_summary_after_render_failure(tmp_path):
+    done, log = _run_sticky(tmp_path, "default-token", "default-token", body="old pass\n", lookup="ok",
+                            render_outcome="failure")
+    assert done.returncode == 0 and "PATCH repos/o/r/issues/comments/7" in log
+    comment = (tmp_path / "summary" / "comment.md").read_text(encoding="utf-8")
+    assert "could not render" in comment and "old pass" not in comment
 
 
 def test_sticky_comment_body_stays_below_the_comment_limit(tmp_path):
