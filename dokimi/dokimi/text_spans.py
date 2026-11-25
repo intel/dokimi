@@ -55,7 +55,7 @@ def replace_pairs(text: str, opener: re.Pattern[str], closer: re.Pattern[str], r
 
 _QUOTE_MARKS = re.compile(r"[\\'\"\n#$()`}]")
 _SCOPES = {"(": "(", "{": "{"}  # the character after a `$` that opens a scope
-_CLOSERS = {")": "(", "}": "{"}
+_CLOSERS = {")": "(", "}": "{["}  # `[` is a ``${`` inside double quotes, where a single quote is plain text
 
 
 def _starts_word(text: str, at: int) -> bool:
@@ -77,7 +77,7 @@ def _starts_word(text: str, at: int) -> bool:
 
 def _inert(quote: str) -> bool:
     """Whether a quote, a comment or a ``${...}`` is open at the end of the ``quote`` stack: ``<<`` and ``$((`` there open nothing."""
-    return quote[-1:] in ("'", '"', "#", "{")
+    return quote[-1:] in ("'", '"', "#", "{", "[")
 
 
 def _backtick(quote: str) -> str:
@@ -86,10 +86,25 @@ def _backtick(quote: str) -> str:
     return quote if top == "'" else quote[:-1] if top == "`" else quote + "`"
 
 
+def _scope_after_dollar(text: str, at: int, quote: str) -> tuple[str, int]:
+    """The quote stack after a ``$`` that ends at ``at``: a ``$(`` or ``${`` opens a scope, ``[`` for a ``${`` in double quotes; none in single quotes."""
+    top = quote[-1:]
+    scope = _SCOPES.get(text[at:at + 1], "") if top != "'" else ""
+    return quote + ("[" if scope == "{" and top == '"' else scope), at + len(scope)
+
+
+def _bracket(quote: str, mark: str) -> str:
+    """The quote stack after a ``(``, ``)`` or ``}``: a ``(`` inside a ``$(`` nests, a closer ends the scope it matches."""
+    top = quote[-1:]
+    if mark == "(":
+        return quote + "(" if top == "(" else quote
+    return quote[:-1] if top in _CLOSERS[mark] else quote
+
+
 def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
     """The quote stack after the mark ``m`` (one of ``_QUOTE_MARKS``) where ``quote`` was open, and where the scan goes on.
 
-    The stack holds ``'``, ``"``, ``#`` (a comment, which runs to the end of its line), ``(`` for each open ``$(`` (or ``(`` inside one), `` ` `` for a backtick substitution and ``{`` for a ``${``:
+    The stack holds ``'``, ``"``, ``#`` (a comment, which runs to the end of its line), ``(`` for each open ``$(`` (or ``(`` inside one), `` ` `` for a backtick substitution, ``{`` for a ``${`` and ``[`` for one inside double quotes, where a single quote is plain text:
     the quotes in a substitution or an expansion are its own, apart from the double quote around it, and a ``#`` in a ``${...}`` starts no comment.
     """
     mark, at = m.group(), m.end()
@@ -103,15 +118,14 @@ def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
     if mark == "\\":
         return quote, at + (top != "'")
     if mark == "$":
-        scope = _SCOPES.get(text[at:at + 1], "") if top != "'" else ""
-        return quote + scope, at + len(scope)
-    if mark == "(":
-        return (quote + "(" if top == "(" else quote), at
-    if mark in _CLOSERS:
-        return (quote[:-1] if top == _CLOSERS[mark] else quote), at
+        return _scope_after_dollar(text, at, quote)
+    if mark in "()}":
+        return _bracket(quote, mark), at
     if mark == "`":
         return _backtick(quote), at
-    if top in ("", "(", "`", "{"):
+    if mark == "'" and top == "[":
+        return quote, at
+    if top in ("", "(", "`", "{", "["):
         return quote + mark, at
     return (quote[:-1] if top == mark else quote), at
 
@@ -146,9 +160,19 @@ class _ArithmeticReader:
         self.quote, self.outer, self.depth, self.start, self.pos = "", "", 0, 0, 0
 
     def read(self, upto: int) -> None:
-        """Read the marks that start at or before ``upto``, and on to the end of a span open there."""
+        """Read the marks that start at or before ``upto``, and on to the end of a span open there.
+
+        A span open inside a ``$(`` or backtick of its own at ``upto`` is read no further: a ``<<`` there is a heredoc, whose body ``skip`` jumps over before the substitution's closer is read.
+        """
+        self._read_to(upto + 1)
+        if self.depth and self.quote not in ("(", "`"):
+            self._read_to(len(self.text))
+        if not self.depth:
+            self.pos = max(self.pos, upto + 1)  # no mark before it: a later call does not look again
+
+    def _read_to(self, limit: int) -> None:
         text = self.text
-        while (m := _ARITHMETIC_MARKS.search(text, self.pos, len(text) if self.depth else upto + 1)) is not None:
+        while (m := _ARITHMETIC_MARKS.search(text, self.pos, limit)) is not None:
             mark, self.pos = m.group(), m.end()
             if self.depth:
                 if mark in "()" and not self.quote:
@@ -163,8 +187,6 @@ class _ArithmeticReader:
                 self.pos += taken
             else:
                 self.quote, self.pos = _quote_step(text, m, self.quote)
-        if not self.depth:
-            self.pos = max(self.pos, upto + 1)  # no mark before it: a later call does not look again
 
     def skip(self, to: int) -> None:
         """Go on from ``to``, past a heredoc body, with the quotes and substitutions open at its opener's line still open; a span left open has been read to the end of the text, so ``to`` is no further."""
@@ -276,6 +298,8 @@ class HeredocPattern:
                     break
             openers.append((o, eol + 1))
             words.append(o.group(self.word))
+            scanned = max(scanned, o.end())  # the delimiter is literal text: ``<<"${"`` opens no expansion
+            reader.skip(o.end())
             start = o.start() + 1
         return openers
 
