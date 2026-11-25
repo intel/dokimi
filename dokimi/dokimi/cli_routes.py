@@ -560,6 +560,8 @@ def _rewrite_moved_token(rewritten: list[str], index: int, move: FlagMove, equal
         rewritten[index] = move.new
         if index + 1 < len(rewritten) and not rewritten[index + 1].startswith("-"):
             rewritten[index + 1] = move.prefix + rewritten[index + 1]
+        else:
+            rewritten.insert(index + 1, move.prefix)
 
 
 def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:

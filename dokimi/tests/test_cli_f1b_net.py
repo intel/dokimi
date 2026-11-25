@@ -87,7 +87,7 @@ def test_the_timeout_defaults_are_the_documented_seconds():
 
 def test_a_moved_timeout_flag_with_no_value_does_not_index_past_the_end():
     """The value-aware rewrite reads the next token only when there is one."""
-    assert cli_routes.moved_flags_argv(["eval", "check", "src", "--build-timeout"]) == ["eval", "check", "src", "--timeout"]
+    assert cli_routes.moved_flags_argv(["eval", "check", "src", "--build-timeout"]) == ["eval", "check", "src", "--timeout", "build="]
 
 
 def test_a_bare_network_mode_means_every_phase():
