@@ -142,3 +142,11 @@ def test_list_link_warning_uses_the_physical_line_and_resolved_target():
     )
     line = next(i for i, value in enumerate(text.split('\n'), 1) if '[Quickstart]' in value)
     assert [(f.line, f.identity, f.severity) for f in llms_txt.check(text)] == [(line, 'Quickstart|guide.md', 'warn')]
+
+
+
+def test_summary_and_line_numbers_preserve_unicode_line_separator():
+    text = GOOD.replace("> Payments", ">\u2028Payments").replace(": first charge in five minutes", "")
+    text = text.replace("\n", "\r\n")
+    line = next(i for i, value in enumerate(text.split("\r\n"), 1) if "[Quickstart]" in value)
+    assert [(f.check, f.severity, f.line) for f in llms_txt.check(text)] == [("links", "warn", line)]

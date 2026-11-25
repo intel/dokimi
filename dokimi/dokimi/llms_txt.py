@@ -192,7 +192,7 @@ class _InlineText:
 
 def _structure_lines(text: str) -> list[str]:
     """Skip fenced examples and retain physical line numbers for diagnostics."""
-    text = "\n".join(text.removeprefix("\ufeff").splitlines())
+    text = text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     inline = _InlineText(text)
     fence = ""
     start = 0
