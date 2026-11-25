@@ -83,6 +83,8 @@ def load_runs(path: Path) -> dict[str, dict]:
             artifact = json.loads(file.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise InputError(f"cannot read {file}: {exc}") from exc
+        except RecursionError as exc:  # json nests past the C stack limit on Python 3.11 to 3.13
+            raise InputError(f"{file} is not a novelty artifact (nested too deep to read)") from exc
         if not isinstance(artifact, dict) or not isinstance(artifact.get("artifact"), dict):
             raise InputError(f"{file} is not a novelty artifact (no artifact block)")
         ref = artifact["artifact"].get("ref")
