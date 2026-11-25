@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 from .atoms import Atom
 
@@ -47,8 +48,16 @@ Return ONLY JSON: {{"verdict": "contradicts|supports|unrelated",
 """
 
 _WORD = re.compile(r"--?[A-Za-z][A-Za-z0-9_-]*|[A-Za-z0-9_][A-Za-z0-9_.\-/]*")
-# A value: a version, a number with optional unit, or a CLI flag.
-_VALUE = re.compile(r"(?<![\w.-])(?:--?[a-z][\w-]*|[+-]?v?\d+(?:\.\d+)*%?)(?![\w])", re.I)
+# Common compact duration and storage units; arbitrary alphanumeric words are identifiers.
+_DURATION_EXPONENT = {"ns": -9, "us": -6, "µs": -6, "μs": -6, "ms": -3, "s": 0}
+_UNITS = "|".join((*_DURATION_EXPONENT, "KiB", "MiB", "GiB", "TiB", "kB", "KB", "MB", "GB", "TB", "Hz", "kHz", "MHz", "GHz"))
+_VALUE = re.compile(
+    r"(?<![\w.-])(?:"
+    r"(?P<flag>--?[A-Za-z][\w-]*)"
+    rf"|(?P<quantity>[+-]?\d+(?:\.\d+)?)[ \t]*(?P<unit>{_UNITS}|%)"
+    r"|(?P<number>[+-]?[vV]?\d+(?:\.\d+)*))(?!\w)"
+)
+_DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
 _NEGATION = re.compile(
     r"\b(not|never|no|cannot|can't|don't|doesn't|isn't|unsupported|deprecated|without)\b", re.I)
 # A sentence ends at . ! ? followed by whitespace or the end, or at a newline; "3.0" and
@@ -128,17 +137,31 @@ def _content(text: str) -> set[str]:
     return {p for p in parts if p.isalpha()} - _STOP
 
 
-def _values(text: str) -> set[str]:
-    return {re.sub(r"^([+-]?)v(?=\d)", r"\1", value.lower()).removeprefix("+")
-            for value in _VALUE.findall(text)}
+def _value_key(match: re.Match[str]) -> str | tuple[Decimal, str]:
+    if flag := match["flag"]:
+        return flag
+    if unit := match["unit"]:
+        quantity = Decimal(match["quantity"])
+        if unit in _DURATION_EXPONENT:
+            sign, digits, exponent = quantity.as_tuple()
+            assert isinstance(exponent, int)
+            return Decimal((sign, digits, exponent + _DURATION_EXPONENT[unit])), "s"
+        return quantity, unit
+    return re.sub(r"^([+-]?)v(?=\d)", r"\1", match["number"].lower()).removeprefix("+")
+
+
+def _value_shape(match: re.Match[str]) -> tuple[bool, str | None]:
+    unit = match["unit"]
+    if unit:
+        return False, "s" if unit in _DURATION_EXPONENT else unit
+    return bool(match["number"] and "." in match["number"]), "flag" if match["flag"] else None
 
 
 def _distinctive(text: str) -> set[str]:
-    """Flags and dotted or underscored identifiers."""
-    return {w.lower() for w in (token.rstrip(".") for token in _WORD.findall(_ABBREVIATION.sub(" ", text)))
-            if w.startswith("-") or "_" in w
-            or re.fullmatch(r"[A-Za-z]+\.[A-Za-z_.]+", w)}
-
+    """Case-sensitive flags and dotted or underscored identifiers."""
+    words = (token.rstrip(".") for token in _WORD.findall(_ABBREVIATION.sub(" ", text)))
+    return {w if w.startswith("-") else w.lower() for w in words
+            if w.startswith("-") or "_" in w or _DOTTED_IDENTIFIER.fullmatch(w)}
 
 def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) -> list[Atom]:
     """Atoms the sentence is plausibly *about*: a shared distinctive token, or word overlap.
@@ -168,15 +191,15 @@ def lexical_conflict(statement: str, sentence: str) -> tuple[str, str] | None:
     * polarity: exactly one side carries a negation.
     These are candidates for a judge, not findings; precision is low by construction.
     """
-    a, b = _values(statement), _values(sentence)
-    if a and b and not (a & b):
-        flags = tuple(any(re.match(r"--?[a-z]", value) for value in values) for values in (a, b))
-        if flags[0] == flags[1]:
-            shapes = {("." in value, bool(re.match(r"--?[a-z]", value))) for value in a}
-            quotes = [m.group(0) for m in _VALUE.finditer(sentence)]
-            quote = next((raw for raw in quotes
-                          if ("." in raw, bool(re.match(r"--?[a-z]", raw, re.I))) in shapes), quotes[0])
-            return "lexical:value", quote
+    documented, proposed = list(_VALUE.finditer(statement)), list(_VALUE.finditer(sentence))
+    if documented and proposed and not ({_value_key(m) for m in documented} & {_value_key(m) for m in proposed}):
+        matching_shapes = {_value_shape(m) for m in documented}
+        for match in proposed:
+            if _value_shape(match) in matching_shapes:
+                return "lexical:value", match.group(0)
+        # Retain number-to-version comparisons when neither side uses flags or units.
+        if all(match["number"] for match in documented + proposed):
+            return "lexical:value", proposed[0].group(0)
     neg_a, neg_b = _NEGATION.search(statement), _NEGATION.search(sentence)
     if bool(neg_a) != bool(neg_b):
         # When the sentence drops the atom's negation there is no word to quote: the

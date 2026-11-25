@@ -121,3 +121,36 @@ def test_abbreviations_neither_split_sentences_nor_anchor_pairs():
     ]
     atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use other drivers, e.g. virtual drivers."})
     assert pair_atoms("Use the cache, e.g. for builds.", [atom]) == []
+
+
+def test_compact_unit_conflict_quotes_the_whole_value():
+    statement = "The request timeout defaults to 30ms."
+    assert lexical_conflict(statement, "The request timeout defaults to 60ms.") == ("lexical:value", "60ms")
+    assert lexical_conflict(statement, "The request timeout defaults to 30 ms.") is None
+    assert lexical_conflict(statement, "The request timeout defaults to 60 ms.") == ("lexical:value", "60 ms")
+    assert lexical_conflict("The request timeout defaults to 1000ms.", "The request timeout defaults to 1s.") is None
+    assert lexical_conflict("Use product 30alpha.", "Use product 60alpha.") is None
+
+
+def test_case_sensitive_cli_flags_remain_distinct():
+    assert lexical_conflict("Pass -O to enable optimization.",
+                            "Pass -o to enable optimization.") == ("lexical:value", "-o")
+    assert lexical_conflict("Pass -o to enable optimization.",
+                            "Pass -O to enable optimization.") == ("lexical:value", "-O")
+
+
+def test_dotted_identifiers_with_digits_reach_the_judge():
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement":
+                          "torch.float32 configures the numeric precision used for accelerator computations."})
+    tried = []
+
+    def judge(prompt):
+        tried.append(prompt)
+        return {"verdict": "contradicts", "quote": "torch.float32 is unsupported"}
+
+    report = find_false_claims("torch.float32 is unsupported.", [atom], judge=judge)
+    assert len(tried) == report.n_pairs == 1 and report.n_unchecked == 0
+    assert [claim.quote for claim in report.claims] == ["torch.float32 is unsupported"]
+    version = Atom.from_dict({**FIXTURE["atoms"][0], "statement":
+                              "Version 32.1.6 configures the numeric precision used for accelerator computations."})
+    assert pair_atoms("Version 32.1.6 is unsupported.", [version]) == []
