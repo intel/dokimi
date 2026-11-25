@@ -109,9 +109,9 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
             _no_tasks(root)
         raise InputError("No tasks selected. Pass --tasks <id[,id]> or --all.")
 
-    specs = [s.strip() for s in args.arms.split(",") if s.strip()]
+    specs = [s.strip() for s in (args.arms or "oracle,empty").split(",") if s.strip()]
     if not specs:
-        raise InputError("No arms selected. Pass --arms oracle,empty[,command:<tmpl>].")
+        raise InputError("No arms selected. Pass --arm oracle,empty[,command:<tmpl>].")
     output_root = Path(args.output_dir)
     arms = _build_arms(specs, output_root)
 
@@ -177,11 +177,9 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--all", action="store_true", help="Run every discovered task")
     run_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)
     run_p.add_argument("--repo-root", default=None, dest="repo_root", help=_REPO_ROOT_HELP)
-    run_p.add_argument(
-        "--arms",
-        default="oracle,empty",
-        help="Comma-separated arms: oracle, empty, command:<template>",
-    )
+    cli_flags.add(run_p, "arm", "--arm", dest="arms", action=cli_flags.JoinedValues, metavar="ARM",
+                  help="Arm: oracle, empty, command:<template>; repeatable or comma-separated "
+                  "(default: oracle,empty)")
     run_p.add_argument("--baseline-arm", default=None)
     run_p.add_argument("--model", default=None)
     cli_flags.add(run_p, "output", "--out-dir", dest="output_dir", default="results/explore-runs")

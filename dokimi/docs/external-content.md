@@ -654,7 +654,7 @@ For a direct N-arm comparison, hand `arms run` the question file itself:
 ```bash
 python cli.py arms run --product demo \
   --questions C:/Users/Public/content-repo/questions/demo_golden.json \
-  --arms baseline,skill:C:/Users/Public/content-repo/skills/demo-skill \
+  --arm baseline,skill:C:/Users/Public/content-repo/skills/demo-skill \
   --judge --judge-model <a-different-model>
 ```
 
@@ -682,7 +682,7 @@ task set — `--dry-run` validates the wiring without Docker or a model:
 ```console
 $ python cli.py tasks run --tasks demo-widget \
     --tasks-root C:/Users/Public/content-repo/evaluation/harbor/tasks \
-    --harnesses docker-oracle,docker-claude-skill:C:/Users/Public/content-repo/skills/demo-skill \
+    --harness docker-oracle,docker-claude-skill:C:/Users/Public/content-repo/skills/demo-skill \
     --baseline-harness docker-oracle \
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
     --dry-run --out results/demo-widget.json
@@ -713,7 +713,7 @@ demo-locate-widget      demo    1 ref(s)        Where is the widget width clampe
 $ python cli.py explore run --all \
     --tasks-root C:/Users/Public/content-repo/explore_tasks \
     --repo-root C:/Users/Public/content-repo/product-checkout \
-    --arms oracle,empty --baseline-arm empty --out results/explore.json
+    --arm oracle,empty --baseline-arm empty --out results/explore.json
 Saved explore run artifact: results\explore.json
 oracle: n=1 file_f1=1.000 line_f1=n/a validity=1.000
 empty: n=1 file_f1=0.000 line_f1=n/a validity=1.000
