@@ -530,8 +530,6 @@ def test_judge_validity_accepts_every_judge_provider(provider):
 
 @pytest.mark.parametrize("provider", ["openai-codex"])
 def test_judge_validity_rejects_providers_judge_rejects(provider):
-    # Test-narrowed: the parametrize cut 2 cases to 1. azure is not a provider name (under --judge P/M it is a model
-    # prefix) and bedrock is amazon-bedrock; openai-codex keeps the judge-rejected case.
     from dokimi.cli import build_parser
 
     with pytest.raises(SystemExit):

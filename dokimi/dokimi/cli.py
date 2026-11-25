@@ -282,7 +282,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
         _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
     args = parser.parse_args(raw)
-    refuse_empty_model(parser, args)
+    refuse_empty_model(parser, args, checked_elsewhere=llm_cli.BACKENDS)
     # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
     # ``--judge PROVIDER/MODEL`` sets it too (ProviderModelAction), so keep what the parser stored.
     args.judge_provider_named = bool(getattr(args, "judge_provider_named", False)) or any(
