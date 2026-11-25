@@ -39,7 +39,7 @@ def test_a_later_bare_reference_uses_the_leaf_defaults(argv, option, first, last
      "--extract-model", "anthropic/", "--extract-model anthropic/ has no model"),
     (["skill", "novelty", "probe", "--artifact", "skill:s", "--atoms", "atoms.json"],
      "--extract-model", "openai/ ", "--extract-model openai/ has no model"),
-    (["catalog", "novelty", "--root", "catalog"],
+    (["catalog", "novelty", "catalog", "--out-dir", "out/sweep"],
      "--extract-model", "openai/", "--extract-model openai/ has no model"),
 ])
 def test_malformed_qualified_references_fail_at_parse(argv, option, ref, message, capsys):
