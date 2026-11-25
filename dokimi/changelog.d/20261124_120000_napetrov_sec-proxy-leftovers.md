@@ -13,7 +13,8 @@ SPDX-License-Identifier: Apache-2.0
 - **A proxy with credentials that a task Dockerfile declares with `ARG` is warned about.** The build passes the host's
   proxy by name, so a Dockerfile `ARG https_proxy` records the value in the image history (`docker history`). When the
   value has `user:password@`, the run log and stderr now say so with `[build] WARNING`. Remove the `ARG` from the
-  Dockerfile to keep the credentials out of the image. The build still runs.
+  Dockerfile to keep the credentials out of the image. The build still runs. The image build of `dokimi repo run`
+  (the repo's `.agent-eval` Dockerfile) warns the same way, on stderr.
 
 ### Fixed
 
