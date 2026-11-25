@@ -228,13 +228,13 @@ def _skill_entry(root: Path, item: dict, name: str, list_shape: bool) -> SkillCa
     path = root / catalog_path
     if not _within(path, root):
         return failed(f"{source} escapes root: {catalog_path!r}")
-    # Checked before load_skill opens it: a SKILL.md symlinked out of the root is never read.
-    skill_md = path / "SKILL.md" if path.is_dir() else path
-    if not _within(skill_md, root):
-        return failed(f"SKILL.md resolves outside root: {skill_md}", path)
     try:
+        # Checked before load_skill opens it: a SKILL.md symlinked out of the root is never read.
+        skill_md = path / "SKILL.md" if path.is_dir() else path
+        if not _within(skill_md, root):
+            return failed(f"SKILL.md resolves outside root: {skill_md}", path)
         skill = load_skill(path)
-    except (OSError, ValueError, RecursionError) as exc:
+    except (OSError, ValueError, RecursionError, RuntimeError) as exc:  # RuntimeError: a symlink loop on 3.11/3.12
         return failed(str(exc), path)
     return SkillCatalogEntry(name=name or path.name, status=item.get("status"), path=path,
                              source_root=root, skill=skill)

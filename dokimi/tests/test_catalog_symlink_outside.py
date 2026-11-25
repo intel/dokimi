@@ -75,3 +75,36 @@ def test_inside_skill_md_symlink_still_loads(tmp_path, opened):
     assert entries[0].skill.name == "inside"
     assert entries[0].skill.description == "Use for inside things."
     assert shared.resolve() in opened
+
+
+def test_looping_skill_md_is_an_error_row_and_the_next_entry_loads(tmp_path):
+    root = tmp_path / "root"
+    (root / "skills" / "loop").mkdir(parents=True)
+    _link(root / "skills" / "loop" / "SKILL.md", Path("SKILL.md"))
+    (root / "skills" / "ok").mkdir()
+    (root / "skills" / "ok" / "SKILL.md").write_text(_SKILL.format(name="ok"), encoding="utf-8")
+    (root / "skills.yaml").write_text("- name: loop\n- name: ok\n", encoding="utf-8")
+
+    entries = read_skill_manifest(root)
+
+    assert entries[0].skill is None
+    assert entries[0].error
+    assert entries[1].skill.name == "ok"
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="needs a POSIX non-root user")
+def test_unreadable_skills_dir_is_an_error_row_and_the_next_entry_loads(tmp_path):
+    root = tmp_path / "root"
+    (root / "skills" / "sf").mkdir(parents=True)
+    (root / "other").mkdir()
+    (root / "other" / "SKILL.md").write_text(_SKILL.format(name="other"), encoding="utf-8")
+    (root / "skills.yaml").write_text("- name: sf\n- name: o\n  catalog_path: other\n", encoding="utf-8")
+    (root / "skills").chmod(0)
+    try:
+        entries = read_skill_manifest(root)
+    finally:
+        (root / "skills").chmod(0o755)
+
+    assert entries[0].skill is None
+    assert "Permission denied" in entries[0].error
+    assert entries[1].skill.name == "other"
