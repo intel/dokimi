@@ -26,11 +26,15 @@ dokimi docs llms-txt site/ --token-budget 4000
 | `summary` | fail | A `> one-line summary` blockquote under the title |
 | `links` | fail / warn | Markdown links to the docs; warn on a list link with no `: description` |
 | `when_to_use` | warn | A `## When to use` section |
-| `when_not_to_use` | warn | A `## When not to use` section naming the alternative |
+| `when_not_to_use` | warn | A heading such as `## When not to use` |
 | `size` | warn | At most `--token-budget` estimated tokens (default 2000) |
 
-Fenced examples and HTML comments do not satisfy the structure checks. Their text still counts
-toward the token budget.
+Both inline and reference-style Markdown links count. The link check also accepts bracketed labels and
+destinations in angle brackets. The `when_not_to_use` check looks for the heading. Name an alternative in
+the section to help agents choose another tool.
+
+Fenced examples and HTML comments do not satisfy the structure checks. Links in code spans do
+not count as documentation links. Their text still counts toward the token budget.
 
 ## Output and exit code
 
