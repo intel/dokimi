@@ -381,6 +381,14 @@ text output and `--format json` (one object: `state`, `findings`,
 `content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
 `duplicate_of`, for a script or a CI gate) are the same either way.
 
+The `rates` object reports the share of skills in each state and the share with each finding code.
+Each skill belongs to the nearest directory containing a `.git` entry between its directory and the
+scanned root, or to the scanned root if none has one. `rate` weights each skill equally. `repo_rate`
+weights each repository equally by averaging its within-repository share. An empty scan reports
+`null` for both shares. An `ok` row with an unchecked description or format contributes to
+`not_checked`. A row with state `skipped` contributes to `skipped`. With two or more repositories,
+the text output includes both shares for each state and up to five codes, ranked by the larger share.
+
 After the skill rows, `catalog check` prints a `# granularity` section: skill pairs
 that look like merge candidates (similar descriptions, shared trigger clauses, overlapping
 bodies, duplicated sections or code blocks) and skills that look like split candidates

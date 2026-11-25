@@ -24,6 +24,7 @@ from dokimi.commands.catalog_scan import (
     ROW_STATES, fail_on_reason, fails_on_finding, is_plain_markdown, listing_failed, listing_total, not_checked, row_ignore,
     ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
 )
+from dokimi.external.catalog_rates import RateTally, text_lines
 from dokimi.utils import InputError
 
 
@@ -69,6 +70,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     unchecked = 0
     failed = False
     ignore = row_ignore(args)
+    rates = RateTally(root)
     fail_on = frozenset(args.fail_on or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
         if only is not None and skill.name != only:
@@ -77,6 +79,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         counts[row["state"]] += 1
         plain += is_plain_markdown(row)
         unchecked += not_checked(row)
+        rates.add(row)
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict;
         # a finding selected by --fail-on-code (#942) fails whatever its level.
@@ -84,6 +87,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         load_failed = row["error"] is not None  # None for a skill_format exemption, decided before --ignore (skill_row)
         if load_failed or unreadable or fails_on_finding(row, fail_on) or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
+    report["rates"] = rates.summary()
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
@@ -96,6 +100,8 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         _print_strict_reasons(report["skills"], args.strict)
         _print_fail_on_reasons(report["skills"], frozenset(args.fail_on or ()))
         _print_online(online)
+        for line in text_lines(report["rates"]):
+            print(line)
         print()
     report["listing"] = {"chars": listing_total(report["skills"])}
     failed = listing_failed(args, report, as_json) or failed  # before the granularity section: after the counts

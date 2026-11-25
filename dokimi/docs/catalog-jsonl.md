@@ -17,6 +17,7 @@ One JSON object on stdout (`--kind skills`; a `--kind all` scan also has `tasks`
 | `root` | string | the scanned directory |
 | `skills` | array of skill rows | one row per declared skill (the row schema below) |
 | `tasks` | array | task rows, empty unless `--kind tasks` or `--kind all` |
+| `rates` | object | number of repositories and skills, with per-skill and per-repository shares by state and finding code (see [external content](external-content.md)) |
 | `online` | object | only with `--online`: the network checks' summary |
 | `listing` | object | `chars`, the total of the rows' `listing_chars` (a mirror with the same name and `content_sha256` counts once; a name whose copies differ is left out); with `--listing-budget` also `budget` and `over_budget` |
 | `granularity` | object | only without `--per-skill`: the merge and split hints |
