@@ -34,7 +34,9 @@ def _tool_calls(message: Any) -> Tuple[ToolCall, ...]:
     out = []
     for tc in calls or ():
         if isinstance(tc, dict):
-            fn = tc.get("function") or {}
+            fn = tc.get("function")
+            if not isinstance(fn, dict):
+                fn = {}
             out.append(ToolCall(tc.get("id"), fn.get("name"), fn.get("arguments") or "{}"))
         else:
             fn = getattr(tc, "function", None)

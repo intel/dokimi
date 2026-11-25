@@ -188,3 +188,8 @@ def test_probe_measures_latency_when_the_wall_clock_steps_back(monkeypatch, no_c
                                                         perf_counter=lambda: next(monotonic_clock)))
     out = _caller(monkeypatch, _resp("ok"))
     assert out["usage"]["latency_sec"] == 0.5
+
+
+def test_probe_keeps_a_dict_call_with_a_malformed_function(monkeypatch, no_cost):
+    out = _caller(monkeypatch, _resp(None, [{"id": "c", "function": "read"}]))
+    assert out["called"] == [""]
