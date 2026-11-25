@@ -286,9 +286,10 @@ saved baseline skill/a@main -> 20261029T140211Z-3f9a0c1e (1 artifact); before: 2
   `run_id`; a file over 256 bytes cannot be read. `SAVED` is its mtime. A save replaces the file in one step, and saves and
   removals hold `.baselines/.lock`, so the compare and the swap are one step for every
   process on the machine (on a network file system only as far as it honours
-  `flock`). A `.baselines` that leads outside the root (a symlink out of it) is
-  neither read nor changed: every `runs baseline` command, and `runs gc
-  --keep-baselines`, exits 2; one that links to a directory under the root is used.
+  `flock`). A `.baselines` that is a link (a symlink or a junction) is neither read
+  nor changed, wherever it leads: every `runs baseline` command, and `runs gc
+  --keep-baselines`, exits 2. Through a link out of the root, to the root or to a
+  run's directory, `save` and `rm` would write or remove files there.
   A symlink in `.baselines/` is never followed: a pointer that is one is named as
   unreadable (`rm` removes it), and a `.lock` that is one exits 2 (`cannot lock`).
 - The copies `baseline save --from-eval` makes under `baselines/eval/` are another
@@ -306,9 +307,9 @@ saved baseline skill/a@main -> 20261029T140211Z-3f9a0c1e (1 artifact); before: 2
 | `runs show RUN_ID`: nothing of that name and no artifact under the root with that `run_id` (the error counts the entries that could not be read), or a root that cannot be listed | 2 |
 | `runs rm`, `runs gc`: removed, or listed with `--dry-run`; nothing to remove; `runs gc` when `results/` does not exist | 0 |
 | `runs rm`: no root, a directory, a missing file, a path outside the root, a file in `.baselines/`, or a `run_id` no artifact carries | 2 |
-| `runs gc`: no `--older-than`, an age that is not days (`30d`), an entry under the root that cannot be read, or with `--keep-baselines` a baseline manifest, copy or pointer that cannot be read, or a `.baselines/` that cannot be listed or locked (a file, no permission) or leads outside the root | 2 |
+| `runs gc`: no `--older-than`, an age that is not days (`30d`), an entry under the root that cannot be read, or with `--keep-baselines` a baseline manifest, copy or pointer that cannot be read, or a `.baselines/` that cannot be listed or locked (a file, no permission) or is a link | 2 |
 | `runs rm`, `runs gc`: a file that could not be removed | 5 |
 | `runs baseline save`, `rm`: saved or removed; `runs baseline list`, with no root, no baseline or an entry of `.baselines/` that is not a pointer too | 0 |
-| `runs baseline save`, `rm`: no root, a name that is not one or differs from a saved one only in case, a `RUN` or `--expect-previous` that is not a run id, a `RUN` no artifact carries, `rm` of a baseline that does not exist, a `.baselines/` that cannot be locked or listed (a file, no permission) or leads outside the root; `runs baseline list`: a `DOKIMI_RUNS_DIR` that does not exist, or a `.baselines/` that cannot be listed (a file, no permission) or leads outside the root | 2 |
+| `runs baseline save`, `rm`: no root, a name that is not one or differs from a saved one only in case, a `RUN` or `--expect-previous` that is not a run id, a `RUN` no artifact carries, `rm` of a baseline that does not exist, a `.baselines/` that cannot be locked or listed (a file, no permission) or is a link; `runs baseline list`: a `DOKIMI_RUNS_DIR` that does not exist, or a `.baselines/` that cannot be listed (a file, no permission) or is a link | 2 |
 | `runs baseline save --expect-previous RUN_ID`: the baseline does not point to `RUN_ID` (the pointer is left as it was) | 4 |
 | `runs baseline save`, `rm`: the pointer could not be written or removed | 5 |

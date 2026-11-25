@@ -400,8 +400,9 @@ def test_rm_removes_a_pointer_that_is_a_link_to_nothing_so_gc_can_run(root, monk
 def test_runs_rm_refuses_the_store_however_it_is_reached(root, monkeypatch, capsys, path):
     # a .baselines that links to a directory under the root resolves to that directory's name
     (root / "store").mkdir()
+    for name in (".lock", "main"):  # the baseline commands refuse a linked store, so made by hand
+        (root / "store" / name).write_text(A + "\n" if name == "main" else "", encoding="utf-8")
     (root / ".baselines").symlink_to(root / "store", target_is_directory=True)
-    _run(monkeypatch, capsys, "baseline", "save", "main", A)
 
     assert _run(monkeypatch, capsys, "rm", path)[::2] == (
         2, f"Error: {path} is in the baselines' store .baselines/; runs baseline rm NAME removes a "
@@ -456,18 +457,20 @@ def test_a_lock_that_links_out_of_the_root_is_neither_made_nor_taken(
 @pytest.mark.skipif(sys.platform == "win32", reason="a symlink needs a privilege on Windows")
 @pytest.mark.parametrize("argv", [["baseline", "save", "main", A], ["baseline", "rm", "main"],
                                   ["baseline", "list"], ["gc", "--older-than", "0d", "--keep-baselines"]])
-def test_a_store_that_leads_outside_the_root_is_neither_read_nor_changed(
-        root, monkeypatch, capsys, tmp_path, argv):
-    # docs/runs.md: nothing outside the root is touched, a linked .baselines included
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "main").write_text(B + "\n", encoding="utf-8")
-    (root / ".baselines").symlink_to(outside, target_is_directory=True)
+@pytest.mark.parametrize("target", ["outside", "results", "results/a"])
+def test_a_linked_store_is_neither_read_nor_changed(root, monkeypatch, capsys, tmp_path, argv, target):
+    # docs/runs.md, On disk: out of the root, to the root or to a run's directory, rm would remove there
+    linked = tmp_path / target
+    linked.mkdir(exist_ok=True)
+    (linked / "eval.json").write_text(B + "\n", encoding="utf-8")
+    (root / ".baselines").symlink_to(linked, target_is_directory=True)
+    before = sorted(os.listdir(linked))
+    rm_argv = ["baseline", "rm", "eval.json"] if argv[:2] == ["baseline", "rm"] else argv
 
-    assert _run(monkeypatch, capsys, *argv)[::2] == (
-        2, "Error: results/.baselines leads outside the runs root results/, so the baselines are "
-           "not read or changed there\n")
-    assert sorted(os.listdir(outside)) == ["main"] and (outside / "main").read_text() == B + "\n"
+    assert _run(monkeypatch, capsys, *rm_argv)[::2] == (
+        2, "Error: results/.baselines is a link, so the baselines are not read or changed through it: "
+           "the baselines' store is a directory of its own\n")
+    assert sorted(os.listdir(linked)) == before
     assert (root / "a" / "eval.json").exists() and (root / "b" / "arms.json").exists()
 
 

@@ -26,7 +26,7 @@ from pathlib import Path
 
 from dokimi.artifacts import is_run_id
 from dokimi.atomic_write import write_text_atomic
-from dokimi.runs.scan import BASELINE_POINTERS, Unreadable, inside, plain, read_error_reason, scan
+from dokimi.runs.scan import BASELINE_POINTERS, Unreadable, plain, read_error_reason, scan
 from dokimi.utils import InputError
 
 LOCK = ".lock"
@@ -64,11 +64,12 @@ def _name_of(file_name: str) -> str:
 
 def store(root: Path) -> Path:
     """``<root>/.baselines``, which every read and write of the baselines goes through. Raises
-    ``InputError`` when it resolves outside the root (a link out of it): nothing outside is touched."""
+    ``InputError`` when it is a link: one out of the root, to the root or to a run's directory would
+    let save and rm write or remove files there."""
     directory = root / BASELINE_POINTERS
-    if os.path.lexists(directory) and not inside(os.path.realpath(root), os.path.realpath(directory)):
-        raise InputError(f"{plain(directory.as_posix())} leads outside the runs root "
-                         f"{plain(root.as_posix())}/, so the baselines are not read or changed there")
+    if os.path.islink(directory) or getattr(os.path, "isjunction", lambda _: False)(directory):
+        raise InputError(f"{plain(directory.as_posix())} is a link, so the baselines are not read "
+                         "or changed through it: the baselines' store is a directory of its own")
     return directory
 
 
