@@ -364,6 +364,13 @@ def test_dockerfile_arg_names_read_every_arg_instruction(text, names):
     assert dockerfile_arg_names(text) == names
 
 
+@pytest.mark.parametrize("directive, escape", [("", "\\"), ("# escape=`\n", "`")])
+@pytest.mark.parametrize("count", [2, 3])
+def test_a_doubled_dockerfile_escape_token_leaves_the_next_arg_on_its_own_line(directive, escape, count):
+    dockerfile = f"{directive}FROM scratch\nLABEL probe=tail{escape * count} \t\nARG https_proxy\n"
+    assert dockerfile_arg_names(dockerfile) == {"https_proxy"}
+
+
 def test_a_proxy_arg_with_credentials_on_a_network_build_is_flagged(monkeypatch):
     for var in PROXY_VARS:
         monkeypatch.delenv(var, raising=False)

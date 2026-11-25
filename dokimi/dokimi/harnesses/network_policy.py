@@ -287,8 +287,9 @@ def dockerfile_arg_names(text: str) -> set[str]:
     for raw in lines:
         if raw.lstrip().startswith("#") or not raw.strip():  # docker drops these, also inside a continuation
             continue
-        if raw.rstrip().endswith(escape):
-            pending += raw.rstrip()[:-1]  # docker joins the lines as they are, with no separator
+        trimmed = raw.rstrip(" \t")
+        if trimmed.endswith(escape) and not trimmed.endswith(escape * 2):
+            pending += trimmed[:-1]  # docker joins the lines as they are, with no separator
             continue
         found = _ARG_INSTRUCTION.fullmatch((pending + raw).strip())
         pending = ""
