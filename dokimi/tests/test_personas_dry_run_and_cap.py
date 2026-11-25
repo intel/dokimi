@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -53,7 +54,7 @@ def no_client(monkeypatch):
 @pytest.fixture
 def priced(monkeypatch):
     """List prices come from ``state["price"]`` (None: unpriced); each pricing call is recorded."""
-    state = {"price": 0.01, "calls": []}
+    state: dict[str, Any] = {"price": 0.01, "calls": []}
 
     def list_cost_usd(model, provider, prompt_tokens, completion_tokens):
         state["calls"].append((model, provider, prompt_tokens, completion_tokens))
@@ -87,13 +88,22 @@ def test_dry_run_builds_no_client_writes_nothing_and_prints_the_estimate(tmp_pat
 
 def test_dry_run_on_a_repo_reads_the_repo_but_saves_no_analysis(tmp_path, monkeypatch, capsys, no_client,
                                                                 priced):
-    monkeypatch.setattr(PersonaAnalyzer, "analyze_repository", lambda _self, _repo: {"description": "x"})
+    reads: list[str] = []
+
+    def read_repo(_self, repo):
+        reads.append(repo)
+        return {"description": "x" * 500}
+
+    monkeypatch.setattr(PersonaAnalyzer, "analyze_repository", read_repo)
     out = tmp_path / "personas" / "lib.json"
     code = _cli(monkeypatch, "eval", "personas", "discover", "--product", "lib", "--repo", "o/r",
                 "--output", str(out), "--save-analysis", "--dry-run")
-    assert code == 0
+    assert code == 0 and reads == ["o/r"]
     assert not out.parent.exists()  # neither the personas file nor the analysis next to it
     assert "Dry run" in capsys.readouterr().out
+    repo_tokens = priced["calls"][-1][2]
+    assert _discover(monkeypatch, tmp_path / "lib.json", "--dry-run") == 0
+    assert repo_tokens > priced["calls"][-1][2]  # the repo's analysis is priced, not an empty one
 
 
 def test_the_prompt_is_priced_at_four_characters_a_token_and_the_reply_budget(tmp_path, monkeypatch, priced):
@@ -172,8 +182,13 @@ def test_a_capped_run_that_may_call_builds_the_generator_before_writing_the_anal
 def test_a_dry_run_fails_where_the_real_run_would_without_the_llm_dependency(tmp_path, monkeypatch, no_client,
                                                                           priced):
     """The dry run runs the real run's dependency check first: exit 5 and no repo read, not a clean estimate."""
-    reads = []
-    monkeypatch.setattr(PersonaAnalyzer, "analyze_repository", lambda _self, repo: reads.append(repo) or {})
+    reads: list[str] = []
+
+    def read_repo(_self, repo):
+        reads.append(repo)
+        return {}
+
+    monkeypatch.setattr(PersonaAnalyzer, "analyze_repository", read_repo)
     monkeypatch.setattr(generator_mod, "LANGCHAIN_AVAILABLE", False)
     code = _cli(monkeypatch, "eval", "personas", "discover", "--product", "lib", "--repo", "o/r",
                 "--output", str(tmp_path / "lib.json"), "--dry-run")
@@ -182,7 +197,7 @@ def test_a_dry_run_fails_where_the_real_run_would_without_the_llm_dependency(tmp
 
 def test_a_plain_run_builds_the_generator_before_any_repo_read(tmp_path, monkeypatch):
     """A missing LLM dependency fails a plain --repo run before GitHub is read or a file is written, as on base."""
-    reads = []
+    reads: list[str] = []
 
     def read_repo(_self, _repo):
         reads.append(_repo)
@@ -203,3 +218,10 @@ def test_a_tiny_estimate_is_not_shown_as_zero(tmp_path, monkeypatch, capsys, no_
     priced["price"] = 0.00002
     assert _discover(monkeypatch, tmp_path / "lib.json", "--dry-run") == 0
     assert "~$2.00e-05 at list prices" in capsys.readouterr().out
+
+
+def test_save_analysis_with_a_description_writes_no_analysis(tmp_path, monkeypatch, capsys, reply):
+    out = tmp_path / "personas" / "lib.json"
+    assert _discover(monkeypatch, out, "--save-analysis") == 0
+    assert "--save-analysis is ignored in description-only mode" in capsys.readouterr().err
+    assert out.exists() and not (out.parent / "lib_analysis.json").exists()
