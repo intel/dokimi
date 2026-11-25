@@ -298,6 +298,11 @@ CONCEPTS: tuple[Concept, ...] = (
              "commands do not use them.",
     ),
     Concept(
+        name="repository_identity",
+        help="the logical repository that identifies findings across stored artifacts",
+        canonical=(Flag("--repository", "OWNER/REPO", "text"),),
+    ),
+    Concept(
         name="upstream",
         help="the upstream copies a skill is matched against (catalog provenance)",
         canonical=(

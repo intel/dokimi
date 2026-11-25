@@ -15,7 +15,7 @@ import re
 import sys
 from pathlib import Path
 
-from dokimi import llms_txt, opportunities
+from dokimi import cli_flags, llms_txt, opportunities
 from dokimi.artifacts import schema_errors
 from dokimi.utils import InputError
 
@@ -87,7 +87,8 @@ def register(report_sub, positive_int) -> None:
         help="Rank novelty, repo_static and llms.txt findings into a queue of fixes (no model calls)")
     p.add_argument("inputs", nargs="+", metavar="PATH",
                    help="novelty artifact JSON, repo_static.v1 JSON, or an llms.txt file")
-    p.add_argument("--repository", help="Repository identity for repo_static source keys (default: each input path)")
+    cli_flags.add(p, "repository_identity", "--repository", metavar="OWNER/REPO",
+                  help="Repository identity for repo_static source keys (default: each input path)")
     p.add_argument("--format", default="markdown", choices=["markdown", "json"],
                    help="markdown table (PR comment, terminal) or an opportunities.v1 document")
     p.add_argument("--top-n", type=positive_int, default=10, help="Rows in the markdown table (default 10)")
