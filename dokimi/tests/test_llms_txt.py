@@ -150,3 +150,15 @@ def test_summary_and_line_numbers_preserve_unicode_line_separator():
     text = text.replace("\n", "\r\n")
     line = next(i for i, value in enumerate(text.split("\r\n"), 1) if "[Quickstart]" in value)
     assert [(f.check, f.severity, f.line) for f in llms_txt.check(text)] == [("links", "warn", line)]
+
+
+
+def test_bare_blockquote_marker_is_not_a_summary():
+    text = GOOD.replace("> Payments for SaaS products.", ">")
+    assert [(f.check, f.severity, f.line) for f in llms_txt.check(text)] == [("summary", "fail", 2)]
+
+
+def test_second_h1_title_is_a_warning():
+    text = GOOD.replace("## Docs", "# Docs")
+    second_h1 = text.split("\n").index("# Docs") + 1
+    assert [(f.check, f.severity, f.line) for f in llms_txt.check(text)] == [("title", "warn", second_h1)]
