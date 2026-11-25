@@ -24,8 +24,8 @@ _REQUIRED = {
     ("repo", "run"): ["src", "--arm", "x", "--model", "m"],
     ("benchmark", "run"): ["--library", "x"],
     ("benchmark", "batch"): ["--libraries", "x"],
-    ("arms", "run"): ["--product", "p", "--questions", "q.json", "--arms", "a.yaml"],
-    ("arms", "matrix-run"): ["--product", "p", "--questions", "q.json", "--arms", "a.yaml",
+    ("arms", "run"): ["--product", "p", "--questions", "q.json", "--arm", "a.yaml"],
+    ("arms", "matrix-run"): ["--product", "p", "--questions", "q.json", "--arm", "a.yaml",
                              "--matrix-cells", "c.json"],
     ("report", "model-compare"): ["--run-ids", "a,b", "--out", "o.md"],
 }
