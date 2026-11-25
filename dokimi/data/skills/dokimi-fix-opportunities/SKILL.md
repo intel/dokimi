@@ -28,8 +28,11 @@ description: Pull the top dokimi findings (report opportunities) into the curren
    the prompt does not name. If a fix needs a decision only the user can make,
    skip the item and say why.
 4. **Re-check.** For repository findings, rerun the repository’s `static` entry point. For
-   novelty findings, rerun `skill novelty analyze` with the original settings. For
-   llms.txt findings, use the edited index directly when rebuilding the queue:
+   novelty findings, rerun `skill novelty analyze` with the original settings only when
+   the user explicitly requests the paid model call. Otherwise report the item as
+   *not re-checked*. For llms.txt findings, use the edited index directly when rebuilding
+   the queue. Pass the same input path spelling as in step 1: `llms.txt` and `./llms.txt`
+   produce different `source_key` values.
 
    ```bash
    python cli.py report opportunities static.json --format json --out after.json
@@ -37,7 +40,7 @@ description: Pull the top dokimi findings (report opportunities) into the curren
 
 5. **Report** one row per picked item: `source_key`, title, what you changed,
    and whether the key is gone from `after.json`. A key still present is
-   *not fixed*, whatever the edit looked like; if its `evidence` lists fewer
+   *not fixed* for re-checked inputs; if its `evidence` lists fewer
    lines than before, say *partly fixed*. For indistinguishable repeated rows, compare
    the number of occurrences of that key as well. List keys that appear only in
    `after.json` as possible regressions and check each against your diff
