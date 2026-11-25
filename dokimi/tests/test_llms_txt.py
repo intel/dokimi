@@ -147,3 +147,12 @@ def test_unknown_full_reference_falls_back_to_shortcut():
     text = GOOD.replace('[Quickstart](https://acme.test/quickstart.md)', '[Guide][unknown]')
     findings = llms_txt.check(text + '\n[Guide]: guide.md\n')
     assert [(f.severity, f.line, f.identity) for f in findings] == [('warn', 15, 'Guide|guide.md')]
+
+
+def test_escaped_backtick_opens_no_code_span_around_a_real_comment():
+    entry = '[Quickstart](https://acme.test/quickstart.md): first charge in five minutes'
+    hidden = '<!-- [Guide](guide.md): overview -->'
+    assert _checks(GOOD.replace(entry, r'\`' + hidden + ' `')) == {'links'}
+    for opener in (r'\\`', r'\``'):
+        text = GOOD.replace('Payments for SaaS products.', opener + '<!--` next')
+        assert llms_txt.check(text) == []

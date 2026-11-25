@@ -144,7 +144,7 @@ def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
         return line, False
     parts: list[str] = []
     pos = 0
-    spans = CodeSpanScanner(line)
+    spans = CodeSpanScanner(line, escape_openers=True)
     while pos < len(line):
         if in_comment:
             close = line.find("-->", pos)
