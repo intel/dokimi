@@ -154,10 +154,13 @@ class _ArithmeticReader:
     The text is read as far as ``read`` is asked, and ``skip`` jumps over a heredoc body, which is data and leaves no quote open.
     """
 
-    def __init__(self, text: str):
-        self.text = text
+    def __init__(self, text: str, heredoc: HeredocPattern):
+        self.text, self.heredoc = text, heredoc
         self.spans: list[tuple[int, int]] = []
         self.quote, self.outer, self.depth, self.start, self.pos = "", "", 0, 0, 0
+        self.line, self.line_quote = 0, ""  # where the line being read begins and the quotes open there
+        self.substitutions: list[tuple[int, int]] = []  # inside a span: where a ``$(`` or backtick, not the arithmetic, is what a ``<<`` is in
+        self.entered = -1  # where the substitution open now began, -1 when none
 
     def read(self, upto: int) -> None:
         """Read the marks that start at or before ``upto``, and on to the end of a span open there.
@@ -183,20 +186,45 @@ class _ArithmeticReader:
                         if until_closed:  # what follows is read as it comes, so a heredoc body is skipped before its quotes are read
                             return
                 else:  # a `$(`, backtick or `${` inside has quotes of its own: `$(( $(echo "$(echo "))")") << 3 ))`
-                    self.quote, self.pos = self._inner_step(m)
+                    self._inner(m)
             elif taken := _arithmetic_opener(text, mark, self.pos, self.quote):
                 self.start, self.depth, self.outer, self.quote = m.start(), 2, self.quote, ""  # inside, quotes start afresh
                 self.pos += taken
+                self.line, self.line_quote = self.pos, ""
             else:
                 self.quote, self.pos = _quote_step(text, m, self.quote)
+        if until_closed:
+            self.pos = max(self.pos, limit)  # no mark is left to read, so a later opener does not search the tail again
+
+    def _inner(self, m: re.Match[str]) -> None:
+        """Read the mark ``m`` inside the open span, and keep where a substitution begins and ends there; a heredoc opened on a line of a substitution has its body skipped, as its quotes are not read."""
+        was = self.quote[-1:] in ("(", "`")
+        self.quote, self.pos = self._inner_step(m)
+        if m.group() == "\n":
+            if was and (words := self.heredoc.line_words(self.text, self.line, m.start(), self.line_quote)):
+                self.pos = max(self.pos, self.heredoc.bodies_end(self.text, m.start(), words))
+            self.line, self.line_quote = self.pos, self.quote
+        now = self.quote[-1:] in ("(", "`")
+        if now and not was:
+            self.entered, self.line, self.line_quote = self.pos, self.pos, self.quote  # the line's arithmetic before it holds no heredoc opener
+        elif was and not now:
+            self.substitutions.append((self.entered, m.start()))
+            self.entered = -1
+
+    def in_substitution(self, at: int) -> bool:
+        """Whether ``at``, inside a span, is read as the shell's own command line, in a ``$(`` or backtick, and not as arithmetic."""
+        i = bisect_left(self.substitutions, (at + 1,))
+        return (i > 0 and self.substitutions[i - 1][1] > at) or 0 <= self.entered <= at
 
     def _inner_step(self, m: re.Match[str]) -> tuple[str, int]:
-        """The quote stack after a mark inside the open span: a ``$((`` nested there pushes two ``A``, the grouping parentheses of arithmetic, so a ``<<`` in it is told from one in a ``$(``."""
-        top = self.quote[-1:]
-        if top == "A" and m.group() in "()":
-            return (self.quote + "A" if m.group() == "(" else self.quote[:-1]), m.end()
-        if m.group() == "$" and top not in ("'", "#") and self.text.startswith("((", m.end()):
+        """The quote stack after a mark inside the open span: a ``$((`` or a bare ``((`` in a ``$(`` nested there pushes two ``A``, the grouping parentheses of arithmetic, so a ``<<`` in it is told from one in a ``$(``."""
+        top, mark = self.quote[-1:], m.group()
+        if top == "A" and mark in "()":
+            return (self.quote + "A" if mark == "(" else self.quote[:-1]), m.end()
+        if mark == "$" and top not in ("'", "#") and self.text.startswith("((", m.end()):
             return self.quote + "AA", m.end() + 2
+        if mark == "(" and top in ("(", "`") and self.text.startswith("(", m.end()):
+            return self.quote + "AA", m.end() + 1
         return _quote_step(self.text, m, self.quote)
 
     def skip(self, to: int) -> None:
@@ -287,7 +315,7 @@ class HeredocPattern:
         """Each opener with the start of the line after its own; an opener whose line has no end is left out."""
         openers, start, eol = [], 0, -1
         quote, scanned = "", 0
-        reader, next_span = _ArithmeticReader(text), 0
+        reader, next_span = _ArithmeticReader(text, self), 0
         words: list[str] = []  # the delimiters opened on the line that ends at ``eol``: the lines after it are their bodies
         while (o := self.opener.search(text, start)) is not None:
             if words and o.start() > eol:
@@ -298,7 +326,7 @@ class HeredocPattern:
             arithmetic = reader.spans
             while next_span < len(arithmetic) and arithmetic[next_span][1] <= o.start():
                 next_span += 1
-            in_arithmetic = next_span < len(arithmetic) and arithmetic[next_span][0] <= o.start()
+            in_arithmetic = next_span < len(arithmetic) and arithmetic[next_span][0] <= o.start() and not reader.in_substitution(o.start())
             escaped = scanned > o.start()  # a backslash before the first ``<`` made it a literal one: ``echo \<< f``
             if _inert(quote) or in_arithmetic or escaped:  # ``grep '<<EOF' f``, ``$((1<<3))``: ``<<`` opens nothing
                 start = o.start() + 1
@@ -323,6 +351,12 @@ class HeredocPattern:
         if quote[-1:] in ("'", '"'):
             return quote, scanned
         reader.read(eol)
+        pos = self.bodies_end(text, eol, words)
+        reader.skip(pos)
+        return quote.removesuffix("#"), max(scanned, pos)
+
+    def bodies_end(self, text: str, eol: int, words: list[str]) -> int:
+        """Where the bodies of ``words``, opened on the line that ends at ``eol``, end: each runs to the first line that is its delimiter, or to the end."""
         pos = eol + 1
         for word in words:
             core = self._core(word)
@@ -332,8 +366,18 @@ class HeredocPattern:
                     break
             else:
                 pos = len(text) + 1
-        reader.skip(pos)
-        return quote.removesuffix("#"), max(scanned, pos)
+        return pos
+
+    def line_words(self, text: str, start: int, end: int, quote: str) -> list[str]:
+        """The delimiters of the openers on ``text[start:end]``, a line that begins with ``quote`` open; an opener in a quote or after a backslash opens nothing."""
+        words, pos, scanned = [], start, start
+        while (o := self.opener.search(text, pos, end)) is not None:
+            pos = o.start() + 1
+            quote, scanned = _quote_after(text, scanned, o.start(), quote)
+            if not _inert(quote) and scanned <= o.start():
+                words.append(o.group(self.word))
+                scanned = max(scanned, o.end())
+        return words
 
     def sub(self, repl: Callable[[re.Match[str]], str], text: str) -> str:
         """``full.sub(repl, text)``."""

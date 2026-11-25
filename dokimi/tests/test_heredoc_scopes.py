@@ -126,6 +126,20 @@ def test_a_shift_in_arithmetic_nested_in_a_substitution_in_arithmetic_opens_no_h
     assert _cli_heredocs(text) == text
 
 
+def test_a_shift_before_a_substitution_whose_heredoc_body_has_a_quote_opens_no_heredoc() -> None:
+    text = "echo $((1 << 3 + $(cat <<EOF >/dev/null; echo 0\nit's\nEOF\n) ))\n((x=1<<3))\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["((x=1<<3))", "cat AGENTS.md"]
+    assert "it's" not in _cli_heredocs(text)
+    assert "<< 3" in _cli_heredocs(text)
+    assert "cat AGENTS.md" in _cli_heredocs(text)
+
+
+@pytest.mark.parametrize("text", ["echo $(( $( ((x=1<<3)); echo 1) + 1 ))\ncat AGENTS.md\n", "echo $(( `((x=1<<3)); echo 1` + 1 ))\ncat AGENTS.md\n"])
+def test_a_bare_arithmetic_command_in_a_substitution_in_arithmetic_opens_no_heredoc(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
 @pytest.mark.parametrize(("opener", "closer"), [('"${"', "${"), ("'${'", "${"), ('"$("', "$("), ('"$(("', "$((")])
 def test_a_delimiter_that_looks_like_expansion_syntax_leaves_the_next_heredoc_cut(opener: str, closer: str) -> None:
     text = f"cat <<{opener}\nbody\n{closer}\ncat <<EOF\nsed -i s/x/y/ f\nEOF\nrm f\n"

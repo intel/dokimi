@@ -726,6 +726,12 @@ def test_split_commands_scans_many_openers_on_one_line_of_a_closed_heredoc_in_li
     _linear(shell.split_commands, lambda k: "cat <<EOF\n" + "<<A " * k + "\nEOF\n", n=20_000)
 
 
+def test_openers_after_an_unclosed_arithmetic_expansion_are_scanned_in_linear_time() -> None:
+    """The lookahead of the first ``<<`` read the text to its end; every later opener on the line read the same tail again."""
+    _linear(shell.split_commands, lambda k: "echo $((0 " + "<<A " * k + "\n" + "x" * k, n=5_000)
+    _linear(_cli_heredocs, lambda k: "echo $((0 " + "<<A " * k + "\n" + "x" * k, n=5_000)
+
+
 def test_heredocs_with_openers_on_one_line_match_the_reference_regex() -> None:
     for text in ("<<A <<B <<A \nbody\nA\n", "cat <<EOF\n<<A <<A \nEOF\nx", "<<A <<B", "x <<A <<B \nA\nB\n"):
         assert _cli_heredocs(text) == _ref_cli_heredocs(text), repr(text)
