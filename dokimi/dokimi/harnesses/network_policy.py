@@ -267,7 +267,7 @@ def dockerfile_arg_names(text: str) -> set[str]:
     names: set[str] = set()
     pending = ""
     for raw in text.splitlines():
-        if raw.lstrip().startswith("#"):  # a comment line, also inside a continuation, is dropped by docker
+        if raw.lstrip().startswith("#") or not raw.strip():  # docker drops these, also inside a continuation
             continue
         if raw.rstrip().endswith("\\"):
             pending += raw.rstrip()[:-1] + " "
@@ -276,6 +276,9 @@ def dockerfile_arg_names(text: str) -> set[str]:
         pending = ""
         if found:
             names.update(token.split("=", 1)[0] for token in found.group(1).split())
+    found = _ARG_INSTRUCTION.fullmatch(pending.strip())  # a continuation at the end of the file still runs
+    if found:
+        names.update(token.split("=", 1)[0] for token in found.group(1).split())
     return names
 
 

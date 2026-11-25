@@ -350,6 +350,8 @@ def test_proxy_env_of_an_allowlist_step_is_the_sidecar(monkeypatch):
     ("from x\narg HTTPS_PROXY=http://a\nARG a b=1 c\n", {"HTTPS_PROXY", "a", "b", "c"}),
     ("ARG http_proxy \\\n    no_proxy\n", {"http_proxy", "no_proxy"}),
     ("ARG http_proxy \\\n# a comment in the continuation\n    https_proxy\n", {"http_proxy", "https_proxy"}),
+    ("ARG \\\n\n \t\n https_proxy\nRUN true\n", {"https_proxy"}),  # blank lines in the continuation
+    ("FROM x\nARG https_proxy \\", {"https_proxy"}),  # a continuation at the end of the file
     ("# ARG https_proxy\nRUN echo ARG\n", set()),
     ("FROM x\nRUN true\n", set()),
 ])
