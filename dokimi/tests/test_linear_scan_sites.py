@@ -348,6 +348,38 @@ SECURITY_TABLE = [
     "git -C a.git\npush --no-verify",
     "git -c core.foo=git\npush --no-verify",
     "git -C a.git\npush",
+    "docker run -v/var/run/docker.sock:/x",
+    "docker run -v /var/run/docker.sock:/x",
+    "docker run -v=/var/run/docker.sock:/x",
+    "docker run -v \"/var/run/docker.sock:/x\"",
+    "docker run -v '/var/run/docker.sock:/x'",
+    "docker run --volume=/var/run/docker.sock:/x",
+    "docker run --volume /var/run/docker.sock:/x",
+    "docker run --mount source=/var/run/docker.sock,target=/x",
+    "docker run --mount type=bind,source=/var/run/docker.sock,target=/x",
+    "docker run -vv/var/run/docker.sock:/x",
+    "docker run -v-v/var/run/docker.sock",
+    "docker run -v-vdocker.sock",
+    "docker run -v-v-v/a/docker.sock:/x",
+    "docker run -vx-vdocker.sock",
+    "docker run --volume--mountdocker.sock",
+    "docker run -v--volume=/docker.sock",
+    "docker run -vvvvvvvvvv",
+    "docker run -v-v-v-v x docker.sock",
+    "docker run -v-v-v\"docker.sock",
+    "docker run -v-v'docker.sock",
+    "docker run -V/DOCKER.SOCK:/x",
+    "docker run -v -v docker.sock",
+    "docker run -vdocker.sockdocker.sock",
+    "docker run -v a-vdocker.sock",
+    "docker run -v-vx docker.sock",
+    "docker run -v\n-vdocker.sock",
+    "docker run -v\n-v-vdocker.sock",
+    "docker run --volume\n--mountdocker.sock",
+    "docker run -v=\n-v/var/run/docker.sock",
+    "docker run -v \n\n 'x-v/docker.sock",
+    "docker run -v\nx\n-vdocker.sock",
+    "docker run x -v\n--volume docker.sock",
 ]
 
 
@@ -374,9 +406,27 @@ def test_security_rules_match_the_old_patterns_on_random_command_lines() -> None
     assert all(count > 30 for count in hits.values()), hits
 
 
+def test_container_escape_matches_the_old_closer_on_random_words_of_volume_options() -> None:
+    pieces = ["-v", "--volume", "--mount", "-V", "=", " ", "\n", "\"", "'", "docker.sock", "/", "/:", "x", "-", "v"]
+    rng = random.Random(1160)
+    hits = 0
+    for _ in range(3 * CASES):
+        text = "docker run " + "".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+        new_match = _security_search("container-escape", text) is not None
+        assert new_match == (_OLD_CONTAINER_ESCAPE.search(text) is not None), text
+        hits += new_match
+    assert hits > 100, hits
+
+
 @pytest.mark.parametrize(
     ("rule", "shape"),
     [
+        ("container-escape", lambda n: "docker run " + "-v" * n),
+        ("container-escape", lambda n: "docker run " + "--volume" * n),
+        ("container-escape", lambda n: "docker run " + "--mount" * n),
+        ("container-escape", lambda n: "docker run -v" + "-vx" * n),
+        ("container-escape", lambda n: "docker run -v\n" + "-v" * n),
+        ("container-escape", lambda n: "docker run " + "-v\n-v" * n),
         ("container-escape", lambda n: "docker run " * n),
         ("container-escape", lambda n: "docker run a " * n),
         ("hook-bypass", lambda n: "git push " * n),

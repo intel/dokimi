@@ -145,7 +145,9 @@ COMMAND_RULES: tuple[Rule, ...] = (
              _DOCKER_RUN, _DOCKER_RUN_ACROSS_LINES,
              r"--privileged|--pid[= ]host|--net(?:work)?[= ]host|"
              # the host root, quoted or not, and the Docker socket (host control, as --privileged gives) as a bind
-             r"-v\s*[\"']?/:|--volume[= ][\"']?/:|(?:-v|--volume|--mount)[= ]?\s*[\"']?[^\s\"']*docker\.sock|"
+             # a word on the option's line stops at the next option, which finds the same `docker.sock` (#1160); past a newline it is read whole
+             r"-v\s*[\"']?/:|--volume[= ][\"']?/:|(?:-v|--volume|--mount)[= ]?(?:[^\S\n]*[\"']?(?:(?!-v|--volume|--mount)[^\s\"'])*"
+             r"|[^\S\n]*\n\s*[\"']?[^\s\"']*)docker\.sock|"
              r"--mount[= ](?:\S*,)?(?:source|src)=/(?:,|\s|[\"']|$)|nsenter\b")),
     # git's global options (`-C dir`, `-c k=v`, `--git-dir=x`) may come before the subcommand; a short flag may be
     # one of several (`-fu`); `+ref` is a force push; `-n` is --no-verify for commit (for push it is a dry run)
