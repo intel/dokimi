@@ -457,6 +457,13 @@ def test_an_arithmetic_marker_in_double_quotes_or_after_a_dollar_hash_still_hide
     assert _cli_heredocs(text) == text
 
 
+@pytest.mark.parametrize("text", ['echo "$((1<<3))"\necho $((1<<3))\ncat AGENTS.md\n', 'echo "a $((1<<3)) b" "$(( (1) <<2 ))"\necho $((1<<3))\ncat AGENTS.md\n',
+                                  "echo \"$((1)) '\" $((1<<3))\ncat AGENTS.md\n"])
+def test_a_shift_after_a_double_quoted_arithmetic_expansion_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
 def test_delimiters_of_blanks_of_many_lengths_are_not_each_tried_at_every_position_of_a_closing_line(monkeypatch: pytest.MonkeyPatch) -> None:
     """128 delimiters of 1 to 128 blanks and 128 closing lines of 128 blanks: 1056768 candidate positions on the code that read each."""
     reads = [0]

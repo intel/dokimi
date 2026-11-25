@@ -107,7 +107,7 @@ def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
 
     A ``$((`` inside single quotes or a comment opens nothing, as a backslash before the ``$`` does not either; a bare ``((`` opens nothing inside any quote or comment.
     """
-    spans, quote, depth, start, pos = [], "", 0, 0, 0
+    spans, quote, outer, depth, start, pos = [], "", "", 0, 0, 0
     while (m := _ARITHMETIC_MARKS.search(text, pos)) is not None:
         mark, pos = m.group(), m.end()
         if depth:
@@ -115,10 +115,11 @@ def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
                 depth += 1 if mark == "(" else -1
                 if not depth:
                     spans.append((start, pos))
+                    quote = outer  # `"$((1<<3))"`: the quote around the span is still open after it
             elif mark not in "()$":
                 quote, pos = _quote_step(text, m, quote)
         elif taken := _arithmetic_opener(text, mark, pos, quote):
-            start, depth, pos = m.start(), 2, pos + taken
+            start, depth, pos, outer, quote = m.start(), 2, pos + taken, quote, ""  # inside, quotes start afresh
         elif mark not in "()$":
             quote, pos = _quote_step(text, m, quote)
     return spans
