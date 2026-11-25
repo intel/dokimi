@@ -30,7 +30,7 @@ depend on the kind:
 | Kind | Fields |
 |---|---|
 | `command` | `text`; `rc` (integer, or `null` when no result came back); `rc_from: "success"` when Copilot reported a completion status without an exit code; `output` and `output_truncated` when the harness returned output; `searched` (a list of workspace paths) when a `grep`, `egrep`, `fgrep`, `rg` or `git grep` part of it named files and showed lines of them (see below) |
-| `read` | `path` (absent on a refused relative read whose file is not known); `rc` 0 or 1 when the harness reported one |
+| `read` | `path` (absent on a refused relative read whose file is not known; a relative path joined to the working directory the CLI started in loses its `.` components and repeated `/`, while an absolute path, or a relative one with no working directory known, is kept as written; a `..` always stays as written, since the name before it may be a link); `rc` 0 or 1 when the harness reported one |
 | `edit` | `path`; `rc`; `deleted` when the file was deleted |
 | `tool` | `name`; `skill` on a `Skill` call; `searched` (one path) on a Claude Code `Grep` call whose `path` is given and whose `output_mode` is `content` |
 | `probe` | `target`, `pattern`, `text`, `rc`: written by the runner after the `command` event it matched, never by a converter ([§4.1](repo-evaluation-contract.md#41-eventsjsonl)) |

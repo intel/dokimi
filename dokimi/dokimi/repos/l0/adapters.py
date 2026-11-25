@@ -500,6 +500,10 @@ _BZL_BINDING = re.compile(  # ``def f(``, or ``x = ...`` / ``x, y = ...``: each 
     r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*(?:,\s*)?=(?!=)", re.M)
 
 
+_BZL_TUPLE_BINDING = re.compile(  # ``(x, y) = ...`` or ``[x] = ...``: an ``=`` on the line, or after blank lines (#1120)
+    r"^[(\[][^\n]*(?:=|\n\s*=)(?!=)", re.M)
+
+
 def _bzl_public(text: str) -> tuple[set[str], bool]:
     """The public top-level names of a ``.bzl`` file (``def x(``, ``x = ...``, ``x, _y = ...``), and whether it also
     binds names in a form not read here (``(x, y) = ...``, ``[x] = ...``)."""
@@ -508,7 +512,7 @@ def _bzl_public(text: str) -> tuple[set[str], bool]:
     names: set[str] = set()
     for m in _BZL_BINDING.finditer(masked_text):
         names.update(n for n in re.split(r"\s*,\s*", m.group(1) or m.group(2)) if n and not n.startswith("_"))
-    return names, re.search(r"^[(\[][^\n]*\)?\]?\s*=(?!=)", masked_text, re.M) is not None
+    return names, _BZL_TUPLE_BINDING.search(masked_text) is not None
 
 
 def _load_strings(args: str) -> list[str]:

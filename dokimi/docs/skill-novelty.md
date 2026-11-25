@@ -3,6 +3,7 @@ depends_on:
   - dokimi/dokimi/novelty/**
   - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
+  - dokimi/dokimi/commands/novelty_flags.py
   - dokimi/dokimi/commands/novelty_routing*.py
   - dokimi/dokimi/gate/novelty_gate.py
   - dokimi/dokimi/schemas/novelty.v1.json
@@ -726,6 +727,8 @@ in the same way, so `The skill ships with numbers, doesn't it?` inverts `No numb
 the skill`; `Is it NOT the case that ...?` still counts as a negation. A reversal may run up to 15 words past the 2.5x length cap,
 the size of a leading frame such as `Isn't it true that ... NOT ..., but rather ...?`.
 
+The paraphrase polarity check reads a question the same way: an opening contracted negative auxiliary (`Doesn't`, `Isn't`, `Can't`, `Don't`, ...) and a closing tag are not counted on either side, so `Can't X be deterministic?` passes against `Is X deterministic?`. A sentence that does not end in `?` has no question phrasing, so the imperative `Don't install X as root.` keeps its negation and is `polarity_flipped` against `Should X be installed as root?`. A paraphrase that presumes the answer (`..., doesn't it?`, `Isn't it true that ...?`) while its source does not is rejected as `leading_question`, since a probe on it measures whether the model resists the presumption.
+
 Known gap: the paraphrase polarity check only asks whether a negation is present, so a
 faithful paraphrase that drops one (`Can you run X without root?` to `Is root required to
 run X?`) is rejected and counted in `malformed_rate`. The error inflates the rate; it never
@@ -1100,7 +1103,7 @@ totals have no variance, or when nothing is left to correlate against. Only atom
 cell scored are correlated (the rest are reported in `atoms_dropped`): counting a missing
 probe as a failure would manufacture a correlation, and leaving a one-cell atom in the rest
 score moved the shared atoms' totals and could flip their sign. The correlation itself
-lives in `eval/stats.py`, next to the other statistics, so the next caller finds it instead
+lives in `eval/correlation.py`, next to the other statistics, so the next caller finds it instead
 of writing its own.
 
 Read the output as a statement about the *measurement*, not the atom: a non-discriminating
@@ -1150,6 +1153,69 @@ python cli.py skill novelty analyze --artifact skill:s --model M \
   --placebo-text other-domain.md \
   --context-framing neutral
 ```
+
+### Test-retest noise of the headline score
+
+The noise floor above is per run: it is the flip rate of the baseline answers against themselves.
+It does not say how far the headline `k0` score of one skill moves when the whole pipeline runs
+again (extraction, sampling and judging all redrawn). For that, run the same items twice and
+compare:
+
+```bash
+# run 1: the usual sweep
+python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 0 --out-dir runs/a/$S ...
+# run 2: the retest, another seed, a fresh --cache-dir (the retention verdicts) and no response
+# cache: DOKIMI_RESPONSE_CACHE=0 (or unset) so that no answer is replayed
+DOKIMI_RESPONSE_CACHE=0 python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 2 \
+  --cache-dir runs/cache-retest --out-dir runs/b/$S ...
+# the floor, pairwise comparisons, no model calls
+python cli.py skill novelty retest --baseline runs/a --retest runs/b --out-dir runs/retest
+```
+
+`retest` pairs the baseline run and the retest by artifact ref and writes `retest.md` and `retest.json` (`novelty_retest.v1`). Its
+statistics are over `k0.lenient` by default (`--scoring strict` for the strict one):
+
+- **Noise floor** = 1.96 × the sample standard deviation of `second − first`. A difference
+  between two single-run scores smaller than the floor is not evidence of a difference.
+- **Pearson r** between the two runs, the **mean |diff|** and the **mean shift** (second −
+  first). A shift moves every item alike, so it does not reorder items, but it does move a
+  score against a score from another run.
+- **Comparisons below the floor**: pairs of items whose first-run scores differ by less than
+  the floor. They are listed in `retest.json`.
+
+Items that appear in one run only, have no usable score, or are partial runs are left out and
+named as warnings (the first five by ref, the rest counted). When both runs record an
+`artifact.ref_digest` and the digests differ, the runs measured different content. The ref is
+listed in `unscored` and excluded from the floor and all other retest statistics. Runs without
+a digest still pair by ref. A warning names the ref when only one run has a digest.
+If these exclusions leave no pairs, the command exits with `no item scored in both runs`.
+This also applies when all shared items have scores but were measured on different content.
+Warnings also name a retest that
+does not vary what it should:
+
+- the same seed, or another model;
+- another judge: `judge_model`;
+- calls served from the response cache: `cost.replayed_calls` above zero in either run. A
+  replayed answer is the baseline's answer again, so the floor shrinks toward zero;
+- a `run_config` that differs in any key other than `seed` (`max_atoms`, `arms`, `paraphrases`,
+  `tier`, `prompts_sha256`, ...). Such cells do not compare, and the floor inflates.
+
+The retention verdicts of `--cache-dir` are memoized on disk and are not counted in
+`replayed_calls`, so a retest must not reuse the baseline's `--cache-dir` either.
+
+A baseline or retest given as a directory is searched for files named `novelty.json`: a run saved
+under another name (for example `analyze --out-json foo.json`) is not read there, and the item
+shows up as unmatched. A file passed directly is read whatever its name. A run with no probed atom
+(`atoms.n_probed` 0) is left out as unscored.
+
+Below ten items the floor is a rough guide: `retest.md` and the stdout say so. With two items the
+spread has one degree of freedom.
+
+Corpus evidence (2026-11-09, 10 S2 skills, triage; the ten pairs are pinned as `S2_RETEST` in
+`tests/test_novelty_retest.py`): r = 0.86, mean |diff| 0.10, mean shift +0.067, floor about 0.21.
+26 of the 45 pairs of those ten skills are below that floor. Use at least two runs per item before
+reading a per-skill difference under 0.2. The retest costs one full run per item, so the cost is
+the sweep again; there is no default, because it is a choice of spend.
 
 ## Provenance, judge vendors, a second judge, reversal both ways
 
@@ -1259,6 +1325,69 @@ Such a check is at `info` severity, except `harmful_atoms` and `protection_invar
 A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
 Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.
+
+## Corpus sweep: `catalog novelty`
+
+`catalog novelty ROOT --out-dir DIR --max-usd USD` runs `skill novelty analyze` on every
+`SKILL.md` under ROOT and writes one row per skill to `--jsonl` (default `DIR/sweep.jsonl`) as
+each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
+`DIR/<skill>/novelty.json` and `novelty.md`. The calls are paid: `--max-usd` is required.
+
+- **Budget.** `--max-usd` is the whole-run budget, shared by the skills analysed at once
+  (`--jobs`, threads). `--max-usd-per-skill` caps one skill inside it; a skill that hits either
+  cap is a `partial` row with no novelty file, and the sweep goes on. Once the whole-run budget
+  is spent, no further skill starts: it is not in the JSONL, and the run says how many were not run.
+  A skill stopped by a call with no price or by a permanent provider error (see above, routing) stops the
+  sweep the same way, since every later skill would meet it on its first calls.
+  A run that leaves any skill it took on `partial`, `error` or not run exits 1 after it has written
+  its rows and the summary; a run that measured every one of them exits 0.
+- **Resume.** `--resume` keeps the `ok` rows whose skill directory digest, measurement settings
+  and dokimi version are unchanged, rewrites the JSONL with them and with the rows of skills this
+  run does not select (a narrower `--limit`), and runs the other skills. Set
+  `DOKIMI_RESPONSE_CACHE` so the calls already paid replay at $0. Without `--resume`, an existing
+  `--jsonl` is refused rather than overwritten. A `--resume` whose settings differ from those of an `ok` row of a
+  selected skill (or whose dokimi version does) is refused and names the fields, since rewriting the file would
+  delete that paid row before its rerun; pass `--rerun-changed` to measure those skills again on purpose.
+- **Settings.** The sweep takes the measurement flags it needs (`--model`, `--judge-model`,
+  `--tier`, `--max-atoms`, `--token-budgets`, `--arms`, `--include-resources`, ...); the rest keep their
+  `skill novelty analyze` defaults. `--judge2` and a judge panel (`--judge` more than once, `--judge-aggregate`) are not part of
+  the sweep, which refuses them: run them on one skill.
+- **Summary.** The first line of the summary is the share the model already knew without the
+  skill, `k0.lenient`, and the share it did not know (`1 - known`): the new-to-the-model share.
+  Each interval is a 95% percentile bootstrap over the skills (2000 resamples,
+  `--bootstrap-resamples`). `--strata CSV` adds one line per stratum: the CSV has a `skill`
+  column (the skill's directory under ROOT, or its name) and a stratum column (`--stratum-column`,
+  default `stratum`); a skill the CSV does not name is `(unassigned)`.
+- **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
+  sweep with no model call. `--summary-out FILE` also writes it as JSON. A file whose `ok`
+  rows were measured under different settings or dokimi versions (a `--resume --limit` with a changed
+  `--model`) is refused: one interval would pool two models' shares. An identical bundle (same
+  files, so the same digest) is counted once, by its last `ok` row, even if it was moved to another directory or
+  renamed. If differently named bundles with the same digest coexist in the catalog, each has a separate
+  measurement. The JSONL records a `bundle_instance` number for additional copies so `--summary-only` can
+  distinguish them without the catalog. Older rows without that evidence use instance zero. The spend
+  counts every paid row, including rows written before a rename.
+- **Identical copies.** Directories under ROOT whose files (`SKILL.md` and everything bundled with it) are
+  byte-identical and name the same skill (the frontmatter `name`, or the directory name when it has none)
+  are one skill: the shallowest path is kept, the other copies get no row and no call, and stderr names
+  them (not an error). Two directories with the same `SKILL.md` and different bundled files are two skills.
+- **Interrupt.** Ctrl-C or SIGTERM stops the sweep without new calls: the skills not yet started
+  are cancelled, the skills in flight finish and keep their rows, and the run exits nonzero (130
+  for SIGINT, 143 for SIGTERM). A SIGTERM therefore waits for the calls in flight. The rows already
+  written stay in the JSONL, so `--resume` continues from them. A second signal kills the subprocess calls in
+  flight (their paid work is lost, so set `DOKIMI_RESPONSE_CACHE` to replay what was done) and stops
+  at once. An API call in flight cannot be killed: its row is not written, and the process waits for it to end
+  before it exits, so its paid call is lost unless `DOKIMI_RESPONSE_CACHE` is set. No call after it starts.
+  A skill that is measured again (`--resume`) first loses its earlier `novelty.json` and `novelty.md`, so a
+  `partial` or `error` row never sits beside a file from an older run. `--summary-out` may not be the
+  `--jsonl` file, and neither `--out-dir` nor `--jsonl` may be inside a skill directory (its files
+  would change the skill's digest, so each `--resume` would measure it again).
+
+```bash
+dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \
+  --jobs 4 --model <answerer> --judge-model <judge> --strata strata.csv
+dokimi catalog novelty skills/ --out-dir out/sweep --summary-only
+```
 
 ## Cost, and how it is kept down
 

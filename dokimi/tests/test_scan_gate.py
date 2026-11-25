@@ -54,6 +54,13 @@ def test_a_bare_name_the_tree_lacks_is_unresolved_and_a_file_stem_is_found(tmp_p
     assert code == 1 and data["scan_config"]["identifiers_demoted"] == 2
 
 
+def test_a_namespace_qualified_name_the_tree_lacks_is_unresolved_like_a_bare_one(tmp_path, capsys):
+    _write(tmp_path, {"AGENTS.md": "Use `GoneNamespace::GoneClass`.\n", "src/a.py": "x = 1\n"})
+    code, doc = _scan(capsys, str(tmp_path), "--fail-on", "fail")
+    assert _status(doc["data"], "GoneNamespace::GoneClass") == "unresolved_identifier"
+    assert code == 0
+
+
 def test_the_repo_opts_back_in_and_ignores_its_own_names(tmp_path, capsys):
     _write(tmp_path, {**TREE, ".dokimi/scan.toml": 'identifiers = "fail"\n[[ignore]]\npattern = "mkl_*"\n'
                                                    'reason = "sibling package"\n'})

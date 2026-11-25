@@ -8,8 +8,10 @@ This is the registry of issue #94 §2.4 (stage F1a). A leaf adds a registry flag
 The contract test in ``tests/test_cli_flags.py`` runs in ratchet mode: a
 spelling that is neither canonical here nor on ``tests/data/cli_flags_allowlist.txt``
 fails the build, and so does a banned synonym whose concept has a canonical spelling,
-unless that spelling is on the allowlist. The check looks at spellings only: an option's
-type and action are not compared with ``kind``.
+unless that spelling is on the allowlist. The same test also compares every use of a canonical
+spelling with its registry row: switch or value (``kind``), metavar (``value``), choices and
+type (``int``, ``float`` and ``usd`` rows). ``meaning_clashes`` in ``tests/test_cli_flags.py`` says what is compared; a
+flag's repeatability is not compared.
 
 A concept is one row of the §2.4 audit. Its ``canonical`` spellings are the ones new
 commands use. ``banned`` lists the synonyms the audit found for it. A banned spelling
@@ -116,7 +118,7 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="context-framing",
         help="the context preamble a novelty measurement puts before the artifact",
-        canonical=(Flag("--context-framing", "reference|neutral", "text",
+        canonical=(Flag("--context-framing", "reference|neutral", "choice",
                         meaning="neutral says the text may be irrelevant (the placebo-abstention control)"),),
     ),
     Concept(
@@ -226,6 +228,14 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--run-id", "--run-ids", "--batch"),
     ),
     Concept(
+        name="retention",
+        help="which runs housekeeping removes and which it keeps",
+        canonical=(
+            Flag("--older-than", "AGE", "text", meaning="runs whose newest artifact is older than AGE (30d)"),
+            Flag("--keep-baselines", kind="flag", meaning="keep the runs a saved baseline holds"),
+        ),
+    ),
+    Concept(
         name="network",
         help="network policy, per phase",
         canonical=(Flag("--network", "[PHASE=]MODE[:hosts]", "text"),),
@@ -247,7 +257,8 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="timeout",
         help="time limits, per phase",
-        canonical=(Flag("--timeout", "[PHASE=]SEC", "text"),),
+        # F1b adds the phase prefix (#94 §2.4). Current repo leaves parse whole seconds.
+        canonical=(Flag("--timeout", "[PHASE=]SEC", "int"),),
         banned=("--grade-timeout", "--build-timeout"),
     ),
     Concept(
@@ -426,11 +437,11 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("arms", "run"), ("arms", "matrix-run"), ("subjects", "run"), ("tools", "preference"),
         ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
         ("skill", "novelty", "probe"), ("skill", "shorten"),
-        ("skill", "routing"), ("catalog", "routing"),
+        ("skill", "routing"), ("catalog", "routing"), ("catalog", "novelty"),
     )),
     FlagMove("--budgets", "--token-budgets", leaves=(
         ("skill", "novelty", "analyze"), ("skill", "novelty", "atoms"),
-        ("skill", "novelty", "probe"), ("skill", "shorten"),
+        ("skill", "novelty", "probe"), ("skill", "shorten"), ("catalog", "novelty"),
     )),
     # Reps concept (F1b): each old spelling counted the same thing on its one leaf, so the move
     # is limited to that leaf (elsewhere the hint would name a flag the command does not take).

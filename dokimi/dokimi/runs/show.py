@@ -54,12 +54,38 @@ class Shown:
     siblings_error: str | None = None
 
 
-def _pick(root: Path, address: str) -> Path:
+def pick(root: Path, address: str, follow_symlinks: bool = True) -> Path:
     """The path ``address`` is read as: the first of ``root/address`` and ``address`` (from the
-    working directory) that exists, else ``root/address``. Raises ``OSError`` as :func:`lookup`.
+    working directory) that exists, else ``root/address``; with ``follow_symlinks`` False a
+    symlink exists whatever its target. Raises ``OSError`` as :func:`lookup`.
     """
     candidates = [root / address, Path(address)]
-    return next((p for p in candidates if lookup(p)), candidates[0])
+    return next((p for p in candidates if lookup(p, follow_symlinks)), candidates[0])
+
+
+def contained(root: Path, address: str, follow_last: bool) -> tuple[Path, str, os.stat_result]:
+    """The path ``address`` names (:func:`pick`), the real path it is checked as, and its stat.
+
+    The real path must lie inside the resolved root: the whole path resolved, or with
+    ``follow_last`` False only its directories, so a final symlink is the entry itself (its
+    stat not followed). Raises ``InputError`` when it lies outside, is missing or cannot be
+    looked up.
+    """
+    real_root = os.path.realpath(root)
+    label, shown_root = plain(address), plain(root.as_posix())  # for messages only
+    try:  # lookup raises for a directory that cannot be searched, on every Python
+        path = pick(root, address, follow_symlinks=follow_last)
+        real = (os.path.realpath(path) if follow_last
+                else os.path.join(os.path.realpath(path.parent), path.name))
+        if not inside(real_root, real):
+            where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
+            raise InputError(f"{label} {where} the runs root {shown_root}/")
+        found = lookup(path if follow_last else real, follow_symlinks=follow_last)
+    except OSError as exc:
+        raise InputError(f"{label}: {read_error_reason(exc)}") from exc
+    if found is None:
+        raise InputError(f"no file {label} under the runs root {shown_root}/")
+    return path, real, found
 
 
 def resolve(root: Path, address: str) -> tuple[Path, Path]:
@@ -69,26 +95,16 @@ def resolve(root: Path, address: str) -> tuple[Path, Path]:
     working-directory path; once symlinks are resolved it must lie inside the resolved root, so
     nothing outside the root is read. Raises ``InputError`` otherwise.
     """
-    real_root = os.path.realpath(root)
-    label, shown_root = plain(address), plain(root.as_posix())  # for messages only
-    try:  # lookup raises for a directory that cannot be searched, on every Python
-        path = _pick(root, address)
-        if not inside(real_root, os.path.realpath(path)):
-            where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
-            raise InputError(f"{label} {where} the runs root {shown_root}/")
-        found = lookup(path)
-        if found is None:
-            raise InputError(f"no file {label} under the runs root {shown_root}/")
-        if stat.S_ISDIR(found.st_mode):
-            raise InputError(f"{label} is a directory; runs show takes one artifact file")
-        if not stat.S_ISREG(found.st_mode):
-            raise InputError(f"{label} is not a regular file")
-    except OSError as exc:
-        raise InputError(f"{label}: {read_error_reason(exc)}") from exc
+    path, real, found = contained(root, address, follow_last=True)
+    label = plain(address)
+    if stat.S_ISDIR(found.st_mode):
+        raise InputError(f"{label} is a directory; runs show takes one artifact file")
+    if not stat.S_ISREG(found.st_mode):
+        raise InputError(f"{label} is not a regular file")
     spelled, base = path.absolute(), root.absolute()  # not abspath: `link/..` must stay as opened
     if ".." not in spelled.parts + base.parts and inside(root, spelled):  # the name list prints
         return spelled, base
-    return Path(os.path.realpath(path)), Path(real_root)
+    return Path(real), Path(os.path.realpath(root))
 
 
 def _version(path: Path, address: str) -> str:
@@ -164,7 +180,7 @@ class ShownRun:
 def names_a_run(root: Path, address: str) -> bool:
     """Whether ``address`` may mean a run: a run id that names no file ``runs show`` could open.
 
-    It looks at the path :func:`resolve` would open (:func:`_pick`). An artifact file there,
+    It looks at the path :func:`resolve` would open (:func:`pick`). An artifact file there,
     inside the root, is shown instead of the run; so is a name that cannot be looked up or read,
     and a file that is not a regular one, so the path check names the reason. A directory (a
     run's own, say), a path outside the root, a missing one and a regular file that is not an
@@ -173,7 +189,7 @@ def names_a_run(root: Path, address: str) -> bool:
     if not is_run_id(address):
         return False
     try:
-        path = _pick(root, address)
+        path = pick(root, address)
         found = lookup(path)
         if not found or stat.S_ISDIR(found.st_mode):
             return True
@@ -186,21 +202,20 @@ def names_a_run(root: Path, address: str) -> bool:
         return False
 
 
-def show_target(root: Path, address: str) -> Shown | ShownRun:
+def find_run(root: Path, address: str) -> ShownRun | None:
     """The run ``address`` names when it is a run id that names no openable file and some
-    artifact under ``root`` has it; otherwise the artifact, as :func:`show` finds it.
+    artifact under ``root`` has it; ``None`` when ``address`` is to be read as a path.
 
-    Raises ``InputError`` as :func:`show` does, and when ``address`` names neither a run nor
-    anything on disk.
+    Raises ``InputError`` when ``address`` names neither a run nor anything on disk.
     """
     if not names_a_run(root, address):
-        return show(root, address)
+        return None
     result = scan(root)
     found = [a for a in result.artifacts if a.run_id == address]
     if found:
         return ShownRun(run_id=address, artifacts=found, unreadable=result.unreadable)
     if any(os.path.lexists(p) for p in (root / address, address)):
-        return show(root, address)  # a directory, a path outside the root: say which
+        return None  # a directory, a path outside the root: the path check says which
     shown_root = plain(root.as_posix())
     unlisted = next((u for u in result.unreadable if u.path == Path(".")), None)
     if unlisted:  # the scan saw nothing at all
@@ -211,3 +226,10 @@ def show_target(root: Path, address: str) -> Shown | ShownRun:
             if unread else "")
     raise InputError(f"no file {plain(address)} under the runs root {shown_root}/, "
                      f"and no artifact there has that run_id{note}")
+
+
+def show_target(root: Path, address: str) -> Shown | ShownRun:
+    """The run :func:`find_run` finds for ``address``; otherwise the artifact, as :func:`show`
+    finds it. Raises ``InputError`` as both do.
+    """
+    return find_run(root, address) or show(root, address)

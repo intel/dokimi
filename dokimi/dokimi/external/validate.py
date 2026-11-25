@@ -108,6 +108,7 @@ from .skill_format import FORMAT_AGENT_SKILL, FORMAT_OPENCODE, FORMAT_UNSUPPORTE
 from .script_checks import script_findings
 from .paths import _exists, _in_checkout, _inside, _resolved
 from .skill_markdown import QUOTE_MARK_RE, link_pieces, outside_fences
+from .upstream_codes import UPSTREAM_FINDING_CODES
 from .when_cues import when_clause_found
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -179,7 +180,7 @@ FINDING_CODES = (
     "script-lint",
     "script-syntax",
     "similar-skills-exist",
-)
+) + UPSTREAM_FINDING_CODES  # the codes of `catalog check --upstream`, in upstream_codes.py
 
 
 
