@@ -93,7 +93,7 @@ def test_docs_compare_reads_a_saved_snapshot_and_one_from_before_the_envelope(tm
            if k not in ("schema_version", *ENVELOPE_KEYS)}
     base.write_text(json.dumps({**old, "summary": {**old["summary"], "score": 0.0}}), encoding="utf-8")
 
-    assert _cli(monkeypatch, "docs", "compare", "--base", str(base), "--candidate", str(cand),
+    assert _cli(monkeypatch, "docs", "compare", "--baseline", str(base), "--candidate", str(cand),
                 "--out", str(tmp_path / "cmp.json"), "--out-md", str(tmp_path / "cmp.md")) == 0
     cmp = json.loads((tmp_path / "cmp.json").read_text(encoding="utf-8"))
     assert cmp["diff"]["score"] == old["summary"]["score"] > 0

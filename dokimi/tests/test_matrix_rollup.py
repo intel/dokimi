@@ -155,7 +155,7 @@ def test_arms_matrix_run_parser_accepts_required_args():
         "oneTBB",
         "--questions",
         "questions.json",
-        "--arms",
+        "--arm",
         "baseline,docs",
         "--matrix-cells",
         "matrix.json",
@@ -196,7 +196,7 @@ def test_arms_matrix_run_rejects_sanitized_cell_name_collisions(tmp_path: Path):
         "oneTBB",
         "--questions",
         str(questions),
-        "--arms",
+        "--arm",
         "baseline",
         "--matrix-cells",
         str(matrix),
@@ -235,7 +235,7 @@ def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
         "oneTBB",
         "--questions",
         str(questions),
-        "--arms",
+        "--arm",
         "baseline",
         "--matrix-cells",
         str(matrix),
@@ -272,7 +272,7 @@ def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
         "oneTBB",
         "--questions",
         str(questions),
-        "--arms",
+        "--arm",
         "baseline",
         "--matrix-cells",
         str(matrix),
@@ -311,7 +311,7 @@ def test_arms_matrix_run_keeps_cell_artifacts_away_from_generated_names(tmp_path
         "oneTBB",
         "--questions",
         str(questions),
-        "--arms",
+        "--arm",
         "baseline",
         "--matrix-cells",
         str(matrix),
@@ -368,7 +368,7 @@ def test_arms_matrix_run_writes_cells_rollup_and_plugin_delta(tmp_path: Path, mo
         "oneTBB",
         "--questions",
         str(questions),
-        "--arms",
+        "--arm",
         "baseline",
         "--matrix-cells",
         str(matrix),
@@ -415,7 +415,7 @@ def test_arms_run_refuses_a_non_string_non_integer_id_before_any_call(monkeypatc
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "a", "text": "x"}, {"id": bad, "text": "y"}]))
     out = tmp_path / "o.json"
-    args = build_parser().parse_args(["arms", "run", "--product", "x", "--arms", "baseline",
+    args = build_parser().parse_args(["arms", "run", "--product", "x", "--arm", "baseline",
                                       "--questions", str(questions), "--out", str(out)])
     with refusal() as exc:
         args.func(args)

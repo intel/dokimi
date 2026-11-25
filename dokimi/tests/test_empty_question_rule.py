@@ -188,7 +188,7 @@ def test_arms_run_refuses_a_blank_question_before_any_answer_is_paid_for(tmp_pat
     monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
     out = tmp_path / "arms.json"
     monkeypatch.setattr(sys, "argv", ["dokimi", "arms", "run", "--product", "lib", "--questions", str(questions),
-                                      "--arms", "baseline", "--judge", "--out", str(out)])
+                                      "--arm", "baseline", "--judge", "--out", str(out)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     err = capsys.readouterr().err
@@ -213,7 +213,7 @@ def test_matrix_run_reports_a_blank_question_as_bad_input_not_a_failed_cell(tmp_
     monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
     out = tmp_path / "mx"
     monkeypatch.setattr(sys, "argv", ["dokimi", "arms", "matrix-run", "--product", "lib", "--questions", str(questions),
-                                      "--arms", "baseline", "--matrix-cells", str(cells), "--judge",
+                                      "--arm", "baseline", "--matrix-cells", str(cells), "--judge",
                                       "--out-dir", str(out)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
