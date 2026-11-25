@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.host import host_facts, match_report, match_summary, probe_host as real_probe_host
+from dokimi.repos.host import host_facts, log_labelled, match_report, match_summary, probe_host as real_probe_host
 from dokimi.repos.host_fingerprint import Probe
 from dokimi.process import FakeRunner as HostFakeRunner
 from dokimi.process import reply
@@ -94,6 +94,19 @@ def test_one_unmet_and_one_undecided_field_is_a_miss():
     report = match_report(_task({"min_cpus": 4, "cpu_flags": ["avx2"]}), facts)
     assert [f["met"] for f in report["fields"]] == [False, None]
     assert report["met"] is False
+
+
+def test_a_host_the_probe_could_not_judge_is_logged_as_labelled_and_a_met_host_is_not():
+    intel = host_facts(_probe_out(affinity=8, cpuinfo=INTEL_CPUINFO))
+    met = match_report(_task({"min_cpus": 4}), intel)
+    undecided = match_report(_task({"min_cpus": 4}), {"error": "host probe exited 127"})
+    missed = match_report(_task({"min_cpus": 16}), intel)
+    lines: list[str] = []
+    log_labelled({"met": met, "undecided": undecided, "missed": missed}, lines.append)
+    assert lines == [
+        f"undecided: host {undecided['fingerprint']} is labelled, not blocked: min_cpus unknown",
+        f"missed: host {missed['fingerprint']} is labelled, not blocked: min_cpus missing",
+    ]
 
 
 # ------------------------------------------------------------------ the four host scenarios
