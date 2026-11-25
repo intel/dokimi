@@ -598,6 +598,7 @@ class _PhaseSeconds(argparse.Action):
                  option_string: str | None = None) -> None:
         phase, seconds = values
         setattr(namespace, _TIMEOUT_DEST[phase], seconds)
+        namespace.timeout_set = True
 
 
 def _timeout_flag(p: argparse.ArgumentParser, phases: tuple[str, ...], positive_int) -> None:
@@ -700,8 +701,8 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     schema_refused = tuple((a.option_strings[0], a.dest, a.default) for a in check_p._actions
                            if a.option_strings and a.dest not in schema_kept
                            and not isinstance(a, argparse._HelpAction))
-    # `--timeout build=` and `verify=` set these two dests, which have no action of their own
-    schema_refused += tuple(("--timeout", d, check_p.get_default(d)) for d in ("build_timeout", "grade_timeout"))
+    # Refuse explicit `--timeout` values even when they equal the phase defaults.
+    schema_refused += (("--timeout", "timeout_set", False),)
     check_p.set_defaults(func=cmd_eval_check, emits_cli_output=True, cli_kind="eval check",
                          schema_refused=schema_refused)
 

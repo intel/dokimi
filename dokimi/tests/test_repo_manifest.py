@@ -558,7 +558,11 @@ def test_repo_validate_json_is_the_report(tmp_path, capsys):
 def test_schema_only_refuses_the_self_check_options(tmp_path, capsys):
     root = _repo(tmp_path)
     argv = ["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
-    for extra in (["--task", "t1"], ["--suite", "s.yaml"], ["--concurrency", "2"], ["--image", "img"]):
+    for extra in (
+        ["--task", "t1"], ["--suite", "s.yaml"], ["--concurrency", "2"], ["--image", "img"],
+        ["--timeout", "build=5"], ["--timeout", "verify=60"],
+        ["--timeout", "build=10800"], ["--timeout", "verify=3600"],
+    ):
         with refusal() as exc:
             _run_cli([*argv, *extra])
         assert exc.code == 2, extra
