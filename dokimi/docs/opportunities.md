@@ -31,6 +31,9 @@ Each path is detected by its content:
 | `catalog_eval.v1` | `catalog eval --out-dir` (`catalog.json`) | error and warning findings, one item per skill and code |
 | `judge_validity.v1` | judge validity | a judge that fails or cannot settle its gate |
 | any other text | an `llms.txt` file | the static llms.txt checks (title, summary, when to use, when not to use, link descriptions, size) |
+For repo_static inputs, report paths distinguish findings by default. Use
+`--repository OWNER/REPO` to preserve finding identity across snapshots of
+one repository.
 
 A file that is none of these, or a `.json` file that does not parse, is an input error.
 

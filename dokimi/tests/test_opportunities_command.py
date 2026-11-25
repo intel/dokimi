@@ -148,3 +148,10 @@ def test_incomplete_novelty_is_an_input_error(tmp_path, paired):
     path.write_text(json.dumps({**NOVELTY, "paired": paired}), encoding="utf-8")
     with pytest.raises(InputError, match=r"evidence\.json: novelty.*(object|required)"):
         cmd.build([str(path)])
+
+
+def test_input_with_unpaired_unicode_surrogate_names_the_path(tmp_path):
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps({**NOVELTY, "model": "\ud800"}), encoding="utf-8")
+    with pytest.raises(InputError, match="evidence.json: JSON contains an unpaired Unicode surrogate"):
+        cmd.build([str(path)])
