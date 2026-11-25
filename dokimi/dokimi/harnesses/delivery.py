@@ -271,16 +271,38 @@ def collect(
     return observations
 
 
-def run(args: argparse.Namespace) -> dict:
-    manifest, manifest_id = document(args.manifest)
-    catalog, catalog_id = document(args.tasks)
-    profile = manifest["profile"]
+def _profile_tasks(catalog: dict, profile: str) -> dict:
     definitions = catalog["tasks"]
     if not isinstance(definitions, dict):
         raise InputError("catalog tasks must be an object")
     if not all(isinstance(task, dict) for task in definitions.values()):
         raise InputError("catalog task definitions must be objects")
-    tasks = {name: task for name, task in definitions.items() if task["profile"] == profile}
+    return {name: task for name, task in definitions.items() if task["profile"] == profile}
+
+
+def _scan_weights(catalog: dict, profile: str, tasks: dict, repeats: int) -> dict:
+    weights_by_profile = catalog["weights"]
+    if not isinstance(weights_by_profile, dict):
+        raise InputError("catalog weights must be an object")
+    weights = weights_by_profile[profile]
+    if not isinstance(weights, dict):
+        raise InputError(f"scan weights for {profile} must be an object")
+    if (
+        not tasks
+        or set(weights) != {t["group"] for t in tasks.values()}
+        or type(repeats) is not int
+        or repeats < 1
+        or any(type(w) not in (int, float) or w <= 0 or not math.isfinite(w) for w in weights.values())
+    ):
+        raise InputError("scan needs positive weights, applicable groups and at least one repeat")
+    return weights
+
+
+def run(args: argparse.Namespace) -> dict:
+    manifest, manifest_id = document(args.manifest)
+    catalog, catalog_id = document(args.tasks)
+    profile = manifest["profile"]
+    tasks = _profile_tasks(catalog, profile)
     identity = {
         "manifest": manifest_id,
         "artifact": manifest["artifact"]["sha256"],
@@ -320,22 +342,7 @@ def run(args: argparse.Namespace) -> dict:
         ):
             raise InputError("corpus sources need a URL and capture time")
         required, repeats, arms = list(tasks), catalog["repeats"], ["A", "B"]
-        weights_by_profile = catalog["weights"]
-        if not isinstance(weights_by_profile, dict):
-            raise InputError("catalog weights must be an object")
-        weights = weights_by_profile[profile]
-        if not isinstance(weights, dict):
-            raise InputError(f"scan weights for {profile} must be an object")
-        if (
-            not tasks
-            or set(weights) != {t["group"] for t in tasks.values()}
-            or type(repeats) is not int
-            or repeats < 1
-            or any(type(w) not in (int, float) or w <= 0 or not math.isfinite(w) for w in weights.values())
-        ):
-            raise InputError(
-                "scan needs positive weights, applicable groups and at least one repeat"
-            )
+        weights = _scan_weights(catalog, profile, tasks, repeats)
     mismatch = release and any(
         spec[field] != value
         for field, value in (
