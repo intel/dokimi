@@ -114,6 +114,15 @@ def test_code_span_across_a_soft_break_keeps_a_comment_literal():
     assert not _checks(text)
 
 
+def test_multiline_code_label_keeps_its_text_and_the_link_position():
+    text = GOOD.replace(
+        '[Quickstart](https://acme.test/quickstart.md): first charge in five minutes',
+        '[`example\n  <!--`](/guide)',
+    )
+    line = next(i for i, value in enumerate(text.split('\n'), 1) if '[`example' in value)
+    assert [(f.line, f.identity) for f in llms_txt.check(text)] == [(line, '`example\n<!--`|/guide')]
+
+
 def test_reference_links_resolve_their_definition_after_use():
     text = GOOD.replace(
         '[Quickstart](https://acme.test/quickstart.md): first charge in five minutes',

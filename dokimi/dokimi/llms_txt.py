@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_block import StateBlock, html_block
 from markdown_it.rules_inline import StateInline, link
 from markdown_it.token import Token
 
@@ -80,20 +81,33 @@ def _section_findings(lines: list[str]) -> list[Finding]:
 
 
 def _mark_link(state: StateInline, silent: bool) -> bool:
-    """Keep the source offsets and label of each parsed Markdown link."""
+    """Keep the source offsets, label, and destination of each parsed Markdown link."""
     start, first = state.pos, len(state.tokens)
     if not link(state, silent):
         return False
     if not silent:
         opening = next(token for token in state.tokens[first:] if token.type == "link_open")
         label_end = state.md.helpers.parseLinkLabel(state, start, True)
+        target = opening.attrGet("href")
+        if target and "label" not in opening.meta:
+            destination = label_end + 2  # Skip `](` and optional whitespace.
+            while state.src[destination] in " \t\n":
+                destination += 1
+            parsed = state.md.helpers.parseLinkDestination(state.src, destination, state.pos)
+            target = state.src[destination:parsed.pos]
         state.tokens[-1].meta["llms_txt_link"] = (
-            start, state.pos, state.src[start + 1:label_end], opening.attrGet("href"),
+            start, state.pos, state.src[start + 1:label_end], target,
         )
     return True
 
 
-_LINK_PARSER = MarkdownIt("commonmark")
+def _html_outside_code(state: StateBlock, start: int, end: int, silent: bool) -> bool:
+    # A block opener across a soft break can occur inside a code span.
+    return start not in state.env["llms_txt_code_lines"] and html_block(state, start, end, silent)
+
+
+_LINK_PARSER = MarkdownIt("commonmark", {"store_labels": True})
+_LINK_PARSER.block.ruler.at("html_block", _html_outside_code, {"alt": ["paragraph", "reference", "blockquote"]})
 _LINK_PARSER.inline.ruler.at("link", _mark_link)
 
 
@@ -112,9 +126,9 @@ def _inline_links(token: Token, in_list: bool) -> Iterator[tuple[int, str, str, 
             yield line, title, target, in_list and _DESCRIPTION.match(token.content, end) is None
 
 
-def _links(text: str) -> Iterator[tuple[int, str, str, bool]]:
+def _links(text: str, code_lines: set[int]) -> Iterator[tuple[int, str, str, bool]]:
     lists = 0
-    for token in _LINK_PARSER.parse(text):
+    for token in _LINK_PARSER.parse(text, {"llms_txt_code_lines": code_lines}):
         if token.type in {"bullet_list_open", "ordered_list_open"}:
             lists += 1
         elif token.type in {"bullet_list_close", "ordered_list_close"}:
@@ -123,8 +137,8 @@ def _links(text: str) -> Iterator[tuple[int, str, str, bool]]:
             yield from _inline_links(token, lists > 0)
 
 
-def _link_findings(text: str) -> list[Finding]:
-    links = list(_links(text))
+def _link_findings(text: str, code_lines: set[int]) -> list[Finding]:
+    links = list(_links(text, code_lines))
     if not links:
         return [Finding("links", "fail", 0, "no Markdown links to the documentation",
                         "List key pages as `- [Title](url): one-line description`.")]
@@ -147,7 +161,7 @@ class _InlineText:
         self.comment = text.find("<!--")
         self.in_comment = False
 
-    def _code(self, pos: int, end: int, parts: list[str]) -> int:
+    def _code(self, pos: int, end: int, parts: list[str], keep_code: bool) -> int:
         span = self.span
         assert span is not None
         if span.start() >= pos:
@@ -159,10 +173,11 @@ class _InlineText:
                 self.span = self.scanner.find(span.body_begin)
                 return span.body_begin
             parts.append(self.text[pos:span.start()])
-        parts.append("x")  # Code is visible prose but cannot introduce Markdown syntax.
-        return min(span.end(), end)
+        stop = min(span.end(), end)
+        parts.append(self.text[max(pos, span.start()):stop] if keep_code else "x")
+        return stop
 
-    def visible(self, pos: int, end: int) -> str:
+    def visible(self, pos: int, end: int, *, keep_code: bool) -> str:
         parts = []
         while pos < end:
             if self.in_comment:
@@ -183,20 +198,21 @@ class _InlineText:
                 self.in_comment = True
                 pos = self.comment + 4
             elif self.span and self.span.start() < end:
-                pos = self._code(pos, end, parts)
+                pos = self._code(pos, end, parts, keep_code)
             else:
                 parts.append(self.text[pos:end])
                 break
         return "".join(parts)
 
 
-def _structure_lines(text: str) -> list[str]:
+def _structure_lines(text: str, *, keep_code: bool = False) -> tuple[list[str], set[int]]:
     """Skip fenced examples and retain physical line numbers for diagnostics."""
     text = text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     inline = _InlineText(text)
     fence = ""
     start = 0
     lines = []
+    code_lines: set[int] = set()
     for line in text.split("\n"):
         end = start + len(line)
         marker = _FENCE.match(line)
@@ -209,15 +225,18 @@ def _structure_lines(text: str) -> list[str]:
             fence = marker[1]
             lines.append("")
         else:
-            lines.append(inline.visible(start, end))
+            if keep_code and inline.span and inline.span.start() < start < inline.span.end():
+                code_lines.add(len(lines))
+            lines.append(inline.visible(start, end, keep_code=keep_code))
         start = end + 1
-    return lines
+    return lines, code_lines
 
 
 def check(text: str, *, token_budget: int = TOKEN_BUDGET) -> list[Finding]:
     """Every finding for one llms.txt text, in check order; empty when it passes."""
-    lines = _structure_lines(text)
-    found = _title_findings(lines) + _section_findings(lines) + _link_findings("\n".join(lines))
+    lines, _ = _structure_lines(text)
+    links, code_lines = _structure_lines(text, keep_code=True)
+    found = _title_findings(lines) + _section_findings(lines) + _link_findings("\n".join(links), code_lines)
     tokens = estimate_tokens(text)
     if tokens > token_budget:
         found.append(Finding("size", "warn", 0, f"~{tokens} tokens, over {token_budget}",
