@@ -22,17 +22,19 @@ SPDX-License-Identifier: Apache-2.0
   20`, `1 of 20` are none), after the label's `:` or `=` only spaces and punctuation may come
   before the number, on that line or the next ones, so a word there ends the label (`reward: n/a
   latency: 0.5` is none; `reward: n/a`, then `latency: .5`, then `reward: 1` is 1.0; `Reward:`
-  then `0.75` is 0.75, and a label alone on its line takes the next: `Final score` then `0.75` is
-  0.75), while before it anything on the label's line may stand (`| reward | 0.5 |`, `score,
-  normalized: 0.8`); a sign or point starts it only after a gap (`.5e-1` is 0.05, `v.5` and `..5`
-  are none, `reward...0.5` is 0.5), and the first such number between 0 and 1 is the reward
-  (`score: 75` then `reward: 0.75` is 0.75). A link is followed in the container (`docker cp -L`),
-  and a dangling one counts as no `reward.json`. A `command:` harness takes a `reward.json`'s
-  reward by the same rule, and still reads any `reward.txt` under its run dir first:
-  `{"group_score": 0.2, "reward": 0.9}` is 0.9 (it was 0.2, the first labelled number), and a bare
-  `0.5`, or several keys without `reward`, now errors the cell (`no verdict: exit N, reward file
-  has no reward`) where it scored 0.5 or the first labelled number; write `{"reward": x}`. A
-  directory named `reward.txt` or `reward.json` under its run dir is such a file with no reward,
-  where it raised `IsADirectoryError`. A Harbor-backed cell whose trial `result.json` has one
-  reward under another name (`"rewards": {"accuracy": 0.5}`) now scores it, as Harbor does,
-  instead of erroring. See `docs/coding-harnesses.md`.
+  then `0.75` is 0.75, and a label at the end of its line (only spaces or punctuation after it)
+  takes the number that starts the next non-blank line, after any punctuation: `Final score` then
+  `0.75` is 0.75, `| reward |` then `| 0.5 |` is 0.5, `reward (final)` then `0.7` is none), while
+  before it anything on the label's line may stand (`| reward | 0.5 |`, `score, normalized: 0.8`);
+  a sign or point starts it only after a gap (`.5e-1` is 0.05, `v.5` and `..5` are none,
+  `reward...0.5` is 0.5), and the first such number between 0 and 1 is the reward (`score: 75`
+  then `reward: 0.75` is 0.75). A link is followed in the container (`docker cp -L`), and a
+  dangling one counts as no `reward.json`. A `command:` harness takes a `reward.json`'s reward by
+  the same rule, and still reads any `reward.txt` under its run dir first: `{"group_score": 0.2,
+  "reward": 0.9}` is 0.9 (it was 0.2, the first labelled number), and a bare `0.5`, or several
+  keys without `reward`, now errors the cell (`no verdict: exit N, reward file has no reward`)
+  where it scored 0.5 or the first labelled number; write `{"reward": x}`. A directory named
+  `reward.txt` or `reward.json` under its run dir is such a file with no reward, where it raised
+  `IsADirectoryError`. A Harbor-backed cell whose trial `result.json` has one reward under another
+  name (`"rewards": {"accuracy": 0.5}`) now scores it, as Harbor does, instead of erroring. See
+  `docs/coding-harnesses.md`.
