@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi.mcp.utils import write_cache_text
 from dokimi.repos import batch_ledger
 
@@ -94,6 +96,25 @@ def test_a_ledger_write_replaces_a_link_that_loops_back_to_itself(tmp_path):
     batch_ledger.write_json(ledger, {"x": 1})
 
     assert not ledger.is_symlink() and json.loads(ledger.read_text(encoding="utf-8")) == {"x": 1}
+
+
+def test_an_atomic_write_whose_stat_fails_for_another_reason_raises_and_keeps_the_file(tmp_path, monkeypatch):
+    target = tmp_path / "spend.json"
+    target.write_text("old", encoding="utf-8")
+    real_stat = Path.stat
+
+    def stat(self, *args, **kwargs):
+        if self == target:
+            raise OSError(errno.EIO, "Input/output error")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    with pytest.raises(OSError) as raised:
+        write_text_atomic(target, "new")
+
+    assert raised.value.errno == errno.EIO
+    assert target.read_text(encoding="utf-8") == "old"
+    assert [p.name for p in tmp_path.iterdir()] == ["spend.json"]
 
 
 def test_a_failed_ledger_write_leaves_the_old_file_and_no_tmp(tmp_path, monkeypatch):
