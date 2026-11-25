@@ -15,6 +15,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
@@ -57,11 +58,12 @@ def _rows(path: Path) -> list[Any]:
     return rows
 
 
-def _text(value: Any) -> str:
-    """A field as text. A string or a number is kept (label 0 is a label); a boolean, a list or an
-    object is no value, so it reads as a missing field."""
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+def _text(value: Any, *, field: str, path: Path, number: int) -> str:
+    if value is None:
         return ""
+    if (isinstance(value, bool) or not isinstance(value, (str, int, float))
+            or (isinstance(value, float) and not math.isfinite(value))):
+        raise InputError(f"{path}: row {number}: {field} must be a string or finite number")
     return str(value).strip()
 
 
@@ -74,10 +76,10 @@ def load_atom_labels(path: str | Path) -> dict[tuple[str, str], str]:
         raise InputError(f"{path}: no label rows")
     labels: dict[tuple[str, str], str] = {}
     for number, row in enumerate(rows, 1):
-        values = [_text(row.get(f)) for f in FIELDS]
+        values = [_text(row.get(f), field=f, path=path, number=number) for f in FIELDS]
         if not all(values):
             raise InputError(f"{path}: row {number} needs non-empty {', '.join(FIELDS)}")
-        if values[2] in RESERVED:
+        if values[2].casefold() in RESERVED:
             raise InputError(f"{path}: row {number}: label {values[2]!r} is reserved for the view's own "
                              f"buckets ({', '.join(sorted(RESERVED))}); use another label")
         key = (skill_name(values[0]), values[1])
@@ -145,6 +147,8 @@ def format_shares(shares: dict) -> str:
              "(over atoms with a category; uncat. have none)", head]
 
     def row(name: str, b: dict) -> str:
+        if not name.isprintable():
+            name = repr(name)
         pct = lambda v: "-" if v is None else f"{100 * v:.1f}"  # noqa: E731
         return (f"{name:<20} {b['atoms']:>6} {b['known']:>6} {b['new']:>6} {b['other']:>6} "
                 f"{b['uncategorised']:>6} {pct(b['known_share']):>7} {pct(b['new_share']):>7}")

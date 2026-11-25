@@ -174,7 +174,7 @@ def test_a_csv_the_parser_refuses_exits_2_without_a_traceback(tmp_path):
     assert "Traceback" not in out.err
 
 
-@pytest.mark.parametrize("name", ["all", "unlabelled", " all "])
+@pytest.mark.parametrize("name", ["all", "unlabelled", " all ", "ALL", "Unlabelled"])
 def test_a_label_named_like_a_view_bucket_is_refused(tmp_path, name):
     path = tmp_path / "labels.jsonl"
     path.write_text(json.dumps({"skill": "s", "atom_id": "a1", "label": name}) + "\n", encoding="utf-8")
@@ -214,10 +214,10 @@ def test_label_zero_is_a_label_not_a_missing_one(tmp_path):
 def test_a_json_boolean_list_or_object_is_no_label_or_key_value(tmp_path, value):
     path = tmp_path / "labels.jsonl"
     path.write_text(f'{{"skill": "s", "atom_id": "a1", "label": {value}}}\n', encoding="utf-8")
-    with pytest.raises(InputError, match="needs non-empty"):
+    with pytest.raises(InputError, match="label must be a string or finite number"):
         load_atom_labels(path)
     path.write_text(f'{{"skill": {value}, "atom_id": "a1", "label": "x"}}\n', encoding="utf-8")
-    with pytest.raises(InputError, match="needs non-empty"):
+    with pytest.raises(InputError, match="skill must be a string or finite number"):
         load_atom_labels(path)
 
 
@@ -255,3 +255,19 @@ def test_an_empty_atom_labels_flag_is_refused_not_ignored(capsys):
                               format="html", out=None)
     with pytest.raises(InputError, match="--atom-labels needs a file path"):
         cmd_novelty_view(args)
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e400"])
+def test_nonfinite_json_label_is_refused(tmp_path, value):
+    path = tmp_path / "labels.jsonl"
+    path.write_text(f'{{"skill":"s","atom_id":"a","label":{value}}}\n', encoding="utf-8")
+    with pytest.raises(InputError, match="label must be a string or finite number"):
+        load_atom_labels(path)
+
+
+def test_table_escapes_line_breaks_inside_labels():
+    from dokimi.novelty.atom_labels import format_shares
+
+    labels = {(REF.removeprefix("skill:"), "a1"): "two\nlines\u2028here"}
+    output = format_shares(label_shares(_rows(), REF, labels))
+    assert any(r"two\nlines\u2028here" in line for line in output.splitlines())
