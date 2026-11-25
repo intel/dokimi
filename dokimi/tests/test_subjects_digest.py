@@ -116,9 +116,10 @@ def test_a_ref_that_is_no_path_and_holds_a_lone_surrogate_is_digested(tmp_path: 
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
-def test_a_question_value_with_a_lone_surrogate_is_digested():
-    digest = _digest_values(("q\udcff",))
-    assert digest.startswith("sha256:") and digest != _digest_values(("q\udcfe",))
+# Test-narrowed: test_a_question_value_with_a_lone_surrogate_is_digested now asserts None: a missing file has no digest, the name is not hashed.
+def test_a_question_value_with_a_lone_surrogate_that_is_no_file_stays_unresolved():
+    # a name the cwd does not show is no identity, so the digest is None and the name is not hashed
+    assert _digest_values(("q\udcff",), require_files=True) is None
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
@@ -177,9 +178,8 @@ def test_a_file_ref_digest_is_the_sha256_of_its_content(tmp_path: Path):
     assert _digest_ref("SKILL.md", base=tmp_path) == "sha256:" + hashlib.sha256(b"body\n").hexdigest()
 
 
-def test_a_value_naming_no_file_is_tagged_as_text(tmp_path: Path):
-    assert _digest_values((str(tmp_path / "nope"),)) == "sha256:" + hashlib.sha256(
-        hashlib.sha256(str(tmp_path / "nope").encode()).digest() + b"t").hexdigest()
+def test_a_value_naming_no_file_leaves_the_digest_unresolved(tmp_path: Path):
+    assert _digest_values((str(tmp_path / "nope"),), require_files=True) is None
 
 
 def test_a_value_naming_a_file_is_tagged_with_the_digest_of_its_content(tmp_path: Path):
@@ -247,9 +247,8 @@ def test_rewriting_a_file_changes_its_digest(digest, tmp_path: Path):
 
 @pytest.mark.parametrize("digest", [
     lambda text, base: _digest_ref(text, base=base),
-    lambda text, base: _digest_values((text,)),
     lambda text, base: _digest_arm_spec(f"skill:./{text}", base=base),
-], ids=["ref", "values", "arm_spec"])
+], ids=["ref", "arm_spec"])
 def test_a_high_surrogate_is_digested_and_told_apart(digest, tmp_path: Path):
     # #795: a JSON "\ud800" escape has no surrogateescape byte form, so os.fsencode raised UnicodeEncodeError.
     first = digest("n\ud800", tmp_path)

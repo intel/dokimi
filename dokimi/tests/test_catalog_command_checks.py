@@ -716,6 +716,21 @@ def test_fullwidth_separator_ends_a_command_in_every_reading(command, packages):
     assert _unpinned_in_readings(command, False) == packages
 
 
+def test_a_fullwidth_semicolon_inside_an_index_url_does_not_drop_the_packages_after_it():
+    """#960: the folded reading ends the command at the ``；`` of the URL; ``requests`` is still an argument."""
+    from dokimi.external.command_checks import _unpinned_in_readings
+
+    text = "pip install flask --index-url https://example.com/\uff1bsimple requests"
+    assert _unpinned_in_readings(text, False) == ["pip flask", "pip requests"]
+
+
+def test_a_pinned_install_ended_by_a_fullwidth_semicolon_is_not_unpinned():
+    """#960: the letters reading sees ``requests`` unpinned; the full fold pins it and ends the command at ``；``."""
+    from dokimi.external.command_checks import _unpinned_in_readings
+
+    assert _unpinned_in_readings("\uff50\uff49\uff50 install requests\uff1d\uff1d2.31.0\uff1b", False) == []
+
+
 def test_install_pinned_only_in_the_folded_reading_is_not_unpinned():
     """#960: Cyrillic `і` and fullwidth `＝＝`: the letters reading finds `requests` unpinned, the full fold pins it."""
     from dokimi.external.command_checks import _unpinned_in_readings
