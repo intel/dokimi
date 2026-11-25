@@ -86,7 +86,8 @@ CONCEPTS: tuple[Concept, ...] = (
         help="the model a role runs on: judge, extractor, escalation, fill, RAGAS",
         canonical=(
             Flag("--judge", "PROVIDER/MODEL", _MODEL_REF, repeatable=True,
-                 meaning="the judge; repeated, it is a panel"),
+                 meaning="the judge; repeated, it is a panel on the commands that take several (novelty, catalog, "
+                         "eval judge agreement); elsewhere a repeat replaces the earlier one"),
             Flag("--judge-aggregate", "{median,majority,unanimous}", "choice",
                  meaning="how a judge panel's verdicts become one"),
             Flag("--extract-model", "PROVIDER/MODEL", _MODEL_REF),
