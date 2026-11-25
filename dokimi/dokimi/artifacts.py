@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi._version import __version__
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
 from dokimi.process_io import json_utf8_bytes
 from dokimi.utils import InputError, read_json_input
 
@@ -86,6 +87,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "effective_instructions": "effective_instructions.v1",
     "task_inspect": "task_inspect.v1",
     "headroom": "headroom.v1",
+    "opportunities": "opportunities.v1",
     "redteam": "redteam.v1",
     "leak": "leak.v1",
     "cli_routes": "cli_routes.v1",
@@ -301,10 +303,20 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       (``cli.main`` refuses it before a command runs): nothing is written at ``path`` and the payload
       is kept at ``<name>.rejected`` the same way. ``KeyError`` means ``kind`` is not registered in
       :data:`SCHEMA_VERSIONS`.
-    - The write is atomic (a ``<name>.<pid>.<thread>.tmp`` sibling, then ``os.replace``), so a
+    - A new or plain file is written atomically (a random-named ``.tmp`` sibling, then
+      ``os.replace``, through :func:`~dokimi.atomic_write.write_bytes_in_place_or_atomic`), so a
       reader or a crash never sees half a file, and concurrent saves to one path (threads or
-      processes) each publish one whole payload; the last one wins. A failed write removes its
-      tmp file. Missing parent directories of ``path`` are created.
+      processes) each publish one whole payload; the last one wins. A failed write removes its tmp
+      file. A file that was there keeps its mode and, where the user may give it, its group; a new
+      file gets the umask mode; a read-only file in a writable directory is replaced by rename, as
+      before, and now stays read-only (it was left with the umask mode), also when it has another
+      hard link, a ``user.*`` attribute, an ACL or another owner, which the new file does not
+      keep. A writable hard-linked or other special file, or any file in a read-only
+      directory, is not published by rename: it is written in place, as ``Path.write_bytes`` writes
+      it, so a reader can see it truncated or half written, an interrupted write can destroy the old
+      content, concurrent saves can interleave, and a file the user cannot write raises
+      ``PermissionError`` with its old text kept.
+      Missing parent directories of ``path`` are created.
     - A symlink at ``path`` is kept: the payload replaces the file it resolves to (the tmp file
       sits beside that target, so the rename stays on one filesystem). A dangling link creates
       its target when the target's directory exists; otherwise ``FileNotFoundError`` is raised
@@ -347,14 +359,7 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
             raise ArtifactValidationError(f"{exc}\n(not written to {path}; the payload could not be kept at "
                                           f"{rejected}: {kept})") from exc
         raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
-    target = _write_target(path)
-    tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    try:
-        tmp.write_bytes(encoded)
-        os.replace(tmp, target)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    write_bytes_in_place_or_atomic(_write_target(path), encoded, replace_read_only=True)
     stale = path.with_name(path.name + ".rejected")
     try:
         stale.unlink(missing_ok=True)

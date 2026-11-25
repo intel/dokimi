@@ -266,3 +266,4 @@ def test_a_rule_linked_to_claude_md_is_scanned_without_its_frontmatter(tmp_path,
     (root / ".claude/rules").mkdir(parents=True)
     (root / ".claude/rules/x.md").symlink_to("../../private/CLAUDE.md")
     assert (".claude/rules/x.md", "src/gone_fm_link.py") in _fails(_scan(capsys, str(root)))
+

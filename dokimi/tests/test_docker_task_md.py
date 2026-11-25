@@ -20,9 +20,9 @@ from dokimi.harnesses import load_task
 from dokimi.harnesses.docker_solver import (
     DockerSolverHarness,
     _exec_env,
-    _task_workdir,
     unresolved_env,
 )
+from dokimi.harnesses.refusal import _task_workdir
 from dokimi.process import reply
 from docker_cli_fake import DockerCLI
 
