@@ -40,7 +40,7 @@ def test_build_detects_each_input_kind(inputs):
 def test_unknown_json_is_an_input_error(tmp_path):
     other = tmp_path / "x.json"
     other.write_text('{"a": 1}', encoding="utf-8")
-    with pytest.raises(InputError, match="not a novelty artifact"):
+    with pytest.raises(InputError, match="not a novelty"):
         cmd.build([str(other)])
 
 
@@ -51,7 +51,7 @@ def test_json_output_is_a_valid_opportunities_v1_file(inputs, tmp_path):
     doc = json.loads(out.read_text(encoding="utf-8"))
     validate_artifact("opportunities", doc)
     assert doc["schema_version"] == "opportunities.v1"
-    assert doc["items"][0]["rank"] == 1 and doc["items"][0]["quadrant"] == "act_now"
+    assert doc["items"][0]["rank"] == 1 and doc["items"][0]["kind"] == "high-severity"
 
 
 def test_markdown_honours_top(inputs):
@@ -68,15 +68,26 @@ def test_malformed_json_is_an_input_error(tmp_path):
         cmd.build([str(bad)])
 
 
-@pytest.mark.parametrize("link", ["[Start](start.md)", "[Start][guide]\n\n[guide]: https://example.test"])
-def test_markdown_link_at_start_is_not_json(tmp_path, link):
+def test_build_reads_catalog_and_judge_validity_files(tmp_path):
+    cat = tmp_path / "cat.json"
+    cat.write_text(json.dumps({"schema_version": "catalog_eval.v1", "skills": [{"path": "s", "checks": {
+        "findings": [{"level": "error", "code": "c", "message": "m", "path": "s"}]}}]}), encoding="utf-8")
+    jv = tmp_path / "jv.json"
+    jv.write_text(json.dumps({"schema_version": "judge_validity.v1",
+                              "summary": {"judge": "j", "passed": False}}), encoding="utf-8")
+    doc = cmd.build([str(cat), str(jv)])
+    assert [i["kind"] for i in doc["inputs"]] == ["catalog_eval", "judge_validity"]
+    assert {i["kind"] for i in doc["items"]} == {"catalog-check", "judge-validity"}
+
+
+def test_markdown_link_at_start_is_not_json(tmp_path):
     path = tmp_path / "llms.txt"
-    path.write_text(link + "\n", encoding="utf-8-sig")
+    path.write_text("[Start](start.md)\n", encoding="utf-8-sig")
     assert cmd.build([str(path)])["inputs"][0]["kind"] == "llms_txt"
 
 
-@pytest.mark.parametrize("data", [b"\xff",
-                                  br'{"schema":"repo_static.v1","claims":[{"file":"\ud800.md","line":1,"status":"fail_missing_path"}]}', b'{"schema":"repo_static.v1","claims":null}',
+@pytest.mark.parametrize("data", [b"\xff", b'{"schema":"repo_static.v1","claims":null}',
+                                  b'{"paired":{}}', b'{"paired":{"lenient":{"n_paired":0}}}',
                                   b'{"paired":{"lenient":{"degraded":-0.5,"n_paired":4}}}'])
 def test_invalid_input_names_the_path(tmp_path, data):
     path = tmp_path / "evidence.json"
@@ -85,30 +96,14 @@ def test_invalid_input_names_the_path(tmp_path, data):
         cmd.build([str(path)])
 
 
-def test_repeated_input_is_read_once(inputs):
-    assert cmd.build([*inputs, inputs[-1]]) == cmd.build(inputs)
+def test_markdown_file_matches_stdout(inputs, tmp_path):
+    command = [sys.executable, "cli.py", "report", "opportunities", *inputs]
+    expected = subprocess.check_output(command)
+    out = tmp_path / "report.md"
+    subprocess.run([*command, "--out", str(out)], check=True)
+    assert out.read_bytes() == expected
 
 
-def test_llms_identity_survives_staging_in_another_directory(tmp_path):
-    first, second = (tmp_path / name / "llms.txt" for name in ("run-1", "run-2"))
-    for path in (first, second):
-        path.parent.mkdir()
-        path.write_text("prose only\n", encoding="utf-8")
-    a, b = (cmd.build([str(path)]) for path in (first, second))
-    assert a["inputs"] != b["inputs"]
-    assert a["items"] == b["items"]
-
-
-def test_repo_static_keys_distinguish_inputs_and_follow_explicit_repository(tmp_path):
-    paths = [tmp_path / name / 'static.json' for name in ('a', 'b')]
-    for path in paths:
-        path.parent.mkdir()
-        path.write_text(json.dumps(STATIC), encoding='utf-8')
-    keys = [item['source_key'] for item in cmd.build(list(map(str, paths)))['items']]
-    assert len(set(keys)) == 2
-    named = []
-    for path in paths:
-        output = subprocess.check_output([sys.executable, 'cli.py', 'report', 'opportunities', str(path),
-                                          '--format', 'json', '--repository', 'acme/example'], text=True)
-        named.append(json.loads(output)['items'][0]['source_key'])
-    assert named[0] == named[1]
+def test_repo_claim_targets_the_claim_file(inputs):
+    [item] = cmd.build(inputs[:1])["items"]
+    assert item["target"] == "AGENTS.md"

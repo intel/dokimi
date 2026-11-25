@@ -70,18 +70,13 @@ def _share(count: int, total: int) -> float:
 
 def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunity]:
     """Degraded, still-missing and redundant atoms of one novelty artifact, as fixes."""
-    paired = artifact.get("paired", {}).get(scoring, {})
+    paired = artifact.get("paired", {}).get(scoring)
     if not isinstance(paired, dict):
         raise InputError(f"novelty paired.{scoring} must be an object")
-    total = paired.get("n_paired", 0)
-    if type(total) is not int or total < 0:
-        raise InputError("novelty n_paired must be a nonnegative integer")
-    ref = artifact.get("artifact", {})
-    if isinstance(ref, dict):
-        ref = ref.get("ref", "?")
-    if not isinstance(ref, str):
-        raise InputError("novelty artifact reference must be a string")
-    target = ref
+    total = paired.get("n_paired")
+    if type(total) is not int or total <= 0:
+        raise InputError("novelty n_paired must be a positive integer")
+    target = artifact.get("artifact", {}).get("ref", "?")
     model = artifact.get("model", "?")
     plans = (
         ("degraded", "high-severity", "the context makes the model wrong where it was right",
@@ -128,10 +123,59 @@ def from_repo_static(doc: dict, *, target: str = "repository", repository: str |
         why="guidance that names a missing command, path or link misleads the agent.",
         next_action=("Fix or delete each claim at lines " if status == "fail" else
                      "Verify each unresolved claim at lines ") + ", ".join(str(r["line"]) for r in rows) + ".",
-        target=f"{target}:{path}", impact=_share(len(rows), len(claims)), effort="low",
+        target=f"{repository or target}:{path}" if repository or target else path, impact=_share(len(rows), len(claims)), effort="low",
         evidence={"lines": [r["line"] for r in rows], "statuses": sorted({r["status"] for r in rows})},
         identity=f"{path}|{status}", identity_target=repository,
     ) for (path, status), rows in sorted(bad.items())]
+
+
+def from_catalog_eval(doc: dict) -> list[Opportunity]:
+    """Error and warning findings of ``catalog check``, grouped per skill and code."""
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for skill in doc.get("skills", []):
+        for f in skill.get("checks", {}).get("findings", []):
+            if f.get("level") in ("error", "warn"):
+                groups.setdefault((skill.get("path", skill.get("name", "?")), f["code"]), []).append(f)
+    for problem in doc.get("problems", []):
+        if problem.get("level") in ("error", "warn"):
+            root = doc.get("root", "catalog")
+            groups.setdefault((root, problem["code"]), []).append({"path": root, **problem})
+    total = sum(len(v) for v in groups.values())
+    return [Opportunity(
+        kind="catalog-check", title=f"{len(rows)} {code} findings in {path}",
+        why=rows[0]["message"], next_action=f"Fix the {code} findings: " + "; ".join(
+            sorted({r.get("script", r["path"]) for r in rows})) + ".",
+        target=path, impact=round(_share(len(rows), total) / 2
+                                  + (0.5 if any(r["level"] == "error" for r in rows) else 0), 3),
+        effort="low", evidence={"code": code, "levels": sorted({r["level"] for r in rows})},
+        identity=code,
+    ) for (path, code), rows in sorted(groups.items())]
+
+
+def from_judge_validity(doc: dict) -> list[Opportunity]:
+    """A judge that fails or cannot settle its validity gate: every score it gave is in doubt."""
+    s = doc.get("summary", {})
+    judge = s.get("judge", "judge")
+    bad = sorted(set(s.get("inconclusive_variants", [])) | set(s.get("unmeasured_variants", [])))
+    if s.get("passed") and s.get("conclusive"):
+        return []
+    failed = not s.get("passed") and bool(s.get("conclusive"))
+    minimum = s.get("min_accuracy")
+    below = [f"{name} ({value:.2f})" for name, variant in sorted(s.get("per_variant", {}).items())
+             if not variant.get("neutral") and (value := variant.get("gate_accuracy")) is not None
+             and minimum is not None and value < minimum]
+    why = f"Below the {minimum:.2f} gate: {', '.join(below)}." if below else "The validity gate has no confirmed pass."
+    return [Opportunity(
+        kind="judge-validity",
+        title=f"judge {judge} {'fails' if failed else 'is inconclusive on'} its validity gate",
+        why=why,
+        next_action="Change the judge model or prompt, or add pairs"
+                    + (f" for {', '.join(bad)}" if bad else "") + ", then re-run judge validity.",
+        target=str(judge), impact=1.0 if failed else 0.5, effort="medium",
+        evidence={k: s.get(k) for k in ("n_pairs", "gate_accuracy", "accuracy_ci", "passed",
+                                       "conclusive")},
+        identity="gate",
+    )]
 
 
 def from_llms_txt(findings: list[Finding], *, target: str = "llms.txt") -> list[Opportunity]:
@@ -145,8 +189,10 @@ def from_llms_txt(findings: list[Finding], *, target: str = "llms.txt") -> list[
 
 
 def rank(items: list[Opportunity]) -> list[dict]:
-    """Quadrant first, then impact, then the cheaper effort; ``rank`` numbers from 1."""
-    ordered = sorted(items, key=lambda o: (QUADRANTS.index(o.quadrant), -o.impact,
+    """Failed gates and regressions first, then quadrant, impact and effort."""
+    ordered = sorted(items, key=lambda o: (0 if o.kind == "judge-validity" and o.impact == 1.0
+                                           else 1 if o.kind == "high-severity" else 2,
+                                           QUADRANTS.index(o.quadrant), -o.impact,
                                            EFFORTS.index(o.effort), o.source_key))
     return [{"rank": i, **o.as_dict()} for i, o in enumerate(ordered, 1)]
 

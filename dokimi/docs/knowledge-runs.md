@@ -32,7 +32,7 @@ repository guidance or a task's pass rate; for those see [coding-harnesses.md](c
 | Route | Command | Output | Grading |
 |---|---|---|---|
 | A. plain answers file | `answers generate --doc-source none` | `answers.v1` with `without_docs` only | `eval score reference` (grading checks), `eval score pointwise` (judge) |
-| B. one-arm comparison | `arms run --arms baseline` | `arms.v1` with one arm, `baseline` | `--judge` on the run, or `eval score reference` on its output |
+| B. one-arm comparison | `arms run --arm baseline` | `arms.v1` with one arm, `baseline` | `--judge` on the run, or `eval score reference` on its output |
 
 Both take `--model`/`--provider`, and both accept a CLI answerer (below). Use route B
 when the same run should later sit next to a `docs` or `skill:` arm: the arm file already
@@ -69,12 +69,12 @@ knowledge/demo-answers.json --output knowledge/demo-judged.json`. Its per-questi
 
 ```bash
 python cli.py arms run --product demo --questions questions/demo.json \
-  --arms baseline --provider amazon-bedrock --model claude-haiku-5-5 \
+  --arm baseline --provider amazon-bedrock --model claude-haiku-5-5 \
   --judge --judge-model claude-sonnet-5-5 --judge-provider amazon-bedrock \
   --out knowledge/demo-arms.json --out-md knowledge/demo-arms.md
 ```
 
-`--arms baseline` is the only arm, and it is accepted: the file's `arms` list is
+`--arm baseline` is the only arm, and it is accepted: the file's `arms` list is
 `["baseline"]`, `summary.per_arm.baseline.avg_aggregate` is the knowledge score, and its
 delta is `null`. Without `--judge` the run only answers, which is cheap, and
 `eval score reference --answers knowledge/demo-arms.json --questions ...` grades it later.
@@ -90,7 +90,7 @@ also covers the login. It works on both routes:
 ```bash
 python cli.py answers generate --product demo --questions questions/demo.json \
   --doc-source none --provider claude-cli --model sonnet --output knowledge/demo-cli.json
-python cli.py arms run --product demo --questions questions/demo.json --arms baseline \
+python cli.py arms run --product demo --questions questions/demo.json --arm baseline \
   --provider claude-cli --model sonnet --out knowledge/demo-cli-arms.json
 ```
 
@@ -102,7 +102,7 @@ neither, so that refusal does not affect this page.
 `--provider copilot-cli` answers through the GitHub Copilot CLI the same way, on both routes.
 `--provider codex-cli` answers through the OpenAI Codex CLI on a comparison, but not on a
 knowledge run: Codex has no switch that turns its own tools off, so `--doc-source none` and
-`arms run --arms baseline` refuse it before any call (exit 2). Use `copilot-cli` or `claude-cli`
+`arms run --arm baseline` refuse it before any call (exit 2). Use `copilot-cli` or `claude-cli`
 for a knowledge run. Each CLI must be installed and signed in (`codex login`, or Copilot's own
 login). `python cli.py backends` lists what dokimi can see, with no model call:
 
@@ -185,14 +185,14 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
   `⚪ One condition (no delta)`, not insufficient data, and `eval score pointwise` gives the per-condition score the same way.
 - Keep the answerer fixed across the knowledge run and the with-docs run that follows:
   the same `--provider`, `--model`, questions file and judge. A knowledge run made with
-  `arms run --arms baseline` sends the same prompt as the `baseline` arm of the comparison,
+  `arms run --arm baseline` sends the same prompt as the `baseline` arm of the comparison,
   so the two line up question by question. The answers are sampled again, so they will not
   match word for word. A knowledge run made with `answers generate --doc-source none` uses a
   different prompt; compare it with another `answers generate` run, not with an arm:
 
 ```bash
 python cli.py arms run --product demo --questions questions/demo.json \
-  --arms "baseline,docs" --provider amazon-bedrock --model claude-haiku-5-5 \
+  --arm "baseline,docs" --provider amazon-bedrock --model claude-haiku-5-5 \
   --judge --judge-model claude-sonnet-5-5 --judge-provider amazon-bedrock \
   --out results/arms/demo-with-docs.json
 ```

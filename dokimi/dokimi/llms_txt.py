@@ -10,21 +10,14 @@ positioning sections agents use to decide when a tool applies and when it does n
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
 from dataclasses import dataclass
-
-from dokimi.code_spans import CodeSpanScanner
 
 #: Above this an index stops being a cheap first read; the llms.txt convention says compact.
 TOKEN_BUDGET = 2000
 
 _H1 = re.compile(r"^ {0,3}#\s+\S")
 _H2 = re.compile(r"^ {0,3}##\s+(.+?)\s*$")
-_LABEL_CHAR = r"(?:\\.|[^\\\[\]])"
-_LINK_LABEL = re.compile(rf"(?<!\\)(?:\\\\)*(!?)\[({_LABEL_CHAR}+)\](?:\[({_LABEL_CHAR}*)\](?!\())?")
-_REFERENCE_DEF = re.compile(rf'''^ {{0,3}}\[({_LABEL_CHAR}+)\]:[ \t]*(?:<([^<>]+)>|([^\s<>]+))(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$''')
-_LINK_END = re.compile(r"""(?:[ \t]+(?:"[^"]*"|'[^']*'))?\)""")
-_DESTINATION_MARK = re.compile(r"\\.|[()\s]")
+_LINK = re.compile(r"""(?<![!\\])\[([^\]]+)\]\(([^)\s]+)(?:[ \t]+(?:"[^"]*"|'[^']*'))?\)""")
 _WHEN_NOT = re.compile(r"\bwhen\s+not\b|\bnot\s+for\b|\bavoid\b|\balternatives?\b", re.I)
 _WHEN = re.compile(r"\bwhen\s+to\s+use\b|\buse\s+(it\s+)?(for|when)\b|\buse\s+cases?\b", re.I)
 
@@ -74,115 +67,33 @@ def _section_findings(lines: list[str]) -> list[Finding]:
     return found
 
 
-def _reference_label(label: str) -> str:
-    return " ".join(label.split()).casefold()
-
-
-def _inline_destination(line: str, start: int) -> tuple[str, int] | None:
-    if line.startswith("<", start):
-        angle = re.match(r"<((?:\\.|[^<>\\])+)>", line[start:])
-        if angle and (end := _LINK_END.match(line, start + angle.end())):
-            return angle[1], end.end()
-        return None
-    depth = 0
-    for mark in _DESTINATION_MARK.finditer(line, start):
-        char = mark[0]
-        if char == "(":
-            depth += 1
-        elif char == ")" and depth:
-            depth -= 1
-        elif char == ")" or char.isspace():
-            end = _LINK_END.match(line, mark.start()) if depth == 0 else None
-            if end is not None and mark.start() > start:
-                return line[start:mark.start()], end.end()
-            break
-    return None
-
-
-def _links(line: str, definitions: dict[str, str]) -> Iterator[tuple[str, str, int]]:
-    pos = 0
-    while label := _LINK_LABEL.search(line, pos):
-        image, title, reference = label.groups()
-        pos = label.end()
-        target: str | None
-        if reference is None and line.startswith("(", pos):
-            destination = _inline_destination(line, pos + 1)
-            if destination is None:
-                continue
-            target, pos = destination
-        else:
-            target = definitions.get(_reference_label(reference or title))
-            if target is None and reference:
-                # Leave the unresolved second label available to the inline parser.
-                pos = label.end(2) + 1
-        if target is not None and not image:
-            yield title, target, pos
-
-
 def _link_findings(lines: list[str]) -> list[Finding]:
-    definitions: dict[str, str] = {}
-    content = []
-    for i, line in enumerate(lines, 1):
-        if definition := _REFERENCE_DEF.fullmatch(line.removesuffix("\r")):
-            definitions.setdefault(_reference_label(definition[1]), definition[2] or definition[3])
-        else:
-            content.append((i, line))
-    links = [(i, title, target, end) for i, line in content for title, target, end in _links(line, definitions)]
+    links = [(i, m) for i, line in enumerate(lines, 1) for m in _LINK.finditer(line)]
     if not links:
         return [Finding("links", "fail", 0, "no Markdown links to the documentation",
                         "List key pages as `- [Title](url): one-line description`.")]
-    return [Finding("links", "warn", i, f"link to {target} has no description",
-                    "Add `: <what the page answers>` after the link.", f"{title}|{target}")
-            for i, title, target, end in links
+    return [Finding("links", "warn", i, f"link to {match.group(2)} has no description",
+                    "Add `: <what the page answers>` after the link.",
+                    f"{match.group(1)}|{match.group(2)}")
+            for i, match in links
             if re.match(r"^\s*(?:[-*+]|\d+[.)])\s+", lines[i - 1])
-            and not re.match(r"\s*:\s*\S", lines[i - 1][end:])]
-
-
-def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
-    if not in_comment and "<!--" not in line:
-        return line, False
-    parts: list[str] = []
-    pos = 0
-    spans = CodeSpanScanner(line, escape_openers=True)
-    while pos < len(line):
-        if in_comment:
-            close = line.find("-->", pos)
-            if close < 0:
-                return "".join(parts), True
-            pos, in_comment = close + 3, False
-            continue
-        opened = line.find("<!--", pos)
-        if opened < 0:
-            parts.append(line[pos:])
-            break
-        span = spans.find(pos)
-        while span is not None and span.end() <= opened:
-            span = spans.find(span.end())
-        if span is not None and span.start() < opened:
-            parts.append(line[pos:span.end()])
-            pos = span.end()
-        else:
-            parts.append(line[pos:opened])
-            pos, in_comment = opened + 4, True
-    return "".join(parts), in_comment
+            and not re.match(r"\s*:\s*\S", lines[i - 1][match.end():])]
 
 
 def _structure_lines(text: str) -> list[str]:
     """Skip fenced examples while preserving physical line numbers."""
     lines = []
     fence = ""
-    in_comment = False
     for line in text.removeprefix("\ufeff").split("\n"):
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r"))
         if fence:
             if marker and marker[1].startswith(fence) and not marker[2].strip():
                 fence = ""
             lines.append("")
-        elif marker and not in_comment and (marker[1][0] == "~" or "`" not in marker[2]):
+        elif marker:
             fence = marker[1]
             lines.append("")
         else:
-            line, in_comment = _without_comments(line, in_comment)
             lines.append(line)
     return lines
 

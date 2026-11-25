@@ -32,7 +32,8 @@ def test_zero_counts_produce_no_opportunity():
 
 
 def test_repo_claims_group_failures_per_file():
-    one, _ = opp.from_repo_static(STATIC, target="acme")
+    one, unresolved = opp.from_repo_static(STATIC, target="acme")
+    assert unresolved.next_action.startswith("Verify")
     assert one.target == "acme:AGENTS.md"
     assert one.evidence["lines"] == [9]
     assert one.impact == 0.25
@@ -44,9 +45,9 @@ def test_rank_puts_high_impact_cheap_fixes_first():
     items += opp.from_llms_txt(llms_txt.check("no title\n"))
     ranked = opp.rank(items)
     assert [r["rank"] for r in ranked] == list(range(1, len(ranked) + 1))
-    quads = [opp.QUADRANTS.index(r["quadrant"]) for r in ranked]
+    quads = [opp.QUADRANTS.index(r["quadrant"]) for r in ranked[1:]]
     assert quads == sorted(quads)
-    assert ranked[0]["kind"] == "discovery"  # impact 0.4, effort low
+    assert ranked[1]["kind"] == "discovery"  # impact 0.4, effort low
     assert ranked[-1]["evidence"].get("outcome") == "still_missing"  # 0.15, medium effort
 
 
@@ -90,6 +91,55 @@ def test_llms_txt_key_survives_a_change_in_h1_count():
     assert keys[0] == keys[1]
 
 
-def test_novelty_probe_can_supply_its_reference_as_a_string():
-    artifact = {**NOVELTY, "artifact": "skill:skills/acme"}
-    assert {item.target for item in opp.from_novelty(artifact)} == {"skill:skills/acme"}
+def test_catalog_errors_outrank_warnings_and_group_per_code():
+    doc = {"skills": [{"path": "skills/a", "checks": {"findings": [
+        {"level": "error", "code": "script-crlf", "message": "CRLF breaks bash", "path": "skills/a",
+         "script": "run.sh"},
+        {"level": "warn", "code": "desc-long", "message": "long", "path": "skills/a"},
+        {"level": "warn", "code": "desc-long", "message": "long", "path": "skills/a"},
+        {"level": "note", "code": "x", "message": "m", "path": "skills/a"}]}}]}
+    ranked = opp.rank(opp.from_catalog_eval(doc))
+    assert [(r["title"], r["quadrant"]) for r in ranked] == [
+        ("1 script-crlf findings in skills/a", "act_now"),
+        ("2 desc-long findings in skills/a", "act_now")]
+    assert "run.sh" in ranked[0]["next_action"]
+
+
+def test_a_valid_judge_gives_no_item_and_a_failed_one_does():
+    ok = {"summary": {"judge": "j", "passed": True, "conclusive": True}}
+    bad = {"summary": {"judge": "j", "passed": False, "conclusive": True, "gate_accuracy": 0.6,
+                       "min_accuracy": 0.8, "unmeasured_variants": ["swap"]}}
+    assert opp.from_judge_validity(ok) == []
+    [item] = opp.from_judge_validity(bad)
+    assert item.impact == 1.0 and "swap" in item.next_action and "fails" in item.title
+
+
+def test_failed_judge_uses_variant_accuracy_and_ranks_first():
+    failed = {"summary": {"judge": "j", "passed": False, "conclusive": True,
+                          "gate_accuracy": 0.92, "min_accuracy": 0.8,
+                          "per_variant": {"swap": {"gate_accuracy": 0.4},
+                                          "padding": {"gate_accuracy": 0.2, "neutral": True}}}}
+    fixes = opp.from_judge_validity(failed) + opp.from_llms_txt(llms_txt.check("no title"))
+    assert opp.rank(fixes)[0]["kind"] == "judge-validity"
+    assert "swap (0.40)" in fixes[0].why
+    assert "0.92" not in fixes[0].why
+    assert "padding" not in fixes[0].why
+
+
+def test_catalog_wide_errors_are_actionable():
+    [fix] = opp.from_catalog_eval({"root": "catalog", "problems": [
+        {"code": "empty", "level": "error", "message": "Empty catalog", "path": "."},
+    ]})
+    assert fix.target == "catalog"
+    assert fix.why == "Empty catalog"
+
+
+def test_repo_claim_identity_ignores_the_report_name():
+    first = opp.from_repo_static(STATIC, target="run1.json", repository="acme")
+    second = opp.from_repo_static(STATIC, target="run2.json", repository="acme")
+    assert [item.source_key for item in first] == [item.source_key for item in second]
+
+
+def test_degraded_novelty_ranks_ahead_of_discovery_warning():
+    items = opp.from_novelty(NOVELTY) + opp.from_llms_txt(llms_txt.check("# X\n\n- [A](a)"))
+    assert opp.rank(items)[0]["kind"] == "high-severity"

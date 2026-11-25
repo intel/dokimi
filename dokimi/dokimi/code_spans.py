@@ -83,7 +83,7 @@ class _Runs:
 
     def closer(self, n: int, body: int) -> int | None:
         """The start of the first run of ``n`` backticks from ``body`` on, if it starts at or before the stop."""
-        limit, same, starts = self.limit(body), self._by_len.setdefault(n, []), self.starts
+        limit, same, starts = self.limit(body), self._by_len[n], self.starts
         h = self._heads.get(n, 0)
         if h and starts[same[h - 1]] >= body:
             h = bisect_left(same, body, 0, h, key=starts.__getitem__)  # a search that goes back: seek
@@ -98,14 +98,6 @@ class _Runs:
                 return None  # past the stop no later run can close it, and the text may end
 
 
-def _escaped_tick(text: str, begin: int) -> bool:
-    """An odd backslash run consumes the first tick outside a Markdown code span."""
-    cursor = begin
-    while cursor and text[cursor - 1] == "\\":
-        cursor -= 1
-    return (begin - cursor) % 2 == 1
-
-
 class CodeSpanScanner:
     """Finds the code spans of one text from any position on, reading each run of backticks once.
 
@@ -116,10 +108,8 @@ class CodeSpanScanner:
 
     def __init__(
         self, text: str, pos: int = 0, *, min_run: int = 1, stop: re.Pattern[str] | None = None, not_after: str = "",
-        escape_openers: bool = False,
     ) -> None:
         self.text, self.min_run, self.not_after = text, min_run, not_after
-        self.escape_openers = escape_openers
         self._runs = _Runs(text, pos, stop)
         self._next = 0  # the index of the first run not yet taken as an opener: the next search starts there
 
@@ -139,10 +129,6 @@ class CodeSpanScanner:
                 continue
             begin, n = runs.starts[i], runs.lens[i]
             i += 1
-            if self.escape_openers:
-                escaped = _escaped_tick(text, begin)
-                begin += escaped
-                n -= escaped
             if n < self.min_run or (self.not_after and begin > 0 and text[begin - 1] in self.not_after):
                 continue
             closer = runs.closer(n, begin + n)

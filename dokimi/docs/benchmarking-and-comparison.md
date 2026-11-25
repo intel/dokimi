@@ -50,7 +50,7 @@ so keep the first `baselines/current.json` you are happy with:
 cp baselines/current.json baselines/baseline.json   # once, after a clean run
 
 python cli.py docs compare \
-  --base baselines/baseline.json \
+  --baseline baselines/baseline.json \
   --candidate baselines/current.json \
   --spec benchmarks/spec.v1.yaml \
   --out reports/compare.json \
@@ -268,7 +268,7 @@ Use treatment arms when comparing context artifacts rather than models:
 python cli.py arms run \
   --product oneTBB \
   --questions <content-checkout>/questions/onetbb_golden.json \
-  --arms "baseline,docs,skill:<content-checkout>/skills/onetbb-quickstart" \
+  --arm "baseline,docs,skill:<content-checkout>/skills/onetbb-quickstart" \
   --judge \
   --out results/arms/onetbb_skill.json \
   --out-md results/arms/onetbb_skill.md
@@ -522,8 +522,8 @@ N-1 entries of its `follow_ups` list (a list of strings in the question record),
 keeps the history, and records each turn's usage:
 
 ```bash
-python cli.py arms run ... --arms baseline,skill:/path/to/skill --session-turns 4
-python cli.py arms run ... --arms baseline,skill:/path/to/skill --session-turns 4 \
+python cli.py arms run ... --arm baseline,skill:/path/to/skill --session-turns 4
+python cli.py arms run ... --arm baseline,skill:/path/to/skill --session-turns 4 \
   --turn-reminder "Answer tersely."   # also runs each arm as <arm>+reminder
 ```
 

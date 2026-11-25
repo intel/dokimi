@@ -531,3 +531,12 @@ def test_a_strict_retest_pairs_and_summarises_the_strict_scores():
     second["skill:/s/b"]["k0"]["strict"] = 0.5
     paired = pair_runs(first, second, "strict")
     assert retest_summary(paired["pairs"], "strict")["mean_shift"] == pytest.approx(0.2)
+
+
+def test_a_5000_deep_json_file_is_an_input_error_not_a_traceback(tmp_path):
+    """``[`` x 5000 then ``]`` x 5000 as both runs: ``InputError`` (exit 2), no ``RecursionError``."""
+    deep = tmp_path / "deep.json"
+    deep.write_text("[" * 5000 + "]" * 5000, encoding="utf-8")
+    with pytest.raises(InputError, match="not a novelty artifact"):
+        novelty_cmd.cmd_novelty_retest(argparse.Namespace(
+            baseline=str(deep), retest=str(deep), scoring="lenient", out_dir=None))
