@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, cast
 
 from dokimi import cli_flags
+from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import CALLER_CHOICES, PROVIDER_ALIASES, PROVIDERS, credential_env_var, resolve_api_key, resolve_model
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -28,7 +29,7 @@ from dokimi.defaults import (
 )
 from dokimi.commands.library import _load_registry
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.llm_cli import SamplingError, check_sampling
+from dokimi.llm_cli import SamplingError
 from dokimi.utils import InputError, check_bedrock_model, refuse_device
 
 
@@ -36,11 +37,13 @@ def _refuse_judge_sampling(args: argparse.Namespace) -> None:
     """Exit 2 before any answer is paid for when the judge would refuse later: a CLI judge given a
     temperature, or a Bedrock name Bedrock cannot run."""
     provider = getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER)
+    model = getattr(args, "judge_model", None)
+    check_bedrock_model(provider, model or "")
     try:
-        check_sampling(provider, getattr(args, "judge_temperature", None), None)
+        check_judge_sampling(provider, model,
+                             getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:
         raise InputError(str(exc)) from exc
-    check_bedrock_model(provider, args.judge_model)
 
 
 def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None, judge_placeholder=False, registry=None) -> dict:
@@ -149,15 +152,24 @@ def _provider_checks(providers: list[str], notes: list[str] | None = None,
 def _keyless_route(canonical: str, route: str) -> list[str] | None:
     """``None`` unless the call needs no key of *canonical*: then the providers it still checks.
 
-    Vertex ADC and AWS keys need none; an unreadable ``file:`` Bedrock token is still refused.
+    Vertex ADC and AWS keys need none; an unreadable ``file:`` key of the configured provider
+    (read on every call) or Bedrock token is still refused.
     """
     if route == "vertex_ai":
+        try:
+            resolve_api_key(canonical)
+        except ValueError:
+            return [canonical]
         return []
     if canonical != "amazon-bedrock" and route != "bedrock":
         return None
+    if canonical != "amazon-bedrock":
+        try:
+            if resolve_api_key(canonical):
+                return []  # the configured provider's key is sent as the token; the AWS variable is unused
+        except ValueError:
+            return [canonical]  # every call reads this file, so an unreadable one is refused
     try:
-        if canonical != "amazon-bedrock" and resolve_api_key(canonical):
-            return []  # the configured provider's key is sent as the token; the AWS variable is unused
         resolve_api_key("amazon-bedrock")  # an absent token is IAM
     except ValueError:
         return ["amazon-bedrock"]
@@ -168,8 +180,8 @@ def _credential_providers(args: argparse.Namespace) -> list[str]:
     """The providers whose key or login a run of *args* needs, by the route each call takes (#967).
 
     A CLI backend takes its login whatever the model name says. `vertex_ai/` (ADC) and `bedrock/`
-    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider, but a
-    `file:` AWS_BEARER_TOKEN_BEDROCK that cannot be read is refused; a `gemini/`
+    (AWS keys) routes, and `amazon-bedrock`, need no key of the configured provider, but a `file:`
+    key of it (read on every call) or AWS_BEARER_TOKEN_BEDROCK that cannot be read is refused; a `gemini/`
     route needs GEMINI_API_KEY or GOOGLE_API_KEY; another provider's route needs that provider's key;
     a route off the table (`azure/`, `ollama/`) needs none when the configured key is unset.
     """
@@ -323,14 +335,13 @@ def _check_doc_source(plan: dict, entry: Any, refuse: Callable[[str], None], err
                       warnings: list[str]) -> None:
     """The doc source must build. A --doc-source value the factory rejects is a refusal (exit 2);
     a source that cannot be built is a failed check (exit 1)."""
-    from dokimi.mcp.factory import create_doc_source_client
+    from dokimi.mcp.factory import create_doc_source_client, require_local_doc_source
 
-    source = plan["doc_source"]
-    for prefix in ("local:", "okf:"):  # the factory reads no file; a remote source is not probed
-        if isinstance(source, str) and source.startswith(prefix) and source[len(prefix):] \
-                and not Path(source[len(prefix):]).exists():
-            refuse(f"doc source path does not exist: {source}")
-            return
+    try:  # the factory reads no file; a remote source is not probed
+        require_local_doc_source(plan["doc_source"])
+    except ValueError as exc:  # InputError: a missing or unreadable local path
+        refuse(str(exc))
+        return
     try:
         create_doc_source_client(plan["doc_source"])
         if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):

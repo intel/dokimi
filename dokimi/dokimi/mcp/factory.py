@@ -3,10 +3,38 @@
 
 """Factory for creating documentation source clients from CLI flag values."""
 
+import errno
+import os
 from pathlib import Path
 from typing import Optional
 
+from dokimi.utils import InputError
+
 from . import MCPClient
+
+
+def require_local_doc_source(doc_source: str) -> None:
+    """#1086: a `local:<path>` or `okf:<path>` source whose path is missing is an input error, not default seed topics."""
+    prefix = next((p for p in ("local:", "okf:") if doc_source.startswith(p)), None)
+    if prefix is None:
+        return
+    local_path = doc_source[len(prefix):]
+    path = Path(local_path)
+    try:
+        if not path.exists():
+            path.stat()  # Python 3.14 `exists` answers False for any OSError; `stat` raises the real one
+    except (ValueError, OSError) as exc:
+        if not isinstance(exc, ValueError) and exc.errno not in (errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG):
+            raise InputError(f"doc source {doc_source}: cannot read {local_path}: {exc}") from exc
+        raise InputError(f"doc source path does not exist: {doc_source}") from exc
+    try:
+        # present but mode 000, say; a directory also needs search (X_OK) to open what it lists
+        mode = os.R_OK | os.X_OK if path.is_dir() else os.R_OK
+        unreadable = os.access(path, os.F_OK) and not os.access(path, mode)
+    except ValueError:  # a name the OS cannot encode (lone surrogate): exists() already accepted it
+        unreadable = False
+    if unreadable:
+        raise InputError(f"doc source {doc_source}: cannot read {local_path}: permission denied")
 
 
 def create_doc_source_client(

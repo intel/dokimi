@@ -1,0 +1,3 @@
+### Fixed
+
+- **`save_artifact` with the default `ensure_ascii=True` no longer writes a surrogate-pair key beside its character key as two equal keys** — `{chr(0xD83D) + chr(0xDE00): 1, "😀": 2}` was written as two `"😀"` keys, and a reader kept one of them, so an entry was lost. The check that refused it with `ensure_ascii=False` now runs on every payload the JSON writers (`save_artifact`, `to_jsonl`, the response cache, the fidelity golden) serialise: such a payload raises `ValueError` and nothing is written. A payload with no repeated key in one object, nested objects that share key names included, is written with the same bytes as before.

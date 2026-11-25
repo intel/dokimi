@@ -28,6 +28,7 @@ CONTENTS = {
     "guidance_reach.v1": {"files": 5, "scenarios": 5, "records": 25},
     "skill_discovery.v1": {"cases": 4, "scenarios": 1, "records": 4},
     "matrix_rollup.v1": {"cells": 2},
+    "novelty_retest.v1": {"items": 1, "warnings": 0},
     "novelty.v1": {"conflicts": 0, "warnings": 2},
     "novelty_atoms.v1": {"atoms": 2, "conflicts": 1},
     "plan.v1": {"cells": 6},

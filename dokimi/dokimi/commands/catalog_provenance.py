@@ -35,6 +35,11 @@ def _behind_text(row: dict) -> str:
     return ", ".join(part for part in (commits, months, removed) if part) or "unknown"
 
 
+def _cell(text: str) -> str:
+    """A table cell from a path or name: control characters are escaped, so a tab or newline cannot split a row."""
+    return "".join(ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii") for ch in text)
+
+
 def _text(report: dict) -> str:
     summary = report["summary"]
     lines = []
@@ -53,13 +58,13 @@ def _text(report: dict) -> str:
     )
     lines.append("skill\tmatch\tupstream\tversion\tbehind\tedited")
     for row in report["skills"]:
-        upstream_text = "-" if row["upstream"] is None else f"{row['upstream']}:{row['path']}"
+        upstream_text = "-" if row["upstream"] is None else _cell(f"{row['upstream']}:{row['path']}")
         version = "-" if row["commit"] is None else f"{row['commit']}{' ' + row['date'] if row['date'] else ''}"
         if row["version"]:
             version = f"v{row['version']} {version}"
         edited = "-" if row["edited"] is None else "yes" if row["edited"] else "no"
         lines.append(
-            f"{row['skill']}\t{row['match'] or 'unmatched'}\t{upstream_text}\t{version}\t"
+            f"{_cell(row['skill'])}\t{row['match'] or 'unmatched'}\t{upstream_text}\t{_cell(version)}\t"
             f"{_behind_text(row)}\t{edited}"
         )
     return "\n".join(lines)
@@ -108,7 +113,8 @@ def cmd_catalog_provenance(args: argparse.Namespace) -> None:
         except OSError as exc:
             raise InputError(f"{path}: cannot read the skill file: {exc}") from exc
         match = index.match(raw, upstream.frontmatter_name(raw))
-        rows.append({"skill": _rel(path.parent, root), "name": entry.name, **upstream.to_row(match)})
+        head_known = match is not None and index.head_known(match.version)
+        rows.append({"skill": _rel(path.parent, root), "name": entry.name, **upstream.to_row(match, head_known=head_known)})
     report = {
         "root": str(root),
         "upstreams": upstream.upstream_rows(index),
@@ -130,13 +136,13 @@ def register(catalog_sub) -> None:
     prov_p.add_argument("--root", required=True, help="Local checkout of the skills to match")
     cli_flags.add(
         prov_p, "upstream", "--upstream", action="append", default=None, metavar="CHECKOUT",
-        help="A local git checkout of an upstream (its history gives the versions). Repeatable; the first one "
-             "wins a tie. Nothing is fetched: clone it yourself, full history for an exact count",
+        help="A local git checkout of an upstream (its history gives the versions). Repeatable. Ties favor checkouts before manifests, "
+             "then the first listed within each type. Clone the upstream locally before use",
     )
     cli_flags.add(
         prov_p, "upstream", "--upstream-manifest", action="append", default=None, metavar="FILE",
         help="A JSON manifest of one upstream: {\"schema\": \"dokimi.upstream.v1\", \"name\", \"head\": {commit, date}, "
-             "\"skills\": [{path, content, head?, commit?, date?}]}. Repeatable",
+             "\"skills\": [{path, content, head?, commit?, date?}]}. Repeatable. Ties favor checkouts before manifests, then the first listed within each type",
     )
     prov_p.add_argument(
         "--format", choices=["text", "json"], default="text",

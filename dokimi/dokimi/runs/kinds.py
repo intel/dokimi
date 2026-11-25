@@ -53,6 +53,7 @@ FIELDS: dict[str, KindFields] = {
                                 counts=("atoms", "conflicts")),
     "delivery": KindFields(subject=("identity.profile",), model=("identity.model",), time=("date",),
                            counts=("required", "observations")),
+    "novelty_retest": KindFields(subject=("items[].ref",), counts=("items", "warnings")),
     "task_runs": KindFields(model=("model",), time=("generated_at",),
                             counts=("tasks", "harnesses", "results")),
     "explore_runs": KindFields(model=("model",), time=("generated_at",),

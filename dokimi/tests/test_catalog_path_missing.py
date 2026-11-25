@@ -426,3 +426,388 @@ def test_an_apostrophe_inside_double_quotes_does_not_open_a_single_quote(tmp_pat
     review, _ = _review(tmp_path / "absent", body)
     [finding] = _path_findings(review)
     assert finding.message.startswith("'assets/a\\'\"b\\'c.svg' (in ")
+
+
+URL = "https://github.com/NVIDIA/compileiq/blob/main/examples/compilers/triton_example/mixed_triton.py"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        f"See [`examples/triton_example/mixed_triton.py`]({URL}) upstream.\n",
+        f"See [the `examples/mixed.py` file]({URL}) upstream.\n",
+        f"See [`examples/mixed.py`](<{URL}>) upstream.\n",
+        "Mail [`examples/mixed.py`](mailto:a@b.example).\n",
+        f"See [![`examples/mixed.py`](badge.svg) `examples/other.py`]({URL}).\n",
+    ],
+)
+def test_1089_a_code_span_in_the_label_of_a_url_link_is_not_path_missing(tmp_path, body):
+    """#1089: the label of an upstream example link names no bundled file."""
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        f"See `examples/mixed.py`, then [docs]({URL}).\n",
+        f"See [docs]({URL}) and [`examples/mixed.py`](notes.md).\n",
+        "See [`examples/mixed.py`] and (https://example.com/x).\n",
+    ],
+)
+def test_1089_a_code_span_outside_a_url_link_label_is_still_checked(tmp_path, body):
+    """#1089: only the label of a URL link is skipped."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "examples/mixed.py" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_a_missing_local_link_target_is_reported_once(tmp_path):
+    """#1089: the span of a local link is not dropped; the missing target is one `link-missing`, not a `path-missing` too."""
+    review, _ = _review(tmp_path, "See [`examples/mixed.py`](examples/mixed.py).\n")
+    assert _codes(review).count("link-missing") == 1
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Run [`scripts/deploy.sh` and [guide](notes.md)](https://example.com).\n",
+        "Run [`scripts/deploy.sh` and [guide][g]](https://example.com).\n\n[g]: notes.md\n",
+    ],
+)
+def test_1089_a_label_that_holds_a_link_is_not_a_link_label(tmp_path, body):
+    """#1089: CommonMark does not nest links, so the outer brackets are text and the span is checked."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert [f.message.split(" ")[0] for f in _path_findings(review)] == ["'scripts/deploy.sh'"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "See [`examples/mixed.py`][upstream].\n\n[upstream]: https://example.com/mixed.py\n",
+        "See [`examples/mixed.py`][Up  Stream].\n\n[up stream]: <https://example.com/mixed.py> \"t\"\n",
+        "See [`examples/mixed.py`][upstream].\n\n[upstream]:\n  https://example.com/mixed.py\n",
+    ],
+)
+def test_1089_a_code_span_in_the_label_of_a_reference_url_link_is_not_path_missing(tmp_path, body):
+    """#1089: a reference link whose definition is a URL is judged by its destination, like an inline one."""
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "See [`examples/mixed.py`][local].\n\n[local]: notes.md\n",
+        "See [`examples/mixed.py`][absent].\n\n[upstream]: https://example.com/mixed.py\n",
+    ],
+)
+def test_1089_a_code_span_in_the_label_of_a_reference_local_link_is_still_checked(tmp_path, body):
+    """#1089: only a reference whose definition is a URL is skipped."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "examples/mixed.py" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_the_first_definition_of_a_reference_decides(tmp_path):
+    """#1089: CommonMark uses the first definition of a label, so a later URL one does not make a local link external."""
+    body = "Run [`scripts/deploy.sh`][guide].\n\n[guide]: notes.md\n[guide]: https://example.com\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_a_first_url_definition_wins_over_a_later_local_one(tmp_path):
+    """#1089: the first definition decides in this direction too."""
+    body = "Run [`scripts/deploy.sh`][guide].\n\n[guide]: https://example.com\n[guide]: notes.md\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _path_findings(review) == []
+
+
+def test_1089_an_undefined_reference_inside_a_url_label_is_text(tmp_path):
+    """#1089: `[guide][undefined]` with no definition is no link, so it does not stop the outer URL link."""
+    body = "See [`examples/mixed.py` and [guide][undefined]](https://example.com).\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_local_link_with_a_line_suffix_is_not_a_url_link(tmp_path):
+    """#1089: `notes.md:42` is a file and a line, not a scheme, so the label's missing file is reported."""
+    review, _ = _review(tmp_path, "Run [`scripts/deploy.sh`](notes.md:42).\n", files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+@pytest.mark.parametrize("ref", ["[guide]", "[guide][]"])
+def test_1089_a_shortcut_or_collapsed_link_in_a_label_means_the_label_is_no_link(tmp_path, ref):
+    """#1089: links do not nest, so a defined `[guide]` or `[guide][]` inside the label makes the outer one text."""
+    body = f"Run [`scripts/deploy.sh` and {ref}](https://example.com).\n\n[guide]: notes.md\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_a_definition_with_trailing_text_is_no_definition(tmp_path):
+    """#1089: `[guide]: https://example.com unexpected trailing text` is a paragraph, so `[guide]` is not a URL link."""
+    body = "Run [`scripts/deploy.sh`][guide].\n\n[guide]: https://example.com unexpected trailing text\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+def test_1089_a_tel_link_with_digits_is_a_url_link(tmp_path):
+    """#1089: `tel:1234567890` is a URI scheme, so the label's span is the link's text."""
+    review, _ = _review(tmp_path, "Run [`scripts/deploy.sh`](tel:1234567890).\n")
+    assert _path_findings(review) == []
+
+
+def test_1089_a_definition_in_angle_brackets_with_a_space_is_a_url_definition(tmp_path):
+    """#1089: `<https://example.com/my guide>` is one destination, so `[guide]` is a URL link."""
+    body = "Run [`scripts/deploy.sh`][guide]\n\n[guide]: <https://example.com/my guide>\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_definition_whose_title_continues_on_the_next_line_is_a_url_definition(tmp_path):
+    """#1089: a title may span lines, so `[guide]` is still a URL link."""
+    body = 'See [`scripts/deploy.sh`][guide]\n\n[guide]: https://example.com "first line\nsecond line"\n'
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def _missing(review):
+    return [f.message.split(" ")[0] for f in _path_findings(review)]
+
+
+@pytest.mark.parametrize("dest", ["notes.md:main", "notes.md:42", "notes.md:10-20", "<notes.md:main>"])
+def test_1089_a_local_link_with_a_line_or_symbol_suffix_is_not_a_url_link(tmp_path, dest):
+    """#1089: `_file_ref` reads `notes.md:main` as the file `notes.md`, so the label's missing file is reported."""
+    review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh`]({dest}).\n", files=("notes.md",))
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+@pytest.mark.parametrize("dest", ["x:example", "tel:123", "urn:isbn:1", "a.b:c.d"])
+def test_1089_a_destination_with_any_other_scheme_is_a_url_link(tmp_path, dest):
+    """#1089: a one-letter or a dotted scheme with no file-like tail is a URI, as in `_file_ref`."""
+    review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh`]({dest}).\n\n[g]: {dest}\n")
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize("opener,closer", [('"', '"'), ("'", "'"), ("(", ")")])
+def test_1089_a_definition_whose_title_never_closes_is_no_definition(tmp_path, opener, closer):
+    """#1089: `[g]: https://example.com "unterminated` defines nothing, so `[g]` is text and the span is checked."""
+    body = f"Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com {opener}unterminated\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+    body = f"Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com {opener}closed\nlater{closer}\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_title_on_the_next_line_that_never_closes_leaves_the_definition_without_a_title(tmp_path):
+    """#1089: `[g]: https://example.com` is a definition; the next line, `"open`, is a paragraph."""
+    body = 'Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com\n"open\n'
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_definition_inside_a_paragraph_defines_nothing(tmp_path):
+    """#1089: a definition cannot interrupt a paragraph, so `[guide]` after prose is text."""
+    body = "Run [`scripts/deploy.sh`][guide].\n\nOrdinary paragraph.\n[guide]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_consecutive_definitions_at_the_start_of_a_block_all_count(tmp_path):
+    """#1089: the second definition of a block starts after the first, not after prose."""
+    body = "Run [`scripts/deploy.sh`][b].\n\n[a]: notes.md\n[b]: https://example.com\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _path_findings(review) == []
+
+
+def test_1089_many_adjacent_url_links_are_read_in_linear_time():
+    """#1089: each label is checked for a nested link, which must not scan every other link."""
+    import time
+
+    from dokimi.external.skill_markdown import link_pieces
+
+    line = "[`a/b.py`](https://example.com) " * 40000
+    started = time.monotonic()
+    assert link_pieces([line]) == (["https://example.com"], [])
+    assert time.monotonic() - started < 10
+
+
+def test_1089_link_shaped_text_in_an_image_title_is_no_link(tmp_path):
+    """#1089: `"[guide](notes.md)"` is the image's title, so the outer URL label holds no link."""
+    body = 'See [`scripts/deploy.sh` ![badge](badge.svg "[guide](notes.md)")](https://example.com).\n'
+    review, _ = _review(tmp_path, body, files=("badge.svg", "notes.md"))
+    assert _path_findings(review) == []
+
+
+def test_1089_a_defined_shortcut_after_an_undefined_full_reference_is_a_link(tmp_path):
+    """#1089: `[guide][undefined]` falls back to the shortcut `[guide]`, which sits in the label."""
+    body = "Run [`scripts/deploy.sh` and [guide][undefined]](https://example.com).\n\n[guide]: notes.md\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_an_escaped_bang_is_not_an_image_marker(tmp_path):
+    """#1089: `\\![guide](notes.md)` is a literal `!` and a link, so the outer brackets are text."""
+    body = "Run [`scripts/deploy.sh` and \\![guide](notes.md)](https://example.com).\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+    body = "Run [`scripts/deploy.sh` and ![guide](notes.md)](https://example.com).\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize("rule", ["---", "***", "___", "- - -"])
+def test_1089_a_definition_after_a_thematic_break_is_a_definition(tmp_path, rule):
+    """#1089: a thematic break is a block of its own, so the definition after it starts a block."""
+    body = f"See [`scripts/deploy.sh`][guide].\n\n{rule}\n[guide]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_definition_after_prose_and_a_thematic_break_is_a_definition(tmp_path):
+    """#1089: `***` ends the prose block, so `[guide]: ...` after it starts a block."""
+    body = "See [`scripts/deploy.sh`][guide].\n\nIntroductory prose.\n***\n[guide]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com/(\n",
+        "Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com/)\n",
+        "Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com/a(b\n",
+    ],
+)
+def test_1089_a_definition_with_unbalanced_parentheses_is_no_definition(tmp_path, body):
+    """#1089: a bare destination needs balanced parentheses, so `[g]` is text and the span is checked."""
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_a_definition_with_balanced_parentheses_is_a_url_definition(tmp_path):
+    body = "Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com/a(b)c\n"
+    review, _ = _review(tmp_path, body)
+    assert _path_findings(review) == []
+
+
+def test_1089_a_defined_shortcut_after_an_invalid_inline_destination_is_a_link(tmp_path):
+    """#1089: `[guide](bad destination)` is no inline link, so `[guide]` is the defined shortcut inside the label."""
+    body = "Run [`scripts/deploy.sh` and [guide](bad destination)](https://example.com).\n\n[guide]: notes.md\n"
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_a_definition_label_with_an_escaped_bracket_does_not_define_the_plain_label(tmp_path):
+    """#1089: `[g\\]]: ...` defines the label `g]`, not `g`."""
+    body = "Run [`scripts/deploy.sh`][g].\n\n[g\\]]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_a_reference_use_with_an_escaped_bracket_does_not_use_the_plain_label(tmp_path):
+    """#1089: `[g\\]]` is the label `g]`, so the link below it does not point at `[g]`."""
+    body = "Run [`scripts/deploy.sh`][g\\]].\n\n[g]: https://example.com\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+@pytest.mark.parametrize("empty", ["[notes]()", "[notes](<>)"])
+def test_1089_a_link_with_an_empty_destination_in_a_label_means_the_label_is_no_link(tmp_path, empty):
+    """#1089: `[notes]()` is a link, so links do not nest and the outer brackets are text."""
+    review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh` and {empty}](https://example.com).\n")
+    assert _missing(review) == ["'scripts/deploy.sh'"]
+
+
+def test_1089_a_reference_definition_with_escaped_brackets_names_its_file(tmp_path):
+    """#1089: `[g]: references/a\\[b\\].md` is a link to the file `references/a[b].md`, which exists."""
+    body = "Read [guide][g].\n\n[g]: references/a\\[b\\].md\n"
+    review, _ = _review(tmp_path, body, files=("references/a[b].md",))
+    assert "link-missing" not in _codes(review)
+
+
+def test_1089_a_definition_with_an_escaped_bracket_in_its_label_names_its_file(tmp_path):
+    """#1089: `[g\\]]: references/missing.md` is a definition of the label `g]`, and its file is missing."""
+    body = "Read [guide][g\\]].\n\n[g\\]]: references/missing.md\n"
+    review, _ = _review(tmp_path, body)
+    assert "link-missing" in _codes(review)
+
+
+def test_1092_unclosed_labels_after_thematic_breaks_are_read_in_linear_time():
+    """#1092: an unclosed `[` after each `---` must not scan the rest of the paragraph for its `]`."""
+    import time
+
+    from dokimi.external.skill_markdown import link_pieces
+
+    lines = ["---", "[x"] * 40000
+    started = time.monotonic()
+    assert link_pieces(lines) == ([], [])
+    assert time.monotonic() - started < 10
+
+
+def test_1092_labels_that_are_only_code_spans_are_different_keys(tmp_path):
+    """#1092: `[`b`]` is its own definition (a file), not the first `[`a`]` (a URL), so its label is checked."""
+    body = "[`a`]: https://example.com\n[`b`]: examples/b.py\n\n[`examples/c.py`][`b`]\n"
+    review, _ = _review(tmp_path, body)
+    assert _missing(review) == ["'examples/c.py'"]
+
+
+@pytest.mark.parametrize("word", ["references/secrets.local.md", "scripts/run.local.md", "references/Keys.LOCAL.MD"])
+def test_a_user_local_markdown_file_is_not_a_bundled_path(word):
+    # the skill tells the user to create it: a user's own file, absent from the bundle by design
+    assert _bundle_path(word) is None
+
+
+def test_a_user_local_file_the_skill_names_is_not_reported_missing(tmp_path):
+    review, _ = _review(tmp_path, "Put the keys in `references/secrets.local.md` (create it yourself).\n")
+    assert _path_findings(review) == []
+
+
+def test_a_plain_file_the_skill_names_is_still_reported_missing(tmp_path):
+    review, _ = _review(tmp_path, "Put the keys in `references/secrets.md`.\n")
+    assert len(_path_findings(review)) == 1
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Run [`scripts/deploy.sh`][g[x].\n\n[g[x]: https://example.com\n",
+        "Run [`scripts/deploy.sh`][ ].\n\n[ ]: https://example.com\n",
+        "Run [`scripts/deploy.sh`\n***\n](https://example.com)\n",
+        "Run [`scripts/deploy.sh`](notes.md:42).\n",
+        "Run [`scripts/deploy.sh` and [guide]](https://example.com).\n\n[guide]: notes.md\n",
+        "Run [`scripts/deploy.sh` and [guide][]](https://example.com).\n\n[guide]: notes.md\n",
+        "Run [`scripts/deploy.sh`][guide].\n\n[guide]: https://example.com unexpected trailing text\n",
+    ],
+)
+def test_1092_a_label_that_is_no_url_link_keeps_its_span_checked(tmp_path, body):
+    """#1092: a malformed reference label, a block break, a file with a line suffix, a nested reference or a
+    definition with trailing text is no URL link: the missing script is reported."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
+
+
+@pytest.mark.parametrize(
+    "title",
+    ['"a \\"quoted\\" title"', "'it\\'s a title'", "(a \\(paren\\) title)"],
+)
+def test_1092_a_definition_title_may_hold_an_escaped_delimiter(tmp_path, title):
+    """#1092: `[g]: https://example.com "a \\"quoted\\" title"` is a URL definition."""
+    review, _ = _review(tmp_path, f"Run [`scripts/deploy.sh`][g].\n\n[g]: https://example.com {title}\n")
+    assert _path_findings(review) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Run [`scripts/deploy.sh`](notes.md:42).\n",
+        "Run [`scripts/deploy.sh` and [guide]](https://example.com).\n\n[guide]: notes.md\n",
+        "Run [`scripts/deploy.sh`][guide].\n\n[guide]: https://example.com unexpected trailing text\n",
+        "Run [`scripts/deploy.sh`][g].\n\n[ ]: https://example.com\n[g]: https://example.com\n",
+    ],
+    ids=["line-suffix", "shortcut-nested", "trailing-text", "blank-label-line"],
+)
+def test_missing_span_is_reported_when_the_destination_is_not_a_url(tmp_path, body):
+    """#1089: a label is skipped only for a real URL link; these four forms are not one."""
+    review, _ = _review(tmp_path, body, files=("notes.md",))
+    assert "scripts/deploy.sh" in " ".join(f.message for f in _path_findings(review))
