@@ -416,16 +416,20 @@ def _strip_question_phrasing(text: str) -> str:
 def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     """How many negations ``text``'s claim carries, and which of ``source``'s words they hit.
 
-    In a question, a leading negative auxiliary and a trailing tag ("..., doesn't it?") are
-    question phrasing and are not counted, unless ``source`` itself opens with a negative auxiliary
+    In a question, a trailing tag ("..., doesn't it?") is question phrasing and is never counted,
+    and neither is a leading negative auxiliary, unless ``source`` itself opens with one
     (then both sides keep it); a statement keeps its leading "Don't". A negation's
     target is the first content word after it; only targets that are words of ``source``
     are kept, so a negation that moved onto another of the source's words ("computed with
     BLAKE3, not over contents" to "over contents, NOT with BLAKE3") can be told apart from
     one reworded onto a new verb, which is not evidence of anything.
     """
-    stripped = _is_question(text) and not _LEADING_NEGATIVE.search(source)
-    claim = _strip_question_phrasing(text) if stripped else text
+    claim = text
+    if _is_question(text):
+        keep_leading = bool(_LEADING_NEGATIVE.search(source))
+        claim = _TRAILING_TAG.sub("?", text, count=1)
+        if not keep_leading:
+            claim = _LEADING_NEGATIVE.sub(" ", claim, count=1)
     source_stems = _stems(source)
     targets = set()
     for match in _NEGATIONS.finditer(claim):

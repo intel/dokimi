@@ -702,6 +702,13 @@ def test_a_statement_source_keeps_its_leading_negative_so_its_inversion_is_accep
 
 
 @pytest.mark.parametrize("source", ["Don't run the installer as root.", "Do not run the installer as root."])
+@pytest.mark.parametrize("tag", ["shouldn't it", "shouldn’t it", "should it not"])
+def test_a_trailing_tag_is_no_negation_even_when_the_source_opens_with_a_negative(source, tag):
+    candidate = f"Should the installer be run as root, {tag}?"
+    assert check_wording("reversal", source=source, candidate=candidate) == []
+
+
+@pytest.mark.parametrize("source", ["Don't run the installer as root.", "Do not run the installer as root."])
 def test_a_question_that_keeps_the_negation_of_a_statement_source_is_still_rejected(source):
     restated = check_wording("reversal", source=source, candidate="Do not run the installer as root?")
     assert len(restated) == 1 and restated[0] in {"restates_source", "polarity_not_flipped"}
