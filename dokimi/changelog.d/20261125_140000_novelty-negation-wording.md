@@ -1,3 +1,4 @@
 ### Fixed
 
 - **A negation written with a typographic apostrophe is counted by the novelty probes' paraphrase and reversal checks** — `doesn’t`, `don’t` and the like (`’`, `‘`, `ʼ`) are read as the ASCII `doesn't` before negations, a leading negative auxiliary or a trailing tag (`..., doesn’t it?`) are counted, so `Why doesn’t the skill ship measured numbers?` against `Why does the skill ship measured numbers?` is rejected as `polarity_flipped`, as the ASCII spelling already was. The anchor, length and `identical` checks still see the text as written.
+- **A reversal of a statement that opens with `Don't` is no longer rejected as `polarity_not_flipped`** — the reversal check strips a leading negative auxiliary only from a text that ends with `?`, so `Don't run the installer as root.` counts its negation like `Do not run the installer as root.` and `Should the installer be run as root?` is accepted as its inversion.

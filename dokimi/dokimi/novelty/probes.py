@@ -364,7 +364,7 @@ def _question_negations(claim: str) -> int:
 
     Only a question has any: ``Don't install X as root.`` is an imperative and keeps its negation.
     """
-    plain = _strip_question_phrasing(claim) if claim.rstrip().endswith("?") else claim
+    plain = _strip_question_phrasing(claim) if _is_question(claim) else claim
     return len(_NEGATIONS.findall(plain))
 
 
@@ -392,6 +392,11 @@ def _straight_apostrophes(text: str) -> str:
     return text.translate(_TYPOGRAPHIC_APOSTROPHES)
 
 
+def _is_question(text: str) -> bool:
+    """Whether ``text`` ends with ``?``: only a question has phrasing to strip (#1144)."""
+    return text.rstrip().endswith("?")
+
+
 def _normalise_negations(text: str) -> str:
     """``text`` with every negation synonym in :data:`_NEGATION_SYNONYMS` written as "not".
 
@@ -411,14 +416,14 @@ def _strip_question_phrasing(text: str) -> str:
 def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     """How many negations ``text``'s claim carries, and which of ``source``'s words they hit.
 
-    A leading negative auxiliary and a trailing tag ("..., doesn't it?") are question
-    phrasing and are not counted. A negation's
+    In a question, a leading negative auxiliary and a trailing tag ("..., doesn't it?") are
+    question phrasing and are not counted; a statement keeps its leading "Don't". A negation's
     target is the first content word after it; only targets that are words of ``source``
     are kept, so a negation that moved onto another of the source's words ("computed with
     BLAKE3, not over contents" to "over contents, NOT with BLAKE3") can be told apart from
     one reworded onto a new verb, which is not evidence of anything.
     """
-    claim = _strip_question_phrasing(text)
+    claim = _strip_question_phrasing(text) if _is_question(text) else text
     source_stems = _stems(source)
     targets = set()
     for match in _NEGATIONS.finditer(claim):

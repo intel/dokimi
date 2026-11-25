@@ -693,3 +693,18 @@ def test_a_typographic_apostrophe_that_is_no_negation_changes_nothing():
         "paraphrase", source=source.replace("’", "'"), candidate=candidate.replace("’", "'")
     )
     assert check_wording("paraphrase", source=source, candidate=candidate) == []
+
+
+@pytest.mark.parametrize("source", ["Don't run the installer as root.", "Do not run the installer as root."])
+def test_a_statement_source_keeps_its_leading_negative_so_its_inversion_is_accepted(source):
+    # #1144: only a question has phrasing to strip; a statement's "Don't" is a negation.
+    assert check_wording("reversal", source=source, candidate="Should the installer be run as root?") == []
+
+
+@pytest.mark.parametrize("source", ["Don't run the installer as root.", "Do not run the installer as root."])
+def test_a_question_that_keeps_the_negation_of_a_statement_source_is_still_rejected(source):
+    restated = check_wording("reversal", source=source, candidate="Do not run the installer as root?")
+    assert len(restated) == 1 and restated[0] in {"restates_source", "polarity_not_flipped"}
+    assert check_wording("reversal", source=source, candidate="Should the installer not be run as root?") == [
+        "polarity_not_flipped"
+    ]
