@@ -10,6 +10,7 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
+from .container import WORKSPACE
 from .manifest import RepoManifest, match_glob
 from .overlay_paths import _link_target, _supplies_a_file
 from .workspace import SNAPSHOT_AUTHOR, _git_env, _workspace_files
@@ -27,7 +28,8 @@ class HeldGuidance:
     """The guidance files a workspace held as the agent started, as the files they resolve to. ``path in held`` is
     true for a path that leads to one of them through the links the workspace had at the start: a link into the
     workspace (``alias/AGENTS.md`` through a directory link, ``sub/AGENTS.md`` to ``../AGENTS.md``) counts, also
-    after the agent removed or retargeted the link; a file or a link the agent made does not."""
+    after the agent removed or retargeted the link; a file or a link the agent made does not. An absolute link target
+    under ``/eval/run/workspace`` (the workspace as the container names it) leads into the workspace."""
 
     def __init__(self, ws: Path, files: Iterable[str]) -> None:
         self.root = os.path.realpath(ws)
@@ -73,6 +75,8 @@ class HeldGuidance:
                 if hops == 40:
                     return None
                 hops, target = hops + 1, self.links[key]
+                if target == WORKSPACE or target.startswith(WORKSPACE + "/"):  # the agent's name for this workspace
+                    target = self.root + target[len(WORKSPACE):]
                 if os.path.isabs(target) or target[:1] in (os.sep, os.altsep):  # ``\x`` is rooted on the drive of the link
                     here, names = _anchored(target, here)
                 else:

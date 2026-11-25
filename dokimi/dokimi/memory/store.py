@@ -316,6 +316,58 @@ def _closes_fence(line: str, fence: str) -> bool:
     return bool(m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip())
 
 
+class _BlankedLine:
+    """``line`` with ranges blanked to spaces, collected as the scan goes and joined once.
+
+    The scan reads the original text from ``pos`` on, which no blank has touched; only the angle-link check
+    reads the text before it, and it builds the blanked line when a ``](`` the blanks left may open a link.
+    """
+
+    def __init__(self, line: str, before: str) -> None:
+        self.line = line
+        self.before = before
+        self.ranges: list[tuple[int, int]] = []
+        self._head = len(before) + 1 if before else 0
+        self._found = [m.start() for m in re.finditer(r"\]\(", (before + "\n" if before else "") + line)]
+        self._next = 0
+        self._live = False  # a ``](`` before the scan point that no blank touched
+        self._prefix = ""  # the blanked line up to ``_ends``, for the ranges before ``_seen``
+        self._ends = 0
+        self._seen = 0
+
+    def _advance(self, upto: int) -> None:
+        while self._next < len(self._found) and self._found[self._next] + 2 <= upto + self._head:
+            self._next += 1
+            self._live = True
+
+    def blank(self, start: int, end: int) -> None:
+        self._advance(start)
+        while self._next < len(self._found) and self._found[self._next] < end + self._head:
+            self._next += 1  # a ``](`` the blank touches is gone
+        self.ranges.append((start, end))
+
+    def text(self, upto: int | None = None) -> str:
+        """The blanked line, or its first ``upto`` characters, joined from the ranges in one pass."""
+        line = self.line if upto is None else self.line[:upto]
+        chunks, prev = [], 0
+        for a, b in self.ranges:
+            chunks += [line[prev:a], " " * (b - a)]
+            prev = b
+        return "".join(chunks) + line[prev:]
+
+    def _so_far(self) -> str:
+        for a, b in self.ranges[self._seen:]:  # the ranges blanked since the last call extend the prefix
+            self._prefix += self.line[self._ends:a] + " " * (b - a)
+            self._ends = b
+        self._seen = len(self.ranges)
+        return self._prefix + self.line[self._ends:]
+
+    def angle_link_end(self, pos: int) -> int | None:
+        """``_angle_link_end`` of the blanked line at ``pos``."""
+        self._advance(pos)
+        return _angle_link_end(self._so_far(), pos, self.before) if self._live else None
+
+
 def _blank_inline(line: str, closes_ahead: bool, pos: int = 0, before: str = "") -> tuple[str, str, re.Match | None]:
     """Blank the code spans and the comments of ``line``, left to right: whichever starts first holds the text after it.
 
@@ -324,26 +376,32 @@ def _blank_inline(line: str, closes_ahead: bool, pos: int = 0, before: str = "")
     (``closes_ahead`` False) is plain text, as Markdown reads it, so the scan goes on past it.
     """
     scan = CodeSpanScanner(line, pos, stop=LINE_BREAK)
+    blanked = _BlankedLine(line, before)
+    start = line.find("<!--", pos)
+    closed = True  # False once no ``-->`` is left from a comment start on: none is left from a later one
     while True:
         code = _code_span(line, pos, scan)
-        start = line.find("<!--", pos)
+        if 0 <= start < pos:
+            start = line.find("<!--", pos)  # a start the scan has passed; -1 stays -1, as no later read finds one
         if code is None and start < 0:
-            return line, "", _unpaired_run(line, before)
+            out = blanked.text()
+            return out, "", _unpaired_run(out, before)
         if code is not None and (start < 0 or code.start() < start):
-            if (link := _angle_link_end(line, code.start(), before)) is not None:  # a backtick in the destination is text
+            if (link := blanked.angle_link_end(code.start())) is not None:  # a backtick in the destination is text
                 pos = link
                 continue
-            line = line[:code.start()] + " " * (code.end() - code.start()) + line[code.end():]
+            blanked.blank(code.start(), code.end())
             pos = code.end()
             continue
-        end = line.find("-->", start + 2)  # from the second dash: <!--> and <!---> are complete comments too
+        end = line.find("-->", start + 2) if closed else -1  # from the second dash: <!--> and <!---> are complete comments too
+        closed = end >= 0
         if end >= 0:
-            line = line[:start] + " " * (end + 3 - start) + line[end + 3:]
+            blanked.blank(start, end + 3)
             pos = end + 3
             continue
-        block = start <= 3 and not line[:start].strip()
+        block = start <= 3 and not blanked.text(start).strip()
         if block or closes_ahead:
-            return line[:start] + " " * (len(line) - start), "block" if block else "inline", None
+            return blanked.text(start) + " " * (len(line) - start), "block" if block else "inline", None
         pos = start + 4
 
 
