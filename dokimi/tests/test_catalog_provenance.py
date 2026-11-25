@@ -12,6 +12,7 @@ import os
 import shutil
 import stat
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -640,6 +641,48 @@ def test_the_same_edit_on_two_unmerged_branches_keeps_the_newer_commit(tmp_path:
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V2})
     row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
     assert (row["match"], row["date"]) == ("exact", "2026-02-05")
+
+
+def _version(order: int, *, text: str = "x", head: bool = False, behind: int | None = None,
+             date: str | None = None, commit: str = "c") -> upstream.Version:
+    known = upstream.Upstream(f"up{order}", order, "h", None, "full")
+    when = datetime.fromisoformat(date) if date else None
+    return upstream.Version(known, "t/SKILL.md", upstream.blob_sha(text.encode()), "tool", None, text,
+                            commit, when, head, behind)
+
+
+def _chosen(versions: list[upstream.Version], raw: str) -> dict:
+    index = upstream.Index([v.upstream for v in versions], versions)
+    match = index.match(raw.encode(), "tool")
+    assert match is not None
+    return upstream.to_row(match)
+
+
+def test_each_term_of_the_version_ranking_decides_the_winner_alone() -> None:
+    words = "alpha beta gamma delta"
+    reordered = "delta gamma beta alpha\n"
+    # similar copy: same words in every candidate, so only the term under test separates them
+    first = _version(0, text=words, date="2026-01-01T00:00:00+00:00", behind=5, commit="a")
+    second = _version(1, text=words, date="2026-02-01T00:00:00+00:00", behind=1, commit="b")
+    assert _chosen([second, first], reordered)["upstream"] == "up0"
+    near = _version(0, text=words, behind=3, commit="a")
+    nearer = _version(0, text=words, behind=1, commit="b")
+    row = _chosen([near, nearer], reordered)
+    assert (row["commit"], row["behind_commits"], row["at_head"]) == ("b", 1, False)
+    # exact copy: the head beats a newer version, then fewer commits behind wins
+    head = _version(0, text=words, head=True, behind=0, date="2026-01-01T00:00:00+00:00", commit="h")
+    newer = _version(0, text=words, behind=0, date="2026-02-01T00:00:00+00:00", commit="n")
+    row = _chosen([newer, head], words)
+    assert (row["commit"], row["at_head"], row["behind_commits"]) == ("h", True, 0)
+    far = _version(0, text=words, behind=4, date="2026-01-01T00:00:00+00:00", commit="f")
+    close = _version(0, text=words, behind=2, date="2026-01-01T00:00:00+00:00", commit="c")
+    row = _chosen([far, close], words)
+    assert (row["commit"], row["at_head"], row["behind_commits"]) == ("c", False, 2)
+
+
+def test_the_summary_reports_the_median_of_the_months_behind_not_the_mean() -> None:
+    rows = [{"match": "exact", "at_head": False, "behind_months": months, "edited": False} for months in (1.0, 1.0, 10.0)]
+    assert upstream.summary(rows)["median_months_behind"] == 1.0
 
 
 def test_a_skill_symlinked_to_a_file_outside_the_root_is_not_read(upstream_repo, tmp_path: Path) -> None:

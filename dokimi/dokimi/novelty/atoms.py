@@ -607,6 +607,8 @@ def save_atoms(
     """
     from pathlib import Path
 
+    from dokimi.process_io import checked_json_text
+
     record = extraction.as_dict() if extraction is not None else {}
     record["unread_span_ids"] = [span.id for span in spans if span.unread]
     record["unread_tokens"] = sum(span.tokens for span in spans if span.unread)
@@ -624,7 +626,7 @@ def save_atoms(
     if partial is not None:
         payload.update(status="partial", partial=partial)
     path = Path(path)
-    write_text_atomic(path, json.dumps(payload, indent=2))
+    write_text_atomic(path, checked_json_text(json.dumps(payload, indent=2)))
 
 
 def load_atoms(path) -> tuple[list[Atom], list[Span]]:

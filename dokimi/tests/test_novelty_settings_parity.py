@@ -214,7 +214,10 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
 # The stderr note the estimate prints: the one whose wording changed is cut from both sides.
 _ESTIMATE_NOTES = ("The estimate counts calls", "expected_usd prices")
 # The bill the estimate now projects, and the atom count and totals that move with it.
-_BILL_KEYS = ("tokens", "expected_usd")
+# usd_by_role and least_sure_role are new next to expected_usd (#631).
+_BILL_KEYS = ("tokens", "expected_usd", "usd_by_role", "least_sure_role")
+# The line `--estimate-only` now prints for least_sure_role (#631), before the notes above.
+_LEAST_SURE_LINE = "Least sure of: "
 _ESTIMATE_BILL_KEYS = (
     "by_role",
     "expected_calls",
@@ -235,12 +238,16 @@ def _kept_estimate(step: dict) -> dict:
     if not step["stdout"]:
         return step
     payload = json.loads(step["stdout"])
+    has_role = payload.get("least_sure_role") is not None
     for key in _BILL_KEYS:
         payload.pop(key, None)
     payload["estimate"] = {
         key: value for key, value in payload["estimate"].items() if key not in _ESTIMATE_BILL_KEYS
     }
-    stderr = step["stderr"]
+    lines = step["stderr"].splitlines(keepends=True)
+    named = [line for line in lines if line.startswith(_LEAST_SURE_LINE)]
+    assert bool(named) == has_role
+    stderr = "".join(line for line in lines if line not in named)
     for note in _ESTIMATE_NOTES:
         stderr = stderr.split(note)[0]
     return {**step, "stdout": payload, "stderr": stderr}

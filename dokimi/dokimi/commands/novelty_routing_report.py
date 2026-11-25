@@ -644,7 +644,12 @@ def save_result(payload: dict, out: Path, model_arm: dict) -> Path:
     or a writable partial result, so a cap does not replace a complete run with a prefix.
     """
     payload.update(partial_block(model_arm))
-    text = json.dumps(payload, indent=2)
+    from dokimi.process_io import checked_json_text
+
+    try:
+        text = checked_json_text(json.dumps(payload, indent=2))
+    except ValueError as exc:  # two skill names that are one once read back: nothing is written (#1163)
+        raise InputError(f"cannot write the routing result to {out}: {exc}") from exc
     if "partial" in payload and out.exists() and not _is_partial_file(out):
         return next(side for side in _partial_destinations(out) if _wrote(side, text))
     out.write_text(text, encoding="utf-8")

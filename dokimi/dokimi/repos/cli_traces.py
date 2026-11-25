@@ -369,7 +369,23 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
         return [{"t": t, "kind": "edit", "path": relative_path(_from_cwd(p.strip(), cwd), workdir),
                  **({"deleted": True} if verb == "Delete" else {})}
                 for verb, p in _PATCH_FILE.findall(text)]
-    return [{"t": t, "kind": "tool", "name": name}]
+    event: dict[str, Any] = {"t": t, "kind": "tool", "name": name}
+    if name == "grep" and obj.get("output_mode") == "content":  # the other modes list file names or counts
+        event.update(searched_field([_from_cwd(p, cwd) for p in _grep_paths(obj.get("paths"))], workdir))
+    return [event]
+
+
+def _grep_paths(paths: Any) -> list[str]:
+    """The ``paths`` of a Copilot ``grep`` call: one string or a list; an empty or non-string entry names nothing."""
+    entries = [paths] if isinstance(paths, str) else paths if isinstance(paths, list) else []
+    return [p for p in entries if isinstance(p, str) and p]
+
+
+def _grep_found_nothing(data: dict[str, Any]) -> bool:
+    """A ``grep`` completion that failed, or whose content is empty or the CLI's ``No matches found.``."""
+    result = data.get("result")
+    content = result.get("content") if isinstance(result, dict) else None
+    return data.get("success") is False or (isinstance(content, str) and content.strip() in ("", "No matches found."))
 
 
 def _copilot_result(out: Transcript, call: _Derived, data: dict[str, Any]) -> None:
@@ -379,6 +395,8 @@ def _copilot_result(out: Transcript, call: _Derived, data: dict[str, Any]) -> No
     reads = [e for e in events if e["kind"] == "read"]
     failed = data.get("success") is False
     for event in events:
+        if event["kind"] == "tool" and _grep_found_nothing(data):
+            event.pop("searched", None)  # a failed grep, or one with no match, showed no line
         if event["kind"] == "edit" and data.get("success") is not None:
             event["rc"] = 0 if data.get("success") else 1
         if event["kind"] != "command":
