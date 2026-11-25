@@ -23,8 +23,10 @@ from typing import NamedTuple
 from dokimi.text_spans import HeredocPattern
 
 from .event_format import plain_path
-from .shell_functions import Functions, define
-from .shell_redirects import bare, closed_fds, copied_fds, masked, may_fail_redirect, without_redirects, without_stderr
+from .shell_functions import Functions, define, may_change_posix
+from .shell_redirects import (
+    bare, closed_fds, copied_fds, masked, may_fail_redirect, reopened_fds, without_redirects, without_stderr,
+)
 from .shell_search import Searched, cuts_lines, passes_through, prints_nothing, search_program, searched_files
 from .shell_sed import sed_files
 from .shell_split import split_script
@@ -204,6 +206,7 @@ class _Walk:
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
         self.head = False  # the last part was a function's name alone (``f()``): its body's ``{`` comes next
+        self.def_ran: bool | None = True  # whether the function definition being walked runs, as :attr:`ran` at its start
         self.case = 0  # the depth inside ``case ... esac``
         self.operands: int | None = None  # how many files the last printing command named
         self.passthru = False  # a search printed every line (``rg --passthru``): its exit 1 is no sign it showed none
@@ -250,8 +253,8 @@ class _Walk:
         (``export POSIXLY_CORRECT=1 >/dev/null``: the redirect changes no variable); no command: its exit is not known.
         Also for a command with a substitution, whose ``part`` is its text outside the substitution (``if (false)``: ``if``)."""
         self.track_bodies(part)
-        for copied in self.copies:
-            copied |= copied_fds(part)
+        if self.copies:  # the innermost group: it hands them on when it closes, past what its redirects reopen
+            self.copies[-1] |= copied_fds(part)
         unredirected = without_redirects(part)
         state_words = words or (self.words(unredirected, after) if unredirected != part else [])
         state_words = state_words or _expanded_words(unredirected)  # ``export POSIXLY_CORRECT="$X"``: set, whatever $X is
@@ -310,13 +313,24 @@ class _Walk:
         ``function cd ( ... )``) is a subshell's, so its parts record nothing; the head is skipped, so a name ``cd`` there
         moves nothing, and a ``{`` word in it (``f() ( echo { ); cd sub``) opens no body that would hide the ``cd``."""
         head, self.head = self.head, False
+        if not self.function and not head:
+            self.def_ran = self.ran
         if not self.function and _SUBSHELL_DEF.match(bare):
+            self.defined()
             return True
         if not self.function and not _FUNCTION_DEF.match(bare) and not (head and _GROUP_OPEN.match(bare)):
             self.head = bool(_FUNCTION_HEAD.fullmatch(bare))
             return self.head
         self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
+        if not self.function:
+            self.defined()
         return True
+
+    def defined(self) -> None:
+        """A function definition that ran exits 0 (``f() { :; } || export P=1`` skips the export); a skipped one keeps
+        the exit before it, and one that may not have run is behind a command whose exit is already not known."""
+        if self.def_ran:
+            self.last_exit = True
 
     def in_case(self, outer: str, part: str, after: str, out: list[str]) -> bool:
         """Whether ``part`` is part of a ``case ... esac``, which is not followed: an arm may run or not, so one naming a
@@ -365,8 +379,8 @@ class _Walk:
         before, piped, (mark, unknown, passthru), (self.list_start, self.listed) = self.groups.pop()
         self.gates.pop()
         copied, passed = self.copies.pop(), self.passed.pop()
-        for outer in self.copies:  # ``{ { :; } 2>&1; } 1>&-``
-            outer |= copied_fds(redirects)
+        if self.copies:  # ``{ { :; } 2>&1; } 1>&-``; not the copy of a descriptor the group's own redirect reopens
+            self.copies[-1] |= (copied - reopened_fds(redirects)) | copied_fds(redirects)
         # ``{ unset X; } </missing``: bash opens it first, and runs no body when that fails; so when it closes a descriptor
         # a command of the body copies (``{ unset X 2>&1; } 1>&-``), that command fails and the ones before it ran
         if may_fail_redirect(redirects) or closed_fds(redirects) & copied:
@@ -491,9 +505,10 @@ def _posix_after(words: list[str], functions: Functions, state: _PosixState, tim
         valued = any(w.startswith(_POSIX_ASSIGN) for w in words) and not readonly  # a readonly variable refuses a value
         return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly, array)})
     prefix = list(itertools.takewhile(_ASSIGN.match, words))
+    called = words[len(prefix):][:1]
     words = _builtin_run(words, functions)
     if not words:
-        return frozenset({state})
+        return _after_call(called, functions, state)
     builtin = words[0]
     flags, plus, operands = _builtin_options(words[1:], builtin in ("declare", "typeset"))
     if builtin == "set":  # ``set -a``: what is assigned after it is exported, whether or not it was unset in between
@@ -516,6 +531,17 @@ def _posix_after(words: list[str], functions: Functions, state: _PosixState, tim
     if builtin != "export" and "x" not in flags:  # ``declare NAME=1`` sets it in this shell, and exports it only under allexport
         return frozenset({(is_set or valued, exported or (allexport and valued), allexport, readonly, array)})
     return frozenset({(True, True, allexport, readonly, array) if valued else (is_set, True, allexport, readonly, array)})
+
+
+def _after_call(called: list[str], functions: Functions, state: _PosixState) -> _PosixStates:
+    """The states after a command that is no ``export`` or ``unset`` of this shell: the same, unless it calls a function
+    whose body may change the variable (``f() { export POSIXLY_CORRECT=1; }; f``): then every state its body may leave."""
+    if not (called and called[0] in functions and may_change_posix(called[0], functions)):
+        return frozenset({state})
+    is_set, _, allexport, readonly, array = state
+    states = {state, (True, False, allexport, readonly, array), (True, not array, allexport, readonly, array),
+              (is_set, not array, allexport, readonly, array)}
+    return frozenset(states if readonly else states | {(False, False, allexport, False, False)})
 
 
 def _operand_name(word: str) -> str:

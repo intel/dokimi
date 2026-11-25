@@ -88,15 +88,29 @@ def copied_fds(part: str) -> set[str]:
 
 def closed_fds(redirects: str) -> set[str]:
     """The descriptors ``redirects`` (a group's, after its ``}``) leave closed, each later redirect reopening its own."""
+    return _redirect_fds(redirects)[0]
+
+
+def reopened_fds(redirects: str) -> set[str]:
+    """The descriptors ``redirects`` (a group's, after its ``}``) leave open: its body runs with them open, whatever a
+    group around it closed (``{ { unset X 2>&1; } 1>/dev/null; } 1>&-``)."""
+    return _redirect_fds(redirects)[1]
+
+
+def _redirect_fds(redirects: str) -> tuple[set[str], set[str]]:
     closed: set[str] = set()
+    opened: set[str] = set()
     for m in _REDIRECT.finditer(masked(redirects)):
         fd = _redirected_fd(m.group())
         copy = _FD_COPY.fullmatch(m.group())
         if copy and copy[1] == "-":
             closed.add(fd)
+            opened.discard(fd)
         else:
-            closed -= {fd, "2"} if m.group().startswith("&") else {fd}
-    return closed
+            both = {fd, "2"} if m.group().startswith("&") else {fd}
+            closed -= both
+            opened |= both
+    return closed, opened
 
 
 def _redirected_fd(redirect: str) -> str:
