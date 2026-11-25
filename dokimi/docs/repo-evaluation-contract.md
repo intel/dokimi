@@ -879,9 +879,11 @@ prefix is the framework's: an unknown `dokimi:` name fails `eval check` and
 the run's grade, and is never handed to the repository.
 
 A built-in grader runs where `grade` and `oracle` run: in the grading
-container, with the same mounts, network and environment (§4.2). The
-framework's grader code is mounted read-only at `/eval/graders` (never into
-the agent's container) and runs as
+container, with the same mounts, network and environment (§4.2). Dokimi
+stages the grader code alongside the exported eval directory so the Docker
+daemon can mount it from the same host storage. The grading container
+mounts it read-only at `/eval/graders` and runs
+
 `python3 -I -B /eval/graders/main.py grade|oracle <name> <task dir> /eval/run`,
 where `<task dir>` is the task's directory under `{eval_dir}`. It uses the
 standard library only and the image's `python3` (3.8 or newer), except

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -357,6 +358,15 @@ def _check(root, out, runner, monkeypatch, *tasks):
 @pytest.mark.outcome("cjm-builtin-review-graders")
 def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, monkeypatch):
     runner = FakeRunner()
+    run = runner.run
+
+    def run_with_separate_daemon(spec, **kwargs):
+        for mount in spec.mounts:
+            if mount.container == GRADERS_DIR:
+                assert mount.host.parent.stat().st_mode & stat.S_IXOTH
+        return run(spec, **kwargs)
+
+    monkeypatch.setattr(runner, "run", run_with_separate_daemon)
     res = _check(_repo(tmp_path), tmp_path / "chk", runner, monkeypatch, *TASKS, "fix_add")
     assert {k: v["verdict"] for k, v in res.items()} == dict.fromkeys([*TASKS, "fix_add"], "ok"), res
     for task_id in ("seeds_mul", "replay_mul", "addressed_mul"):
@@ -375,7 +385,10 @@ def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, mon
         assert kind in ("grade", "oracle") and name in ("review_seeds", "review_replay")
         assert task_dir.startswith(f"{CONTENT_DIR}/tasks/")
         mounts = {m.container: m for m in s.mounts}
-        assert mounts[GRADERS_DIR].read_only and mounts[GRADERS_DIR].host == HOST_DIR
+        grader_mount = mounts[GRADERS_DIR]
+        assert grader_mount.read_only
+        assert grader_mount.host.parent.parent == mounts[CONTENT_DIR].host.parent
+        assert not grader_mount.host.exists()  # the staged copy is removed when the entry point exits
         assert mounts[CONTENT_DIR].read_only and SOURCE_DIR not in mounts  # the repository's oracle names it
     assert all(GRADERS_DIR not in {m.container for m in s.mounts} for s in repo)
 

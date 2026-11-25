@@ -28,6 +28,8 @@ import re
 import shlex
 import shutil
 import stat
+import tempfile
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -158,22 +160,24 @@ def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: s
     A task whose ``grader`` is ``dokimi:<name>`` runs the framework's built-in grader instead of the
     manifest's entry point, in the same container (contract §4.5)."""
     builtin = builtin_name(task.raw.get("grader"))
-    argv, extra = _builtin_entry(ctx, kind, task, builtin) if builtin is not None else _repo_entry(ctx, kind, task)
-    home = run_dir / GRADE_HOME
-    shutil.rmtree(home, ignore_errors=True)
-    home.mkdir()
-    _set_git_config_aside(run_dir)
-    if kind == "grade":
-        (run_dir / "grade.json").unlink(missing_ok=True)  # never read a previous grade as this one
-    for log in (f"{kind}.log", f"{kind}.err"):  # an earlier entry point's link would be opened for writing
-        (run_dir / log).unlink(missing_ok=True)
-    mounts = [Mount(run_dir.resolve(), RUN_DIR), Mount(ctx.content_dir.resolve(), CONTENT_DIR, read_only=True)]
-    if builtin == "hidden_tests" and kind == "grade":
-        _run_hidden_tests(ctx, task, run_dir, network, mounts, name)
-    spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + extra + ctx.cache_mounts(),
-                         env=ctx.grade_env(task), network=network, name=name, survives_halt=kind == "grade")
-    result = ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
-                            timeout_s=ctx.entry_timeout_s)
+    with ExitStack() as stack:
+        argv, extra = (_builtin_entry(ctx, kind, task, builtin, stack) if builtin is not None
+                       else _repo_entry(ctx, kind, task))
+        home = run_dir / GRADE_HOME
+        shutil.rmtree(home, ignore_errors=True)
+        home.mkdir()
+        _set_git_config_aside(run_dir)
+        if kind == "grade":
+            (run_dir / "grade.json").unlink(missing_ok=True)  # never read a previous grade as this one
+        for log in (f"{kind}.log", f"{kind}.err"):  # an earlier entry point's link would be opened for writing
+            (run_dir / log).unlink(missing_ok=True)
+        mounts = [Mount(run_dir.resolve(), RUN_DIR), Mount(ctx.content_dir.resolve(), CONTENT_DIR, read_only=True)]
+        if builtin == "hidden_tests" and kind == "grade":
+            _run_hidden_tests(ctx, task, run_dir, network, mounts, name)
+        spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + extra + ctx.cache_mounts(),
+                             env=ctx.grade_env(task), network=network, name=name, survives_halt=kind == "grade")
+        result = ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
+                                timeout_s=ctx.entry_timeout_s)
     if builtin is not None and result.returncode == _NOT_FOUND_EXIT and _python3_not_found_in_stderr(run_dir, kind):
         raise ContainerError(f"{task.raw['grader']} runs on the image's python3, and the image has none on PATH "
                              f"(`{kind}` exited {_NOT_FOUND_EXIT}; see {run_dir / f'{kind}.err'})")
@@ -192,7 +196,8 @@ def _repo_entry(ctx: EvalContext, kind: str, task: Task) -> tuple[list[str], lis
     return render_entry(template, task), [Mount(ctx.source_dir.resolve(), SOURCE_DIR, read_only=True)]
 
 
-def _builtin_entry(ctx: EvalContext, kind: str, task: Task, builtin: str) -> tuple[list[str], list[Mount]]:
+def _builtin_entry(ctx: EvalContext, kind: str, task: Task, builtin: str,
+                   stack: ExitStack) -> tuple[list[str], list[Mount]]:
     """argv of built-in grader ``builtin`` for ``kind``, and the read-only mount of its code.
 
     ``-I``: no ``PYTHONPATH`` from ``image.env``, no user site and no script directory on ``sys.path``,
@@ -206,7 +211,12 @@ def _builtin_entry(ctx: EvalContext, kind: str, task: Task, builtin: str) -> tup
         raise ContainerError(f"task {task.id}: its directory {task.dir} is not in the exported eval dir") from None
     argv = ["python3", "-I", "-B", f"{GRADERS_DIR}/{BUILTIN_ENTRY}", kind, builtin,
             f"{CONTENT_DIR}/{rel.as_posix()}", RUN_DIR]
-    return argv, [Mount(GRADERS_HOST, GRADERS_DIR, read_only=True)]
+    # The Docker daemon may see the exported content's parent but not the client's site-packages.
+    staging = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="graders-", dir=ctx.content_dir.resolve().parent)))
+    graders = shutil.copytree(GRADERS_HOST, staging / "graders", ignore=shutil.ignore_patterns("__pycache__"))
+    # A daemon running under another UID must be able to traverse the staging directory.
+    staging.chmod(0o711)
+    return argv, [Mount(graders, GRADERS_DIR, read_only=True)]
 
 
 def _run_hidden_tests(ctx: EvalContext, task: Task, run_dir: Path, network: str, mounts: list[Mount],
