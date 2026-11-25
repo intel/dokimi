@@ -180,7 +180,7 @@ def test_tasks_run_writes_the_task_runs_report(tmp_path, monkeypatch, name, writ
     monkeypatch.setattr(dokimi.report.task_runs_report, "render_task_runs_report", lambda output: f"# {name}\n")
     md = tmp_path / "nested" / "report.md"
     args = build_parser().parse_args([
-        "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path), "--harnesses", "codex",
+        "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path), "--harness", "codex",
         "--model", "m", "--out", str(tmp_path / "runs.json"), "--out-md", str(md), "--dry-run",
     ])
     args.func(args)

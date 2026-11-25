@@ -210,7 +210,7 @@ def run(args):
     template = shlex.join([sys.executable, __file__, "--cell", "tasks/{task}", "--arm", "{harness}"])
     process = subprocess.run(
         [sys.executable, "cli.py", "tasks", "run", "--all", "--tasks-root", str(root / "tasks"),
-         "--harnesses", ",".join(arms), "--reps", "3", "--baseline-harness", arms[0],
+         "--harness", ",".join(arms), "--reps", "3", "--baseline-harness", arms[0],
          "--out", str(runs), "--out-dir", str(root / "cells"), "--command-template", template],
         cwd=PROJECT, check=False,
     )

@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from dokimi.artifacts import save_artifact
@@ -16,19 +15,6 @@ from dokimi.metrics.example_runner import ExampleResult, ExecutionPolicy, score_
 from dokimi.gate.score_gate import check_gate
 from dokimi.runner.spec import load_spec, select_docs
 from dokimi.runner.manifest import build_run_manifest
-
-
-@dataclass
-class DocMetrics:
-    """Per-document metric bundle."""
-
-    path: str
-    chunks: int
-    coverage: float
-    freshness_lite: float
-    readability: float
-    example_pass_rate: float
-    score: float
 
 
 def _weighted_score(doc: dict, weights: dict[str, float], active_metrics: list[str]) -> float:

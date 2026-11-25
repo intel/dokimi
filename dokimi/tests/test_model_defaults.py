@@ -52,9 +52,9 @@ def test_no_source_file_still_names_gpt_4o_mini():
 
 
 @pytest.mark.parametrize("argv, expected", [
-    (["arms", "run", "--product", "p", "--questions", "q", "--arms", "baseline"],
+    (["arms", "run", "--product", "p", "--questions", "q", "--arm", "baseline"],
      {"model": ANSWER, "judge": JUDGE}),
-    (["arms", "matrix-run", "--product", "p", "--questions", "q", "--arms", "baseline",
+    (["arms", "matrix-run", "--product", "p", "--questions", "q", "--arm", "baseline",
       "--matrix-cells", "m"], {"model": ANSWER, "judge": JUDGE}),
     (["subjects", "run", "s.toml"], {"model": ANSWER, "judge": JUDGE}),
     (["evaluate", "--product", "p"], {"model": ANSWER, "judge": JUDGE}),

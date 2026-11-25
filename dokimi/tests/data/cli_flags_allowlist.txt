@@ -19,12 +19,10 @@
 --allow-unsafe
 --allow-unsupported
 --answers-out
---arms
+--arms  # novelty measurement arms (no_artifact,full,placebo) on skill novelty and catalog novelty; arm-name filters on eval score checklist and pairwise; not subject arm specs
 --artifact
 --atoms
---base
 --baseline-harness
---baseline-json
 --bases
 --batch
 --both
@@ -71,7 +69,6 @@
 --grounded
 --grounded-from-topics
 --groups
---harnesses
 --hits  # repo report replay hits (#297) adds it: a view switch has no registry concept yet
 --image
 --include-disabled  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
@@ -104,8 +101,8 @@
 --listing-budget-fraction  # catalog trigger-probe (#217) adds it: no registry concept yet
 --manifest
 --manifest-file
---matrix-cell
---matrix-cells
+--matrix-cell  # names one cell of a --matrix-cells file; the canonical --cell takes inline k=v settings, not a name
+--matrix-cells  # the matrix.cells descriptor file, not one cell; no canonical spelling names a matrix file
 --max-atoms
 --max-bases
 --max-context-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
@@ -146,7 +143,7 @@
 --personas
 --personas-count
 --placebo-text
---plugin-json
+--plugin-json  # the plugin-enabled candidate artifact of arms plugin-delta; no canonical spelling names a second run
 --plugins
 --pool-replicates
 --probes
@@ -230,7 +227,7 @@
 --wordings
 --work-baseline-harness
 --work-command-template
---work-harnesses
+--work-harnesses  # executable-task harnesses of suite.tasks, work-scoped like --work-dry-run; the leaf's --harness is the arms-runner label
 --work-model
 --work-output-dir
 --work-dry-run  # gates only executable-task agents; other phases still call models, so not the dry_run concept; #94 F1b
