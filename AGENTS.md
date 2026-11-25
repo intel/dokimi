@@ -22,6 +22,10 @@ make ci-local   # runs local equivalents of PR checks and reports skips
 make ci-local CI_LOCAL_ARGS='--offline --jobs static,typecheck'   # fast inner loop
 ```
 
+On a historical self-eval task, use the Python installed in the eval image if
+`.venv` is unavailable. Run `python -m pytest` from `dokimi/` and check the
+selected revision for a helper before invoking it.
+
 Run touched tests first with `../.venv/bin/python -m pytest` and allow a
 10-minute timeout for the full suite. Before opening a PR, resolve every
 `FAIL` and confirm the relevant checks ran. Report any relevant skips.

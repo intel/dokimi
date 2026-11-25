@@ -33,7 +33,8 @@ before reproducing individual findings.
   `.venv/bin/python dokimi/scripts/list_new_error_paths.py --base "$base_ref"`
   with `base_ref` set to the PR's upstream base. It lists `raise`, `sys.exit`,
   `SystemExit` and literal `exit_code=N` in the committed diff. Check
-  uncommitted edits, `parser.error` and numeric returns directly.
+  uncommitted edits, `parser.error` and numeric returns directly. On a task
+  base without this script, check new error paths in the diff directly.
 
 ## Patterns that hide a defect
 

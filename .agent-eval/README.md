@@ -42,8 +42,9 @@ Process metrics are reported and never gated. They come from `events.jsonl` and 
 
 The review tasks report no process metrics (`read_docs`, `ran_pytest` and the rest above):
 the built-in seeded-review grader writes only the seed metrics. It reads the final fenced
-JSON array and measures recall, unmatched findings and decoy flags. The seeded
-task rejects prose that only mentions the defects. The clean task fails when the
+JSON array and measures recall, unmatched findings and decoy flags. Without a
+readable findings array, both tasks report `pass: false` and `parse_error: true`,
+and the seeded task scores zero recall. The clean task also fails when the
 reviewer reports a blocker or major issue. Read credited findings before treating
 recall as a correctness measure, because the grader also matches by proximity.
 
@@ -69,11 +70,15 @@ the historical file. `guidance:rev:` replaces the matched files with the
 ones at the selected revision, keeping the task base fixed. To compare two
 versions of the guide, pass both revisions as separate `guidance:rev:` arms
 and choose one as the baseline.
-The task bases predate several files `AGENTS.md` names (`.venv`, `make ci-local`,
-`scripts/mutate_changed.py`, `docs/documentation-index.md` and others), so a
-`guidance:rev:` arm also measures how an agent copes with commands that do not
-exist at the pinned base. A guidance-only `patch:` arm can isolate
-changes to an individual file.
+A guidance-only `patch:` arm can isolate changes to an individual file.
+
+The task image supplies Python 3.11 with the locked dependencies and starts
+without a `.venv`. The pinned base's `make dev` defaults to Python 3.13, which
+the offline image cannot download. Run the base's available tests with
+`python -m pytest` from `dokimi/`. Some current guidance helpers are missing on
+that base, including `dokimi/scripts/list_new_error_paths.py` and
+`dokimi/scripts/check_duplicates.py`. The comparison measures current guidance
+on this historical environment, where some of its checks are unavailable.
 
 ## Adding a task
 
