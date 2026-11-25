@@ -33,14 +33,13 @@ its regex finds a match in (``re.search``). A counter matches the command text u
 
 from __future__ import annotations
 
-import posixpath
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from dokimi.repos.event_format import TOOL_KINDS, plain_path
+from dokimi.repos.event_format import TOOL_KINDS, followed_path, plain_path
 
 COUNTER_FIELDS = ("text", "output", "any")
 
@@ -84,16 +83,9 @@ def _workspace_path(path: str, resolve: Callable[[str], str | None] | None = Non
     is collapsed by name, as when the workspace is not known. A path that climbs out of the workspace is None either way."""
     if path.startswith("~"):
         return None
-    p = PurePosixPath(plain_path(path))
-    if p.is_absolute():
+    if PurePosixPath(plain_path(path)).is_absolute():
         return None
-    if ".." in p.parts:
-        if not resolve:
-            p = PurePosixPath(posixpath.normpath(p))
-        elif p.name != "..":
-            p = PurePosixPath(resolve(str(p.parent)) or "..") / p.name
-        else:
-            p = PurePosixPath(resolve(str(p)) or "..")
+    p = PurePosixPath(followed_path(path, resolve))
     return None if ".." in p.parts else str(p)
 
 

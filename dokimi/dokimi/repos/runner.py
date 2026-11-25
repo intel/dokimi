@@ -196,16 +196,16 @@ def task_caps(task: Task, opts: AgentOptions) -> dict[str, float]:
 
 
 def _add_arm_use(record: dict[str, Any], meta: dict[str, Any], task: Task, skills: dict[str, Any] | None,
-                 uptake_of: tuple[list[str], list[str]], events: list[Any] | None) -> None:
-    """Did the agent use what the arm installed (skills) or added (files, MCP servers)?"""
+                 uptake_of: tuple[list[str], list[str]], events: list[Any] | None, resolve: Callable[[str], str | None] | None = None) -> None:
+    """Did the agent use what the arm installed (skills) or added (files, MCP servers)? ``resolve``: the links."""
     if meta.get("skills"):  # without a trace the usage is unmeasured, not zero
         record["skills"] = skills if skills is not None else skill_unmeasured(
             [s["name"] for s in meta["skills"]], task.expected_skill)
     if meta.get("guidance_skill"):  # apart from the catalog's usage: it is not in the names the catalog's usage counts
         record["guidance_skill_loaded"] = (None if events is None else
-                                           bool(skill_usage(events, [meta["guidance_skill"]["name"]], None)["skills_used"]))
+                                           bool(skill_usage(events, [meta["guidance_skill"]["name"]], None, resolve)["skills_used"]))
     if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
-        record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
+        record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE, resolve)
 
 
 def _workspace_args(task: Task, opts: AgentOptions, rd: Path, meta: dict[str, Any]) -> frozenset[str]:
@@ -336,7 +336,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record
             process = _process_or_null(ctx, events, agent["trace_errors"], transcript.unknown_reads, held)
         if meta.get("skills") and started:
-            skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
+            skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill, held.resolved)
         # A Ctrl-C does not kill the grade: the cell is past its agent, so it is recorded (contract §9).
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
@@ -352,11 +352,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
-                              "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade,
+                              "process": process, "first_useful": first_useful(task.useful, useful_events, held.resolved), "grade": grade,
                               "host_fingerprint": fingerprint_id(host) if host is not None else None}
     if match is not None:
         record["host_match"] = match
-    return _finish_record(record, rd, task, meta, (skills, uptake_of, events), float(agent["charged_usd"]))
+    return _finish_record(record, rd, task, meta, (skills, uptake_of, events, held.resolved), float(agent["charged_usd"]))
 
 
 def _add_origin(meta: dict[str, Any], ctx: EvalContext, task: Task, match: dict[str, Any] | None) -> None:
@@ -367,7 +367,7 @@ def _add_origin(meta: dict[str, Any], ctx: EvalContext, task: Task, match: dict[
         meta["base_repo"] = ctx.suite.meta[task.id]
 
 
-def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str, Any], arm_use: tuple[Any, Any, Any],
+def _finish_record(record: dict[str, Any], rd: Path, task: Task, meta: dict[str, Any], arm_use: tuple[Any, Any, Any, Any],
                    charged_usd: float) -> dict[str, Any]:
     """The cell's ``record`` with its task status and arm use, saved as ``result.json``; a run dir it cannot be
     written to is a :class:`CellCrash` that keeps the charge."""

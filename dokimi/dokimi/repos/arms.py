@@ -20,9 +20,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-import posixpath
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -31,6 +30,7 @@ import yaml
 
 from dokimi.skills.formats import SPEC_NAME_MAX
 from dokimi.digest_entries import listed_entries
+from dokimi.repos.event_format import followed_path
 
 from dokimi import process
 
@@ -314,9 +314,10 @@ def skill_unmeasured(installed: list[str], expected: str | None) -> dict[str, An
             "skill_invoked": None, "skill_selected_correct": None}
 
 
-def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: str | None) -> dict[str, Any]:
+def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: str | None,
+                resolve: Callable[[str], str | None] | None = None) -> dict[str, Any]:
     """Which installed skills the agent used: a ``Skill`` tool call naming it, or a read of its ``SKILL.md``; neither
-    refused nor failed.
+    refused nor failed. ``resolve`` follows the workspace's links for a read path with a ``..`` in it.
 
     ``skill_invoked``: the expected skill was used (any installed one when the task names none);
     ``skill_selected_correct``: the expected skill was the first one used, ``None`` without one.
@@ -329,7 +330,7 @@ def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: st
         if e.get("kind") == "tool" and e.get("name") == "Skill":
             name = str(e.get("skill") or "").split(":")[-1]  # a plugin skill is plugin:name
         elif e.get("kind") == "read":
-            parts = PurePosixPath(posixpath.normpath(str(e.get("path") or ""))).parts
+            parts = PurePosixPath(followed_path(str(e.get("path") or ""), resolve)).parts
             if len(parts) == 4 and "/".join(parts[:2]) == SKILLS_DIR and parts[3] == "SKILL.md":
                 name = parts[2]
         if name in installed and name not in used:
