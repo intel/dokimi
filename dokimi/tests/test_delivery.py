@@ -207,6 +207,24 @@ def test_container_protocol(monkeypatch):
     assert calls[1][:3] == ["docker", "rm", "-f"]
 
 
+@pytest.mark.parametrize("failure", [KeyboardInterrupt(), RuntimeError("client interrupted")])
+def test_container_removes_its_name_after_an_exception(monkeypatch, failure):
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if argv[1] == "run":
+            raise failure
+        raise OSError("cleanup unavailable")
+
+    monkeypatch.setattr(process, "run", run)
+    with pytest.raises(type(failure)) as caught:
+        delivery.container("image", "true", {}, b"", 1)
+    assert caught.value is failure
+    assert len(calls) == 2
+    assert calls[1] == ["docker", "rm", "-f", calls[0][calls[0].index("--name") + 1]]
+
+
 def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):
     from dokimi.cli import parse_args
 

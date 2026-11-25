@@ -12,6 +12,7 @@ import re
 import shlex
 import tempfile
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -69,12 +70,17 @@ def container(
         policy, [options, "network", "hardening", "pids", "resource", mounts_argv], image, ["-c", script]
     )
     env = process.Env.inherit()
-    result = process.run(docker_cmd.argv(*spec), input=data, env=env, timeout=timeout)
-    if result.timed_out:
-        process.run(docker_cmd.argv("rm", "-f", name), env=env, timeout=15)
+    try:
+        result = process.run(docker_cmd.argv(*spec), input=data, env=env, timeout=timeout)
+        if result.timed_out:
+            raise ValueError(result.stderr or "container timeout, killed process or truncated evidence")
+    except BaseException:
+        # The daemon owns the container after its CLI exits. Keep the original failure if removal also fails.
+        with suppress(BaseException):
+            process.run(docker_cmd.argv("rm", "-f", name), env=env, timeout=15)
+        raise
     if (
-        result.timed_out
-        or result.truncated
+        result.truncated
         or result.returncode in (125, 137)
         or (result.returncode in (126, 127) and result.stderr.startswith("docker:"))
     ):
