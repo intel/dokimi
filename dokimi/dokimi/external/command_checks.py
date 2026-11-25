@@ -456,20 +456,29 @@ def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
     return found
 
 
+def _ends_inside_url(reading: str, end: int) -> bool:
+    """Whether the whitespace-delimited word of ``reading`` that holds index ``end`` is a URL: a fullwidth ``；``
+    there is a URL character, not a separator."""
+    start = max(reading.rfind(" ", 0, end), reading.rfind("\n", 0, end), reading.rfind("\t", 0, end)) + 1
+    stop = min((i for i in (reading.find(c, end) for c in " \n\t") if i >= 0), default=len(reading))
+    return "://" in reading[start:stop]
+
+
 def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
     """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
     once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
-    same place is counted once, with the packages of the most folded reading that finds it. A reading that finds no
-    unpinned package replaces an earlier result only when it reads the same arguments (a fullwidth ``＝＝`` pins a
-    package the raw reading calls unpinned); one that reads fewer has ended the command at a fullwidth separator,
-    which is not evidence about the arguments the earlier reading saw. A command at another place is another install."""
-    best: dict[tuple[int, str], tuple[int, list[str]]] = {}
+    same place is counted once, with the packages of the most folded reading that finds it, even when that reading
+    reads fewer arguments: it has ended the command at a fullwidth separator (a fullwidth ``＝＝`` that pins a package
+    may be followed by one). The exception is a separator inside a URL word, which the earlier reading keeps. A command at another place is another install."""
+    best: dict[tuple[int, str], tuple[int, list[str], str]] = {}
     for reading in readings(_code_text(text, markdown)):
         for offset, command, end, labels in _unpinned_at(reading):
             key = (offset, command)
-            if labels or key not in best or best[key][0] == end:
-                best[key] = (end, labels)
+            if key in best and best[key][0] != end and _ends_inside_url(best[key][2], end):
+                continue  # the earlier reading reads a URL character where this one sees a separator
+            best[key] = (end, labels, reading)
     return [label for key in sorted(best) for label in best[key][1]]
+
 
 
 def _is_skill_dir(path: Path) -> bool:
@@ -522,7 +531,15 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
     sources = [("SKILL.md", skill_path.read_text(encoding="utf-8-sig"))]
     if not at_root:
         sources += list(_bundled_texts(skill_path.parent))
+    return _findings_in(sources)
 
+
+def skill_md_findings(text: str) -> list[tuple[str, str]]:
+    """:func:`command_findings` for one ``SKILL.md`` text alone, with no bundled file: an upstream version's bytes."""
+    return _findings_in([("SKILL.md", text)])
+
+
+def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
     findings: list[tuple[str, str]] = []
     unpinned: list[str] = []
     for rel, raw in sources:

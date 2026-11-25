@@ -70,6 +70,9 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   or lists one run, `cli.py runs rm` and `cli.py runs gc --older-than` remove
   runs, `cli.py runs baseline save|list|rm` names a run (`--expect-previous`
   for a compare-and-swap). No LLM call.
+- [opportunities.md](opportunities.md) — `cli.py report opportunities` ranks stored
+  novelty, static repository, catalog evaluation, judge-validity and llms.txt findings
+  into one queue of fixes with execution prompts. No LLM call.
 - [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
   preflight, run, then pin the question set so runs stay comparable.
 - [benchmarking-and-comparison.md](benchmarking-and-comparison.md) — how to
@@ -87,6 +90,7 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
+- [product-experiment-replay.md](product-experiment-replay.md) — replay a frozen product experiment and its verifier evidence
 - [knowledge-runs.md](knowledge-runs.md) — ask one question set of one agent
   or model with no docs injected and grade it (`arms run --arms baseline`,
   `answers generate --doc-source none`): the reference before a with-docs comparison.

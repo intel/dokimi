@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval check / eval tasks generate --from replay|prs / repo run / repo report / repo compare: the
+"""eval check / eval tasks generate --from replay|prs|history / repo run / repo report / repo compare: the
 repository-mode runner (contract §3, §4, §4.3, §4.5, §4.6, §4.8)."""
 
 from __future__ import annotations
@@ -464,7 +464,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         if skill_pin is not None:
             write_skill_pin(batch_dir, skill_pin)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
-                            max_batch_usd=args.max_batch_usd, log=_progress)
+                            max_batch_usd=args.max_batch_usd, log=_progress, label_host=args.label_host)
     except InputError:  # see cmd_repo_tasks_check (#826)
         raise
     except DockerError as exc:  # the docker CLI or daemon failed: infrastructure, not a verdict (§2.6)
@@ -713,6 +713,10 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                   help="Start no new cell once the batch has spent this much, earlier invocations included "
                        "(and the budgets of the cells in flight)")
     run_p.add_argument("--force", action="store_true", help="Rerun cells that already have result.json")
+    run_p.add_argument("--label-host", action="store_true", dest="label_host",
+                       help="Run a task whose task.json `host` requirements this host misses anyway, and record "
+                       "per field what was met and what was not (host_match in result.json) instead of marking "
+                       "the cells unsupported; results carry the host fingerprint, so `repo report` groups them by it")
     run_p.set_defaults(func=cmd_repo_run)
 
     report_p = repo_sub.add_parser("report", help="Per (task, arm, model) table over a batch directory")

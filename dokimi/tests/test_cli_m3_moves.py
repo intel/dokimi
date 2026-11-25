@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The M3 moves: `catalog list|show --kind`, `skill check`, and `eval tasks generate --from replay|prs` flags."""
+"""The M3 moves: `catalog list|show --kind`, `skill check`, and `eval tasks generate --from replay|prs|history` flags."""
 
 from __future__ import annotations
 
