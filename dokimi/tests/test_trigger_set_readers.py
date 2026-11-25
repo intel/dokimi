@@ -83,6 +83,30 @@ def test_questions_round_trip_keeps_unlabelled_and_lint(queries, tmp_path):
     assert len(load_questions(path).questions) == 4
 
 
+def test_a_questions_version_and_provenance_survive_the_round_trip(catalog, tmp_path):
+    # the author's revision and provenance are read from the source set and written back as they were,
+    # a malformed value too (it warns at load, see dokimi.provenance), through build, write, read and write again
+    stamped = {"id": "p", "text": "my program is slow, where is the time going", "version": 2,
+                "provenance": {"source": "hand-written", "status": "frozen"}}
+    malformed = {"id": "f", "text": "save this array to disk", "version": 1.0, "provenance": "validated"}
+    bare = {"id": "n", "text": "write a haiku"}
+    built = ts.build_trigger_set([([stamped, malformed, bare], "none")], discover_skills(catalog))
+    payload = ts.to_questions(built)
+    rows = {r["id"]: r for r in payload["questions"]}
+    assert rows["p"]["version"] == 2 and rows["p"]["provenance"] == stamped["provenance"]
+    assert rows["f"]["version"] == 1.0 and rows["f"]["provenance"] == "validated"
+    assert "version" not in rows["n"] and "provenance" not in rows["n"]
+    back = ts.from_questions(payload)
+    assert ts.to_questions(back)["questions"] == payload["questions"]
+    from dokimi.questions.artifact import save_questions_artifact
+
+    path = tmp_path / "q.json"
+    save_questions_artifact(payload, str(path))
+    stored = json.loads(path.read_text(encoding="utf-8"))["questions"]
+    assert {r["id"]: (r["version"], r["provenance"]) for r in stored if "version" in r} == {
+        "p": (2, stamped["provenance"]), "f": (1.0, "validated")}
+
+
 def test_reach_reader_matches_skill_reach_defaults_and_refuses_bad_rows():
     qs = ts.from_reach({"queries": [
         {"text": "a", "expected_skill": "x", "acceptable_skills": ["y", "x"]},

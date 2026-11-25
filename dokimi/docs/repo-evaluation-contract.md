@@ -249,6 +249,8 @@ process_metrics:                          # optional repository counters, result
 
 probes:                                   # optional: target -> patterns of `probe` events (§4.1)
   cpu: [nproc, "py:os.cpu_count"]         # a listed target replaces its defaults; [] turns it off
+
+label_host: false                         # optional: true runs a task the host misses and records the miss (§4.3)
 ```
 
 Rules:
@@ -257,7 +259,7 @@ Rules:
 - `eval_dir`, `tasks` and `entry_points` come together or not at all. Without them the
   manifest is *guidance-only*: `scan` and `reach` run on it and `validate` checks its
   globs, while `eval check` and `run` refuse it. `image` and `explore_tasks` need
-  `eval_dir`, and so does `process_metrics`.
+  `eval_dir`, and so does `process_metrics` and `label_host`.
 - `entry_points.grade` is required only when some task's `grader` does not
   start with `dokimi:` (a grader built into the framework); `eval check --schema-only`
   names the tasks that need it.
@@ -384,11 +386,11 @@ read (a link that loops, names a directory or nothing, or leaves the repository,
 | `gate` | no | framework | what counts as success; default `["pass"]`. Each entry is a boolean metric name, which must be `true`, or `{"metric": <name>, "min": <number>}` for a numeric metric |
 | `score` | for score-only tasks | framework | `{"metric": <name>, "max": <number>}`: the metric that is the result when `pass` is `null`, and the value the oracle must reach (§4.3) |
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
-| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`eval check --schema-only` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), unless `repo run --label-host` runs it and records the miss, and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
+| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`eval check --schema-only` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), unless the manifest's `label_host` or `repo run --label-host` runs it and records the miss, and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. On a `guidance:as-skill` catalog arm the generated `<repo>-guidance` skill is refused too (its usage is `guidance_skill_loaded`). `result.json` `skills` records whether the agent used it and whether it used it first |
 | `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `eval check --schema-only`, `tasks check` and `repo run` |
-| `version` | no | framework (reporting) | the task's revision, a non-empty string or an integer; absent is unknown. The grader does not read it, except `dokimi:typecheck`, which reads `version` as the image's mypy version (its row in the grader table) and so must not carry a revision there |
+| `version` | no | framework (reporting) | the task's revision, a non-empty string or an integer; absent is unknown. No grader reads it: `dokimi:typecheck` pins mypy through its own `mypy_version` (its row in the grader table). A task with no `mypy_version` pins through `version`, which is deprecated (§4.5) |
 | `provenance` | no | framework (reporting) | `source` (`hand-written`, `generated:<tool>@<version>` or `imported:<format>`; `eval tasks generate` writes `generated:dokimi-tasks-generate@<dokimi version>`), `reviewed_by` (a non-empty string) and `status` (`candidate`, `validated` or `frozen`); every key optional. `repo report` shows each task's `status` in a column, `unknown` when absent. A malformed block fails `eval check --schema-only` (`dokimi/provenance.py`) |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
@@ -824,7 +826,7 @@ interface name or absolute path; an error text is cut to 300 characters with its
 between runs does not split a batch. `tools` count by presence only (a version change or a timed-out
 `--version` does not split a host), and a collector that still fails after one retry is left out.
 
-`repo run --label-host` runs a task that the host misses, instead of marking it unsupported. Each
+`label_host: true` in the manifest, or `repo run --label-host`, runs a task that the host misses, instead of marking it unsupported; `repo run --no-label-host` turns the manifest's setting off for one run. Each
 cell's `result.json` and `meta.json` hold `host_match`: the `fingerprint`, the report's `met`, and one
 field per declared requirement with `met` true, false, or null where the probe could not tell. The
 report's `met` is false if any field is, else null if any is undecided, else true. The requirements
@@ -933,7 +935,7 @@ failed the task, and on a task with `score` that is a failed run with score
 | `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
 | `dokimi:hidden_tests` | `hidden/` (the hidden files at their repository paths) and an optional `reference/`; the task's own fields `hidden_tests` (the files `entry_points.test` runs), `hidden_files` (the files copied in, default `hidden_tests`) and `reference_deleted` | `true` when the test command exited 0, did not time out, and its report holds a test case and every one passed (a skipped one fails it), else `false` | `n_tests`, `n_passed`, `n_failed`, `n_errors`, `n_skipped`, `pass_share` (passed over all the cases, skipped ones included; `0` when there is none, so a run that broke the test command counts, §4.2), `tests_rc`, `tests_timed_out` | `not_passed` (the first 50 failed, errored or skipped cases, `classname::name`), `report` (why no case was read) |
 | `dokimi:graph_enum` | `gold.json` (`gold`): `answer_key` (`files`, `functions` or `classes`), `gold`, `exclude`, `accepted` (§4.7) | `null` (score-only); `false` with `parse_error: true` and every metric 0 when the answer has no list under the key | `f1`, `recall`, `precision`, `n_gold`, `n_answer`, `n_false_positive` | `missed`, `false_positive`, `accepted_extra` (first 50 each) |
-| `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file, every listed file exists, and nothing silences mypy, else `false` | `n_errors`, `n_missing`, `n_suppressions`, `n_files` | `errors` (first 50, `file:line: message [code]`, and each silenced spot), `missing`, `tool`, `tool_version` |
+| `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `mypy_version` (the image's mypy, exactly; `version` only as a deprecated fallback), `paths` (workspace-relative files) | `true` when no error is reported on a listed file, every listed file exists, and nothing silences mypy, else `false` | `n_errors`, `n_missing`, `n_suppressions`, `n_files` | `errors` (first 50, `file:line: message [code]`, and each silenced spot), `missing`, `tool`, `tool_version` |
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
 listed file" (an error in a module a listed file imports belongs to that module,
@@ -956,8 +958,10 @@ workspace, so a reference repair is what gets graded; its answer is empty. Witho
 reads the listed files as they are, and the self-check (§4.3) runs the null step only: the untouched
 listed files must fail, since there is no reference repair for the oracle step to pass.
 It runs mypy in-process in the grading container, so the image's `python3`
-must import the pinned mypy: a `version` other than the installed one is a
-grader failure, not a fail. It is not "no new errors against the base": the
+must import the pinned mypy: a `mypy_version` other than the installed one is a
+grader failure, not a fail. `version` is the task's revision, so the pin lives in `mypy_version`; a task
+written before that key pins through `version` still, with a deprecation note on the grade's stderr, and
+`mypy_version` takes precedence when both are set. It is not "no new errors against the base": the
 grader is stdlib-only and cannot run `git` to read the base, and it does not
 start basedpyright (the L0 check, §8.2, runs mypy or basedpyright on the host, as `--typecheck-tool` selects). A repository that
 needs that comparison writes it in its own `grade` entry point.

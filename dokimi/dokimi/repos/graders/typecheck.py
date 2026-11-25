@@ -3,8 +3,9 @@
 
 """``dokimi:typecheck``: the listed files type-check clean under the image's pinned mypy (contract §4.5).
 
-task.json: ``"tool": "mypy"``, ``"version"`` (exactly the image's mypy version, else a grader
-failure) and ``"paths"`` (workspace-relative files). ``pass`` is true when no error is reported
+task.json: ``"tool": "mypy"``, ``"mypy_version"`` (exactly the image's mypy version, else a grader
+failure) and ``"paths"`` (workspace-relative files). ``"version"`` is the task's revision (dokimi.provenance);
+a task that predates ``mypy_version`` still pins through ``"version"``, which is deprecated and warned about. ``pass`` is true when no error is reported
 on a listed file, every listed file exists and nothing silences mypy. Errors in other modules are not counted.
 
 It runs mypy in-process: the grader cannot start a child (the import layers allow spawns only in
@@ -36,6 +37,8 @@ from typing import Any
 # Bump when a result for the same inputs changes (a metric or ``pass``).
 VERSION = "1"
 TOOL = "mypy"
+PIN_KEY = "mypy_version"  # the task's own pin; a task's ``version`` is its revision, not the mypy version
+LEGACY_PIN_KEY = "version"  # read as the pin only when PIN_KEY is absent; deprecated (contract §4.5)
 REFERENCE_DIR = "reference"  # task dir: the files of a reference repair, copied over the workspace by oracle
 MAX_ERRORS = 50  # reported in details; the count is in the metrics
 _ERROR = re.compile(r"^(?P<file>.+?)(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s+\[(?P<code>[\w-]+)\])?$")
@@ -54,14 +57,20 @@ def _safe_path(path: object) -> bool:
             and path.splitlines() == [path])
 
 
+def pinned_mypy(raw: dict[str, Any]) -> Any:
+    """The mypy version a task pins: ``mypy_version``, or the legacy ``version`` when that key is absent."""
+    return raw[PIN_KEY] if PIN_KEY in raw else raw.get(LEGACY_PIN_KEY)
+
+
 def task_problems(raw: dict[str, Any]) -> list[str]:
     """Problems with a ``dokimi:typecheck`` task's own fields (checked by ``eval check``)."""
     problems = []
     if raw.get("tool", TOOL) != TOOL:
         problems.append(f"tool must be {TOOL!r}: basedpyright starts a process, which the grader does not "
                         f"(the L0 check runs it), not {raw.get('tool')!r}")
-    if not isinstance(raw.get("version"), str) or not raw.get("version"):
-        problems.append('version must be the pinned mypy version, e.g. "2.4.0"')
+    pin = pinned_mypy(raw)
+    if not isinstance(pin, str) or not pin:
+        problems.append(f'{PIN_KEY} must be the pinned mypy version, e.g. "2.4.0"; `version` is the revision')
     paths = raw.get("paths")
     if not isinstance(paths, list) or not paths or not all(_safe_path(p) for p in paths):
         problems.append("paths must be a non-empty list of workspace-relative file paths")
@@ -279,8 +288,13 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
     import mypy.version
     from mypy import api
 
-    if mypy.version.__version__ != task["version"]:
-        raise ValueError(f"the image's mypy is {mypy.version.__version__}, the task pins {task['version']}")
+    if PIN_KEY not in task:
+        # Deprecated: a task written before PIN_KEY existed pins through its ``version``. The note goes to the
+        # run log (stderr) so the author sees it on each grade; set ``mypy_version`` and keep ``version`` as the revision.
+        print(f"dokimi:typecheck: the mypy pin is read from `{LEGACY_PIN_KEY}`, which is deprecated; "
+              f"set `{PIN_KEY}` in task.json", file=sys.stderr)
+    if mypy.version.__version__ != pinned_mypy(task):
+        raise ValueError(f"the image's mypy is {mypy.version.__version__}, the task pins {pinned_mypy(task)}")
     linked_root = Path(run_dir or "/eval/run") / "workspace"  # unresolved: a link at the root must be seen
     workspace = linked_root.resolve()  # absolute: mypy gets these paths
     paths = [posixpath.normpath(p) for p in task["paths"]]

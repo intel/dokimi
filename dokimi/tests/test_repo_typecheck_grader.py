@@ -19,7 +19,7 @@ PINNED = mypy.version.__version__
 
 
 def _task(**over) -> dict:
-    task = {"id": "typed", "grader": "dokimi:typecheck", "version": PINNED, "paths": ["pkg/api.py"]}
+    task = {"id": "typed", "grader": "dokimi:typecheck", "mypy_version": PINNED, "paths": ["pkg/api.py"]}
     task.update(over)
     return task
 
@@ -82,13 +82,13 @@ def test_a_listed_file_that_is_missing_fails_without_running_the_tool(tmp_path):
 
 
 def test_a_pinned_version_other_than_the_image_is_a_grader_error(tmp_path):
-    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task(version="0.0.1"))
+    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task(mypy_version="0.0.1"))
     with pytest.raises(ValueError, match="pins 0.0.1"):
-        typecheck.grade(_task(version="0.0.1"), tmp_path, "", run)
+        typecheck.grade(_task(mypy_version="0.0.1"), tmp_path, "", run)
 
 
 def test_the_entry_point_turns_a_grader_error_into_pass_none_with_errors(tmp_path):
-    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task(version="0.0.1"))
+    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task(mypy_version="0.0.1"))
     out = main.grade("typecheck", tmp_path, run)
     assert out["pass"] is None
     assert out["errors"] and "pins 0.0.1" in out["errors"][0]
@@ -106,8 +106,9 @@ def test_the_entry_point_writes_the_metrics_that_the_gate_reads(tmp_path):
 
 @pytest.mark.parametrize("over", [
     {"tool": "basedpyright"},
-    {"version": ""},
-    {"version": None},
+    {"mypy_version": ""},
+    {"mypy_version": None},
+    {"mypy_version": 2},
     {"paths": []},
     {"paths": ["/etc/passwd"]},
     {"paths": ["../outside.py"]},
@@ -125,10 +126,31 @@ def test_task_problems_accept_a_well_formed_task():
     assert typecheck.task_problems(_task()) == []
 
 
+def test_a_legacy_task_pins_through_version_and_warns(tmp_path, capsys):
+    # tasks written before mypy_version: version is the pin, and the grade notes the deprecation on stderr
+    legacy = {"id": "typed", "grader": "dokimi:typecheck", "version": PINNED, "paths": ["pkg/api.py"]}
+    assert typecheck.task_problems(legacy) == []
+    run = _run(tmp_path, {"pkg/api.py": CLEAN}, legacy)
+    assert typecheck.grade(legacy, tmp_path, "", run)["pass"] is True
+    assert "deprecated" in capsys.readouterr().err
+    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task())
+    typecheck.grade(_task(), tmp_path, "", run)
+    assert "deprecated" not in capsys.readouterr().err
+
+
+def test_a_revision_in_version_does_not_stand_in_for_the_pin():
+    # a task that revises its checks keeps the pin in mypy_version: its integer version is no pin at all
+    assert typecheck.task_problems(_task(version=3)) == []
+    assert typecheck.pinned_mypy(_task(version=3)) == PINNED
+    without_pin = {"id": "typed", "grader": "dokimi:typecheck", "version": 3, "paths": ["pkg/api.py"]}
+    (problem,) = typecheck.task_problems(without_pin)
+    assert "mypy_version must be the pinned mypy version" in problem
+
+
 def test_the_manifest_checks_the_task_fields_at_parse_time():
     from dokimi.repos.manifest import _builtin_problems
 
-    raw = _task(version="")
+    raw = _task(mypy_version="")
     assert _builtin_problems(None, "tasks/typed", raw, "typecheck")
     assert _builtin_problems(None, "tasks/typed", _task(), "typecheck") == []
 
