@@ -90,7 +90,7 @@ def _scope_after_dollar(text: str, at: int, quote: str) -> tuple[str, int]:
     """The quote stack after a ``$`` that ends at ``at``: a ``$(`` or ``${`` opens a scope, ``[`` for a ``${`` in double quotes; none in single quotes."""
     top = quote[-1:]
     scope = _SCOPES.get(text[at:at + 1], "") if top != "'" else ""
-    return quote + ("[" if scope == "{" and top == '"' else scope), at + len(scope)
+    return quote + ("[" if scope == "{" and top in ('"', "[") else scope), at + len(scope)
 
 
 def _bracket(quote: str, mark: str) -> str:
@@ -125,7 +125,7 @@ def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
         return _backtick(quote), at
     if mark == "'" and top == "[":
         return quote, at
-    if top in ("", "(", "`", "{", "["):
+    if top in ("", "(", "`", "{", "[", "A"):
         return quote + mark, at
     return (quote[:-1] if top == mark else quote), at
 
@@ -165,12 +165,12 @@ class _ArithmeticReader:
         A span open inside a ``$(`` or backtick of its own at ``upto`` is read no further: a ``<<`` there is a heredoc, whose body ``skip`` jumps over before the substitution's closer is read.
         """
         self._read_to(upto + 1)
-        if self.depth and self.quote not in ("(", "`"):
-            self._read_to(len(self.text))
+        if self.depth and self.quote[-1:] not in ("(", "`"):
+            self._read_to(len(self.text), until_closed=True)
         if not self.depth:
             self.pos = max(self.pos, upto + 1)  # no mark before it: a later call does not look again
 
-    def _read_to(self, limit: int) -> None:
+    def _read_to(self, limit: int, until_closed: bool = False) -> None:
         text = self.text
         while (m := _ARITHMETIC_MARKS.search(text, self.pos, limit)) is not None:
             mark, self.pos = m.group(), m.end()
@@ -180,13 +180,24 @@ class _ArithmeticReader:
                     if not self.depth:
                         self.spans.append((self.start, self.pos))
                         self.quote = self.outer  # `"$((1<<3))"`: the quote around the span is still open after it
+                        if until_closed:  # what follows is read as it comes, so a heredoc body is skipped before its quotes are read
+                            return
                 else:  # a `$(`, backtick or `${` inside has quotes of its own: `$(( $(echo "$(echo "))")") << 3 ))`
-                    self.quote, self.pos = _quote_step(text, m, self.quote)
+                    self.quote, self.pos = self._inner_step(m)
             elif taken := _arithmetic_opener(text, mark, self.pos, self.quote):
                 self.start, self.depth, self.outer, self.quote = m.start(), 2, self.quote, ""  # inside, quotes start afresh
                 self.pos += taken
             else:
                 self.quote, self.pos = _quote_step(text, m, self.quote)
+
+    def _inner_step(self, m: re.Match[str]) -> tuple[str, int]:
+        """The quote stack after a mark inside the open span: a ``$((`` nested there pushes two ``A``, the grouping parentheses of arithmetic, so a ``<<`` in it is told from one in a ``$(``."""
+        top = self.quote[-1:]
+        if top == "A" and m.group() in "()":
+            return (self.quote + "A" if m.group() == "(" else self.quote[:-1]), m.end()
+        if m.group() == "$" and top not in ("'", "#") and self.text.startswith("((", m.end()):
+            return self.quote + "AA", m.end() + 2
+        return _quote_step(self.text, m, self.quote)
 
     def skip(self, to: int) -> None:
         """Go on from ``to``, past a heredoc body, with the quotes and substitutions open at its opener's line still open; a span left open has been read to the end of the text, so ``to`` is no further."""

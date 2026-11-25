@@ -74,6 +74,19 @@ def test_a_single_quote_in_a_double_quoted_expansion_is_plain_text_so_a_heredoc_
     assert "sed" not in _cli_heredocs(text)
 
 
+def test_a_single_quote_in_an_expansion_nested_in_a_double_quoted_expansion_is_plain_text() -> None:
+    text = "echo \"${x:-${y:-it's}}\"; cat <<EOF\nsed -i s/x/y/ f\nEOF\nrm f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert not any(c.startswith("sed") for c, _ in shell.split_commands(text))
+    assert "sed" not in _cli_heredocs(text)
+
+
+def test_a_single_quote_in_an_expansion_nested_in_a_substitution_in_a_double_quoted_expansion_still_quotes() -> None:
+    text = "echo \"${x:-$(echo ${y:-'}'})}\" <<EOF\ncat AGENTS.md\nEOF\nrm f\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+    assert "cat AGENTS.md" not in _cli_heredocs(text)
+
+
 def test_a_single_quote_in_an_unquoted_expansion_still_quotes() -> None:
     text = "echo ${x:-'}'} <<EOF\ncat AGENTS.md\nEOF\nrm f\n"
     assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
@@ -85,6 +98,26 @@ def test_a_heredoc_in_a_substitution_in_arithmetic_is_cut_and_the_shift_after_it
     assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
     assert "cat AGENTS.md" in _cli_heredocs(text)
     assert "))\nEOF" not in _cli_heredocs(text)
+
+
+def test_a_heredoc_in_two_nested_substitutions_in_arithmetic_is_cut_and_the_shift_after_it_opens_none() -> None:
+    text = "echo $(( $(echo $(cat <<EOF\n))\nEOF\n) >/dev/null; echo 1) << 3 ))\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert "cat AGENTS.md" in _cli_heredocs(text)
+    assert "))\nEOF" not in _cli_heredocs(text)
+
+
+def test_a_shift_in_arithmetic_nested_two_deep_in_a_substitution_in_arithmetic_opens_no_heredoc() -> None:
+    text = "echo $(( $(echo $(echo $(( (1) << 3 )))) + 1 ))\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+def test_a_heredoc_body_after_an_arithmetic_expansion_is_skipped_before_its_quote_is_read() -> None:
+    text = "echo $((1<<3))\ncat <<EOF\nit's\nEOF\n((x=1<<3))\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert "it's" not in _cli_heredocs(text)
+    assert "cat AGENTS.md" in _cli_heredocs(text)
 
 
 def test_a_shift_in_arithmetic_nested_in_a_substitution_in_arithmetic_opens_no_heredoc() -> None:
