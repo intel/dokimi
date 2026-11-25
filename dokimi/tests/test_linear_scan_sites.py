@@ -380,6 +380,56 @@ SECURITY_TABLE = [
     "docker run -v \n\n 'x-v/docker.sock",
     "docker run -v\nx\n-vdocker.sock",
     "docker run x -v\n--volume docker.sock",
+    "git commit -a; git commit -n",
+    "git commit -a && git commit --no-verify",
+    "git commit -a | git commit -n",
+    "git commit -a & git commit -n",
+    "git commit -a\ngit commit -n",
+    "git commit -a\n git commit -n",
+    "git commit git commit -n",
+    "git commit -a git commit -n",
+    "git commit -nm msg",
+    "git commit -anm msg",
+    "git commit -am msg",
+    "git commit -m n",
+    "git commit -F n -n",
+    "git commit -n; git commit",
+    "git commit -a; git commit -a; git commit -n",
+    "git -C d commit -n",
+    "git -C d commit -a; git -C e commit -n",
+    "git -c a=b commit --no-verify",
+    "git -c a=b\ncommit --no-verify",
+    "git\ncommit -n",
+    "git commit\n-n",
+    "git -x;y commit -n",
+    "git -x;git commit -n",
+    "git -x/git commit -n",
+    "git -C git commit -n",
+    "git -C commit commit -n",
+    "git -C commit -n",
+    "echo git commit; git commit -n",
+    "echo git; git commit --no-verify",
+    "xgit commit -n",
+    "git commitx -n",
+    "(git commit -n)",
+    "git commit -a x;git commit -n",
+    "git commit -a x|git commit -n",
+    "git commit -a\n-n",
+    "git commit -a\r\ngit commit -n",
+    "GIT COMMIT --NO-VERIFY",
+    "git commit; git push --no-verify",
+    "git commit -a git push --no-verify",
+    "git commit -F git\n -C\n-n -x;y -C& commit -c -x/git (x -n ",
+    "git commit git\n-x commit -n",
+    "git commit git -x;y commit -n",
+    "git commit a git -C commit\ncommit -n",
+    "git commit a git\n\ncommit -n",
+    "git commit a git -C x;y commit -n",
+    "git commit a git -C\nx commit -n",
+    "git commit a git -C x\n commit -n",
+    "git commit a git -C;x commit -n",
+    "git commit a git -C x\n;commit -n",
+    "git commit a git -x\ncommit; git commit -n",
 ]
 
 
@@ -418,9 +468,29 @@ def test_container_escape_matches_the_old_closer_on_random_words_of_volume_optio
     assert hits > 100, hits
 
 
+def test_hook_bypass_matches_the_old_pattern_on_random_lines_of_commits() -> None:
+    pieces = ["git", "commit", "-n", "-a", "-nm", "-m", "--no-verify", "-C", "-c", "d", "a=b", ";", "&", "|", "&&", "\n", " ",
+              "git commit", "git -C d commit", "git commit -a", "git commit -n", "-x;y", "x/git", "push", "(", ")", "'", "-F", "msg"]
+    rng = random.Random(1161)
+    hits = 0
+    for _ in range(3 * CASES):
+        text = " ".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+        new_match = _security_search("hook-bypass", text) is not None
+        assert new_match == (_OLD_HOOK_BYPASS.search(text) is not None), text
+        hits += new_match
+    assert hits > 200, hits
+
+
 @pytest.mark.parametrize(
     ("rule", "shape"),
     [
+        ("hook-bypass", lambda n: "git commit " * n),
+        ("hook-bypass", lambda n: "git commit -a " * n),
+        ("hook-bypass", lambda n: "git -C d commit " * n),
+        ("hook-bypass", lambda n: "git\ncommit " * n),
+        ("hook-bypass", lambda n: "git commit;" * n),
+        ("hook-bypass", lambda n: "git -x;y commit " * n),
+        ("hook-bypass", lambda n: "git -C a;b commit " * n),
         ("container-escape", lambda n: "docker run " + "-v" * n),
         ("container-escape", lambda n: "docker run " + "--volume" * n),
         ("container-escape", lambda n: "docker run " + "--mount" * n),

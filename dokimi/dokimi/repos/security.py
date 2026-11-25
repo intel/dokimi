@@ -89,6 +89,22 @@ def _after_first_opener(opener: str, across_lines: str, closers: str) -> re.Patt
 
 _PUSH_NO_VERIFY = _after_first_opener(_GIT_PUSH, _GIT_PUSH_ACROSS_LINES, r"--no-verify\b")
 
+_COMMIT_ARG = r"[^\s-]\S*"
+_COMMIT_ARG_LOCAL = r"[^\s;&|-][^\s;&|]*"
+_COMMIT_OPT = r"(?:-[Cc]\s+" + _COMMIT_ARG + r"\s+|-\S+\s+)"
+_COMMIT_OPT_LOCAL = r"(?:-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+|-[^\s;&|]+" + _NL + r"+)"
+_COMMIT_CLOSERS = r"[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)|--no-verify\b)"
+# `git commit` with no `;`, `&`, `|` or newline in it: it ends in the segment it starts in
+_COMMIT_LOCAL = r"\bgit" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*commit\b"
+# `git commit` with one of them in a word or a gap, from the first one on: it ends in a later segment than it starts in
+_COMMIT_ACROSS = (
+    r"\bgit(?:" + _NL + r"*\n\s*" + _COMMIT_OPT + r"*|" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*(?:"
+    r"-[Cc]" + _NL + r"*\n\s*" + _COMMIT_ARG + r"\s+|-[Cc]" + _NL + r"+(?=\S*[;&|])" + _COMMIT_ARG + r"\s+|"
+    r"-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"*\n\s*|-(?=\S*[;&|])\S+\s+|-[^\s;&|]+" + _NL + r"*\n\s*"
+    r")" + _COMMIT_OPT + r"*)commit\b")
+# tried from the first `git commit` of each segment only (#1161): a later one in it finds its flag only where the first does
+_COMMIT_NO_VERIFY = (r"(?:(?m:^)|[;&|])(?:(?!" + _COMMIT_LOCAL + r")[^;&|\n])*" + _COMMIT_LOCAL + _COMMIT_CLOSERS + r"|" + _COMMIT_ACROSS + _COMMIT_CLOSERS)
+
 #: A shell word that is an absolute path.
 _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
 #: A shell word that starts at the home directory: ``~``, ``$HOME`` or ``${HOME}``.
@@ -156,9 +172,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
              r"|\s\+\S)|\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*reset\b[^;&|\n]*\s--hard(?![\w-])")),
     Rule("hook-bypass", "medium", "git hooks skipped",
          # a short flag cluster may end in `-m` or `-F` (`-nm msg`), so the `n` need not be the last letter
-         _rx(r"\bgit\s+(?:-[Cc]\s+[^\s-]\S*\s+|-\S+\s+)*(?:commit\b[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)"
-             r"|--no-verify\b)"
-             r")|" + _PUSH_NO_VERIFY.pattern)),
+         _rx(_COMMIT_NO_VERIFY + r"|" + _PUSH_NO_VERIFY.pattern)),
     Rule("secret-read", "high", "credential store read, by a command or a read tool (the finding's source says which)",
          # a name ends at a separator, an operator or the end (`.awsome` is no `.aws`); `.env` at whitespace, a quote, an operator or the end
          # `.env` is not cut at `/`, so a venv's `.env/bin` is no hit; the runner's HOME is /eval/run/home
