@@ -233,7 +233,7 @@ def test_arms_plugin_delta_cli_writes_json_and_markdown(tmp_path: Path):
     args = parser.parse_args([
         "arms",
         "plugin-delta",
-        "--baseline-json",
+        "--baseline",
         str(baseline),
         "--plugin-json",
         str(plugin),

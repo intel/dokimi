@@ -12,6 +12,7 @@ result can be tied back to exactly what produced it.
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 from datetime import datetime, timezone
 from importlib import metadata
@@ -28,8 +29,12 @@ TRACKED_DEPS = (
 
 
 def _git(*args: str) -> str | None:
+    # The manifest describes the checkout the run is in: a caller's GIT_DIR (a hook, a pre-commit)
+    # must not make it record another repository's sha, branch or dirty flag, as in external/catalog_git.py.
+    env = process.Env.only([k for k in os.environ if k not in process.GIT_REPO_OVERRIDES],
+                           {"GIT_TERMINAL_PROMPT": "0"})
     try:
-        out = process.git(*args, timeout=5)
+        out = process.git(*args, timeout=5, env=env)
     except OSError:
         return None
     return out.stdout.strip() if out.ok else None

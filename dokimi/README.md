@@ -241,7 +241,7 @@ The task definitions are evaluation content and live in a separate content repos
 
 ```bash
 python cli.py tasks run --tasks-root <checkout>/evaluation/harbor/tasks \
-  --tasks <task-name> --harnesses docker-oracle --out results/runs.json
+  --tasks <task-name> --harness docker-oracle --out results/runs.json
 ```
 
 The directory layout and `task.toml` fields a task must provide are specified in [docs/contributing-terminal-bench-task.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/contributing-terminal-bench-task.md). CI runs a real external catalog through the same harness (see [CI](#ci) below) with network disabled at solve and verify time.

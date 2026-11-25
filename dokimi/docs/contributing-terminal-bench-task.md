@@ -21,7 +21,7 @@ repository, not here. This framework runs them from a checkout you name:
 ```bash
 python cli.py eval tasks list --tasks-root <checkout>/evaluation/harbor/tasks
 python cli.py tasks run  --tasks-root <checkout>/evaluation/harbor/tasks \
-  --tasks <task-name> --harnesses docker-oracle --out results/runs.json
+  --tasks <task-name> --harness docker-oracle --out results/runs.json
 ```
 
 This page is the format reference: everything a task directory must contain for
@@ -201,11 +201,16 @@ A port below 1024 still binds. See
 python cli.py tasks run \
   --tasks-root <checkout>/evaluation/harbor/tasks \
   --tasks <library>-<concept> \
-  --harnesses docker-oracle \
+  --harness docker-oracle \
   --out results/oracle.json
 ```
 
-Expect `passed: 1` / `pass_rate: 1.0` in the summary. The oracle solves with
+Expect `passed: 1` / `pass_rate: 1.0` in the summary. Add `docker-null` to the
+same run (`--harness docker-oracle,docker-null`) for the null check: the
+untouched start must fail the tests, or the tests check nothing. The run exits 1
+and names each task that fails it. A pytest error at setup or collection
+(`fixture_error`) also fails the check. Inspect the verifier log to see whether
+the error came from the fixture or the missing solution. The oracle solves with
 `network_mode`'s network, which a `docker-claude` agent never gets, so also run
 the probe, and before a sweep one `docker-claude` cell (paid) if the solve
 needs the network:
@@ -214,7 +219,7 @@ needs the network:
 python cli.py tasks run \
   --tasks-root <checkout>/evaluation/harbor/tasks \
   --tasks <library>-<concept> \
-  --harnesses docker-probe \
+  --harness docker-probe \
   --out results/probe.json
 ```
 

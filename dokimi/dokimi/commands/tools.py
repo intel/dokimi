@@ -10,7 +10,6 @@ import errno
 import json
 import os
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -93,9 +92,11 @@ def _print_skipped(skipped: dict, n_groups: int) -> None:
 
 def _write_items(path: str, items: list) -> None:
     """Write the probe items to ``path``, or exit 2 naming it when it cannot be written."""
+    from dokimi.process_io import checked_json_text
+
     try:
-        Path(path).write_text(json.dumps(items, indent=1), encoding="utf-8")
-    except OSError as exc:
+        Path(path).write_text(checked_json_text(json.dumps(items, indent=1)), encoding="utf-8")
+    except (OSError, ValueError) as exc:  # a ValueError is two equal keys once read back (#1163)
         print(f"Error: cannot write --items-out {path}: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from None
 
@@ -118,6 +119,7 @@ def _save_result(data: dict, path: str) -> None:
 def _check_out_json_writable(path: str) -> None:
     """Exit 2 before any probe call when a save to ``path`` would fail, probed with a temp file that is removed."""
     from dokimi.artifacts import _write_target
+    from dokimi.atomic_write import publishes_by_rename, tmp_sibling
 
     target = Path(path)
     try:
@@ -125,7 +127,12 @@ def _check_out_json_writable(path: str) -> None:
         resolved = _write_target(target)
         if resolved.is_dir():
             raise IsADirectoryError(errno.EISDIR, "Is a directory", path)
-        tmp = resolved.with_name(f"{resolved.name}.{os.getpid()}.{threading.get_ident()}.tmp")  # the save's name
+        if not publishes_by_rename(resolved, replace_read_only=True):
+            # The save writes this file in place, as it writes a file in a read-only directory: the file must take a write.
+            if not os.access(resolved, os.W_OK):
+                raise PermissionError(errno.EACCES, "Permission denied", path)
+            return
+        tmp = tmp_sibling(resolved)  # the save's tmp name
         with tmp.open("xb"):
             pass
         tmp.unlink()

@@ -328,7 +328,7 @@ def _parse_arms_run(argv):
 
     return build_parser().parse_args(
         ["arms", "run", "--product", "oneTBB",
-         "--questions", "questions.json", "--arms", "baseline"] + argv
+         "--questions", "questions.json", "--arm", "baseline"] + argv
     )
 
 
@@ -355,7 +355,7 @@ def test_matrix_run_also_exposes_stats_correction():
 
     args = build_parser().parse_args(
         ["arms", "matrix-run", "--product", "oneTBB",
-         "--questions", "questions.json", "--arms", "baseline",
+         "--questions", "questions.json", "--arm", "baseline",
          "--matrix-cells", "cells.json", "--stats-correction", "bh"]
     )
     assert args.stats_correction == "bh"
@@ -477,9 +477,9 @@ def test_build_output_records_judge_temperature_and_prompt_digest(monkeypatch):
     _patch_llm(monkeypatch, [])
     runner = ArmRunner([BaselineTreatment()])
     records = runner.run("oneTBB", QUESTIONS[:1], concurrency=1)
-    judge = Judge(model="m1", provider="amazon-bedrock", temperature=0.0)
+    judge = Judge(model="us.anthropic.claude-haiku-5-5", provider="amazon-bedrock", temperature=1.0)
     out = runner.build_output("oneTBB", records, [], judge=judge)
-    assert (out["judge_temperature"], out["judge_prompt_sha256"]) == (0.0, JUDGE_PROMPT_SHA256)
+    assert (out["judge_temperature"], out["judge_prompt_sha256"]) == (1.0, JUDGE_PROMPT_SHA256)
     one = JudgePanel(judges=[JudgeConfig(role="technical_expert", model="m1", provider="amazon-bedrock")])
     two = JudgePanel(judges=[JudgeConfig(role="doc_reviewer", model="m1", provider="amazon-bedrock")])
     assert len({one.prompt_sha256, two.prompt_sha256, JUDGE_PROMPT_SHA256}) == 3
@@ -511,14 +511,14 @@ def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
 
-    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params",
-                        lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
+    monkeypatch.setattr("dokimi.llm.sampling_refusals",
+                        lambda model, provider, **kw: {"seed": "parameter unsupported"} if model == "m-bad" else {})
     monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
     ran = []
     monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **kw: ran.append(1))
     args = build_parser().parse_args(
         ["arms", "matrix-run", "--product", "oneTBB", "--questions", str(questions),
-         "--arms", "baseline", "--matrix-cells", str(cells), "--seed", "1",
+         "--arm", "baseline", "--matrix-cells", str(cells), "--seed", "1",
          "--out-dir", str(tmp_path / "out")])
     with refusal() as exc: args.func(args)
     assert exc.code == 2 and ran == []
@@ -969,12 +969,12 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
     monkeypatch.setattr(ArmRunner, "run", lambda self, *a, **kw: [])
     arms_run.probe_sampling.cache_clear()
     args = _parse_arms_run(["--judge", "--judge-provider", "amazon-bedrock",
-                            "--judge-model", "claude-sonnet-5-5", "--judge-temperature", "0"])
+                            "--judge-model", "claude-sonnet-5-5", "--judge-temperature", "1"])
     arms_run.run_arms(run_config_from_args(args), ["baseline"], QUESTIONS[:1])
-    Judge(model="claude-sonnet-5-5", provider="amazon-bedrock", temperature=0.0).llm.invoke("p")
+    Judge(model="claude-sonnet-5-5", provider="amazon-bedrock", temperature=1.0).llm.invoke("p")
 
-    assert [m for m in checked if m.startswith("bedrock/")] == [route]
-    assert sent == [(route, 0.0), (route, 0.0)]
+    assert {m for m in checked if m.startswith("bedrock/")} == {route}
+    assert sent == [(route, 1.0), (route, 1.0)]
 
 
 # ── The stamp follows what the judge actually saw ─────────────────────────

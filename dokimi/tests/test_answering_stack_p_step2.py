@@ -41,7 +41,7 @@ def test_benchmark_run_hands_the_judge_flags_to_the_pipeline(monkeypatch, tmp_pa
     _FakePipeline.built = []
     monkeypatch.setattr(orchestrator, "EvaluationPipeline", _FakePipeline)
     args = _subparser("benchmark", "run").parse_args(
-        ["--library", "onetbb", "--out-dir", str(tmp_path), "--judge-temperature", "0.3",
+        ["--library", "onetbb", "--out-dir", str(tmp_path), "--judge-temperature", "1",
          "--judge-placeholder", *extra]
     )
 
@@ -49,7 +49,7 @@ def test_benchmark_run_hands_the_judge_flags_to_the_pipeline(monkeypatch, tmp_pa
 
     assert len(_FakePipeline.built) == runs
     for kwargs in _FakePipeline.built:
-        assert kwargs["judge_temperature"] == 0.3
+        assert kwargs["judge_temperature"] == 1.0
         assert kwargs["judge_placeholder"] is True
 
 

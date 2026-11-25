@@ -180,6 +180,13 @@
             "type": [
               "string",
               "null"
+            ],
+            "description": "judge snapshot id when the run recorded exactly one, else the configured judge model"
+          },
+          "judge_provider": {
+            "type": [
+              "string",
+              "null"
             ]
           },
           "arm": {
@@ -188,6 +195,30 @@
           "metric": {
             "type": "string",
             "description": "dokimi's mean judge aggregate score per answer (higher is better); delta is arm minus baseline"
+          },
+          "metric_spec": {
+            "type": "object",
+            "description": "what the metric is; a verdict needs unit and higher_is_better to be comparable",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "range": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "higher_is_better": {
+                "type": "boolean"
+              },
+              "judged": {
+                "type": "boolean"
+              }
+            }
           },
           "n": {
             "type": [
@@ -245,12 +276,86 @@
               "null"
             ]
           },
+          "verdict_rule": {
+            "type": "object",
+            "description": "how verdict follows from delta and p_value; a consumer recomputes it",
+            "properties": {
+              "basis": {
+                "enum": [
+                  "p_adjusted"
+                ]
+              },
+              "alpha": {
+                "type": "number"
+              },
+              "test": {
+                "type": "string"
+              },
+              "correction": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "p_decimals": {
+                "type": "integer",
+                "description": "places p_value is rounded to; within that of alpha a verdict cannot be recomputed"
+              }
+            }
+          },
           "verdict": {
             "enum": [
               "improved",
               "regressed",
               "inconclusive"
             ]
+          },
+          "protocol": {
+            "type": "object",
+            "description": "the measurement: digest is sha256 of the canonical JSON (sorted keys, no whitespace, UTF-8) of resolved; missing or alias inputs are listed in unresolved, outside the digest",
+            "required": [
+              "id",
+              "version",
+              "digest"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "resolved": {
+                "type": "object"
+              },
+              "unresolved": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "aliases": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "comparable": {
+            "description": "For an emitted result, whether the checks on that result alone pass. Use compare() for two results, including their unresolved protocol inputs.",
+            "type": "boolean"
+          },
+          "non_comparable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Reasons the checks on this result alone failed. Pairwise comparison also checks both protocols and their unresolved inputs."
           }
         }
       }

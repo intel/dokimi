@@ -52,7 +52,7 @@ def test_a_canonical_spelling_is_not_moved(argv):
 
 
 @pytest.mark.parametrize(("old", "dest", "value"), [
-    (["tasks", "run", "--harnesses", "h", "--all", "--repeats", "3"], "repeats", 3),
+    (["tasks", "run", "--harness", "h", "--all", "--repeats", "3"], "repeats", 3),
     (["benchmark", "run", "--library", "x", "--multi-run", "3"], "multi_run", 3),
     (["catalog", "trigger-probe", "--catalog", "c", "--out", "o.json", "--trigger-set", "t.json", "--trials", "3"],
      "trials", 3),
@@ -72,7 +72,7 @@ def test_a_moved_concurrency_flag_parses_to_the_same_destination_as_its_new_spel
 
 
 @pytest.mark.parametrize("argv", [
-    ["tasks", "run", "--harnesses", "h", "--all", "--jobs", "2"],  # --jobs never existed on tasks run
+    ["tasks", "run", "--harness", "h", "--all", "--jobs", "2"],  # --jobs never existed on tasks run
     ["subjects", "run", "s.toml", "--repeats", "2"],  # --repeats was tasks run's only
 ])
 def test_an_old_spelling_is_not_moved_on_a_leaf_that_never_had_it(argv):

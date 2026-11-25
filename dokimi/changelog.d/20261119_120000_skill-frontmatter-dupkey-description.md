@@ -1,0 +1,3 @@
+### Fixed
+
+- **`catalog check` and `load_skill` refuse a `SKILL.md` whose front matter repeats a key or whose `description` is not a string** — a repeated key (`name:` twice) kept the last value and a list `description` was turned into text with `str()`, so both showed as `ok`. js-yaml (gray-matter, Claude Code) refuses a repeated key, and the spec says `description` is a string. Each now gives an `error` row naming the duplicate key and line, or the type of the description; `parse_frontmatter_strict` raises `yaml.YAMLError` for a repeated key, and `parse_frontmatter` keeps the last value. (#944)

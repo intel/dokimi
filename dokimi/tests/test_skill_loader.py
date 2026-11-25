@@ -319,7 +319,7 @@ def test_arms_run_exits_2_with_a_message_when_skill_md_is_a_directory(tmp_path, 
     questions = tmp_path / "q.json"
     questions.write_text('{"questions": [{"id": "q1", "question": "How?"}]}', encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "arms", "run", "--product", "lib", "--questions", str(questions),
-                                     "--arms", f"skill:{skill}", "--out", str(tmp_path / "out.json")])
+                                     "--arm", f"skill:{skill}", "--out", str(tmp_path / "out.json")])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
@@ -361,3 +361,93 @@ def test_valid_frontmatter_without_a_description_still_says_it_is_missing(tmp_pa
     (skill_dir / "SKILL.md").write_text("---\nname: no-description\n---\n\n# body\n", encoding="utf-8")
     with pytest.raises(ValueError, match="missing a 'description'"):
         load_skill(skill_dir)
+
+
+def _write_frontmatter_skill(tmp_path, name, front):
+    root = tmp_path / name
+    root.mkdir()
+    front = front.rstrip("\n") + "\n"
+    (root / "SKILL.md").write_text(f"---\n{front}---\n# {name}\n", encoding="utf-8")
+    return root
+
+
+def test_loader_refuses_a_repeated_frontmatter_key(tmp_path):
+    root = _write_frontmatter_skill(tmp_path, "dupkey", "name: other-skill\nname: dupkey\ndescription: Use when testing.\n")
+    with pytest.raises(ValueError, match=r"duplicate key 'name'"):
+        load_skill(root)
+
+
+def test_loader_names_the_line_of_the_repeated_key(tmp_path):
+    root = _write_frontmatter_skill(tmp_path, "dupkey", "name: dupkey\ndescription: Use when testing.\ndescription: Again.\n")
+    with pytest.raises(ValueError, match=r"line 4: found a duplicate key 'description'"):
+        load_skill(root)
+
+
+def test_loader_accepts_the_same_key_in_different_mappings(tmp_path):
+    root = _write_frontmatter_skill(
+        tmp_path, "nested-keys",
+        "name: nested-keys\ndescription: Use when testing.\nmetadata:\n  a: {x: 1}\n  b: {x: 2}\n",
+    )
+    assert load_skill(root).name == "nested-keys"
+
+
+@pytest.mark.parametrize("value", ["[Use when a list, second item]", "[]", "123", "true", "{a: b}"])
+def test_loader_refuses_a_description_that_is_not_a_string(tmp_path, value):
+    root = _write_frontmatter_skill(tmp_path, "desc-bad", f"name: desc-bad\ndescription: {value}\n")
+    with pytest.raises(ValueError, match="'description' that is a .*not a string"):
+        load_skill(root)
+
+
+def test_loader_still_reports_an_empty_description_as_missing(tmp_path):
+    root = _write_frontmatter_skill(tmp_path, "desc-empty", "name: desc-empty\ndescription:\n")
+    with pytest.raises(ValueError, match="missing a 'description'"):
+        load_skill(root)
+
+
+@pytest.mark.parametrize(
+    "front",
+    [
+        "name: other-skill\nname: dupkey\ndescription: Use when testing.\n",
+        "name: dupkey\ndescription: [Use when a list, second item]\n",
+    ],
+)
+def test_catalog_check_row_is_an_error_for_invalid_frontmatter(tmp_path, front):
+    from dokimi.external.catalog import read_skill_manifest
+
+    _write_frontmatter_skill(tmp_path, "dupkey", front)
+    (entry,) = read_skill_manifest(tmp_path)
+    assert entry.error and entry.skill is None
+
+
+def test_loader_lets_an_explicit_key_override_a_merged_one(tmp_path):
+    root = _write_frontmatter_skill(
+        tmp_path, "merged",
+        "name: merged\ndescription: Use when testing.\nmetadata:\n  <<: {owner: default}\n  owner: custom\n",
+    )
+    assert load_skill(root).name == "merged"
+
+
+def test_loader_accepts_a_merge_override_whose_mapping_is_also_aliased(tmp_path):
+    root = _write_frontmatter_skill(
+        tmp_path, "merged",
+        "name: merged\ndescription: Use when testing.\nmetadata:\n  <<: &base\n    <<: {owner: default}\n"
+        "    owner: custom\n  copy: *base\n",
+    )
+    assert load_skill(root).name == "merged"
+
+
+def test_loader_refuses_a_repeated_key_inside_a_merge_source(tmp_path):
+    root = _write_frontmatter_skill(
+        tmp_path, "duplicate-merge",
+        "name: duplicate-merge\ndescription: Use when testing.\nmetadata:\n  <<: {owner: first, owner: second}\n",
+    )
+    with pytest.raises(ValueError, match="duplicate key 'owner'"):
+        load_skill(root)
+
+
+def test_loader_accepts_an_unquoted_equals_sign_key(tmp_path):
+    root = _write_frontmatter_skill(
+        tmp_path, "value-key",
+        "name: value-key\ndescription: Use when testing.\nmetadata: {=: example}\n",
+    )
+    assert load_skill(root).name == "value-key"

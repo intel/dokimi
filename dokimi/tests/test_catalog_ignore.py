@@ -204,7 +204,8 @@ def _emitted_codes() -> set[str]:
     for path in package.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Finding"
-                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)):
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
                 codes.add(node.args[1].value)
             if path.name in ("content_checks.py", "command_checks.py") and isinstance(node, ast.Constant) \
                     and isinstance(node.value, str):
@@ -287,6 +288,18 @@ def test_fail_on_is_repeatable_and_ignore_filters_first(tmp_path, capsys):
     assert _run([*base, "--fail-on-code", "link-missing", "--fail-on-code", "description-no-when"], capsys)[1] == 1
     ignored = [*base, "--fail-on-code", "description-no-when", "--ignore", "description-no-when"]
     assert _run(ignored, capsys)[1] == 0
+
+
+@pytest.mark.parametrize("extra, code", [
+    (["--per-skill", "--fail-on-code", "duplicate", "--ignore", "duplicate"], "duplicate"),
+    (["--fail-on-code", "link-dead", "--ignore", "link-dead"], "link-dead"),
+])
+def test_a_code_in_both_fail_on_and_ignore_is_not_refused_for_the_mode(tmp_path, capsys, extra, code):
+    """#942: --ignore filters first, so a mode-restricted code in both flags is not checked (docs/external-content.md)."""
+    _fail_on_catalog(tmp_path)
+    assert _run(["--root", str(tmp_path), "--kind", "skills", *extra], capsys)[1] == 0
+    unignored = extra[:-2]  # the same call without --ignore is still refused
+    assert _run(["--root", str(tmp_path), "--kind", "skills", *unignored], capsys)[1] == 2
 
 
 def test_fail_on_json_marks_the_failing_subject(tmp_path, capsys):
