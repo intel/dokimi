@@ -2781,8 +2781,9 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   text) at 5 or fewer, one task included. The test stays exact, with no mid-p: p(theta) is a step function and the
   ends are its step points, so an end can be a delta itself, or 0. The text prints an end at 3 decimals, and a
   non-zero end that would print as `0.000` at 2 significant digits (`+0.0002`), so it keeps its side of 0.
-  `delta.mean` (4 places) stays inside those ends: six deltas of `4e-5` give a mean of `0.0001`, not `0.0`, as
-  both ends are `0.0001`.
+  The ends and `delta.mean` are printed at 4 places, or at 2 significant digits where 4 places would give 0, so a
+  non-zero one is never `0.0`: six deltas of `4e-5` give `4e-05` for the mean and both ends. `delta.mean` stays
+  inside those ends. `mde` is at 6 places, or at 2 significant digits where 6 places would give 0.
   A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.
