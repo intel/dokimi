@@ -82,6 +82,7 @@ _NOT_ANCHORS = frozenset({"e.g", "i.e"})
 _CAPS_NOT_ENV = frozenset("""not never none and the all any yes must only true false use
 when then with without note warning should cannot do does but for from this that than
 avoid unsupported forbidden""".split())
+_TYPOGRAPHIC_APOSTROPHES = str.maketrans("’‘ʼ", "'''")
 _NEGATIONS = re.compile(
     r"\b(?:not|never|no|none|cannot|can't|don't|doesn't|won't|shouldn't|mustn't|isn't|"
     r"aren't|without|avoid|unsupported|disallowed|forbidden)\b",
@@ -354,6 +355,7 @@ def _paraphrase_reasons(source: str, text: str, answer: str) -> list[str]:
 
 def _presumes_answer(text: str) -> bool:
     """Whether ``text`` carries a leading cue or a trailing tag ("..., can't it?")."""
+    text = _straight_apostrophes(text)
     return bool(_LEADING_CUES.search(text) or _TRAILING_TAG.search(text))
 
 
@@ -385,8 +387,17 @@ def _new_markers(source: str, text: str) -> set[str]:
     return found
 
 
+def _straight_apostrophes(text: str) -> str:
+    """``text`` with a typographic apostrophe written as ``'``, the one the patterns match (#1143)."""
+    return text.translate(_TYPOGRAPHIC_APOSTROPHES)
+
+
 def _normalise_negations(text: str) -> str:
-    """``text`` with every negation synonym in :data:`_NEGATION_SYNONYMS` written as "not"."""
+    """``text`` with every negation synonym in :data:`_NEGATION_SYNONYMS` written as "not".
+
+    A typographic apostrophe is written as ``'`` first, so ``doesn’t`` counts as ``doesn't``.
+    """
+    text = _straight_apostrophes(text)
     for pattern, replacement in _NEGATION_SYNONYMS:
         text = pattern.sub(replacement, text)
     return text

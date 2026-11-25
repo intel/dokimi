@@ -645,3 +645,51 @@ def test_reversal_length_cap_allows_a_leading_frame():
     # The frame is bounded: a reversal that runs on is still length drift.
     rambling = candidate[:-1] + " " + " ".join(["and more"] * 12) + "?"
     assert "length_drift" in check_wording("reversal", source=source, candidate=rambling)
+
+
+@pytest.mark.parametrize("apostrophe", ["’", "‘", "ʼ"])
+def test_a_typographic_apostrophe_negation_is_counted_as_the_ascii_one(apostrophe):
+    # #1143: "doesn’t" is the negation "doesn't" written with another apostrophe.
+    source = f"Why doesn{apostrophe}t the skill ship measured numbers?"
+    candidate = "Why does the skill ship measured numbers?"
+    assert check_wording("paraphrase", source=source, candidate=candidate) == ["polarity_flipped"]
+    assert check_wording("paraphrase", source=source.replace(apostrophe, "'"), candidate=candidate) == [
+        "polarity_flipped"
+    ]
+
+
+def test_a_typographic_apostrophe_reversal_matches_the_ascii_spelling():
+    source = "X doesn’t support Y."
+    candidate = "Does X support Y?"
+    assert check_wording("reversal", source=source, candidate=candidate) == []
+    assert check_wording("reversal", source="X supports Y.", candidate="Doesn’t X support Y?") == [
+        "restates_source"
+    ]
+    assert check_wording("reversal", source="X supports Y.", candidate="Doesn't X support Y?") == [
+        "restates_source"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "candidate", "expected"),
+    [
+        ("Why does the skill ship measured numbers?", "Doesn’t the skill ship measured numbers?", []),
+        ("Why does the skill ship measured numbers?", "The skill ships measured numbers, doesn’t it?",
+         ["leading_question"]),
+        ("The skill ships measured numbers, doesn’t it?", "The skill includes measured numbers, doesn’t it?", []),
+    ],
+)
+def test_a_typographic_apostrophe_is_question_phrasing_as_the_ascii_one_is(source, candidate, expected):
+    ascii_result = check_wording(
+        "paraphrase", source=source.replace("’", "'"), candidate=candidate.replace("’", "'")
+    )
+    assert check_wording("paraphrase", source=source, candidate=candidate) == ascii_result == expected
+
+
+def test_a_typographic_apostrophe_that_is_no_negation_changes_nothing():
+    source = "Which setting does the user’s file override?"
+    candidate = "Which setting is overridden by the user’s file?"
+    assert check_wording("paraphrase", source=source, candidate=candidate) == check_wording(
+        "paraphrase", source=source.replace("’", "'"), candidate=candidate.replace("’", "'")
+    )
+    assert check_wording("paraphrase", source=source, candidate=candidate) == []
