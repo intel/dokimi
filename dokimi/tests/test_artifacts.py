@@ -433,6 +433,98 @@ def test_a_crash_at_the_rename_keeps_the_previous_file_and_leaves_no_tmp(tmp_pat
     assert [p.name for p in tmp_path.iterdir()] == ["answers.json"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes and groups")
+def test_a_save_keeps_the_mode_of_the_file_it_replaces(tmp_path):
+    """The ``save_artifact`` docstring's atomic-write bullet: a file that was there keeps its mode (#1067)."""
+    import os
+
+    out = tmp_path / "answers.json"
+    out.write_text("{}", encoding="utf-8")
+    os.chmod(out, 0o640)  # after creation, so the umask does not hide a loss
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+
+    assert out.stat().st_mode & 0o7777 == 0o640
+    assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes and groups")
+def test_a_save_keeps_a_supplementary_group_of_the_file_it_replaces(tmp_path):
+    """The ``save_artifact`` docstring's atomic-write bullet: a file keeps its group where the user may give it (#1067)."""
+    import os
+
+    other = [g for g in os.getgroups() if g != os.getegid()]
+    if not other:
+        pytest.skip("the user has no supplementary group")
+    out = tmp_path / "answers.json"
+    out.write_text("{}", encoding="utf-8")
+    os.chown(out, -1, other[0])
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+
+    assert out.stat().st_gid == other[0]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
+def test_a_save_through_a_symlink_keeps_the_link_and_the_mode_of_its_target(tmp_path):
+    """The ``save_artifact`` docstring's symlink bullet: the link stays, the file it resolves to keeps its mode (#1067)."""
+    import os
+
+    target = tmp_path / "store" / "answers.json"
+    target.parent.mkdir()
+    target.write_text("{}", encoding="utf-8")
+    os.chmod(target, 0o640)
+    link = tmp_path / "answers.json"
+    _symlink_or_skip(link, target)
+    before = target.stat().st_ino
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, link)
+
+    assert link.is_symlink()
+    assert target.stat().st_mode & 0o7777 == 0o640
+    assert target.stat().st_ino != before  # the payload replaces the file the link resolves to
+    assert json.loads(target.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
+def test_a_save_over_a_read_only_file_replaces_it_and_keeps_it_read_only(tmp_path):
+    """A read-only file in a writable directory is replaced by rename, as before, and keeps its mode (#1067)."""
+    import os
+
+    out = tmp_path / "answers.json"
+    out.write_text("{}", encoding="utf-8")
+    os.chmod(out, 0o444)
+    if os.access(out, os.W_OK):
+        pytest.skip("chmod 0444 does not block writes here (for example, running as root)")
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+
+    assert out.stat().st_mode & 0o7777 == 0o444
+    assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["answers.json"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes and hard links")
+def test_a_save_over_a_read_only_hard_linked_file_replaces_it_and_keeps_the_other_name(tmp_path):
+    """A read-only file with another hard link is still replaced by rename in a writable directory, not refused (#1067)."""
+    import os
+
+    out = tmp_path / "answers.json"
+    other = tmp_path / "other.json"
+    out.write_text("{}", encoding="utf-8")
+    os.link(out, other)
+    os.chmod(out, 0o444)
+    if os.access(out, os.W_OK):
+        pytest.skip("chmod 0444 does not block writes here (for example, running as root)")
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+
+    assert out.stat().st_mode & 0o7777 == 0o444
+    assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+    assert other.read_text(encoding="utf-8") == "{}"  # the other name keeps the old inode
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["answers.json", "other.json"]
+
+
 def test_a_good_save_clears_a_stale_rejected_payload(tmp_path):
     out = tmp_path / "answers.json"
     with pytest.raises(ArtifactValidationError):

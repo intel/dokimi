@@ -251,8 +251,9 @@ def test_unsupported_sampling_params_check_the_resolved_route(monkeypatch):
         return ["temperature"]
 
     monkeypatch.setattr(litellm, "get_supported_openai_params", supported)
+    # temperature=1.0: Bedrock refuses any other temperature on Sonnet 5.5 (checked against the service).
     assert unsupported_sampling_params("claude-sonnet-5-5", "amazon-bedrock",
-                                       temperature=0.0, seed=1) == ["seed"]
+                                       temperature=1.0, seed=1) == ["seed"]
     assert seen == [f"bedrock/{bedrock_profile('claude-sonnet-5-5')}"]
     assert unsupported_sampling_params("m", "openai") == []  # nothing requested, nothing checked
 
@@ -267,6 +268,17 @@ def test_unsupported_sampling_params_never_block_when_the_check_fails(monkeypatc
     assert unsupported_sampling_params("m", "openai", seed=1) == []
     monkeypatch.setattr(litellm, "get_supported_openai_params", lambda model: [])
     assert unsupported_sampling_params("m", "openai", seed=1) == []
+
+
+def test_unsupported_sampling_params_catches_a_value_the_route_refuses():
+    # Haiku 5.5 takes only temperature=1 (vendor docs: "Omit temperature, top_p, and top_k"),
+    # so a name check alone passes a value the route refuses.
+    assert unsupported_sampling_params("us.anthropic.claude-haiku-5-5", "amazon-bedrock",
+                                       temperature=0.0) == ["temperature"]
+    assert unsupported_sampling_params("us.anthropic.claude-haiku-5-5", "amazon-bedrock",
+                                       temperature=1.0) == []
+    assert unsupported_sampling_params("gpt-6.1-sol", "openai", temperature=0.0) == ["temperature"]
+    assert unsupported_sampling_params("gpt-6.1-sol", "openai", temperature=1.0) == []
 
 
 # ── the response cache ──────────────────────────────────────────────────────
@@ -692,3 +704,97 @@ def test_unparseable_replies_are_never_cached_end_to_end(cache_dir, fake_llm):
     assert not list(cache_dir.glob("*.json"))
     assert ask_parsed(llm.ask, "p", lambda t: t if t.startswith("{") else None)[0] == "{}"
     assert len(fake_llm.requests) == 4  # a live call, not a replay
+
+
+def test_sampling_refusals_never_block_when_litellm_will_not_load(monkeypatch):
+    # litellm missing or broken is "the check cannot run", as an unknown model is: no refusal, no raise.
+    from dokimi import llm
+
+    def will_not_load():
+        raise ImportError("litellm is not installed")
+
+    monkeypatch.setattr(llm, "_litellm", will_not_load)
+    assert llm.sampling_refusals("m", "openai", 0.0, None) == {}
+
+
+def test_refusal_clause_names_the_value_refusal_with_litellms_reason():
+    from dokimi.llm_sampling import NAME_REFUSAL, refusal_clause
+
+    assert refusal_clause({"seed": NAME_REFUSAL}) == "seed"
+    assert refusal_clause({"temperature": "only temperature=1 is supported"}) == (
+        "temperature (only temperature=1 is supported)")
+
+
+def test_refusal_clause_gives_each_value_refusal_its_own_option():
+    from dokimi.llm_sampling import NAME_REFUSAL, refusal_clause
+
+    assert refusal_clause({"temperature": "only temperature=1 is supported", "seed": NAME_REFUSAL}) == (
+        "temperature (only temperature=1 is supported), seed")
+
+
+def test_a_name_refusal_error_does_not_show_the_internal_reason(monkeypatch):
+    from dokimi.eval import judge_sampling
+    from dokimi.llm_sampling import NAME_REFUSAL
+    from dokimi.llm_cli import SamplingError
+
+    monkeypatch.setattr(judge_sampling, "sampling_refusals", lambda *a, **k: {"seed": NAME_REFUSAL})
+    with pytest.raises(SamplingError) as exc:
+        judge_sampling.check_judge_sampling("anthropic", "claude-sonnet", None, 7)
+    assert "refuses seed=7 for model 'claude-sonnet'" in str(exc.value)
+    assert NAME_REFUSAL not in str(exc.value)
+
+
+def test_a_refusal_reason_is_litellms_reason_without_its_class_or_drop_params_advice():
+    from dokimi.llm_sampling import refusal_reason
+
+    class Unsupported(Exception):
+        pass
+
+    class FakeLitellm:
+        UnsupportedParamsError = Unsupported
+
+        @staticmethod
+        def get_optional_params(**kwargs):
+            raise Unsupported("litellm.UnsupportedParamsError: m does not support temperature=0.0. "
+                              "Only temperature=1 is supported. To drop unsupported params, set "
+                              "`litellm.drop_params = True`.")
+
+    assert refusal_reason(FakeLitellm, "bedrock/m", "amazon-bedrock", "temperature", 0.0) == (
+        "m does not support temperature=0.0. Only temperature=1 is supported")
+
+
+def test_a_value_refusal_error_ends_its_sentence_once(monkeypatch):
+    from dokimi.eval import judge_sampling
+    from dokimi.llm_cli import SamplingError
+    from dokimi.llm_sampling import _litellm_reason
+
+    reason = _litellm_reason("litellm.UnsupportedParamsError: m does not support temperature=0.0. "
+                             "Only temperature=1 is supported. To drop unsupported params, set "
+                             "`litellm.drop_params = True`.")
+    monkeypatch.setattr(judge_sampling, "sampling_refusals", lambda *a, **k: {"temperature": reason})
+    with pytest.raises(SamplingError) as exc:
+        judge_sampling.check_judge_sampling("amazon-bedrock", "m", 0.0, None)
+    message = str(exc.value)
+    assert "Only temperature=1 is supported. Use a supported value" in message
+    assert ".." not in message
+
+
+def test_a_litellm_reason_with_no_text_is_still_a_reason():
+    from dokimi.llm_sampling import _litellm_reason
+
+    assert _litellm_reason("litellm.UnsupportedParamsError: . To drop unsupported params, set x.") == (
+        "the provider does not take this value")
+
+
+def test_an_unknown_model_refuses_no_value_either(monkeypatch):
+    import litellm
+
+    from dokimi import llm
+
+    def refuse_the_value(**kwargs):
+        raise litellm.UnsupportedParamsError(message="m1 does not support temperature=1.0", model="m1",
+                                             llm_provider="bedrock")
+
+    monkeypatch.setattr(litellm, "get_supported_openai_params", lambda model: [])
+    monkeypatch.setattr(litellm, "get_optional_params", refuse_the_value)
+    assert llm.sampling_refusals("m1", "amazon-bedrock", 1.0, None) == {}
