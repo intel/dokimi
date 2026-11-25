@@ -93,9 +93,11 @@ def _print_skipped(skipped: dict, n_groups: int) -> None:
 
 def _write_items(path: str, items: list) -> None:
     """Write the probe items to ``path``, or exit 2 naming it when it cannot be written."""
+    from dokimi.process_io import checked_json_text
+
     try:
-        Path(path).write_text(json.dumps(items, indent=1), encoding="utf-8")
-    except OSError as exc:
+        Path(path).write_text(checked_json_text(json.dumps(items, indent=1)), encoding="utf-8")
+    except (OSError, ValueError) as exc:  # a ValueError is two equal keys once read back (#1163)
         print(f"Error: cannot write --items-out {path}: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from None
 
