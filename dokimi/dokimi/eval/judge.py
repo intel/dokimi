@@ -590,7 +590,7 @@ class Judge:
         """Count one judge call (thread-safe); a reply with no ``UsageRecord`` is a call with no price."""
         row = usage if isinstance(usage, UsageRecord) else None
         with self._usage_lock:
-            self._spend.add(row)
+            self._spend.add_call(row)
             if row is not None:
                 self._resolved_models.update(n for n in row.resolved_model.split(",") if n)
 

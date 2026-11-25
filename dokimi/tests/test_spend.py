@@ -285,3 +285,9 @@ def test_a_capped_novelty_call_keeps_its_reply_when_the_provider_sends_numeric_s
     assert client.cost_summary()["input_tokens"] == 12
     with pytest.raises(SpendCapReached, match="no price is known for m"):
         client.cap.record(UsageRecord(cost_usd="0.2"), "m")
+
+
+def test_each_judge_call_counts_once_whatever_its_row_s_n_calls():
+    assert _both_judge_records(_judge(UsageRecord(n_calls="x", cost_usd=0.1),
+                                      UsageRecord(n_calls=0, prompt_tokens=2))) == (
+        _judge_metrics(2, 1, 0.1, 2, 0, 0))
