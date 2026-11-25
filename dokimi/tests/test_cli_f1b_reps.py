@@ -64,7 +64,7 @@ def test_a_moved_reps_flag_parses_to_the_same_value_as_its_new_spelling(old, des
 
 
 def test_a_moved_concurrency_flag_parses_to_the_same_destination_as_its_new_spelling():
-    required = ["src", "--arm", "x", "--model", "m", "--batch", "b"]
+    required = ["src", "--arm", "x", "--model", "m", "--name", "b"]
     new = cli_routes.moved_flags_argv(["repo", "run", *required, "--jobs", "2"])
     assert new is not None
     assert build_parser().parse_args(new).jobs == 2

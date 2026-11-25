@@ -95,7 +95,7 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 >
 > ```bash
 > python cli.py eval check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
-> python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
+> python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --name NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
 > python cli.py repo compare <out>/<batch> --baseline guidance:none
@@ -344,7 +344,7 @@ tasks:
   revision must be a full commit SHA. A branch, tag or other ref is refused
   unless the run passes `--allow-floating-suite-revs`; it is resolved again
   when each run starts, and the batch pin (`_eval/batch.json`, key `suite`)
-  records the commits. A resume is refused with `use another --batch` when the
+  records the commits. A resume is refused with `use another --name` when the
   revision now resolves to another commit: the batch does not follow a
   moved branch or tag, and it does not reuse a later commit. The pin also
   records the suite file's path, the task-to-repository mapping and the
@@ -2511,7 +2511,7 @@ python cli.py eval check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yam
 # agents: one cell per (task, arm, model, rep) under repo-runs/<batch>/
 python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --arm guidance:none,guidance:raw \
-    --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --batch pilot \
+    --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --name pilot \
     --bin /opt/claude-2.1.286/claude --agent-network host --max-usd-per-cell 1 --max-usd 20
 python cli.py repo report repo-runs/pilot
 python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
@@ -2528,7 +2528,7 @@ python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --
 # a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
 # (replace <sha> with that revision; the quotes keep the shell from reading <sha> as a redirect)
 python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,guidance:rev:<sha>' \
-    --model claude-sonnet-5-5 --batch replay --agent-network host
+    --model claude-sonnet-5-5 --name replay --agent-network host
 # decide on the score row (recall, p_holm); metric:recall_addressed is descriptive
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
 # judged recall (§4.5): a sample for a person to label (no LLM), then the judge (paid)
@@ -2557,15 +2557,15 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   digest of each parsed mapping. A task manifest’s `probes` mapping also contributes to the `id`.
   A rerun whose `id` differs (another `--tools`, another `--candidates` or `--probes` mapping, changed manifest probes, a `--delegation` that changes the tool arguments, profile,
   harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`, `bridge`, `trace` or `answer_format`) is refused before any agent starts, and
-  `--force` or another `--batch` runs it. `--force` replaces the cells of the
+  `--force` or another `--name` runs it. `--force` replaces the cells of the
   run's plan only: if the batch dir holds finished cells outside that plan
   whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1
   --delegation none --force`), the run is refused before any agent starts, because
-  the report would pool both executions in one row; use another `--batch`. The
+  the report would pool both executions in one row; use another `--name`. The
   same goes for the finished cells of a task this host cannot run, which
   `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
   recorded is refused as `unrecorded`, not counted as native; `--force` or
-  another `--batch` runs it. A `result.json` that is not UTF-8, not JSON or
+  another `--name` runs it. A `result.json` that is not UTF-8, not JSON or
   not a JSON object is that cell's error, naming the file, and the other cells
   still run; the file is left in place, and removing it or `--force` runs the
   cell again. The same holds for a finished cell of a task this host cannot

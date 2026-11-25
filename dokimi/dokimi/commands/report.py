@@ -9,6 +9,7 @@ import argparse
 import sys
 import json
 from pathlib import Path
+from dokimi import cli_flags
 from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import InputError
@@ -195,8 +196,8 @@ def register(sub, positive_int) -> None:
     eval_r_p = report_sub.add_parser("eval", help="Generate quality report from eval JSON (dynamic vs static breakdown)")
     eval_r_p.add_argument("--product", required=True, help="Product name (e.g., oneDAL)")
     eval_r_p.add_argument("--eval", required=True, help="Path to eval JSON file")
-    eval_r_p.add_argument("--run-id", default=None, dest="run_id",
-                         help="Run tag (e.g. gpt4o). Auto-sets output path.")
+    cli_flags.add(eval_r_p, "run_name", "--name", default=None, dest="run_id", metavar="NAME",
+                  help="Run name (e.g. gpt4o). Auto-sets output path.")
     eval_r_p.add_argument("--out", default=None, help="Output .md file (default: results/{product}/reports/{product}_full.md)")
     eval_r_p.set_defaults(func=cmd_report_eval)
 
@@ -242,8 +243,8 @@ def register(sub, positive_int) -> None:
             "Required when a run contains more than one non-baseline arm."
         ),
     )
-    mc_p.add_argument(
-        "--stats-correction",
+    cli_flags.add(
+        mc_p, "policy", "--correction",
         default="holm",
         dest="stats_correction",
         # Literal so registering the CLI stays stdlib-only; eval.stats.CORRECTIONS

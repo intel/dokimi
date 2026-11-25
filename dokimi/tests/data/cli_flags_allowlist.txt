@@ -26,7 +26,6 @@
 --baseline-harness
 --baseline-json
 --bases
---batch
 --both
 --build-network
 --build-timeout
@@ -41,14 +40,14 @@
 --commits  # eval tasks generate --from history (#41) adds it: how many first-parent commits to read; no registry concept yet
 --competitors
 --context
---context7-id
+--context7-id  # retrieval: the Context7 library ID of a whole run's doc source; the registry has no spelling for a doc source (a doc source is an arm, --arm docs:SOURCE, on arms leaves only)
 --contract  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --count
 --custom-questions
 --debug-retrieval
 --derives  # eval tasks generate (#41): a task count per question kind; no registry concept yet
 --description
---doc-source
+--doc-source  # retrieval: the doc source of a whole run (context7, local:PATH, url:URL, none) on answers, questions, benchmark and evaluate leaves; no arm there, so not --arm docs:SOURCE
 --docker
 --domain
 --embeddings
@@ -62,7 +61,6 @@
 --file
 --fill-gaps
 --fill-provider
---force-regen
 --from-eval
 --github-token
 --golden-runs
@@ -178,8 +176,7 @@
 --rewrite
 --roles
 --root
---run-id
---run-ids
+--run-ids  # report model-compare: a comma list of run labels matched by position to --regular-runs/--golden-runs; --name is one run's name, not a list
 --salt
 --save-analysis
 --scenarios
@@ -197,7 +194,6 @@
 --source-dir
 --spec
 --static
---stats-correction
 --strict  # a verdict gate, not fail_on: baseline compare (exit 4), judge validity (inconclusive exit 1), judge agreement and cross-judge (exits 3/4), docs check (hard gate), catalog check and skill check (spec-error and unrestricted-Bash gate)
 --subject  # runs list (#278) adds it: the #94 §2.3 filter; no registry concept yet
 --subjects-root

@@ -322,7 +322,7 @@ def register(sub, positive_int) -> None:
                             help="Explicit library id for doc/MCP arms (skips resolution)")
     arms_run_p.add_argument("--baseline-arm", default="baseline", dest="baseline_arm",
                             help="Arm name used as the delta baseline (default: baseline)")
-    arms_run_p.add_argument("--stats-correction", default="holm", dest="stats_correction",
+    cli_flags.add(arms_run_p, "policy", "--correction", default="holm", dest="stats_correction",
                             # Kept literal so registering the CLI stays stdlib-only;
                             # eval.stats.CORRECTIONS is the enforced source of truth
                             # and ArmRunner validates against it.
@@ -440,7 +440,7 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
                         help="Explicit library id for doc/MCP arms (skips resolution)")
     parser.add_argument("--baseline-arm", default="baseline", dest="baseline_arm",
                         help="Arm name used as the delta baseline (default: baseline)")
-    parser.add_argument("--stats-correction", default="holm", dest="stats_correction",
+    cli_flags.add(parser, "policy", "--correction", default="holm", dest="stats_correction",
                         # Kept literal so registering the CLI stays stdlib-only;
                         # eval.stats.CORRECTIONS is the enforced source of truth
                         # and ArmRunner validates against it.
