@@ -45,9 +45,9 @@ def test_rank_puts_high_impact_cheap_fixes_first():
     items += opp.from_llms_txt(llms_txt.check("no title\n"))
     ranked = opp.rank(items)
     assert [r["rank"] for r in ranked] == list(range(1, len(ranked) + 1))
-    quads = [opp.QUADRANTS.index(r["quadrant"]) for r in ranked]
+    quads = [opp.QUADRANTS.index(r["quadrant"]) for r in ranked[1:]]
     assert quads == sorted(quads)
-    assert ranked[0]["kind"] == "discovery"  # impact 0.4, effort low
+    assert ranked[1]["kind"] == "discovery"  # impact 0.4, effort low
     assert ranked[-1]["evidence"].get("outcome") == "still_missing"  # 0.15, medium effort
 
 
@@ -117,11 +117,13 @@ def test_a_valid_judge_gives_no_item_and_a_failed_one_does():
 def test_failed_judge_uses_variant_accuracy_and_ranks_first():
     failed = {"summary": {"judge": "j", "passed": False, "conclusive": True,
                           "gate_accuracy": 0.92, "min_accuracy": 0.8,
-                          "per_variant": {"swap": {"gate_accuracy": 0.4}}}}
+                          "per_variant": {"swap": {"gate_accuracy": 0.4},
+                                          "padding": {"gate_accuracy": 0.2, "neutral": True}}}}
     fixes = opp.from_judge_validity(failed) + opp.from_llms_txt(llms_txt.check("no title"))
     assert opp.rank(fixes)[0]["kind"] == "judge-validity"
     assert "swap (0.40)" in fixes[0].why
     assert "0.92" not in fixes[0].why
+    assert "padding" not in fixes[0].why
 
 
 def test_catalog_wide_errors_are_actionable():
@@ -136,3 +138,8 @@ def test_repo_claim_identity_ignores_the_report_name():
     first = opp.from_repo_static(STATIC, target="run1.json", repository="acme")
     second = opp.from_repo_static(STATIC, target="run2.json", repository="acme")
     assert [item.source_key for item in first] == [item.source_key for item in second]
+
+
+def test_degraded_novelty_ranks_ahead_of_discovery_warning():
+    items = opp.from_novelty(NOVELTY) + opp.from_llms_txt(llms_txt.check("# X\n\n- [A](a)"))
+    assert opp.rank(items)[0]["kind"] == "high-severity"

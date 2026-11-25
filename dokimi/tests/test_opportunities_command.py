@@ -51,7 +51,7 @@ def test_json_output_is_a_valid_opportunities_v1_file(inputs, tmp_path):
     doc = json.loads(out.read_text(encoding="utf-8"))
     validate_artifact("opportunities", doc)
     assert doc["schema_version"] == "opportunities.v1"
-    assert doc["items"][0]["rank"] == 1 and doc["items"][0]["quadrant"] == "act_now"
+    assert doc["items"][0]["rank"] == 1 and doc["items"][0]["kind"] == "high-severity"
 
 
 def test_markdown_honours_top(inputs):
@@ -87,9 +87,23 @@ def test_markdown_link_at_start_is_not_json(tmp_path):
 
 
 @pytest.mark.parametrize("data", [b"\xff", b'{"schema":"repo_static.v1","claims":null}',
+                                  b'{"paired":{}}', b'{"paired":{"lenient":{"n_paired":0}}}',
                                   b'{"paired":{"lenient":{"degraded":-0.5,"n_paired":4}}}'])
 def test_invalid_input_names_the_path(tmp_path, data):
     path = tmp_path / "evidence.json"
     path.write_bytes(data)
     with pytest.raises(InputError, match="evidence.json"):
         cmd.build([str(path)])
+
+
+def test_markdown_file_matches_stdout(inputs, tmp_path):
+    command = [sys.executable, "cli.py", "report", "opportunities", *inputs]
+    expected = subprocess.check_output(command)
+    out = tmp_path / "report.md"
+    subprocess.run([*command, "--out", str(out)], check=True)
+    assert out.read_bytes() == expected
+
+
+def test_repo_claim_targets_the_claim_file(inputs):
+    [item] = cmd.build(inputs[:1])["items"]
+    assert item["target"] == "AGENTS.md"

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from dokimi import llms_txt, opportunities
 from dokimi.artifacts import schema_errors
+from dokimi.commands._output import write_report_text
 from dokimi.utils import InputError
 
 
@@ -37,7 +38,7 @@ def _read(path: str) -> tuple[str, list[opportunities.Opportunity]]:
         if errors := schema_errors("repo_static.v1", data):
             raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
         return "repo_static", opportunities.from_repo_static(
-            data, target=path, repository=str(data.get("repo") or "repository"))
+            data, target="", repository=data.get("repo") if isinstance(data.get("repo"), str) else None)
     version = data.get("schema_version") if isinstance(data, dict) else None
     if version == "catalog_eval.v1":
         return "catalog_eval", opportunities.from_catalog_eval(data)
@@ -79,7 +80,7 @@ def cmd_report_opportunities(args: argparse.Namespace) -> None:
         if args.format == "json":
             save_artifact("opportunities", doc, args.out)
         else:
-            Path(args.out).write_text(text, encoding="utf-8-sig")
+            write_report_text(Path(args.out), text)
     except (OSError, UnicodeError) as exc:
         raise InputError(f"cannot write {args.out}: {exc}") from exc
 
@@ -90,7 +91,7 @@ def register(report_sub, positive_int) -> None:
         help="Rank novelty, repo, catalog, judge-validity and llms.txt findings into a queue "
              "of fixes (no model calls)")
     p.add_argument("inputs", nargs="+", metavar="PATH",
-                   help="novelty, repo_static.v1, catalog_eval.v1 (catalog check --json) or "
+                   help="novelty, repo_static.v1, catalog_eval.v1 (catalog eval --out-dir) or "
                         "judge_validity.v1 JSON, or an llms.txt file")
     p.add_argument("--format", default="markdown", choices=["markdown", "json"],
                    help="markdown table (PR comment, terminal) or an opportunities.v1 document")

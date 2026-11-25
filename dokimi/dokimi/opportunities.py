@@ -70,12 +70,12 @@ def _share(count: int, total: int) -> float:
 
 def from_novelty(artifact: dict, *, scoring: str = "lenient") -> list[Opportunity]:
     """Degraded, still-missing and redundant atoms of one novelty artifact, as fixes."""
-    paired = artifact.get("paired", {}).get(scoring, {})
+    paired = artifact.get("paired", {}).get(scoring)
     if not isinstance(paired, dict):
         raise InputError(f"novelty paired.{scoring} must be an object")
-    total = paired.get("n_paired", 0)
-    if type(total) is not int or total < 0:
-        raise InputError("novelty n_paired must be a nonnegative integer")
+    total = paired.get("n_paired")
+    if type(total) is not int or total <= 0:
+        raise InputError("novelty n_paired must be a positive integer")
     target = artifact.get("artifact", {}).get("ref", "?")
     model = artifact.get("model", "?")
     plans = (
@@ -123,7 +123,7 @@ def from_repo_static(doc: dict, *, target: str = "repository", repository: str |
         why="guidance that names a missing command, path or link misleads the agent.",
         next_action=("Fix or delete each claim at lines " if status == "fail" else
                      "Verify each unresolved claim at lines ") + ", ".join(str(r["line"]) for r in rows) + ".",
-        target=f"{target}:{path}", impact=_share(len(rows), len(claims)), effort="low",
+        target=f"{repository or target}:{path}" if repository or target else path, impact=_share(len(rows), len(claims)), effort="low",
         evidence={"lines": [r["line"] for r in rows], "statuses": sorted({r["status"] for r in rows})},
         identity=f"{path}|{status}", identity_target=repository,
     ) for (path, status), rows in sorted(bad.items())]
@@ -162,7 +162,7 @@ def from_judge_validity(doc: dict) -> list[Opportunity]:
     failed = not s.get("passed") and bool(s.get("conclusive"))
     minimum = s.get("min_accuracy")
     below = [f"{name} ({value:.2f})" for name, variant in sorted(s.get("per_variant", {}).items())
-             if (value := variant.get("gate_accuracy")) is not None
+             if not variant.get("neutral") and (value := variant.get("gate_accuracy")) is not None
              and minimum is not None and value < minimum]
     why = f"Below the {minimum:.2f} gate: {', '.join(below)}." if below else "The validity gate has no confirmed pass."
     return [Opportunity(
@@ -189,8 +189,9 @@ def from_llms_txt(findings: list[Finding], *, target: str = "llms.txt") -> list[
 
 
 def rank(items: list[Opportunity]) -> list[dict]:
-    """Quadrant first, then impact, then the cheaper effort; ``rank`` numbers from 1."""
-    ordered = sorted(items, key=lambda o: (not (o.kind == "judge-validity" and o.impact == 1.0),
+    """Failed gates and regressions first, then quadrant, impact and effort."""
+    ordered = sorted(items, key=lambda o: (0 if o.kind == "judge-validity" and o.impact == 1.0
+                                           else 1 if o.kind == "high-severity" else 2,
                                            QUADRANTS.index(o.quadrant), -o.impact,
                                            EFFORTS.index(o.effort), o.source_key))
     return [{"rank": i, **o.as_dict()} for i, o in enumerate(ordered, 1)]

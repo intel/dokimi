@@ -28,7 +28,7 @@ Each path is detected by its content:
 |---|---|---|
 | novelty artifact | `skill novelty analyze` | degraded, still-missing and redundant atoms per model |
 | `repo_static.v1` | the repository’s `static` entry point | failing and unresolved claims, one item per file |
-| `catalog_eval.v1` | `catalog check --json` | error and warning findings, one item per skill and code |
+| `catalog_eval.v1` | `catalog eval --out-dir` (`catalog.json`) | error and warning findings, one item per skill and code |
 | `judge_validity.v1` | judge validity | a judge that fails or cannot settle its gate |
 | any other text | an `llms.txt` file | the static llms.txt checks (title, summary, when to use, when not to use, link descriptions, size) |
 
@@ -40,7 +40,8 @@ A file that is none of these, or a `.json` file that does not parse, is an input
   (degraded atoms), a catalog error and a failed judge count more than a gap or a warning.
 - `effort`: `low`, `medium` or `high`.
 - `quadrant`, from impact and effort: `act_now`, `plan`, `if_capacity`, `deprioritize`.
-  A failed judge gate comes first. Other items are sorted by quadrant, impact and effort.
+  Failed judge gates come first, followed by degraded novelty probes. Other items
+  are sorted by quadrant, impact and effort.
 - `source_key`: a hash of what the problem is, not of its counts, so the same problem
   keeps its key across runs and a tracker can follow it.
 - `execution_prompt`: a short instruction for a coding agent. It ends by asking the agent
