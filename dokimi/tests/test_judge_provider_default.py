@@ -97,6 +97,20 @@ def test_a_provider_alone_whose_default_judge_is_the_answerer_exits(capsys):
     assert "the default judge there is the model under measurement" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", ["evaluate", "benchmark run"])
+def test_default_self_judge_refusal_names_the_qualified_option(command, capsys):
+    argv = [*COMMANDS[command], "--model", f"anthropic/{DEFAULT_JUDGE_MODEL}"]
+    with pytest.raises(SystemExit) as exc:
+        parse_args(argv)
+    assert exc.value.code == 2
+    message = capsys.readouterr().err
+    assert "the default judge is the model under measurement" in message
+    assert "pass --judge PROVIDER/MODEL" in message
+    assert "--judge-model" not in message
+    args = parse_args([*argv, "--judge", f"openai/{DEFAULT_GENERATOR_MODEL}"])
+    assert (args.judge_provider, args.judge_model) == ("openai", DEFAULT_GENERATOR_MODEL)
+
+
 def test_a_claude_cli_judge_is_an_alias_of_another_family():
     args = parse_args([*COMMANDS["arms run"], "--judge-provider", "claude-cli"])
     assert (args.judge_provider, args.judge_model) == ("claude-cli", "opus")

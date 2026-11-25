@@ -502,9 +502,10 @@ def test_a_cli_judge_given_a_non_claude_model_is_refused_at_parse_time(command):
     with refusal() as out:
         parse_args([*command, "--judge", "claude-cli/gpt-6.1-sol"])
     assert out.code == 2
-    for model in ("opus", "claude-sonnet-5-5"):
-        args = parse_args([*command, "--judge", f"claude-cli/{model}"])
-        assert (args.judge_model, args.judge_provider) == (model, "claude-cli")
+    explicit = parse_args([*command, "--judge", "claude-cli/claude-sonnet-5-5"])
+    assert (explicit.judge_model, explicit.judge_provider) == ("claude-sonnet-5-5", "claude-cli")
+    implicit = parse_args([*command, "--model", "claude-cli/haiku"])
+    assert (implicit.judge_model, implicit.judge_provider) == ("opus", "claude-cli")
 
 
 def test_answerer_and_generators_accept_the_cli_provider(runner):
