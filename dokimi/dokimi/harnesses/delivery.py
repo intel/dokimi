@@ -59,8 +59,6 @@ def container(
         name,
         "--pull=never",
         "-i",
-        "-w",
-        "/consumer",
         "--entrypoint=/bin/sh",
     ]
     options.extend(["--platform", platform])
@@ -157,8 +155,13 @@ def attempt(
         path.write_bytes(product)
         start = Path(tmp) / "initial"
         start.write_text(initial, encoding="utf-8")
+        # Bind-mounted inputs must remain readable to the image's configured user.
+        path.chmod(0o444)
+        start.chmod(0o444)
         result = container(
             image,
+            'workspace=$(mktemp -d) || exit 121\n'
+            'cd "$workspace" || exit 121\n'
             "cp /initial ./consumer.sh || exit 121\n"
             + manifest["install"]
             + " || exit 120\n"
@@ -176,6 +179,8 @@ def attempt(
         "stdout": result.stdout,
         "verifier_exit": None,
     }
+    if result.returncode == 121:
+        raise ValueError(f"could not prepare consumer workspace: {result.stderr}")
     grade = container(
         image,
         f"consumer_exit={result.returncode}\n" + verifier,

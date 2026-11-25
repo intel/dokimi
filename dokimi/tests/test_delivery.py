@@ -375,3 +375,15 @@ def test_reply_errors_visible_in_offline_report(pack, monkeypatch):
     report = render(data)
     assert "model reply contains no usable JSON object" in report
     assert "answer has no string script field" in report
+
+
+def test_failed_workspace_setup_is_inconclusive(pack, monkeypatch):
+    def prepare(image, script, mounts, *args, **kwargs):
+        assert mounts, "verifier must not run after failed setup"
+        return process.reply(returncode=121, stderr="workspace unavailable")
+
+    monkeypatch.setattr(delivery, "container", prepare)
+    row = delivery.run(pack)["observations"][0]
+    assert row["outcome"] == "INCONCLUSIVE"
+    assert "workspace unavailable" in row["reason"]
+    assert row["evidence"]["verifier_exit"] is None

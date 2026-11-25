@@ -34,7 +34,7 @@ esac
         "version": "2.0-rc1",
         "docs": docs,
         "image": image,
-        "install": "install -m 755 /delivery /usr/local/bin/shipcalc",
+        "install": 'install -m 755 /delivery ./shipcalc && export PATH="$PWD:$PATH"',
     }
     for name, code in [("good", product), ("broken", product.replace("double|twice)", "twice)"))]:
         write(name, dict(base, artifact=save(name + ".cli", code)))
