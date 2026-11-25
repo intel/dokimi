@@ -66,6 +66,18 @@ def test_a_ledger_write_keeps_the_mode_and_group_of_the_file_it_replaces(tmp_pat
     assert (ledger.stat().st_mode & 0o7777, ledger.stat().st_gid) == (0o640, group)
 
 
+def test_a_ledger_file_that_did_not_exist_is_private_and_a_cache_entry_is_not(tmp_path):
+    old_umask = os.umask(0o002)
+    try:
+        batch_ledger.write_json(tmp_path / "spend.json", {"x": 1})
+        write_cache_text(tmp_path / "k.txt", "new")
+    finally:
+        os.umask(old_umask)
+
+    assert (tmp_path / "spend.json").stat().st_mode & 0o7777 == 0o600
+    assert (tmp_path / "k.txt").stat().st_mode & 0o7777 == 0o664
+
+
 def test_a_ledger_write_replaces_a_link_at_its_path_and_leaves_the_target(tmp_path):
     target = tmp_path / "elsewhere.json"
     target.write_text("untouched", encoding="utf-8")

@@ -211,10 +211,11 @@ def write_skill_pin(batch_dir: Path, pin: dict[str, list[list[str]]]) -> None:
 
 
 def write_json(path: Path, data: Any) -> None:
-    """Through a new file and a rename: a link a grader left at ``path`` is replaced, never followed."""
+    """Through a new file and a rename: a link a grader left at ``path`` is replaced, never followed.
+    A file that did not exist is private (``0o600``); one that existed keeps its mode and group."""
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path)
-    write_text_atomic(path, json.dumps(data, indent=1, sort_keys=True) + "\n")
+    write_text_atomic(path, json.dumps(data, indent=1, sort_keys=True) + "\n", new_mode=0o600)
 
 
 def _stderr(message: str) -> None:
