@@ -595,6 +595,24 @@ def test_a_quoted_parenthesis_in_a_substitution_inside_arithmetic_does_not_end_i
     assert _cli_heredocs(text) == text
 
 
+@pytest.mark.parametrize("text", ['echo $(( $(echo "$(echo "))")" >/dev/null; echo 1) << 3 ))\ncat AGENTS.md\n', "echo $(( `echo \"$(echo '))')\"` << 3 ))\ncat AGENTS.md\n"])
+def test_a_substitution_nested_in_a_quoted_substitution_inside_arithmetic_keeps_its_own_quotes(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["echo ${x:-<<EOF}\ncat AGENTS.md\n", 'echo "${x:-<<EOF}"\ncat AGENTS.md\n'])
+def test_a_shift_or_opener_in_a_parameter_expansion_opens_no_heredoc(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+def test_a_heredoc_in_a_substitution_inside_a_parameter_expansion_is_still_cut() -> None:
+    text = "echo ${x:-$(cat <<EOF\nbody\nEOF\n)}\nrm f\n"
+    assert "body" not in _cli_heredocs(text)
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm f"
+
+
 @pytest.mark.parametrize("text", ["((x=1<<3))\ncat AGENTS.md\n", "for ((i=0; i<1<<3; i++)); do echo $i; done\ncat AGENTS.md\n", "echo a; (( x = (1 + 2) << 3 ))\ncat AGENTS.md\n",
                                   "((x=1 \\( << 3))\ncat AGENTS.md\n"])
 def test_a_shift_in_an_arithmetic_command_or_header_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:

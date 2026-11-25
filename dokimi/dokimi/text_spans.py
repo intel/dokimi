@@ -76,8 +76,8 @@ def _starts_word(text: str, at: int) -> bool:
 
 
 def _inert(quote: str) -> bool:
-    """Whether a quote or a comment is open at the end of the ``quote`` stack: ``<<`` and ``$((`` there open nothing."""
-    return quote[-1:] in ("'", '"', "#")
+    """Whether a quote, a comment or a ``${...}`` is open at the end of the ``quote`` stack: ``<<`` and ``$((`` there open nothing."""
+    return quote[-1:] in ("'", '"', "#", "{")
 
 
 def _backtick(quote: str) -> str:
@@ -156,7 +156,7 @@ class _ArithmeticReader:
                     if not self.depth:
                         self.spans.append((self.start, self.pos))
                         self.quote = self.outer  # `"$((1<<3))"`: the quote around the span is still open after it
-                elif mark not in "()$`}":
+                else:  # a `$(`, backtick or `${` inside has quotes of its own: `$(( $(echo "$(echo "))")") << 3 ))`
                     self.quote, self.pos = _quote_step(text, m, self.quote)
             elif taken := _arithmetic_opener(text, mark, self.pos, self.quote):
                 self.start, self.depth, self.outer, self.quote = m.start(), 2, self.quote, ""  # inside, quotes start afresh
