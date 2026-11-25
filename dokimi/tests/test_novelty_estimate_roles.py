@@ -11,7 +11,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.llm_pricing import list_cost_usd
-from dokimi.novelty.cost import role_models
+from dokimi.novelty.cost import role_models, role_usd
 from dokimi.novelty.tiers import call_tokens
 
 ROLES = ("extractor", "answerer", "judge")
@@ -85,6 +85,12 @@ def test_an_unpriced_model_gives_null_role_dollars_and_no_least_sure_role(tmp_pa
     assert payload["usd_by_role"] is None
     assert payload["least_sure_role"] is None
     assert "Least sure of" not in err
+
+
+def test_role_usd_is_none_for_an_unpriced_role(tmp_path, capsys):
+    args, payload, _ = _estimate(tmp_path, capsys, "--tier", "standard", "--model", "foo-bar-9",
+                                 "--provider", "openai")
+    assert role_usd(args, payload["tokens"], payload["estimate"]["by_role"], "standard") is None
 
 
 def test_stderr_names_the_role_its_percent_and_the_reason_before_the_estimate_note(

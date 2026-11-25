@@ -121,24 +121,18 @@ def role_usd(args: argparse.Namespace, n_tokens: int, by_role: dict[str, int], t
              context_share: float = 0.5) -> dict[str, float] | None:
     """Each role's list-price dollars, panel judges after the first counted under ``judge``.
 
-    Silent: :func:`estimate_usd` has said why a figure is missing. ``None`` when a role has no
-    price; the values sum to the estimate's ``expected_usd`` to rounding.
+    ``None`` when a role has no price. Called once :func:`estimate_usd` has priced every role and
+    panel judge, so the models resolve and the values sum to its ``expected_usd`` to rounding.
     """
     from dokimi.novelty.tiers import usd_by_role
 
-    try:
-        models = role_models(args)
-    except ValueError:
-        return None
-    split = usd_by_role(by_role, n_tokens, models, tier, context_share)
+    split = usd_by_role(by_role, n_tokens, role_models(args), tier, context_share)
     if split is None:
         return None
     for model, provider in judge_refs(args)[1:]:
         extra = usd_by_role({"judge": by_role.get("judge", 0)}, n_tokens,
-                            {"judge": (model, provider)}, tier, context_share)
-        if extra is None:
-            return None
-        split["judge"] = split.get("judge", 0.0) + extra["judge"]
+                            {"judge": (model, provider)}, tier, context_share) or {}
+        split["judge"] = split.get("judge", 0.0) + extra.get("judge", 0.0)
     return {role: round(split.get(role, 0.0), 6) for role in ROLES}
 
 
