@@ -76,6 +76,7 @@ CONTENTS = {
     "docs_run.v1": {"docs": 2},
     "dashboard.v1": {"products": 1},
     "baseline_manifest.v1": {"baselines": 2},
+    "opportunities.v1": {"inputs": 1, "items": 1},
 }
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"

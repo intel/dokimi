@@ -68,8 +68,9 @@ jobs:
           init-shell: none
       - name: Build the wheel
         run: |
-          python -m pip install --upgrade pip build packaging
-          python -m build --wheel --outdir "$RUNNER_TEMP/dist"
+          # build, packaging and the setuptools backend come from the hashed tools lock.
+          python -m pip install --require-hashes -r requirements-ci.lock.txt
+          python -m build --wheel --no-isolation --outdir "$RUNNER_TEMP/dist"
       # conda-forge only (--override-channels), with a fresh solve of the
       # ranges: what a `conda install dokimi` resolves today.
       - name: Solve the dependencies from conda-forge

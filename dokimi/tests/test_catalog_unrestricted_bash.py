@@ -10,6 +10,8 @@ pattern, and those skills carry ``curl | sh`` and permission-bypass flags about 
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
@@ -90,7 +92,7 @@ def test_strict_fails_only_on_unrestricted_bash_with_a_risky_command(risky, stri
 
     findings = [{"code": "allowed-tools-unrestricted-bash"}] + [{"code": c} for c in risky]
     for strict in (False, True):
-        tally = _Tally(strict)
+        tally = _Tally(strict, Path('.'))
         tally.add({"name": "risky", "state": "warn", "error": None, "findings": findings})
         assert tally.failed is (strict and strict_fails)
 
