@@ -138,6 +138,18 @@ def test_a_scan_of_an_edit_through_a_link_inside_the_workspace_finds_nothing(tmp
     assert _findings(cell) == []
 
 
+@pytest.mark.parametrize("target, path, outside", [
+    (f"{WORKSPACE}/docs/nested", "alias/../x", False),  # the container writes docs/x
+    (WORKSPACE, "alias/../x", True),  # the container's /eval/run/x
+    (f"{WORKSPACE}-other/docs", "alias/../x", True),  # not the workspace: a name that only starts with it
+])
+def test_a_link_to_a_container_path_of_the_workspace_is_followed_inside_it(tmp_path, target, path, outside):
+    ws = tmp_path / "workspace"
+    (ws / "docs/nested").mkdir(parents=True)
+    _link(ws / "alias", target)
+    assert _outside_workspace(path, HeldGuidance(ws, []).resolved) is outside
+
+
 @pytest.mark.parametrize("path, hit", [("sub/alias/../x", False), ("alias/../../sub/x", True)])
 def test_first_useful_matches_the_file_an_edit_through_a_link_writes(resolve, path, hit):
     useful = Useful("edit", globs=("sub/x",))
