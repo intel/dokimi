@@ -488,6 +488,35 @@ def test_scan_rejects_empty_corpus(pack):
         delivery.run(pack)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("tasks", [], "catalog tasks must be an object"),
+        ("tasks", {"double": []}, "task definitions must be objects"),
+        ("weights", [], "catalog weights must be an object"),
+        ("weights", {"linux-cpu": []}, "scan weights for linux-cpu must be an object"),
+        ("weights", {"linux-cpu": {"operations": True}}, "scan needs positive weights"),
+    ],
+)
+def test_scan_with_malformed_catalog_is_an_input_error(pack, capsys, monkeypatch, field, value, message):
+    import sys
+    from dokimi.cli import main
+
+    catalog = json.loads(pack.tasks.read_text())
+    catalog[field] = value
+    pack.tasks.write_text(json.dumps(catalog))
+    monkeypatch.setattr(delivery, "container", lambda *a, **kw: pytest.fail("used Docker on invalid input"))
+    monkeypatch.setattr(sys, "argv", [
+        "dokimi", "delivery", "scan", "--manifest", str(pack.manifest), "--tasks", str(pack.tasks),
+        "--corpus", str(pack.corpus), "--fixture", "--out", str(pack.manifest.with_name("scan.json")), "--json",
+    ])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert message in error["message"]
+
+
 def test_truncated_model_output_is_inconclusive(pack, monkeypatch):
     from dokimi import llm
     from dokimi.metrics.usage import UsageRecord
