@@ -16,7 +16,8 @@ and replace the `Run the checks` step with yours. Each check writes its findings
 the top level of `$OUT/opportunities`: a novelty artifact, a `repo_static.v1` document or
 an `llms.txt` file (`*.json` and `*.txt` are read; anything else is left out).
 `dokimi report opportunities` also accepts catalog and judge validity artifacts, and reads each supplied
-path once. Each repo_static input path identifies its repository for `source_key`. When
+path once. A repo_static report's `repo` identifies its repository for `source_key`.
+Reports without a repository name use their input path. When
 comparing snapshots of one repository across runs, pass `--repository OWNER/REPO`
 to give all the supplied repo_static inputs one identity. If two snapshots contain the
 same finding, the report lists it once per snapshot with the same `source_key`. Run

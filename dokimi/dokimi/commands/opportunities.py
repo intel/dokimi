@@ -36,6 +36,15 @@ def _check_json_unicode(path: str, data: object) -> None:
     except UnicodeEncodeError as exc:
         raise InputError(f"{path}: JSON contains an unpaired Unicode surrogate") from exc
 
+
+def _repo_static(path: str, data: dict, repository: str | None) -> list[opportunities.Opportunity]:
+    if errors := schema_errors("repo_static.v1", data):
+        raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
+    embedded = data.get("repo")
+    name = repository or (embedded if isinstance(embedded, str) else None)
+    return opportunities.from_repo_static(data, target="", repository=name, identity_target=name or path)
+
+
 def _read(path: str, repository: str | None) -> tuple[str, list[opportunities.Opportunity]]:
     try:
         text = Path(path).read_text(encoding="utf-8-sig")
@@ -49,10 +58,7 @@ def _read(path: str, repository: str | None) -> tuple[str, list[opportunities.Op
         return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text), target=path)
     _check_json_unicode(path, data)
     if isinstance(data, dict) and data.get("schema") == "repo_static.v1":
-        if errors := schema_errors("repo_static.v1", data):
-            raise InputError(f"{path}: invalid repo_static.v1: {errors[0]}")
-        return "repo_static", opportunities.from_repo_static(
-            data, target="", repository=repository, identity_target=repository or path)
+        return "repo_static", _repo_static(path, data, repository)
     version = data.get("schema_version") if isinstance(data, dict) else None
     if version == "catalog_eval.v1":
         return "catalog_eval", opportunities.from_catalog_eval(data)
@@ -108,7 +114,7 @@ def register(report_sub, positive_int) -> None:
                    help="novelty, repo_static.v1, catalog_eval.v1 (catalog eval --out-dir) or "
                         "judge_validity.v1 JSON, or an llms.txt file")
     cli_flags.add(p, "repository_identity", "--repository",
-                  help="One repo_static source-key identity for the supplied inputs (default: each input path)")
+                  help="Override repo_static identity (default: embedded repo or input path)")
     p.add_argument("--format", default="markdown", choices=["markdown", "json"],
                    help="markdown table (PR comment, terminal) or an opportunities.v1 document")
     p.add_argument("--top-n", type=positive_int, default=10, help="Rows in the markdown table (default 10)")

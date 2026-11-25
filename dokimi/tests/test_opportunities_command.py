@@ -121,6 +121,20 @@ def test_build_identifies_repo_static_inputs_by_path(inputs, tmp_path):
     assert len({row["source_key"] for row in scoped["items"]}) == 1
 
 
+def test_repository_report_preserves_embedded_identity(tmp_path):
+    report = {**STATIC, "repo": "embedded/project"}
+    paths = [tmp_path / name for name in ("first.json", "second.json")]
+    for path in paths:
+        path.write_text(json.dumps(report), encoding="utf-8")
+    inputs = [str(path) for path in paths]
+    items = cmd.build(inputs)["items"]
+    assert len({item["source_key"] for item in items}) == 1
+    assert all(item["target"].startswith("embedded/project:") for item in items)
+    overridden = cmd.build(inputs, repository="explicit/project")["items"]
+    assert all(item["target"].startswith("explicit/project:") for item in overridden)
+    assert overridden[0]["source_key"] != items[0]["source_key"]
+
+
 def test_shortcut_reference_at_start_is_markdown(tmp_path):
     path = tmp_path / "llms.txt"
     path.write_text("[Guide]\n\n[Guide]: guide.md\n", encoding="utf-8")

@@ -32,7 +32,8 @@ Each path is detected by its content:
 | `judge_validity.v1` | judge validity | a judge that fails or cannot settle its gate |
 | any other text | an `llms.txt` file | the static llms.txt checks (title, summary, when to use, when not to use, link descriptions, size) |
 
-For `repo_static.v1` inputs, report paths distinguish findings by default. Use
+For `repo_static.v1` inputs, findings use the embedded `repo` when available
+and otherwise use the report path. Use
 `--repository OWNER/REPO` to preserve finding identity across snapshots of
 one repository.
 
