@@ -119,3 +119,13 @@ def test_build_identifies_repo_static_inputs_by_path(inputs, tmp_path):
     scoped = cmd.build(paths, repository="owner/repo")
     assert len(scoped["items"]) == 2
     assert len({row["source_key"] for row in scoped["items"]}) == 1
+
+
+def test_shortcut_reference_at_start_is_markdown(tmp_path):
+    path = tmp_path / "llms.txt"
+    path.write_text("[Guide]\n\n[Guide]: guide.md\n", encoding="utf-8")
+    assert cmd.build([str(path)])["inputs"][0]["kind"] == "llms_txt"
+    json_path = path.with_suffix(".json")
+    json_path.write_text('["incomplete"', encoding="utf-8")
+    with pytest.raises(InputError, match="not valid JSON"):
+        cmd.build([str(json_path)])

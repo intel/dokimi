@@ -29,8 +29,11 @@ def _read(path: str, repository: str | None) -> tuple[str, list[opportunities.Op
     try:
         data = json.loads(text)
     except ValueError as e:
-        if Path(path).suffix.lower() == ".json" or text.lstrip().startswith("{") or (
-            text.lstrip().startswith("[") and not re.match(r"\[[^\n\]]+\]\(", text.lstrip())
+        suffix = Path(path).suffix.lower()
+        start = text.lstrip()
+        if suffix == ".json" or start.startswith("{") or (
+            suffix not in {".txt", ".md"} and start.startswith("[")
+            and not re.match(r"\[[^\n\]]+\](?:\(|\[|:)", start)
         ):
             raise InputError(f"{path}: not valid JSON ({e})") from e
         return "llms_txt", opportunities.from_llms_txt(llms_txt.check(text), target=path)
