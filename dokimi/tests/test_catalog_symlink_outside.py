@@ -92,6 +92,28 @@ def test_looping_skill_md_is_an_error_row_and_the_next_entry_loads(tmp_path):
     assert entries[1].skill.name == "ok"
 
 
+
+def test_symlink_loop_error_from_resolve_is_an_error_row(tmp_path, monkeypatch):
+    # Path.resolve() raises RuntimeError on a loop on 3.11/3.12; CI's 3.13 does not, so emulate it.
+    root = tmp_path / "root"
+    (root / "skills" / "loop").mkdir(parents=True)
+    (root / "skills" / "ok").mkdir()
+    (root / "skills" / "ok" / "SKILL.md").write_text(_SKILL.format(name="ok"), encoding="utf-8")
+    (root / "skills.yaml").write_text("- name: loop\n- name: ok\n", encoding="utf-8")
+    real_resolve = Path.resolve
+
+    def resolve(self, strict=False):
+        if self.parent.name == "loop" and self.name == "SKILL.md":
+            raise RuntimeError(f"Symlink loop from {str(self)!r}")
+        return real_resolve(self, strict)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    entries = read_skill_manifest(root)
+
+    assert entries[0].skill is None
+    assert "Symlink loop" in entries[0].error
+    assert entries[1].skill.name == "ok"
+
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="needs a POSIX non-root user")
 def test_unreadable_skills_dir_is_an_error_row_and_the_next_entry_loads(tmp_path):
     root = tmp_path / "root"
