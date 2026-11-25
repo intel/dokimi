@@ -49,7 +49,7 @@ def test_names(hidden_tests: list[str], added: list[str]) -> list[str]:
     return sorted(n for n in names if n.lower() not in ("", "test", "tests"))  # a bare `test` names no one test
 
 
-def build(title: str, body: str, *, names: list[str], changed_lines: set[str], number: int, commits: list[str],
+def build(title: str, body: str, *, names: list[str], changed_lines: set[str], number: int | None, commits: list[str],
           instruction: str = DEFAULT_INSTRUCTION) -> Prompt:
     """The prompt for a change titled ``title`` with description ``body``; ``changed_lines`` are the stripped
     lines its diff adds or removes, ``commits`` its SHAs."""
@@ -64,7 +64,7 @@ def build(title: str, body: str, *, names: list[str], changed_lines: set[str], n
             continue
         kept.append(line)
     text = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
-    head = " ".join(title.split()) or f"Pull request {number}"
+    head = " ".join(title.split()) or (f"Pull request {number}" if number is not None else "Change")
     return Prompt(text="\n\n".join(p for p in (head, text, instruction.strip()) if p), dropped=dropped)
 
 
@@ -98,9 +98,10 @@ def _quotes(info: str, inner: list[str], changed: set[str]) -> bool:
     return bool(words) and 2 * sum(w in changed for w in words) >= len(words)
 
 
-def _without_links(line: str, number: int, commits: list[str], dropped: dict[str, int]) -> str:
+def _without_links(line: str, number: int | None, commits: list[str], dropped: dict[str, int]) -> str:
     def change_link(url: str) -> bool:
-        return bool(re.search(rf"/commits?/|/compare/|\.(?:diff|patch)(?:[?#]|$)|/pulls?/{number}(?:\D|$)", url))
+        pull = rf"|/pulls?/{number}(?:\D|$)" if number is not None else ""
+        return bool(re.search(rf"/commits?/|/compare/|\.(?:diff|patch)(?:[?#]|$){pull}", url))
 
     def md(m: re.Match[str]) -> str:
         if not change_link(m.group(2)):
