@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """The errors of :mod:`dokimi.repos.source`, apart so that :mod:`dokimi.repos.links` can raise them."""
 
 from __future__ import annotations

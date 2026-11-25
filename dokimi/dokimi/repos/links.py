@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Walking a path in a working tree one component at a time, as a checkout does (#1084)."""
 
 from __future__ import annotations
