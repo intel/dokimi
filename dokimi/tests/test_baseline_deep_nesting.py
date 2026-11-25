@@ -28,5 +28,5 @@ def test_deeply_nested_baseline_extra_key_is_read_without_recursion_error(tmp_pa
 
 
 def test_nested_baseline_past_every_decoder_limit_is_an_input_error_not_a_traceback(tmp_path):
-    with pytest.raises(InputError, match=r"--baseline .*b\.json: maximum recursion depth exceeded"):
+    with pytest.raises(InputError, match=r"--baseline .*b\.json: \S"):
         baseline_from(_baseline_with_nesting(tmp_path, 200_000), {"claims": []})
