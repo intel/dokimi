@@ -23,7 +23,8 @@ assert _spec and _spec.loader
 scs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(scs)
 
-# Paid leaves with no cap flag yet. Delivery scan records usage after each paid call.
+# Paid leaves with no cap flag yet: the cost is not metered per invocation.
+# Delivery scan records usage after each paid call.
 UNCAPPED = frozenset(
     """
 answers generate
