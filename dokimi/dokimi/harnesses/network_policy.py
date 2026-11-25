@@ -270,7 +270,10 @@ def _escape_token(lines: list[str]) -> str:
         directive = _PARSER_DIRECTIVE.fullmatch(line)
         if not directive:
             break
-        if directive.group(1).lower() == "escape" and directive.group(2) in ("\\", "`"):
+        name = directive.group(1).lower()
+        if name not in {"syntax", "escape", "check"}:
+            break
+        if name == "escape" and directive.group(2) in ("\\", "`"):
             return directive.group(2)
     return "\\"
 
