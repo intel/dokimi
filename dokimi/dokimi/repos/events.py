@@ -145,8 +145,11 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
     out.events.extend(claude_events(trace, start))
     if out.usage_scope:  # the result's totals, closed against the turns of the same scope
+        from dokimi.harnesses.claude_json import reported_counts
+        reported = reported_counts(out.final_record or {})
         totals = {"input": out.input_tokens, "output": out.output_tokens,
                   "cache_read": out.cache_read_tokens, "cache_write": out.cache_write_tokens}
+        totals = {field: total if field in reported else None for field, total in totals.items()}  # an omitted total is unknown
         out.events.append(usage_remainder(out.events, totals, tree=out.usage_scope == "tree"))
     return out
 

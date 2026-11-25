@@ -56,12 +56,36 @@ def _tokens(obj: dict) -> tuple[int, int, int, int]:
     return counts[1] if counts is not None else (0, 0, 0, 0)
 
 
+_FIELDS = ("input", "output", "cache_read", "cache_write")
+_TREE_KEYS = {"input": "inputTokens", "output": "outputTokens", "cache_read": "cacheReadInputTokens",
+              "cache_write": "cacheCreationInputTokens"}  # the modelUsage spelling
+_MAIN_KEYS = {"input": "input_tokens", "output": "output_tokens", "cache_read": "cache_read_input_tokens",
+              "cache_write": "cache_creation_input_tokens"}  # the usage spelling
+
+
+def _usage_blocks(obj: dict) -> Optional[tuple[str, dict[str, str], list[dict]]]:
+    """``(scope, field keys, the blocks summed)`` of a result object, ``None`` without usage."""
+    by_model = obj.get("modelUsage")
+    per_model = [m for m in by_model.values() if isinstance(m, dict) and any(k in m for k in _TREE_KEYS.values())] \
+        if isinstance(by_model, dict) else []
+    if per_model:
+        return "tree", _TREE_KEYS, per_model
+    usage = obj.get("usage")
+    if not isinstance(usage, dict) or not usage:
+        return None
+    return "main", _MAIN_KEYS, [usage]
+
+
 def token_counts(obj: dict) -> Optional[tuple[str, tuple[int, int, int, int]]]:
     """``(scope, (input, output, cache_read, cache_write))`` of a result object, ``None`` without usage.
 
     ``scope`` is ``"tree"`` when summed over ``modelUsage`` (the scope of
     ``total_cost_usd``), ``"main"`` when only the parent's ``usage`` is there.
     """
+    found = _usage_blocks(obj)
+    if found is None:
+        return None
+    scope, keys, blocks = found
 
     def n(block: dict, key: str) -> int:
         try:
@@ -69,18 +93,20 @@ def token_counts(obj: dict) -> Optional[tuple[str, tuple[int, int, int, int]]]:
         except (TypeError, ValueError):
             return 0
 
-    keys = ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")
-    by_model = obj.get("modelUsage")
-    per_model = [m for m in by_model.values() if isinstance(m, dict) and any(k in m for k in keys)] \
-        if isinstance(by_model, dict) else []
-    if per_model:
-        i, o, r, w = (sum(n(m, k) for m in per_model) for k in keys)
-        return "tree", (i, o, r, w)
-    usage = obj.get("usage")
-    if not isinstance(usage, dict) or not usage:
-        return None
-    return "main", (n(usage, "input_tokens"), n(usage, "output_tokens"), n(usage, "cache_read_input_tokens"),
-                    n(usage, "cache_creation_input_tokens"))
+    i, o, r, w = (sum(n(b, keys[f]) for b in blocks) for f in _FIELDS)
+    return scope, (i, o, r, w)
+
+
+def reported_counts(obj: dict) -> frozenset[str]:
+    """The fields (``input``, ``output``, ``cache_read``, ``cache_write``) that every summed block carries.
+
+    A total without one is unknown, not 0: a block that lacks the field would add a made-up 0 to the sum.
+    """
+    found = _usage_blocks(obj)
+    if found is None:
+        return frozenset()
+    _, keys, blocks = found
+    return frozenset(f for f in _FIELDS if all(keys[f] in b for b in blocks))
 
 
 def _main_model(model_usage: object) -> str:

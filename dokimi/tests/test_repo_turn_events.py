@@ -240,6 +240,16 @@ def test_a_zero_output_closes_the_remainder_to_zero_not_null():
     assert remainder["output"] == 0 and remainder["input"] == 0
 
 
+def test_a_result_that_omits_a_cache_count_leaves_the_remainder_null():
+    call = _call("a", {"input_tokens": 2, "cache_read_input_tokens": 30, "output_tokens": 4}, "2026-11-14T10:00:00Z")
+    omitted = convert("claude-stream-json", _lines(call, _result({"input_tokens": 2, "output_tokens": 4})))
+    remainder = [e for e in omitted.events if e["kind"] == "usage_remainder"][0]
+    assert remainder["cache_read"] is None  # the result has no total for it, so 0 - 30 would be a made-up count
+    reported = _result({"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 30})
+    closed = convert("claude-stream-json", _lines(call, reported))
+    assert [e for e in closed.events if e["kind"] == "usage_remainder"][0]["cache_read"] == 0
+
+
 def test_a_streamed_message_counts_its_largest_output_once():
     raw = _lines(_call("a", {"input_tokens": 4, "output_tokens": 3}, "2026-11-14T10:00:00Z"),
                  _call("a", {"output_tokens": 7}, "2026-11-14T10:00:00.200Z"),
