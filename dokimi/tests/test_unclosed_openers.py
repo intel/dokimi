@@ -285,7 +285,7 @@ def test_an_unclosed_heredoc_runs_to_the_end_of_the_input(text: str, cli: str, s
 
 
 _OPENER = re.compile(r"<<-?\s*['\"]?\w")
-_QUOTE_BEFORE_OPENER = re.compile(r"['\"][^\n]*<<")
+_QUOTE_BEFORE_OPENER = re.compile(r"['\"][\s\S]*<<")  # a quote runs over lines
 
 
 def test_heredocs_match_the_reference_regex_on_random_scripts_whose_openers_are_all_closed() -> None:
@@ -443,6 +443,27 @@ def test_a_shift_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(t
 def test_a_shift_after_a_nested_group_in_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
     assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
     assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ['python -c "\nx = 1 << 3\n"\ncat AGENTS.md\n', "git commit -m 'fix\n<<EOF\nmore'\ncat AGENTS.md\n"])
+def test_a_shift_in_a_quote_that_spans_lines_opens_no_heredoc_and_the_commands_after_it_stay(text: str) -> None:
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+def test_a_quote_in_a_heredoc_body_does_not_hide_the_shift_after_it() -> None:
+    text = "cat <<EOF\nit's\nEOF\necho $((1<<3))\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+
+
+def test_a_quote_left_open_on_the_opener_line_leaves_no_body_to_skip() -> None:
+    text = "cat <<EOF 'a\nEOF\nb <<X' ; echo y\ncat AGENTS.md\n"
+    assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text).endswith("cat AGENTS.md\n")
+
+
+def test_a_quote_in_a_heredoc_body_does_not_hide_the_next_heredoc() -> None:
+    assert _cli_heredocs("cat <<A\nit's\nA\ncat <<C\nrm -rf x\nC\n") == "cat \ncat \n"
 
 
 @pytest.mark.parametrize("text", ["echo '$(('\ncat <<EOF\nsed -i s/x/y/ f\nEOF\necho '))'\n", "# $((\ncat <<EOF\nsed -i s/x/y/ f\nEOF\n# ))\n"])

@@ -72,8 +72,8 @@ def _starts_word(text: str, at: int) -> bool:
 def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
     """The quote open after the mark ``m`` (one of ``_QUOTE_MARKS``) where ``quote`` was open, and where the scan goes on."""
     mark, at = m.group(), m.end()
-    if mark == "\n":
-        return "", at
+    if mark == "\n":  # a comment ends here; a quote runs on to its closing mark, over lines
+        return ("" if quote == "#" else quote), at
     if quote == "#":
         return quote, at
     if mark == "#":  # `a#b`, `$#` and `\;#` start no comment: only a blank or an unescaped `;&|()` before it does
@@ -102,27 +102,43 @@ def _arithmetic_opener(text: str, mark: str, at: int, quote: str) -> int:
     return 1 if mark == "(" and not quote and text.startswith("(", at) else 0
 
 
-def _arithmetic_spans(text: str) -> list[tuple[int, int]]:
-    """The ``(start, end)`` of each ``$((...))`` and bare ``((...))`` in ``text``, closed by the parenthesis that balances its two; an opener with none ends the list.
+class _ArithmeticReader:
+    """The ``(start, end)`` of each ``$((...))`` and bare ``((...))`` in ``text`` (``spans``), closed by the parenthesis that balances its two; an opener with none gives no span.
 
     A ``$((`` inside single quotes or a comment opens nothing, as a backslash before the ``$`` does not either; a bare ``((`` opens nothing inside any quote or comment.
+    The text is read as far as ``read`` is asked, and ``skip`` jumps over a heredoc body, which is data and leaves no quote open.
     """
-    spans, quote, outer, depth, start, pos = [], "", "", 0, 0, 0
-    while (m := _ARITHMETIC_MARKS.search(text, pos)) is not None:
-        mark, pos = m.group(), m.end()
-        if depth:
-            if mark in "()" and not quote:
-                depth += 1 if mark == "(" else -1
-                if not depth:
-                    spans.append((start, pos))
-                    quote = outer  # `"$((1<<3))"`: the quote around the span is still open after it
+
+    def __init__(self, text: str):
+        self.text = text
+        self.spans: list[tuple[int, int]] = []
+        self.quote, self.outer, self.depth, self.start, self.pos = "", "", 0, 0, 0
+
+    def read(self, upto: int) -> None:
+        """Read the marks that start at or before ``upto``, and on to the end of a span open there."""
+        text = self.text
+        while (m := _ARITHMETIC_MARKS.search(text, self.pos, len(text) if self.depth else upto + 1)) is not None:
+            mark, self.pos = m.group(), m.end()
+            if self.depth:
+                if mark in "()" and not self.quote:
+                    self.depth += 1 if mark == "(" else -1
+                    if not self.depth:
+                        self.spans.append((self.start, self.pos))
+                        self.quote = self.outer  # `"$((1<<3))"`: the quote around the span is still open after it
+                elif mark not in "()$":
+                    self.quote, self.pos = _quote_step(text, m, self.quote)
+            elif taken := _arithmetic_opener(text, mark, self.pos, self.quote):
+                self.start, self.depth, self.outer, self.quote = m.start(), 2, self.quote, ""  # inside, quotes start afresh
+                self.pos += taken
             elif mark not in "()$":
-                quote, pos = _quote_step(text, m, quote)
-        elif taken := _arithmetic_opener(text, mark, pos, quote):
-            start, depth, pos, outer, quote = m.start(), 2, pos + taken, quote, ""  # inside, quotes start afresh
-        elif mark not in "()$":
-            quote, pos = _quote_step(text, m, quote)
-    return spans
+                self.quote, self.pos = _quote_step(text, m, self.quote)
+        if not self.depth:
+            self.pos = max(self.pos, upto + 1)  # no mark before it: a later call does not look again
+
+    def skip(self, to: int) -> None:
+        """Go on from ``to``, past a heredoc body, with no quote open; a span still open stays so."""
+        if not self.depth:
+            self.pos, self.quote = max(self.pos, to), ""
 
 
 @dataclass(frozen=True)
@@ -130,8 +146,8 @@ class HeredocPattern:
     """A heredoc: ``opener``, the rest of its line, a body, then a line holding only the opener's delimiter (``word`` is its group).
 
     ``full`` is the one regex of the whole heredoc and ``lines`` finds each line (group 1), which closes a heredoc as it is or without the whitespace around it.
-    ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line (an opener inside a quote of its
-    line, ``grep '<<EOF' f``, or inside ``$((...))``, ``$((1<<3))``, or a ``#`` comment, ``# usage: cat <<EOF``, is no opener, and a quoted delimiter is read up to its closing quote): the newline
+    ``opener`` is the part of ``full`` up to the delimiter, without the rest of the line (an opener inside a quote, which runs over lines
+    to its closing mark, ``grep '<<EOF' f``, or inside ``$((...))``, ``$((1<<3))``, or a ``#`` comment, ``# usage: cat <<EOF``, is no opener, and a quoted delimiter is read up to its closing quote): the newline
     that ends the line is found once for the openers on it. The delimiter word is atomic in both
     regexes, so a line naming a prefix of it never closes the heredoc (#930). ``unclosed`` is the opener,
     the rest of its line and everything after it (same groups as ``full``): a heredoc no line closes
@@ -208,9 +224,15 @@ class HeredocPattern:
         """Each opener with the start of the line after its own; an opener whose line has no end is left out."""
         openers, start, eol = [], 0, -1
         quote, scanned = "", 0
-        arithmetic, next_span = _arithmetic_spans(text), 0
+        reader, next_span = _ArithmeticReader(text), 0
+        words: list[str] = []  # the delimiters opened on the line that ends at ``eol``: the lines after it are their bodies
         while (o := self.opener.search(text, start)) is not None:
+            if words and o.start() > eol:
+                quote, scanned = self._after_bodies(text, eol, scanned, quote, words, reader)
+                words = []
             quote, scanned = _quote_after(text, scanned, o.start(), quote)
+            reader.read(o.start())
+            arithmetic = reader.spans
             while next_span < len(arithmetic) and arithmetic[next_span][1] <= o.start():
                 next_span += 1
             in_arithmetic = next_span < len(arithmetic) and arithmetic[next_span][0] <= o.start()
@@ -223,8 +245,30 @@ class HeredocPattern:
                 if eol < 0:  # no opener from here on has a line end
                     break
             openers.append((o, eol + 1))
+            words.append(o.group(self.word))
             start = o.start() + 1
         return openers
+
+    def _after_bodies(self, text: str, eol: int, scanned: int, quote: str, words: list[str], reader: _ArithmeticReader) -> tuple[str, int]:
+        """The quote open and the position scanned to, once the bodies of ``words`` (opened on the line that ends at ``eol``) are passed.
+
+        A quote still open at the end of that line leaves no body to pass. Otherwise each body runs to the first line that is its delimiter, or to the end.
+        """
+        quote, scanned = _quote_after(text, scanned, eol, quote)
+        if quote in ("'", '"'):
+            return quote, scanned
+        reader.read(eol)
+        pos = eol + 1
+        for word in words:
+            core = self._core(word)
+            for line in self.lines.finditer(text, pos):
+                pos = line.end() + 1
+                if self._core(line.group(1)) == core and next(self._closed(line.group(1), {len(word): {word}}), None) is not None:
+                    break
+            else:
+                pos = len(text) + 1
+        reader.skip(pos)
+        return "", max(scanned, pos)
 
     def sub(self, repl: Callable[[re.Match[str]], str], text: str) -> str:
         """``full.sub(repl, text)``."""
