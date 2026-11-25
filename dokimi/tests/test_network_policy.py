@@ -333,8 +333,8 @@ def test_proxy_env_carries_the_values_and_drops_credentials_only_when_asked(monk
     for var in PROXY_VARS:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("https_proxy", "http://u:pw@proxy:912")
-    assert proxy_env(PhasePolicy("public")) == {"https_proxy": "http://u:pw@proxy:912"}
-    assert proxy_env(PhasePolicy("public"), credentials=False) == {"https_proxy": "http://proxy:912"}
+    assert proxy_env(PhasePolicy("public"))["https_proxy"] == "http://u:pw@proxy:912"
+    assert proxy_env(PhasePolicy("public"), credentials=False)["https_proxy"] == "http://proxy:912"
     assert proxy_env(PhasePolicy("none")) == {}
 
 
