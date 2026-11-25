@@ -23,7 +23,7 @@ assert _spec and _spec.loader
 scs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(scs)
 
-# Paid leaves with no cap flag yet. Reason for all: the cost is not metered per invocation.
+# Paid leaves with no cap flag yet. Delivery scan records usage after each paid call.
 UNCAPPED = frozenset(
     """
 answers generate
@@ -32,6 +32,7 @@ arms run
 benchmark batch
 benchmark run
 catalog trigger-probe
+delivery scan
 eval judge agreement
 eval judge validate
 eval judge wording

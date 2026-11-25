@@ -25,7 +25,7 @@ python cli.py delivery report "$pack/scan.json"
 
 `good.json`, `broken.json` and `bad-example.json` install a real shell CLI into a fresh container. The second manifest's binary breaks `double` but supports `twice`. The third supplies a working binary and an incorrect example. A saved article selects the fallback backend. The verifier grades the backend label and numeric output on hidden input. Fixture scripts represent recorded responses. Their success rates describe only those scripts.
 
-For a live one-turn Claude Code answer, install and authenticate the supported `claude-cli` provider, then run the following with a model ID available to your account. Record the CLI package version in the deployment lock. The CLI receives the instruction, starter project and source text with tools disabled. Dokimi executes its proposed shell consumer separately. OpenAI and Anthropic API providers also support this protocol.
+For a live one-turn Claude Code answer, install and authenticate the supported `claude-cli` provider, then run the following with a model ID available to your account. Record the CLI package version in the deployment lock. The CLI receives the instruction, starter project and source text with tools disabled. Dokimi executes its proposed shell consumer separately. OpenAI, Anthropic and Amazon Bedrock API providers also support this protocol. Each applicable scenario plans two model calls per repeat, one per arm. Live scans record reported usage after each call and have no CLI dollar cap.
 
 ```bash
 python cli.py delivery scan --manifest "$pack/good.json" --corpus "$pack/corpus.json" --tasks "$pack/tasks.json" --provider claude-cli --model "$MODEL_ID" --out "$pack/live.json" --json
