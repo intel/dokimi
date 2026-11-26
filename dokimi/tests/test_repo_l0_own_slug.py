@@ -16,7 +16,10 @@ def _resolve(tmp_path, span: str, url: str | None, files: tuple[str, ...] = ("RE
     for rel in files:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_text("x\n", encoding="utf-8")
-    return Scan(WorkTree(tmp_path), frozenset(), repo_url=url).resolve_path("AGENTS.md", span, prose=True)
+    scan = Scan(WorkTree(tmp_path), frozenset(), repo_url=url)
+    scan.check_span("AGENTS.md", 1, span, span)
+    [claim] = [c for c in scan.claims if c.kind == "path"]
+    return claim.status, claim.why
 
 
 @pytest.mark.parametrize(("command", "kind", "operand"), [
