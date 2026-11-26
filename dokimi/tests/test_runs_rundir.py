@@ -166,21 +166,31 @@ def test_an_empty_output_directory_we_may_not_write_or_list_is_refused(root, tmp
     assert os.listdir(out) == []
 
 
+_FIRST_SAVE_STOPS = {
+    "disk-full": (OSError(errno.ENOSPC, os.strerror(errno.ENOSPC)), InputError,
+                  r"cannot write .*run\.json: No space left on device"),
+    "interrupted": (KeyboardInterrupt(), KeyboardInterrupt, None),
+}
+
+
+@pytest.mark.parametrize("stop", sorted(_FIRST_SAVE_STOPS))
 @pytest.mark.parametrize("given", [False, True], ids=["named", "empty-out-dir"])
-def test_a_first_record_that_cannot_be_written_leaves_nothing_behind(root, tmp_path, monkeypatch, given):
+def test_a_first_record_that_cannot_be_written_leaves_nothing_behind(root, tmp_path, monkeypatch, given, stop):
     """docs/run-directories.md: "When run.json itself cannot be written (a full disk), nothing is left behind,
-    so the same name or output directory can be tried again"."""
+    so the same name or output directory can be tried again"; open_run: "A failed first write leaves nothing
+    behind", a Ctrl-C in it too."""
+    raised, expected, match = _FIRST_SAVE_STOPS[stop]
     out = tmp_path / "out"
     if given:
         out.mkdir()
     real = rundir.save_artifact
 
-    def disk_full(kind, data, path, **kw):
-        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+    def failing(kind, data, path, **kw):
+        raise raised
 
-    monkeypatch.setattr(rundir, "save_artifact", disk_full)
+    monkeypatch.setattr(rundir, "save_artifact", failing)
     args = {"out_dir": out} if given else {"name": "n"}
-    with pytest.raises(InputError, match=r"cannot write .*run\.json: No space left on device"):
+    with pytest.raises(expected, match=match):
         open_run(root, **args)
     if given:
         assert os.listdir(out) == []  # the directory was there before: it stays, empty
