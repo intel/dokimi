@@ -92,7 +92,6 @@ def test_looping_skill_md_is_an_error_row_and_the_next_entry_loads(tmp_path):
     assert entries[1].skill.name == "ok"
 
 
-
 def test_symlink_loop_error_from_resolve_is_an_error_row(tmp_path, monkeypatch):
     # Path.resolve() raises RuntimeError on a loop on 3.11/3.12; CI's 3.13 does not, so emulate it.
     root = tmp_path / "root"
