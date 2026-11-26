@@ -327,11 +327,11 @@ def cost_per_token(**kwargs: Any) -> tuple[float, float]:  # litellm's, for llm_
 
 
 def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = None) -> Optional[float]:
-    """Dollar cost of a completion via litellm, or ``None`` if no pricing.
+    """Dollar cost of a completion via litellm, or ``None`` if cost is unavailable.
 
-    A missing price is logged once per model and returns ``None`` — distinct
-    from a genuinely free ``0.0`` call. A ``0.0`` for a model that is not in
-    litellm's price map is a missing price too, not a free call.
+    An unavailable cost is logged once per model and returns ``None`` — distinct
+    from a genuinely free ``0.0`` call. A ``0.0`` for a model absent from
+    litellm's price map also counts as unavailable.
 
     ``litellm_model`` is the provider-prefixed model string (e.g.
     ``vertex_ai/claude-3-5-haiku@20241022``). Passing it is required for
@@ -356,7 +356,7 @@ def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = 
     except Exception as exc:  # noqa: BLE001 - logged once per model; cost is null, never a fake $0
         if model not in _COST_UNKNOWN_LOGGED:
             _COST_UNKNOWN_LOGGED.add(model)
-            logger.warning("No litellm pricing for model %r; cost_usd will be null (%s)", model, exc)
+            logger.warning("Cost not computed for model %r; cost_usd will be null (%s)", model, exc)
         return None
 
 

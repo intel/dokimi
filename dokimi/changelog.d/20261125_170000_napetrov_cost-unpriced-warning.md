@@ -1,3 +1,3 @@
 ### Fixed
 
-- **A route with no litellm price logs a warning, not an info line** — a completion on a model/route litellm has no price for (for example `bedrock/claude-sonnet-5-5` or an `aws-bedrock/...` spelling) already left `cost_usd` null, but the one-time note saying so was logged at `INFO`, which a default run does not show. It is now one `WARNING` per model per process, and the cost stays null. No price was added: the first-party Claude 5.5 prices already in the litellm price map match Anthropic's pricing page; Bedrock and regional routes are priced by litellm's own entries, which the Anthropic page does not list. Nothing to do for a user unless `cost_usd` is null for a model they run.
+- **An unavailable completion cost is visible in default logs.** Dokimi logs one warning per model when LiteLLM cannot compute the cost, and includes the cause. This covers missing prices and other calculation failures. The recorded `cost_usd` stays null.
