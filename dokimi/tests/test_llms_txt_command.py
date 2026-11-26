@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -75,6 +77,21 @@ def test_json_is_a_cli_output_document_with_the_findings(tmp_path, monkeypatch, 
 def test_a_missing_path_is_an_input_error(tmp_path, monkeypatch, capsys):
     assert _main(monkeypatch, [str(tmp_path)]) == 2
     assert "no such file" in capsys.readouterr().err
+
+
+def test_a_path_without_search_permission_is_an_input_error(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "restricted" / "llms.txt"
+    stat = Path.stat
+
+    def guarded_stat(target, **kwargs):
+        if target == path:
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return stat(target, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", guarded_stat)
+    assert _main(monkeypatch, [str(path)]) == 2
+    message = capsys.readouterr().err
+    assert str(path) in message and "Traceback" not in message
 
 
 @pytest.mark.parametrize("bad", ["0", "-5"])

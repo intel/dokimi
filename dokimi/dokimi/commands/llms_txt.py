@@ -20,9 +20,13 @@ from dokimi.utils import InputError
 def resolve(path: str) -> Path:
     """The file to check: ``path`` itself, or ``llms.txt`` inside it when it is a directory."""
     target = Path(path)
-    if target.is_dir():
-        target = target / "llms.txt"
-    if not target.is_file():
+    try:
+        if target.is_dir():
+            target = target / "llms.txt"
+        is_file = target.is_file()
+    except OSError as exc:
+        raise InputError(f"{target}: {exc}") from exc
+    if not is_file:
         raise InputError(f"{target}: no such file (give an llms.txt file or a directory that holds one)")
     return target
 
