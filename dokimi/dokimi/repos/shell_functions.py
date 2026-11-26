@@ -27,6 +27,7 @@ _SUBSHELL_DEF = re.compile(r"(?<![^\s;&|(){}])(?:function\s+([^\s(){};&|<>]+)\s*
 _BRACE = re.compile(r"(?<![^\s;&|(){}])\{(?=\s|$)|(?<![^\s;&|()}])\}(?=[\s;&|)]|$)")
 _BREAK = re.compile(r"[\s;&|()<>`{}$]+")
 _COMMAND_END = re.compile(r"[;&|()`{}\n]")  # where a command of a body ends, outside quotes: the next one may start
+_CHANGERS = frozenset({"set", "eval", "source"})  # a body naming one may change a variable it does not name
 _SOURCES = frozenset({"source", "."})  # named by a body only as a command's word
 
 
@@ -56,6 +57,21 @@ def define(known: Functions, script: str) -> frozenset[str]:
             movers.add(name)
             todo.append(name)
     return frozenset(movers)
+
+
+def may_change_posix(name: str, known: Functions) -> bool:
+    """Whether a call of the function ``name`` may change ``POSIXLY_CORRECT`` in the calling shell: its body, or that of a
+    function it names (``g() { f; }``), has a word that starts with the variable's name, or is ``set``, ``eval`` or
+    ``source`` (which may export it, or run what does)."""
+    seen, todo = {name}, [name]
+    while todo:
+        body = known.get(todo.pop(), frozenset())
+        if any(w.startswith("POSIXLY_CORRECT") or w in _CHANGERS for w in body):
+            return True
+        for called in (known.keys() & body) - seen:
+            seen.add(called)
+            todo.append(called)
+    return False
 
 
 def _name(script: str, m: re.Match[str]) -> str:
