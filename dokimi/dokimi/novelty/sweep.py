@@ -218,24 +218,22 @@ RANK_LINES = 10
 
 
 def ranking(rows: Iterable[dict]) -> list[dict]:
-    """The measured skills with a token count, most new content per 1k tokens first, one entry per key.
+    """Measured skills ranked by descending new share, one entry per key.
 
     A skill measured by more than one sweep into the same JSONL is ranked from its latest ``ok`` row
-    (the last in file order); the overall figures are not affected. ``new_per_1k_tokens`` is the
-    skill's new share divided by its size in thousands of tokens: what a model learns from reading
-    the skill, per token it must read. Ties keep the key order.
+    (the last in file order). A row needs a measured new share and a positive token count to qualify.
+    Skills with the same unrounded ``new_lenient`` sort by smaller token count, then by key.
     """
     latest: dict[str, dict] = {}
     for r in rows:
         if r["status"] == "ok":
             latest[r["key"]] = r
     scored = [
-        {"key": r["key"], "name": r["name"], "new_lenient": r["new_lenient"], "tokens": r["tokens"],
-         "new_per_1k_tokens": round(r["new_lenient"] * 1000 / r["tokens"], 6)}
+        {"key": r["key"], "name": r["name"], "new_lenient": r["new_lenient"], "tokens": r["tokens"]}
         for r in latest.values()
         if r["new_lenient"] is not None and r.get("tokens")
     ]
-    scored.sort(key=lambda s: (-s["new_lenient"] / s["tokens"], s["key"]))
+    scored.sort(key=lambda s: (-s["new_lenient"], s["tokens"], s["key"]))
     return scored
 
 
@@ -343,8 +341,7 @@ def summary_lines(summary: dict[str, Any]) -> list[str]:
                          f"{block['usd']:>7.2f}")
     ranked = summary.get("ranking") or []
     if ranked:
-        lines.append(f"ranking by new share per 1k tokens (top {min(RANK_LINES, len(ranked))} of {len(ranked)}):")
+        lines.append(f"ranking by new share (top {min(RANK_LINES, len(ranked))} of {len(ranked)}):")
         for pos, item in enumerate(ranked[:RANK_LINES], 1):
-            lines.append(f"  {pos:>2}. {item['key']}: {item['new_per_1k_tokens']:.4f} "
-                         f"(new {item['new_lenient']:.2f}, {item['tokens']} tokens)")
+            lines.append(f"  {pos:>2}. {item['key']}: {item['new_lenient']:.2%} new ({item['tokens']} tokens)")
     return lines

@@ -240,16 +240,24 @@ def test_resumable_never_keeps_a_row_whose_directory_could_not_be_digested():
     assert resumable(prior, {"gone-quiet": None}, SETTINGS, "1.0") == []
 
 
-def test_ranking_orders_by_new_share_per_1k_tokens():
-    rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b"), _ok("c", 0.5, tokens=500, digest="c")]
+def test_ranking_orders_by_new_share_before_size():
+    rows = [_ok("short", 0.2, tokens=500, digest="short"), _ok("long", 0.6, tokens=5000, digest="long")]
     ranked = summarize(rows, resamples=50)["ranking"]
-    assert [r["key"] for r in ranked] == ["c", "a", "b"]  # 1.0, 0.25, 0.2 per 1k tokens
-    assert ranked[0]["new_per_1k_tokens"] == pytest.approx(1.0)
+    assert [(r["key"], r["new_lenient"], r["tokens"]) for r in ranked] == [
+        ("long", 0.6, 5000), ("short", 0.2, 500),
+    ]
+    assert "new_per_1k_tokens" not in ranked[0]
 
 
-def test_ranking_breaks_rate_ties_by_key():
-    rows = [_ok("b", 0.5, tokens=500, digest="b"), _ok("a", 0.5, tokens=500, digest="a")]
-    assert [row["key"] for row in summarize(rows, resamples=50)["ranking"]] == ["a", "b"]
+def test_ranking_breaks_new_share_ties_by_size_then_key():
+    rows = [_ok("large", 0.5, tokens=5000, digest="large"), _ok("z", 0.5, tokens=500, digest="z"),
+            _ok("small", 0.5, tokens=500, digest="small")]
+    assert [row["key"] for row in summarize(rows, resamples=50)["ranking"]] == ["small", "z", "large"]
+
+
+def test_ranking_orders_close_shares_before_breaking_size_ties():
+    rows = [_ok("small", 0.5, tokens=500, digest="small"), _ok("large", 0.50000001, tokens=5000, digest="large")]
+    assert [row["key"] for row in summarize(rows, resamples=50)["ranking"]] == ["large", "small"]
 
 
 def test_ranking_leaves_out_rows_that_are_not_measured_or_have_no_size():
@@ -261,9 +269,9 @@ def test_ranking_leaves_out_rows_that_are_not_measured_or_have_no_size():
 
 def test_summary_lines_list_the_ranking_after_the_stratum_table():
     lines = summary_lines(summarize([_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b")], resamples=50))
-    head = next(i for i, line in enumerate(lines) if line.startswith("ranking by new share per 1k tokens"))
-    assert lines[head] == "ranking by new share per 1k tokens (top 2 of 2):"
-    assert lines[head + 1].lstrip().startswith("1. a:")
+    head = next(i for i, line in enumerate(lines) if line.startswith("ranking by new share"))
+    assert lines[head] == "ranking by new share (top 2 of 2):"
+    assert lines[head + 1].lstrip().startswith("1. b:")
 
 
 def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
@@ -271,7 +279,7 @@ def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
     and a skill edited between the sweeps (two digests, one key) is counted twice in the overall figures."""
     rows = [_ok("a", 0.2, tokens=800, digest="a"), _ok("b", 0.6, tokens=3000, digest="b"), _ok("a", 0.5, tokens=800, digest="a2")]
     summary = summarize(rows, resamples=50)
-    assert [(r["key"], r["new_lenient"]) for r in summary["ranking"]] == [("a", 0.5), ("b", 0.6)]
+    assert [(r["key"], r["new_lenient"]) for r in summary["ranking"]] == [("b", 0.6), ("a", 0.5)]
     assert summary["overall"]["n"] == 3
 
 
