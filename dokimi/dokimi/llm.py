@@ -356,7 +356,7 @@ def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = 
     except Exception as exc:  # noqa: BLE001 - logged once per model; cost is null, never a fake $0
         if model not in _COST_UNKNOWN_LOGGED:
             _COST_UNKNOWN_LOGGED.add(model)
-            logger.info("No litellm pricing for model %r; cost_usd will be null (%s)", model, exc)
+            logger.warning("No litellm pricing for model %r; cost_usd will be null (%s)", model, exc)
         return None
 
 
