@@ -618,7 +618,7 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
-        "mde": _round_off_zero(min_detectable(sd, len(deltas))) if sd > EPS * tie_scale(changed) and reachable else None,
+        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS * tie_scale(changed) and reachable else None,
         "interval_p_disagree": p is not None and includes_zero(lo, hi) == (p < ALPHA),
         "up": sum(d > w for d, w in zip(deltas, widths, strict=True)),
         "down": sum(d < -w for d, w in zip(deltas, widths, strict=True)),
@@ -647,8 +647,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                          f"{r['up']}/{r['down']}/{r['tied']}")
         for r in rows:
             if r["measure"] in PRIMARY:
-                # the tasks hold rounded values: this line follows the printed deltas, which are 0 or 1e-6 and more
-                moved = [t for t in r["tasks"] if abs(t["delta"]) > EPS]
+                moved = [t for t in r["tasks"] if round(t["delta"], 6)]  # below 5e-7 is float noise, not a change
                 if moved:
                     lines.append(f"  {r['measure']} changed: " + ", ".join(
                         f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))
@@ -776,15 +775,10 @@ def _mean(values: list[Any]) -> float | None:
 
 
 def _round(value: float | None) -> float | None:
+    """``value`` at 6 places, or at 2 significant digits where that would be 0.0; ``None`` for a non-finite one."""
     if value is None:
         return None
     number = float(value)  # a numpy float64 would warn on overflow while rounding
-    return round(number, 6) if math.isfinite(number) else None
-
-
-def _round_off_zero(value: float) -> float | None:
-    """:func:`_round`, but a value it would put at 0.0 keeps 2 significant digits."""
-    number = float(value)
     return round_off_zero(number, 6) if math.isfinite(number) else None
 
 

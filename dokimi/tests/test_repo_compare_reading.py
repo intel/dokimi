@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from pathlib import Path
 
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.compare import CompareError, compare, format_compare, min_detectable
+from dokimi.repos.compare import CompareError, _round, compare, format_compare, min_detectable, sign_flip_summary
 from dokimi.repos.runner import cell_name
 
 from test_repo_compare import _cell, _row
@@ -360,3 +361,27 @@ def test_a_descriptive_p_below_005_is_named_as_uncorrected(tmp_path):
     assert not any(line.startswith("  turns: the interval") for line in lines)
     assert ("  p < 0.05 on turns: descriptive rows, their p uncorrected and outside Holm's family, which covers "
             "gate and score only") in lines
+
+
+def _pairs_at(base: float, deltas: list[float]) -> list[dict]:
+    return [{"task": f"t{i}", "baseline": base, "treatment": base + d, "delta": d} for i, d in enumerate(deltas)]
+
+
+def test_per_task_values_and_arm_means_below_5e7_keep_two_significant_digits():
+    row = sign_flip_summary(_pairs_at(1e-12, [1e-12, 2e-12, 3e-12, 4e-12, 5e-12, 6e-12, 2.5e-12, 3.5e-12]))  # #1224
+    assert row["tasks"][0] == {"task": "t0", "baseline": 1e-12, "treatment": 2e-12, "delta": 1e-12}
+    assert row["baseline_mean"] == 1e-12 and row["treatment_mean"] == 4.4e-12 and row["delta"]["mean"] == 3.4e-12
+
+
+def test_the_changed_line_still_leaves_out_a_task_delta_below_5e7(tmp_path):
+    _score_tasks(tmp_path / "b", [4e-7, 0.5, 0.25], 0.25)  # 4e-7 printed as 0.0 before the tasks kept 2 significant digits
+    lines = format_compare(compare([tmp_path / "b"], "guidance:none")).splitlines()
+    assert "  score changed: review_2 +0.25, review_1 +0.50" in lines
+
+
+@pytest.mark.parametrize(("value", "printed"), [(-1e-12, -1e-12), (4e-7, 4e-7), (0.1234567, 0.123457), (0.0, 0.0),
+                                                (1.234e-9, 1.2e-9)])
+def test_round_keeps_six_places_and_a_sign_where_they_do_not_give_zero(value, printed):
+    assert _round(value) == printed
+    assert math.copysign(1.0, _round(value)) == math.copysign(1.0, printed)  # a zero stays +0.0, never -0.0
+    assert math.copysign(1.0, _round(-0.0)) == 1.0
