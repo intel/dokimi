@@ -150,7 +150,15 @@ _DIR_CHANGE = re.compile(
     rf"(?:(?:command|builtin|if|elif|then|else|while|until|do|time|!|\{{|{_ASSIGNMENT})[ \t]+)*"
     r"(?P<change>cd|pushd|popd)(?=$|[\s;&|)\0])"
 )
-
+_SHELL_QUOTED = r"""(?:'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*")"""
+_SHELL_OPTION_VALUE = rf"""(?:{_SHELL_QUOTED}|[^\s;&|()'"`\0]+)"""
+_SHELL_SCRIPT = re.compile(
+    r"(?:^|(?<=[\s;&|(\0/]))(?:(?:ba|z|da|k)?sh|fish)[ \t]+"
+    rf"(?:(?:--(?:init-file|rcfile)|-(?![A-Za-z]*c)[A-Za-z]*[oO])[ \t]+{_SHELL_OPTION_VALUE}[ \t]+"
+    r"|--(?!(?:init-file|rcfile)[ \t])[A-Za-z][A-Za-z-]*[ \t]+"
+    r"|-(?![A-Za-z]*c)(?![A-Za-z]*[oO][ \t])[A-Za-z]+[ \t]+)*"
+    rf"-(?=[A-Za-z]*c)[A-Za-z]+[ \t]+(?:--[ \t]+)?(?P<script>{_SHELL_QUOTED})"
+)
 
 
 def _code_text(text: str, markdown: bool) -> str:
@@ -468,15 +476,20 @@ def _without_printed(code: str) -> str:
 
 
 def _npx_installs(code: str, own: frozenset[str]) -> Iterator[tuple[int, str, int, list[str]]]:
-    """Apply the local-bin exemption only before a directory change in the code example."""
+    """Apply the local-bin exemption before a directory change, outside quoted shell scripts."""
     changes = iter(m for m in _DIR_CHANGE.finditer(code) if m.lastgroup is not None) if own else iter(())
     change = next(changes, None)
+    scripts = _SHELL_SCRIPT.finditer(code) if own else iter(())
+    script = next(scripts, None)
     local = own
     for m in NPX.finditer(code):
         while change is not None and change.start() < m.start():
             local = own if change.lastgroup == "block" else frozenset()
             change = next(changes, None)
-        yield m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), own=local)]
+        while script is not None and script.end("script") <= m.start():
+            script = next(scripts, None)
+        names = frozenset() if script is not None and script.start("script") < m.start() else local
+        yield m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), own=names)]
 
 
 def _unpinned_at(code: str, own: frozenset[str] = frozenset()) -> list[tuple[int, str, int, list[str]]]:
@@ -590,7 +603,7 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
     sits in the scanned root, so no bundled file, including ``package.json``, is read.
     For a bundled skill, an example starts in the skill's folder for the bare ``npx`` exemption.
     A directory change in the example disables the exemption for later commands in that example.
-    An ``npx`` that explicitly selects a project or workspace is checked as usual.
+    The audit also checks ``npx`` inside a quoted shell script or when options select a project or workspace.
     """
     sources = [("SKILL.md", skill_path.read_text(encoding="utf-8-sig"))]
     own: frozenset[str] = frozenset()

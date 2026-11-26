@@ -807,6 +807,34 @@ def test_npx_reports_a_local_bin_after_an_assignment_prefixed_cd(tmp_path, assig
     assert "npx mytool" in finding.message
 
 
+@pytest.mark.parametrize("command", [
+    "sh -c 'cd /tmp/other-project && npx mytool init'",
+    'bash -lc "cd /tmp/other-project && npx mytool init"',
+    "/bin/bash -x -c 'npx mytool init'",
+    "bash --login -o pipefail -O extglob -c 'cd /tmp/other-project && npx mytool init'",
+    "sh -c -- 'cd /tmp/other-project && npx mytool init'",
+    """bash --rcfile "/some path/bashrc" -c 'npx mytool init'""",
+    "sh -c 'npx otherbin'; npx mytool",
+])
+def test_npx_inside_a_quoted_shell_script_is_checked(tmp_path, command):
+    files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}
+    [finding] = _found(_review(tmp_path, _fenced(command), files), "install-unpinned")
+    assert "1 install" in finding.message
+    assert f"npx {'otherbin' if 'otherbin' in command else 'mytool'}" in finding.message
+
+
+def test_unquoted_shell_script_flags_are_scanned_in_linear_time():
+    from dokimi.external.command_checks import _unpinned_in_readings
+
+    def scan(size):
+        return partial(_unpinned_in_readings, "sh -" + "c" * size + " x; npx mytool",
+                       False, frozenset({"mytool"}))
+
+    ratio, findings = growth(scan, 400, reps=3)
+    assert findings == []
+    assert ratio < GROWTH_LIMIT
+
+
 @pytest.mark.parametrize("option", ['--prefix "$PROJECT_DIR"', "--prefix=other", "-w tools"])
 def test_npx_checks_an_executable_selected_from_another_project(tmp_path, option):
     files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}
