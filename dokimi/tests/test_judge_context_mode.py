@@ -21,7 +21,7 @@ from dokimi.eval.cross_judge import stored_measure
 from dokimi.eval.judge_context import NO_CONTEXT, PROTOCOL, JudgeContextStore
 from dokimi.skills import load_skill
 from dokimi.treatments import BaselineTreatment, SkillTreatment
-from dokimi.utils import InputError
+from dokimi.utils import InputError, digest_text
 from tests.cli_refusal import refusal
 
 QUESTIONS = [{"id": "q1", "question": "How do I parallelize a loop?", "category": "usage"}]
@@ -147,14 +147,17 @@ def test_missing_withheld_material_never_feeds_treatment_snippets_to_the_judge(f
     assert output["judge_context_sources"] == {"stored": 1, "withheld": 1}
 
 
-@pytest.mark.parametrize("measure_flag", ["--pairwise", "--checklist"])
+@pytest.mark.parametrize("measure_flag", ["--pairwise", "--checklist", "--judges"])
+@pytest.mark.parametrize("contradiction", [False, True])
 def test_withheld_scores_can_be_compared_with_answers_only_results(
-        fake_answers, demo_skill, tmp_path, measure_flag):
+        fake_answers, demo_skill, tmp_path, monkeypatch, measure_flag, contradiction):
     runner, records, judge, evaluations = _run_and_judge(demo_skill, judge_context_mode="baseline")
     saved = runner.build_output("oneTBB", records, evaluations, judge=judge)
+    arm = runner.treatments[1].name
+    if contradiction:
+        saved["evaluations"][0]["scores"][arm]["judge_context_sha256"] = digest_text("material")
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(saved), encoding="utf-8")
-    arm = runner.treatments[1].name
     result = (
         {"summary": {"judge": "fake/pairwise"}, "verdicts": {arm: {"q1": {"score": 1.0}}}}
         if measure_flag == "--pairwise"
@@ -164,11 +167,22 @@ def test_withheld_scores_can_be_compared_with_answers_only_results(
     other = tmp_path / "other.json"
     other.write_text(json.dumps(result), encoding="utf-8")
     out = tmp_path / "agreement.json"
+    if measure_flag == "--judges":
+        from dokimi.eval import judge as judge_module
+
+        monkeypatch.setattr(judge_module, "Judge", lambda **kwargs: judge)
+    value = "amazon-bedrock/m" if measure_flag == "--judges" else str(other)
     args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers),
-                                      measure_flag, str(other), "--output", str(out)])
+                                      measure_flag, value, "--output", str(out)])
 
-    args.func(args)
+    with refusal() as response:
+        args.func(args)
 
+    if contradiction:
+        assert response.code == 2 and "withheld" in response.err and arm in response.err
+        assert not out.exists()
+        return
+    assert response.code == 0
     paired = json.loads(out.read_text(encoding="utf-8"))
     assert "fake-provider/ctx-judge (stored)" in paired["summary"]["measures"]
     assert stored_measure(saved).context == "none"
