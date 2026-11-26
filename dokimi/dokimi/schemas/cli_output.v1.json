@@ -93,8 +93,7 @@
               "level",
               "code",
               "message",
-              "file",
-              "line"
+              "file"
             ],
             "additionalProperties": false,
             "properties": {
@@ -122,6 +121,11 @@
                   "null"
                 ],
                 "minimum": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Only on a finding about a file other than the SKILL.md in `file`: its path relative to the skill directory, with `/` separators. `line` then counts lines in `path` (#942)."
               },
               "script": {
                 "type": "string",

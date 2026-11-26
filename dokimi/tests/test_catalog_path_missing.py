@@ -218,12 +218,12 @@ def test_a_link_to_a_dot_slash_path_also_names_the_span_once(tmp_path):
 def test_the_message_says_the_skill_directory_not_the_install(tmp_path):
     review, _ = _review(tmp_path, "Run `scripts/deploy.sh`.\n")
     [finding] = _path_findings(review)
-    assert finding.message == "'scripts/deploy.sh' (in 'scripts/deploy.sh') names no file in the skill directory"
+    assert finding.message == "'scripts/deploy.sh' (in 'scripts/deploy.sh') names no file in the skill directory; add the file or fix the path"
 
 
 def test_a_span_with_a_backtick_is_quoted_in_the_message(tmp_path):
     [message] = path_missing(["echo `x` scripts/deploy.sh"], tmp_path, tmp_path, tmp_path.resolve())
-    assert message == "'scripts/deploy.sh' (in 'echo `x` scripts/deploy.sh') names no file in the skill directory"
+    assert message == "'scripts/deploy.sh' (in 'echo `x` scripts/deploy.sh') names no file in the skill directory; add the file or fix the path"
 
 
 def test_a_path_in_parentheses_is_checked(tmp_path):

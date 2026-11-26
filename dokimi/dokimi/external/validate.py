@@ -84,6 +84,7 @@ import hashlib
 import os
 import re
 import unicodedata
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Optional, Sequence
 
@@ -102,6 +103,7 @@ from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
 from .frontmatter_shape import keeps_load_error, opens_frontmatter
+from .finding_lines import key_line, path_needles, text_line
 from .findings import Finding, SkillReview, state_of  # noqa: F401 (state_of: re-exported, it lived here)
 from .listing import entry_chars, in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
@@ -258,7 +260,7 @@ def _tool_findings(allowed: object) -> list[Finding]:
     return findings
 
 
-def _unknown_key_findings(meta: dict) -> list[Finding]:
+def _unknown_key_findings(meta: dict, text: str = "") -> list[Finding]:
     findings: list[Finding] = []
     unknown_keys = {str(key) for key in meta} - FRONTMATTER_KEYS
     if "allowed_tools" in unknown_keys:
@@ -269,6 +271,7 @@ def _unknown_key_findings(meta: dict) -> list[Finding]:
                 "frontmatter-unknown-key",
                 "Frontmatter key 'allowed_tools' is not the Claude Code grant key. To grant tools in Claude Code, "
                 "use 'allowed-tools'.",
+                line=key_line(text, "allowed_tools"),
             )
         )
     if unknown_keys:
@@ -277,7 +280,9 @@ def _unknown_key_findings(meta: dict) -> list[Finding]:
                 "note",
                 "frontmatter-unknown-key",
                 f"frontmatter keys {', '.join(map(repr, sorted(unknown_keys)))} are outside the Agent Skills "
-                "spec and Claude Code conventions. These keys may be read by another harness or may be typos.",
+                "spec and Claude Code conventions. These keys may be read by another harness or may be typos; "
+                "remove or rename any that are typos.",
+                line=key_line(text, sorted(unknown_keys)[0]),
             )
         )
     return findings
@@ -293,7 +298,8 @@ def _frontmatter_findings(
     ``fmt`` ``opencode``: OpenCode's rules (``skill_format``): ``name`` is optional and a display
     label, so no name/directory or missing-name finding, no description cap, and a bad name is a warning.
     """
-    meta, parse_error = _strict_meta(skill.path.read_text(encoding="utf-8"))
+    text = skill.path.read_text(encoding="utf-8")
+    meta, parse_error = _strict_meta(text)
     if parse_error is not None:
         return [parse_error], False
     opencode = fmt == FORMAT_OPENCODE
@@ -307,7 +313,9 @@ def _frontmatter_findings(
                     "warn",
                     "name-missing",
                     "no name in the frontmatter"
-                    + ("" if at_root else f"; the directory name {dir_name!r} is used"),
+                    + ("" if at_root else f"; the directory name {dir_name!r} is used")
+                    + (f"; add 'name: {dir_name}'" if not at_root else "; add a 'name:' line"),
+                    line=key_line(text, "name"),  # an empty `name:` key has a line; an absent one has none
                 )
             )
     else:
@@ -316,7 +324,9 @@ def _frontmatter_findings(
                 Finding(
                     "error",
                     "name-mismatch",
-                    f"name {declared!r} is not the directory name {dir_name!r}",
+                    f"name {declared!r} is not the directory name {dir_name!r}; "
+                    f"rename the directory to {declared!r} or set name to {dir_name!r}",
+                    line=key_line(text, "name"),
                 )
             )
         # ``name-format`` also covers the length: a name over 64 characters is not a separate code.
@@ -329,17 +339,21 @@ def _frontmatter_findings(
             # OpenCode states the kebab-case rule only for the path-derived ID, and does not enforce it: a warning.
             findings.append(
                 Finding("warn" if opencode else "error", "name-format",
-                        f"name {declared!r} {' and '.join(problems)}")
+                        f"name {declared!r} {' and '.join(problems)}; use lowercase letters, digits and single "
+                        f"hyphens, at most {NAME_MAX} characters",
+                        line=key_line(text, "name"))
             )
     if len(skill.description) > DESCRIPTION_MAX and not opencode:  # OpenCode documents no description cap
         findings.append(
             Finding(
                 "error",
                 "description-too-long",
-                f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}",
+                f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}; "
+                f"shorten it to {DESCRIPTION_MAX} characters or fewer",
+                line=key_line(text, "description"),
             )
         )
-    findings += _unknown_key_findings(meta)
+    findings += _unknown_key_findings(meta, text)
     findings += _tool_findings(meta.get("allowed-tools"))
     # Read as the skill arm reads it (dokimi.harnesses.skill_treatment.check_skill).
     hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in (
@@ -441,7 +455,9 @@ def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) 
     rooted = _in_checkout(source_root / text, source_root)
     if rooted is not None and _exists(rooted):
         from_root = " (it exists from the catalog root: the base is wrong)"
-    return Finding("warn", "link-missing", f"link {raw!r} names no file relative to the skill directory{from_root}")
+    return Finding("warn", "link-missing",
+                   f"link {raw!r} names no file relative to the skill directory{from_root}; "
+                   "fix the link or add the file")
 
 
 def _span_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
@@ -473,10 +489,15 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     found = [_link_finding(raw, skill_dir, source_root, real_dir) for raw in targets]
     found += [_span_finding(raw, skill_dir, source_root, real_dir) for raw in spans]
     linked = frozenset(text.removeprefix("./") for text in (_file_ref(raw, link=True) for raw in targets) if text)
-    return [finding for finding in found if finding is not None] + [
-        Finding("warn", "path-missing", message)
+    text = skill.path.read_text(encoding="utf-8")
+    # The line is the first line of SKILL.md that holds the written link or span (its quoted form for a path).
+    needles = [(f"({raw})", f"({raw} ", f"]: {raw}", f"({raw}", raw) for raw in targets] + [(f"`{raw}`", raw) for raw in spans]
+    located = [replace(f, line=text_line(text, *needle)) for f, needle in zip(found, needles, strict=True) if f is not None]
+    return located + [
+        Finding("warn", "path-missing", message, line=text_line(text, *path_needles(message)))
         for message in path_missing(spans, skill_dir, source_root, real_dir, linked)
     ]
+
 
 
 def _escapes_link(raw: str) -> Finding:
@@ -698,7 +719,7 @@ def review_skills(
                 for code, message in content_findings(skill, at_root=at_root and not standalone)
             ]
             review.findings += _unreferenced_findings(skill, at_root=at_root and not standalone)
-            review.findings += [Finding(*item) for item in script_findings(
+            review.findings += [Finding(*item, path=item[3]) for item in script_findings(
                 skill.path.parent, checkout=None if standalone else entry.source_root)]
             if not hidden and fmt != FORMAT_UNSUPPORTED:
                 review.findings += _description_findings(skill)

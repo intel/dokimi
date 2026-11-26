@@ -62,7 +62,7 @@ def test_every_skill_row_key_and_finding_code_is_documented(tmp_path, capsys):
     for row in rows:
         for finding in row["findings"]:
             assert finding["code"] in documented_codes
-            assert set(finding) == {"level", "code", "message"}
+            assert {"level", "code", "message"} <= set(finding) <= {"level", "code", "message", "script", "line", "path"}
             assert finding["level"] in {"note", "warn", "error"}
 
 

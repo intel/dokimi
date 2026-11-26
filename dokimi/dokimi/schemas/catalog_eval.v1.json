@@ -134,6 +134,11 @@
                     "path": {
                       "type": "string"
                     },
+                    "line": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Only when the check knows the line: a 1-based line of the finding's SKILL.md, or of `script` when that is set (#942)."
+                    },
                     "script": {
                       "type": "string",
                       "minLength": 1,
@@ -239,6 +244,11 @@
           },
           "path": {
             "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Only when the check knows the line: a 1-based line of the finding's SKILL.md, or of `script` when that is set (#942)."
           },
           "script": {
             "type": "string",

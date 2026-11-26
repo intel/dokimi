@@ -18,12 +18,26 @@ class Finding:
     """One check that did not pass: ``level`` is ``note``, ``warn`` or ``error``.
 
     ``script`` is the bundled script a script finding is about, relative to the skill directory (#961); None otherwise.
+    ``path`` (#942) is the file the finding is about, relative to the skill directory, set only when it is not the
+    ``SKILL.md``; ``line`` (#942) is a 1-based line of that file (of ``SKILL.md`` when ``path`` is None). Both are
+    None when the check does not know the position.
     """
 
     level: str
     code: str
     message: str
     script: Optional[str] = None
+    line: Optional[int] = None
+    path: Optional[str] = None
+
+
+def locate(f: Finding, *, path: bool = True) -> dict:
+    """The optional ``script``, ``line`` and ``path`` keys of a finding row: each only when the finding sets it (#942).
+
+    ``path=False`` leaves ``path`` out, for a row whose own ``path`` already names the skill directory.
+    """
+    keys = (("script", f.script), ("line", f.line)) + ((("path", f.path),) if path else ())
+    return {key: value for key, value in keys if value}
 
 
 def state_of(findings: Iterable[Finding]) -> str:
