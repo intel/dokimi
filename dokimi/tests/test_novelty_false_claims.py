@@ -266,3 +266,18 @@ def test_line_breaks_keep_the_windows_and_linux_claims_separate(separator):
     assert len(sentences) == 2
     assert all(answer[s.start:s.end] == s.text for s in sentences)
     assert [claim.quote for claim in find_false_claims(answer, [atom]).claims] == [first]
+
+
+@pytest.mark.parametrize(("opening", "closing"), [('"', '"'), ("“", "”"), ("‘", "’")])
+def test_closing_quotes_keep_two_claims_separate(opening, closing):
+    statement = "The accelerator is not supported on Windows."
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": statement})
+    first = f"{opening}The accelerator is supported on Windows.{closing}"
+    second = "The accelerator is not supported on Linux."
+    answer = f"  {first} {second}"
+    sentences = split_sentences(answer)
+    assert [sentence.text for sentence in sentences] == [first, second]
+    assert all(answer[sentence.start:sentence.end] == sentence.text for sentence in sentences)
+    report = find_false_claims(answer, [atom])
+    assert report.n_sentences == 2
+    assert [claim.quote for claim in report.claims] == [first]

@@ -73,9 +73,10 @@ _VALUE = re.compile(
 _DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
 _NEGATION = re.compile(
     r"\b(not|never|no|cannot|can't|don't|doesn't|isn't|unsupported|deprecated|without)\b", re.I)
-# A sentence ends at . ! ? followed by whitespace or the end, or at a newline; "3.0" and
-# "a.b" do not end one.
-_SENTENCE = re.compile(r"[^\r\n]+?(?:(?:(?<!(?i:e\.g|i\.e))\.|[!?])(?=\s|$)|(?=[\r\n]|$))", re.M)
+# Closing quotes belong to the sentence. Internal dots in versions and identifiers do not end it.
+_SENTENCE = re.compile(
+    r"[^\r\n]+?(?:(?:(?<!(?i:e\.g|i\.e))\.|[!?])[\"'”’»›]*(?=\s|$)|(?=[\r\n]|$))", re.M,
+)
 _ABBREVIATION = re.compile(r"(?<!\w)(?:e\.g|i\.e)\.(?!\w)", re.I)
 _CONFIDENCE = re.compile(r"confidence:\s*[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?", re.I)
 _STOP = frozenset(
