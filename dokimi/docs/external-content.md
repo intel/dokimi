@@ -368,7 +368,9 @@ stops the skill from loading, and its error says "no frontmatter". One whose
 
 The scan also checks the size and the vocabulary of a loaded skill. A frontmatter
 key that neither the Agent Skills spec nor Claude Code names (a typo such as
-`colour:`) is a `warn` (`frontmatter-unknown-key`). An `allowed-tools` entry that is
+`colour:`) gets a `frontmatter-unknown-key` note because another harness may read it.
+`allowed_tools` gets a warning under the same code and suggests `allowed-tools`,
+the key Claude Code reads for tool grants. An `allowed-tools` entry that is
 not a Claude Code tool is a `warn` (`allowed-tools-unknown`); `mcp__*` tools are not
 checked, and a `Tool(pattern)` entry is checked by its tool name. A body over 500
 lines, or about 5,000 tokens (characters / 4, no tokenizer), is a `warn`
