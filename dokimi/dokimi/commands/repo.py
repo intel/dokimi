@@ -67,6 +67,15 @@ def _source_tree(args: argparse.Namespace) -> tuple:
     return source, _open_tree(source, args)
 
 
+def _budget_next(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """The free step after a complete scan or inspection: the context budget of the same source (#941)."""
+    argv = ["repo", "budget", args.source]
+    if args.cache_dir:
+        # a value starting with `-` must stay in the one argument, or it is read as an option
+        argv += [f"--cache-dir={args.cache_dir}"] if args.cache_dir.startswith("-") else ["--cache-dir", args.cache_dir]
+    return [cli_output.free_step(argv, "Show what this repository puts into an agent's context at start.")]
+
+
 def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool = False,
                       also_usage: tuple = ()) -> Any:
     """The manifest of the tree. A bad manifest or a manifest path that leaves the tree is a usage error
@@ -169,6 +178,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
                              status="failed" if failed else "complete",
                              reason=_scan_reason(payload, static_errors, gate) if failed else None,
                              subjects=scan_subjects(payload),
+                             next_steps=None if failed else _budget_next(args),
                              summary={"claims": dict(payload["counts"]), "files": len(payload["files"]),
                                       "adapters": ", ".join(payload.get("adapters") or []) or "none"})
     else:
@@ -228,7 +238,8 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
                              status="failed" if failed else "complete",
                              reason=f"{c['error']} error(s)" + (f", {c['warning']} warning(s)" if args.fail_on == "warn"
                                                                  else "") + f" under --fail-on {args.fail_on}"
-                             if failed else None)
+                             if failed else None,
+                             next_steps=None if failed else _budget_next(args))
     else:
         roots = sum(i["scope"] == "root" for i in payload["instructions"])
         print(f"{payload['repo']['tree']}: {len(payload['instructions'])} instruction files ({roots} root), "

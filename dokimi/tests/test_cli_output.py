@@ -629,3 +629,73 @@ def test_a_leaf_usage_error_without_json_prints_its_message_on_stderr_only(monke
     assert exc.value.code == 2
     out = capsys.readouterr()
     assert out.out == "" and message in out.err
+
+
+# #941: a complete document names a free next step only where one always follows.
+_GIVES_A_NEXT_STEP = {("repo", "scan"), ("repo", "inspect"), ("runs", "list")}
+_NONE_BY_DESIGN = {
+    ("backends",), ("catalog", "check"), ("catalog", "eval"), ("catalog", "formats"), ("eval", "check"),
+    ("eval", "inspect"), ("memory", "lint"), ("repo", "budget"), ("repo", "compare"), ("repo", "fetch"),
+    ("repo", "hits", "judge"), ("repo", "report"), ("runs", "gc"), ("runs", "rm"), ("runs", "show"),
+    ("skill", "routing"), ("trace", "consistency"), ("trace", "inspect"), ("trace", "prefilter"),
+}
+
+
+def test_every_json_leaf_chooses_between_giving_a_next_step_and_giving_none():
+    """#941: a new --json leaf must choose between giving a free next step and giving none by design."""
+    leaves = set(_json_leaves())
+    assert not _GIVES_A_NEXT_STEP & _NONE_BY_DESIGN
+    assert leaves == _GIVES_A_NEXT_STEP | _NONE_BY_DESIGN, "a new --json leaf must join one of the two sets"
+
+
+def _git_repo(path):
+    import subprocess
+
+    path.mkdir()
+    (path / "AGENTS.md").write_text("# Guidance\n\nRun `make test` before a commit.\n", encoding="utf-8")
+    for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "init"]):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(path), *cmd],
+                       check=True)
+    return path
+
+
+def _doc_of(monkeypatch, capsys, argv):
+    _run_main(monkeypatch, argv)
+    return json.loads(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize("leaf", ["scan", "inspect"])
+@pytest.mark.parametrize("cached", [True, False])
+def test_a_complete_repo_scan_or_inspect_names_repo_budget_on_the_same_source(tmp_path, monkeypatch, capsys, leaf,
+                                                                              cached):
+    """#941: a complete document names the free `repo budget` step on the same source, and the step runs."""
+    repo = _git_repo(tmp_path / "repo")
+    cache = ["--cache-dir", str(tmp_path / "cache")] if cached else []
+    doc = _doc_of(monkeypatch, capsys, ["repo", leaf, str(repo), *cache, "--json"])
+    assert doc["status"] == "complete" and schema_errors("cli_output.v1", doc) == []
+    [step] = doc["next"]
+    assert step["argv"] == ["dokimi", "repo", "budget", str(repo), *cache]
+    assert (step["spends"], step["est_usd"], step["kind"]) == (False, 0, "sequence")
+    assert _doc_of(monkeypatch, capsys, step["argv"][1:] + ["--json"])["status"] == "complete"
+
+
+def test_a_failed_repo_inspect_names_no_next_step(tmp_path, monkeypatch, capsys):
+    """#941: a failed document names no next step; only a complete one does."""
+    from tests.test_repo_environment import _repo
+
+    _repo(tmp_path, {"src/a.py": "x = 1\n"})  # the checks.test.missing ERROR of test_repo_inspect_cli
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["repo", "inspect", str(tmp_path), "--json", "--fail-on", "fail"])
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["status"] == "failed" and doc["next"] == []
+
+
+@pytest.mark.parametrize("leaf", ["scan", "inspect"])
+def test_a_cache_dir_that_starts_with_a_dash_gives_a_budget_step_that_runs(tmp_path, monkeypatch, capsys, leaf):
+    """#941: the `repo budget` step carries `--cache-dir` as one argument, so a value starting with `-` still parses."""
+    repo = _git_repo(tmp_path / "repo")
+    monkeypatch.chdir(tmp_path)
+    doc = _doc_of(monkeypatch, capsys, ["repo", leaf, str(repo), "--json", "--cache-dir=-cache"])
+    [step] = doc["next"]
+    assert _doc_of(monkeypatch, capsys, step["argv"][1:] + ["--json"])["status"] == "complete"

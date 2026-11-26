@@ -66,6 +66,11 @@ def envelope(kind: str, *, run_id: str | None = None, status: str = "complete", 
     }
 
 
+def free_step(argv: list[str], why: str) -> dict[str, Any]:
+    """A ``next`` entry for a command that never spends: the next command of a sequence (#941)."""
+    return {"argv": ["dokimi", *argv], "why": why, "spends": False, "est_usd": 0, "kind": "sequence"}
+
+
 def error_object(code: str, message: str, *, field: str | None = None) -> dict[str, Any]:
     """The ``error`` of a document: ``code`` (one of :data:`ERROR_CODES`); only ``infra`` is retryable."""
     if code not in ERROR_CODES:

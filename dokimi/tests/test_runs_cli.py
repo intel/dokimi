@@ -320,3 +320,55 @@ def test_artifacts_with_no_run_id_each_stand_in_their_own_place(monkeypatch, cap
     assert _paths(out) == ["x.json", "r.json", "y.json"]
     assert out.split("\n\n")[1].splitlines()[1] == (
         "runs: 1 (1 artifact); no run_id: 2 (runs show PATH says why)")
+
+
+def test_json_names_runs_show_on_the_newest_run_and_it_works(monkeypatch, capsys, root):
+    # #941: a complete document with a run names the free step that shows the newest run
+    for run, when in (("older-1", "2026-10-29T14:02:00Z"), ("newer-2", "2026-10-30T14:02:00Z")):
+        monkeypatch.setenv("DOKIMI_RUN_ID", run)
+        save_artifact("arms", {**_fixture("arms.v1"), "generated_at": when}, root / f"{run}.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    doc = json.loads(_list(monkeypatch, capsys, "--json").out)
+    assert doc["status"] == "complete"
+    [step] = doc["next"]
+    assert step["argv"] == ["dokimi", "runs", "show", doc["data"]["runs"][0]["run_id"]]
+    assert (step["spends"], step["est_usd"], step["kind"]) == (False, 0, "sequence")
+    monkeypatch.setattr("sys.argv", step["argv"])
+    cli.main()
+    assert "newer-2" in capsys.readouterr().out
+
+
+def test_json_names_no_next_step_without_a_run_or_when_partial(monkeypatch, capsys, root, filled):
+    assert json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)["next"] == []  # partial
+    (root / "broken.json").unlink()
+    assert json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)["next"] != []
+    assert json.loads(_list(monkeypatch, capsys, "--json", "--subject", "nothing-like-it").out)["next"] == []
+
+
+def test_json_of_an_empty_root_names_no_next_step(monkeypatch, capsys, root):
+    """#941: with no run there is no `runs show` step to name."""
+    assert json.loads(_list(monkeypatch, capsys, "--json").out)["next"] == []
+
+
+def test_no_runs_show_step_when_the_newest_run_id_is_also_a_file_name(monkeypatch, capsys, root):
+    """#941: `runs show` would open the file `r.json`, not the run, so the document names no step."""
+    for run, name, when in (("older", "r.json", "2026-10-29T14:02:00Z"), ("r.json", "new.json", "2026-10-30T14:02:00Z")):
+        monkeypatch.setenv("DOKIMI_RUN_ID", run)
+        save_artifact("arms", {**_fixture("arms.v1"), "generated_at": when}, root / name)
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    assert json.loads(_list(monkeypatch, capsys, "--json").out)["next"] == []
+    (root / "r.json").unlink()  # the same run id no longer names a file: now the step is there
+    [step] = json.loads(_list(monkeypatch, capsys, "--json").out)["next"]
+    assert step["argv"] == ["dokimi", "runs", "show", "r.json"]
+
+
+def test_runs_list_names_runs_show_for_a_run_stored_in_a_directory_of_its_id(monkeypatch, capsys, root):
+    """#941: a run's own directory does not stop `runs show` from reading its id as a run, so the step is named."""
+    monkeypatch.setenv("DOKIMI_RUN_ID", "nightly-1")
+    save_artifact("arms", {**_fixture("arms.v1"), "generated_at": "2026-10-29T14:02:00Z"}, root / "nightly-1" / "a.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    [step] = json.loads(_list(monkeypatch, capsys, "--json").out)["next"]
+    assert step["argv"] == ["dokimi", "runs", "show", "nightly-1"]
+    monkeypatch.setattr("sys.argv", step["argv"])
+    cli.main()
+    assert "nightly-1" in capsys.readouterr().out
