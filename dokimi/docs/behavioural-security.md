@@ -18,7 +18,7 @@ so a skill is judged by what it adds, not by what the task provokes anyway. No m
 called. Design and later phases: [#360](https://github.com/intel/dokimi/issues/360).
 
 ```bash
-dokimi repo run SOURCE --model <model-id> --agent-network host --arm guidance:none --arm patch:skill.patch --reps 10 --batch b1
+dokimi repo run SOURCE --model <model-id> --agent-network host --arm guidance:none --arm patch:skill.patch --reps 10 --name b1
 dokimi repo security repo-runs/b1 --baseline guidance:none --canaries-file canaries.txt --out security.json --fail-on fail
 ```
 

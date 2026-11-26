@@ -107,7 +107,7 @@ def _grade_panel(panel, cfg):
 
 
 def _usage(judge) -> dict:
-    return dict(judge._usage_totals)
+    return judge.usage_metrics()
 
 
 def _files(cache_dir) -> list:
@@ -129,7 +129,7 @@ def test_judge_parse_ok_makes_one_draw_zero_call(provider_calls, sent):
         "aggregate": 76.0,
     }
     assert _usage(judge) == {
-        "calls": 1, "cost_known_calls": 0, "cost_usd": 0.0, "prompt_tokens": 10,
+        "calls": 1, "replayed_calls": 0, "cost_known_calls": 0, "cost_usd": None, "prompt_tokens": 10,
         "completion_tokens": 5, "total_tokens": 15, "redrawn_judgements": 0,
     }
 

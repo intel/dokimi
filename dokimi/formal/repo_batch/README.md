@@ -29,7 +29,7 @@ result differs from its expectation. `out/` is not committed.
 
 | Mechanism | In the code | In the model |
 |---|---|---|
-| Run = batch dir `--batch`; cell = `cell_name(task, arm, model, rep)` dir | yes | `Tasks` (one arm, model, rep) |
+| Run = batch dir `--name`; cell = `cell_name(task, arm, model, rep)` dir | yes | `Tasks` (one arm, model, rep) |
 | Repetition | `--reps N`: cells `__r1..__rN`, independent samples | not needed: one rep per cell |
 | Retry of a cell | only a later `repo run` on the batch (resume or `--force`), same cell name, replaces the dir | `Take` by a later invocation |
 | In-process retry, redelivery, reassignment, leases, heartbeats | **none** | not modelled (would be an imagined architecture) |
