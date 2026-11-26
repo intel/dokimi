@@ -22,7 +22,7 @@ from typing import Any
 
 from ..project_markers import MAKEFILE_NAMES, PYTHON_MANIFESTS
 from ..source import GitTree, RepoTree, SourceError
-from . import branches, workflows
+from . import branches, own_repo, workflows
 from .gitignore import GitIgnore, Rule
 from .held import held_dirs
 from .identifiers import is_identifier
@@ -150,8 +150,7 @@ class Scan:
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
         self._words: set[str] | None = None
         self._cache: dict[str, Any] = {}  # adapter facts
-        url = (self.repo_url or "").removesuffix(".git").rstrip("/")
-        self._own_link = re.compile(re.escape(url) + r"/(blob|tree)/(.+)") if url else None
+        self._own_slug, self._own_link = own_repo.patterns(self.repo_url)
         self._cd: list[str] | None = None  # directories a shell fence has `cd`-ed to; [] when not in the tree
         self._cd_stack: list[list[str] | None] = []  # saved at `(`
 
@@ -303,7 +302,7 @@ class Scan:
             return None
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
-        held = self._submodule_or_action(p, cands)
+        held = own_repo.verdict(self._own_slug, p, cands, self.exists) or self._submodule_or_action(p, cands)
         if held:
             return held
         verdict = self._glob(bases, rel) if any(c in rel for c in "*<>{") else self._lookup(p, rel, cands)
