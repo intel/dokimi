@@ -52,8 +52,11 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
             ``out_dir`` are both given (a name is unique only under the root); the directory
             exists (for ``out_dir``: and is not an empty directory) or another run claimed it;
             the directory cannot be made (a parent is a file, no permission); ``run.json`` cannot be
-            written (a full disk). A failed first write leaves nothing behind: the empty ``run.json``
-            and a directory made here are removed, so the same name or output directory can be retried.
+            written (a full disk). A filesystem error or a stop in that first write leaves nothing
+            behind: ``run.json`` and a directory made here are removed, so the same name or output
+            directory can be retried. A record ``save_artifact`` refuses (a malformed ``DOKIMI_RUN_ID``
+            in library use) is kept at ``run.json.rejected``, as its error says, and stays in the
+            directory.
     """
     if name is not None and not is_run_id(name):
         raise InputError(f"run name {name!r}: 1-128 letters, digits, '.', '_' or '-', starting with a "

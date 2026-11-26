@@ -204,6 +204,15 @@ def test_a_first_record_that_cannot_be_written_leaves_nothing_behind(root, tmp_p
     assert _record(open_run(root, **args).path)["status"] == "running"
 
 
+def test_a_first_record_save_artifact_refuses_is_kept_where_its_error_says(root, monkeypatch):
+    """open_run: "A record save_artifact refuses (a malformed DOKIMI_RUN_ID in library use) is kept at
+    run.json.rejected, as its error says, and stays in the directory"; the claim itself is released."""
+    monkeypatch.setenv(RUN_ID_ENV, "bad id!")
+    with pytest.raises(InputError, match=r"payload kept at .*run\.json\.rejected"):
+        open_run(root, name="n")
+    assert os.listdir(root / "n") == ["run.json.rejected"]
+
+
 def test_a_name_with_an_output_directory_is_refused(root, tmp_path):
     """docs/run-directories.md: "A name together with an output directory is refused"."""
     with pytest.raises(InputError, match="give one of them"):
