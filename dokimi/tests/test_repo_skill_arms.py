@@ -45,7 +45,7 @@ def setup(tmp_path, monkeypatch):
 
 def _run(s, *extra):
     argv = ["repo", "run", f"{s['root']}@HEAD", "--harness", str(s["profile"]), "--bin", str(s["exe"]),
-            "--model", "m-1", "--batch", "b1", "--out", str(s["out"]), "--cache-root", str(s["out"] / "caches"),
+            "--model", "m-1", "--name", "b1", "--out", str(s["out"]), "--cache-root", str(s["out"] / "caches"),
             "--agent-network", "host", *extra]
     args = build_parser().parse_args(argv)
     args.func(args)
@@ -246,7 +246,7 @@ def test_guidance_none_keeps_a_skill_when_the_repo_ships_claude_skills(tmp_path,
     monkeypatch.setenv("FAKE_ACTION", "fix")
     out = tmp_path / "runs"
     args = build_parser().parse_args(["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe),
-                                      "--model", "m-1", "--batch", "b1", "--out", str(out),
+                                      "--model", "m-1", "--name", "b1", "--out", str(out),
                                       "--cache-root", str(out / "caches"), "--agent-network", "host",
                                       "--arm", "guidance:none+skill:skills/lint", "--task", "fix_lint"])
     args.func(args)
@@ -455,7 +455,7 @@ def test_a_harness_that_never_started_leaves_skill_usage_unmeasured(setup, monke
     monkeypatch.setenv("FAKE_ACTION", "quiet")  # exit 0, no trace: not "the agent ignored the skill" (exit 1 is a crash)
     _run(setup, "--arm", "guidance:raw+skill:skills/lint", "--task", "fix_lint", "--reps", "2")
     monkeypatch.setenv("FAKE_ACTION", "fix")  # ran, used no skill: measured
-    _run(setup, "--batch", "b2", "--arm", "guidance:raw+skill:skills/lint", "--task", "fix_lint")
+    _run(setup, "--name", "b2", "--arm", "guidance:raw+skill:skills/lint", "--task", "fix_lint")
     for batch, measured in (("b1", False), ("b2", True)):
         cells = list((setup["out"] / batch).glob("fix_lint__*"))
         assert cells
@@ -506,11 +506,11 @@ def test_a_resumed_batch_refuses_other_skills_under_one_arm_name(setup, tmp_path
             _run(setup, "--arm", arm, "--task", "fix_lint", "--reps", "3")
         assert "ran arm skill:lint with skills lint " in capsys.readouterr().err
     assert sorted(p.name for p in batch.glob("fix_lint__*")) == cells
-    _run(setup, "--batch", "b2", "--arm", f"skill:{host}", "--task", "fix_lint")
+    _run(setup, "--name", "b2", "--arm", f"skill:{host}", "--task", "fix_lint")
     (host / "SKILL.md").write_text("---\nname: lint\ndescription: lint things\n---\nEdited.\n")
     with pytest.raises(SystemExit):
-        _run(setup, "--batch", "b2", "--arm", f"skill:{host}", "--task", "fix_lint", "--reps", "2")
-    assert "use another --batch" in capsys.readouterr().err
+        _run(setup, "--name", "b2", "--arm", f"skill:{host}", "--task", "fix_lint", "--reps", "2")
+    assert "use another --name" in capsys.readouterr().err
     assert not list((setup["out"] / "b2").glob("*__r2"))
 
 
@@ -527,7 +527,7 @@ def test_claude_code_gets_mcp_config_only_when_the_workspace_has_the_file(tmp_pa
             write(base / "toy", ".mcp.json", '{"mcpServers": {}}')  # make_repo commits it into the task base
         root, _ = make_repo(base)
         argv = ["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe), "--model", "m-1",
-                "--batch", "b1", "--out", str(base / "runs"), "--cache-root", str(base / "caches"),
+                "--name", "b1", "--out", str(base / "runs"), "--cache-root", str(base / "caches"),
                 "--agent-network", "host", "--arm", "guidance:raw", "--task", "fix_add", "--tools", "all"]
         args = build_parser().parse_args(argv)
         args.func(args)
@@ -620,7 +620,7 @@ def test_a_cell_records_the_optional_harness_arguments_it_ran_with(tmp_path, mon
     monkeypatch.setenv("FAKE_ACTION", "fix")
     out = tmp_path / "runs"
     args = build_parser().parse_args(["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe),
-                                      "--model", "m-1", "--batch", "b1", "--out", str(out),
+                                      "--model", "m-1", "--name", "b1", "--out", str(out),
                                       "--cache-root", str(out / "caches"), "--agent-network", "host",
                                       "--arm", "guidance:none", "--task", "fix_add"])
     args.func(args)
@@ -644,7 +644,7 @@ def test_the_recorded_optional_arguments_are_the_ones_the_agent_got(tmp_path, mo
         monkeypatch.setattr("dokimi.repos.runner.convert", lambda *a, **k: (_ for _ in ()).throw(ValueError("bad")))
     out = tmp_path / "runs"
     args = build_parser().parse_args(["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe),
-                                      "--model", "m-1", "--batch", "b1", "--out", str(out),
+                                      "--model", "m-1", "--name", "b1", "--out", str(out),
                                       "--cache-root", str(out / "caches"), "--agent-network", "host",
                                       "--arm", "guidance:raw", "--task", "fix_add", "--tools", tools])
     args.func(args)
@@ -823,7 +823,7 @@ def _claude_run(tmp_path, monkeypatch, mcp_json, *extra, patch=None):
         write(tmp_path / "toy", ".mcp.json", mcp_json)
     root, _ = make_repo(tmp_path)
     argv = ["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe), "--model", "m-1",
-            "--batch", "b1", "--out", str(tmp_path / "runs"), "--cache-root", str(tmp_path / "caches"),
+            "--name", "b1", "--out", str(tmp_path / "runs"), "--cache-root", str(tmp_path / "caches"),
             "--agent-network", "host", "--task", "fix_add", *extra]
     args = build_parser().parse_args(argv)
     try:

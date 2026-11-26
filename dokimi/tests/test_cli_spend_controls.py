@@ -37,7 +37,6 @@ delivery scan
 eval judge agreement
 eval judge validate
 eval judge wording
-eval personas discover
 eval questions analyze
 eval questions generate
 eval questions refine

@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import re
 from typing import Any, Iterable, Mapping
 
 from dokimi.eval.judge_context import PROTOCOL_MIXED
+from dokimi.measure import as_float
 
 #: What dokimi's awareness arms measure; a change to what the digest covers bumps the version.
 PROTOCOL_ID = "dokimi.awareness"
@@ -124,14 +124,14 @@ def recompute_verdict(result: Mapping[str, Any]) -> str | None:
     spec = result.get("metric_spec")
     if not isinstance(rule, Mapping) or not isinstance(spec, Mapping):
         return None
-    alpha, better_up = _num(rule.get("alpha")), spec.get("higher_is_better")
+    alpha, better_up = as_float(rule.get("alpha")), spec.get("higher_is_better")
     if rule.get("basis") != "p_adjusted" or alpha is None or not isinstance(better_up, bool):
         return None
     if not 0 < alpha < 1:
         return None  # alpha is a probability: outside (0, 1) the rule says nothing about a verdict
     if not _valid_decimals(rule.get("p_decimals"), allow_none=True):
         return None  # an unsupported rounding precision: the rule cannot be applied
-    delta, p = _num(result.get("delta")), _num(result.get("p_value"))
+    delta, p = as_float(result.get("delta")), as_float(result.get("p_value"))
     if p is not None and not 0 <= p <= 1:
         return None  # a p-value is a probability: an out-of-range one cannot be on either side of alpha
     if p is not None and _near_alpha(p, alpha, rule.get("p_decimals")):
@@ -196,7 +196,7 @@ def _verdict_reasons(result: Mapping[str, Any], spec: Mapping[str, Any]) -> list
         return reasons
     expected = recompute_verdict(result)
     rule = result["verdict_rule"]
-    p, alpha = _num(result.get("p_value")), _num(rule.get("alpha"))
+    p, alpha = as_float(result.get("p_value")), as_float(rule.get("alpha"))
     if expected is None and p is not None and alpha is not None and _near_alpha(
             p, alpha, rule.get("p_decimals")):
         return ["p_value is within its rounding of alpha: the verdict cannot be recomputed"]
@@ -300,13 +300,3 @@ def _valid_decimals(value: Any, *, allow_none: bool = False) -> bool:
     if value is None:
         return allow_none
     return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= _MAX_DECIMALS
-
-
-def _num(value: Any) -> float | None:
-    """A finite number, else None: NaN, infinity and an integer too large for a float say nothing."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        return value if math.isfinite(value) else None
-    except OverflowError:
-        return None

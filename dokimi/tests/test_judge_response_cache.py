@@ -126,7 +126,7 @@ def _judge(llm):
     judge = Judge.__new__(Judge)
     judge._accumulate_usage = lambda usage: None
     judge.temperature = judge.seed = None
-    judge._usage_lock, judge._usage_totals = threading.Lock(), {"redrawn_judgements": 0}
+    judge._usage_lock, judge._redrawn_judgements = threading.Lock(), 0
     judge.llm = llm
     return judge
 
@@ -269,7 +269,7 @@ def test_judge_rerun_after_an_unparseable_reply_makes_no_provider_call(cache_dir
         assert judge.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80.0
     assert len(fake_llm.requests) == 2
     # The replayed judgement still counts as redrawn, once per judgement.
-    assert judge._usage_totals["redrawn_judgements"] == 3
+    assert judge._redrawn_judgements == 3
 
 
 def test_judge_rerun_replays_the_third_attempt_without_asking_the_first_two(cache_dir, fake_llm):
@@ -278,7 +278,7 @@ def test_judge_rerun_replays_the_third_attempt_without_asking_the_first_two(cach
     judge.score_answer(library_name="L", question="q", answer="a")
     judge.score_answer(library_name="L", question="q", answer="a")
     assert len(fake_llm.requests) == 3
-    assert judge._usage_totals["redrawn_judgements"] == 2
+    assert judge._redrawn_judgements == 2
 
 
 def test_judge_cache_miss_on_every_attempt_falls_through_to_live_calls(cache_dir, fake_llm):
@@ -289,7 +289,7 @@ def test_judge_cache_miss_on_every_attempt_falls_through_to_live_calls(cache_dir
     other = _pinned_judge(seed=8)  # a different key: nothing stored for it
     assert other.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80.0
     assert len(fake_llm.requests) == 3
-    assert other._usage_totals["redrawn_judgements"] == 0
+    assert other._redrawn_judgements == 0
 
 
 def test_panel_rerun_after_an_unparseable_reply_makes_no_provider_call(cache_dir, fake_llm):

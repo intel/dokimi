@@ -16,8 +16,9 @@ inputs:
       Directory holding the cli_output.v1 documents (`*.json`, not recursive), usually
       the out-dir output of actions/setup. Every top-level `*.json` there must be a
       cli_output.v1 document, else it is an `invalid` row; other files (a receipt, a
-      `--out` result) go in a subdirectory. The rendered summary goes to its `summary/`
-      subdirectory.
+      `--out` result) go in a subdirectory. A directory with no `*.json` file fails this
+      step (exit 2); the step creates a missing `out-dir`, so it fails the same way.
+      The rendered summary goes to its `summary/` subdirectory.
     required: true
   comment:
     description: "false, or sticky: create or update one comment on the pull request"
@@ -36,6 +37,7 @@ runs:
   using: composite
   steps:
     - name: Render the summary
+      id: render
       shell: bash
       env:
         OUT: ${{ inputs.out-dir }}
@@ -50,10 +52,11 @@ runs:
         dokimi report summary --format annotations -- "$OUT"
         cat -- "$OUT/summary/summary.md" >> "$GITHUB_STEP_SUMMARY"
     - name: Sticky pull request comment
-      if: ${{ inputs.comment == 'sticky' && github.event.pull_request.number }}
+      if: ${{ !cancelled() && inputs.comment == 'sticky' && github.event.pull_request.number }}
       shell: bash
       env:
         OUT: ${{ inputs.out-dir }}
+        RENDER_OUTCOME: ${{ steps.render.outcome }}
         GH_TOKEN: ${{ inputs.github-token }}
         DEFAULT_TOKEN: ${{ github.token }}
         PR: ${{ github.event.pull_request.number }}
@@ -61,10 +64,18 @@ runs:
       run: |
         marker='<!-- dokimi-report -->'
         # A comment body is capped at 65,536 characters: cut the summary below it and point to the job summary.
-        { echo "$marker"; head -c 60000 -- "$OUT/summary/summary.md"
-          if [ "$(wc -c < "$OUT/summary/summary.md")" -gt 60000 ]; then
-            printf '\n\n_Summary cut here; the full one is in the job summary._\n'
-          fi; } > "$OUT/summary/comment.md"
+        mkdir -p -- "$OUT/summary"
+        {
+          echo "$marker"
+          if [ "$RENDER_OUTCOME" != success ]; then
+            printf '\nDokimi could not render a summary for this run. See the **Render the summary** step for details.\n'
+          else
+            head -c 60000 -- "$OUT/summary/summary.md"
+            if [ "$(wc -c < "$OUT/summary/summary.md")" -gt 60000 ]; then
+              printf '\n\n_Summary cut here; the full one is in the job summary._\n'
+            fi
+          fi
+        } > "$OUT/summary/comment.md"
         # The comment is the token's own: a user token posts as that user, the default token as the bot.
         # Any other token whose login cannot be read (an app installation token) is refused, not guessed.
         if [ "$GH_TOKEN" = "$DEFAULT_TOKEN" ]; then

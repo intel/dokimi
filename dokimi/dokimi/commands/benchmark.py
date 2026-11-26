@@ -596,8 +596,8 @@ def register(sub, positive_int) -> None:
                   help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_run_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency",
                              help="Parallel API calls for answering and judging (default: 5)")
-    bench_run_p.add_argument("--force-regen", action="store_true", dest="force_regen",
-                             help=_FORCE_REGEN_HELP)
+    cli_flags.add(bench_run_p, "force", "--force", action="store_true", dest="force_regen",
+                  help=_FORCE_REGEN_HELP)
     bench_run_p.add_argument("--questions-from", default=None, dest="questions_from",
                              help="Reuse questions from another run's output directory or JSON file. "
                                   "Skips question generation entirely — essential for fair multi-model "
@@ -655,8 +655,8 @@ def register(sub, positive_int) -> None:
     cli_flags.add(bench_batch_p, "tokens", "--retrieval-tokens", metavar="N", type=positive_int,
                   default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                   help="Max tokens to retrieve per question from doc source (default: 4000)")
-    bench_batch_p.add_argument("--force-regen", action="store_true", dest="force_regen",
-                               help=_FORCE_REGEN_HELP)
+    cli_flags.add(bench_batch_p, "force", "--force", action="store_true", dest="force_regen",
+                  help=_FORCE_REGEN_HELP)
     bench_batch_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_batch_p.add_argument("--questions-root", default=None, dest="questions_root",
                                help="Directory where each <target>_golden.json is looked "

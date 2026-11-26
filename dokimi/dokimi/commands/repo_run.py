@@ -189,13 +189,13 @@ def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
         except (OSError, ValueError, RecursionError) as exc:  # unreadable, bad JSON or UTF-8, deep nesting
             old = exc
         if not isinstance(old, dict):
-            raise ValueError(f"batch {batch_dir.name} has an unreadable pin ({path}); use another --batch")
+            raise ValueError(f"batch {batch_dir.name} has an unreadable pin ({path}); use another --name")
         changed = [k for k in pin if old.get(k) != pin[k]]
         changed += [k for k in _SUITE_KEYS if k in old and k not in pin]  # a suite batch resumed without --suite
         if changed:
             was = ", ".join(f"{k} {old.get(k)}" for k in changed)
             now = ", ".join(f"{k} {pin.get(k, 'none')}" for k in changed)
-            raise ValueError(f"batch {batch_dir.name} was run from {was}, not {now}; use another --batch")
+            raise ValueError(f"batch {batch_dir.name} was run from {was}, not {now}; use another --name")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(path, json.dumps(pin) + "\n")
@@ -684,7 +684,8 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     run_p.add_argument("--model", action="append", required=True,
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)
-    run_p.add_argument("--batch", required=True, help="Batch name: cells go to <out>/<batch>/")
+    cli_flags.add(run_p, "run_name", "--name", required=True, dest="batch", metavar="NAME",
+                  help="Batch name: cells go to <out-dir>/<name>/ (a batch's directory is its name)")
     cli_flags.add(run_p, "output", "--out-dir", dest="out", default="repo-runs", help="Parent of batch directories (default: repo-runs)")
     run_p.add_argument("--harness", default="claude-code", help="Built-in profile name or profile YAML path")
     run_p.add_argument("--bin", default=None,

@@ -344,6 +344,16 @@ def test_fail_on_cross_catalog_code_refused_with_per_skill(tmp_path, capsys, cod
     assert _run([*base, "--per-skill"], capsys)[1] == 2
 
 
+def test_fail_on_similar_skills_exist_refused_with_per_skill(tmp_path, capsys):
+    """--per-skill does not compare descriptions across skills, so a gate on `similar-skills-exist` is refused, not passed."""
+    shared = "invoices payments ledger reconciliation"
+    _skill(tmp_path / "skills", "a", name="alpha-skill", description=f"{shared} alpha beta gamma")
+    _skill(tmp_path / "skills", "b", name="delta-skill", description=f"{shared} delta epsilon zeta")
+    base = ["--root", str(tmp_path), "--kind", "skills", "--fail-on-code", "similar-skills-exist"]
+    assert _run([*base, "--per-skill"], capsys)[1] == 2
+    assert "similar-skills-exist" in _run([*base, "--format", "json"], capsys)[0]
+
+
 @pytest.mark.parametrize("code", ["link-dead", "package-not-found"])
 def test_fail_on_online_code_refused_without_online(tmp_path, capsys, code):
     """Only --online reports the network codes, so a gate on them needs it (docs/external-content.md)."""
