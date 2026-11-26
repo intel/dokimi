@@ -767,11 +767,9 @@ def test_npx_runs_a_bin_of_the_skills_own_package_without_an_install(tmp_path):
                   "install-unpinned") == []
 
 
-@pytest.mark.parametrize("option", ["--package otherbin", "-p otherbin", "--package=otherbin"])
-def test_npx_reports_an_explicit_package_named_like_a_local_bin(tmp_path, option):
-    files = {"package.json": '{"name": "mytool", "bin": {"otherbin": "./cli.js"}}'}
-    [finding] = _found(_review(tmp_path, _fenced(f"npx {option} otherbin"), files), "install-unpinned")
-    assert "npx otherbin" in finding.message
+def test_npx_can_run_a_bin_with_a_name_distinct_from_its_scoped_package(tmp_path):
+    files = {"package.json": '{"name": "@acme/tool", "bin": {"acme-cli": "./cli.js"}}'}
+    assert not _found(_review(tmp_path, _fenced("npx acme-cli init"), files), "install-unpinned")
 
 
 def test_npx_reports_an_undeclared_unscoped_name(tmp_path):
@@ -780,9 +778,31 @@ def test_npx_reports_an_undeclared_unscoped_name(tmp_path):
     assert "npx tool" in finding.message
 
 
-def test_npx_can_run_a_bin_with_a_name_distinct_from_its_scoped_package(tmp_path):
-    files = {"package.json": '{"name": "@acme/tool", "bin": {"acme-cli": "./cli.js"}}'}
-    assert not _found(_review(tmp_path, _fenced("npx acme-cli init"), files), "install-unpinned")
+@pytest.mark.parametrize("option", ["--package otherbin", "-p otherbin", "--package=otherbin"])
+def test_npx_reports_an_explicit_package_named_like_a_local_bin(tmp_path, option):
+    files = {"package.json": '{"name": "mytool", "bin": {"otherbin": "./cli.js"}}'}
+    [finding] = _found(_review(tmp_path, _fenced(f"npx {option} otherbin"), files), "install-unpinned")
+    assert "npx otherbin" in finding.message
+
+
+@pytest.mark.parametrize("commands", [
+    ('cd "$PROJECT_DIR" && npx mytool init',),
+    ('pushd "$PROJECT_DIR"; npx mytool init',),
+    ('cd "$PROJECT_DIR"', "npx mytool init"),
+])
+def test_npx_reports_a_local_bin_name_after_a_directory_change(tmp_path, commands):
+    files = {"package.json": '{"name": "mytool", "bin": {"mytool": "./cli.js"}}'}
+    [finding] = _found(_review(tmp_path, _fenced(*commands), files), "install-unpinned")
+    assert "npx mytool" in finding.message
+
+
+@pytest.mark.parametrize("body", [
+    _fenced('echo "example; cd $PROJECT_DIR" && npx mytool init'),
+    _fenced('cd "$PROJECT_DIR"') + "\n" + _fenced("npx mytool init"),
+])
+def test_npx_keeps_the_exemption_when_its_example_does_not_change_directory(tmp_path, body):
+    files = {"package.json": '{"name": "mytool", "bin": {"mytool": "./cli.js"}}'}
+    assert not _found(_review(tmp_path, body, files), "install-unpinned")
 
 
 def test_npx_of_a_name_the_skills_package_does_not_declare_is_still_an_install(tmp_path):

@@ -14,7 +14,8 @@ each a ``warn`` in :mod:`dokimi.external.validate`:
   version. One finding per skill, with the count of distinct ``<manager> <name>`` pairs: the same install
   shown twice is one, and a command inside the quoted text of an ``echo`` or ``printf`` is not an install.
   A requirements file, a local path, a URL and a ``git+`` source are not named packages, so they are not counted.
-  Nor is an ``npx`` of the skill's own package or of a bin its root ``package.json`` declares, unless a version tag asks the registry.
+  A bare ``npx`` of the skill's own package or declared bin is exempt when the example assumes
+  the skill's directory. Explicit package selections and version tags are still checked.
 
 Where each check reads: ``pipe-to-shell`` and ``permission-bypass-flag`` read every line of the
 text, since their tokens are distinctive. Installs are read from code only: the fenced blocks and
@@ -140,6 +141,12 @@ def _lines_of(text: str, matches: Iterator[re.Match]) -> list[int]:
 
 MAX_NESTING = 50  # substitutions entered inside one another; deeper ones are stepped over, so the stack stays bounded
 BLOCK_END = "\0"  # ends a fenced block or code span: a quote an ``echo`` opens in one never closes in the next
+# Skip quoted arguments, escaped characters and comments before recognising a directory-changing command.
+_DIR_CHANGE = re.compile(
+    r"""\\[\s\S]|'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*"|(?:^|(?<=[\s;&|(\0]))\#[^\n\0]*|"""
+    r"(?P<block>\0)|(?:^|(?<=[\n;&|(\0]))[ \t]*(?:(?:command|builtin|then|do)[ \t]+)*"
+    r"(?P<change>cd|pushd)(?=$|[\s;&|)\0])"
+)
 
 
 def _code_text(text: str, markdown: bool) -> str:
@@ -448,6 +455,18 @@ def _without_printed(code: str) -> str:
     return "".join(mask)
 
 
+def _npx_installs(code: str, own: frozenset[str]) -> Iterator[tuple[int, str, int, list[str]]]:
+    """Apply the local-bin exemption only before a directory change in the code example."""
+    changes = iter(m for m in _DIR_CHANGE.finditer(code) if m.lastgroup is not None) if own else iter(())
+    change = next(changes, None)
+    local = own
+    for m in NPX.finditer(code):
+        while change is not None and change.start() < m.start():
+            local = own if change.lastgroup == "block" else frozenset()
+            change = next(changes, None)
+        yield m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), own=local)]
+
+
 def _unpinned_at(code: str, own: frozenset[str] = frozenset()) -> list[tuple[int, str, int, list[str]]]:
     """``(offset in code, command, end of its arguments, ["pip name", ...])`` of each install command, with an empty
     list when all its packages are pinned. The offset is where the arguments begin, which folding a prefix
@@ -460,8 +479,7 @@ def _unpinned_at(code: str, own: frozenset[str] = frozenset()) -> list[tuple[int
               for m in PNPM.finditer(code)]
     found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
               for m in PNPM_DLX.finditer(code)]
-    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), own=own)])
-              for m in NPX.finditer(code)]
+    found.extend(_npx_installs(code, own))
     return found
 
 
