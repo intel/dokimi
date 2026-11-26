@@ -7,7 +7,8 @@ from html import escape
 
 
 def cell(value: object) -> str:
-    return escape(str(value)).replace("|", r"\|").replace("\n", " ")
+    text = str(value).replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return escape(text).replace("|", r"\|")
 
 
 def _object(value: object) -> dict:

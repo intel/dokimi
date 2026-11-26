@@ -575,6 +575,17 @@ def test_reply_errors_visible_in_offline_report(pack, monkeypatch):
     assert "answer has no string script field" in report
 
 
+@pytest.mark.parametrize("linebreak", ["\r\n", "\r", "\n"])
+def test_delivery_report_keeps_multiline_reasons_in_one_table_cell(pack, monkeypatch, linebreak):
+    def unavailable(*args, **kwargs):
+        raise ValueError(f"first | <tag>{linebreak}second")
+
+    monkeypatch.setattr(delivery, "container", unavailable)
+    report = render(delivery.run(pack))
+    assert "`#/observations/0` ValueError: first \\| &lt;tag&gt; second |" in report
+    assert "\r" not in report
+
+
 def test_claim_without_a_script_is_counted_when_rejected(pack, monkeypatch):
     pack.mode = "scan"
     catalog = json.loads(pack.tasks.read_text())
