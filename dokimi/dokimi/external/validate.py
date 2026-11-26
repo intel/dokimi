@@ -17,7 +17,8 @@ follow the Agent Skills spec:
   description is a load error, raised by the loader.
 - The frontmatter is valid YAML (``frontmatter-parse``, ``error``).
 - A frontmatter key that neither the spec nor Claude Code names is a ``note``
-  (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`). An ``allowed-tools``
+  (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`). The spellings ``allowed_tools``
+  and ``allowed-tools`` differ: the former gets a targeted ``warn`` under the same code. An ``allowed-tools``
   name that is no Claude Code tool is a ``warn`` (``allowed-tools-unknown``). An ``allowed-tools`` that grants
   ``Bash`` for every command (``Bash`` with no pattern, or ``Bash(*)``) is a ``warn``
   (``allowed-tools-unrestricted-bash``); its message names a ``pipe-to-shell`` or
@@ -313,13 +314,23 @@ def _frontmatter_findings(
                 f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}",
             )
         )
-    unknown_keys = sorted({str(key) for key in meta} - FRONTMATTER_KEYS)
+    unknown_keys = {str(key) for key in meta} - FRONTMATTER_KEYS
+    if "allowed_tools" in unknown_keys:
+        unknown_keys.remove("allowed_tools")
+        findings.append(
+            Finding(
+                "warn",
+                "frontmatter-unknown-key",
+                "Frontmatter key 'allowed_tools' is not the Claude Code grant key. To grant tools in Claude Code, "
+                "use 'allowed-tools'.",
+            )
+        )
     if unknown_keys:
         findings.append(
             Finding(
                 "note",
                 "frontmatter-unknown-key",
-                f"frontmatter keys {', '.join(map(repr, unknown_keys))} are outside the Agent Skills "
+                f"frontmatter keys {', '.join(map(repr, sorted(unknown_keys)))} are outside the Agent Skills "
                 "spec and Claude Code conventions. These keys may be read by another harness or may be typos.",
             )
         )
