@@ -22,7 +22,9 @@ import dokimi.eval.arm_runner as arm_runner_mod
 import dokimi.eval.arms_run as arms_run
 from dokimi import records
 from dokimi.artifacts import load_artifact, stamp, validate_artifact
+from dokimi.caching import RESPONSE_CACHE_ENV
 from dokimi.cli import build_parser
+from dokimi.commands.arms import _Partial
 from dokimi.treatments import BaselineTreatment
 from dokimi.treatments.base import AgentConfig, Treatment
 from dokimi.utils import InputError
@@ -106,6 +108,36 @@ def test_a_killed_run_leaves_its_answered_questions_in_a_valid_partial_file(tmp_
     assert [a["arms"]["baseline"]["answer"] for a in data["answers"]] == ["answer 1", "answer 3"]
     assert data["cost_summary"]["baseline"]["total_tokens"] == 30  # the spend so far
     assert "evaluations" not in data and "summary" not in data
+
+
+def test_rerunning_with_the_response_cache_reuses_paid_answers(tmp_path, monkeypatch, fake_llm):
+    monkeypatch.setenv(RESPONSE_CACHE_ENV, str(tmp_path / "cache"))
+    argv = _arms_argv(tmp_path)
+    fake_llm.push(*(f"answer {i}" for i in range(1, 9)))
+    save = _Partial.save
+
+    def save_then_stop(checkpoint, output):
+        save(checkpoint, output)
+        raise RuntimeError("interrupted after saving")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(_Partial, "save", save_then_stop)
+        with pytest.raises(RuntimeError, match="interrupted after saving"):
+            _run(argv)
+    partial = tmp_path / "arms.partial.json"
+    kept = json.loads(partial.read_text(encoding="utf-8"))
+    assert kept["partial"]["questions_recorded"] == 1
+    assert len(fake_llm.requests) == 2
+
+    _run(argv)
+
+    saved = json.loads((tmp_path / "arms.json").read_text(encoding="utf-8"))
+    assert len(fake_llm.requests) == 8
+    assert len(saved["answers"]) == len(QUESTIONS)
+    assert ["answer 1", "answer 2"] == [arm["answer"] for arm in saved["answers"][0]["arms"].values()]
+    assert all(arm["replayed"] for arm in saved["answers"][0]["arms"].values())
+    assert all(not arm["replayed"] for row in saved["answers"][1:] for arm in row["arms"].values())
+    assert json.loads(partial.read_text(encoding="utf-8")) == kept
 
 
 def _partial_file(tmp_path: Path) -> Path:
