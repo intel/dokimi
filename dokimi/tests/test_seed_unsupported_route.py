@@ -8,6 +8,8 @@ A temperature the route refuses still refuses the run.
 """
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -16,10 +18,35 @@ from dokimi.treatments import BaselineTreatment
 
 
 @pytest.fixture(autouse=True)
-def _fresh_warning():
-    warn_seed_dropped.cache_clear()
-    yield
-    warn_seed_dropped.cache_clear()
+def _fresh_warning(monkeypatch):
+    monkeypatch.setattr("dokimi.llm_sampling._warned_seed_routes", set())
+
+
+def test_concurrent_warning_is_emitted_once_per_route(monkeypatch):
+    from dokimi import llm_sampling
+    from tests.waiting import wait_for_event
+
+    first_writing, release_first = threading.Event(), threading.Event()
+    messages = []
+
+    def print_warning(message, *, file):
+        messages.append(message)
+        if not first_writing.is_set():
+            first_writing.set()
+            wait_for_event(release_first, 10, what="test releases first warning")
+
+    monkeypatch.setattr(llm_sampling, "print", print_warning, raising=False)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(warn_seed_dropped, "m", "amazon-bedrock")
+        try:
+            wait_for_event(first_writing, 10, what="first warning enters stderr write")
+            pool.submit(warn_seed_dropped, "m", "amazon-bedrock").result(timeout=10)
+            pool.submit(warn_seed_dropped, "other", "amazon-bedrock").result(timeout=10)
+        finally:
+            release_first.set()
+        first.result(timeout=10)
+    assert len(messages) == 2
+    assert "model 'm'" in messages[0] and "model 'other'" in messages[1]
 
 
 def test_arms_run_drops_a_seed_the_route_refuses_and_warns_once(monkeypatch, capsys):
