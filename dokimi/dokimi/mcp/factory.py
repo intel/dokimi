@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import yaml
+
 from dokimi.utils import InputError
 
 from . import MCPClient
@@ -35,6 +37,30 @@ def require_local_doc_source(doc_source: str) -> None:
         unreadable = False
     if unreadable:
         raise InputError(f"doc source {doc_source}: cannot read {local_path}: permission denied")
+
+
+def _context7_settings() -> dict:
+    """#1291: ``timeout`` and ``max_retries`` of the ``context7:`` block of the runtime config, when it sets them.
+
+    The block's ``endpoint`` is the MCP URL, not the REST base URL of ``Context7Client``, so it is not passed."""
+    from dokimi.config import load_products_config, runtime_config_path
+
+    path = runtime_config_path()
+    try:
+        block = load_products_config(path).context7 or {}
+    except (yaml.YAMLError, ValueError, OSError) as exc:
+        raise InputError(f"{path}: cannot read the runtime config: {exc} (#1291)") from exc
+    if not isinstance(block, dict):
+        raise InputError(f"{path}: 'context7' must be a mapping (#1291)")
+    settings = {}
+    for key in ("timeout", "max_retries"):
+        if block.get(key) is None:
+            continue
+        value = block[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < (1 if key == "timeout" else 0):
+            raise InputError(f"{path}: context7.{key} must be a whole number, got {value!r} (#1291)")
+        settings[key] = value
+    return settings
 
 
 def create_doc_source_client(
@@ -104,7 +130,7 @@ def create_doc_source_client(
     if doc_source == "context7":
         from .context7 import Context7Client
         _cache = cache_dir or Path(".cache/context7")
-        return Context7Client(cache_dir=_cache)
+        return Context7Client(cache_dir=_cache, **_context7_settings())
 
     if doc_source.startswith("local:"):
         from .local_markdown import LocalMarkdownClient
