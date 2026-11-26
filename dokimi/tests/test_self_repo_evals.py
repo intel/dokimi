@@ -92,6 +92,7 @@ def test_key_rename_needs_the_rename_not_just_both_key_names(message, hits):
     "The boundary correctly includes answers with exactly min_contexts contexts.",
     "No off-by-one issue at the context threshold.",
     "Continue to use `>=`; the comparison is already correct.",
+    "Use `>=` here, as the code already does.",
 ])
 def test_seeded_boundary_rejects_findings_that_confirm_the_comparison(message):
     grade = _seeded("dokimi/dokimi/eval/grounding.py", 110, message)
@@ -102,6 +103,7 @@ def test_seeded_boundary_rejects_findings_that_confirm_the_comparison(message):
 @pytest.mark.parametrize("message", [
     "Answers with exactly `min_contexts` contexts are skipped.",
     "Replace `>` with `>=` so the minimum is included.",
+    "Change `len(contexts) > min_contexts` to `len(contexts) >= min_contexts`.",
     "Use `>=` here to match the scoring condition.",
 ])
 def test_seeded_boundary_credits_multiple_defect_wordings(message):
