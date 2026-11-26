@@ -99,16 +99,25 @@ _COMMIT_ARG_LOCAL = r"(?!\S*\bgit\s)[^\s;&|-][^\s;&|]*"
 _COMMIT_OPT = r"(?:-[Cc]\s+" + _COMMIT_ARG + r"\s+|-\S+\s+)"
 _COMMIT_OPT_LOCAL = r"(?:-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+|-[^\s;&|]+" + _NL + r"+)"
 _COMMIT_CLOSERS = r"[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)|--no-verify\b)"
-# `git commit` with no `;`, `&`, `|` or newline in it: it ends in the segment it starts in
-_COMMIT_LOCAL = r"\bgit" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*commit\b"
-# `git commit` with one of them in a word or a gap, from the first one on: it ends in a later segment than it starts in
-_COMMIT_ACROSS = (
-    r"\bgit(?:" + _NL + r"*\n\s*" + _COMMIT_OPT + r"*|" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*(?:"
-    r"-[Cc]" + _NL + r"*\n\s*" + _COMMIT_ARG + r"\s+|-[Cc]" + _NL + r"+(?=\S*[;&|])" + _COMMIT_ARG + r"\s+|"
-    r"-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"*\n\s*|-(?=\S*[;&|])\S+\s+|-[^\s;&|]+" + _NL + r"*\n\s*"
-    r")" + _COMMIT_OPT + r"*)commit\b")
-# tried from the first `git commit` of each segment only (#1161): a later one in it finds its flag only where the first does
-_COMMIT_NO_VERIFY = (r"(?:(?m:^)|[;&|])(?:(?!" + _COMMIT_LOCAL + r")[^;&|\n])*" + _COMMIT_LOCAL + _COMMIT_CLOSERS + r"|" + _COMMIT_ACROSS + _COMMIT_CLOSERS)
+
+
+def _first_in_segment(sub: str, closers: str) -> str:
+    """``git [options] <sub>`` then ``closers``, the opener tried from the first one of each segment only (#1161, #1212): a later one finds its closers only where the first does.
+
+    An opener with a `;`, `&`, `|` or newline in a word or a gap ends in a later segment than it starts in: ``across`` is tried from each `git`.
+    """
+    local = r"\bgit" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*" + sub + r"\b"
+    across = (
+        r"\bgit(?:" + _NL + r"*\n\s*" + _COMMIT_OPT + r"*|" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*(?:"
+        r"-[Cc]" + _NL + r"*\n\s*" + _COMMIT_ARG + r"\s+|-[Cc]" + _NL + r"+(?=\S*[;&|])" + _COMMIT_ARG + r"\s+|"
+        r"-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"*\n\s*|-(?=\S*[;&|])\S+\s+|-[^\s;&|]+" + _NL + r"*\n\s*"
+        r")" + _COMMIT_OPT + r"*)" + sub + r"\b")
+    return r"(?:(?m:^)|[;&|])(?:(?!" + local + r")[^;&|\n])*" + local + closers + r"|" + across + closers
+
+
+_COMMIT_NO_VERIFY = _first_in_segment("commit", _COMMIT_CLOSERS)
+_PUSH_FORCE = r"[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)|\s\+\S)"
+_RESET_HARD = r"[^;&|\n]*\s--hard(?![\w-])"
 
 #: A shell word that is an absolute path.
 _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
@@ -173,8 +182,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # git's global options (`-C dir`, `-c k=v`, `--git-dir=x`) may come before the subcommand; a short flag may be
     # one of several (`-fu`); `+ref` is a force push; `-n` is --no-verify for commit (for push it is a dry run)
     Rule("history-rewrite", "high", "force push or hard reset",
-         _rx(r"\bgit\s+" + _GIT_OPT + r"*push\b[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)"
-             r"|\s\+\S)|\bgit\s+" + _GIT_OPT + r"*reset\b[^;&|\n]*\s--hard(?![\w-])")),
+         _rx(_first_in_segment("push", _PUSH_FORCE) + r"|" + _first_in_segment("reset", _RESET_HARD))),
     Rule("hook-bypass", "medium", "git hooks skipped",
          # a short flag cluster may end in `-m` or `-F` (`-nm msg`), so the `n` need not be the last letter
          _rx(_COMMIT_NO_VERIFY + r"|" + _PUSH_NO_VERIFY.pattern)),

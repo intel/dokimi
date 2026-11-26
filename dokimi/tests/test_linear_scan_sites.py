@@ -505,6 +505,8 @@ def test_hook_bypass_matches_the_old_pattern_on_random_lines_of_commits() -> Non
         ("hook-bypass", lambda n: "git\npush " * n),
         ("hook-bypass", lambda n: "git -a -b\n" * n),
         ("hook-bypass", lambda n: "git " + "-a " * n),
+        ("history-rewrite", lambda n: "git push " * n),
+        ("history-rewrite", lambda n: "git reset " * n),
     ],
 )
 def test_security_rules_scan_a_line_of_openers_in_linear_time(rule: str, shape: Callable[[int], str]) -> None:
@@ -593,3 +595,82 @@ def test_git_c_arguments_match_the_old_patterns_on_random_lines() -> None:
             assert new_match == (old.search(text) is not None), (rule, text)
             hits[rule] += new_match
     assert all(count > 100 for count in hits.values()), hits
+
+
+# --- history-rewrite: the first git push / git reset of each segment (#1212) -------------------------
+
+_HISTORY_REWRITE_TABLE = [
+    ("git push -f", True),
+    ("git push --force", True),
+    ("git push --force-with-lease", False),
+    ("git push --force-with-lease --force", True),
+    ("git push +main", True),
+    ("git push origin main", False),
+    ("git reset --hard", True),
+    ("git reset --hard-x", False),
+    ("git reset --soft", False),
+    ("git -C d push -f", True),
+    ("git -C d reset --hard", True),
+    ("git\npush -f", True),
+    ("git push\n-f", True),
+    ("git\nreset --hard", True),
+    ("git reset\n--hard", True),
+    ("git push; git push -f", True),
+    ("git push; git push", False),
+    ("git push -f; git push", True),
+    ("git push && git reset --hard", True),
+    ("git reset --soft && git push -f", True),
+    ("git push x git push -f", True),
+    ("git push x git reset --hard", True),
+    ("git reset x git reset --hard", True),
+    ("git reset x git push -f", True),
+    ("git push;-f", False),
+    ("git push;\n-f", False),
+    ("git reset |\n--hard", False),
+    ("git reset;--hard", False),
+    ("git push -x;y -f", False),
+    ("git -x;y push -f", True),
+    ("git -x;y push\n-f", True),
+    ("git -x;y reset --hard", True),
+    ("git -x;y;z reset --hard", True),
+    ("git -C a;b push -f", True),
+    ("git -C a;b push; git -f", False),
+    ("git\n-x;y\npush -f", True),
+    ("git -x\npush -f", True),
+    ("git -x\n-y;z reset --hard", True),
+    ("git x push -f", False),
+    ("git -C push push -f", True),
+    ("git -C push -f", True),
+    ("git -a git push -f", True),
+    ("git push --force-with-lease git push -f", True),
+    ("a;git push -f", True),
+    ("echo|git push -f", True),
+    ("echo\ngit reset --hard", True),
+    ("xgit push -f", False),
+    ("GIT PUSH -F", True),
+    ("git push -n; git push -fu", True),
+    ("git push -n git reset; git reset --hard", True),
+    ("git reset a; git push b; git reset --hard", True),
+    ("git push a git push b git push c -f", True),
+    ("git push a; git push b; git push c", False),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), _HISTORY_REWRITE_TABLE)
+def test_history_rewrite_reads_a_line_as_the_old_pattern_did(text: str, expected: bool) -> None:
+    assert (_OLD_HISTORY_REWRITE.search(text) is not None) is expected
+    assert (_security_search("history-rewrite", text) is not None) is expected
+
+
+def test_history_rewrite_matches_the_old_pattern_on_random_lines_of_pushes_and_resets() -> None:
+    pieces = ["git", "push", "reset", "-f", "-fu", "-n", "--force", "--force-with-lease", "+main", "--hard", "--soft", "-C", "-c",
+              "d", "a=b", ";", "&", "|", "&&", "\n", " ", "x", "git push", "git reset", "git -C d push", "git -c a=b reset", "-x;y",
+              "x/git", "git\npush", "git -x\nreset", "git push -f", "git reset --hard", "(", "'"]
+    rng = random.Random(1212)
+    hits = 0
+    for _ in range(3 * CASES):
+        text = " ".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+        new_match = _security_search("history-rewrite", text) is not None
+        assert new_match == (_OLD_HISTORY_REWRITE.search(text) is not None), text
+        hits += new_match
+    assert hits > 200, hits
