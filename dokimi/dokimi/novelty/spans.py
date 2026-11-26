@@ -44,6 +44,9 @@ _PROTECTION_RULES: list[tuple[str, re.Pattern[str]]] = [
 _FENCE = re.compile(r"^\s*(`{3,}(?!.*`)|~{3,})")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+# A Setext underline: a run of `=` (level 1) or `-` (level 2) under a line of text.
+_SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+_INDENTED = ("    ", "\t")
 _TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
 # Sentence split on terminal punctuation followed by whitespace + a capital/backtick.
 # Deliberately crude: over-splitting costs a little attribution granularity, while a
@@ -136,13 +139,113 @@ def dangling_fence(text: str) -> str | None:
     fence-line parity, or the two disagree and the next text is swallowed into one code span.
     """
     marker: str | None = None
-    for line in text.splitlines():
-        if marker is None:
-            opened = _FENCE.match(line)
-            marker = opened.group(1) if opened else None
-        elif _closes(line, marker):
-            marker = None
+    lines = text.splitlines()
+    in_list = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if marker is not None:
+            marker = None if _closes(line, marker) else marker
+            continue
+        in_list = in_list and not _leaves_list(line)
+        code_end = _indented_code_end(lines, i - 1, in_list)
+        if code_end:  # a fence line inside indented code is content, as in segment
+            i = code_end
+            continue
+        opened = _FENCE.match(line)
+        if opened:
+            marker = opened.group(1)
+            continue
+        in_list = in_list or bool(_LIST_ITEM.match(line))
     return marker
+
+
+def _indented_ahead(lines: list[str], i: int) -> bool:
+    """Whether the blank line ``i`` is followed, after more blank lines, by an indented line."""
+    for row in lines[i:]:
+        if row.strip():
+            return row.startswith(_INDENTED)
+    return False
+
+
+def _fence_end(lines: list[str], i: int) -> int:
+    """The index one past the fenced block that opens at line ``i``: its closing fence, or the end."""
+    opened = _FENCE.match(lines[i])
+    fence = opened.group(1) if opened else "```"
+    for end in range(i + 1, len(lines)):
+        if _closes(lines[end], fence):
+            return end + 1
+    return len(lines)
+
+
+def _front_matter_end(lines: list[str]) -> int:
+    """The index of the closing ``---`` of front matter, which underlines nothing; 0 without one.
+
+    Front matter is a leading ``---`` and lines of ``key: value`` up to the next ``---``; a
+    blank line or a line without a colon in between makes the first ``---`` a rule instead.
+    """
+    if not lines or lines[0].strip() != "---":
+        return 0
+    for n in range(1, len(lines)):
+        if lines[n].strip() == "---":
+            return n
+        if ":" not in lines[n]:
+            return 0
+    return 0
+
+
+def _leaves_list(line: str) -> bool:
+    """Whether ``line`` is text outside a list: not blank, not indented, not a list item."""
+    return bool(line.strip()) and not line.startswith(_INDENTED) and not _LIST_ITEM.match(line)
+
+
+def _block_start(lines: list[str], i: int) -> bool:
+    """Whether a block may start at line ``i``: the first line, or after a blank line, a heading or an underline."""
+    before = lines[i - 1]
+    return i == 0 or not before.strip() or bool(_HEADING.match(before) or _SETEXT.match(before))
+
+
+def _indented_code_end(lines: list[str], i: int, in_list: bool) -> int:
+    """The index one past the indented code block that starts at line ``i``, or 0 when none does.
+
+    A block opens on a line indented four spaces or a tab that follows a blank line (or the
+    start of the text) outside a list, and runs over blank lines up to the last indented line.
+    """
+    line = lines[i]
+    if in_list or not line.strip() or not line.startswith(_INDENTED) \
+            or not _block_start(lines, i):
+        return 0
+    end = i
+    while end < len(lines):
+        row = lines[end]
+        if row.strip() and not row.startswith(_INDENTED):
+            break
+        if not row.strip() and not _indented_ahead(lines, end):
+            break
+        end += 1
+    return end
+
+
+def _setext(lines: list[str], i: int, front: int) -> tuple[int, int]:
+    """``(level, end)`` when lines ``i`` up to ``end`` are a Setext heading, else ``(0, i)``.
+
+    The text is one or more lines of a paragraph over an underline of ``=`` (level 1) or ``-``
+    (level 2). ``front`` is the index of the closing ``---`` of front matter, which underlines
+    nothing.
+    """
+    structural = (_HEADING, _FENCE, _TABLE_ROW, _LIST_ITEM)
+    line = lines[i]
+    if not line.strip() or line.startswith(_INDENTED) or _SETEXT.match(line) \
+            or not _block_start(lines, i) or any(rule.match(line) for rule in structural):
+        return 0, i
+    for k in range(i + 1, len(lines)):
+        row = lines[k]
+        if _SETEXT.match(row):
+            return (0, i) if k == front else (1 if row.lstrip().startswith("=") else 2, k + 1)
+        if not row.strip() or any(rule.match(row) for rule in structural):
+            break
+    return 0, i
 
 
 def segment(text: str) -> list[Span]:
@@ -150,13 +253,17 @@ def segment(text: str) -> list[Span]:
 
     Fenced code blocks stay whole (splitting them would produce spans that are not
     independently meaningful), table rows and list items are one span each, and prose
-    paragraphs are split into sentences.
+    paragraphs are split into sentences. A Setext heading (lines of text over a run of
+    ``=`` or ``-``) is one heading span like its ``#`` form, and a run of lines indented four
+    spaces or a tab after a blank line or a heading, outside a list, is one code span like a fence.
     """
     spans: list[Span] = []
     heading_path: list[str] = []
     lines = text.splitlines(keepends=True)
     offset = 0
     i = 0
+    in_list = False
+    front = _front_matter_end(lines)
 
     def emit(kind: str, chunk: str, start: int) -> None:
         stripped = chunk.strip()
@@ -178,20 +285,32 @@ def segment(text: str) -> list[Span]:
     while i < len(lines):
         line = lines[i]
         start = offset
+        in_list = in_list and not _leaves_list(line)
+
+        code_end = _indented_code_end(lines, i, in_list)
+        if code_end:
+            block = lines[i:code_end]
+            offset += sum(len(row) for row in block)
+            i = code_end
+            emit("code", "".join(block), start)
+            continue
 
         if _FENCE.match(line):
-            fence = _FENCE.match(line).group(1)  # type: ignore[union-attr]
-            block = [line]
-            offset += len(line)
-            i += 1
-            while i < len(lines):
-                block.append(lines[i])
-                offset += len(lines[i])
-                closed = _closes(lines[i], fence)
-                i += 1
-                if closed:
-                    break
+            end = _fence_end(lines, i)
+            block = lines[i:end]
+            offset += sum(len(row) for row in block)
+            i = end
             emit("code", "".join(block), start)
+            continue
+
+        level, end = _setext(lines, i, front)
+        if level:
+            block = lines[i:end]
+            del heading_path[level - 1:]
+            heading_path.append(" ".join(row.strip() for row in block[:-1]))
+            offset += sum(len(row) for row in block)
+            i = end
+            emit("heading", "".join(block), start)
             continue
 
         heading = _HEADING.match(line)
@@ -222,6 +341,7 @@ def segment(text: str) -> list[Span]:
                 offset += len(lines[i])
                 i += 1
             emit("list_item", "".join(block), start)
+            in_list = True
             continue
 
         if not line.strip():
