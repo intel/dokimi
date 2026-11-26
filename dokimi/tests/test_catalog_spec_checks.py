@@ -315,3 +315,18 @@ def test_script_crlf_message_states_the_fix(tmp_path):
     messages = [f.message for f in _findings(tmp_path)["a"] if f.code == "script-crlf"]
     assert messages
     assert all(_FIX_CLAUSE.search(m) for m in messages), messages
+
+
+@pytest.mark.parametrize("at_root", [False, True])
+def test_following_the_name_format_fix_leaves_no_name_finding(tmp_path, at_root):
+    """#942: ``name-format`` says to rename the directory too where the name must match it."""
+    rel = "." if at_root else "skills/Bad_Name"
+    _write(tmp_path, rel, "---\nname: Bad_Name\ndescription: Use when testing things.\n---\n# Body\n")
+    [message] = [f.message for fs in _findings(tmp_path).values() for f in fs if f.code == "name-format"]
+    assert message.endswith("rename it to fit" if at_root else "rename it and its directory to fit")
+    if not at_root:
+        (tmp_path / rel).rename(tmp_path / "skills/bad-name")
+        rel = "skills/bad-name"
+    _write(tmp_path, rel, "---\nname: bad-name\ndescription: Use when testing things.\n---\n# Body\n")
+    codes = {f.code for fs in _findings(tmp_path).values() for f in fs}
+    assert not codes & {"name-format", "name-mismatch"}, codes

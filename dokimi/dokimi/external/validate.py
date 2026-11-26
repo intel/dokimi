@@ -330,9 +330,10 @@ def _frontmatter_findings(
             problems.append(f"is {len(declared)} characters; the limit is {NAME_MAX}")
         if problems:
             # OpenCode states the kebab-case rule only for the path-derived ID, and does not enforce it: a warning.
+            renamed = "it" if at_root or opencode else "it and its directory"
             findings.append(
                 Finding("warn" if opencode else "error", "name-format",
-                        f"name {declared!r} {' and '.join(problems)}; rename it to fit")
+                        f"name {declared!r} {' and '.join(problems)}; rename {renamed} to fit")
             )
     if len(skill.description) > DESCRIPTION_MAX and not opencode:  # OpenCode documents no description cap
         findings.append(
