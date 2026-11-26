@@ -1,3 +1,3 @@
 ### Fixed
 
-- **`install-unpinned` no longer counts `npx` of the skill's own bin** — `npx <name>` where `<name>` is the package name or a `bin` entry of the `package.json` beside `SKILL.md` runs the skill's own code, not a registry install, so it is not reported. `npx mytool@latest` is still reported (the tag asks the registry), and so is `npx otherbin` when the package declares no such bin. A `package.json` in a subfolder, or one that is too big or not JSON, is not read.
+- **`install-unpinned` exempts a bare `npx` of the skill's own package or declared bin** — the exemption assumes the example starts in the skill's folder. After `cd` or `pushd`, the audit checks later commands in the same example as usual. Explicit package selections and version tags are still checked. The audit reads the `package.json` beside `SKILL.md` for bundled skills. At the scanned checkout root, it reads only `SKILL.md`.

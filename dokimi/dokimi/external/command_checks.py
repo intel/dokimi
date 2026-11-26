@@ -575,7 +575,9 @@ def command_findings(skill_path: Path, *, at_root: bool) -> list[tuple[str, str]
     """``(code, message)`` for each command check that fires on the skill whose ``SKILL.md`` is ``skill_path``.
 
     The whole file is read, so a line number is the line in the file. ``at_root``: the ``SKILL.md``
-    sits in the scanned root, so no bundled file is read.
+    sits in the scanned root, so no bundled file, including ``package.json``, is read.
+    For a bundled skill, an example starts in the skill's folder for the bare ``npx`` exemption.
+    A ``cd`` or ``pushd`` in the example disables that exemption for later commands in the same example.
     """
     sources = [("SKILL.md", skill_path.read_text(encoding="utf-8-sig"))]
     own: frozenset[str] = frozenset()

@@ -805,6 +805,15 @@ def test_npx_keeps_the_exemption_when_its_example_does_not_change_directory(tmp_
     assert not _found(_review(tmp_path, body, files), "install-unpinned")
 
 
+def test_npx_reports_an_unpinned_name_at_the_scan_root(tmp_path):
+    (tmp_path / "package.json").write_text('{"name": "mytool", "bin": "./cli.js"}', encoding="utf-8")
+    skill = tmp_path / "SKILL.md"
+    skill.write_text(_fenced("npx mytool init"), encoding="utf-8")
+    [(code, message)] = command_findings(skill, at_root=True)
+    assert code == "install-unpinned"
+    assert "npx mytool" in message
+
+
 def test_npx_of_a_name_the_skills_package_does_not_declare_is_still_an_install(tmp_path):
     own = '{"name": "mytool", "bin": {"mytool": "./cli.js"}}'
     [finding] = _found(_review(tmp_path / "other", _fenced("npx otherbin init"), {"package.json": own}),
@@ -823,3 +832,8 @@ def test_a_package_json_too_deep_to_parse_names_nothing_and_keeps_the_findings(t
     (skill / "SKILL.md").write_text("Run `npx tsc`.\n", encoding="utf-8")
     (skill / "package.json").write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
     assert [code for code, _ in command_findings(skill / "SKILL.md", at_root=False)] == ["install-unpinned"]
+
+
+def test_a_package_json_that_is_not_an_object_names_no_local_bin(tmp_path):
+    [finding] = _found(_review(tmp_path, _fenced("npx mytool init"), {"package.json": "[]"}), "install-unpinned")
+    assert "npx mytool" in finding.message
