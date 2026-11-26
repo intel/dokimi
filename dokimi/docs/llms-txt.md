@@ -29,8 +29,9 @@ dokimi docs llms-txt site/ --token-budget 4000
 | `when_not_to_use` | warn | A heading such as `## When not to use` |
 | `size` | warn | At most `--token-budget` estimated tokens (default 2000) |
 
-Both inline and reference-style Markdown links count. The link check also accepts bracketed labels and
-destinations in angle brackets. The `when_not_to_use` check looks for the heading. Name an alternative in
+Both inline and reference-style Markdown links count. Link labels may contain brackets, and a
+labeled link may put its destination in angle brackets. A bare autolink such as
+`<https://example.com/quickstart.md>` does not satisfy the links check. The `when_not_to_use` check looks for the heading. Name an alternative in
 the section to help agents choose another tool.
 
 Fenced examples and HTML comments do not satisfy the structure checks. Links in code spans do

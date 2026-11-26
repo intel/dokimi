@@ -159,6 +159,14 @@ def test_a_list_link_inside_raw_html_does_not_count():
     assert [(f.check, f.severity) for f in llms_txt.check(text)] == [("links", "fail")]
 
 
+def test_a_bare_autolink_does_not_count_as_a_documentation_link():
+    text = GOOD.replace(
+        "- [Quickstart](https://acme.test/quickstart.md): first charge in five minutes",
+        "<https://acme.test/quickstart.md>",
+    )
+    assert [(f.check, f.severity) for f in llms_txt.check(text)] == [("links", "fail")]
+
+
 def test_a_paragraph_link_does_not_need_a_list_description():
     link = "[Quickstart](https://acme.test/quickstart.md)"
     text = GOOD.replace(f"- {link}: first charge in five minutes", link)
