@@ -359,6 +359,8 @@ def test_proxy_env_of_an_allowlist_step_is_the_sidecar(monkeypatch):
     ("# Escape = `\nARG dir=C:\\\nRUN true\nARG https_proxy\n", {"dir", "https_proxy"}),  # \\ then ends the line
     ("# custom=value\n# escape=`\nFROM x\nARG https_\\\nproxy\n", {"https_proxy"}),
     ("\ufeff# escape=`\nFROM x\nARG https_`\nproxy\n", {"https_proxy"}),
+    ("# syntax=docker/dockerfile:1\n# escape=`\nFROM x\nARG https_`\nproxy\n", {"https_proxy"}),
+    ("# check=skip=JSONArgsRecommended\n# escape=`\nFROM x\nARG https_`\nproxy\n", {"https_proxy"}),
     ("# ARG https_proxy\nRUN echo ARG\n", set()),
     ("FROM x\nRUN true\n", set()),
 ])
