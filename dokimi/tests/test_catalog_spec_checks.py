@@ -47,12 +47,46 @@ def _message(root, name: str, code: str) -> str:
 
 # ---- frontmatter-unknown-key -------------------------------------------------------
 
-def test_unknown_frontmatter_key_is_a_warn_that_names_the_key(tmp_path):
+# Test-narrowed: test_unknown_frontmatter_key_is_a_warn_that_names_the_key asserted the warn level; this asserts the note.
+def test_unknown_frontmatter_key_is_a_note_that_names_the_key(tmp_path):
     _skill(tmp_path, "color-skill", extra="color: red\n")
 
     [finding] = [f for f in _findings(tmp_path)["color-skill"] if f.code == "frontmatter-unknown-key"]
-    assert finding.level == "warn"
+    assert finding.level == "note"  # a non-spec key may be a field a harness reads: information, not a defect
     assert "'color'" in finding.message
+    assert "may be read by another harness" in finding.message
+
+
+def test_an_unknown_frontmatter_key_alone_leaves_the_skill_in_state_ok(tmp_path):
+    # a note never changes the state: a skill whose only finding is a non-spec key reads as ok
+    from dokimi.external.findings import state_of
+
+    _skill(tmp_path, "color-skill", extra="color: red\n")
+    findings = _findings(tmp_path)["color-skill"]
+
+    assert "frontmatter-unknown-key" in {f.code for f in findings}
+    assert state_of(findings) == "ok"
+
+
+def test_allowed_tools_underscore_warns_with_a_correction(tmp_path):
+    from dokimi.external.findings import state_of
+
+    _skill(tmp_path, "misspelled-grant", extra="allowed_tools: Read\n")
+    [finding] = _findings(tmp_path)["misspelled-grant"]
+    assert (finding.level, finding.code) == ("warn", "frontmatter-unknown-key")
+    assert "'allowed_tools'" in finding.message and "'allowed-tools'" in finding.message
+    assert state_of([finding]) == "warn"
+
+
+def test_misspelled_grant_warns_while_other_unknown_keys_are_notes(tmp_path):
+    _skill(tmp_path, "mixed-keys", extra="allowed_tools: Frobnicate\ncolor: red\n")
+    findings = _findings(tmp_path)["mixed-keys"]
+    assert {(f.code, f.level) for f in findings} == {
+        ("frontmatter-unknown-key", "warn"), ("frontmatter-unknown-key", "note"),
+    }
+    by_level = {f.level: f.message for f in findings}
+    assert "'color'" in by_level["note"] and "'allowed_tools'" not in by_level["note"]
+    assert "'allowed_tools'" in by_level["warn"] and "'color'" not in by_level["warn"]
 
 
 def test_spec_and_claude_code_keys_are_not_unknown(tmp_path):
@@ -65,6 +99,15 @@ def test_spec_and_claude_code_keys_are_not_unknown(tmp_path):
     _skill(tmp_path, "all-keys", extra=extra)
 
     assert "frontmatter-unknown-key" not in _codes(tmp_path, "all-keys")
+
+
+def test_canonical_grant_is_checked_when_the_misspelling_is_also_present(tmp_path):
+    _skill(tmp_path, "both-grant-keys", extra="allowed_tools: Read\nallowed-tools: Frobnicate\n")
+    findings = _findings(tmp_path)["both-grant-keys"]
+    assert {(f.level, f.code) for f in findings} == {
+        ("warn", "frontmatter-unknown-key"), ("warn", "allowed-tools-unknown"),
+    }
+    assert "'Frobnicate'" in next(f.message for f in findings if f.code == "allowed-tools-unknown")
 
 
 # ---- allowed-tools-unknown ---------------------------------------------------------
