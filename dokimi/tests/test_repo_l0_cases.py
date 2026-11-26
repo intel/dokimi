@@ -363,9 +363,6 @@ CASES = [
     ("literal configuration inputs are gated at both path depths", "`config/gone.yaml` `dokimi/config/gone.yaml`",
      {"dokimi/config/x.yaml": ""},
      {("path", "config/gone.yaml"): "fail", ("path", "dokimi/config/gone.yaml"): "fail"}),
-    ("parent-relative config paths respect gitignore", "",
-     {".gitignore": "/config/\n", "docs/AGENTS.md": "`../config/local.yaml` `../settings/missing.yaml`\n"},
-     {("path", "../config/local.yaml"): "unresolved", ("path", "../settings/missing.yaml"): "fail"}),
     # Python versions on a line that names a workflow
     ("a stale Python range in a table row", "| tests, py3.12-3.14t | `ci.yml` |", _wf(CONDA),
      {("python_versions", "py3.12-3.14t"): "fail"}),

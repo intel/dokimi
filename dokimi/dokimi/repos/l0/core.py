@@ -308,30 +308,29 @@ class Scan:
 
     def _lookup(self, p: str, rel: str, cands: list[str]) -> tuple[str, str]:
         """The verdict of a path that is not a glob, tried at each of ``cands`` (see :meth:`resolve_path`)."""
+        is_dir, tried = rel.endswith("/"), "tried " + ", ".join(cands)
         for c in cands:
             if self.exists(c):
-                if rel.endswith("/") and self.is_file(c):
-                    return "fail", f"{c} is a file, not a directory"
-                return "ok", c
+                return ("fail", f"{c} is a file, not a directory") if is_dir and self.is_file(c) else ("ok", c)
         target = posixpath.normpath(rel).strip("/")
         if "/" not in target:
-            hits = self._named(target, rel.endswith("/"))
+            hits = self._named(target, is_dir)
             if hits and not all(self.submodule_of([h]) for h in hits):
                 return "ok_basename", f"bare name; {len(hits)} match(es), e.g. {hits[0]}"
-            return "unresolved", "tried " + ", ".join(cands)
-        if target.startswith(".."):
-            inside = [c for c in cands if c != ".." and not c.startswith("../")]
-            return self._missing(inside, rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
-        for c in cands:
+            return "unresolved", tried
+        parent_relative = target.startswith("../")
+        paths = [c for c in cands if c != ".." and not c.startswith("../")]
+        for c in paths:
             parent = posixpath.dirname(c)
             if parent and (real := self._dir_of(parent)):  # a `.gitignore` may name it below the link's target
                 below = posixpath.normpath(posixpath.join(real, posixpath.basename(c)))
-                return self._missing([c, below], rel.endswith("/"),
-                                     f"{parent}/ exists but {c} does not" + self._unread_note(p, cands))
-        hits = [x for x in self._named(posixpath.basename(target), rel.endswith("/")) if x.endswith("/" + target)]
+                why = tried if parent_relative else f"{parent}/ exists but {c} does not" + self._unread_note(p, cands)
+                return self._missing([c, below], is_dir, why, "unresolved" if parent_relative else "fail")
+        hits = [] if parent_relative else [x for x in self._named(posixpath.basename(target), is_dir)
+                                          if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
-        return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands) + self._unread_note(p, cands), "unresolved")
+        return self._missing(paths, is_dir, tried + self._unread_note(p, cands), "unresolved")
 
     def _named(self, name: str, is_dir: bool) -> list[str]:
         """The files and directories called ``name``; only the directories (or links to one) if ``is_dir``."""
