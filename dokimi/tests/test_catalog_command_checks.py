@@ -837,6 +837,14 @@ def test_unquoted_shell_script_flags_are_scanned_in_linear_time():
     assert ratio < GROWTH_LIMIT
 
 
+def test_npx_directory_change_is_detected_after_a_heredoc_with_a_quote(tmp_path):
+    files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}
+    body = _fenced("cat > notes.txt <<'EOF'", "Don't edit by hand", "EOF",
+                   "cd /tmp/other-project", "npx mytool init --name 'demo'")
+    [finding] = _found(_review(tmp_path, body, files), "install-unpinned")
+    assert "npx mytool" in finding.message
+
+
 @pytest.mark.parametrize("option", ['--prefix "$PROJECT_DIR"', "--prefix=other", "-w tools"])
 def test_npx_checks_an_executable_selected_from_another_project(tmp_path, option):
     files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}
