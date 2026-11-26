@@ -25,7 +25,7 @@ RIGHT, WRONG, REVERSED = "correct_complete", "wrong_other", "wrong_reversed"
 @pytest.mark.parametrize("model, vendor", [
     ("us.anthropic.claude-opus-5-5", "anthropic"), ("opus", "anthropic"),
     ("gpt-6-luna", "openai"), ("grok-5", "xai"), ("gemini-3-pro", "google"),
-    ("nvidia/nemotron-ultra", "nvidia"), ("llama-4-maverick", "meta"), ("mistral-large", "unknown"),
+    ("nvidia/nemotron-ultra", "nvidia"), ("llama-4-maverick", "meta"), ("mistral-large", "mistral"),
 ])
 def test_vendor_is_read_off_the_model_id(model, vendor):
     assert prov.vendor_of(model) == vendor
@@ -35,7 +35,10 @@ def test_same_vendor_warns_and_unknown_vendors_never_match():
     same = prov.vendor_record("claude-haiku-5", "us.anthropic.claude-opus-5-5")
     assert same == {"answerer_vendor": "anthropic", "judge_vendor": "anthropic", "same_vendor": True}
     assert "anthropic" in prov.same_vendor_warning(same)
-    assert prov.vendor_record("mistral-a", "mistral-b")["same_vendor"] is False
+    assert prov.vendor_record("mistral-large-latest", "mistral-small-latest") == {
+        "answerer_vendor": "mistral", "judge_vendor": "mistral", "same_vendor": True,
+    }
+    assert prov.vendor_record("mystery-a", "mystery-b")["same_vendor"] is False
     assert prov.same_vendor_warning(prov.vendor_record("gpt-6", "claude-opus-5")) is None
 
 

@@ -163,6 +163,7 @@ _VENDOR_MARKERS = (
     ("gemini", "google"), ("google", "google"),
     ("nemotron", "nvidia"), ("nvidia", "nvidia"),
     ("llama", "meta"), ("meta", "meta"),
+    ("mistral", "mistral"), ("mixtral", "mistral"),
 )
 UNKNOWN_VENDOR = "unknown"
 
