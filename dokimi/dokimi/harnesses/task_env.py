@@ -5,15 +5,26 @@
 
 from __future__ import annotations
 
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Optional
 
-from .network_policy import PROXY_VARS as _PROXY_VARS, _USERINFO_RE, PhasePolicy, proxy_env_flags, resolve  # noqa: F401
+from dokimi import docker_cmd
+
+from .network_policy import PROXY_VARS as _PROXY_VARS, _USERINFO_RE, PhasePolicy, proxy_env, resolve  # noqa: F401
 from .tasks import TaskSpec
 
 
 def _exec_env(task: TaskSpec, table: str, net: Optional[PhasePolicy] = None, *,
-              credentials: bool = True) -> list[str]:
-    """``docker exec -e`` flags for the oracle or verifier step.
+              credentials: bool = True) -> tuple[list[str], dict[str, str]]:
+    """The literal environment of the oracle or verifier step, and its proxy variables.
+
+    Returns ``(flags, proxy)``: ``flags`` are the ``-e KEY=value`` pairs of the task's literal
+    ``[verifier.env]`` / ``[oracle.env]``; ``proxy`` maps each proxy variable to its value. The
+    proxy values never go on an argv (every user of the host can read one): :func:`exec_env_file`
+    writes them to a 0600 env file. The literal values stay on the argv, as before.
 
     A public-network task gets the host's proxy variables: behind a corporate
     proxy a verifier that installs ``uv`` or pytest at verify time (52 of 101
@@ -33,17 +44,36 @@ def _exec_env(task: TaskSpec, table: str, net: Optional[PhasePolicy] = None, *,
     if net is None:  # the step's policy from the task alone (see .network_policy)
         plan = resolve(task)
         net = plan.verify if table == "verifier" else plan.solve
-    flags = proxy_env_flags(net, credentials=credentials)
+    proxy = proxy_env(net, credentials=credentials)
+    flags: list[str] = []
     source = task.verifier if table == "verifier" else task.oracle
     env = source.get("env")
     if not isinstance(env, dict):
-        return flags
+        return flags, proxy
     for key, value in env.items():
         if isinstance(value, bool):
             flags += ["-e", f"{key}={'true' if value else 'false'}"]  # YAML true, not Python True
         elif isinstance(value, (str, int, float)) and "${" not in str(value):
             flags += ["-e", f"{key}={value}"]
-    return flags
+    return flags, proxy
+
+
+@contextmanager
+def exec_env_file(task: TaskSpec, table: str, net: Optional[PhasePolicy] = None, *,
+                  credentials: bool = True) -> Iterator[tuple[list[str], dict[str, str]]]:
+    """The ``docker exec`` flags and the docker CLI's environment for the oracle or verifier step.
+
+    The proxy values go in a 0600 ``--env-file`` in a scratch directory that is removed on exit;
+    the argv carries ``--env-file <path>`` and the literal ``-e`` pairs. The client's environment
+    is the operator's own, so the step's proxy cannot change the route of the docker CLI (a tcp
+    ``DOCKER_HOST``); values with line breaks travel as ``-e NAME`` with the client's env. Invalid
+    UTF-8 raises a validation error that names the variable.
+    """
+    literal, proxy = _exec_env(task, table, net, credentials=credentials)
+    with tempfile.TemporaryDirectory(prefix="dokimi-env-") as scratch:
+        name, by_name = docker_cmd.write_env_file(Path(scratch), proxy)
+        flags = ["--env-file", name, *(a for key in by_name for a in ("-e", key)), *literal]
+        yield flags, by_name
 
 
 def unresolved_env(task: TaskSpec, table: str) -> list[str]:

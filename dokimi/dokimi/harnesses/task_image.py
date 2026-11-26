@@ -16,6 +16,7 @@ takes the network away from a build's ``RUN`` steps, does not stop it.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import tempfile
@@ -24,7 +25,10 @@ from typing import Any, Callable
 
 from dokimi.docker_cmd import Docker
 
+from .network_policy import PhasePolicy, credential_build_args
 from .tasks import TaskSpec, _task_build_timeout
+
+logger = logging.getLogger(__name__)
 
 # One JSON object per image; RepoDigests is empty for an image that came from no registry.
 _RECORD_FORMAT = '{"id": {{json .Id}}, "repo_digests": {{json .RepoDigests}}}'
@@ -92,3 +96,17 @@ def ignore_top_level_skills(env_dir: Path):
     def ignore(directory: str, names: list[str]) -> list[str]:
         return ["skills"] if Path(directory) == env_dir and "skills" in names else []
     return ignore
+
+
+def warn_credential_build_args(context: Path, dockerfile: str, pol: PhasePolicy, log) -> None:
+    """Warn, in the run log and on stderr, about each proxy build-arg that *dockerfile* (under
+    *context*) declares with ``ARG`` and whose host value carries credentials: docker records
+    that value in the image history. The value itself is written nowhere."""
+    path = context / dockerfile
+    text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    for name in credential_build_args(text, pol):
+        msg = (f"[build] WARNING: {dockerfile} declares ARG {name} and the host's {name} carries credentials: "
+               "docker records the value in the image history (docker history). Remove the ARG from the "
+               "Dockerfile to keep the credentials out of the image.")
+        log.write(f"\n{msg}\n")
+        logger.warning(msg)

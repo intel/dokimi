@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 from dokimi import cli_output
 from dokimi.report.summary import render, summarize
@@ -73,12 +76,84 @@ def test_markdown_escapes_pipes_and_marks_absent_subjects(tmp_path):
     assert "| s | pass |" in md
 
 
-def test_cli_exits_zero_on_a_failed_input_and_writes_out(tmp_path):
+def _summary_cli(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(CLI), "report", "summary", *args], capture_output=True, text=True)
+
+
+def test_cli_refuses_a_named_input_that_is_missing_and_writes_nothing(tmp_path):
+    # B1 (review of #94): a gate reading the summary must not pass on a typo'd path (exit 2, input refusal).
     out = tmp_path / "r" / "summary.json"
-    done = subprocess.run([sys.executable, str(CLI), "report", "summary", str(tmp_path / "nope.json"),
-                           "--format", "json", "--out", str(out)], capture_output=True, text=True)
+    done = _summary_cli(str(tmp_path / "nope.json"), "--format", "json", "--out", str(out))
+    assert done.returncode == 2 and "no such file or directory" in done.stderr and done.stdout == ""
+    assert not out.exists()
+
+
+def test_cli_refuses_an_empty_path_even_when_the_cwd_has_a_document(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _doc(tmp_path, "scan.json", "repo scan", verdict="pass")
+    done = _summary_cli("", "--out", "summary.md")
+    assert done.returncode == 2 and "input path is empty" in done.stderr and done.stdout == ""
+    assert not (tmp_path / "summary.md").exists()
+
+
+def test_cli_refuses_a_path_the_filesystem_cannot_check(tmp_path, monkeypatch):
+    name = tmp_path / "too-long.json"
+    out = tmp_path / "summary.md"
+    original_stat = Path.stat
+
+    def stat(path, **kwargs):
+        if path == name:
+            raise OSError(errno.ENAMETOOLONG, "File name too long", str(path))
+        return original_stat(path, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    code, stdout, stderr = _main("report", "summary", str(name), "--out", str(out))
+    assert code == 2 and stdout == ""
+    assert "File name too long" in stderr and str(name) in stderr and "Traceback" not in stderr
+    assert not out.exists()
+
+
+def test_cli_refuses_a_missing_path_next_to_a_good_document(tmp_path):
+    good = _doc(tmp_path, "ok.json", "repo scan", verdict="pass")
+    done = _summary_cli(str(good), str(tmp_path / "gone.json"))
+    assert done.returncode == 2 and str(tmp_path / "gone.json") in done.stderr and done.stdout == ""
+
+
+@pytest.mark.parametrize("directories", [("empty",), ("empty-a", "empty-b")])
+def test_cli_refuses_inputs_that_hold_no_document(tmp_path, directories):
+    inputs = [tmp_path / name for name in directories]
+    for directory in inputs:
+        directory.mkdir()
+    out = tmp_path / "summary.md"
+    done = _summary_cli(*(str(directory) for directory in inputs), "--out", str(out))
+    assert done.returncode == 2 and "no *.json file to summarize" in done.stderr and done.stdout == ""
+    assert not out.exists()
+
+
+def test_cli_reads_a_document_from_a_directory(tmp_path):
+    source = _doc(tmp_path, "scan.json", "repo scan", verdict="pass")
+    done = _summary_cli(str(tmp_path), "--format", "json")
     assert done.returncode == 0, done.stderr
-    assert json.loads(out.read_text())["checks"][0]["state"] == "not_run"
+    assert [(c["source"], c["kind"], c["state"]) for c in json.loads(done.stdout)["checks"]] == [
+        (str(source), "repo scan", "pass"),
+    ]
+
+
+def test_cli_reads_a_named_file_whatever_its_name(tmp_path):
+    f = tmp_path / "result.txt"
+    f.write_text("{", encoding="utf-8")
+    done = _summary_cli(str(f), "--format", "json")
+    assert done.returncode == 0, done.stderr
+    assert [c["state"] for c in json.loads(done.stdout)["checks"]] == ["invalid"]
+
+
+def test_cli_keeps_an_empty_directory_beside_a_document_as_a_not_run_row(tmp_path):
+    good = _doc(tmp_path, "ok.json", "repo scan", verdict="pass")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    done = _summary_cli(str(empty), str(good), "--format", "json")
+    assert done.returncode == 0, done.stderr
+    assert [c["state"] for c in json.loads(done.stdout)["checks"]] == ["not_run", "pass"]
 
 
 # --- the leaves that opt in (#749 layer 2) and their findings in the summary ---
@@ -366,11 +441,16 @@ def test_the_report_action_uploads_after_a_failed_comment_and_finds_its_own_comm
     steps = yaml.safe_load((CLI.parent.parent / "actions" / "report" / "action.yml").read_text(encoding="utf-8"))["runs"]["steps"]
     by_name = {s["name"]: s for s in steps}
     assert "always()" in by_name["Upload out-dir"]["if"]
-    sticky = by_name["Sticky pull request comment"]["run"]
+    sticky_step = by_name["Sticky pull request comment"]
+    assert "!cancelled()" in sticky_step["if"]
+    assert sticky_step["env"]["RENDER_OUTCOME"] == "${{ steps.render.outcome }}"
+    assert by_name["Render the summary"]["id"] == "render"
+    sticky = sticky_step["run"]
     assert "gh api user" in sticky and '.user.login == \\"$me\\"' in sticky
 
 
-def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False, lookup=""):
+def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False, lookup="",
+                render_outcome="success"):
     """The sticky step's script against a fake ``gh`` that has no ``/user`` and logs its calls."""
     import yaml
 
@@ -386,7 +466,7 @@ def _run_sticky(tmp_path, token, default_token, body="x\n", write_fails=False, l
     (tmp_path / "summary").mkdir()
     (tmp_path / "summary" / "summary.md").write_text(body, encoding="utf-8")
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "OUT": str(tmp_path), "GH_TOKEN": token, "DEFAULT_TOKEN": default_token,
-           "PR": "1", "REPO": "o/r", "GH_LOG": str(tmp_path / "gh.log"),
+           "PR": "1", "REPO": "o/r", "GH_LOG": str(tmp_path / "gh.log"), "RENDER_OUTCOME": render_outcome,
            **({"GH_WRITE_FAILS": "1"} if write_fails else {}), **({"GH_LOOKUP": lookup} if lookup else {})}
     done = subprocess.run(["bash", "-o", "pipefail", "-c", script], env=env, capture_output=True, text=True, check=False)
     return done, (tmp_path / "gh.log").read_text(encoding="utf-8") if (tmp_path / "gh.log").exists() else ""
@@ -416,6 +496,14 @@ def test_sticky_comment_lookup_that_fails_after_an_id_posts_nothing(tmp_path):
 def test_sticky_comment_updates_the_comment_the_lookup_found(tmp_path):
     done, log = _run_sticky(tmp_path, "default-token", "default-token", lookup="ok")
     assert done.returncode == 0 and "PATCH repos/o/r/issues/comments/7" in log and "POST" not in log
+
+
+def test_sticky_comment_replaces_a_stale_summary_after_render_failure(tmp_path):
+    done, log = _run_sticky(tmp_path, "default-token", "default-token", body="old pass\n", lookup="ok",
+                            render_outcome="failure")
+    assert done.returncode == 0 and "PATCH repos/o/r/issues/comments/7" in log
+    comment = (tmp_path / "summary" / "comment.md").read_text(encoding="utf-8")
+    assert "could not render" in comment and "old pass" not in comment
 
 
 def test_sticky_comment_body_stays_below_the_comment_limit(tmp_path):

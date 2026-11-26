@@ -70,3 +70,16 @@ def test_full_reply_recovers_after_a_truncated_one():
     with patch("dokimi.eval.panel.llm_call", side_effect=[BAD[3], GOOD]) as m:
         vote = panel._call_judge(cfg, "q", "a", "lib", "c")
     assert m.call_count == 2 and vote.error is None and vote.aggregate == 70.0
+
+
+def test_int_past_the_float_range_is_a_non_finite_score_not_an_overflow():
+    # json.loads reads an integer of any size; float() on one past the float range raises OverflowError.
+    # It must read as the formatting failure NaN is, not as a stray error from the conversion.
+    huge = "1" + "0" * 400
+    raw = "{" + ", ".join(f'"{k}": {huge}' for k in SCORE_FIELDS) + "}"
+    panel, cfg = _judge()
+    with patch("dokimi.eval.panel.llm_call", return_value=raw) as m:
+        vote = panel._call_judge(cfg, "q", "a", "lib", "c")
+    assert m.call_count == 3
+    assert vote.error == "judge reply has a non-numeric or non-finite score"
+    assert vote.scores == {} and vote.aggregate is None

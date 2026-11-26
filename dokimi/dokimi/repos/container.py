@@ -276,6 +276,7 @@ class DockerRunner:
     def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None,
               timeout_s: float = BUILD_TIMEOUT_S) -> None:
         argv = [self.docker, *docker_cmd.build_args(context, dockerfile, tag, network=network)]
+        _warn_credential_build_args(dockerfile)
         try:
             proc = self.runner(argv, timeout=timeout_s, env=process.Env.inherit())
         except OSError as exc:
@@ -312,6 +313,19 @@ def _daemon_unreachable(stderr: str | None) -> bool:
     its socket). Only a line opening with the CLI's own diagnostic counts: BuildKit repeats a RUN command in its last line."""
     lines = [ln.strip().lower() for ln in (stderr or "").splitlines() if ln.strip()][-2:]
     return any(_DAEMON_DIAGNOSTIC.match(ln) for ln in lines)
+
+
+def _warn_credential_build_args(dockerfile: Path) -> None:
+    """Warn about each proxy build-arg that *dockerfile* declares with ``ARG`` and whose host value carries
+    credentials: docker records that value in the image history. The value itself is written nowhere."""
+    from dokimi.harnesses.network_policy import PhasePolicy, credential_build_args  # lazy: the package imports every harness
+
+    text = dockerfile.read_text(encoding="utf-8", errors="replace") if dockerfile.is_file() else ""
+    # docker_cmd.build_args passes every set proxy variable, whatever the network: a public build's set.
+    for name in credential_build_args(text, PhasePolicy("public")):
+        _log.warning("[build] WARNING: %s declares ARG %s and the host's %s carries credentials: docker records "
+                     "the value in the image history (docker history). Remove the ARG from the Dockerfile to keep "
+                     "the credentials out of the image.", dockerfile.name, name, name)
 
 
 def run_process(argv: list[str], *, env: process.Env | dict[str, str], stdout: Path, stderr: Path,

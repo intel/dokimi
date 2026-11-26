@@ -160,9 +160,9 @@ def register(sub, positive_int) -> None:
     gen_a_p = answers_sub.add_parser("generate", help="Generate context-arm and baseline answers")
     gen_a_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     gen_a_p.add_argument("--questions", required=True, help="Path to questions JSON file")
-    gen_a_p.add_argument("--run-id", default=None, dest="run_id",
-                         help="Run tag for multi-model comparison (e.g. gpt4o). "
-                              "Sets output to results/{product}_{run_id}/answers/{product}.json")
+    cli_flags.add(gen_a_p, "run_name", "--name", default=None, dest="run_id", metavar="NAME",
+                  help="Run name for multi-model comparison (e.g. gpt4o). "
+                       "Sets output to results/{product}_{name}/answers/{product}.json")
     gen_a_p.add_argument("--output", default=None, help="Output file (default: answers/{product}.json)")
     gen_a_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for answering")
     gen_a_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)

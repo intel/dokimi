@@ -113,7 +113,7 @@ def test_docker_verify_a_failed_reward_copy_is_not_a_missing_reward_file(
     def answer(call):
         if "-lc" in call.argv:
             return reply(returncode=exit_code)
-        if call.argv[1] == "cp" and call.argv[2].endswith(":/logs/verifier/reward.txt"):
+        if call.argv[1] == "cp" and call.argv[-2].endswith(":/logs/verifier/reward.txt"):
             return reply(stderr=stderr, returncode=1)
         return None
 

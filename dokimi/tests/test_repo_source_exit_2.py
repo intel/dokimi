@@ -36,7 +36,7 @@ def _command(name, source, tmp_path):
     out = str(tmp_path / "out")
     return {
         "check": ["eval", "check", source, "--out-dir", out],
-        "run": ["repo", "run", source, "--batch", "b", "--out-dir", out, "--arm", "guidance:none", "--model", "m", "--bin", sys.executable],
+        "run": ["repo", "run", source, "--name", "b", "--out-dir", out, "--arm", "guidance:none", "--model", "m", "--bin", sys.executable],
         "replay": ["eval", "tasks", "generate", source, "--from", "replay", "--threads", str(prs), "--out-dir", out],
         "prs": ["eval", "tasks", "generate", source, "--from", "prs", "--prs", str(prs), "--out-dir", out],
         "history": ["eval", "tasks", "generate", source, "--from", "history", "--out-dir", out],

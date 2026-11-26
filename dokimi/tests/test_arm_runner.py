@@ -341,12 +341,12 @@ def test_cli_accepts_every_correction_stats_supports():
     from dokimi.eval import stats
 
     for method in stats.CORRECTIONS:
-        assert _parse_arms_run(["--stats-correction", method]).stats_correction == method
+        assert _parse_arms_run(["--correction", method]).stats_correction == method
 
 
 def test_cli_rejects_unknown_stats_correction():
     with pytest.raises(SystemExit):
-        _parse_arms_run(["--stats-correction", "bonferroni"])
+        _parse_arms_run(["--correction", "bonferroni"])
 
 
 def test_matrix_run_also_exposes_stats_correction():
@@ -356,7 +356,7 @@ def test_matrix_run_also_exposes_stats_correction():
     args = build_parser().parse_args(
         ["arms", "matrix-run", "--product", "oneTBB",
          "--questions", "questions.json", "--arm", "baseline",
-         "--matrix-cells", "cells.json", "--stats-correction", "bh"]
+         "--matrix-cells", "cells.json", "--correction", "bh"]
     )
     assert args.stats_correction == "bh"
 

@@ -36,7 +36,7 @@ def setup(tmp_path, monkeypatch):
 def _run(s, *extra, models=("m-1",)):
     argv = ["repo", "run", f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
             str(s["profile"]), "--bin", str(s["exe"]), *[a for m in models for a in ("--model", m)],
-            "--batch", "b1", "--out", str(s["out"]), "--cache-root", str(s["out"] / "caches"),
+            "--name", "b1", "--out", str(s["out"]), "--cache-root", str(s["out"] / "caches"),
             "--agent-network", "host", "--arm", "guidance:raw", *extra]
     args = build_parser().parse_args(argv)
     args.func(args)
@@ -329,7 +329,7 @@ repo_runner.run_cell = run_cell
 signal.signal(signal.SIGINT, signal.default_int_handler)
 out = tmp / "runs"
 sys.argv = ["dokimi", "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
-            str(profile), "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out-dir", str(out),
+            str(profile), "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out-dir", str(out),
             "--cache-root", str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw",
             "--task", "fix_add", "--reps", "5", "--concurrency", "2"]
 cli.main()
