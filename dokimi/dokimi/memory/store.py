@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_right
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from html import unescape
 from pathlib import Path
@@ -40,6 +41,7 @@ _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+:")  # two letters or more, so a d
 _LIST_ITEM = re.compile(r" *(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
 _BLOCK_START = re.compile(r" {0,3}(?:#{1,6}(?:[ \t]|$)|>)")
 _BACKTICK_RUN = re.compile(r"(?<!`)`+(?!`)")
+_BLANKS = re.compile(_WS)
 _ANGLE_LINK = re.compile(r"\]\(" + _WS + r"<[^<>\n]*>(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?" + _WS + r"\)")  # the title grammar of _MD_LINK
 _TITLE_CLOSED = re.compile(r"[ \t]+(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))\s*$")
 
@@ -236,8 +238,46 @@ def _angle_link_end(line: str, pos: int, before: str = "") -> int | None:
     text = head + line
     p = len(head) + pos
     i = text.rfind("](", 0, p)
-    m = _ANGLE_LINK.match(text, i) if i >= 0 and _has_opener(text, i) else None
-    return m.end() - len(head) if m and m.end() > p else None
+    end = _LinkCache(final=True).end(lambda: text, i, p) if i >= 0 else None
+    return end - len(head) if end is not None else None
+
+
+class _LinkCache:
+    """What is known of each ``](`` in a paragraph: whether it closes an opener, and the link it starts.
+
+    The text before a ``](`` that the scan has passed no longer changes, so its opener is looked up once. A match
+    ends where the text it read ends, so a link that matched stays as it was. With ``final`` the text is
+    complete and a ``](`` that did not match never will; otherwise one dies only when its first character
+    after the blanks is not ``<``, as no later blank is before it.
+    """
+
+    def __init__(self, final: bool) -> None:
+        self.final = final
+        self._dead: set[int] = set()
+        self._opened: set[int] = set()
+        self._ends: dict[int, int] = {}
+
+    def end(self, text_of: Callable[[], str], i: int, p: int) -> int | None:
+        """The end of the link the ``](`` at ``i`` starts when it is past ``p``; ``text_of`` builds the text, only when it is read."""
+        if i in self._dead:
+            return None
+        if i in self._ends:
+            return self._ends[i] if self._ends[i] > p else None
+        text = text_of()
+        if i not in self._opened:
+            if not _has_opener(text, i):
+                self._dead.add(i)
+                return None
+            self._opened.add(i)
+        m = _ANGLE_LINK.match(text, i)
+        if m:
+            self._ends[i] = m.end()
+            return m.end() if m.end() > p else None
+        blanks = _BLANKS.match(text, i + 2)
+        j = blanks.end() if blanks else i + 2
+        if self.final or (j < p and not text.startswith("<", j)):
+            self._dead.add(i)
+        return None
 
 
 def _paragraph_above(lines: list[str], out: list[str], i: int) -> str:
@@ -250,8 +290,17 @@ def _paragraph_above(lines: list[str], out: list[str], i: int) -> str:
 
 def _unpaired_run(line: str, before: str = "") -> re.Match | None:
     """The first backtick run left on ``line`` whose first backtick is not escaped and not in a ``<...>`` destination."""
-    return next((m for m in _BACKTICK_RUN.finditer(line)
-                 if not _escaped(line, m.start()) and _angle_link_end(line, m.start(), before) is None), None)
+    head = before + "\n" if before else ""
+    text = head + line
+    opens = [m.start() for m in re.finditer(r"\]\(", text)]
+    links = _LinkCache(final=True)
+
+    def in_link(pos: int) -> bool:
+        p = len(head) + pos
+        k = bisect_right(opens, p - 2) - 1
+        return k >= 0 and links.end(lambda: text, opens[k], p) is not None
+
+    return next((m for m in _BACKTICK_RUN.finditer(line) if not _escaped(line, m.start()) and not in_link(m.start())), None)
 
 
 def _open_span(lines: list[str], i: int, line: str, run: re.Match | None) -> tuple[str, str]:
@@ -330,15 +379,16 @@ class _BlankedLine:
         self._head = len(before) + 1 if before else 0
         self._found = [m.start() for m in re.finditer(r"\]\(", (before + "\n" if before else "") + line)]
         self._next = 0
-        self._live = False  # a ``](`` before the scan point that no blank touched
+        self._last: int | None = None  # the last ``](`` before the scan point that no blank touched
+        self._links = _LinkCache(final=False)
         self._prefix = ""  # the blanked line up to ``_ends``, for the ranges before ``_seen``
         self._ends = 0
         self._seen = 0
 
     def _advance(self, upto: int) -> None:
         while self._next < len(self._found) and self._found[self._next] + 2 <= upto + self._head:
+            self._last = self._found[self._next]
             self._next += 1
-            self._live = True
 
     def blank(self, start: int, end: int) -> None:
         self._advance(start)
@@ -365,7 +415,11 @@ class _BlankedLine:
     def angle_link_end(self, pos: int) -> int | None:
         """``_angle_link_end`` of the blanked line at ``pos``."""
         self._advance(pos)
-        return _angle_link_end(self._so_far(), pos, self.before) if self._live else None
+        if self._last is None:
+            return None
+        head = self.before + "\n" if self.before else ""
+        end = self._links.end(lambda: head + self._so_far(), self._last, len(head) + pos)
+        return end - len(head) if end is not None else None
 
 
 def _blank_inline(line: str, closes_ahead: bool, pos: int = 0, before: str = "") -> tuple[str, str, re.Match | None]:

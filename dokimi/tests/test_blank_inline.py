@@ -13,6 +13,7 @@ from functools import partial
 import pytest
 
 from dokimi.code_spans import LINE_BREAK, CodeSpanScanner
+from dokimi.memory import store
 from dokimi.memory.store import _angle_link_end, _blank_inline, _code_span, _unpaired_run
 from tests.growth_timing import GROWTH_LIMIT, growth
 
@@ -115,6 +116,60 @@ def test_blanking_a_line_of_many_spans_and_comments_grows_linearly(shape) -> Non
     ratio, result = growth(lambda k: partial(_blank_inline, shape(k), False), 2000)
     assert ratio < GROWTH_LIMIT
     assert result[0].strip() == ""
+
+
+def _link_then_spans(n: int) -> str:
+    return "[x](<y>) " + _ticks(n)
+
+
+def test_a_link_before_many_code_spans_grows_linearly() -> None:
+    ratio, result = growth(lambda k: partial(_blank_inline, _link_then_spans(k), False), 2000)
+    assert ratio < GROWTH_LIMIT
+    assert result[0] == "[x](<y>) " + " " * 4 * 32000
+
+
+@pytest.mark.parametrize("before", ["", "[open"])
+def test_the_opener_of_a_link_is_looked_up_once_not_once_per_span(monkeypatch: pytest.MonkeyPatch, before: str) -> None:
+    calls: list[int] = []
+    real = store._has_opener
+
+    def counting(text: str, close: int) -> bool:
+        calls.append(close)
+        return real(text, close)
+
+    monkeypatch.setattr(store, "_has_opener", counting)
+    _blank_inline(("x" if before else "[x") + "](<y>) " + _ticks(500) + "`b", False, 0, before)
+    assert len(calls) == 2  # once while the spans are blanked, once for the unpaired run left at the end
+
+
+def test_the_backtick_runs_of_one_destination_are_checked_against_one_lookup_of_its_opener(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    real = store._has_opener
+
+    def counting(text: str, close: int) -> bool:
+        calls.append(close)
+        return real(text, close)
+
+    monkeypatch.setattr(store, "_has_opener", counting)
+    line = "[x](<" + "` " * 500 + ">) `"
+    run = _unpaired_run(line)
+    assert run is not None and run.start() == len(line) - 1
+    assert len(calls) == 1
+
+
+def test_an_opener_blanked_inside_a_code_span_no_longer_opens_the_link() -> None:
+    assert _blank_inline("`[`](<`a`>) `b`", False) == ("   ](<   >)    ", "", None)
+    assert _blank_inline("[`[`](<`a`>) `b`", False) == ("[   ](<`a`>)    ", "", None)
+    _same("`[`](<`a`>) `b`", False)
+    _same("[`[`](<`a`>) `b`", False)
+
+
+@pytest.mark.parametrize("before, kept", [("[x](", "<`a`>) "), ("x](", "<   >) ")])
+def test_a_link_opened_on_the_line_above_holds_the_spans_of_its_destination(before: str, kept: str) -> None:
+    out, _, run = _blank_inline("<`a`>) `b` `c`", False, 0, before)
+    assert out == kept + " " * (len(out) - len(kept))
+    assert run is None
+    _same("<`a`>) `b` `c`", False, 0, before)
 
 
 def test_scanning_past_many_comment_openers_with_no_close_grows_linearly() -> None:
