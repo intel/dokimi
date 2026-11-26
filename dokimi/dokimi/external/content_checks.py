@@ -9,7 +9,8 @@
 - ``hidden-unicode`` (warn): a bidi control, a Unicode tag character, or a stray zero-width character.
   Each is reported with its line and codepoint. Exempt: a zero-width joiner (U+200C, U+200D) next to an
   emoji (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script (U+0600 to U+0DFF), and a byte
-  order mark at the start of a file.
+  order mark at the start of a file. A line with more than :data:`FILLERS_PER_LINE` blank fillers that are
+  exempt beside Greek or Hangul reports all of them.
 
 Scanned: ``SKILL.md`` and the text files beside it (``.md``, ``.py``, ``.json``, ``.bash``, ``.html``, ``.csv`` and the other
 suffixes of :data:`TEXT_SUFFIXES`) in the skill
@@ -43,6 +44,7 @@ TEXT_SUFFIXES = frozenset(
 )
 MAX_BYTES = 1 << 20  # a bundled file over a megabyte is data, not instructions the model reads
 REPORT_PER_FILE = 5  # hidden characters named per file; the rest are counted
+FILLERS_PER_LINE = 3  # exempt U+034F, U+115F or U+1160 fillers a line may hold; more than that carries hidden bits (#1274)
 
 BIDI_CONTROLS = frozenset(range(0x202A, 0x202F)) | frozenset(range(0x2066, 0x206A))
 BIDI_MARKS = frozenset({0x200E, 0x200F, 0x061C})  # LRM, RLM, ALM: reported unless a right-to-left letter is beside them
@@ -206,6 +208,11 @@ def _is_hidden(text: str, index: int, bidi_exempt: set[int]) -> bool:
 def _hidden_hits(where: str, text: str) -> list[Hit]:
     bidi_exempt = _bidi_mark_exempt(text)
     found = [i for i in range(len(text)) if _is_hidden(text, i, bidi_exempt)]
+    kept: dict[int, list[int]] = {}  # line start -> fillers exempt as script text (not Braille: a run of blanks is normal)
+    for i, ch in enumerate(text):
+        if ord(ch) in (0x034F, 0x115F, 0x1160) and _filler_exempt(text, i):
+            kept.setdefault(text.rfind("\n", 0, i), []).append(i)
+    found = sorted(found + [i for run in kept.values() if len(run) > FILLERS_PER_LINE for i in run])
     hits: list[Hit] = []
     for index in found[:REPORT_PER_FILE]:
         ch = text[index]
