@@ -17,6 +17,7 @@ import pytest
 from dokimi import cli, llm_pricing
 from dokimi.commands import personas as personas_cmd
 from dokimi.exit_codes import EXIT_INCONCLUSIVE
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL
 from dokimi.personas import generator as generator_mod
 from dokimi.personas.analyzer import PersonaAnalyzer
 
@@ -35,7 +36,7 @@ def _cli(monkeypatch, *argv: str) -> int:
 
 def _discover(monkeypatch, out, *extra: str) -> int:
     return _cli(monkeypatch, "eval", "personas", "discover", "--product", "lib", "--output", str(out),
-                "--provider", "openai", "--description", "A library", *extra)
+                "--model", f"openai/{DEFAULT_GENERATOR_MODEL}", "--description", "A library", *extra)
 
 
 @pytest.fixture
