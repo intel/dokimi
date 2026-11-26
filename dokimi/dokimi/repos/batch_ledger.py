@@ -156,7 +156,7 @@ def reused_result(cell_dir: Path, execution: dict[str, str], force: bool) -> dic
         raise ExecutionMismatch(
             f"the cell finished with another execution ({ran.get('id', 'unrecorded')}, delegation "
             f"{ran.get('delegation', 'native')}) than this run ({execution['id']}, delegation "
-            f"{execution['delegation']}); use another --batch, or --force to replace it")
+            f"{execution['delegation']}); use another --name, or --force to replace it")
     return done
 
 
@@ -181,7 +181,7 @@ def check_batch_executions(batch_dir: Path, wanted: set[str], replacing: set[str
     if other:
         raise ExecutionMismatch(
             f"{batch_dir} holds cells of another execution ({', '.join(sorted(other))}) than this run "
-            f"({', '.join(sorted(wanted))}); use another --batch, or --force to replace them"
+            f"({', '.join(sorted(wanted))}); use another --name, or --force to replace them"
             + (" (--force replaces only the cells of this run's plan)" if replacing is not None else ""))
 
 
@@ -205,7 +205,7 @@ def pin_skills(batch_dir: Path, arms: list[str], content_dir: Path) -> dict[str,
         if old.get(arm, skills) != skills:
             was, new = (", ".join(f"{name} {sha[:12]}" for name, sha in pin) for pin in (old[arm], skills))
             raise ValueError(f"batch {batch_dir.name} ran arm {arm} with skills {was}, not {new}; "
-                             f"use another --batch")
+                             f"use another --name")
     return {**old, **now} if now.keys() - old.keys() else None
 
 

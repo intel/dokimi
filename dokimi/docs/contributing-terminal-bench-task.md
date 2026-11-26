@@ -21,7 +21,7 @@ repository, not here. This framework runs them from a checkout you name:
 ```bash
 python cli.py eval tasks list --tasks-root <checkout>/evaluation/harbor/tasks
 python cli.py tasks run  --tasks-root <checkout>/evaluation/harbor/tasks \
-  --tasks <task-name> --harnesses docker-oracle --out results/runs.json
+  --tasks <task-name> --harness docker-oracle --out results/runs.json
 ```
 
 This page is the format reference: everything a task directory must contain for
@@ -153,10 +153,14 @@ The contract:
 - Write the outcome to `/logs/verifier/reward.txt` — `1` (or `1.0`) for pass,
   `0` (or `0.0`) for fail. A fraction such as `0.75` (partial credit) is kept
   as the cell's reward and counts as a fail. The harness copies that file out.
-  Without it the exit code is no pass: exit 0 errors the cell and a non-zero
+  Without a reward file (this one or `reward.json`) the exit code is no pass: exit 0 errors the cell and a non-zero
   exit scores 0. This is the rule for this format; a terminal-bench v1 task
   (`task.yaml`) is still graded by its pytest summary. A file with no number
   between 0 and 1 in it (`PASS`, empty, `75`) errors the cell.
+- Or write `/logs/verifier/reward.json`, as Harbor reads it: a JSON object of
+  numbers such as `{"reward": 0.58, "correctness": 0.67}`, whose `reward` key
+  (or only key) is the reward. When both files exist, `reward.json` is the one
+  read; one that is not such an object errors the cell.
 - Do not let a failure abort before the reward file is written (capture the
   pytest exit code, write the file, then exit with it).
 
@@ -201,11 +205,16 @@ A port below 1024 still binds. See
 python cli.py tasks run \
   --tasks-root <checkout>/evaluation/harbor/tasks \
   --tasks <library>-<concept> \
-  --harnesses docker-oracle \
+  --harness docker-oracle \
   --out results/oracle.json
 ```
 
-Expect `passed: 1` / `pass_rate: 1.0` in the summary. The oracle solves with
+Expect `passed: 1` / `pass_rate: 1.0` in the summary. Add `docker-null` to the
+same run (`--harness docker-oracle,docker-null`) for the null check: the
+untouched start must fail the tests, or the tests check nothing. The run exits 1
+and names each task that fails it. A pytest error at setup or collection
+(`fixture_error`) also fails the check. Inspect the verifier log to see whether
+the error came from the fixture or the missing solution. The oracle solves with
 `network_mode`'s network, which a `docker-claude` agent never gets, so also run
 the probe, and before a sweep one `docker-claude` cell (paid) if the solve
 needs the network:
@@ -214,7 +223,7 @@ needs the network:
 python cli.py tasks run \
   --tasks-root <checkout>/evaluation/harbor/tasks \
   --tasks <library>-<concept> \
-  --harnesses docker-probe \
+  --harness docker-probe \
   --out results/probe.json
 ```
 

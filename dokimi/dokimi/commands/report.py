@@ -9,6 +9,7 @@ import argparse
 import sys
 import json
 from pathlib import Path
+from dokimi import cli_flags
 from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import InputError
@@ -173,10 +174,34 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
         print(report.split("---")[0])  # Print just the summary section
 
 
+def _refuse_absent_inputs(paths: list[str]) -> None:
+    """Exit 2 before anything is summarised: a path the user named that does not exist, or inputs holding no
+    document at all. An existing directory with no ``*.json`` beside other inputs stays a ``not_run`` row."""
+    from dokimi.report.summary import expand_inputs
+
+    if "" in paths:
+        raise InputError("input path is empty")
+    missing = []
+    for raw in paths:
+        try:
+            Path(raw).stat()
+        except (FileNotFoundError, NotADirectoryError):
+            missing.append(raw)
+        except (OSError, ValueError) as exc:
+            reason = (exc.strerror or str(exc)) if isinstance(exc, OSError) else str(exc)
+            raise InputError(f"cannot access {raw!r}: {reason}") from exc
+    if missing:
+        raise InputError(f"no such file or directory: {', '.join(missing)}")
+    if all(p.is_dir() for p in expand_inputs(paths)):  # a file, a pipe or a FIFO is read, whatever it holds
+        raise InputError(f"no *.json file to summarize in {', '.join(paths)}")
+
+
 def cmd_report_summary(args: argparse.Namespace) -> None:
-    """Merge cli_output.v1 documents into one summary. Exit 0 once written: the gate stays each leaf's own exit code."""
+    """Merge cli_output.v1 documents into one summary. Exit 2 on an absent input (a gate must not pass on a typo);
+    exit 0 once written, the gate staying each leaf's own exit code."""
     from dokimi.report.summary import render, summarize
 
+    _refuse_absent_inputs(args.inputs)
     text = render(summarize(args.inputs), args.format)
     if args.out:
         from dokimi.commands._output import write_text_or_exit
@@ -195,8 +220,8 @@ def register(sub, positive_int) -> None:
     eval_r_p = report_sub.add_parser("eval", help="Generate quality report from eval JSON (dynamic vs static breakdown)")
     eval_r_p.add_argument("--product", required=True, help="Product name (e.g., oneDAL)")
     eval_r_p.add_argument("--eval", required=True, help="Path to eval JSON file")
-    eval_r_p.add_argument("--run-id", default=None, dest="run_id",
-                         help="Run tag (e.g. gpt4o). Auto-sets output path.")
+    cli_flags.add(eval_r_p, "run_name", "--name", default=None, dest="run_id", metavar="NAME",
+                  help="Run name (e.g. gpt4o). Auto-sets output path.")
     eval_r_p.add_argument("--out", default=None, help="Output .md file (default: results/{product}/reports/{product}_full.md)")
     eval_r_p.set_defaults(func=cmd_report_eval)
 
@@ -242,8 +267,8 @@ def register(sub, positive_int) -> None:
             "Required when a run contains more than one non-baseline arm."
         ),
     )
-    mc_p.add_argument(
-        "--stats-correction",
+    cli_flags.add(
+        mc_p, "policy", "--correction",
         default="holm",
         dest="stats_correction",
         # Literal so registering the CLI stays stdlib-only; eval.stats.CORRECTIONS
@@ -279,3 +304,7 @@ def register(sub, positive_int) -> None:
                            "lines), or sarif (SARIF 2.1.0 for code scanning in GitHub, Azure DevOps, GitLab, Jenkins)")
     sm_p.add_argument("--out", default=None, help="Write to this file instead of stdout")
     sm_p.set_defaults(func=cmd_report_summary)
+
+    from dokimi.commands import opportunities
+
+    opportunities.register(report_sub, positive_int)  # report opportunities

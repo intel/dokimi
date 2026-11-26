@@ -744,11 +744,8 @@ class ArmRunner:
                 out["judge_prompt_sha256"] = getattr(judge, "prompt_sha256", None)
         # Judge-side token/cost telemetry, when a judge ran (mirrors the answer
         # cost_summary so a full run's spend is auditable from one artifact).
-        if judge is not None and hasattr(judge, "_usage_totals"):
-            with judge._usage_lock:
-                t = dict(judge._usage_totals)
-            t["cost_usd"] = round(t["cost_usd"], 6) if t["cost_known_calls"] else None
-            out["judge_metrics"] = t
+        if judge is not None and hasattr(judge, "usage_metrics"):
+            out["judge_metrics"] = judge.usage_metrics()
             if resolved := sorted(getattr(judge, "_resolved_models", ())):
                 out["judge_resolved_models"] = resolved
         return out

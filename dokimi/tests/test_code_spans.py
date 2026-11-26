@@ -12,6 +12,7 @@ from __future__ import annotations
 import itertools
 import random
 import re
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
@@ -25,7 +26,7 @@ from dokimi.eval.degrade import _replace_code_blocks
 from dokimi.external.online_checks import _BLOCK_START, _BLOCK_START_RE, _distinct_urls
 from dokimi.external.skill_markdown import code_spans, link_pieces
 from dokimi.memory.store import _blank_inline, _code_span, _escaped
-from tests.growth_timing import GROWTH_LIMIT, growth
+from tests.growth_timing import FACTOR, GROWTH_LIMIT, growth
 
 
 @dataclass(frozen=True)
@@ -267,9 +268,91 @@ def _production(name: str) -> Callable[[str], Any]:
     }[name]
 
 
-@pytest.mark.parametrize("shape", [_runs, _runs_then_pairs, _runs_on_two_lines, _runs_between_pairs])
-@pytest.mark.parametrize("name", NAMES)
+SHAPES = [_runs, _runs_then_pairs, _runs_on_two_lines, _runs_between_pairs]
+COUNTED = ["online_checks", "skill_markdown"]
+TIMED = [name for name in NAMES if name not in COUNTED]
+
+
+# Test-narrowed: count scanner reads on these shapes. Skill Markdown also times a paragraph whose byte count grows linearly.
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("name", TIMED)
 def test_runs_with_no_closer_are_read_in_linear_time(name: str, shape: Callable[[int], str]) -> None:
     _same(name, shape(9))
     ratio, _ = growth(lambda k: partial(_production(name), shape(k)), 25)
     assert ratio < GROWTH_LIMIT
+
+
+def _scan_read_counts(
+    name: str, shape: Callable[[int], str], monkeypatch: pytest.MonkeyPatch,
+) -> list[int]:
+    _same(name, shape(9))
+    reads = 0
+    read = _Runs.read
+
+    def counting(self: _Runs) -> bool:
+        nonlocal reads
+        reads += 1
+        return read(self)
+
+    monkeypatch.setattr(_Runs, "read", counting)
+    counts = []
+    for k in (25, 25 * FACTOR):
+        reads = 0
+        _production(name)(shape(k))
+        counts.append(reads)
+    return counts
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_online_checks_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch, shape: Callable[[int], str]) -> None:
+    counts = _scan_read_counts("online_checks", shape, monkeypatch)
+    assert 0 < counts[0] and counts[1] <= 2 * FACTOR * counts[0], counts
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_skill_markdown_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch, shape: Callable[[int], str]) -> None:
+    counts = _scan_read_counts("skill_markdown", shape, monkeypatch)
+    assert 0 < counts[0] and counts[1] <= 2 * FACTOR * counts[0], counts
+
+
+def test_skill_markdown_reads_a_paragraph_without_rescanning_per_span() -> None:
+    def timed(k: int) -> Callable[[], tuple[list[str], list[str]]]:
+        paragraph = "See `guide.md` and [the docs](guide.md). " * k
+        return lambda: link_pieces([paragraph])
+
+    ratio, result = growth(timed, 25)
+    assert result == (["guide.md"], ["guide.md"])
+    assert ratio < GROWTH_LIMIT
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_online_checks_touches_the_text_in_linear_work(shape: Callable[[int], str]) -> None:
+    """The characters handed to str methods and the calls of regex methods grow with the text, not with the text
+    times the runs: a ``count``, ``find`` or ``upper`` over the whole body for each run (16x the text's growth) or a
+    ``re`` call for each run fails, on any machine. The scan's own passes over the characters are admitted (it makes
+    about one). Not seen: slices, loops in Python, and what one regex call does inside."""
+
+    def measure(text: str) -> tuple[int, int]:
+        chars = calls = 0
+
+        def watch(frame: Any, event: str, arg: Any) -> None:
+            nonlocal chars, calls
+            if event == "c_call":
+                owner = getattr(arg, "__self__", None)
+                if isinstance(owner, str):
+                    chars += len(owner)
+                elif isinstance(owner, re.Pattern):
+                    calls += 1
+
+        previous = sys.getprofile()
+        sys.setprofile(watch)
+        try:
+            _distinct_urls(text)
+        finally:
+            sys.setprofile(previous)
+        return chars, calls
+
+    (small_chars, small_calls), (large_chars, large_calls) = (measure(shape(k)) for k in (25, 25 * FACTOR))
+    text_growth = len(shape(25 * FACTOR)) / len(shape(25))
+    assert 0 < small_chars and large_chars <= 4 * text_growth * small_chars, (small_chars, large_chars)
+    assert large_calls <= 2 * small_calls, (small_calls, large_calls)

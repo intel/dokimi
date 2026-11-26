@@ -238,4 +238,31 @@ def test_analyze_help_says_the_response_cache_is_opt_in_and_what_a_rerun_costs(c
         build_parser().parse_args(["skill", "novelty", "analyze", "--help"])
     text = " ".join(capsys.readouterr().out.split())
     assert "DOKIMI_RESPONSE_CACHE" in text and "opt-in" in text
-    assert "pays for every call again" in text
+    assert "pays again for every model call except memoized retention adjudications" in text
+
+
+def test_shorten_help_says_a_rerun_pays_again_for_its_retention_calls_only(capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["skill", "shorten", "--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    assert "pays again for retention adjudications missing from the memo" in text
+    assert "pays again for the answer" not in text
+
+
+@pytest.mark.parametrize("argv", [["skill", "novelty", "atoms"], ["skill", "novelty", "probe", "--atoms", "a.json"]])
+def test_cache_dir_is_refused_by_the_commands_that_never_read_it(argv, capsys):
+    from dokimi.cli import build_parser
+
+    argv = [*argv, "--artifact", "text:x.md", "--cache-dir", "memo"]
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(argv)
+    assert exc.value.code == 2
+    assert "--cache-dir" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("argv", [["skill", "novelty", "analyze"], ["skill", "shorten", "--atoms", "a.json"]])
+def test_cache_dir_is_taken_by_the_commands_that_adjudicate_retention(argv):
+    from dokimi.cli import build_parser
+
+    parsed = build_parser().parse_args([*argv, "--artifact", "text:x.md", "--cache-dir", "memo"])
+    assert parsed.cache_dir == "memo"

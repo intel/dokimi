@@ -16,7 +16,7 @@ import types
 import pytest
 
 from dokimi import cli
-from dokimi.commands.benchmark import _credential_error
+from dokimi.commands.benchmark import _credential_error, _keyless_route
 from dokimi.defaults import DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.ragas_eval import RagasEvaluator
@@ -285,3 +285,64 @@ def test_a_key_file_that_is_not_utf8_is_named_in_the_refusal(tmp_path, monkeypat
     code, err = _preflight(tmp_path, monkeypatch, capsys)
     assert f"Cannot read API key from file '{key}'" in err
     assert code == 2
+
+
+
+def _preflight_on(tmp_path, monkeypatch, capsys, provider, model):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", provider, "--model", model,
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    return exc.value.code, capsys.readouterr().err
+
+
+@pytest.mark.parametrize("provider, model, key_var", [
+    ("anthropic", "vertex_ai/gemini-2.5-pro", "ANTHROPIC_API_KEY"),
+    ("anthropic", "bedrock/us.anthropic.claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
+    ("google-vertex", "gemini-2.5-pro", "GEMINI_API_KEY"),
+])
+def test_preflight_refuses_an_unreadable_key_file_on_a_keyless_route(
+        provider, model, key_var, tmp_path, monkeypatch, capsys):
+    """#851: every call reads the configured key, so a keyless route still refuses a `file:` it cannot read."""
+    monkeypatch.setenv(key_var, f"file:{tmp_path / 'no-such-key'}")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "valid-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    code, err = _preflight_on(tmp_path, monkeypatch, capsys, provider, model)
+    assert str(tmp_path / "no-such-key") in err
+    assert code == 2
+
+
+@pytest.mark.parametrize("command", ["run", "batch"])
+def test_run_and_batch_refuse_an_unreadable_key_file_on_a_vertex_route(command, tmp_path, monkeypatch):
+    from dokimi.commands.benchmark import _refuse_missing_credentials
+    from dokimi.utils import InputError
+
+    monkeypatch.setenv("GEMINI_API_KEY", f"file:{tmp_path / 'no-such-key'}")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
+    args = cli.build_parser().parse_args(
+        ["benchmark", command, "--libraries" if command == "batch" else "--library", "onetbb", "--provider", "google-vertex", "--model", "gemini-2.5-pro",
+         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")])
+    with pytest.raises(InputError, match="no-such-key"):
+        _refuse_missing_credentials(args)
+
+
+def test_keyless_vertex_route_names_the_provider_whose_key_file_is_unreadable(tmp_path, monkeypatch):
+    """The route still checks the configured provider's `file:` key; an unset key leaves it keyless."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{tmp_path / 'no-such-key'}")
+    assert _keyless_route("anthropic", "vertex_ai") == ["anthropic"]
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    assert _keyless_route("anthropic", "vertex_ai") == []
+
+
+def test_a_readable_key_on_a_bedrock_route_is_not_refused_for_an_unreadable_aws_token(tmp_path, monkeypatch):
+    """A configured key is sent as the token, so the AWS variable is unused; a missing key falls back to it."""
+    key = tmp_path / "key"
+    key.write_text("k")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", f"file:{tmp_path / 'no-such-token'}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{key}")
+    assert _keyless_route("anthropic", "bedrock") == []
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    assert _keyless_route("anthropic", "bedrock") == ["amazon-bedrock"]

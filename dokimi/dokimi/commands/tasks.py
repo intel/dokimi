@@ -206,13 +206,14 @@ def _print_summary(output: dict) -> None:
 
 
 def _cell_state(row: dict, dry_run: bool) -> str:
-    from dokimi.harnesses.runner import _num, is_errored
+    from dokimi.measure import as_float
+    from dokimi.harnesses.runner import is_errored
 
     if is_errored(row):
         return "errored"
     if dry_run and row.get("metrics", {}).get("dry_run"):
         return "planned"
-    return "unscored" if _num(row.get("reward")) is None else "scored"
+    return "unscored" if as_float(row.get("reward")) is None else "scored"
 
 
 def _check_completion(output: dict, *, dry_run: bool = False) -> None:
@@ -241,6 +242,22 @@ def _check_completion(output: dict, *, dry_run: bool = False) -> None:
         sys.exit(1)
 
 
+def _print_null_check(output: dict) -> bool:
+    """Print each task's oracle and null cells; True when every task passes both (#808, G6)."""
+    from dokimi.harnesses import null_check
+
+    verdicts = null_check.task_verdicts(output["results"])
+    print("Null check (the oracle passes; the untouched start fails its tests):")
+    for task, (oracle, null) in verdicts.items():
+        print(f"  {task}  oracle={oracle}  null={null}")
+    ok = null_check.all_pass(verdicts)
+    if not ok:
+        failed = sum(1 for o, n in verdicts.values() if not (o == "pass" and n == null_check.NULL_FAIL))
+        print(f"Null check failed: {failed} of {len(verdicts)} task(s) not ok" if verdicts
+              else "Null check failed: no task ran", file=sys.stderr)
+    return ok
+
+
 def cmd_tasks_run(args: argparse.Namespace) -> None:
     from dokimi.harnesses import PreflightError, TaskSuiteRunner
 
@@ -248,11 +265,13 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
 
     harnesses = [h.strip() for h in args.harnesses.split(",") if h.strip()]
     if not harnesses:
-        raise InputError("No harnesses selected. Pass --harnesses codex,claude-code.")
+        raise InputError("No harnesses selected. Pass --harness codex,claude-code.")
     _refuse_repeats("harness", harnesses)
     if args.baseline_harness and args.baseline_harness not in harnesses:
         print(f"Also running baseline harness: {args.baseline_harness}")
         harnesses.insert(0, args.baseline_harness)
+    if "docker-null" in harnesses and "docker-oracle" not in harnesses:
+        raise InputError("docker-null gives a verdict only with its oracle: add docker-oracle to --harness.")
     for mismatch in _launch_mismatches(harnesses, args.baseline_harness):
         print(f"WARNING: {mismatch}; their pass rates come from different sandboxes and "
               "should not be compared", file=sys.stderr)
@@ -299,7 +318,10 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     print(f"Saved task run report:   {out_md}")
 
     _print_summary(output)
+    null_ok = _print_null_check(output) if "docker-null" in harnesses and not args.dry_run else True
     _check_completion(output, dry_run=args.dry_run)
+    if not null_ok:
+        sys.exit(1)
 
 
 def register(sub, positive_int, eval_sub) -> None:
@@ -345,11 +367,11 @@ def register(sub, positive_int, eval_sub) -> None:
     group = run_p.add_mutually_exclusive_group(required=True)
     group.add_argument("--tasks", default="", help="Comma-separated task names or paths")
     group.add_argument("--all", action="store_true", help="Run all discovered tasks")
-    run_p.add_argument(
-        "--harnesses",
-        required=True,
-        help="Comma-separated harness ids: codex, claude-code, terminal-bench:<agent>",
-    )
+    cli_flags.add(run_p, "harness", "--harness", required=True, dest="harnesses",
+                  action=cli_flags.JoinedValues, metavar="NAME",
+                  help=("Harness ids, repeatable or comma-separated: codex, claude-code, terminal-bench:<agent>, "
+                        "docker-oracle, docker-null (docker-null needs docker-oracle; exit 1 unless every task "
+                        "passes both)"))
     run_p.add_argument("--baseline-harness", default=None, dest="baseline_harness")
     run_p.add_argument("--model", default=None, help="Model ref passed to the harness")
     run_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)

@@ -55,7 +55,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from dokimi import docker_cmd, process, process_io
 from dokimi.container_policy import task_container_policy
@@ -72,22 +72,22 @@ from .agent_sandbox import (
     solver_cli_flags,
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
-from .command import _check_reward_copy, _exit_code_verdict, _reward_file_verdict
 from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
+from .refusal import _AGENT_TREE, _refuse_unrunnable, _require_agent_workdir
 from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, enter_phase, needs_sandbox,
                              resolve_recorded, skill_needs, start_network, redact as _redact)
+from .null_check import NULL_FAIL, null_status, pytest_counts
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
-from .task_image import ignore_top_level_skills, ready_image, upload_environment, workdir_args
-from .task_env import _exec_env, unresolved_env  # re-exported
+from .task_image import (ignore_top_level_skills, ready_image, upload_environment, warn_credential_build_args,
+                         workdir_args)
+from .task_env import _exec_env, exec_env_file, unresolved_env  # noqa: F401 (_exec_env re-exported)
 from .tbench_v1 import reward as _pytest_reward
+from .verifier_reward import clear_reward_files, exit_code_verdict, pull_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
     _DEFAULT_VERIFY_TIMEOUT,
-    FORMAT_SWE_BENCH,
-    FORMAT_TASK_MD,
-    FORMAT_TBENCH_V1,
     ContainerStep,
     TaskSpec,
     _task_build_timeout,
@@ -101,20 +101,13 @@ _DEFAULT_SOLVE_TIMEOUT = 600.0
 # Root-owned, outside /app and the agent's HOME. The skill is loaded with --plugin-dir: a
 # skill in $CLAUDE_CONFIG_DIR/skills is not offered under the launch's --setting-sources "".
 _CONTAINER_PLUGIN = "/opt/claude-plugins"
-# The only tree a docker-* agent edits: the host agent's snapshot and copy-back,
-# the in-container agent's chown and `-w`. Anything else (an exported
-# SkillsBench task works in WORKDIR /root) would hand it root's home: .profile
-# & co., which the root verifier's login shell sources.
-_AGENT_TREE = "/app"
-_IN_CONTAINER = "use docker-claude, whose agent runs in the task container"
-_NO_ARM = "no docker-* arm runs such a task yet"
 
 
 @dataclass(frozen=True)
 class DockerSolverHarness:
     """Build → solve → verify a task with local Docker; emit reward + telemetry.
 
-    ``mode`` is ``oracle``, ``claude`` or ``probe``. ``skill_path`` points at a
+    ``mode`` is ``oracle``, ``null`` (no solve: the tests must fail), ``claude`` or ``probe``. ``skill_path`` points at a
     skill directory or its ``SKILL.md``; in claude mode the skill tree, less its
     top-level ``evals/``, is installed as a plugin for the with-skill treatment
     arm (see :mod:`.skill_treatment`), in probe mode it is a path the probe must
@@ -165,7 +158,7 @@ class DockerSolverHarness:
         # is missing data whatever its reward, so it is decided from the task
         # file alone, before the build and before a paid solve. A probe runs no
         # verifier or oracle, so it has nothing to miss.
-        steps = {"oracle": ("verifier", "oracle"), "claude": ("verifier",)}.get(self.mode, ())
+        steps = {"oracle": ("verifier", "oracle"), "claude": ("verifier",), "null": ("verifier",)}.get(self.mode, ())
         unresolved = {t: names for t in steps if (names := unresolved_env(task, t))}
         if unresolved:
             return HarnessResult(
@@ -216,6 +209,7 @@ class DockerSolverHarness:
         extra_metrics: dict[str, Any] = {}
         network = self._network_metrics(plan)
         reward: Optional[float] = None
+        verifier: dict[str, Any] = {}  # the null check reads the pytest counts of the verifier
         sandbox: Optional[ContainerSandbox] = None
         image_record: dict[str, Any] = {}
         try:
@@ -236,10 +230,10 @@ class DockerSolverHarness:
                         reward = self._solve_probe(task, container, output_dir, log, extra_metrics,
                                                    sandbox)
                     else:
-                        raise ValueError(f"unknown mode {self.mode!r}")
+                        self._require_null_mode()
                     if self.mode != "probe":  # the probe's reward is its own verdict
                         reward = self._verify_phase(task, plan.verify, container, output_dir, log,
-                                                    sandbox, bridged, network)
+                                                    sandbox, bridged, network, verifier)
                 finally:
                     self._docker(["rm", "-f", container], log, check=False)
             finally:
@@ -263,13 +257,10 @@ class DockerSolverHarness:
             (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")
 
         elapsed = time.time() - start
-        metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network, "image": image_record}
-        passed = reward is not None and reward >= 1.0
-        if usage is not None:
-            metrics.update(usage.as_metrics_dict())
-            if usage.model:
-                metrics["model"] = usage.model
-        metrics.update(extra_metrics)
+        passed, verdict_metrics = self._verdict(reward, verifier)
+        metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network,
+                                   "image": image_record, **verdict_metrics}
+        metrics.update({**_usage_metrics(usage), **extra_metrics})
         return HarnessResult(
             harness=self.harness_id,
             task=task.name,
@@ -283,6 +274,17 @@ class DockerSolverHarness:
             operations=operations,
             metrics=metrics,
         )
+
+    def _require_null_mode(self) -> None:
+        if self.mode != "null":
+            raise ValueError(f"unknown mode {self.mode!r}")
+
+    def _verdict(self, reward: Optional[float], verifier: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+        """Whether the cell passed, and the metrics that say why (the null check's status)."""
+        if self.mode == "null":  # the check passes when the tests fail on the untouched start
+            status = null_status(reward, verifier.get("pytest"), explicit_reward=verifier.get("reward_file", False))
+            return status == NULL_FAIL, {"null_check": status}
+        return reward is not None and reward >= 1.0, {}
 
     def _docker(self, args: list[str], log, **kwargs: Any) -> process.Completed:
         """:func:`_docker` through this harness's runner."""
@@ -327,6 +329,7 @@ class DockerSolverHarness:
                 # ...` (radar-vital-signs copies it into seven agent paths), and
                 # a missing source fails the build in every arm.
                 (context / "skills").mkdir()
+            warn_credential_build_args(context, task.dockerfile, net or DEFAULTS["build"], log)
             self._docker(
                 ["build", "-q", *flags, "-t", image,
                  "-f", str(context / task.dockerfile), str(context)],
@@ -379,10 +382,9 @@ class DockerSolverHarness:
         """
         step = task.oracle_step
         _copy_into(step, container, log, self._docker)
-        self._docker(
-            ["exec", *_user(step), *_exec_env(task, "oracle", net), container, "bash", "-lc", step.command],
-            log, check=False, timeout=timeout,
-        )
+        with exec_env_file(task, "oracle", net) as (flags, values):
+            self._docker(["exec", *_user(step), *flags, container, "bash", "-lc", step.command],
+                         log, check=False, timeout=timeout, env=values)
 
     def _solve_claude(
         self, task: TaskSpec, container: str, output_dir: Path,
@@ -396,7 +398,7 @@ class DockerSolverHarness:
         """
         # A rerun must not find its own previous tree or verdict during the solve.
         _rmtree(output_dir / "work")
-        (output_dir / "reward.txt").unlink(missing_ok=True)
+        clear_reward_files(output_dir)
         if sandbox is not None and self.agent_location == "container":  # a host arm stays on the host
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)
@@ -621,49 +623,49 @@ class DockerSolverHarness:
         return failed
 
     def _verify(self, task: TaskSpec, container: str, output_dir: Path, log,
-                net: Optional[PhasePolicy] = None) -> Optional[float]:
-        """Run the verifier in-container; pull /logs/verifier/reward.txt back out.
+                net: Optional[PhasePolicy] = None, verifier: Optional[dict[str, Any]] = None) -> Optional[float]:
+        """Run the verifier in-container; pull its reward.json or reward.txt back out of /logs/verifier.
 
         Mounted at both ``/tests`` (Harbor) and ``/verifier`` (BenchFlow): a
         SkillsBench ``test.sh`` runs ``pytest /verifier/test_outputs.py`` even
         after ``bench tasks export`` has renamed the directory to ``tests/``.
+        ``verifier``, when given, gets the pytest counts of its output (``pytest``).
         """
         step = task.verifier_step
         _copy_into(step, container, log, self._docker)
         # After an in-container agent the verifier runs its /app code as root: no
-        # proxy credentials then (the sidecar kept them from the agent; see :func:`_exec_env`).
+        # proxy credentials then (the sidecar kept them from the agent; see :func:`exec_env_file`).
         agent_code = self.mode == "claude" and self.agent_location == "container"
-        proc = self._docker(
-            ["exec", *_user(step), *_exec_env(task, "verifier", net, credentials=not agent_code),
-             container, "bash", "-lc", step.command],
-            log, check=False, timeout=_task_verify_timeout(task),
-        )
+        with exec_env_file(task, "verifier", net, credentials=not agent_code) as (flags, values):
+            proc = self._docker(["exec", *_user(step), *flags, container, "bash", "-lc", step.command],
+                                log, check=False, timeout=_task_verify_timeout(task), env=values)
+        if verifier is not None:
+            verifier["pytest"] = pytest_counts((proc.stdout or "") + (proc.stderr or ""))
         if step.parser != "reward-file":  # terminal-bench: the pytest summary is the verdict
             verdict, tests = _pytest_reward((proc.stdout or "") + (proc.stderr or ""))
             (output_dir / "verifier_tests.json").write_text(json.dumps(
                 {"parser": step.parser, "exit_code": proc.returncode, "tests": tests}, indent=2), encoding="utf-8")
             return verdict
-        reward_file = output_dir / "reward.txt"
-        pulled = self._docker(
-            ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
-            log, check=False,
-        )
-        if pulled.returncode == 0 and reward_file.is_file():
-            return _reward_file_verdict(reward_file.read_text(encoding="utf-8", errors="replace"))
+        reward, copy_error = pull_reward(self._docker, container, output_dir, log)
+        if reward is not None:
+            if verifier is not None:
+                verifier["reward_file"] = True
+            return reward
         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
             running = self._docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)
             if running.timed_out:  # no answer is not "stopped": say so, the cell is errored either way
                 raise RuntimeError(f"task container {container} state inspect timed out at verify time; see run.log")
             if (getattr(running, "stdout", "") or "").strip() != "true":
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
-        _check_reward_copy(pulled)  # a failed or hung copy errors the cell: it is not "no reward file"
-        return _exit_code_verdict(proc.returncode)
+        if copy_error:  # a failed or hung copy errors the cell: it is not "no reward file"
+            raise RuntimeError(copy_error)
+        return exit_code_verdict(proc.returncode)
 
     def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:
-        return resolve_recorded(task, self.network, agent=self.mode != "oracle", record=record)
+        return resolve_recorded(task, self.network, agent=self.mode not in ("oracle", "null"), record=record)
 
     def _solve_in_container(self) -> bool:
-        return self.mode == "oracle" or self.agent_location == "container"
+        return self.mode == "oracle" or (self.mode != "null" and self.agent_location == "container")
 
     def _network_metrics(self, plan: NetworkPlan) -> dict[str, Any]:  # a host agent's solve is not ours
         skill = skill_needs(self._resolve_skill_dir(), plan) if self.mode == "claude" else None
@@ -671,15 +673,17 @@ class DockerSolverHarness:
 
     def _open_sandbox(self, plan: NetworkPlan, container: str, log) -> Optional[ContainerSandbox]:
         """The internal network and sidecar: always for an in-container agent, else when a phase needs one."""
-        agent = self.mode != "oracle" and self.agent_location == "container"
+        agent = self.mode not in ("oracle", "null") and self.agent_location == "container"
         if not (agent or needs_sandbox(plan, solve_in_container=self._solve_in_container())):
             return None
         return ContainerSandbox.open(container, self._docker, log, source_env=operator_source_env(),
-                                     task_egress=list(plan.solve.hosts), with_agent=agent and self.mode == "claude",
+                                     task_egress=list(plan.solve.hosts) if self.mode != "null" else [],
+                                     with_agent=agent and self.mode == "claude",
                                      include_llm=agent, runner=self.runner)
 
     def _verify_phase(self, task: TaskSpec, net: PhasePolicy, container: str, output_dir: Path, log,
-                      sandbox: Optional[ContainerSandbox], bridged: bool, network: dict[str, Any]) -> Optional[float]:
+                      sandbox: Optional[ContainerSandbox], bridged: bool, network: dict[str, Any],
+                      verifier: Optional[dict[str, Any]] = None) -> Optional[float]:
         """Stop the solve's sidecar, give the container the verifier's network, verify."""
         side = None
         if sandbox is not None:
@@ -688,7 +692,7 @@ class DockerSolverHarness:
         if sandbox is not None and net.mode == "allowlist":
             side = sandbox.verifier_sidecar(self._docker, log, list(net.hosts))
         try:
-            return self._verify(task, container, output_dir, log, net)
+            return self._verify(task, container, output_dir, log, net, verifier)
         finally:
             if side is not None:
                 side.stop_proxy_quietly(self._docker, log)
@@ -717,113 +721,6 @@ class DockerSolverHarness:
         return parts
 
 
-def _refuse_unrunnable(task: TaskSpec, mode: str, agent_location: str) -> None:
-    """Refuse, from the task file alone, what a docker-* agent cannot run.
-
-    - A ``task.md``, terminal-bench-v1 or SWE-bench task, for a host-side
-      agent: its instruction names container paths (``/root/...``, ``/app/...``)
-      and the agent runs on the host in a copy of ``/app``: a host write plus a
-      false fail, as the verifier in the container finds nothing. The
-      in-container agent runs such a task when it works in ``/app``.
-    - A declared ``environment.workdir`` outside ``/app``, for either agent:
-      both edit ``/app`` only (see :func:`_require_agent_workdir` for the
-      image's own ``WORKDIR``, which needs the built image).
-    - A task without the directory a mode copies in: ``tests/`` (``verifier/``)
-      for the verifier, and ``solution/`` (``oracle/``) for ``docker-oracle``.
-      ``docker cp`` would fail only at that step, after the image build and,
-      for ``docker-claude``, the paid agent run.
-
-    A probe is refused where its ``claude`` arm is: it would vouch for an arm
-    that never runs. It copies neither directory. Oracle mode is refused only
-    for a missing directory.
-    """
-    problem = task.local_docker_problem(oracle=mode == "oracle")
-    if problem:
-        raise ValueError(f"{task.name}: a docker-* harness cannot run it: {problem}")
-    if mode != "probe":
-        steps = [task.verifier_step] + ([task.oracle_step] if mode == "oracle" else [])
-        for src, dest in (c for step in steps for c in step.copies):
-            if not src.exists():
-                what = f"{src.name}/ directory" if src in (task.solution_dir, task.tests_dir) else src.name
-                raise ValueError(f"{task.name}: no {what} to copy to {dest}")
-    if mode not in ("claude", "probe"):
-        return
-    if agent_location == "host" and task.format in (FORMAT_TASK_MD, FORMAT_TBENCH_V1, FORMAT_SWE_BENCH):
-        raise ValueError(
-            f"{task.name}: a {task.format} task cannot be solved by a host-side agent "
-            f"(its instruction names absolute container paths); {_IN_CONTAINER}"
-        )
-    declared = _declared_workdir(task)
-    if declared is not None and not _in_agent_tree(declared):
-        raise ValueError(
-            f"{task.name}: a docker-* agent edits only {_AGENT_TREE}; this task "
-            f"declares environment.workdir = {declared!r}; {_NO_ARM}"
-        )
-
-
-def _require_agent_workdir(task: TaskSpec, container: str, log, docker: "Docker") -> str:
-    """The task's working tree, refused before the agent starts unless it is in ``/app``.
-
-    Both agents edit ``/app`` only: the host one a snapshot it copies back, the
-    in-container one the tree it is ``chown``ed. An image that works in
-    ``/root`` (77 of 101 SkillsBench images; a ``bench tasks export`` copy
-    loads as Harbor) would otherwise get an agent in an ``/app`` that does not
-    hold the task (a paid verified 0), or a ``chown`` that fails after the
-    build. A ``WORKDIR`` inside ``/app`` (``/app/workspace``) runs, as on main;
-    an image without that directory is refused with its name. This needs the
-    built image, so ``--dry-run`` cannot see it.
-    """
-    workdir = _task_workdir(task, container, log, docker)
-    if not _in_agent_tree(workdir):
-        raise ValueError(
-            f"{task.name}: the task works in {workdir}, but a docker-* agent edits "
-            f"only {_AGENT_TREE}; {_NO_ARM}"
-        )
-    # Exit 1 is "no such directory"; 126/127 (no `test` in the image) leaves it to the copy.
-    present = docker(["exec", "-u", "root", container, "test", "-d", workdir], log, check=False)
-    if present.timed_out:  # not "present": no verdict, so the cell is errored before any agent runs
-        raise RuntimeError(f"test -d {workdir} timed out after {DOCKER_STEP_TIMEOUT:g}s; see run.log")
-    if present.returncode == 1:
-        raise ValueError(
-            f"{task.name}: the image has no {workdir}, the tree a docker-* agent edits; {_NO_ARM}"
-        )
-    return workdir
-
-
-def _in_agent_tree(path: str) -> bool:
-    """``path`` (normalised) is ``/app`` or below it."""
-    return path == _AGENT_TREE or path.startswith(_AGENT_TREE + "/")
-
-
-def _declared_workdir(task: TaskSpec) -> Optional[str]:
-    """``environment.workdir`` normalised (``/.``, ``/app/..``), or ``None``."""
-    declared = task.environment.get("workdir")
-    if not (isinstance(declared, str) and declared.startswith("/")):
-        return None
-    return "/" + posixpath.normpath(declared).lstrip("/")  # normpath keeps a leading "//"
-
-
-def _task_workdir(task: TaskSpec, container: str, log, docker: "Docker") -> str:
-    """The task's working tree: ``environment.workdir``, else the image's
-    ``WORKDIR``, else ``/app`` (the Harbor convention our own tasks follow).
-    The agent works there only if it is ``/app`` or below it (see
-    :func:`_require_agent_workdir`)."""
-    declared = _declared_workdir(task)
-    if declared is not None and declared != "/":
-        # A declared "/" (also "/." or "/app/..") is ignored, like an image
-        # WORKDIR of "/": a snapshot would `docker cp` the whole filesystem.
-        return declared
-    proc = docker(["inspect", "-f", "{{.Config.WorkingDir}}", container], log, check=False)
-    if proc.timed_out:  # an unknown WORKDIR is not /app: the cell is errored, not billed on a guess
-        raise RuntimeError(f"docker inspect of {container} timed out after {DOCKER_STEP_TIMEOUT:g}s "
-                           "(WORKDIR unknown); see run.log")
-    found = (proc.stdout or "").strip()
-    if proc.returncode != 0 or not found.startswith("/"):
-        return "/app"
-    found = "/" + posixpath.normpath(found).lstrip("/")
-    return found if found != "/" else "/app"
-
-
 def _copy_into(step: ContainerStep, container: str, log, docker: "Docker") -> None:
     """Copy a step's files in. A directory's contents go to its dest: ``docker cp src c:dest``
     nests ``src`` inside a dest the image already has (``RUN mkdir -p /tests/...``), so the
@@ -846,7 +743,7 @@ def _describe_timeout(exc: subprocess.TimeoutExpired) -> str:
 
 
 def _docker(args: list[str], log, *, check: bool = True, timeout: Optional[float] = None,
-            runner: process.Runner = process.run) -> process.Completed:
+            runner: process.Runner = process.run, env: Optional[Mapping[str, str]] = None) -> process.Completed:
     """Run a ``docker`` subcommand, tee-ing output (also a killed step's) to the run log.
 
     ``timeout`` is a step's own budget (build, solve, verify): running out raises
@@ -855,11 +752,11 @@ def _docker(args: list[str], log, *, check: bool = True, timeout: Optional[float
     which ``check`` raises like any failure (an errored cell). The CLI keeps the
     caller's environment: its context, ``DOCKER_HOST`` and ``~/.docker``. Its output
     is kept whole, in memory: callers parse it (the sidecar's decision log), and it is
-    redacted before run.log gets all of it.
+    redacted before run.log gets all of it. ``env`` joins the CLI's environment (see ``exec_env_file``).
     """
     argv = docker_cmd.argv(*args)
     budget = timeout if timeout is not None else DOCKER_STEP_TIMEOUT
-    proc = runner(argv, timeout=budget, env=process.Env.inherit(), capture_limit=None)
+    proc = runner(argv, timeout=budget, env=process.Env.inherit(env), capture_limit=None)
     log.write(f"$ docker {' '.join(shlex.quote(_redact(a)) for a in args)}\n")
     # The output too: a verifier or a build step can echo a proxy URL it was given.
     if proc.stdout:
@@ -883,6 +780,16 @@ def _rmtree(path: Path) -> None:
 def _host_plugin_dir(workspace: AgentWorkspace) -> Path:
     """The ``-host`` arm's plugin directory: under the workspace root, beside its work tree."""
     return workspace.root / "plugin"
+
+
+def _usage_metrics(usage: Optional[UsageRecord]) -> dict[str, Any]:
+    """The LLM usage of a claude solve as metrics; none for a cell without one."""
+    if usage is None:
+        return {}
+    metrics: dict[str, Any] = dict(usage.as_metrics_dict())
+    if usage.model:
+        metrics["model"] = usage.model
+    return metrics
 
 
 def _tail(text: str, limit: int = 4000) -> str:

@@ -6,16 +6,17 @@
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import mean
 from typing import Any
 
 from dokimi import process
 from dokimi.eval import binary_stats
 from dokimi.eval.stats import adjust_pvalues
+from dokimi.measure import as_float
 from dokimi.utils import key_bytes
 
 from .docker_solver import DockerSolverHarness
@@ -121,6 +122,15 @@ _COST_KEYS = (
 )
 
 
+def _elapsed_seconds(value: Any) -> float:
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            return 0.0
+    return as_float(value) or 0.0
+
+
 def summarize_task_results(
     rows: list[dict[str, Any]],
     *,
@@ -135,8 +145,7 @@ def summarize_task_results(
                 "n": 0,
                 "passed": 0,
                 "errored": 0,
-                "reward_sum": 0.0,
-                "reward_n": 0,
+                "_rewards": [],
                 "elapsed_sec": 0.0,
                 "operation_count": 0,
                 "operations_by_type": {},
@@ -155,25 +164,22 @@ def summarize_task_results(
         stats["n"] += 1
         stats["passed"] += 1 if passed else 0
         stats["errored"] += 1 if errored else 0
-        reward = row.get("reward")
-        # bool is an int subclass: reward=True is not a score of 1.
-        reward = _num(reward)
+        reward = as_float(row.get("reward"))
         if reward is not None and not errored:
-            stats["reward_sum"] += reward
-            stats["reward_n"] += 1
-        stats["elapsed_sec"] += float(row.get("elapsed_sec") or 0.0)
+            stats["_rewards"].append(reward)
+        stats["elapsed_sec"] += _elapsed_seconds(row.get("elapsed_sec"))
         metrics = row.get("metrics", {})
         stats["operation_count"] += _count(metrics.get("operation_count")) or 0
         for op_type, count in metrics.get("operations_by_type", {}).items():
             stats["operations_by_type"][op_type] = stats["operations_by_type"].get(op_type, 0) + count
         # Cost/token telemetry (present when an LLM harness emitted a UsageRecord).
         # bool is an int subclass: cost_usd=True is not a price.
-        cost = _num(metrics.get("cost_usd"))
+        cost = as_float(metrics.get("cost_usd"))
         if cost is not None:
             stats["_cost_sum"] += cost
             stats["_cost_known"] += 1
         for key in stats["_tokens"]:
-            val = _num(metrics.get(key))
+            val = as_float(metrics.get(key))
             if val is not None:
                 stats["_tokens"][key] += int(val)
                 stats["_tokens_known"][key] += 1
@@ -205,12 +211,9 @@ def summarize_task_results(
         invoked = stats.pop("_skill_invoked")
         stats["skill_invocation_rate"] = round(invoked / reported, 4) if reported else None
         stats["skill_invocation_n"] = reported
-        stats["avg_reward"] = (
-            round(stats["reward_sum"] / stats["reward_n"], 4) if stats["reward_n"] else None
-        )
+        rewards = stats.pop("_rewards")
+        stats["avg_reward"] = round(mean(rewards), 4) if rewards else None
         stats["elapsed_sec"] = round(stats["elapsed_sec"], 4)
-        del stats["reward_sum"]
-        del stats["reward_n"]
         # Finalize telemetry: only surface cost when at least one call was priced.
         cost_known = stats.pop("_cost_known")
         cost_sum = stats.pop("_cost_sum")
@@ -382,21 +385,12 @@ _BENCHFLOW_PREFIXES = ("benchflow", "benchflow-skill", "benchflow-selfgen")
 
 
 def _is_control_harness(harness: str) -> bool:
-    """``docker-oracle``, the ``docker-probe*`` family and BenchFlow's ``oracle``
+    """``docker-oracle``, ``docker-null``, the ``docker-probe*`` family and BenchFlow's ``oracle``
     agent (``benchflow[-skill|-selfgen]:oracle[:...]``): checks of the setup, not arms."""
-    if harness == "docker-oracle" or harness.split(":", 1)[0].startswith("docker-probe"):
+    if harness in ("docker-oracle", "docker-null") or harness.split(":", 1)[0].startswith("docker-probe"):
         return True
     prefix, _, rest = harness.partition(":")
     return prefix in _BENCHFLOW_PREFIXES and rest.split(":", 1)[0] == "oracle"
-
-
-def _num(value: Any) -> float | None:
-    """A finite number as float, else ``None``. A bool is a flag, not a
-    number (bool is an int subclass); nan / inf are not values."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    value = float(value)
-    return value if math.isfinite(value) else None
 
 
 def _count(value: Any) -> int | None:
@@ -404,6 +398,8 @@ def _count(value: Any) -> int | None:
     count (bool is an int subclass); ``1.0`` from a JSON round-trip is 1."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
+    if isinstance(value, int):  # float() of an int past the float range raises
+        return value if value >= 0 else None
     if value < 0 or not float(value).is_integer():  # also rejects nan / inf
         return None
     return int(value)

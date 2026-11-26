@@ -42,7 +42,7 @@ def _broken_links(skill_dir: Path, root: Path = SKILLS) -> list[str]:
 
 
 def test_the_bundle_is_not_empty():
-    assert {d.name for d in BUNDLED} >= {"fastcontext", "dokimi-design-evals"}
+    assert {d.name for d in BUNDLED} >= {"fastcontext", "dokimi-design-evals", "dokimi-fix-opportunities"}
 
 
 @pytest.mark.parametrize("skill_dir", BUNDLED, ids=lambda d: d.name)
@@ -95,7 +95,7 @@ def test_the_link_check_catches_a_dangling_and_an_escaping_link(tmp_path):
         "s/SKILL.md -> references/gone.md", "s/SKILL.md -> references/a b.md"]
 
 
-HARNESSES_FLAG = re.compile(r"--harnesses[=\s\\]+([A-Za-z][\w:.,-]*)")
+HARNESSES_FLAG = re.compile(r"--harness[=\s\\]+([A-Za-z][\w:.,-]*)")
 
 
 def _harness_names(skill_dir: Path) -> list[str]:
@@ -111,12 +111,12 @@ def test_the_harness_name_check_reads_the_skills_commands():
 
 
 @pytest.mark.parametrize("text, names", [
-    ("run `python cli.py tasks run --harnesses=docker-probee`", ["docker-probee"]),
-    ("(--harnesses docker-oracle).", ["docker-oracle"]),
-    ("--harnesses docker-oracle,docker-probe \\\n  --out x", ["docker-oracle", "docker-probe"]),
-    ("--harnesses \\\n  docker-oracle --out x", ["docker-oracle"]),
-    ("--harnesses docker-oracle, docker-probe", ["docker-oracle"]),
-    ("--harnesses docker-oracle,\\\n  docker-probe", ["docker-oracle"]),
+    ("run `python cli.py tasks run --harness=docker-probee`", ["docker-probee"]),
+    ("(--harness docker-oracle).", ["docker-oracle"]),
+    ("--harness docker-oracle,docker-probe \\\n  --out x", ["docker-oracle", "docker-probe"]),
+    ("--harness \\\n  docker-oracle --out x", ["docker-oracle"]),
+    ("--harness docker-oracle, docker-probe", ["docker-oracle"]),
+    ("--harness docker-oracle,\\\n  docker-probe", ["docker-oracle"]),
 ])
 def test_the_harness_name_extractor_reads_every_flag_form(tmp_path, text, names):
     (tmp_path / "SKILL.md").write_text(text + "\n", encoding="utf-8")

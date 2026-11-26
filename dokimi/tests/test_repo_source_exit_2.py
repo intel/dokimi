@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`eval check`, `repo run` and `eval tasks generate --from replay|prs` exit 2 on a source the user mistyped.
+"""`eval check`, `repo run` and `eval tasks generate --from replay|prs|history` exit 2 on a source the user mistyped.
 
 A source `RepoSource.parse` refuses, or a pinned local path inside a repository, is bad input, as with
 `--from graph`; a source that parses but cannot be opened (clone, fetch, revision) stays 1.
@@ -36,9 +36,10 @@ def _command(name, source, tmp_path):
     out = str(tmp_path / "out")
     return {
         "check": ["eval", "check", source, "--out-dir", out],
-        "run": ["repo", "run", source, "--batch", "b", "--out-dir", out, "--arm", "guidance:none", "--model", "m", "--bin", sys.executable],
+        "run": ["repo", "run", source, "--name", "b", "--out-dir", out, "--arm", "guidance:none", "--model", "m", "--bin", sys.executable],
         "replay": ["eval", "tasks", "generate", source, "--from", "replay", "--threads", str(prs), "--out-dir", out],
         "prs": ["eval", "tasks", "generate", source, "--from", "prs", "--prs", str(prs), "--out-dir", out],
+        "history": ["eval", "tasks", "generate", source, "--from", "history", "--out-dir", out],
     }[name]
 
 
@@ -70,7 +71,7 @@ def _repo_with_sub(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
-@pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
+@pytest.mark.parametrize("name", ["check", "run", "replay", "prs", "history"])
 def test_pinned_subdirectory_of_a_repository_exits_2(name, tmp_path, monkeypatch, capsys):
     repo, sha = _repo_with_sub(tmp_path)
     code, err = _run(monkeypatch, capsys, *_command(name, f"{repo / 'sub'}@{sha}", tmp_path))
@@ -127,7 +128,7 @@ def test_manifest_path_leaving_the_tree_exits_2_and_a_missing_manifest_exits_1(n
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
-@pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
+@pytest.mark.parametrize("name", ["check", "run", "replay", "prs", "history"])
 def test_manifest_path_leaving_a_pinned_tree_exits_2_as_for_an_unpinned_one(name, tmp_path, monkeypatch, capsys):
     repo, sha = _repo_with_sub(tmp_path)
     code, err = _run(monkeypatch, capsys, *_command(name, f"{repo}@{sha}", tmp_path), "--manifest", "../outside.yaml")
@@ -189,7 +190,7 @@ def test_a_typed_manifest_inside_the_tree_that_links_out_of_it_exits_1(name, tmp
 
 @pytest.mark.skipif(shutil.which("git") is None or sys.platform in ("win32", "darwin"),
                     reason="needs git and a file system that takes a name that is not UTF-8")
-@pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
+@pytest.mark.parametrize("name", ["check", "run", "replay", "prs", "history"])
 def test_a_pinned_subdirectory_whose_name_is_not_utf8_exits_1_without_a_traceback(name, tmp_path, monkeypatch,
                                                                                    capsys):
     repo, sha = _repo_with_sub(tmp_path)

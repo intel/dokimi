@@ -27,8 +27,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from dokimi.artifacts import save_artifact
 from dokimi.judged import judged_reply
+from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import llm_call
-from dokimi.llm_cli import check_sampling
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import MAX_GROUND_TRUTH_CHARS, _clip_ground_truth
 from dokimi.eval.question_text import require_question_texts
@@ -150,6 +150,15 @@ _PLACEHOLDER = re.compile(r"__(LIBRARY|QUESTION|ANSWER|CONTEXT|GROUND_TRUTH)__")
 
 DEFAULT_PANEL = ["technical_expert", "developer_advocate", "doc_reviewer"]
 
+
+def _finite_after_float(value: Any) -> bool:
+    """``float(value)`` is finite. An integer past the float range raises OverflowError in ``float()``, and that
+    is no finite score either: NaN and Infinity read the same way, as a formatting failure."""
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:  # an int too large for a float
+        return False
+
 #: Panel std above this flags disagreement.
 DISAGREEMENT_STD = 15.0
 
@@ -238,7 +247,7 @@ class JudgePanel:
             for role in DEFAULT_PANEL
         ]
         for j in self.judges:
-            check_sampling(j.provider, j.temperature, j.seed)
+            check_judge_sampling(j.provider, j.model, j.temperature, j.seed)
         self.concurrency = concurrency
 
     @property
@@ -329,7 +338,7 @@ class JudgePanel:
             # A non-numeric ("N/A"), boolean or non-finite dimension is a
             # formatting failure too; the clamp alone would turn NaN into 100.
             raw_scores = {k: data[k] for k in SCORE_FIELDS}
-            if any(isinstance(v, bool) or not math.isfinite(float(v))
+            if any(isinstance(v, bool) or not _finite_after_float(v)
                    for v in raw_scores.values()):
                 raise ValueError("judge reply has a non-numeric or non-finite score")
             scores = {k: max(0.0, min(100.0, float(v))) for k, v in raw_scores.items()}

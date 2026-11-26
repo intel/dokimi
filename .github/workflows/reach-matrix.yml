@@ -54,7 +54,13 @@ jobs:
           if [ "$backend" = none ]; then echo "present=false" >> "$GITHUB_OUTPUT"; else echo "present=true" >> "$GITHUB_OUTPUT"; fi
       - name: Install the CLI
         if: steps.creds.outputs.present == 'true' && vars.REACH_MODEL_CLAUDE_CODE != ''
-        run: npm install -g @anthropic-ai/claude-code@2.1.316
+        # Every package comes from the lockfile, with its integrity hash. To move the pin: edit
+        # package.json there and run `npm install --package-lock-only`.
+        working-directory: .github/npm/reach-claude-code
+        run: |
+          npm ci
+          npm ls @anthropic-ai/claude-code@2.1.316
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Run reach over the fixtures
         working-directory: dokimi
         env:
@@ -102,7 +108,13 @@ jobs:
           if [ -n "$CODEX_API_KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
       - name: Install the CLI
         if: steps.creds.outputs.present == 'true' && vars.REACH_MODEL_CODEX != ''
-        run: npm install -g @openai/codex@0.166.0
+        # Every package comes from the lockfile, with its integrity hash. To move the pin: edit
+        # package.json there and run `npm install --package-lock-only`.
+        working-directory: .github/npm/reach-codex
+        run: |
+          npm ci
+          npm ls @openai/codex@0.166.0
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Run reach over the fixtures
         working-directory: dokimi
         env:
@@ -147,7 +159,13 @@ jobs:
           if [ -n "$COPILOT_GITHUB_TOKEN" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
       - name: Install the CLI
         if: steps.creds.outputs.present == 'true' && vars.REACH_MODEL_COPILOT != ''
-        run: npm install -g @github/copilot@1.0.105
+        # Every package comes from the lockfile, with its integrity hash. To move the pin: edit
+        # package.json there and run `npm install --package-lock-only`.
+        working-directory: .github/npm/reach-copilot
+        run: |
+          npm ci
+          npm ls @github/copilot@1.0.105
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Run reach over the fixtures
         working-directory: dokimi
         env:

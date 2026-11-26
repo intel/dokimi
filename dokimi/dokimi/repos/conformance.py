@@ -27,6 +27,7 @@ import yaml
 from dokimi import process
 from dokimi.artifacts import load_artifact, save_artifact, schema_errors
 from dokimi.repos.reach import PROSE_LIMIT
+from dokimi.digest_entries import listed_entries
 
 SCHEMA_EXPECTATIONS = "reach_conformance.v1"
 RECEIPT_NAME = "effective_instructions.json"
@@ -110,9 +111,11 @@ def expectations_digest(expect: Mapping[str, Any]) -> str:
 
 
 def fixtures_digest(fixtures: Path) -> str:
-    """The sha256 of everything under the fixtures root (each file's path and bytes, a link's target), including its guidance file and, by default, its expectations file."""
+    """The sha256 of everything under the fixtures root (each file's path and bytes, a link's target), including its guidance file and, by default, its expectations file.
+
+    A directory that cannot be listed raises its OSError: the digest never describes a smaller tree."""
     h = hashlib.sha256()
-    for p in sorted(fixtures.rglob("*"), key=lambda p: p.relative_to(fixtures).as_posix()):
+    for p in sorted(listed_entries(fixtures), key=lambda p: p.relative_to(fixtures).as_posix()):
         if not (p.is_symlink() or p.is_file()):
             continue
         data = b"L" + os.fsencode(os.readlink(p)) if p.is_symlink() else b"F" + p.read_bytes()

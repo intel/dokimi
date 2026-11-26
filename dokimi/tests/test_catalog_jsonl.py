@@ -371,3 +371,22 @@ def test_resume_refuses_rows_that_have_no_unique_key(tmp_path, capsys):
     _, code = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"], capsys)
 
     assert code == 2  # the two entries without a path both have the key name:?
+
+
+def test_resume_reviews_again_a_row_without_a_listing_preview(tmp_path, capsys):
+    """#1087: a row written before `listing` existed holds a null `listing_chars` for a skill without description; it is redone."""
+    _catalog(tmp_path)
+    out_path = tmp_path / "resume.jsonl"
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+    rows = _rows(out_path)
+    for row in rows:
+        del row["listing"]
+        if row["relpath"] == "skills/delta":
+            row["listing_chars"] = None
+    out_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"], capsys)
+
+    delta = next(row for row in _rows(out_path) if row["relpath"] == "skills/delta")
+    assert delta["listing"] is not None
+    assert delta["listing_chars"] == len("delta") + len("# no description") + len(": ")

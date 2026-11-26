@@ -1,11 +1,11 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Arm-spec grammar: what an ``--arms`` entry means and what the arm is called.
+"""Arm-spec grammar: what an ``--arm`` entry means and what the arm is called.
 
 Two grammars meet here and are easy to confuse:
 
-* an arm **spec** is what a user writes — ``--arms``, a subject descriptor's
+* an arm **spec** is what a user writes — ``--arm``, a subject descriptor's
   baseline: ``docs:local:./d``, ``skill-agent:<path>``, ``docs+skill:<path>``;
 * an arm **name** is what a run records — the artifact's ``arms`` list, summary
   keys, ``--baseline-arm``: ``docs``, ``skill_agent:<skill name>``,
@@ -216,10 +216,10 @@ def content_refs(spec: str) -> List[Tuple[str, str]]:
 
 
 def split_arm_list(raw: str) -> List[str]:
-    """Split a comma-separated ``--arms`` value; at least one spec is required."""
+    """Split a comma-separated ``--arm`` value; at least one spec is required."""
     specs = [s.strip() for s in raw.split(",") if s.strip()]
     if not specs:
-        raise ArmSpecError("--arms must list at least one arm spec.")
+        raise ArmSpecError("--arm must list at least one arm spec.")
     return specs
 
 

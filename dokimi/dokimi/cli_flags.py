@@ -8,8 +8,10 @@ This is the registry of issue #94 §2.4 (stage F1a). A leaf adds a registry flag
 The contract test in ``tests/test_cli_flags.py`` runs in ratchet mode: a
 spelling that is neither canonical here nor on ``tests/data/cli_flags_allowlist.txt``
 fails the build, and so does a banned synonym whose concept has a canonical spelling,
-unless that spelling is on the allowlist. The check looks at spellings only: an option's
-type and action are not compared with ``kind``.
+unless that spelling is on the allowlist. The same test also compares every use of a canonical
+spelling with its registry row: switch or value (``kind``), metavar (``value``), choices and
+type (``int``, ``float`` and ``usd`` rows). ``meaning_clashes`` in ``tests/test_cli_flags.py`` says what is compared; a
+flag's repeatability is not compared.
 
 A concept is one row of the §2.4 audit. Its ``canonical`` spellings are the ones new
 commands use. ``banned`` lists the synonyms the audit found for it. A banned spelling
@@ -30,6 +32,7 @@ __all__ = [
     "Concept",
     "Flag",
     "FlagMove",
+    "JoinedValues",
     "add",
     "registry_problems",
 ]
@@ -116,7 +119,7 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="context-framing",
         help="the context preamble a novelty measurement puts before the artifact",
-        canonical=(Flag("--context-framing", "reference|neutral", "text",
+        canonical=(Flag("--context-framing", "reference|neutral", "choice",
                         meaning="neutral says the text may be irrelevant (the placebo-abstention control)"),),
     ),
     Concept(
@@ -201,7 +204,7 @@ CONCEPTS: tuple[Concept, ...] = (
                  meaning="target token fractions for shortening candidates"),
         ),
         banned=("--max-tokens", "--budgets"),
-        note="--max-tokens meant retrieval in four leaves and output in ten; FLAG_MOVES moves each leaf "
+        note="--max-tokens meant retrieval in four leaves and output in eleven; FLAG_MOVES moves each leaf "
              "by what its code does.",
     ),
     Concept(
@@ -232,6 +235,14 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--run-id", "--run-ids", "--batch"),
     ),
     Concept(
+        name="retention",
+        help="which runs housekeeping removes and which it keeps",
+        canonical=(
+            Flag("--older-than", "AGE", "text", meaning="runs whose newest artifact is older than AGE (30d)"),
+            Flag("--keep-baselines", kind="flag", meaning="keep the runs a saved baseline holds"),
+        ),
+    ),
+    Concept(
         name="network",
         help="network policy, per phase",
         canonical=(Flag("--network", "[PHASE=]MODE[:hosts]", "text"),),
@@ -253,7 +264,8 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         name="timeout",
         help="time limits, per phase",
-        canonical=(Flag("--timeout", "[PHASE=]SEC", "text"),),
+        # F1b adds the phase prefix (#94 §2.4). Current repo leaves parse whole seconds.
+        canonical=(Flag("--timeout", "[PHASE=]SEC", "int"),),
         banned=("--grade-timeout", "--build-timeout"),
     ),
     Concept(
@@ -351,7 +363,8 @@ CONCEPTS: tuple[Concept, ...] = (
             Flag("--method", "NAME", "text"),
             Flag("--unit", "NAME", "text"),
             Flag("--contrast", "NAME", "text"),
-            Flag("--correction", "NAME", "text"),
+            Flag("--correction", "{holm,bh}", "choice",
+                 meaning="the multiple-comparison correction across arms or runs: holm (family-wise) or bh (FDR)"),
         ),
         banned=("--stats-correction",),
     ),
@@ -391,6 +404,14 @@ def registry_problems(concepts: Iterable[Concept] = CONCEPTS) -> list[str]:
     return problems
 
 
+class JoinedValues(argparse.Action):
+    """A repeatable flag whose values join with commas: ``--arm a --arm b,c`` is ``a,b,c``."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        prior = getattr(namespace, self.dest, None)
+        setattr(namespace, self.dest, values if prior is None else f"{prior},{values}")
+
+
 def add(parser: argparse.ArgumentParser, concept: str, *args: str, **kwargs: object) -> argparse.Action:
     """Add a flag of ``concept`` to ``parser``. Every option string must be a canonical spelling of it."""
     spellings = {flag.spelling for c in CONCEPTS if c.name == concept for flag in c.canonical}
@@ -424,7 +445,7 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
         ("eval", "check"), ("eval", "tasks", "generate"),
     )),
-    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on ten.
+    # Tokens concept (F1b): `--max-tokens` was retrieval on four leaves and the output ceiling on eleven.
     FlagMove("--max-tokens", "--retrieval-tokens", leaves=(
         ("answers", "generate"), ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
     )),
@@ -453,6 +474,15 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
     FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
     FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
+    # Run-name concept (F1b): the identity of a run directory. `--batch` is the batch directory's name on repo run.
+    FlagMove("--run-id", "--name", leaves=(("answers", "generate"), ("eval", "score", "pointwise"), ("report", "eval"))),
+    FlagMove("--batch", "--name", leaves=(("repo", "run"),)),
+    # Force concept (F1b): re-run over existing output. benchmark run and batch discard the cached personas and questions.
+    FlagMove("--force-regen", "--force", leaves=(("benchmark", "run"), ("benchmark", "batch"))),
+    # Policy concept (F1b): the statistics of a comparison; `--correction` takes holm or bh.
+    FlagMove("--stats-correction", "--correction", leaves=(
+        ("arms", "run"), ("arms", "matrix-run"), ("report", "model-compare"),
+    )),
     # Spend concept (F1b): a whole-command cap is --max-usd, a cap per agent run is --max-usd-per-cell.
     FlagMove("--max-cost-usd", "--max-usd", leaves=(("tools", "preference"),)),
     FlagMove("--max-batch-usd", "--max-usd", leaves=(("repo", "run"),)),
@@ -464,5 +494,12 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--estimate-only", "--dry-run", leaves=(
         ("catalog", "routing"), ("skill", "routing"), ("skill", "novelty", "analyze"),
     )),
+    # Arm concept (F1b): a subject arm list is repeatable --arm; the old comma list is the same value.
+    FlagMove("--arms", "--arm", leaves=(("arms", "run"), ("arms", "matrix-run"), ("explore", "run"))),
+    # Harness concept (F1b): the list of harnesses a tasks run uses, repeatable or comma-separated.
+    FlagMove("--harnesses", "--harness", leaves=(("tasks", "run"),)),
+    # Baseline concept (F1b): the artifact or snapshot a comparison is made against.
+    FlagMove("--baseline-json", "--baseline", leaves=(("arms", "plugin-delta"),)),
+    FlagMove("--base", "--baseline", leaves=(("docs", "compare"),)),
 )
 

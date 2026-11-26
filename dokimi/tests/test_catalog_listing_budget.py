@@ -337,9 +337,25 @@ def test_the_tally_keeps_no_row_for_the_listing_total():
     """#966: a streamed per-skill row is freed once written; the tally holds counts, not the rows and their findings."""
     from dokimi.commands.catalog_scan import _Tally
 
-    tally = _Tally(False)
+    tally = _Tally(False, Path("."))
     tally.add({"state": "ok", "error": None, "findings": [], "listing_chars": 27, "listing_name": "a",
                "content_sha256": "d", "name": "a", "relpath": None})
 
     assert tally.listing.total() == 27
     assert not any(isinstance(v, list) and v and isinstance(v[0], dict) for v in vars(tally).values())
+
+
+@pytest.mark.parametrize("finding", [{"level": "warn", "message": "m"}, {"code": 5}, "x"])
+def test_resume_refuses_a_finding_without_a_string_code(tmp_path, capsys, finding):
+    """A kept row whose finding has no string `code` is refused with the input error, not a KeyError from the rate tally."""
+    _alpha(tmp_path)
+    receipt = tmp_path / "receipt.jsonl"
+    base = ["--root", str(tmp_path), "--per-skill", "--jsonl", str(receipt)]
+    assert _run(base, capsys)[1] == 0
+    row = json.loads(receipt.read_text(encoding="utf-8"))
+    row["findings"] = [finding]
+    receipt.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    _, code = _run([*base, "--resume"], capsys)
+
+    assert code == 2

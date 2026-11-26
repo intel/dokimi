@@ -70,10 +70,11 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, Iterator, List, Optional, Protocol, Tuple, TypeVar, cast
 
-from dokimi import caching, llm_cli
+from dokimi import caching, llm_cli, llm_sampling
 from dokimi.defaults import bedrock_profile
 from dokimi.llm_json import extract_json_array as extract_json_array
 from dokimi.llm_json import extract_json_object as extract_json_object
+from dokimi.llm_turn import _TRUNCATED, ToolCall, parse_turn
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)
@@ -221,18 +222,18 @@ def unsupported_sampling_params(
     Returns an empty list when the check cannot be performed, so an unknown
     model never blocks a run on this account.
     """
-    requested = list(_sampling_kwargs(temperature=temperature, seed=seed))
-    if not requested:
-        return []
-    if (cli := llm_cli.backend(_canonical(provider))) is not None:
-        return [n for n in requested if n not in cli.supports]
-    try:
-        supported = _litellm().get_supported_openai_params(model=resolve_model(model, provider)) or []
-    except Exception:  # noqa: BLE001 - litellm raises many types for an unknown model; [] drops nothing
-        return []
-    if not supported:
-        return []
-    return [n for n in requested if n not in supported]
+    return list(sampling_refusals(model, provider, temperature, seed))
+
+
+def sampling_refusals(
+    model: str, provider: str, temperature: Optional[float] = None, seed: Optional[int] = None,
+) -> dict[str, str]:
+    """Return the reason for each refused sampling option."""
+    return llm_sampling.refusals_for_route(
+        _sampling_kwargs(temperature=temperature, seed=seed), provider,
+        cli=llm_cli.backend(_canonical(provider)),
+        load=_litellm,
+        resolve=lambda: resolve_model(model, provider))
 
 
 # ── Retry ─────────────────────────────────────────────────────────────────────
@@ -421,10 +422,6 @@ def _extract_usage(
 
 # ── The seam: one provider request ────────────────────────────────────────────
 
-# finish_reason values that mean "cut at the output ceiling": litellm normalizes to
-# "length"; some provider passthroughs keep Anthropic's "max_tokens".
-_TRUNCATED = frozenset({"length", "max_tokens"})
-
 
 @dataclass(frozen=True)
 class Request:
@@ -441,15 +438,6 @@ class Request:
     stream: bool = False
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[str] = None
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """One tool call the model asked for; ``arguments`` is the raw JSON string."""
-
-    id: Optional[str]
-    name: Optional[str]
-    arguments: str = "{}"
 
 
 @dataclass(frozen=True)
@@ -478,19 +466,9 @@ class Reply:
 Adapter = Callable[[Request], Reply]
 
 
-def _tool_calls(message: Any) -> Tuple[ToolCall, ...]:
-    """Normalize a litellm message's tool calls (objects or dicts)."""
-    calls = getattr(message, "tool_calls", None)
-    out = []
-    for tc in calls or ():
-        if isinstance(tc, dict):
-            fn = tc.get("function") or {}
-            out.append(ToolCall(tc.get("id"), fn.get("name"), fn.get("arguments") or "{}"))
-        else:
-            fn = getattr(tc, "function", None)
-            out.append(ToolCall(getattr(tc, "id", None), getattr(fn, "name", None),
-                                getattr(fn, "arguments", None) or "{}"))
-    return tuple(out)
+def response_usage(resp: Any, model: str, provider: str, *, latency_sec: float = 0.0) -> UsageRecord:
+    """The usage of a raw chat response, as :func:`chat_completion` hands it back."""
+    return _extract_usage(resp, model, provider, latency_sec=latency_sec)
 
 
 def _stream(completion: Any, request: Request) -> Reply:
@@ -581,17 +559,15 @@ class LiteLLMAdapter:
             **kwargs,
         )
         latency = time.time() - t0
-        # No choices (a billed 200 some routes return) is not an error here:
-        # chat_completion hands the raw response on, and its callers price it.
-        choices = getattr(resp, "choices", None) or ()
-        choice = choices[0] if choices else None
-        message = getattr(choice, "message", None)
+        # No choices (a billed 200 some routes return) is not an error here: parse_turn
+        # reads it as an empty turn, and chat_completion hands the raw response on to be priced.
+        turn = parse_turn(resp)
         return Reply(
-            text=getattr(message, "content", None),
+            text=turn.text,
             usage=_extract_usage(resp, request.model, request.provider, latency_sec=latency,
                                  litellm_model=request.litellm_model),
-            finish_reason=getattr(choice, "finish_reason", None),
-            tool_calls=_tool_calls(message),
+            finish_reason=turn.finish_reason,
+            tool_calls=turn.tool_calls,
             response=resp,
         )
 

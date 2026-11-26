@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import json
 import posixpath
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from dokimi.process_io import utf8_bytes
-from dokimi.repos.event_format import EVENT_VERSION
+from dokimi.repos.event_format import EVENT_VERSION, followed_path, plain_path
 
 OUTPUT_LIMIT = 8192
 OUTPUT_KEEP = 4096
@@ -62,9 +63,11 @@ class Transcript:
         found = sorted(self.answered_by) or ([self.init_model] if self.init_model else [])
         return (found[0] if len(found) == 1 else found) if found else None
 
-    def reads(self) -> set[str]:
-        """The paths the agent was shown (:func:`shown_read`); a refused or failed read stays in the events only."""
-        return {e["path"] for e in self.events if shown_read(e) and e.get("path")}
+    def reads(self, resolve: Callable[[str], str | None] | None = None) -> set[str]:
+        """The paths the agent was shown (:func:`shown_read`); a refused or failed read stays in the events only.
+
+        A ``..`` is taken by name unless ``resolve`` (the workspace's links) follows a link before it (:func:`followed_path`)."""
+        return {followed_path(e["path"], resolve) for e in self.events if shown_read(e) and e.get("path")}
 
     def events_jsonl(self, events: list[dict[str, Any]] | None = None) -> str:
         return "".join(json.dumps({**e, "v": EVENT_VERSION}, sort_keys=True) + "\n"
@@ -113,7 +116,7 @@ def _from_cwd(path: str, cwd: str) -> str:
     if not cwd or path.startswith("/") or win.is_absolute() or drive_letter:
         return path
     # a Windows CLI separates with backslashes, which posixpath keeps as part of a name
-    return posixpath.normpath(posixpath.join(cwd, win.as_posix()))
+    return plain_path(posixpath.join(cwd, win.as_posix()))
 
 
 def _parse_time(value: Any) -> datetime | None:

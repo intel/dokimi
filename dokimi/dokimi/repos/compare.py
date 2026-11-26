@@ -118,6 +118,7 @@ from dokimi.eval.sign_flip import (
     METHOD,
     min_sign_flip_p,
     pair_magnitudes,
+    round_off_zero,
     sign_flip_row,
     tie_scale,
     tie_widths,
@@ -196,7 +197,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
             pass_k: int | None = None, path_stability: bool = False, tasks: list[str] | None = None,
             *, exact: bool = False) -> dict[str, Any]:
     """``exact``: p and the mean delta at full precision (the ledger's verdicts read them); otherwise rounded as
-    printed. The interval's ends are at 4 places either way: bisection only knows them within 1e-7."""
+    printed. The interval's ends are at 4 places either way (2 significant digits where that would be 0): bisection only knows them within 1e-7."""
     metrics = tuple(dict.fromkeys(metrics))
     judge_names(metrics)  # a judge: field it cannot read is refused before any cell is
     if pass_k is not None and pass_k < 1:
@@ -346,6 +347,11 @@ def _arm_warnings(cells: list[dict[str, Any]], baseline: str, text: str, models:
     if uptake and uptake["cells"] and not uptake["used"]:
         out.append(f"{text}: the agent used none of what the arm added in {uptake['cells']} cell(s); "
                    "a delta measures the patch's text, not the tool")
+    # A labelled cell on a host that misses its task (or could not be checked) is pooled like any other: say so.
+    missed = sorted({c["task"] for arm in arms for c in arm if "host_match" in c and c["host_match"].get("met") is not True})
+    if missed:
+        out.append(f"{text} vs {baseline}: cells run with --label-host on a host that misses the task's requirements "
+                   f"or could not be checked are pooled (tasks {', '.join(missed)}); not a measured pass")
     return out
 
 
@@ -607,12 +613,12 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
-        "delta": {"mean": mean if exact else within(round(mean, 4) + 0.0, lo, hi), "lo": lo, "hi": hi,  # no -0.0
+        "delta": {"mean": mean if exact else within(round_off_zero(mean, 4), lo, hi), "lo": lo, "hi": hi,
                   "method": METHOD},
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
-        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS * tie_scale(changed) and reachable else None,
+        "mde": _round_off_zero(min_detectable(sd, len(deltas))) if sd > EPS * tie_scale(changed) and reachable else None,
         "interval_p_disagree": p is not None and includes_zero(lo, hi) == (p < ALPHA),
         "up": sum(d > w for d, w in zip(deltas, widths, strict=True)),
         "down": sum(d < -w for d, w in zip(deltas, widths, strict=True)),
@@ -774,6 +780,12 @@ def _round(value: float | None) -> float | None:
         return None
     number = float(value)  # a numpy float64 would warn on overflow while rounding
     return round(number, 6) if math.isfinite(number) else None
+
+
+def _round_off_zero(value: float) -> float | None:
+    """:func:`_round`, but a value it would put at 0.0 keeps 2 significant digits."""
+    number = float(value)
+    return round_off_zero(number, 6) if math.isfinite(number) else None
 
 
 def _num(value: float | None) -> str:

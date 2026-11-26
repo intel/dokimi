@@ -413,7 +413,7 @@ Top level: `artifact_ref`, `ref_digest` (the artifact revision), `model`, `with_
 
 `skill novelty view --novelty novelty.json --atoms novelty.atoms.json --atom-verdicts novelty.atom_verdicts.json` re-renders the annotated view with outcome and category colours and no model call. Pass the `novelty.atoms.json` of the same run: atom ids hash the statement, so an `atoms.json` from a separate `skill novelty atoms` call holds the same ids only when the extractor worded every atom the same. It exits 2 when the file's `artifact_ref`, `ref_digest`, `model`, `run_id` or `analysis_digest` differs from the `--novelty` artifact's (a `novelty.json` with no `run_id` differs from a file that has one; `analysis_digest` is the digest of the `novelty.json` payload without `schema_version`, `run_id` and `dokimi_version`, so two analyses that share a `DOKIMI_RUN_ID` still differ), or when it names an atom `--atoms` does not hold or cites other `span_ids` for an atom than `--atoms` does (an atoms file extracted again from an edited source keeps the ids and moves the spans). It also exits 2 when the `--atoms` file's `bundle.measured_digest` differs from the `--novelty` artifact's `ref_digest`; an atoms file that records no such digest is not checked against it.
 
-Add `--atom-labels labels.csv` (it needs `--atom-verdicts`) to see the known and new shares per label of your own. The file has one row per atom: `skill` (the artifact ref, its `skill:` prefix optional), `atom_id` (the `id` of an atom of `--atoms`, as in the verdicts file) and `label`; it is JSON lines, or CSV with a header when the name ends in `.csv`. An atom with no label row is counted under `unlabelled`, and labels that match no atom of the run are counted in a `WARNING`. `known` is a category starting `known_`, `new` one starting `novel_`, `other` the rest (`scaffolding`, `harmful_conflicting`); the shares are over the atoms that have a category, and `uncat.` counts the atoms with none: the probed atoms that got no category and, in a capped run, the atoms of `--atoms` outside the sample (a label on one of those raises no warning). The table is printed after the view is saved; nothing is written back to the artifacts.
+Add `--atom-labels labels.csv` (it needs `--atom-verdicts`) to see the known and new shares per label of your own. The file has one row per atom: `skill` (the artifact ref, its `skill:` prefix optional), `atom_id` (the `id` of an atom of `--atoms`, as in the verdicts file) and `label`; it is JSON lines, or CSV with a header when the name ends in `.csv`. A JSON label can be a string or a finite number. Numbers use the parsed numeric value as text (`1.10` becomes `1.1` and `1e2` becomes `100.0`). Quote the label to preserve its spelling. The reserved labels `all` and `unlabelled` are matched case-insensitively. The table escapes embedded line breaks. An atom with no label row is counted under `unlabelled`, and labels that match no atom of the run are counted in a `WARNING`. `known` is a category starting `known_`, `new` one starting `novel_`, `other` the rest (`scaffolding`, `harmful_conflicting`); the shares are over the atoms that have a category, and `uncat.` counts the atoms with none: the probed atoms that got no category and, in a capped run, the atoms of `--atoms` outside the sample (a label on one of those raises no warning). The table is printed after the view is saved; nothing is written back to the artifacts.
 
 ### 2. Span attribution — where in the file
 
@@ -726,6 +726,8 @@ inverts `X does not support Y`. A tag at the end (`..., doesn't it?`, `..., is i
 in the same way, so `The skill ships with numbers, doesn't it?` inverts `No numbers ship with
 the skill`; `Is it NOT the case that ...?` still counts as a negation. A reversal may run up to 15 words past the 2.5x length cap,
 the size of a leading frame such as `Isn't it true that ... NOT ..., but rather ...?`.
+
+The paraphrase polarity check reads a question the same way: an opening contracted negative auxiliary (`Doesn't`, `Isn't`, `Can't`, `Don't`, ...) and a closing tag are not counted on either side, so `Can't X be deterministic?` passes against `Is X deterministic?`. A sentence that does not end in `?` has no question phrasing, so the imperative `Don't install X as root.` keeps its negation and is `polarity_flipped` against `Should X be installed as root?`. A paraphrase that presumes the answer (`..., doesn't it?`, `Isn't it true that ...?`) while its source does not is rejected as `leading_question`, since a probe on it measures whether the model resists the presumption.
 
 Known gap: the paraphrase polarity check only asks whether a negation is present, so a
 faithful paraphrase that drops one (`Can you run X without root?` to `Is root required to
@@ -1101,7 +1103,7 @@ totals have no variance, or when nothing is left to correlate against. Only atom
 cell scored are correlated (the rest are reported in `atoms_dropped`): counting a missing
 probe as a failure would manufacture a correlation, and leaving a one-cell atom in the rest
 score moved the shared atoms' totals and could flip their sign. The correlation itself
-lives in `eval/stats.py`, next to the other statistics, so the next caller finds it instead
+lives in `eval/correlation.py`, next to the other statistics, so the next caller finds it instead
 of writing its own.
 
 Read the output as a statement about the *measurement*, not the atom: a non-discriminating
@@ -1151,6 +1153,69 @@ python cli.py skill novelty analyze --artifact skill:s --model M \
   --placebo-text other-domain.md \
   --context-framing neutral
 ```
+
+### Test-retest noise of the headline score
+
+The noise floor above is per run: it is the flip rate of the baseline answers against themselves.
+It does not say how far the headline `k0` score of one skill moves when the whole pipeline runs
+again (extraction, sampling and judging all redrawn). For that, run the same items twice and
+compare:
+
+```bash
+# run 1: the usual sweep
+python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 0 --out-dir runs/a/$S ...
+# run 2: the retest, another seed, a fresh --cache-dir (the retention verdicts) and no response
+# cache: DOKIMI_RESPONSE_CACHE=0 (or unset) so that no answer is replayed
+DOKIMI_RESPONSE_CACHE=0 python cli.py skill novelty analyze --artifact skill:$S --tier triage --seed 2 \
+  --cache-dir runs/cache-retest --out-dir runs/b/$S ...
+# the floor, pairwise comparisons, no model calls
+python cli.py skill novelty retest --baseline runs/a --retest runs/b --out-dir runs/retest
+```
+
+`retest` pairs the baseline run and the retest by artifact ref and writes `retest.md` and `retest.json` (`novelty_retest.v1`). Its
+statistics are over `k0.lenient` by default (`--scoring strict` for the strict one):
+
+- **Noise floor** = 1.96 × the sample standard deviation of `second − first`. A difference
+  between two single-run scores smaller than the floor is not evidence of a difference.
+- **Pearson r** between the two runs, the **mean |diff|** and the **mean shift** (second −
+  first). A shift moves every item alike, so it does not reorder items, but it does move a
+  score against a score from another run.
+- **Comparisons below the floor**: pairs of items whose first-run scores differ by less than
+  the floor. They are listed in `retest.json`.
+
+Items that appear in one run only, have no usable score, or are partial runs are left out and
+named as warnings (the first five by ref, the rest counted). When both runs record an
+`artifact.ref_digest` and the digests differ, the runs measured different content. The ref is
+listed in `unscored` and excluded from the floor and all other retest statistics. Runs without
+a digest still pair by ref. A warning names the ref when only one run has a digest.
+If these exclusions leave no pairs, the command exits with `no item scored in both runs`.
+This also applies when all shared items have scores but were measured on different content.
+Warnings also name a retest that
+does not vary what it should:
+
+- the same seed, or another model;
+- another judge: `judge_model`;
+- calls served from the response cache: `cost.replayed_calls` above zero in either run. A
+  replayed answer is the baseline's answer again, so the floor shrinks toward zero;
+- a `run_config` that differs in any key other than `seed` (`max_atoms`, `arms`, `paraphrases`,
+  `tier`, `prompts_sha256`, ...). Such cells do not compare, and the floor inflates.
+
+The retention verdicts of `--cache-dir` are memoized on disk and are not counted in
+`replayed_calls`, so a retest must not reuse the baseline's `--cache-dir` either.
+
+A baseline or retest given as a directory is searched for files named `novelty.json`: a run saved
+under another name (for example `analyze --out-json foo.json`) is not read there, and the item
+shows up as unmatched. A file passed directly is read whatever its name. A run with no probed atom
+(`atoms.n_probed` 0) is left out as unscored.
+
+Below ten items the floor is a rough guide: `retest.md` and the stdout say so. With two items the
+spread has one degree of freedom.
+
+Corpus evidence (2026-11-09, 10 S2 skills, triage; the ten pairs are pinned as `S2_RETEST` in
+`tests/test_novelty_retest.py`): r = 0.86, mean |diff| 0.10, mean shift +0.067, floor about 0.21.
+26 of the 45 pairs of those ten skills are below that floor. Use at least two runs per item before
+reading a per-skill difference under 0.2. The retest costs one full run per item, so the cost is
+the sweep again; there is no default, because it is a choice of spend.
 
 ## Provenance, judge vendors, a second judge, reversal both ways
 
@@ -1315,7 +1380,8 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   before it exits, so its paid call is lost unless `DOKIMI_RESPONSE_CACHE` is set. No call after it starts.
   A skill that is measured again (`--resume`) first loses its earlier `novelty.json` and `novelty.md`, so a
   `partial` or `error` row never sits beside a file from an older run. `--summary-out` may not be the
-  `--jsonl` file, and neither `--out-dir` nor `--jsonl` may be inside a skill directory (its files
+  `--jsonl` file, and neither may be a skill's `novelty.json` or `novelty.md` under `--out-dir` (a symlinked
+  skill directory counts), and neither `--out-dir` nor `--jsonl` may be inside a skill directory (its files
   would change the skill's digest, so each `--resume` would measure it again).
 
 ```bash
@@ -1398,7 +1464,12 @@ call `analyze` prints the run's expected cost at list prices to stderr.
 The estimate payload has `expected_calls`, the point figure between
 the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and
 `expected_usd`: those calls priced at list prices by role, `null` when a model has no
-price. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
+price. `usd_by_role` splits `expected_usd` into `extractor`, `answerer` and `judge` (panel judges
+after the first count under `judge`), and `least_sure_role` names the role the figure is least
+sure of with a reason; both are `null` with `expected_usd`, and `--estimate-only` prints the role and its
+share on stderr. The rule, chosen without per-role error data: a run whose tier has no extractor
+profile of its own (`study`, or no tier) names `extractor`, which borrows the standard profile;
+`triage` and `standard` name the role with the largest dollars. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
 On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
 within 33%. The dollar projections ran high on 5 runs (up to +29%) and low on 7 (down to
 -33%), so `expected_usd` is not a ceiling; the triage projection ran lower the larger the

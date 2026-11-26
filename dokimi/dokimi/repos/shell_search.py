@@ -79,29 +79,73 @@ def _cut_short(program: str, words: list[str], i: int) -> _Parsed:
     return 1, None
 
 
-def _cut_count(program: str, words: list[str]) -> str | None:
+def _cut_count(program: str, words: list[str], files: bool = False, posix: bool = False) -> str | None:
     """The count of lines (or bytes) a ``head`` or ``tail`` word list passes on, 10 by default; None when an option is
-    unknown, ``--help`` or ``--version``, or a word is a file the command reads instead of its input."""
+    unknown, ``--help`` or ``--version``, or a word is a file the command reads instead of its input (unless ``files``,
+    where ``posix`` ends the options at the first file, as ``POSIXLY_CORRECT`` does)."""
     count, i = "10", 1
     while i < len(words):
         word = words[i]
-        if word == "-":  # the input named explicitly
+        if word == "-" or not word.startswith("-"):  # an operand: ``-`` is the input named explicitly, any other a file
+            if files and posix:
+                return count
+            if word != "-" and not files:
+                return None
             i += 1
             continue
         if word == "--":  # the end of the options: only ``-`` may follow
-            return count if all(w == "-" for w in words[i + 1:]) else None
+            return count if files or all(w == "-" for w in words[i + 1:]) else None
         if word.startswith("--"):
             parsed = _cut_long(program, words, i)
         elif re.fullmatch(r"-\d+", word):
             parsed = 1, word[1:]
-        elif word.startswith("-") and len(word) > 1 and word[1] != "-":
-            parsed = _cut_short(program, words, i)
         else:
-            return None
+            parsed = _cut_short(program, words, i)
         if parsed is None:
             return None
         i, count = i + parsed[0], count if parsed[1] is None else parsed[1]
     return count
+
+
+def _follows(words: list[str], posix: bool = False) -> bool:
+    """Whether a ``tail`` word list asks to follow its files (``-f``, ``-qf``, ``--follow``, ``--fo``; not ``-nf``, where
+    ``f`` is the value), before ``--``: it prints what is appended later, whatever its count. ``posix``: the options end
+    at the first operand (``-`` too), so a later ``-f`` is a file name."""
+    i = 1
+    while i < len(words):
+        word = words[i]
+        if word == "--":
+            return False
+        if not word.startswith("-") or word == "-":  # an operand
+            if posix:
+                return False
+            i += 1
+            continue
+        if word.startswith("--"):
+            name = word[2:].partition("=")[0]
+            if name and "follow".startswith(name):
+                return True
+            parsed = _cut_long("tail", words, i)
+        else:
+            if "f" in re.match(r"-[^ncs]*", word).group():  # type: ignore[union-attr]
+                return True
+            parsed = _cut_short("tail", words, i)
+        i += parsed[0] if parsed else 1
+    return False
+
+
+def prints_nothing(program: str, args: Sequence[str], posix: bool = False) -> bool:
+    """Whether ``head`` or ``tail`` with ``args`` (files too) has a count that prints no byte or line: ``head -n 0``,
+    ``-c 0``, ``-0``, ``--lines=0``, ``-n +0``, ``tail -n -0``. ``head -n -0`` and ``tail -n +0`` print all of it, and
+    ``tail -f`` prints what is appended. ``posix``: ``POSIXLY_CORRECT`` is set, so the options end at the first file."""
+    if program not in _CUT_FLAGS:
+        return False
+    words = [program, *args]
+    match = re.fullmatch(_COUNT, _cut_count(program, words, files=True, posix=posix) or "")
+    if match is None or (program == "tail" and _follows(words, posix)):
+        return False
+    sign, digits = match.groups()
+    return not any(int(c) for c in digits) and sign != ("-" if program == "head" else "+")
 
 
 def cuts_lines(stage: str, functions: Container[str] = ()) -> bool:
@@ -157,14 +201,19 @@ def searched_files(program: str, args: Sequence[str]) -> list[str]:
     None for a run that prints no line of a file: ``-q``, ``-l``, ``-L`` (not rg's), ``-c``, ``--files`` and the long
     forms, ``--help`` and ``--version`` as options (``grep -e --help f`` searches for the text), a match limit of zero
     (``-m0``, ``-m +0``), and ``git grep`` of a revision (``git grep x HEAD~1 -- f``), which shows an older blob, not the
-    workspace file. A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
+    workspace file. Without ``--``, git needs the repository to distinguish a revision from a path; this parser returns
+    such operands as paths. A directory operand (``rg x docs``) is returned as it is: it matches no guidance path."""
     operands, _, flags, limit = search_words(program, args)
-    if program == "git grep" and "--" in args and search_words(program, args[:list(args).index("--")])[0]:
-        return []  # ``git grep x HEAD~1 -- AGENTS.md``: a word before ``--`` is a revision, and the lines are its blob's
     short = _SHORT_NO_LINE.get(program, _SHORT_NO_LINE_DEFAULT)
     if any(f in _SHOWS_NO_LINE or (len(f) == 2 and f[1] in short) for f in flags):
         return []
     digits = limit[1:] if limit is not None and limit.startswith("+") else limit  # strtoimax and Rust's parse take a leading +
     if "--help" in flags or "--version" in flags or (digits is not None and digits.isdecimal() and not any(int(c) for c in digits)):
         return []
+    if program == "git grep" and "--" in args:  # words before ``--`` are revisions: it searches their trees, not the workspace
+        after = len(args) - list(args).index("--") - 1
+        head = operands[: max(len(operands) - after, 0)]  # before ``--``; the words after it are paths
+        if any(o not in ("(", ")") for o in head):
+            return []
+        operands = operands[len(head):]  # grouping words of the expression name no file
     return [o for o in operands if o != "-"]

@@ -160,7 +160,8 @@ def load_skill(path) -> Skill:
 
     Raises:
         FileNotFoundError: If no ``SKILL.md`` can be located.
-        ValueError: If required frontmatter fields are missing.
+        ValueError: If required frontmatter fields are missing, the frontmatter repeats a key, or
+            ``description`` is not a string.
     """
     skill_file = _resolve_skill_file(Path(path))
     meta, body = _read_frontmatter(skill_file)
@@ -168,7 +169,13 @@ def load_skill(path) -> Skill:
     name = _skill_name(meta, skill_file)
     if not name:
         raise ValueError(f"Skill at '{skill_file}' has an empty 'name' after normalization.")
-    description = str(meta.get("description") or "").strip()
+    raw_description = meta.get("description")
+    if raw_description is not None and not isinstance(raw_description, str):
+        raise ValueError(
+            f"Skill '{name}' ({skill_file}) has a 'description' that is a "
+            f"{type(raw_description).__name__}, not a string; the spec says a string of 1 to 1024 characters."
+        )
+    description = (raw_description or "").strip()
     if not description:
         problem = _frontmatter_block_problem(skill_file)
         if problem is not None:

@@ -30,9 +30,9 @@ depend on the kind:
 | Kind | Fields |
 |---|---|
 | `command` | `text`; `rc` (integer, or `null` when no result came back); `rc_from: "success"` when Copilot reported a completion status without an exit code; `output` and `output_truncated` when the harness returned output; `searched` (a list of workspace paths) when a `grep`, `egrep`, `fgrep`, `rg` or `git grep` part of it named files and showed lines of them (see below) |
-| `read` | `path` (absent on a refused relative read whose file is not known); `rc` 0 or 1 when the harness reported one |
+| `read` | `path` (absent on a refused relative read whose file is not known; a relative path joined to the working directory the CLI started in loses its `.` components and repeated `/`, while an absolute path, or a relative one with no working directory known, is kept as written; a `..` always stays as written, since the name before it may be a link); `rc` 0 or 1 when the harness reported one |
 | `edit` | `path`; `rc`; `deleted` when the file was deleted |
-| `tool` | `name`; `skill` on a `Skill` call; `searched` (one path) on a Claude Code `Grep` call whose `path` is given and whose `output_mode` is `content` |
+| `tool` | `name`; `skill` on a `Skill` call; `searched` (one path) on a Claude Code `Grep` call whose `path` is given and whose `output_mode` is `content`; `searched` (the call's `paths`, one or a list) on a Copilot `grep` call whose `output_mode` is `content` and whose result is not empty, `No matches found.` or a failure |
 | `probe` | `target`, `pattern`, `text`, `rc`: written by the runner after the `command` event it matched, never by a converter ([§4.1](repo-evaluation-contract.md#41-eventsjsonl)) |
 | `choice` | `candidate`, `act` (install, import, use or remove), `path` (edit path or null). The runner writes these after their source event when the run names candidates. |
 | `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output` (`null` on a Claude turn: its assistant records carry the output count from the start of the stream, not the call's billed count), `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count (a Claude `prompt_tokens` sums the parts it reported, so it is low when a part is `null`) |

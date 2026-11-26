@@ -172,3 +172,102 @@ def test_a_csv_the_parser_refuses_exits_2_without_a_traceback(tmp_path):
     assert out.code == 2
     assert f"{path}: not a readable CSV" in out.err
     assert "Traceback" not in out.err
+
+
+@pytest.mark.parametrize("name", ["all", "unlabelled", " all ", "ALL", "Unlabelled"])
+def test_a_label_named_like_a_view_bucket_is_refused(tmp_path, name):
+    path = tmp_path / "labels.jsonl"
+    path.write_text(json.dumps({"skill": "s", "atom_id": "a1", "label": name}) + "\n", encoding="utf-8")
+    with pytest.raises(InputError, match=f"label '{name.strip()}' is reserved"):
+        load_atom_labels(path)
+
+
+def test_json_numbers_use_the_parsed_value_and_strings_keep_the_spelling(tmp_path):
+    path = tmp_path / "labels.jsonl"
+    path.write_text('{"skill": " s ", "atom_id": " a ", "label": 1e2}\n'
+                    '{"skill": "s", "atom_id": "b", "label": "1e2"}\n', encoding="utf-8")
+    assert load_atom_labels(path) == {("s", "a"): "100.0", ("s", "b"): "1e2"}
+
+
+@pytest.mark.parametrize("error", [ValueError("integer exceeds limit"), RecursionError("nesting exceeds limit")])
+def test_json_decoder_limits_name_the_line(tmp_path, monkeypatch, error):
+    def exceeds_limit(line):
+        raise error
+
+    path = tmp_path / "labels.jsonl"
+    path.write_text('\n{"skill": "s", "atom_id": "a", "label": 0}\n', encoding="utf-8")
+    monkeypatch.setattr(json, "loads", exceeds_limit)
+    with pytest.raises(InputError, match="line 2 is not JSON"):
+        load_atom_labels(path)
+
+
+def test_label_zero_is_a_label_not_a_missing_one(tmp_path):
+    jsonl = tmp_path / "labels.jsonl"
+    jsonl.write_text('{"skill": "s", "atom_id": "a1", "label": 0}\n', encoding="utf-8")
+    csv_file = tmp_path / "labels.csv"
+    csv_file.write_text("skill,atom_id,label\ns,a1,0\n", encoding="utf-8")
+    assert load_atom_labels(jsonl) == {("s", "a1"): "0"}
+    assert load_atom_labels(csv_file) == {("s", "a1"): "0"}
+
+
+@pytest.mark.parametrize("value", ["false", "[]", "{}"])
+def test_a_json_boolean_list_or_object_is_no_label_or_key_value(tmp_path, value):
+    path = tmp_path / "labels.jsonl"
+    path.write_text(f'{{"skill": "s", "atom_id": "a1", "label": {value}}}\n', encoding="utf-8")
+    with pytest.raises(InputError, match="label must be a string or finite number"):
+        load_atom_labels(path)
+    path.write_text(f'{{"skill": {value}, "atom_id": "a1", "label": "x"}}\n', encoding="utf-8")
+    with pytest.raises(InputError, match="skill must be a string or finite number"):
+        load_atom_labels(path)
+
+
+def test_a_csv_quoted_newline_and_a_unicode_line_separator_stay_in_their_row(tmp_path):
+    path = tmp_path / "labels.csv"
+    path.write_text('skill,atom_id,label\ns,a1,"two\nlines"\ns,a2,"x y"\n', encoding="utf-8")
+    assert load_atom_labels(path) == {("s", "a1"): "two\nlines", ("s", "a2"): "x y"}
+
+
+def test_a_jsonl_string_with_a_unicode_line_separator_loads(tmp_path):
+    path = tmp_path / "labels.jsonl"
+    path.write_text('{"skill": "s", "atom_id": "a1", "label": "x y"}\n', encoding="utf-8")
+    assert load_atom_labels(path) == {("s", "a1"): "x y"}
+
+
+def test_a_jsonl_line_that_is_not_an_object_names_its_line(tmp_path):
+    path = tmp_path / "labels.jsonl"
+    path.write_text('{"skill": "s", "atom_id": "a1", "label": "x"}\n[1, 2]\n', encoding="utf-8")
+    with pytest.raises(InputError, match="line 2 is not a JSON object"):
+        load_atom_labels(path)
+
+
+@pytest.mark.parametrize("name", ["labels.jsonl", "labels.csv"])
+def test_an_empty_labels_file_is_refused(tmp_path, name):
+    path = tmp_path / name
+    path.write_text("\n" if name.endswith(".jsonl") else "skill,atom_id,label\n", encoding="utf-8")
+    with pytest.raises(InputError, match="no label rows"):
+        load_atom_labels(path)
+
+
+def test_an_empty_atom_labels_flag_is_refused_not_ignored(capsys):
+    from dokimi.commands.novelty import cmd_novelty_view
+
+    args = argparse.Namespace(novelty="n.json", atoms="a.json", atom_verdicts="v.json", atom_labels="",
+                              format="html", out=None)
+    with pytest.raises(InputError, match="--atom-labels needs a file path"):
+        cmd_novelty_view(args)
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e400"])
+def test_nonfinite_json_label_is_refused(tmp_path, value):
+    path = tmp_path / "labels.jsonl"
+    path.write_text(f'{{"skill":"s","atom_id":"a","label":{value}}}\n', encoding="utf-8")
+    with pytest.raises(InputError, match="label must be a string or finite number"):
+        load_atom_labels(path)
+
+
+def test_table_escapes_line_breaks_inside_labels():
+    from dokimi.novelty.atom_labels import format_shares
+
+    labels = {(REF.removeprefix("skill:"), "a1"): "two\nlines\u2028here"}
+    output = format_shares(label_shares(_rows(), REF, labels))
+    assert any(r"two\nlines\u2028here" in line for line in output.splitlines())

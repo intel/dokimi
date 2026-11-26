@@ -48,7 +48,7 @@ import re
 import shlex
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -56,11 +56,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from dokimi import process
+from dokimi.atomic_write import write_bytes_in_place_or_atomic
+from dokimi.process_io import text_file_bytes
 from dokimi.utils import key_bytes, retry_writable
 
 from .events import convert
 from .transcript import Transcript
 from .harness_profile import HarnessProfile
+from .held_guidance import HeldGuidance
 from .manifest import RepoManifest, check_repo
 from .overlays import overlay_of
 from .reach_overlays import native_in_probe, overlay_report
@@ -312,7 +315,7 @@ def build_workspace(tree: RepoTree, files: list[str], workspace: Path, salt: str
             text = tree.read_text(path)
         except (UnicodeDecodeError, SourceError) as exc:
             raise ReachError(f"cannot read guidance file {path}: {exc}") from exc
-        target.write_text(seed_text(text, path, head, tail), encoding="utf-8")
+        _write_seeded(target, text, path, head, tail)
         links = tuple(aliases.get(path, ()))
         kind = _write_aliases(workspace, path, links) if links else None
         seeded.append(SeededFile(path, head, tail, links, kind))
@@ -331,6 +334,11 @@ def build_workspace(tree: RepoTree, files: list[str], workspace: Path, salt: str
             why = "timed out" if proc.timed_out else f"exit {proc.returncode}"
             raise ReachError(f"git {args[0]} in the probe workspace failed: {why} {proc.stderr.strip()}")
     return seeded
+
+
+def _write_seeded(target: Path, text: str, path: str, head: str, tail: str) -> None:
+    """Write the seeded ``text``; a lone surrogate of a non-UTF-8 name in the token lines is a ``?``, as the model's label."""
+    write_bytes_in_place_or_atomic(target, text_file_bytes(seed_text(text, path, head, tail)))
 
 
 def _write_aliases(workspace: Path, path: str, links: tuple[str, ...]) -> str:
@@ -408,12 +416,14 @@ def prose_words(answer: str) -> int:
     return len(_prose(answer))
 
 
-def classify(seeded: SeededFile, transcript: Transcript | None) -> dict[str, Any]:
+def classify(seeded: SeededFile, transcript: Transcript | None,
+            resolve: Callable[[str], str | None] | None = None) -> dict[str, Any]:
+    """The head, the tail and the class of one seeded file; ``resolve`` follows the workspace's links in a read path."""
     if transcript is None:
         return {"head": False, "tail": False, "read_by_tool": False, "class": "error"}
     reported = set(TOKEN_RE.findall(transcript.answer))
     head, tail = seeded.head in reported, seeded.tail in reported
-    reads = transcript.reads()
+    reads = transcript.reads(resolve)
     read_by_tool = any(p in reads for p in (seeded.path, *seeded.aliases))
     if not (head or tail):
         cls = "not_loaded"
@@ -483,11 +493,11 @@ def _write_shadow(workspace: Path, item: SeededFile, dirs: list[Path], written: 
             (workspace / parent).mkdir()
             dirs.append(workspace / parent)
     written.append(target)  # before the write: one that fails part way can leave the file
-    target.write_text(seed_text(SHADOW_TEXT, item.path, item.head, item.tail), encoding="utf-8")
+    _write_seeded(target, SHADOW_TEXT, item.path, item.head, item.tail)
 
 
 def _score_row(row: dict[str, Any], transcript: Transcript | None, known: set[str],
-               shadow: SeededFile | None) -> None:
+               shadow: SeededFile | None, resolve: Callable[[str], str | None] | None = None) -> None:
     """The row's reported, unknown and prose from the answer, and the result of its shadow file, which is kept on
     the row: it is not a tree file, so it gets no records and no matrix row."""
     if transcript is not None:
@@ -496,7 +506,7 @@ def _score_row(row: dict[str, Any], transcript: Transcript | None, known: set[st
         row.update(reported=reported, unknown=[t for t in reported if t not in known | own],
                    prose=prose_words(transcript.answer))
     if shadow is not None:
-        row["shadow"] = {"path": shadow.path, "tokens": [shadow.head, shadow.tail], **classify(shadow, transcript)}
+        row["shadow"] = {"path": shadow.path, "tokens": [shadow.head, shadow.tail], **classify(shadow, transcript, resolve)}
 
 
 def run_reach(
@@ -544,6 +554,7 @@ def run_reach(
             if re.match(r"^\d{2,}-.*\.(stdout|events\.jsonl)$", old.name) and old.is_file():
                 old.unlink()
         known = {s.head for s in seeded} | {s.tail for s in seeded}
+        resolve = HeldGuidance(workspace, []).resolved  # the aliases are links the workspace has now
         scenario_rows, records = [], []
         for n, scenario in enumerate(plan):
             shadow = _shadow_seed(scenario, salt)
@@ -555,11 +566,11 @@ def run_reach(
             if transcript is not None:
                 (trace_dir / f"{slug}.events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
                 version = transcript.harness_version or version
-            _score_row(row, transcript, known, shadow)
+            _score_row(row, transcript, known, shadow, resolve)
             scenario_rows.append(row)
             for item in seeded:
                 records.append({"file": item.path, "scenario": scenario.id, "harness": profile.name,
-                                "harness_version": version, "model": model, **classify(item, transcript)})
+                                "harness_version": version, "model": model, **classify(item, transcript, resolve)})
     finally:
         if dry_run or not keep:  # a dry run names no workspace, so it keeps none
             shutil.rmtree(base, onerror=retry_writable)

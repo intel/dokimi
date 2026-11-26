@@ -263,7 +263,7 @@ def _run_cell(tmp_path, monkeypatch, *extra: str):
     monkeypatch.setenv("FAKE_ACTION", "fix")
     out = tmp_path / "runs"
     argv = ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
-            "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out),
+            "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out", str(out),
             "--cache-root", str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw",
             "--task", "fix_add", *extra]
     args = build_parser().parse_args(argv)

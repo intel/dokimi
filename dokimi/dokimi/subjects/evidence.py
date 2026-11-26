@@ -13,12 +13,15 @@ never filled in.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from pathlib import PurePath
 from typing import Any
 
 from dokimi import __version__
 from dokimi.eval.comparison_verdict import decide
+from dokimi.eval.sign_flip import ALPHA, METHOD
+from dokimi.subjects.evidence_check import build_protocol, comparability, is_alias
 
 #: The arm metric the awareness summary carries per arm (``summary.per_arm[arm]``).
 METRIC = "avg_aggregate"
@@ -40,7 +43,7 @@ def build_skill_evidence(scorecard: dict[str, Any], *, source: str | None = None
         if baseline is None:
             warnings.append(f"matrix cell {cell.get('matrix_cell')!r}: no single baseline arm, skipped")
             continue
-        results.extend(_result(cell, arm, row) for arm, row in per_arm.items() if arm != baseline)
+        results.extend(_result(cell, arm, row, suite) for arm, row in per_arm.items() if arm != baseline)
     if subject.get("distribution_digest") is None:
         warnings.append("subject has no distribution_digest (not a SKILL.md, a skill with resources, "
                         "or a non-local ref): a client cannot match this document by digest")
@@ -85,12 +88,70 @@ def _baseline_arm(cell: dict[str, Any], per_arm: dict[str, Any]) -> str | None:
     return candidates[0] if len(candidates) == 1 else None
 
 
-def _result(cell: dict[str, Any], arm: str, row: dict[str, Any]) -> dict[str, Any]:
+#: The places ``stats._round_p`` rounds ``p_adjusted`` to before it reaches the scorecard.
+P_DECIMALS = 4
+
+#: What ``METRIC`` is: a 0-100 judge score per answer.
+METRIC_SPEC = {"id": METRIC, "unit": "score_points", "range": [0, 100],
+               "higher_is_better": True, "judged": True}
+
+
+def _eval_set_digest(cell: dict[str, Any], suite: dict[str, Any] | None) -> str | None:
+    """The digest of the question set this cell measured; the suite's only when one set serves every cell."""
+    if cell.get("questions_digest") is not None:
+        return cell["questions_digest"]
+    questions = (suite or {}).get("questions") or []
+    if len(questions) == 1:
+        return (suite or {}).get("question_set_hash")
+    return None
+
+
+def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
+            suite: dict[str, Any] | None = None) -> dict[str, Any]:
     # Every statistic is the paired test's, so n, delta, CI and p describe the same questions.
     # The per-arm means are left out: their difference is not the delta once pairs drop out.
     sig = row.get("significance") or {}
     delta = sig.get("delta_mean") if sig else None
-    return {
+    correction = sig.get("correction")
+    judge = cell.get("judge_model")
+    # A claude-cli judge records the snapshots it ran: one id is the judge, whatever name was configured.
+    # Two ids leave the judge unresolved (which one scored is not known); an alias stays visible as one.
+    snapshots = cell.get("judge_resolved_models")
+    protocol_judge = judge
+    if isinstance(snapshots, list) and snapshots and all(isinstance(s, str) for s in snapshots):
+        if len(snapshots) == 1:
+            judge = protocol_judge = snapshots[0]
+        elif not is_alias(judge):
+            protocol_judge = None
+    sampling = cell.get("judge_sampling")
+    if sampling is None and cell.get("judge_temperature") is not None:
+        sampling = {"temperature": cell.get("judge_temperature")}
+    # The recorded ci_method, not the current implementation's constant: a historical scorecard keeps
+    # the method it ran. Unrecorded, it is None and the protocol lists it as unresolved.
+    test = sig.get("ci_method")
+    # Only the sign-flip test decides significant_adjusted by p_adjusted < alpha alone; an older test
+    # (student_t also needed Wilcoxon) states no rule, so a consumer never recomputes another verdict.
+    rule = None
+    if test == METHOD:
+        rule = {"basis": "p_adjusted", "alpha": ALPHA, "correction": correction, "p_decimals": P_DECIMALS,
+                "test": test}
+    # Only resolved values enter the digest; what the scorecard does not record stays unresolved.
+    protocol = build_protocol({
+        "eval_set_digest": _eval_set_digest(cell, suite),
+        "metric": METRIC,
+        "judge_model": protocol_judge,
+        "judge_provider": cell.get("judge_provider"),
+        "judge_context": cell.get("judge_context"),
+        "judge_sampling": sampling,
+        "judge_prompt_sha256": cell.get("judge_prompt_sha256"),
+        "repeats": cell.get("repeats"),
+        "test": test,
+        "correction": correction,
+        "family_tested": sig.get("family_tested"),
+        "alpha": ALPHA,
+        "ci_confidence": sig.get("ci_confidence"),
+    })
+    result = {
         "product": cell.get("product"),
         "matrix_cell": cell.get("matrix_cell"),
         "model": cell.get("model"),
@@ -98,9 +159,11 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any]) -> dict[str, An
         "harness": cell.get("harness"),
         # Absent until a run records the effort it applied; null means "not recorded", not "default".
         "effort": cell.get("effort"),
-        "judge_model": cell.get("judge_model"),
+        "judge_model": judge,
+        "judge_provider": cell.get("judge_provider"),
         "arm": arm,
         "metric": METRIC,
+        "metric_spec": dict(METRIC_SPEC),
         "n": sig.get("n"),
         "delta": delta,
         "ci": None if sig.get("ci_lo") is None else {
@@ -109,8 +172,17 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any]) -> dict[str, An
         },
         "p_value": sig.get("p_adjusted"),
         "p_correction": sig.get("correction"),
+        **({} if rule is None else {"verdict_rule": rule}),
         "verdict": _verdict(delta, sig),
+        "protocol": protocol,
     }
+    reasons = comparability(result)
+    temperature = cell.get("judge_temperature")
+    if isinstance(temperature, float) and not math.isfinite(temperature):
+        reasons.append("judge_temperature is not a finite number")
+    result["comparable"] = not reasons
+    result["non_comparable"] = reasons
+    return result
 
 
 def _verdict(delta: float | None, sig: dict[str, Any]) -> str:

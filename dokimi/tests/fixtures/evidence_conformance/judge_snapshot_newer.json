@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-11-15T00:00:00Z",
+  "producer": {
+    "name": "dokimi",
+    "version": "conformance"
+  },
+  "results": [
+    {
+      "arm": "skill:s",
+      "ci": {
+        "confidence": 0.95,
+        "hi": 11.0,
+        "lo": 2.0,
+        "method": "sign_flip_inversion"
+      },
+      "delta": 6.5,
+      "effort": null,
+      "harness": "arms-runner",
+      "judge_model": "claude-sonnet-5-5-20261101",
+      "judge_provider": "amazon-bedrock",
+      "matrix_cell": "c1",
+      "metric": "avg_aggregate",
+      "metric_spec": {
+        "higher_is_better": true,
+        "id": "avg_aggregate",
+        "judged": true,
+        "range": [
+          0,
+          100
+        ],
+        "unit": "score_points"
+      },
+      "model": "claude-haiku-4-5",
+      "n": 12,
+      "p_correction": "holm",
+      "p_value": 0.004,
+      "product": "oneTBB",
+      "protocol": {
+        "digest": "sha256:872a6210214f38ed9e5eb5a789c1c9f712d3dbcf952387625323d56c88547730",
+        "id": "dokimi.awareness",
+        "resolved": {
+          "alpha": 0.05,
+          "ci_confidence": 0.95,
+          "correction": "holm",
+          "eval_set_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "family_tested": 2,
+          "judge_context": "report-snippets",
+          "judge_model": "claude-sonnet-5-5-20261101",
+          "judge_prompt_sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "judge_provider": "amazon-bedrock",
+          "judge_sampling": {
+            "max_tokens": 1024,
+            "temperature": 0.0
+          },
+          "metric": "avg_aggregate",
+          "repeats": 3,
+          "test": "sign_flip_inversion"
+        },
+        "unresolved": [],
+        "version": "2"
+      },
+      "provider": "amazon-bedrock",
+      "verdict": "improved",
+      "verdict_rule": {
+        "alpha": 0.05,
+        "basis": "p_adjusted",
+        "correction": "holm",
+        "test": "sign_flip_inversion"
+      }
+    }
+  ],
+  "schema_version": "skill_evidence.v1",
+  "subject": {
+    "content_digest": null,
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "id": "s",
+    "kind": "skill",
+    "ref": "skills/s"
+  },
+  "warnings": []
+}

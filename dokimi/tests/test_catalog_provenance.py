@@ -12,6 +12,7 @@ import os
 import shutil
 import stat
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -273,7 +274,8 @@ def test_a_manifest_mixing_naive_and_zoned_dates_still_gives_the_months(tmp_path
         "schema": "dokimi.upstream.v1",
         "name": "acme",
         "head": {"commit": "abc123", "date": "2026-04-01T00:00:00+00:00"},
-        "skills": [{"path": "skills/pdf/SKILL.md", "content": V1, "commit": "c1", "date": "2026-01-01"}],
+        "skills": [{"path": "skills/pdf/SKILL.md", "content": V1, "commit": "c1", "date": "2026-01-01"},
+                   {"path": "skills/pdf/SKILL.md", "content": V2, "head": True}],
     }), encoding="utf-8")
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     row = _row(_run(root, "--upstream-manifest", str(manifest)), "skills/pdf")
@@ -324,6 +326,7 @@ def test_duplicate_manifest_bytes_match_the_newest_version(tmp_path) -> None:
         "skills": [
             {"path": "skills/pdf/SKILL.md", "content": V1, "commit": "old", "date": "2025-01-01T00:00:00+00:00"},
             {"path": "skills/pdf/SKILL.md", "content": V1, "commit": "new", "date": "2026-01-01T00:00:00+00:00"},
+            {"path": "skills/pdf/SKILL.md", "content": V2, "head": True},
         ],
     }), encoding="utf-8")
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
@@ -373,7 +376,8 @@ def test_a_version_dated_after_head_is_not_negative_months_behind(tmp_path) -> N
         "schema": "dokimi.upstream.v1",
         "name": "acme",
         "head": {"commit": "abc123", "date": "2026-04-01T00:00:00+00:00"},
-        "skills": [{"path": "skills/pdf/SKILL.md", "content": text, "commit": "c1", "date": "2026-06-01T00:00:00+00:00"}],
+        "skills": [{"path": "skills/pdf/SKILL.md", "content": text, "commit": "c1", "date": "2026-06-01T00:00:00+00:00"},
+                   {"path": "skills/pdf/SKILL.md", "content": V2, "head": True}],
     }), encoding="utf-8")
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": text})
     report = _run(root, "--upstream-manifest", str(manifest))
@@ -488,7 +492,7 @@ def test_a_non_string_date_or_non_boolean_head_in_a_manifest_is_refused(tmp_path
 
 def test_head_null_in_a_manifest_entry_is_read_as_not_head(tmp_path) -> None:
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
-    row = _row(_run(root, "--upstream-manifest", str(_manifest(tmp_path, [_entry(head=None)]))), "skills/pdf")
+    row = _row(_run(root, "--upstream-manifest", str(_manifest(tmp_path, [_entry(head=None), _entry(V2, head=True)]))), "skills/pdf")
     assert (row["match"], row["at_head"]) == ("exact", False)
 
 
@@ -503,7 +507,7 @@ def test_an_edited_copy_takes_the_newest_of_two_same_content_manifest_versions(t
     newer = _entry(commit="new", date="2026-01-01T00:00:00+00:00")
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1 + "scans\n"})
     for listing in ([older, newer], [newer, older]):
-        manifest = _manifest(tmp_path, listing)
+        manifest = _manifest(tmp_path, [*listing, _entry(UNRELATED, head=True)])
         row = _row(_run(root, "--upstream-manifest", str(manifest)), "skills/pdf")
         assert (row["match"], row["commit"], row["behind_months"]) == ("similar", "new", round(151 / 30.44, 1))
 
@@ -547,6 +551,7 @@ def test_the_ranking_and_the_summary_are_pinned(tmp_path) -> None:
         {"path": "t/SKILL.md", "content": head_text, "head": True},
         {"path": "t/SKILL.md", "content": old_text, "commit": "c0", "date": "2026-01-01T00:00:00+00:00"},
         _entry(V1, commit="p1", date="2026-04-01T00:00:00+00:00"),
+        _entry(V2, head=True),
     ], name="first")
     second = _manifest(tmp_path, [{"path": "t/SKILL.md", "content": head_text, "head": True}], name="second")
     root = _copy_root(tmp_path, {
@@ -638,6 +643,48 @@ def test_the_same_edit_on_two_unmerged_branches_keeps_the_newer_commit(tmp_path:
     assert (row["match"], row["date"]) == ("exact", "2026-02-05")
 
 
+def _version(order: int, *, text: str = "x", head: bool = False, behind: int | None = None,
+             date: str | None = None, commit: str = "c") -> upstream.Version:
+    known = upstream.Upstream(f"up{order}", order, "h", None, "full")
+    when = datetime.fromisoformat(date) if date else None
+    return upstream.Version(known, "t/SKILL.md", upstream.blob_sha(text.encode()), "tool", None, text,
+                            commit, when, head, behind)
+
+
+def _chosen(versions: list[upstream.Version], raw: str) -> dict:
+    index = upstream.Index([v.upstream for v in versions], versions)
+    match = index.match(raw.encode(), "tool")
+    assert match is not None
+    return upstream.to_row(match)
+
+
+def test_each_term_of_the_version_ranking_decides_the_winner_alone() -> None:
+    words = "alpha beta gamma delta"
+    reordered = "delta gamma beta alpha\n"
+    # similar copy: same words in every candidate, so only the term under test separates them
+    first = _version(0, text=words, date="2026-01-01T00:00:00+00:00", behind=5, commit="a")
+    second = _version(1, text=words, date="2026-02-01T00:00:00+00:00", behind=1, commit="b")
+    assert _chosen([second, first], reordered)["upstream"] == "up0"
+    near = _version(0, text=words, behind=3, commit="a")
+    nearer = _version(0, text=words, behind=1, commit="b")
+    row = _chosen([near, nearer], reordered)
+    assert (row["commit"], row["behind_commits"], row["at_head"]) == ("b", 1, False)
+    # exact copy: the head beats a newer version, then fewer commits behind wins
+    head = _version(0, text=words, head=True, behind=0, date="2026-01-01T00:00:00+00:00", commit="h")
+    newer = _version(0, text=words, behind=0, date="2026-02-01T00:00:00+00:00", commit="n")
+    row = _chosen([newer, head], words)
+    assert (row["commit"], row["at_head"], row["behind_commits"]) == ("h", True, 0)
+    far = _version(0, text=words, behind=4, date="2026-01-01T00:00:00+00:00", commit="f")
+    close = _version(0, text=words, behind=2, date="2026-01-01T00:00:00+00:00", commit="c")
+    row = _chosen([far, close], words)
+    assert (row["commit"], row["at_head"], row["behind_commits"]) == ("c", False, 2)
+
+
+def test_the_summary_reports_the_median_of_the_months_behind_not_the_mean() -> None:
+    rows = [{"match": "exact", "at_head": False, "behind_months": months, "edited": False} for months in (1.0, 1.0, 10.0)]
+    assert upstream.summary(rows)["median_months_behind"] == 1.0
+
+
 def test_a_skill_symlinked_to_a_file_outside_the_root_is_not_read(upstream_repo, tmp_path: Path) -> None:
     outside = tmp_path / "outside.md"
     outside.write_text(V1, encoding="utf-8")
@@ -671,6 +718,52 @@ def test_an_unreadable_skill_is_an_input_error_naming_the_file(upstream_repo, tm
         skill.chmod(0o644)
 
 
+def test_blobless_promisor_checkout_names_the_missing_local_history(upstream_repo, tmp_path) -> None:
+    _git(upstream_repo, "config", "uploadpack.allowFilter", "true")
+    clone = tmp_path / "blobless"
+    _git(tmp_path, "clone", "-q", "--filter=blob:none", "--no-checkout", upstream_repo.as_uri(), str(clone))
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    with pytest.raises(InputError, match="checkout with all skill blobs available locally"):
+        _run(root, "--upstream", str(clone))
+
+
+def test_manifest_without_a_head_for_this_path_reports_unknown_drift(tmp_path) -> None:
+    path = tmp_path / "upstream.json"
+    path.write_text(json.dumps({
+        "schema": "dokimi.upstream.v1", "name": "acme", "head": {"date": "2026-04-01"},
+        "skills": [{"path": "pdf/SKILL.md", "content": V1, "date": "2026-01-01"},
+                   {"path": "other/SKILL.md", "content": UNRELATED, "head": True}],
+    }), encoding="utf-8")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    report = _run(root, "--upstream-manifest", str(path))
+    row = _row(report, "skills/pdf")
+    assert row["match"] == "exact"
+    assert (row["at_head"], row["behind_commits"], row["behind_months"]) == (None, None, None)
+    assert report["summary"]["median_months_behind"] is None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permits non-UTF-8 filename bytes")
+def test_non_utf8_history_and_checkout_names_round_trip(tmp_path):
+    repo = tmp_path / os.fsdecode(b"upstream-\xff")
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    path = os.fsdecode(b"skills/\xff/SKILL.md")
+    _commit(repo, {path: V1}, "2026-01-01T10:00:00+00:00", "v1")
+    _commit(repo, {path: V2}, "2026-02-01T10:00:00+00:00", "v2")
+    for index, content in enumerate((V1, V2)):
+        root = _copy_root(tmp_path / str(index), {"skills/pdf/SKILL.md": content})
+        row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+        assert (row["path"], row["removed_at_head"], row["at_head"]) == (path, False, bool(index))
+        assert row["commit"] and row["date"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Windows restricts trailing whitespace in filenames")
+@pytest.mark.parametrize("suffix", [" ", "\n"])
+def test_checkout_path_preserves_trailing_whitespace(upstream_repo, tmp_path, suffix):
+    repo = upstream_repo.rename(tmp_path / ("checkout" + suffix))
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert row["match"] == "exact"
 def test_an_edited_copy_of_bytes_at_two_paths_takes_the_newer_commit(tmp_path: Path) -> None:
     repo = tmp_path / "acme-skills"
     repo.mkdir()
@@ -709,3 +802,39 @@ def test_a_history_path_with_a_non_utf8_byte_keeps_its_name(tmp_path: Path) -> N
     root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
     row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
     assert (row["match"], row["removed_at_head"], row["path"]) == ("exact", False, rel)
+
+
+def test_text_table_escapes_control_characters_in_upstream_paths(tmp_path: Path) -> None:
+    path = tmp_path / "upstream.json"
+    path.write_text(json.dumps({
+        "schema": "dokimi.upstream.v1", "name": "acme", "head": {"date": "2026-04-01"},
+        "skills": [{"path": "a\tb\nc/SKILL.md", "content": V1, "head": True}],
+    }), encoding="utf-8")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    lines = _run(root, "--upstream-manifest", str(path), fmt="text")["text"].splitlines()
+    header = lines.index("skill\tmatch\tupstream\tversion\tbehind\tedited")
+    rows = lines[header + 1:]
+    assert rows and all(len(line.split("\t")) == 6 for line in rows)
+    assert "a\\tb\\nc/SKILL.md" in rows[0]
+
+
+def test_a_gitlink_named_skill_md_does_not_shift_the_blob_read_after_it(tmp_path: Path) -> None:
+    import hashlib
+
+    repo = tmp_path / "acme-skills"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, {"skills/pdf/SKILL.md": V1}, "2026-01-01T10:00:00+00:00", "v1")
+    gitlink_target = _git(repo, "rev-parse", "HEAD").strip()
+    # a later version whose blob id sorts after the gitlink target, so the batch reads it after the gitlink
+    for index in range(1000):
+        newest = V2 + f"<!-- {index} -->\n"
+        blob = hashlib.sha1(f"blob {len(newest.encode())}\0{newest}".encode(), usedforsecurity=False).hexdigest()
+        if blob > gitlink_target:
+            break
+    _commit(repo, {"skills/pdf/SKILL.md": newest}, "2026-02-01T10:00:00+00:00", "v2")
+    _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{gitlink_target},skills/sub/SKILL.md")
+    _git(repo, "commit", "-q", "-m", "a submodule named like a skill")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": newest})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["at_head"]) == ("exact", True)

@@ -95,7 +95,7 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 >
 > ```bash
 > python cli.py eval check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
-> python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
+> python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --name NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
 > python cli.py repo compare <out>/<batch> --baseline guidance:none
@@ -344,7 +344,7 @@ tasks:
   revision must be a full commit SHA. A branch, tag or other ref is refused
   unless the run passes `--allow-floating-suite-revs`; it is resolved again
   when each run starts, and the batch pin (`_eval/batch.json`, key `suite`)
-  records the commits. A resume is refused with `use another --batch` when the
+  records the commits. A resume is refused with `use another --name` when the
   revision now resolves to another commit: the batch does not follow a
   moved branch or tag, and it does not reuse a later commit. The pin also
   records the suite file's path, the task-to-repository mapping and the
@@ -384,7 +384,7 @@ read (a link that loops, names a directory or nothing, or leaves the repository,
 | `gate` | no | framework | what counts as success; default `["pass"]`. Each entry is a boolean metric name, which must be `true`, or `{"metric": <name>, "min": <number>}` for a numeric metric |
 | `score` | for score-only tasks | framework | `{"metric": <name>, "max": <number>}`: the metric that is the result when `pass` is `null`, and the value the oracle must reach (§4.3) |
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
-| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`eval check --schema-only` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
+| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`eval check --schema-only` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), unless `repo run --label-host` runs it and records the miss, and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. On a `guidance:as-skill` catalog arm the generated `<repo>-guidance` skill is refused too (its usage is `guidance_skill_loaded`). `result.json` `skills` records whether the agent used it and whether it used it first |
 | `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `eval check --schema-only`, `tasks check` and `repo run` |
@@ -629,7 +629,7 @@ The line format, its version and the promise that comes with it: [events-format.
   An install or removal gives a choice only when its command joins every part to the next with `&&` and has no pipe:
   the harness reports one exit code per command, so a `;`, `||` or `|` part could have failed or never run. A
   missing install choice leaves the installation unmeasured, including when output from a pipeline mentions success. A
-  `--dry-run` installs nothing and gives none. An install in a `bash -c` wrapper, or whose first word carries a
+  `--dry-run` installs nothing and gives none, nor does `poetry ... --lock`, which rewrites the lock file only. An install in a `bash -c` wrapper, or whose first word carries a
   parenthesis (`(pip install X)`), gives none.
   Choice events are written to `events.jsonl`; the counters and `first_useful` do not read them.
 
@@ -647,7 +647,8 @@ calls; `null` when the harness wrote no result record.
 message id, as `trace inspect` reads it): everything start-up loaded plus the
 task, so two arms that differ only in guidance differ there by what start-up
 loaded of it. It is `null` when the trace has no main-thread call with
-`usage`, and for a trace format that carries none (`text`).
+`usage`, when the first call's usage reports none of the three counts (only
+`output_tokens`), and for a trace format that carries none (`text`).
 
 `result.json` `process` holds what the framework counts in the events, the
 parent's and subagents' together, so a grader need not:
@@ -658,8 +659,8 @@ parent's and subagents' together, so a grader need not:
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
-| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`, timed too: `time cat AGENTS.md`, `X=1 time cat AGENTS.md`, or after `command`: `command cat AGENTS.md`, not after `env`, which runs a program, never a builtin: `env command cat AGENTS.md` and `env builtin cat AGENTS.md` run no `cat`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`; not a call of a shell function of that name the same Bash call defined (Claude Code starts each call in a new shell, which keeps no function of an earlier call): `cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` and `cat() ( echo hi ); cat AGENTS.md` too, is no read, as bash runs the function, nor one after a function named `command`, `env`, `builtin` or `time`, not the keyword: `command() { echo hi; }; command cat AGENTS.md`). A command that is one such read naming one file, alone, the one command of a brace group (`{ cat AGENTS.md; }`) or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, a quoted or escaped `"cd"` or `\cd` too, not `env cd`) or a virtualenv's activate (`source .venv/bin/activate && cat AGENTS.md`, `source 'my env/bin/activate'` too), and fails is no read; one naming two keeps its reads, even when only one is known (`cd -; cat missing.md /ws/AGENTS.md`). Because such a call cannot say which of its files failed, a path counts only when the workspace held that guidance file when the agent started, the arm's files included, also when the path leads to it through a link (`alias/AGENTS.md` with `alias -> docs`), by the links the workspace had at the start, so a link the agent removes or retargets later does not unlist a read it made through it: a path that never existed (`cat docs/AGENTS.md 2>/dev/null` in a workspace without it), a link that dangles or loops (also one that returns to a directory through a `..` component: `alias -> alias/../docs`, and one whose target goes `..` out of a name that was no directory at the start: `alias -> missing/../docs`, which the system refuses), a file the arm removed and a file the agent created itself are not listed. Guidance seen through a pipe, `grep` or `rg` is not a read here (a search is `guidance_searched`), nor is a relative read after an earlier Claude Code Bash call ran a `cd` (`time cd` and `command cd` too), `pushd`, `popd`, or an `eval`, `source` or `.` (which may run one; not `source .venv/bin/activate`, a virtualenv's activate script alone, assumed to run none, §7), its name quoted or escaped too (`"source" "$ENV"`, `\cd "$D"`), or called a shell function whose body names one of these (`f() { cd sub; }` defined in that call; `source` and `.` only as a command, not of an activate script: `f() { git add .; }` names none), in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing, so it moves nothing). That holds across agents: after the parent's `cd`, a subagent's relative reads are dropped too, and the reverse, since a subagent may share the parent's shell (not checked on a real trace; dropping a read is the safe side either way); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
-| `guidance_searched` | sorted, distinct workspace paths, normalized and filtered as `guidance_read` is (`guidance.globs` match, the workspace held the file when the agent started), of the files a search showed lines of: the `searched` list of a `command` event not refused, or of a Claude Code `Grep` `tool` event ([events format](events-format.md)). A search is not a read: it adds no `read` event, so `tool_calls` and `guidance_read` stay as they were, and a file both printed and searched is in both lists. A part of a Claude Code Bash call, Codex command or Copilot `bash` command is a search when it runs `grep`, `egrep`, `fgrep`, `rg` or `git grep` (`/bin/grep` and `command grep` too, `git --no-pager grep`, `git -P grep` and `git -c k=v grep`, not `git -C dir grep`, nor a shell function of that name the same call defined) and names the file as an operand: past the pattern, after `-e` or `--` (`-ewarn` and `-nefoo`, with the expression attached, too), not the value of an option (`-m 1`) nor a pattern file (`-f F`, `-fF`); `git grep` takes the paths after `--` or after the pattern. The `cd` rules are `guidance_read`'s (`cd sub && grep x AGENTS.md` searches `sub/AGENTS.md`; a relative file after an earlier call's `cd` is dropped, and is not added to `unknown_reads`, which counts reads only). A `Grep` call counts when it has a `path` and `output_mode` `content` (a relative `path` starts at the directory the harness started in, as a Bash call does, and is dropped after an earlier Bash call that may have moved the shell, as a relative Bash search is): Claude Code's default mode (`files_with_matches`) and `count` print no line of a file, and nor does a result that is empty or says `No matches found` (also an `offset` past the last line), as an error result does not. Not counted, since no line of the file reached the agent or no file is named: `-q`, `--quiet`, `--silent`, `-l`, `--files-with-matches`, `-L`, `--files-without-match` (not rg's `-L`, which follows links), `-c`, `--count`, `--count-matches`, `-V` and rg's `--files` and `-h` (`grep -h` is `--no-filename` and stays a search; for `grep`, an unambiguous prefix of a long option too, also one that takes a value: `--qui`, `--cou`, `--exclude-d AGENTS.md`, whose `AGENTS.md` is no operand; rg reads none); a directory operand (`grep -r x docs`, `rg x docs` name no guidance file); a glob or a computed operand (`*.md`, `$f`, `$(ls)`); stdout redirected to a file or `/dev/null`; stdin (`cat AGENTS.md \| grep x`, which is not a read either); a negated (`! grep`), subshell or refused command. A search piped only into `head` or `tail` with known options (`grep x AGENTS.md \| head -n 20`, `\| head -n 20 2>/dev/null`, `\|& head`, `\| /usr/bin/head` and `\| LC_ALL=C head` too; also after `if`, `while` or `then`) counts; a pipe into any other stage, a `head` or `tail` that names a file, takes an unknown option or a value the tool refuses (`tail --follow=bad`, `--pid=x`, `-s x`, `-n x`; `--follow=name` too, which tail refuses for its input before it prints a line), `--help` or `--version`, passes no line (`-n 0`, `-c 0`) or is a shell function the same call defined, does not. A search of several files lists every file it named when its command showed a line, without attributing the lines to files (`grep visible AGENTS.md docs/AGENTS.md` whose output is only `AGENTS.md:1:visible` lists both). A search that fails as one search of one file (`rc` 1: no line matched, or 2: an error; for Claude Code any nonzero exit) is no search of it, as a failed one-file read is no read; one naming several files, when every search of the command is in its last part (`grep x AGENTS.md sub/AGENTS.md`, `echo hi; grep x AGENTS.md`, `cd sub && grep x AGENTS.md \| head`), loses them all on `rc` 1 (no line matched in any of them) and, for Claude Code, on any error; on another `rc` (2: an error, perhaps in one file of several) or when an earlier part also searched (`grep a A.md; grep b B.md`, whose exit says nothing of the first), it keeps them, as a multi-file read does; unless the trace gives the command's result as the empty text, which no search showed a line in (`grep x AGENTS.md \| head` exits 0 with nothing matched; a result that is absent from the trace is not taken for empty). A Copilot `grep` tool call and a PowerShell command are not parsed |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`; a `..` after a link is followed as the system does, by the links the workspace had at the start, not collapsed: `alias/../AGENTS.md` with `alias -> docs/nested` is `docs/AGENTS.md`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`; a `head` or `tail` whose count prints nothing is no read: `head -n 0`, `-c 0`, `-0`, `--lines=0`, `-n +0`, `tail -n -0`, but `head -n -0` and `tail -n +0` print every line, `tail -f -n 0` prints what is appended, and `POSIXLY_CORRECT=1 head AGENTS.md -n 0` (also `env POSIXLY_CORRECT=1`, and `head` after an `export POSIXLY_CORRECT=1` of the same call, in its own shell, until `unset POSIXLY_CORRECT` or `export -n POSIXLY_CORRECT`, which keeps a value it assigns for a later `export POSIXLY_CORRECT`; an `export` or `unset` after `&&` or `||` counts only when it runs, known after `true`, `:` and `false`, and after another command the read stays when either state prints it; the commands inside a brace group that `&&` or `||` skips are skipped too, a function named `true`, `false` or `:` has an exit not known, `unset -f` and `export -f` leave the variable, an `export` with a redirect still counts, and a function named `export` or `unset` shadows the builtin, which `builtin` and `command` (also `command -p` and `--`) run) prints the file, as its options end at the first file or at a `-` operand, so `POSIXLY_CORRECT=1 tail -n 0 AGENTS.md -f` is no read, `-f` being a file there, and `env -i`, `env -` or `env -u POSIXLY_CORRECT` drops the variable; timed too: `time cat AGENTS.md`, `X=1 time cat AGENTS.md`, or after `command`: `command cat AGENTS.md`, not after `env`, which runs a program, never a builtin: `env command cat AGENTS.md` and `env builtin cat AGENTS.md` run no `cat`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`; not a call of a shell function of that name the same Bash call defined (Claude Code starts each call in a new shell, which keeps no function of an earlier call): `cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` and `cat() ( echo hi ); cat AGENTS.md` too, is no read, as bash runs the function, nor one after a function named `command`, `env`, `builtin` or `time`, not the keyword: `command() { echo hi; }; command cat AGENTS.md`). A command that is one such read naming one file, alone, the one command of a brace group (`{ cat AGENTS.md; }`) or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, a quoted or escaped `"cd"` or `\cd` too, not `env cd`) or a virtualenv's activate (`source .venv/bin/activate && cat AGENTS.md`, `source 'my env/bin/activate'` too), and fails is no read; one naming two keeps its reads, even when only one is known (`cd -; cat missing.md /ws/AGENTS.md`). Because such a call cannot say which of its files failed, a path counts only when the workspace held that guidance file when the agent started, the arm's files included, also when the path leads to it through a link (`alias/AGENTS.md` with `alias -> docs`), by the links the workspace had at the start, so a link the agent removes or retargets later does not unlist a read it made through it: a path that never existed (`cat docs/AGENTS.md 2>/dev/null` in a workspace without it), a link that dangles or loops (also one that returns to a directory through a `..` component: `alias -> alias/../docs`, and one whose target goes `..` out of a name that was no directory at the start: `alias -> missing/../docs`, which the system refuses), a file the arm removed and a file the agent created itself are not listed. Guidance seen through a pipe, `grep` or `rg` is not a read here (a search is `guidance_searched`), nor is a relative read after an earlier Claude Code Bash call ran a `cd` (`time cd` and `command cd` too), `pushd`, `popd`, or an `eval`, `source` or `.` (which may run one; not `source .venv/bin/activate`, a virtualenv's activate script alone, assumed to run none, §7), its name quoted or escaped too (`"source" "$ENV"`, `\cd "$D"`), or called a shell function whose body names one of these (`f() { cd sub; }` defined in that call; `source` and `.` only as a command, not of an activate script: `f() { git add .; }` names none), in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing, so it moves nothing). That holds across agents: after the parent's `cd`, a subagent's relative reads are dropped too, and the reverse, since a subagent may share the parent's shell (not checked on a real trace; dropping a read is the safe side either way); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `guidance_searched` | sorted, distinct workspace paths, normalized (a `..` after a link followed, as in `guidance_read`) and filtered as `guidance_read` is (`guidance.globs` match, the workspace held the file when the agent started), of the files a search showed lines of: the `searched` list of a `command` event not refused, or of a Claude Code `Grep` or Copilot `grep` `tool` event ([events format](events-format.md)). A search is not a read: it adds no `read` event, so `tool_calls` and `guidance_read` stay as they were, and a file both printed and searched is in both lists. A part of a Claude Code Bash call, Codex command or Copilot `bash` command is a search when it runs `grep`, `egrep`, `fgrep`, `rg` or `git grep` (`/bin/grep` and `command grep` too, `git --no-pager grep`, `git -P grep` and `git -c k=v grep`, not `git -C dir grep`, nor a shell function of that name the same call defined) and names the file as an operand: past the pattern, after `-e` or `--` (`-ewarn` and `-nefoo`, with the expression attached, too), not the value of an option (`-m 1`) nor a pattern file (`-f F`, `-fF`); `git grep` takes the paths after `--` or after the pattern. The `cd` rules are `guidance_read`'s (`cd sub && grep x AGENTS.md` searches `sub/AGENTS.md`; a relative file after an earlier call's `cd` is dropped, and is not added to `unknown_reads`, which counts reads only). A `Grep` call counts when it has a `path` and `output_mode` `content` (a relative `path` starts at the directory the harness started in, as a Bash call does, and is dropped after an earlier Bash call that may have moved the shell, as a relative Bash search is): Claude Code's default mode (`files_with_matches`) and `count` print no line of a file, and nor does a result that is empty or says `No matches found` (also an `offset` past the last line), as an error result does not. Not counted, since no line of the file reached the agent or no file is named: `-q`, `--quiet`, `--silent`, `-l`, `--files-with-matches`, `-L`, `--files-without-match` (not rg's `-L`, which follows links), `-c`, `--count`, `--count-matches`, `-V` and rg's `--files` and `-h` (`grep -h` is `--no-filename` and stays a search; for `grep`, an unambiguous prefix of a long option too, also one that takes a value: `--qui`, `--cou`, `--exclude-d AGENTS.md`, whose `AGENTS.md` is no operand; rg reads none); a directory operand (`grep -r x docs`, `rg x docs` name no guidance file); a glob or a computed operand (`*.md`, `$f`, `$(ls)`); stdout redirected to a file or `/dev/null`; stdin (`cat AGENTS.md \| grep x`, which is not a read either); a negated (`! grep`), subshell or refused command. A search piped only into `head` or `tail` with known options (`grep x AGENTS.md \| head -n 20`, `\| head -n 20 2>/dev/null`, `\|& head`, `\| /usr/bin/head` and `\| LC_ALL=C head` too; also after `if`, `while` or `then`) counts; a pipe into any other stage, a `head` or `tail` that names a file, takes an unknown option or a value the tool refuses (`tail --follow=bad`, `--pid=x`, `-s x`, `-n x`; `--follow=name` too, which tail refuses for its input before it prints a line), `--help` or `--version`, passes no line (`-n 0`, `-c 0`) or is a shell function the same call defined, does not. A search of several files lists every file it named when its command showed a line, without attributing the lines to files (`grep visible AGENTS.md docs/AGENTS.md` whose output is only `AGENTS.md:1:visible` lists both). A search that fails as one search of one file (`rc` 1: no line matched, or 2: an error; for Claude Code any nonzero exit) is no search of it, as a failed one-file read is no read; one naming several files, when every search of the command is in its last part (`grep x AGENTS.md sub/AGENTS.md`, `echo hi; grep x AGENTS.md`, `cd sub && grep x AGENTS.md \| head`), loses them all on `rc` 1 (no line matched in any of them) and, for Claude Code, on any error; on another `rc` (2: an error, perhaps in one file of several) or when an earlier part also searched (`grep a A.md; grep b B.md`, whose exit says nothing of the first), it keeps them, as a multi-file read does; unless the trace gives the command's result as the empty text, which no search showed a line in (`grep x AGENTS.md \| head` exits 0 with nothing matched; a result that is absent from the trace is not taken for empty). A Copilot `grep` tool call counts under the rules of a `Grep` call: its `paths` (one string or a list, each resolved from the start directory as a `view` path is; an empty or non-string entry names nothing) in `output_mode` `content`, not the default mode, `files_with_matches` or `count`, and not a call with no `paths`; a failed result, an empty one or `No matches found.` drops it, and a relative path is not dropped after an earlier `bash` call's `cd`, as `view`'s is not. A PowerShell command is not parsed |
 | `unknown_reads` | the relative shell reads, of calls neither refused nor failed as one read of one file (see `guidance_read`; `cd -; cat missing.md` failing counts none), that the trace made at a directory the converter could not follow (after `source env.sh`, `cd -`, a call of a function that runs a `cd`, or a `cd` in an earlier Claude Code Bash call): they have no `read` event, so `guidance_read` may miss them; `0` when there are none |
 | `counters` | each `process_metrics` name (§2) and its count |
 
@@ -671,7 +672,7 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 | Grader | Declare | Hit |
 |---|---|---|
 | test: the grade runs the target tests | `{"command": "<regex>"}` | the first `command` event whose text matches the regex (`regex.search`) and whose `rc` is `0`. `rc` 0 says that command passed, not that every target test did, so the regex should name the target tests |
-| edit or diff: the grade reads a target file | `{"edit": "<glob>"}` or a list | the first `edit` event whose path matches a glob (`match_glob`, as the guidance globs) |
+| edit or diff: the grade reads a target file | `{"edit": "<glob>"}` or a list | the first `edit` event whose path matches a glob (`match_glob`, as the guidance globs; a `..` after a link in the path is followed as in `guidance_read`, so `sub/alias/../x` with `sub/alias -> ../docs/nested` is `docs/x`) |
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
@@ -700,7 +701,7 @@ row shows which.
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
 `skills_used` (the installed skills the agent called with the `Skill` tool or
-whose `SKILL.md` it read, the call or read neither denied nor failed, in order of first use), `expected_skill` (the task's,
+whose `SKILL.md` it read, the call or read neither denied nor failed, a `..` after a link in the read path followed as in `guidance_read`, in order of first use), `expected_skill` (the task's,
 or `null`), `skill_invoked` (the expected skill was used; any installed skill
 when the task names none) and `skill_selected_correct` (the expected skill was
 the first one used; `null` when the task names none). When the trace could not
@@ -718,7 +719,7 @@ command events that name an added file as a workspace path (`tools/fmt`,
 `./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`; a file
 with no `/` only as `./name`, under the workspace path or after an interpreter (a bare `name` resolves through `PATH`), so
 `npm run lint` does not name a `lint` file), `reads` the read events of one that did not fail (a
-read of an added script counts as use), `mcp_calls` the calls of the servers' tools
+read of an added script counts as use; a `..` after a link in the path is followed as in `guidance_read`, so `alias/../tools/fmt` with `alias -> docs/nested` reads `docs/tools/fmt`), `mcp_calls` the calls of the servers' tools
 (`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
 is whether any is non-zero, and `measured` is
 `false` when the agent left no trace to count from. `repo report` shows the
@@ -807,6 +808,31 @@ cells is left unrun; a cell that already has a `result.json` keeps it. A harness
 before its first trace line is not a verdict on the cell: the cell is a crash, the batch exits 5, and it writes
 no `result.json`, so the next run runs it again. A harness the cap killed before its first trace line is a fail
 cell, as before.
+
+The probe also fingerprints the host (`dokimi/repos/host_fingerprint.py`, `collectors_version` 1).
+Its collectors are `os`, `cpu`, `memory`, `gpu`, `python`, `tools`, `network` and `virt`; each is a
+flat dict of JSON scalars under `collectors` in the probe's facts, beside the container's own keys
+(`cpus`, `cpu_vendor`, ...), which are unchanged. A collector that fails reports `{"error": ...}`
+and the others still run. Linux reads `/proc`, `/sys` and `/etc/os-release`; macOS reads `sysctl`;
+Windows reads the kernel's memory status, takes the CPU model and vendor from the registry (not from
+`platform.processor()`, which reads `PROCESSOR_IDENTIFIER`) and spawns only `git --version`, `nvidia-smi` and the other
+tools' `--version` calls when they are on the path. `gpu` is NVIDIA only. `virt` reads a container
+from `/.dockerenv`, podman's `/run/.containerenv` or the cgroup, and a VM from DMI or the `hypervisor`
+CPU flag. Nothing identifying is recorded: no host or user name, IP address, environment value,
+interface name or absolute path; an error text is cut to 300 characters with its paths replaced.
+`fingerprint_id` hashes the CPU and identity collectors but not `network`, so a bridge that appears
+between runs does not split a batch. `tools` count by presence only (a version change or a timed-out
+`--version` does not split a host), and a collector that still fails after one retry is left out.
+
+`repo run --label-host` runs a task that the host misses, instead of marking it unsupported. Each
+cell's `result.json` and `meta.json` hold `host_match`: the `fingerprint`, the report's `met`, and one
+field per declared requirement with `met` true, false, or null where the probe could not tell. The
+report's `met` is false if any field is, else null if any is undecided, else true. The requirements
+are checked against the grading container's CPU view, as in §3, not against the host's collectors,
+which only enter the fingerprint. `repo report` groups rows by `host_fingerprint` and notes a
+labelled miss ("labelled, unmet: cpu_flags.avx512f"). Without the flag, cells are not run on a host that misses the requirements, but results still carry `host_fingerprint` and `repo report` still splits rows by it.
+A missing cell counts on its host’s row when one exists. Otherwise it counts on the sole row for
+its task, arm and model, or only in the batch total when there are zero or multiple such rows.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
 directory, an unpinned remote), on a pinned local path inside a repository that is not its root, on a `--cache-dir` (or, without the flag, a `$DOKIMI_REPO_CACHE`) that is not a usable directory and on a `--cache-root` or `--cache NAME=PATH` that is not one; a
@@ -1367,6 +1393,57 @@ an integer), a source it cannot open, a manifest that is missing or malformed, t
 cannot write. Each prints `✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead, pinned or not. Grading a task needs the manifest's
 `entry_points.test` (§2).
 
+#### From commits: `eval tasks generate --from history`
+
+The same tasks, from the source's own history, need no pull request file:
+
+```bash
+python cli.py eval tasks generate ~/repo@main --from history --out-dir ~/repo/.agent-eval/tasks \
+    [--commits 300] [--subject REGEX] [--max-lines 400] [--prompt-file FILE] [--dry-run]
+```
+
+- The commits are the non-merge ones among the newest `--commits` (default 300) first-parent
+  commits of the pinned revision (a branch, tag or SHA, resolved once), and of those, the ones
+  whose subject `--subject` matches, case-insensitively. A merge, and so the commits of a branch
+  merged with `--no-ff`, gives no task; the output counts the merges left out. A revert (a
+  subject that starts with `revert` or `back out`), `fixup!`, `squash!` or `amend!` commit is never
+  one, whatever the pattern. Leading bracketed tags such as `[backport]` and a conventional
+  commit prefix are ignored when recognizing these subjects. The default pattern holds the words a fix's subject uses
+  (`fix`, `bug`, `regress`, `crash`, `wrong`, `incorrect`, `broken`, `no longer`, `never`,
+  `hang`, `leak`, `off-by`, `mismatch`, `silently`); `.` takes every commit.
+- Each commit is a change from its first parent to itself. A root commit is skipped. The task
+  is `<out>/authoring_<first 12 hex of the SHA>/`, written by the same writer, filter and
+  prompt rules as above. The commit's subject is the title and the rest of its message, less
+  the trailer lines that name people (`Signed-off-by:`, `Co-authored-by:`, `Reviewed-by:`, ...),
+  `Change-Id:` and `(cherry picked from commit ...)`, is the description. A subject that ends with `(#<n>)` (a squash merge) loses that suffix, and `n`
+  becomes `source_pr`, so a link to `/pull/<n>` is dropped. A commit with no such suffix
+  drops no pull request link. One change is one task: a commit whose `(#<n>)` already has a
+  task in `--out-dir` (`authoring_pr<n>` from `--from prs`) is `kept` as that task, and
+  `--from prs` keeps PR `n` as the `authoring_<sha12>` whose `source_pr` is `n`; `--force` rewrites
+  neither. Two commits with one `(#<n>)` give one task, the newest's, and `--dry-run` says so.
+- `task.json` has `source_commit` in place of `source_url`, `merge_commit` and `head_commit`.
+  `family` is also `fix` when the title matches the default `--subject` pattern, whatever `--subject`
+  is (`Crash on neg` is a `fix`).
+  `public_at` is the commit’s author date (`%aI`) for commits without a PR suffix. It is omitted for
+  squash merges because Git does not record the PR’s opening date.
+  A pull request was public from when it was opened, which git does not know.
+- `--from history` reads `--commits`, `--subject`, `--max-lines`, `--manifest`, `--manifest-file`,
+  `--prompt-file` and `--dry-run`. Any other source flag given here (`--index`, `--prs`, `--threads`, ...),
+  even at its default value, is a usage error (2), `<flag> is for --from <sources>`, and so are
+  `--commits` and `--subject` with another source. So is a `--subject` that is empty or does not compile, an
+  unpinned source, and the source errors `--from prs` exits 2 on.
+- It prints how many of the non-merge commits it read the pattern matched, one line per commit
+  (`written`, `would write` with `--dry-run`, `kept` or `skipped` with the reason), and a
+  summary. It exits 1 when no commit gave a task (written, or kept from before), on a git
+  failure, on a shallow clone (`history generation needs a full clone; run git fetch --unshallow`), and on the errors `--from prs` exits 1 on (a source it cannot open, a missing or
+  malformed manifest, a prompt file that is empty or cannot be read, a task it cannot write),
+  each with `✗` and the reason.
+
+On dokimi's own history (the newest 60 first-parent commits), 22 subjects match and 15 tasks are
+written. 7 are skipped: 6 over `--max-lines`, 1 with no test file. The two PRs that both sources
+cover (#393, #405) give the same hidden tests and `oracle_lines`; into one `--out-dir`, whichever
+runs second keeps the first one's task.
+
 ### 4.9 `run_context.v1` (written by `repo run` to `{run_dir}/run_context.json`)
 
 Beside `events.jsonl`, one record per cell: what the agent CLI printed about the run it made.
@@ -1698,7 +1775,9 @@ per scenario).
     - `loaded`: both tokens reported;
     - `truncated`: one token reported;
     - `fetched`: reported only after the agent read the file with a tool (a
-      read that was denied or failed is none). For the
+      read that was denied or failed is none; a `..` after a link in the read
+      path is followed as in `guidance_read`, by the links of the probe
+      workspace, a `CLAUDE.md` link among them). For the
       Claude Code (its Bash tool), Codex and Copilot profiles a shell read counts
       only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`, after the `time`
       keyword too (`time -p cat AGENTS.md`, `time -- cat AGENTS.md`; the
@@ -2434,7 +2513,7 @@ python cli.py eval check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yam
 # agents: one cell per (task, arm, model, rep) under repo-runs/<batch>/
 python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --arm guidance:none,guidance:raw \
-    --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --batch pilot \
+    --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --name pilot \
     --bin /opt/claude-2.1.286/claude --agent-network host --max-usd-per-cell 1 --max-usd 20
 python cli.py repo report repo-runs/pilot
 python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
@@ -2451,7 +2530,7 @@ python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --
 # a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
 # (replace <sha> with that revision; the quotes keep the shell from reading <sha> as a redirect)
 python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,guidance:rev:<sha>' \
-    --model claude-sonnet-5-5 --batch replay --agent-network host
+    --model claude-sonnet-5-5 --name replay --agent-network host
 # decide on the score row (recall, p_holm); metric:recall_addressed is descriptive
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
 # judged recall (§4.5): a sample for a person to label (no LLM), then the judge (paid)
@@ -2480,15 +2559,15 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   digest of each parsed mapping. A task manifest’s `probes` mapping also contributes to the `id`.
   A rerun whose `id` differs (another `--tools`, another `--candidates` or `--probes` mapping, changed manifest probes, a `--delegation` that changes the tool arguments, profile,
   harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`, `bridge`, `trace` or `answer_format`) is refused before any agent starts, and
-  `--force` or another `--batch` runs it. `--force` replaces the cells of the
+  `--force` or another `--name` runs it. `--force` replaces the cells of the
   run's plan only: if the batch dir holds finished cells outside that plan
   whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1
   --delegation none --force`), the run is refused before any agent starts, because
-  the report would pool both executions in one row; use another `--batch`. The
+  the report would pool both executions in one row; use another `--name`. The
   same goes for the finished cells of a task this host cannot run, which
   `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
   recorded is refused as `unrecorded`, not counted as native; `--force` or
-  another `--batch` runs it. A `result.json` that is not UTF-8, not JSON or
+  another `--name` runs it. A `result.json` that is not UTF-8, not JSON or
   not a JSON object is that cell's error, naming the file, and the other cells
   still run; the file is left in place, and removing it or `--force` runs the
   cell again. The same holds for a finished cell of a task this host cannot
@@ -2702,8 +2781,9 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   text) at 5 or fewer, one task included. The test stays exact, with no mid-p: p(theta) is a step function and the
   ends are its step points, so an end can be a delta itself, or 0. The text prints an end at 3 decimals, and a
   non-zero end that would print as `0.000` at 2 significant digits (`+0.0002`), so it keeps its side of 0.
-  `delta.mean` (4 places) stays inside those ends: six deltas of `4e-5` give a mean of `0.0001`, not `0.0`, as
-  both ends are `0.0001`.
+  The ends and `delta.mean` are printed at 4 places, or at 2 significant digits where 4 places would give 0, so a
+  non-zero one is never `0.0`: six deltas of `4e-5` give `4e-05` for the mean and both ends. `delta.mean` stays
+  inside those ends. `mde` is at 6 places, or at 2 significant digits where 6 places would give 0.
   A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.

@@ -291,8 +291,8 @@ def test_coverage_skips_a_task_that_does_not_parse(tmp_path):
 
 @pytest.mark.parametrize(
     "text, expected",
-    [("1", 1.0), ("0\n", 0.0), ("0.75", 0.75), ("1.0", 1.0), ("reward: 0.5", 0.5),
-     ("1.5", None), ("-0.1", None), ("", None), ("nan", None), ("inf", None)],
+    [("1", 1.0), ("0\n", 0.0), ("0.75", 0.75), ("1.0", 1.0), ("reward: 0.5", 0.5), ("0.00", 0.0), ("1.00", 1.0),
+     ("1.5", None), ("-0.1", None), ("", None), ("nan", None), ("inf", None), ("reward: 1.5", None), ("reward: 10", None), ("reward: 100", None), ("score: 15%", None), ("reward: 1.0e5", None), ("pass rate: 12/20", None), ("reward: -0.5", None), ("score = 0.25\n", 0.25), ("reward: 5e-1", 0.5), ("Reward: 0.8.\n", 0.8), ("reward 1/1", None), ("reward: 0.5/1", None), ("score: 75\nreward: 0.75", 0.75), ("score: 15 reward: 0.5", 0.5), ("reward: 1e3/20", None), ("reward: 1e3%", None), ("reward: 0.5e0.", 0.5), ("reward: 1.e3", None), ("reward: 1_000", None), ("score: 1,000", None), ("reward: 1,5", None), ("reward: 1 / 20", None), ("pass rate: 1 of 20", None), ("score: 1 out of 20", None), ("reward: 0.5e/20", None), ("(reward: 0.5)", 0.5), ("reward: 1, then", 1.0), ('{"reward":0.5,"n":2}', 0.5), ("reward=0.5;steps=3", 0.5), ("reward:0.5|time:3s", 0.5), ("score:75,reward:0.75", 0.75), ("pass rate: 0.5 of tests", 0.5), ("reward: 0.5\n/logs/verifier/test.log", 0.5), ("reward: 0.5\n\n/tmp/x", 0.5), ("reward: 0.5\nof 3 runs", 0.5), ("reward: 0.5 %", None), ("reward: .5e-1", 0.05), ("reward: -.5e-1", None), ("reward: .75", 0.75), ("score - 0.5", 0.5), ("reward: ..5", None), ("reward: -..5", None), ("reward: ..1", None), ("reward: ...1", 1.0), ("score v.5: 0.9", None), ("reward.1: 0.3", None), ("reward...0.5", 0.5), ("Computing reward...0.85", 0.85), ("reward:.5", 0.5), ("reward: n/a\nlatency: .5\nreward: 1", 1.0), ("reward: n/a, latency: .5", None), ("Reward:\n0.75", 0.75), ("score: none; steps: 0.5", None), ("reward: n/a  latency: 0.5", None), ("reward=nan steps=0.5", None), ("reward: none\tsteps: 0.25", None), ("| reward | 0.5 |", 0.5), ("reward, 0.5", 0.5), ("reward; 0.5", 0.5), ("score, normalized: 0.8", 0.8), ("Final reward is:\n0.75", 0.75), ("reward:\n\n0.5", 0.5), ("reward: n/a | latency: .5", None), ("Reward:\n  0.75", 0.75), ("reward: n/a\n0.5", None), ("reward pending\nsteps 0.5", None), ("Reward\n1", 1.0), ("Final score\n0.75", 0.75), ("reward pending\n0.5", None), ("reward\n\n  0.5", 0.5), ("| reward |\n| 0.5 |", 0.5), ("reward (final)\n0.7", None)],
 )
 def test_reward_file_accepts_partial_credit(text, expected):
     assert _parse_reward_text(text, reward_file=True) == expected
@@ -472,7 +472,7 @@ def test_docker_oracle_runs_a_task_md_task_from_its_own_dirs(tmp_path, monkeypat
     out = TaskSuiteRunner([task], ["docker-oracle"], output_root=tmp_path / "runs", runner=cli).run()
     (row,) = out["results"]
     assert "error" not in row["metrics"]
-    sources = {c[1] for c in calls if c[0] == "cp" and c[2].startswith("dokimi-run-")}
+    sources = {c[-2] for c in calls if c[0] == "cp" and c[-1].startswith("dokimi-run-")}
     assert sources == {f"{task.path / 'oracle'}/.", f"{task.path / 'verifier'}/."}
 
 

@@ -10,8 +10,9 @@ started. It answers like a daemon with one healthy task container:
 - every docker step exits 0 with no output;
 - ``docker logs`` of the egress sidecar says the proxy is ready, then
   ``sidecar_log``;
-- ``docker cp <c>:/logs/verifier/reward.txt <dst>`` writes ``reward`` to
-  ``<dst>`` (``None``: no reward file, exit 1);
+- ``docker cp -L <c>:/logs/verifier/reward.txt <dst>`` writes ``reward`` to
+  ``<dst>`` (``None``: no reward file, exit 1), and ``.../reward.json`` writes
+  ``reward_json`` (by default ``None``: the verifier wrote none);
 - ``docker inspect -f {{.State.Running}}`` says ``true``;
 - ``harbor run ... --jobs-dir <d>`` leaves one trial's ``result.json`` under
   ``<d>/job/trial/``, with ``reward`` as its verifier reward (``None``: no
@@ -44,11 +45,14 @@ Answer = Callable[[Call], Optional[Completed]]
 
 class DockerCLI(FakeRunner):
     def __init__(self, *, reward: Optional[str] = "1.0", solver: Union[str, Answer] = "",
-                 sidecar_log: str = "", answer: Optional[Answer] = None, real: tuple[str, ...] = ()):
+                 sidecar_log: str = "", answer: Optional[Answer] = None, real: tuple[str, ...] = (),
+                 reward_json: Optional[str] = None):
         super().__init__(self._handle)
         self.reward, self.solver, self.sidecar_log, self.answer = reward, solver, sidecar_log, answer
+        self.reward_json = reward_json
         self.real = real
         self.args: list[list[str]] = []
+        self.env_files: dict[int, str] = {}  # id(call) -> the --env-file text, read while the call ran
 
     @staticmethod
     def is_solver(argv: tuple[str, ...]) -> bool:
@@ -61,9 +65,20 @@ class DockerCLI(FakeRunner):
         """The in-container isolation probe (``docker exec ... sh -c <probe>``)."""
         return argv[:2] == ("docker", "exec") and "--env-file" in argv and argv[-2] == "-c"
 
+    def env_file(self, call: Call) -> dict[str, str]:
+        """The variables of the ``--env-file`` a recorded call was given (the file is gone after the call)."""
+        text = self.env_files.get(id(call), "")
+        return dict(line.split("=", 1) for line in text.splitlines() if line)
+
+    def _record_env_file(self, call: Call) -> None:
+        if "--env-file" in call.argv:
+            path = call.argv[call.argv.index("--env-file") + 1]
+            self.env_files[id(call)] = Path(path).read_text(encoding="utf-8")
+
     def _handle(self, call: Call) -> Optional[Completed]:
         if call.argv[0] == "docker":
             self.args.append(list(call.argv[1:]))
+        self._record_env_file(call)
         if self.answer is not None:
             got = self.answer(call)
             if got is not None:
@@ -86,12 +101,18 @@ class DockerCLI(FakeRunner):
         args = call.argv[1:]
         if args[0] == "logs":
             return reply(READY + self.sidecar_log)
-        if args[0] == "cp" and args[1].endswith(":/logs/verifier/reward.txt"):
-            if self.reward is None:
-                return reply(stderr="Error: No such container:path", returncode=1)
-            Path(args[2]).write_text(self.reward, encoding="utf-8")
+        if args[0] == "cp":
+            return self._reward_copy(args)
         if args[0] == "inspect" and "{{.State.Running}}" in args:
             return reply("true\n")
+        return None
+
+    def _reward_copy(self, args: tuple[str, ...]) -> Optional[Completed]:
+        for name, text in (("reward.txt", self.reward), ("reward.json", self.reward_json)):
+            if args[-2].endswith(f":/logs/verifier/{name}"):
+                if text is None:
+                    return reply(stderr="Error: No such container:path", returncode=1)
+                Path(args[-1]).write_text(text, encoding="utf-8")
         return None
 
     def solver_calls(self) -> list[Call]:

@@ -149,12 +149,15 @@ injection (`docs`/`mcp:`), agent persona prompts (`profile:`, loaded from
 `agent_profiles/`), skills (`skill:`, loaded from `skills/`), and agentic use
 where the model decides to call a doc-search or skill tool (`agent:`,
 `skill-agent:`, `skill-catalog:`) via the tool-calling loop in `eval/agent_runner.py`.
-The spec grammar — what an `--arms` entry means, where `+` splits a combined
+The spec grammar — what an `--arm` entry means, where `+` splits a combined
 spec, and what each arm is *named* — is `treatments/specs.py`.
 `eval/arm_runner.py` generates and judges answers for every arm and reports
 per-arm deltas vs a baseline. `eval/arms_run.py` runs it from an `ArmsRunConfig`,
 the one typed run configuration `arms run`, `arms matrix-run` (one per cell) and
-`subjects run` build from their flags. `dokimi/plugins.py` adds runtime plugins that
+`subjects run` build from their flags. `eval/arms_adapter.py` reads a single-turn run of a
+baseline arm and at most one docs arm (`docs`/`mcp:`) as the `answers.v1`/`eval.v1` files of
+the pipeline, so their readers take it unchanged (#228 step 4); it refuses other arms (a run
+stopped before its other arm answered cannot tell) and session runs. `dokimi/plugins.py` adds runtime plugins that
 modify every arm inside one run (`plugin:caveman`): a plugin changes the system
 prompt before the model runs or reshapes the answer after it. Entry point:
 `python cli.py arms run`. Details in
@@ -391,15 +394,16 @@ next release.
   call. `eval tasks generate --from prs` (`authoring.py`, `authoring_prs.py`,
   `authoring_prompt.py`): one `dokimi:hidden_tests` task per merged pull
   request, its description as the prompt, its tests hidden until the grade and
-  the rest of its diff as the oracle (contract §4.8); `merged.py` holds what the
-  two kinds share.
+  the rest of its diff as the oracle (contract §4.8); `eval tasks generate
+  --from history` (`authoring_commits.py`) writes the same tasks from bug-fix
+  commits, with no pull request file; `merged.py` holds what the two kinds share.
 - `dokimi/repos/graph_tasks.py` — `eval tasks generate --from graph`:
   `dokimi:graph_enum` tasks (references to a function, direct subclasses of a
   class) with gold from a SCIP index of a pinned revision, read with
-  `dokimi/repos/code_index/`. `eval tasks generate --from graph|replay|prs` is the
+  `dokimi/repos/code_index/`. `eval tasks generate --from graph|replay|prs|history` is the
   command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,run,report}` (replay and authoring tasks: `eval tasks generate --from replay|prs`)
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,run,report}` (replay and authoring tasks: `eval tasks generate --from replay|prs|history`)
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md).
 Its core is implemented, but the per-host egress proxy (§2) is not, so
@@ -520,10 +524,10 @@ label (it exits 1 for a narrowing, which the label overrides only when the run p
 whatever the label). `conda-forge.yml` runs only when a PR or a push to `main` changes
 `pyproject.toml`, one of the two scripts it runs or the workflow file (also weekly, and by
 hand, `workflow_dispatch`): it solves the runtime dependencies from conda-forge
-alone (`scripts/conda_forge_specs.py` turns them into match specs) on Python
-3.11 and 3.14, installs the wheel into that environment with `--no-deps`, and
-runs `pip check` and the installed-package smoke test,
-`scripts/smoke_installed.py`.
+alone (`scripts/conda_forge_specs.py` turns them into match specs), installs the
+wheel into that environment with `--no-deps`, and runs `pip check` and
+`scripts/smoke_installed.py`. PRs use the newest supported Python. Pushes to
+`main`, the weekly run and manual dispatch also exercise the supported floor.
 
 **`ci.yml`** — fast code checks:
 
@@ -533,14 +537,15 @@ runs `pip check` and the installed-package smoke test,
    `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
    `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs
    `repo scan` as a gate (`--fail-on fail`).
-2. **mypy** — type check of the whole package (modules listed in the
-   `pyproject.toml` override are exempt until fixed).
+2. **mypy** — type check of the whole package.
 3. **test** — pytest from `requirements.lock.txt`, offline, in parallel
-   (pytest-xdist), on Python 3.11–3.14; coverage is measured on the 3.14 leg,
-   and on a PR 80% of the changed lines must be covered.
+   (pytest-xdist). PRs run the 3.14 coverage leg, which checks outcomes,
+   journey evidence and changed-line coverage (80% when at least 20 changed
+   lines are measurable). Pushes to `main`, scheduled and manually dispatched
+   runs cover the full supported Python matrix.
 4. **package-smoke** — builds/installs the package with a fresh resolve of its
-   dependency ranges (Python 3.11 and 3.13) and exercises the console and
-   module entry points.
+   dependency ranges and exercises the console and module entry points. PRs
+   exercise the supported floor. Other runs also exercise Python 3.13.
 
    **windows-smoke** (a PR check on `windows-latest`) builds the wheel, installs
    it, runs the installed-package smoke test and a few fast tests.

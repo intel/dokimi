@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.exists_mock import exists_for_prefix
+
 from dokimi.repos import WorkTree, load_manifest
 from dokimi.repos.reach import run_reach
 from dokimi.repos.harness_profile import load_profile
@@ -328,6 +330,8 @@ def test_questions_generate_topics_cache_directory_is_keyed_as_the_pipeline_keys
             raise _Stop
 
     monkeypatch.chdir(tmp_path)
+    real_exists = Path.exists  # the doc source paths here are only cache-key input; #1086 refuses a missing one
+    monkeypatch.setattr(Path, "exists", exists_for_prefix(real_exists, "/d"))
     monkeypatch.setattr(factory, "create_doc_source_client", lambda source: object())
     monkeypatch.setattr(factory, "resolve_library_id_for_product", lambda *a, **kw: "org/x")
     monkeypatch.setattr(questions_pkg, "RagasSeedExtractor", _Extractor)

@@ -9,6 +9,7 @@ import json
 import math
 import time
 import threading
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, List, Dict, Any, Iterable, Optional, Sequence
 from pathlib import Path
@@ -16,15 +17,18 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from dokimi.artifacts import save_artifact
+from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import LLM, ChatModel, Invoker, check_caller_provider
 from dokimi.judged import judged_reply
-from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
+from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
 from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
 from dokimi.records import (BASELINE, CONTEXT, NO_RETRIEVAL_SOURCES, Record, RecordLike, is_knowledge_run,
                             knowledge_only, records)
 from dokimi.defaults import ANSWERING_METHOD_VERSION, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.metrics.usage import UsageRecord
+from dokimi.spend import Spend
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
 from dokimi.eval.rubric import (
@@ -251,18 +255,14 @@ class Judge:
         self.prompt_template = prompt_template
         self.judge_placeholder = judge_placeholder
         self.answers_method_version = answers_method_version
-        # Accumulate judge-side token/cost telemetry across all judge calls
-        # (Phase-C.0 covered answering; the judge path was untracked).
+        # The judge calls' tokens and dollars, written as judge_metrics (usage_metrics).
         self._usage_lock = threading.Lock()
-        self._usage_totals = {
-            "calls": 0, "cost_known_calls": 0, "cost_usd": 0.0,
-            "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
-            "redrawn_judgements": 0,
-        }
+        self._spend = Spend()
+        self._redrawn_judgements = 0
         # The model names a CLI judge's aliases resolved to, for the judge record.
         self._resolved_models: set = set()
 
-        check_sampling(provider, temperature, seed)
+        check_judge_sampling(provider, model, temperature, seed)
         check_caller_provider(provider)
         self.llm: ChatModel = Invoker(LLM(model, provider, api_key, temperature=temperature, seed=seed))
         
@@ -541,7 +541,7 @@ class Judge:
 
         def redrawn() -> None:
             with self._usage_lock:
-                self._usage_totals["redrawn_judgements"] += 1
+                self._redrawn_judgements += 1
 
         (scores, aggregate), _ = judged_reply(
             send, prompt, parse, pinned=self.temperature is not None or self.seed is not None,
@@ -587,33 +587,28 @@ class Judge:
         return "\n".join(f"Doc {i+1}: {text}" for i, text in enumerate(docs))
     
     def _accumulate_usage(self, usage) -> None:
-        """Fold one judge call's UsageRecord into the running totals (thread-safe).
-
-        Defensive: a real UsageRecord has int token fields, but test doubles may
-        carry non-numeric attributes — coerce and skip what does not convert so
-        telemetry capture never breaks a judging run.
-        """
-        from dokimi.metrics.usage import UsageRecord
-        if not isinstance(usage, UsageRecord):
-            return
-
-        def _int(v):
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                return 0
-
+        """Count one judge call (thread-safe); a reply with no ``UsageRecord`` is a call with no price."""
+        row = usage if isinstance(usage, UsageRecord) else None
         with self._usage_lock:
-            t = self._usage_totals
-            t["calls"] += 1
-            t["prompt_tokens"] += _int(usage.prompt_tokens)
-            t["completion_tokens"] += _int(usage.completion_tokens)
-            t["total_tokens"] += _int(usage.total_tokens)
-            self._resolved_models.update(n for n in usage.resolved_model.split(",") if n)
-            cost = usage.cost_usd
-            if isinstance(cost, (int, float)):
-                t["cost_usd"] += float(cost)
-                t["cost_known_calls"] += 1
+            self._spend.add_call(row)
+            if row is not None:
+                self._resolved_models.update(n for n in row.resolved_model.split(",") if n)
+
+    def usage_metrics(self) -> Dict[str, Any]:
+        """The ``judge_metrics`` block: the judge's calls, tokens and dollars, by :mod:`dokimi.spend`'s rule.
+
+        ``cost_usd`` is the priced calls' sum, with ``cost_known_calls`` of ``calls`` priced, and
+        ``null`` (not 0.0) when none was. A call replayed from the response cache is counted in
+        ``replayed_calls`` and adds no tokens and no dollars.
+        """
+        with self._usage_lock:
+            spend, redrawn = replace(self._spend), self._redrawn_judgements
+        return {
+            "calls": spend.calls, "replayed_calls": spend.replayed_calls,
+            "cost_known_calls": spend.priced_calls, "cost_usd": spend.known_usd,
+            "prompt_tokens": spend.prompt_tokens, "completion_tokens": spend.completion_tokens,
+            "total_tokens": spend.total_tokens, "redrawn_judgements": redrawn,
+        }
 
     def _build_evaluation_output(self, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Build the serialisable output structure for a set of evaluations."""
@@ -628,16 +623,10 @@ class Judge:
             "evaluations": evaluations,
         }
         with self._usage_lock:
-            totals = dict(self._usage_totals)
             resolved = sorted(self._resolved_models)
         if resolved:
             output["judge_resolved_models"] = resolved
-        # cost_usd is null (not 0.0) when no judge call had known pricing, so a
-        # missing price reads distinct from a genuinely free judge.
-        output["judge_metrics"] = {
-            **totals,
-            "cost_usd": round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None,
-        }
+        output["judge_metrics"] = self.usage_metrics()
         if self.run_metadata:
             output["run_metadata"] = self.run_metadata
         return output

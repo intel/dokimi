@@ -178,8 +178,9 @@ class TaskSpec:
             # 2>&1: one ordered stream, as terminal-bench reads it from the tmux pane
             return ContainerStep(copies, f"bash {tbench_v1.TEST_DIR}/run-tests.sh 2>&1", user=None,
                                  parser=tbench_v1.PARSER_PYTEST)
+        # Keep verifier summaries in emission order when the script uses both streams.
         return ContainerStep(((self.tests_dir, "/tests"), (self.tests_dir, "/verifier")),
-                             "mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh")
+                             "exec 2>&1; mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh")
 
     def local_docker_problem(self, *, oracle: bool) -> str | None:
         """Why a docker-* harness cannot run this task as its own runner would, or ``None``."""
@@ -749,10 +750,6 @@ def _table(value: Any) -> dict[str, Any]:
 # Docker-harness defaults for a task that does not set its own.
 _DEFAULT_BUILD_TIMEOUT = 600.0
 _DEFAULT_VERIFY_TIMEOUT = 180.0
-
-
-def _is_public(task: TaskSpec) -> bool:
-    return str(task.environment.get("network_mode") or "none") == "public"
 
 
 def _task_build_timeout(task: TaskSpec) -> float:
