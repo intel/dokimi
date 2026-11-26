@@ -814,6 +814,8 @@ def test_npx_reports_a_local_bin_after_an_assignment_prefixed_cd(tmp_path, assig
     "bash --login -o pipefail -O extglob -c 'cd /tmp/other-project && npx mytool init'",
     "sh -c -- 'cd /tmp/other-project && npx mytool init'",
     """bash --rcfile "/some path/bashrc" -c 'npx mytool init'""",
+    "sh -c 'cd /tmp/other-project\nnpx mytool init'",
+    'bash -c "cd /tmp/other-project\nnpx mytool init"',
     "sh -c 'npx otherbin'; npx mytool",
 ])
 def test_npx_inside_a_quoted_shell_script_is_checked(tmp_path, command):

@@ -145,12 +145,12 @@ MAX_NESTING = 50  # substitutions entered inside one another; deeper ones are st
 BLOCK_END = "\0"  # ends a fenced block or code span: a quote an ``echo`` opens in one never closes in the next
 # Skip quoted arguments, escaped characters and comments before recognising a directory-changing command.
 _DIR_CHANGE = re.compile(
-    r"""\\[\s\S]|'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*"|(?:^|(?<=[\s;&|(\0]))\#[^\n\0]*|"""
+    r"""\\[\s\S]|'[^'\0]*'|"(?:\\[^\0]|[^"\\\0])*"|(?:^|(?<=[\s;&|(\0]))\#[^\n\0]*|"""
     r"(?P<block>\0)|(?:^|(?<=[\n;&|(\0]))[ \t]*"
     rf"(?:(?:command|builtin|if|elif|then|else|while|until|do|time|!|\{{|{_ASSIGNMENT})[ \t]+)*"
     r"(?P<change>cd|pushd|popd)(?=$|[\s;&|)\0])"
 )
-_SHELL_QUOTED = r"""(?:'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*")"""
+_SHELL_QUOTED = r"""(?:'[^'\0]*'|"(?:\\[^\0]|[^"\\\0])*")"""
 _SHELL_OPTION_VALUE = rf"""(?:{_SHELL_QUOTED}|[^\s;&|()'"`\0]+)"""
 _SHELL_SCRIPT = re.compile(
     r"(?:^|(?<=[\s;&|(\0/]))(?:(?:ba|z|da|k)?sh|fish)[ \t]+"
