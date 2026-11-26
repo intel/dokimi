@@ -190,6 +190,12 @@ def test_a_double_parenthesis_that_no_double_parenthesis_closes_on_its_line_is_a
     assert [c for c, _ in shell.split_commands(text)][-1] == "rm g"
 
 
+def test_two_arithmetic_commands_on_one_substitution_line_inside_arithmetic_both_close_on_that_line() -> None:
+    text = "echo $(( $( ((a=1<<3)); ((b=1<<3)); echo 1) + 1 ))\ncat <<EOF\nsed -i s/x/y/ f\nEOF\nrm g\n"
+    assert not [c for c, _ in shell.split_commands(text) if c.startswith("sed")]
+    assert _cli_heredocs(text) == "echo $(( $( ((a=1<<3)); ((b=1<<3)); echo 1) + 1 ))\ncat \nrm g\n"
+
+
 def test_many_double_parentheses_on_a_line_with_no_closer_are_scanned_in_linear_time() -> None:
     ratio, _ = growth(lambda k: partial(shell.split_commands, "(" * k + "\ncat <<EOF\nbody\nEOF\n"), 2_000)
     assert ratio < GROWTH_LIMIT
