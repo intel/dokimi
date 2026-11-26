@@ -774,6 +774,12 @@ def test_npx_reports_an_explicit_package_named_like_a_local_bin(tmp_path, option
     assert "npx otherbin" in finding.message
 
 
+def test_npx_reports_an_undeclared_unscoped_name(tmp_path):
+    files = {"package.json": '{"name": "@acme/tool", "bin": {"acme-cli": "./cli.js"}}'}
+    [finding] = _found(_review(tmp_path, _fenced("npx tool init"), files), "install-unpinned")
+    assert "npx tool" in finding.message
+
+
 def test_npx_of_a_name_the_skills_package_does_not_declare_is_still_an_install(tmp_path):
     own = '{"name": "mytool", "bin": {"mytool": "./cli.js"}}'
     [finding] = _found(_review(tmp_path / "other", _fenced("npx otherbin init"), {"package.json": own}),

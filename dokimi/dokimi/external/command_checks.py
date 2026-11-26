@@ -491,7 +491,7 @@ def _unpinned_in_readings(text: str, markdown: bool, own: frozenset[str] = froze
 
 
 def _own_names(skill_dir: Path) -> frozenset[str]:
-    """The lowercase package name and bin names of the ``package.json`` at the skill's root (lowercase, unscoped too).
+    """The lowercase package name and bin names of the ``package.json`` at the skill's root.
     One that is missing, a link, too big, not JSON or not an object names nothing."""
     path = skill_dir / "package.json"
     try:
@@ -504,7 +504,7 @@ def _own_names(skill_dir: Path) -> frozenset[str]:
         return frozenset()
     name = data.get("name") if isinstance(data.get("name"), str) else ""
     bins = data.get("bin")
-    names = {name.lower(), name.rsplit("/", 1)[-1].lower()} if name else set()
+    names = {name.lower()} if name else set()
     if isinstance(bins, dict):
         names.update(k.lower() for k in bins if isinstance(k, str))
     elif isinstance(bins, str) and name:
