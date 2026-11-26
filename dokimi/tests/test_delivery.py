@@ -666,6 +666,38 @@ def test_scan_rejects_empty_corpus(pack):
         delivery.run(pack)
 
 
+@pytest.mark.parametrize("image, exit_code", [(None, 2), ("python:3.12-slim", 3)])
+def test_scan_distinguishes_a_missing_image_field_from_an_unusable_image(pack, capsys, monkeypatch, image, exit_code):
+    import sys
+    from dokimi.cli import main
+
+    manifest = json.loads(pack.manifest.read_text())
+    if image is None:
+        del manifest["image"]
+    else:
+        manifest["image"] = image
+    pack.manifest.write_text(json.dumps(manifest))
+    out = pack.manifest.with_name("scan.json")
+    monkeypatch.setattr(delivery, "container", lambda *a, **kw: pytest.fail("used Docker on an unusable manifest"))
+    monkeypatch.setattr(sys, "argv", [
+        "dokimi", "delivery", "scan", "--manifest", str(pack.manifest), "--tasks", str(pack.tasks),
+        "--corpus", str(pack.corpus), "--fixture", "--out", str(out), "--json",
+    ])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == exit_code
+    envelope = json.loads(capsys.readouterr().out)
+    if image is None:
+        assert "invalid delivery inputs" in envelope["error"]["message"]
+        assert not out.exists()
+    else:
+        assert envelope["status"] == "partial" and out.exists()
+        rows = envelope["data"]["observations"]
+        assert len(rows) == 4
+        assert {row["outcome"] for row in rows} == {"INCONCLUSIVE"}
+        assert {row["reason"] for row in rows} == {"ValueError: runtime image needs its immutable local image ID"}
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
