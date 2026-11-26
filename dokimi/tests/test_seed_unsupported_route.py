@@ -7,6 +7,8 @@ The run is not refused: the seed was never sent, so the artifact must not read a
 A temperature the route refuses still refuses the run.
 """
 
+import json
+
 import pytest
 
 from dokimi.llm_sampling import NAME_REFUSAL, warn_seed_dropped
@@ -84,3 +86,41 @@ def test_a_judge_keeps_a_seed_the_route_takes(monkeypatch):
 
     monkeypatch.setattr(judge_sampling, "sampling_refusals", lambda *a, **k: {})
     assert judge_sampling.check_judge_sampling("openai", "m", None, 7) == 7
+
+
+_JUDGE_REPLY = json.dumps({
+    "correctness": 80, "completeness": 80, "specificity": 80,
+    "actionability": 80, "code_quality": 80, "reasoning": "sound",
+})
+_QUESTION = {"id": "q", "question": "How do I run it?"}
+_ANSWER = dict(_QUESTION, without_docs={"answer": "Run the command."})
+
+
+def test_panel_sends_only_supported_seeds_and_records_omissions(fake_llm, monkeypatch, tmp_path):
+    from dokimi.eval import judge_sampling
+    from dokimi.eval.panel import JudgeConfig, JudgePanel
+
+    monkeypatch.setattr(judge_sampling, "sampling_refusals", _sampling_by_route)
+    refused = JudgeConfig("technical_expert", "m", "amazon-bedrock", seed=7)
+    supported = JudgeConfig("doc_reviewer", "m", "openai", seed=9)
+    panel = JudgePanel(judges=[refused, supported])
+    fake_llm.respond = lambda _: _JUDGE_REPLY
+    scored = panel.score_answer(library_name="demo", question="How?", answer="Like this.")
+    output = tmp_path / "panel.json"
+    panel.evaluate_answers([_ANSWER], "demo", output_path=output)
+
+    assert sorted((req.provider, req.seed) for req in fake_llm.requests) == [
+        ("amazon-bedrock", None), ("amazon-bedrock", None), ("openai", 9), ("openai", 9),
+    ]
+    assert scored["aggregate"] == 80.0
+    saved = json.loads(output.read_text())["evaluations"][0]["without_docs"]
+    for result in (scored["panel"], saved):
+        votes = {vote["role"]: vote for vote in result["votes"]}
+        assert votes["technical_expert"]["seed_requested"] == 7
+        assert votes["technical_expert"]["seed_status"] == "unsupported"
+        assert "seed_status" not in votes["doc_reviewer"]
+    assert refused.seed == 7 and supported.seed == 9
+
+
+def _sampling_by_route(model, provider, *, temperature, seed):
+    return {"seed": NAME_REFUSAL} if provider == "amazon-bedrock" and seed is not None else {}
