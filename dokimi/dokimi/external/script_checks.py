@@ -104,7 +104,7 @@ def _file_findings(path: Path, rel: str, data: bytes, bash: Optional[str], runne
     found: list[ScriptFinding] = []
     if crlf and (suffix in SHELL_SUFFIXES or data.startswith(b"#!")):
         found.append(("warn", "script-crlf", f"{rel} has CRLF line endings: bash and a shebang "
-                      "interpreter fail on the carriage return", rel))
+                      "interpreter fail on the carriage return; replace the CRLF endings with LF", rel))
     if suffix == ".py":
         problem = _python_problem(data, path)
         if problem:

@@ -159,6 +159,6 @@ def path_missing(
                 else ""
             )
             findings.append(
-                f"{text!r} (in {raw!r}) names no file in the skill directory{from_root}"
+                f"{text!r} (in {raw!r}) names no file in the skill directory{from_root}; add the file or fix the path"
             )
     return findings

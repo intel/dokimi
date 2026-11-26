@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 from functools import partial
 
 import pytest
@@ -279,3 +280,38 @@ def test_no_frontmatter_row_is_a_load_error_in_the_manifest(tmp_path):
     [entry] = read_skill_manifest(tmp_path)
     assert not entry.loaded
     assert "no frontmatter" in entry.error
+
+
+_FIX_CLAUSE = re.compile(
+    r"(?:^|[;.:,]\s+|\(|\bthen\s+|\bor\s+)['\"`]?(?:add|fix|remove|rename|replace|set|shorten)\b", re.I
+)
+
+
+@pytest.mark.parametrize(
+    ("code", "extra", "body", "name", "description"),
+    [
+        ("name-mismatch", "", "# Body\n", "other-name", "Use when testing things."),
+        ("name-missing", "", "# Body\n", "", "Use when testing things."),
+        ("name-format", "", "# Body\n", "Bad_Name", "Use when testing things."),
+        ("description-too-long", "", "# Body\n", "a", "Use when testing. " + "word " * 220),
+        ("link-missing", "", "See [n](notes.md).\n", "a", "Use when testing things."),
+        ("path-missing", "", "Run `scripts/build.py` first.\n", "a", "Use when testing things."),
+        ("frontmatter-unknown-key", "descripton: typo\n", "# Body\n", "a", "Use when testing things."),
+    ],
+)
+def test_mechanical_finding_message_states_the_fix(tmp_path, code, extra, body, name, description):
+    """#942: the message of a mechanical finding ends in an imperative fix clause."""
+    head = (f"name: {name}\n" if name else "") + f"description: {description}\n" + extra
+    _write(tmp_path, "skills/a", f"---\n{head}---\n{body}")
+    messages = [f.message for fs in _findings(tmp_path).values() for f in fs if f.code == code]
+    assert messages
+    assert all(_FIX_CLAUSE.search(m) for m in messages), messages
+
+
+def test_script_crlf_message_states_the_fix(tmp_path):
+    """#942: the ``script-crlf`` message says to replace the CRLF endings."""
+    skill_dir = _skill(tmp_path, "a")
+    (skill_dir / "run.sh").write_bytes(b"#!/bin/bash\r\necho hi\r\n")
+    messages = [f.message for f in _findings(tmp_path)["a"] if f.code == "script-crlf"]
+    assert messages
+    assert all(_FIX_CLAUSE.search(m) for m in messages), messages

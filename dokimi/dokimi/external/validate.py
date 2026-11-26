@@ -277,7 +277,8 @@ def _unknown_key_findings(meta: dict) -> list[Finding]:
                 "note",
                 "frontmatter-unknown-key",
                 f"frontmatter keys {', '.join(map(repr, sorted(unknown_keys)))} are outside the Agent Skills "
-                "spec and Claude Code conventions. These keys may be read by another harness or may be typos.",
+                "spec and Claude Code conventions. These keys may be read by another harness or may be typos. "
+                "Remove a key that is a typo, or rename it to the key you meant.",
             )
         )
     return findings
@@ -307,7 +308,8 @@ def _frontmatter_findings(
                     "warn",
                     "name-missing",
                     "no name in the frontmatter"
-                    + ("" if at_root else f"; the directory name {dir_name!r} is used"),
+                    + ("" if at_root else f"; the directory name {dir_name!r} is used")
+                    + "; add a 'name' key to the frontmatter",
                 )
             )
     else:
@@ -316,7 +318,8 @@ def _frontmatter_findings(
                 Finding(
                     "error",
                     "name-mismatch",
-                    f"name {declared!r} is not the directory name {dir_name!r}",
+                    f"name {declared!r} is not the directory name {dir_name!r}; "
+                    "rename the directory or set 'name' to the directory name",
                 )
             )
         # ``name-format`` also covers the length: a name over 64 characters is not a separate code.
@@ -329,14 +332,15 @@ def _frontmatter_findings(
             # OpenCode states the kebab-case rule only for the path-derived ID, and does not enforce it: a warning.
             findings.append(
                 Finding("warn" if opencode else "error", "name-format",
-                        f"name {declared!r} {' and '.join(problems)}")
+                        f"name {declared!r} {' and '.join(problems)}; rename it to fit")
             )
     if len(skill.description) > DESCRIPTION_MAX and not opencode:  # OpenCode documents no description cap
         findings.append(
             Finding(
                 "error",
                 "description-too-long",
-                f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}",
+                f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}; "
+                f"shorten it to {DESCRIPTION_MAX} characters or fewer",
             )
         )
     findings += _unknown_key_findings(meta)
@@ -441,7 +445,8 @@ def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) 
     rooted = _in_checkout(source_root / text, source_root)
     if rooted is not None and _exists(rooted):
         from_root = " (it exists from the catalog root: the base is wrong)"
-    return Finding("warn", "link-missing", f"link {raw!r} names no file relative to the skill directory{from_root}")
+    return Finding("warn", "link-missing", f"link {raw!r} names no file relative to the skill directory{from_root}; "
+                   "fix the link or add the file")
 
 
 def _span_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
