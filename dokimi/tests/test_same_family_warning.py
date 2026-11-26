@@ -8,6 +8,7 @@ gets the family wording; another family, or a model with no known vendor, prints
 """
 
 from dokimi.novelty import provenance
+from dokimi.novelty.client import LLMClient, extractor_judge_relation
 from dokimi.utils import UNKNOWN_VENDOR, vendor_of, warn_judge_independence
 
 
@@ -36,6 +37,19 @@ def test_another_family_and_an_unknown_vendor_print_nothing(capsys):
     assert warn_judge_independence("openai", "gpt-6.1-sol", "amazon-bedrock", "claude-haiku-5-5") is False
     assert warn_judge_independence("local", "mymodel-a", "local", "mymodel-b") is False
     assert capsys.readouterr().err == ""
+
+
+def test_routing_prefixes_do_not_determine_the_model_vendor(capsys):
+    model = "openai/meta-llama/Llama-3.1-8B"
+    assert vendor_of(model) == "meta"
+    assert vendor_of("openrouter/openai/my-model") == "openai"
+    assert vendor_of("openai/my-local-model") == UNKNOWN_VENDOR
+    assert not warn_judge_independence("openai", model, "openai", "llama-4-maverick")
+    assert "one meta family" in capsys.readouterr().err
+    assert not warn_judge_independence("openai", model, "openai", "gpt-6.1-sol")
+    assert capsys.readouterr().err == ""
+    assert extractor_judge_relation(model, LLMClient(model="llama-4-maverick", role="judge"))["same_vendor"]
+    assert not extractor_judge_relation(model, LLMClient(model="gpt-6.1-sol", role="judge"))["same_vendor"]
 
 
 def test_an_extractor_of_the_answering_vendor_is_warned_and_another_vendor_is_not():

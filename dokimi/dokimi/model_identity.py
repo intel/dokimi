@@ -36,6 +36,21 @@ _VENDOR_SLUGS = {"z-ai": "zai", "x-ai": "xai", "mistralai": "mistral"}  # OpenRo
 _BEDROCK_ARN = re.compile(r"(?:^|/)arn:aws[a-z-]*:bedrock:[a-z0-9-]*:\d*:(?:inference-profile|foundation-model)/")
 
 
+def _routed_parts(name: str) -> tuple[list[str], bool]:
+    """Drop transport prefixes, keeping a Hugging Face organization and any model vendor."""
+    arn = _BEDROCK_ARN.search(name)
+    if arn:
+        name = name[arn.end():]
+    parts = name.split("/")
+    while len(parts) > 1 and parts[0] in _ROUTES:
+        route = parts.pop(0)
+        if route == "huggingface":
+            return parts, True
+        if route == "openrouter" and len(parts) == 2 and _VENDOR_SLUGS.get(parts[0], parts[0]) in _VENDORS:
+            return parts, False
+    return parts, False
+
+
 def _model_core(model: str) -> tuple[str, str | None]:
     """A model name reduced to ``(id, snapshot date or None)``. A snapshot is ``-YYYYMMDD`` or OpenAI's ``-YYYY-MM-DD``.
 
@@ -48,15 +63,7 @@ def _model_core(model: str) -> tuple[str, str | None]:
     # sonnet[1m] is the same model with a larger window: the 1M context form goes, and no other bracket
     # (qwen3[8b] and qwen3[32b] are two models)
     name = re.sub(r"\[1m\]$", "", (model or "").strip().lower())
-    arn = _BEDROCK_ARN.search(name)  # only a Bedrock ARN's tail: ``foundation-model/X`` alone is an org/name id
-    if arn:
-        name = name[arn.end():]
-    parts = name.split("/")
-    hub = False
-    while len(parts) > 1 and parts[0] in _ROUTES:
-        hub = parts.pop(0) == "huggingface"
-        if hub:  # a Hub id: the route goes, its organization stays, even behind another route
-            break
+    parts, hub = _routed_parts(name)
     if not hub and len(parts) > 1 and _VENDOR_SLUGS.get(parts[0], parts[0]) in _VENDORS:
         parts.pop(0)  # OpenRouter's ``qwen/X`` is Bedrock's ``qwen.X``: the vendor, not an organization
     name = "/".join(parts)
@@ -162,5 +169,6 @@ UNKNOWN_VENDOR = "unknown"
 
 def vendor_of(model: str | None) -> str:
     """The vendor family a model id names (``us.anthropic.claude-...`` is ``anthropic``), else ``unknown``."""
-    lowered = (model or "").lower()
+    parts, _ = _routed_parts((model or "").strip().lower())
+    lowered = "/".join(parts)
     return next((vendor for marker, vendor in _VENDOR_MARKERS if marker in lowered), UNKNOWN_VENDOR)
