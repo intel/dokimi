@@ -118,6 +118,22 @@ def test_alias_of_a_retired_dated_id_is_a_warning(tmp_path, alias, state, replac
     assert replacement in message
 
 
+def test_advice_on_a_retired_id_is_conditional_on_the_text_calling_it(tmp_path):
+    """#945: a row that states a retirement is reported, so the advice must not read as an order to replace it."""
+    body = "\n| Model | Retired |\n|---|---|\n| claude-3-7-sonnet-20250219 | 2026-02-19 |\n"
+    _skill(tmp_path / "skills", "history", body=body)
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert "; if this text calls the model, use claude-sonnet-5-5 (" in message
+
+
+def test_retirement_table_row_is_still_reported_and_can_be_ignored(tmp_path):
+    """#945, docs/external-content.md: a line documenting a retirement is reported; `--ignore` is the way out."""
+    _skill(tmp_path / "skills", "history", body="\nclaude-2.1 was retired on 2025-07-21.\n")
+
+    assert len(_messages(tmp_path, "legacy-model-id")) == 1
+
+
 def test_alias_does_not_match_inside_a_dated_id_or_a_longer_name(tmp_path):
     # #945, and docs/external-content.md: IDs match whole tokens, so adding an alias adds no second match.
     # The alias claude-opus-4-1 is a prefix of the dated ID: one finding; "claude-opus-4-0-beta" is another name.
