@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Iterable, Optional
 
+from dokimi.spend import Spend
+
 
 @dataclass(frozen=True)
 class UsageRecord:
@@ -56,6 +58,7 @@ class UsageRecord:
         ``cost_usd`` stays ``None`` only if *both* operands are ``None`` (one
         priced + one unpriced call yields the priced subtotal, not ``None``).
         ``model``/``provider`` are taken from whichever operand has them.
+        ``replayed`` holds only when both rows are replayed.
         """
         if other == 0:  # identity element, so sum([...]) works
             return self
@@ -81,7 +84,7 @@ class UsageRecord:
             provider=self.provider or other.provider,
             role=self.role or other.role,
             n_calls=self.n_calls + other.n_calls,
-            cost_known_calls=_known_cost_calls(self) + _known_cost_calls(other),
+            cost_known_calls=self.priced_calls + other.priced_calls,
             replayed=self.replayed and other.replayed,
             resolved_model=_joined_models(self.resolved_model, other.resolved_model),
         )
@@ -126,7 +129,7 @@ class UsageRecord:
             "latency_sec": round(self.latency_sec, 4),
             "ttft_sec": round(self.ttft_sec, 4) if self.ttft_sec is not None else None,
             "n_calls": self.n_calls,
-            "cost_known_calls": _known_cost_calls(self),
+            "cost_known_calls": self.priced_calls,
             "role": self.role,
         }
         if self.resolved_model:
@@ -135,6 +138,15 @@ class UsageRecord:
             m["raw_answer_chars"] = answer_chars
             m["final_answer_chars"] = final_chars if final_chars is not None else answer_chars
         return m
+
+    @property
+    def priced_calls(self) -> int:
+        """Number of LLM calls whose dollar cost is represented in ``cost_usd``; none when it is ``None``."""
+        if self.cost_usd is None:
+            return 0
+        if self.cost_known_calls:
+            return self.cost_known_calls
+        return max(self.n_calls, 0)
 
     def with_latency(self, latency_sec: float, ttft_sec: Optional[float] = None) -> "UsageRecord":
         """Return a copy with latency/TTFT filled in (extraction-time helper)."""
@@ -184,57 +196,32 @@ def to_record(
 
 
 def roll_up_by_role(records: "Iterable[UsageRecord]") -> dict:
-    """Split usage into main-agent vs subagent buckets.
+    """Split usage into main-agent vs subagent buckets, each a :class:`dokimi.spend.Spend`.
 
     Groups records by ``role`` (anything other than ``"subagent"`` counts as
-    main) and reports tokens and cost for each bucket plus the full-system
-    total. Cost stays ``None`` when a bucket has no priced calls; the
-    full-system cost is the sum of whichever buckets are priced (``None`` only
-    when *both* are unpriced) — so an unpriced subagent never silently zeroes
-    the system cost.
+    main). A bucket's cost is its priced calls' sum, ``None`` when none is
+    priced; the full-system cost is ``None`` unless every call of both is
+    priced, so an unpriced subagent never reads as free. A replayed row adds no
+    tokens and no cost (:mod:`dokimi.spend`). A sum of a paid and a replayed row
+    keeps both rows' tokens and dollars, drops the replayed mark and keeps one
+    role (``__add__``), so pass each call's row.
     """
     records = list(records)
-    # Seed with role="" so the empty identity element never overrides the
-    # bucket's real role under ``__add__`` (role=self.role or other.role).
-    main = sum((r for r in records if r.role != "subagent"), UsageRecord(n_calls=0, role=""))
-    sub = sum((r for r in records if r.role == "subagent"), UsageRecord(n_calls=0, role=""))
-    # full-system cost is a trustworthy total only when *every* call (main and
-    # subagent) is priced; otherwise an unpriced portion would read as free.
-    cost_complete = _cost_complete(main) and _cost_complete(sub)
+    main = Spend.of(r for r in records if r.role != "subagent")
+    sub = Spend.of(r for r in records if r.role == "subagent")
+    both = main + sub
     return {
         "main_agent_tokens": main.total_tokens,
         "subagent_tokens": sub.total_tokens,
-        "full_system_tokens": main.total_tokens + sub.total_tokens,
-        "main_agent_cost": main.cost_usd,
-        "subagent_cost": sub.cost_usd,
-        "full_system_cost": (
-            _add_optional_costs(main.cost_usd, sub.cost_usd) if cost_complete else None
-        ),
-        "full_system_cost_complete": cost_complete,
+        "full_system_tokens": both.total_tokens,
+        "main_agent_cost": main.known_usd,
+        "subagent_cost": sub.known_usd,
+        "full_system_cost": both.usd,
+        "full_system_cost_complete": not both.unpriced_calls,
     }
-
-
-def _cost_complete(rec: UsageRecord) -> bool:
-    """True when a bucket's cost is fully known: empty, or all calls priced."""
-    return rec.n_calls == 0 or _known_cost_calls(rec) == rec.n_calls
-
-
-def _add_optional_costs(a: Optional[float], b: Optional[float]) -> Optional[float]:
-    if a is None and b is None:
-        return None
-    return round((a or 0.0) + (b or 0.0), 6)
 
 
 def _joined_models(a: str, b: str) -> str:
     """The distinct resolved model names of two rows, sorted and comma-separated."""
     names = {n for n in (*a.split(","), *b.split(",")) if n}
     return ",".join(sorted(names))
-
-
-def _known_cost_calls(rec: UsageRecord) -> int:
-    """Number of LLM calls whose dollar cost is represented in ``cost_usd``."""
-    if rec.cost_known_calls:
-        return rec.cost_known_calls
-    if rec.cost_usd is not None and rec.n_calls > 0:
-        return rec.n_calls
-    return 0

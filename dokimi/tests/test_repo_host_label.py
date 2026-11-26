@@ -202,7 +202,7 @@ def test_report_splits_a_batch_by_the_fingerprint_of_the_host_that_ran_each_cell
 
 
 def test_the_flag_is_off_by_default_and_on_with_label_host():
-    argv = ["repo", "run", "/x@HEAD", "--arm", "guidance:raw", "--model", "m", "--batch", "b"]
+    argv = ["repo", "run", "/x@HEAD", "--arm", "guidance:raw", "--model", "m", "--name", "b"]
     assert build_parser().parse_args(argv).label_host is False
     assert build_parser().parse_args([*argv, "--label-host"]).label_host is True
 
