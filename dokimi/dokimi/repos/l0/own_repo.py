@@ -13,7 +13,7 @@ _GITHUB_SLUG = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)", re.I)
 
 def patterns(repo_url: str | None) -> tuple[str | None, re.Pattern[str] | None]:
     """``(slug, link)`` of ``source.url``: the lower-cased ``owner/name`` of a GitHub URL, and the blob/tree link regex."""
-    url = (repo_url or "").removesuffix(".git").rstrip("/")
+    url = (repo_url or "").rstrip("/").removesuffix(".git")
     slug = _GITHUB_SLUG.fullmatch(url)
     return (slug.group(1).lower() if slug else None,
             re.compile(re.escape(url) + r"/(blob|tree)/(.+)") if url else None)

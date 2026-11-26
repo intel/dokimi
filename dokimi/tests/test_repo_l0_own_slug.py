@@ -25,7 +25,7 @@ def test_own_slug_is_ok_in_any_letter_case(tmp_path, span):
 
 
 @pytest.mark.parametrize("url", ["https://github.com/octo-org/demo.git", "https://github.com/octo-org/demo/",
-                                 "https://github.com/OCTO-org/Demo"])
+                                 "https://github.com/octo-org/demo.git/", "https://github.com/OCTO-org/Demo"])
 def test_source_url_spellings_are_accepted(tmp_path, url):
     assert _resolve(tmp_path, "octo-org/demo", url) == ("ok", OWN)
 
