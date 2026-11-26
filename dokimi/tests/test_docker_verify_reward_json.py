@@ -94,10 +94,20 @@ def test_a_malformed_reward_json_errors_the_cell_even_beside_a_reward_txt(tmp_pa
         _verify(tmp_path, DockerCLI(reward="1.0", reward_json=text))
 
 
-def test_a_deeply_nested_reward_json_errors_the_cell_like_any_malformed_one(tmp_path):
-    # json.loads raises RecursionError, not ValueError, past the interpreter's depth limit.
+def test_a_deeply_nested_reward_json_errors_the_cell_like_any_malformed_one(tmp_path, monkeypatch):
+    # json.loads raises RecursionError, not ValueError, past the interpreter's depth limit. Whether a 100000-deep
+    # document reaches it depends on the C stack of the build (CPython 3.14), so the test raises it itself (#1265).
+    deep = "[" * 100000 + "]" * 100000
+    real_loads = json.loads
+
+    def loads(text, *args, **kwargs):
+        if text == deep:
+            raise RecursionError("maximum recursion depth exceeded while decoding a JSON array from a unicode string")
+        return real_loads(text, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", loads)
     with pytest.raises(RuntimeError, match="/logs/verifier/reward.json .*is not JSON"):
-        _verify(tmp_path, DockerCLI(reward=None, reward_json="[" * 100000 + "]" * 100000))
+        _verify(tmp_path, DockerCLI(reward=None, reward_json=deep))
 
 
 def _writes_bytes(name: str, data: bytes):
