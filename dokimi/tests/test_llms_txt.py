@@ -153,6 +153,12 @@ def test_angle_destination_and_parenthesized_title():
     assert llms_txt.check(text) == []
 
 
+def test_a_list_link_inside_raw_html_does_not_count():
+    link = "- [Quickstart](https://acme.test/quickstart.md): first charge in five minutes"
+    text = GOOD.replace(link, f"<div>\n{link}\n</div>")
+    assert [(f.check, f.severity) for f in llms_txt.check(text)] == [("links", "fail")]
+
+
 def test_list_link_warning_uses_the_physical_line_and_resolved_target():
     text = GOOD.replace(
         '- [Quickstart](https://acme.test/quickstart.md): first charge in five minutes',
