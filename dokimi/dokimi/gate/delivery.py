@@ -42,7 +42,10 @@ def score(groups: dict, tasks: dict, repeats: int, rows: list[dict], arm: str) -
     unknown = sum((r.get("evidence") or {}).get("verifier_exit") not in (0, 10) for r in claims)
     details = {}
     total_score = 0.0
-    for group, weight in groups.items():
+    scale = max(groups.values(), default=1)
+    scaled_weights = {group: weight / scale for group, weight in groups.items()}
+    weight_sum = sum(scaled_weights.values())
+    for group, weight in scaled_weights.items():
         rates = []
         counts = {}
         for name, task in tasks.items():
@@ -58,7 +61,7 @@ def score(groups: dict, tasks: dict, repeats: int, rows: list[dict], arm: str) -
             observed += len(attempts)
             if attempts:
                 rates.append(successes / len(attempts))
-        normalized = weight / sum(groups.values())
+        normalized = weight / weight_sum
         details[group] = {"weight": normalized, "scenarios": counts}
         if rates:
             total_score += 10 * normalized * mean(rates)

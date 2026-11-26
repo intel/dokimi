@@ -98,6 +98,14 @@ def test_group_weights_and_missing_repeat():
     assert score({"one": 3, "two": 1}, tasks, 2, rows[:-1], "A")["score"] is None
 
 
+def test_large_group_weights_keep_the_score_and_relative_weights():
+    tasks = {"x": {"group": "one"}, "y": {"group": "two"}}
+    rows = [dict(task=name, arm="A", outcome="PASS") for name in tasks]
+    result = score({"one": 1e308, "two": 1e308}, tasks, 1, rows, "A")
+    assert result["score"] == 10.0
+    assert [group["weight"] for group in result["groups"].values()] == [0.5, 0.5]
+
+
 def test_paired_counts_use_only_the_named_task():
     rows = [
         dict(task="x", arm="A", repeat=1, outcome="PASS"),
