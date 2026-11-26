@@ -672,7 +672,7 @@ def test_trigger_set_no_text_refused_before_any_rewrite_call(tmp_path, monkeypat
     ("groq/llama-3.3-70b-versatile", "llama-3.3-70b-versatile", "groq", ["groq"]),
     ("huggingface/org/model", "huggingface/org/model", "huggingface", ["huggingface"]),
     ("meta-llama/llama", "meta-llama/llama", "openai", ["meta-llama"]),
-    ("openai/org/model", "org/model", "openai", []),
+    ("openai/org/model", "openai/org/model", "openai", []),
 ])
 def test_trigger_rewrite_resolves_the_model_once_after_validation(model_ref, model, provider, routes, tmp_path, monkeypatch):
     calls = []

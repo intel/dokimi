@@ -43,7 +43,8 @@ class ProviderModelAction(argparse.Action):
             setattr(namespace, self.provider_dest, provider)
             if self.named_dest:
                 setattr(namespace, self.named_dest, True)
-            setattr(namespace, self.dest, model)
+            # An explicit OpenAI prefix forces that endpoint even when the model has its own route prefix.
+            setattr(namespace, self.dest, values if provider == "openai" and "/" in model else model)
         elif sep and provider in self.known:
             parser.error(f"{option_string}: `{provider}` is not a provider for this command; "
                          f"use one of {', '.join(sorted(self.providers))}")
