@@ -629,3 +629,189 @@ def test_a_leaf_usage_error_without_json_prints_its_message_on_stderr_only(monke
     assert exc.value.code == 2
     out = capsys.readouterr()
     assert out.out == "" and message in out.err
+
+
+#: #941: every --json leaf is in exactly one of these sets, so a new leaf has to choose.
+LEAVES_WITH_NEXT = {("repo", "scan"), ("repo", "inspect"), ("runs", "list")}
+LEAVES_WITHOUT_NEXT_BY_DESIGN = {
+    ("backends",), ("catalog", "check"), ("catalog", "eval"), ("catalog", "formats"), ("eval", "check"),
+    ("eval", "inspect"), ("memory", "lint"), ("repo", "budget"), ("repo", "compare"), ("repo", "fetch"),
+    ("repo", "hits", "judge"), ("repo", "report"), ("runs", "gc"), ("runs", "rm"), ("runs", "show"),
+    ("skill", "routing"), ("trace", "consistency"), ("trace", "inspect"), ("trace", "prefilter"),
+}
+
+
+def test_every_json_leaf_gives_a_next_step_or_none_by_design():
+    # #941: a new --json leaf must be added to exactly one of the two sets
+    assert not LEAVES_WITH_NEXT & LEAVES_WITHOUT_NEXT_BY_DESIGN
+    assert set(_json_leaves()) == LEAVES_WITH_NEXT | LEAVES_WITHOUT_NEXT_BY_DESIGN
+
+
+def test_every_leaf_in_the_next_set_prints_a_step_on_a_real_run(monkeypatch, capsys, tmp_path):
+    # #941: the set "gives a next step" is true of the code: each of its leaves prints a non-empty `next`
+    from pathlib import Path
+
+    from dokimi.artifacts import save_artifact
+
+    repo = _guidance_repo(tmp_path)
+    root = tmp_path / "results"
+    root.mkdir()
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "artifacts" / "eval.v1.json").read_text("utf-8"))
+    monkeypatch.setenv("DOKIMI_RUN_ID", "r-eval")
+    save_artifact("eval", fixture, root / "eval" / "e.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)
+    cache = ["--cache-dir", str(tmp_path / "cache")]
+    real = {("repo", "scan"): [str(repo), *cache], ("repo", "inspect"): [str(repo), *cache], ("runs", "list"): []}
+    assert set(real) == LEAVES_WITH_NEXT
+    for leaf, extra in real.items():
+        doc = _json_run(monkeypatch, capsys, [*leaf, *extra])
+        assert doc["next"], leaf
+        assert _exit_code(monkeypatch, [*doc["next"][0]["argv"], "--json"]) == 0
+        capsys.readouterr()
+
+
+def _guidance_repo(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "AGENTS.md").write_text("# Guidance\n\nRun `make test` before a commit.\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
+    return repo
+
+
+def _exit_code(monkeypatch, argv):
+    try:
+        _run_main(monkeypatch, argv)
+    except SystemExit as exc:
+        return exc.code or 0
+    return 0
+
+
+def _json_run(monkeypatch, capsys, argv):
+    assert _exit_code(monkeypatch, [*argv, "--json"]) == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def _check_free_step(monkeypatch, capsys, doc, argv):
+    assert schema_errors("cli_output.v1", doc) == []
+    [step] = doc["next"]
+    assert step["argv"] == argv
+    assert (step["spends"], step["est_usd"], step["kind"]) == (False, 0, "sequence")
+    assert _exit_code(monkeypatch, [*step["argv"], "--json"]) == 0
+
+
+@pytest.mark.parametrize("leaf", ["scan", "inspect"])
+@pytest.mark.parametrize("with_cache", [False, True])
+def test_repo_scan_and_inspect_name_repo_budget_and_it_runs(monkeypatch, capsys, tmp_path, leaf, with_cache):
+    # #941: a complete document's next is `repo budget` on the same source, with --cache-dir when it was given
+    repo = _guidance_repo(tmp_path)
+    cache = ["--cache-dir", str(tmp_path / "cache")] if with_cache else []
+    monkeypatch.setenv("DOKIMI_REPO_CACHE", str(tmp_path / "default-cache"))
+    doc = _json_run(monkeypatch, capsys, ["repo", leaf, str(repo), *cache])
+    assert doc["status"] == "complete"
+    _check_free_step(monkeypatch, capsys, doc, ["repo", "budget", str(repo), *cache])
+
+
+@pytest.mark.parametrize("leaf", ["scan", "inspect"])
+def test_a_cache_dir_starting_with_a_dash_gives_a_step_that_runs(monkeypatch, capsys, tmp_path, leaf):
+    # #941: `--cache-dir -cache` as two tokens is a usage error; the step keeps the value in one token
+    repo = _guidance_repo(tmp_path)
+    (tmp_path / "-cache").mkdir()
+    monkeypatch.chdir(tmp_path)
+    doc = _json_run(monkeypatch, capsys, ["repo", leaf, str(repo), "--cache-dir=-cache"])
+    [step] = doc["next"]
+    assert step["argv"] == ["repo", "budget", str(repo), "--cache-dir=-cache"]
+    assert _exit_code(monkeypatch, [*step["argv"], "--json"]) == 0
+
+
+def test_a_failed_repo_inspect_has_no_next_step(monkeypatch, capsys, tmp_path):
+    # #941: no step on a document that is not complete
+    repo = _guidance_repo(tmp_path)
+    (repo / "AGENTS.md").write_text("# Guidance\n\nRun `no-such-tool-941 --x` first.\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["repo", "inspect", str(repo), "--cache-dir", str(tmp_path / "c"), "--json",
+                                "--fail-on", "warn", "--large-bytes", "1"])
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["status"] == "failed" and doc["next"] == []
+
+
+def test_a_failed_repo_scan_has_no_next_step(monkeypatch, capsys, tmp_path):
+    # #941: a scan that fails on an unusable --static report names no step either
+    repo = _guidance_repo(tmp_path)
+    static = tmp_path / "static.json"
+    static.write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["repo", "scan", str(repo), "--cache-dir", str(tmp_path / "c"), "--static",
+                                str(static), "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["status"] == "failed" and doc["next"] == []
+
+
+def test_runs_list_skips_a_run_id_that_runs_show_would_read_as_a_file(monkeypatch, capsys, tmp_path):
+    # #941: `runs show target.json` opens the file target.json before it looks for a run of that id
+    from pathlib import Path
+
+    from dokimi.artifacts import save_artifact
+
+    root = _runs_root(monkeypatch, tmp_path)
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "artifacts" / "eval.v1.json").read_text("utf-8"))
+    for run_id, name, when in (("older", "target.json", "2026-11-25T00:00:00Z"),
+                               ("target.json", "newest.json", "2026-11-26T00:00:00Z")):
+        monkeypatch.setenv("DOKIMI_RUN_ID", run_id)
+        save_artifact("eval", {**fixture, "evaluated_at": when}, root / name)
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    doc = _json_run(monkeypatch, capsys, ["runs", "list"])
+    assert [r["run_id"] for r in doc["data"]["runs"]][:1] == ["target.json"]
+    [step] = doc["next"]
+    assert step["argv"] == ["runs", "show", "older"]
+
+
+def _runs_root(monkeypatch, tmp_path):
+    root = tmp_path / "results"
+    root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)
+    return root
+
+
+def test_runs_list_names_runs_show_of_the_newest_run_and_it_runs(monkeypatch, capsys, tmp_path):
+    from pathlib import Path
+
+    from dokimi.artifacts import save_artifact
+
+    root = _runs_root(monkeypatch, tmp_path)
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "artifacts" / "eval.v1.json").read_text("utf-8"))
+    monkeypatch.setenv("DOKIMI_RUN_ID", "r-eval")
+    save_artifact("eval", fixture, root / "eval" / "e.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    doc = _json_run(monkeypatch, capsys, ["runs", "list"])
+    assert doc["status"] == "complete"
+    _check_free_step(monkeypatch, capsys, doc, ["runs", "show", doc["data"]["runs"][0]["run_id"]])
+
+
+def test_runs_list_without_a_run_has_no_next_step(monkeypatch, capsys, tmp_path):
+    # #941: an empty root, and artifacts that carry no run_id, give no `runs show` target
+    root = _runs_root(monkeypatch, tmp_path)
+    assert _json_run(monkeypatch, capsys, ["runs", "list"])["next"] == []
+    (root / "pairwise.json").write_text(json.dumps({"schema_version": "pairwise.v0"}), encoding="utf-8")
+    assert _json_run(monkeypatch, capsys, ["runs", "list"])["next"] == []
+
+
+def test_a_partial_runs_list_has_no_next_step(monkeypatch, capsys, tmp_path):
+    from pathlib import Path
+
+    from dokimi.artifacts import save_artifact
+
+    root = _runs_root(monkeypatch, tmp_path)
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "artifacts" / "eval.v1.json").read_text("utf-8"))
+    monkeypatch.setenv("DOKIMI_RUN_ID", "r-eval")
+    save_artifact("eval", fixture, root / "eval" / "e.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    (root / "broken.json").write_text('{"schema_version": "eval.v1", "evaluations": [', encoding="utf-8")
+    doc = _json_run(monkeypatch, capsys, ["runs", "list"])
+    assert doc["status"] == "partial" and doc["next"] == []

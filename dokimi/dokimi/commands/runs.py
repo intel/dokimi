@@ -30,7 +30,7 @@ from dokimi.runs.scan import (
     scan,
     select,
 )
-from dokimi.runs.show import Shown, ShownRun, show_target
+from dokimi.runs.show import Shown, ShownRun, names_a_run, show_target
 from dokimi.utils import InputError
 
 
@@ -129,13 +129,20 @@ def cmd_runs_list(args: argparse.Namespace) -> None:
     groups = by_run(select(result.artifacts, args.kind, args.subject))
     shown = [a for g in groups for a in g]
     if args.json:
+        status = _unreadable_status(result.unreadable)
+        runs = _runs_json(groups)
+        # #941: the newest run's artifacts are a free read; no step when the listing is partial or has no run id.
+        # `runs show` opens a file named like the run id before it looks the run up: skip a run id it would not read as one
+        named = next((r for r in runs if names_a_run(root.path, r["run_id"])), None)
+        steps = [cli_output.free_step(["runs", "show", named["run_id"]],
+                                      "Show the artifacts of the newest run.")] if named and not status else []
         cli_output.emit_leaf("runs list", {
             "root": root.path.as_posix(), "artifacts": [a.to_json() for a in shown],
-            "runs": _runs_json(groups),
+            "runs": runs,
             "total": len(result.artifacts), "skipped": dict(sorted(result.skipped.items())),
             "unknown_versions": dict(sorted(result.unknown_versions.items())),
             "unreadable": [u.to_json() for u in result.unreadable],
-        }, summary={"shown": len(shown), "total": len(result.artifacts)}, **_unreadable_status(result.unreadable))
+        }, summary={"shown": len(shown), "total": len(result.artifacts)}, next_steps=steps, **status)
         return
     shown_root = plain(root.path.as_posix().rstrip("/") + "/")
     if not exists:

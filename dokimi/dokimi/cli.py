@@ -127,8 +127,7 @@ def _usage_document(kind: str, message: str, *, help_argv: list[str] | None = No
         return
     doc = cli_output.error_document(kind, "input", message, run_id=cli_output.current_run_id(), reason=message)
     if help_argv:
-        doc["next"] = [{"argv": help_argv, "why": "Show the accepted syntax of this command.",
-                        "spends": False, "est_usd": 0, "kind": "sequence"}]
+        doc["next"] = [cli_output.free_step(help_argv, "Show the accepted syntax of this command.")]
     cli_output.emit(doc)
 
 
