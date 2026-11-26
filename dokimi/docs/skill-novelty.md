@@ -277,7 +277,7 @@ then is the judge. With no judge flags and the default answerer, that is
 `atoms` and the `shorten` adjudicator differ: there `--model` is the extractor (or the
 retention adjudicator), not the model under measurement, and it defaults to the judge model,
 `anthropic/claude-sonnet-5-5`. A plain `atoms` run therefore has the extractor and the judge on
-one model: pass `--extract-model` of another family there (with `--provider` when it is not
+one model: pass `--extract-model` of another family there (`PROVIDER/MODEL` when it is not
 Anthropic's).
 
 `analyze` checks the extractor against the judge before it spends anything; `probe` checks the
@@ -292,14 +292,14 @@ prints the warning only. The warning does not refuse the run.
 
 To clear the warning, give the extractor a different family from the judge. `probe` reads the key
 from the saved atoms file, so its own `--extract-model` does not clear it: pick another judge, or
-write the atoms file again with another `atoms --extract-model` (and `--provider`). Here the
+write the atoms file again with another `atoms --extract-model PROVIDER/MODEL`. Here the
 extractor is Anthropic's, the judge OpenAI's:
 
 ```bash
 python cli.py skill novelty analyze --artifact skill:path/to/skill \
-    --model claude-opus-5-5 --provider anthropic \
-    --judge-model gpt-6.1-sol --judge-provider openai \
-    --extract-model claude-haiku-5-5 --extract-provider anthropic
+    --model anthropic/claude-opus-5-5 \
+    --judge openai/gpt-6.1-sol \
+    --extract-model anthropic/claude-haiku-5-5
 ```
 
 With two vendors available, one role must share a family with another. Keep the judge and the
@@ -316,7 +316,7 @@ original single judge was the most lenient of all, so its added shares sat at or
 bottom of the panel's range. `analyze` and `probe` take a panel:
 
 ```bash
-python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.json     --model grok-4.6 --provider openrouter     --judge openrouter/openai/gpt-6-luna --judge openrouter/anthropic/claude-sonnet-5     --judge openrouter/moonshotai/kimi-k3 --judge-aggregate median
+python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.json     --model openrouter/grok-4.6     --judge openrouter/openai/gpt-6-luna --judge openrouter/anthropic/claude-sonnet-5     --judge openrouter/moonshotai/kimi-k3 --judge-aggregate median
 ```
 
 - `--judge PROVIDER/MODEL`, repeated, is the panel. It replaces `--judge-model` and
@@ -362,12 +362,12 @@ for what each output means.
 
 ```bash
 python cli.py skill novelty analyze --artifact skill:path/to/skill \
-    --model claude-opus-5-5 --provider anthropic \
-    --judge-model gpt-6.1-sol --judge-provider openai [--include-resources]
+    --model anthropic/claude-opus-5-5 \
+    --judge openai/gpt-6.1-sol [--include-resources]
 ```
 
 With no `--judge-model`/`--judge-provider`, the judge is `anthropic/claude-sonnet-5-5`
-whatever `--provider` is; a Bedrock-only run adds `--judge-provider amazon-bedrock`.
+whatever the answerer's provider is; a Bedrock-only run adds `--judge-provider amazon-bedrock`.
 `--judge-provider` alone takes the default judge that runs on that provider; when none
 does (measuring `claude-sonnet-5-5` with `--judge-provider amazon-bedrock`, or the
 default `gpt-6.1-sol` with `--judge-provider openai`) the run exits and asks for
@@ -631,7 +631,7 @@ entry point alone would judge that skill on 1.2% of itself, and its "dead tokens
 would be dominated by spans whose only job is to name a file nobody read.
 
 ```bash
-python cli.py skill novelty analyze --artifact skill:path/to/skill --model M --judge-model J \
+python cli.py skill novelty analyze --artifact skill:path/to/skill --model openai/gpt-6.1-sol --judge anthropic/claude-sonnet-5-5 \
     --include-resources                       # measure the bundle
     # --resource-roles reference pattern      # or only some of it
     # --max-file-words 4000 --max-resource-words 20000
@@ -1386,7 +1386,7 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
 
 ```bash
 dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \
-  --jobs 4 --model <answerer> --judge-model <judge> --strata strata.csv
+  --jobs 4 --model openai/gpt-6.1-sol --judge anthropic/claude-sonnet-5-5 --strata strata.csv
 dokimi catalog novelty skills/ --out-dir out/sweep --summary-only
 ```
 

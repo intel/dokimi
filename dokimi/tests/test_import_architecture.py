@@ -75,10 +75,10 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # process chokepoints, console output.
     ("foundation", (
         "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.cli_flags",
-        "dokimi.cli_output", "dokimi.cli_types", "dokimi.exit_codes", "dokimi.config", "dokimi.console",
+        "dokimi.cli_model_ref", "dokimi.cli_output", "dokimi.cli_types", "dokimi.exit_codes", "dokimi.config", "dokimi.console",
         "dokimi.container_policy", "dokimi.defaults", "dokimi.docker_cmd",
         "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
-        "dokimi.llm_sampling", "dokimi.llm_turn",
+        "dokimi.llm_providers", "dokimi.llm_sampling", "dokimi.llm_turn",
         "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
         "dokimi.atomic_write", "dokimi.provenance", "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
         "dokimi.yaml_unique",

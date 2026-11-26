@@ -26,7 +26,7 @@ def _judge_commands() -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
 
     def walk(parser: argparse.ArgumentParser, path: list[str]) -> None:
-        dests = {a.dest for a in parser._actions}
+        dests = {a.dest for a in parser._actions} | set(parser._defaults)  # add_model_flag sets judge_provider as a default
         if ("judge_provider" in dests and path[0] != "novelty" and path[:2] != ["skill", "novelty"]
                 and path[:2] != ["catalog", "novelty"]):
             argv = list(path)
@@ -50,6 +50,8 @@ COMMANDS = _judge_commands()
 #: The commands that answer a question (have ``--model``); the ``eval score``/``eval judge`` ones only grade.
 ANSWERED_COMMANDS = {"arms run", "arms matrix-run", "benchmark run", "benchmark preflight",
                      "benchmark batch", "evaluate", "subjects run"}
+#: The commands that keep ``--judge-provider`` (arms, subjects); the others take ``--judge PROVIDER/MODEL``.
+KEPT_SPELLING = {"arms run", "arms matrix-run", "subjects run"}
 
 
 def test_the_commands_that_take_a_judge_provider_are_all_covered():
@@ -61,9 +63,13 @@ def test_the_commands_that_take_a_judge_provider_are_all_covered():
 
 
 @pytest.mark.parametrize("command", sorted(COMMANDS))
-def test_every_judge_command_defaults_the_model_to_its_provider(command):
+def test_every_judge_command_takes_the_placeholder_judge_model(command):
+    assert build_parser().parse_args(COMMANDS[command]).judge_model is JUDGE_MODEL_FOR_PROVIDER
+
+
+@pytest.mark.parametrize("command", sorted(KEPT_SPELLING))
+def test_a_judge_provider_switch_defaults_the_model_to_its_provider(command):
     argv = COMMANDS[command]
-    assert build_parser().parse_args(argv).judge_model is JUDGE_MODEL_FOR_PROVIDER
     # The answerer is the default gpt-6.1-sol; a command with no answerer (eval score/judge) judges it.
     if command in ANSWERED_COMMANDS:
         argv = [*argv, "--model", DEFAULT_JUDGE_MODEL]
@@ -78,7 +84,7 @@ def test_every_judge_command_defaults_the_model_to_its_provider(command):
     ("amazon-bedrock", DEFAULT_JUDGE_MODEL),
 ])
 def test_a_provider_alone_takes_the_default_judge_that_runs_there(provider, model):
-    args = parse_args([*COMMANDS["eval score pointwise"], "--judge-provider", provider])
+    args = parse_args([*COMMANDS["arms run"], "--judge-provider", provider])
     assert (args.judge_provider, args.judge_model) == (provider, model)
     assert type(args.judge_model) is str
 
@@ -86,9 +92,23 @@ def test_a_provider_alone_takes_the_default_judge_that_runs_there(provider, mode
 def test_a_provider_alone_whose_default_judge_is_the_answerer_exits(capsys):
     # The default answerer gpt-6.1-sol is the only default on openai: the shared rule refuses it.
     with pytest.raises(SystemExit) as exc:
-        parse_args([*COMMANDS["benchmark run"], "--judge-provider", "openai"])
+        parse_args([*COMMANDS["arms run"], "--judge", "--judge-provider", "openai"])
     assert exc.value.code == 2
-    assert "--judge-provider openai: the default judge there is the model under measurement" in capsys.readouterr().err
+    assert "the default judge there is the model under measurement" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["evaluate", "benchmark run"])
+def test_default_self_judge_refusal_names_the_qualified_option(command, capsys):
+    argv = [*COMMANDS[command], "--model", f"anthropic/{DEFAULT_JUDGE_MODEL}"]
+    with pytest.raises(SystemExit) as exc:
+        parse_args(argv)
+    assert exc.value.code == 2
+    message = capsys.readouterr().err
+    assert "the default judge is the model under measurement" in message
+    assert "pass --judge PROVIDER/MODEL" in message
+    assert "--judge-model" not in message
+    args = parse_args([*argv, "--judge", f"openai/{DEFAULT_GENERATOR_MODEL}"])
+    assert (args.judge_provider, args.judge_model) == ("openai", DEFAULT_GENERATOR_MODEL)
 
 
 def test_a_claude_cli_judge_is_an_alias_of_another_family():
@@ -162,8 +182,7 @@ def test_a_library_matrix_judge_is_not_moved_by_an_unused_claude_cli_top_level_p
 
 def test_a_library_matrix_judge_left_out_is_the_cli_matrix_judge_with_a_claude_cli_top_level_provider(tmp_path):
     args = parse_args(["arms", "matrix-run", "--product", "p", "--questions", "q.jsonl", "--arm", "a.json",
-                       "--matrix-cells", str(tmp_path / "cells.json"), "--judge", "--provider", "claude-cli",
-                       "--model", "sonnet"])
+                       "--matrix-cells", str(tmp_path / "cells.json"), "--judge", "--model", "claude-cli/sonnet"])
     assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
     config = ArmsRunConfig(product="demo", judge=True, model="sonnet", provider="claude-cli")
     assert (config.judge_provider, config.judge_model) == ("claude-cli", "opus")  # a single run follows its CLI
@@ -175,7 +194,7 @@ def test_a_library_matrix_judge_left_out_is_the_cli_matrix_judge_with_a_claude_c
 
 def test_a_claude_cli_answerer_judges_on_its_cli_when_no_judge_provider_is_named():
     # The CLI's argparse default (anthropic) must not stop the rule from taking the answerer's provider.
-    args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge"])
+    args = parse_args([*COMMANDS["arms run"], "--model", "claude-cli/sonnet", "--judge"])
     assert (args.judge_provider, args.judge_model) == ("claude-cli", "opus")
 
 
@@ -208,13 +227,13 @@ def test_an_explicit_judge_model_wins_in_either_order(order):
     flags = ["--judge-model", "gpt-6.1-sol", "--judge-provider", "anthropic"]
     if order == "provider-first":
         flags = flags[2:] + flags[:2]
-    args = parse_args([*COMMANDS["benchmark run"], *flags])
+    args = parse_args([*COMMANDS["arms run"], *flags])
     assert (args.judge_provider, args.judge_model) == ("anthropic", "gpt-6.1-sol")
 
 
 def test_an_explicit_default_name_is_kept_on_another_provider():
     # Naming the default judge yourself is a choice, not a left-out flag.
-    args = parse_args([*COMMANDS["eval score pointwise"], "--judge-provider", "openai",
+    args = parse_args([*COMMANDS["arms run"], "--judge-provider", "openai",
                        "--judge-model", DEFAULT_JUDGE_MODEL])
     assert args.judge_model == DEFAULT_JUDGE_MODEL
 
@@ -251,16 +270,27 @@ def test_the_legacy_cli_shim_exports_the_resolving_parse_args():
     spec.loader.exec_module(shim)
     assert "parse_args" in shim.__all__
     assert shim.parse_args is parse_args
-    args = shim.parse_args([*COMMANDS["eval score pointwise"], "--judge-provider", "openai"])
+    args = shim.parse_args([*COMMANDS["arms run"], "--judge-provider", "openai"])
     assert args.judge_model == DEFAULT_GENERATOR_MODEL
 
 
 def test_preflight_refuses_the_judge_that_run_refuses(capsys):
     # preflight shows the plan the run will take: the same flags that `benchmark run` refuses are refused here
+    for argv in (["benchmark", "run", "--library", "onetbb"], ["benchmark", "preflight", "--library", "onetbb"]):
+        for flag in ("--judge", "--model"):
+            with pytest.raises(SystemExit) as exc:
+                parse_args([*argv, flag, "openai/"])
+            assert exc.value.code == 2
+            assert f"{flag} openai/ has no model" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", sorted(set(COMMANDS) - KEPT_SPELLING))
+def test_judge_provider_is_moved_on_the_commands_that_no_longer_take_it(command, capsys):
+    # The switch is gone there: the tombstone points at `--judge PROVIDER/MODEL` and exits 2.
     with pytest.raises(SystemExit) as exc:
-        parse_args(["benchmark", "preflight", "--library", "onetbb", "--judge-provider", "openai"])
+        parse_args([*COMMANDS[command], "--judge-provider", "openai"])
     assert exc.value.code == 2
-    assert "the default judge there is the model under measurement" in capsys.readouterr().err
+    assert "moved:" in capsys.readouterr().err
 
 
 def test_a_matrix_run_takes_no_top_level_model_as_its_answerer(tmp_path):
@@ -308,7 +338,7 @@ def test_a_library_refused_default_self_judge_stops_before_the_probe_or_the_libr
 def test_an_explicit_alias_judge_model_on_a_claude_cli_answerer_judges_on_its_cli():
     # the left-out judge model follows the CLI answerer onto claude-cli; an explicit alias must too, or the run
     # sends `haiku` to the Anthropic API and fails at the first judge call, after the answers are paid for
-    args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge",
+    args = parse_args([*COMMANDS["arms run"], "--model", "claude-cli/sonnet", "--judge",
                        "--judge-model", "haiku"])
     assert (args.judge_provider, args.judge_model) == ("claude-cli", "haiku")
     config = ArmsRunConfig(product="demo", model="sonnet", provider="claude-cli", judge=True, judge_model="haiku")
@@ -316,7 +346,7 @@ def test_an_explicit_alias_judge_model_on_a_claude_cli_answerer_judges_on_its_cl
 
 
 def test_a_named_judge_provider_is_kept_for_an_explicit_judge_model_on_a_claude_cli_answerer():
-    args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge",
+    args = parse_args([*COMMANDS["arms run"], "--model", "claude-cli/sonnet", "--judge",
                        "--judge-model", "haiku", "--judge-provider", "anthropic"])
     assert (args.judge_provider, args.judge_model) == ("anthropic", "haiku")
 
@@ -327,11 +357,10 @@ def test_subjects_run_does_not_move_the_judge_to_a_cli_answerer_before_the_descr
     # parse_args leaves the judge to the descriptor, which picks it once loaded (resolve_judge).
     # With or without an explicit --judge-model.
     for extra in ([], ["--judge-model", "haiku"]):
-        args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet",
-                           *extra])
+        args = parse_args([*COMMANDS["subjects run"], "--judge", "--model", "claude-cli/sonnet", *extra])
         assert args.judge_provider == "anthropic"
     # Implicit cells: the top-level CLI answerer is the answerer, so the left-out judge follows it onto its CLI.
-    args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet"])
+    args = parse_args([*COMMANDS["subjects run"], "--judge", "--model", "claude-cli/sonnet"])
     resolve_judge(args, SimpleNamespace(matrix_cells_explicit=False))
     assert (args.judge_provider, args.judge_model) == ("claude-cli", "opus")
 
@@ -343,8 +372,7 @@ def test_subjects_run_does_not_move_the_judge_to_a_cli_answerer_before_the_descr
 def test_subjects_run_resolves_an_explicit_judge_model_once_the_descriptor_is_loaded(explicit_cells, expected):
     from dokimi.commands.subjects import resolve_judge
 
-    args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet",
-                       "--judge-model", "haiku"])
+    args = parse_args([*COMMANDS["subjects run"], "--judge", "--model", "claude-cli/sonnet", "--judge-model", "haiku"])
     resolve_judge(args, SimpleNamespace(matrix_cells_explicit=explicit_cells))
     assert (args.judge_provider, args.judge_model) == expected
 
@@ -354,23 +382,40 @@ def test_subjects_run_refuses_a_judge_model_the_cli_judge_it_moves_to_cannot_tak
     from dokimi.commands.subjects import resolve_judge
     from dokimi.utils import InputError
 
-    args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet",
-                       "--judge-model", "gpt-4o"])
-    with pytest.raises(InputError, match="judge follows --provider claude-cli: pass --judge-provider"):
+    args = parse_args([*COMMANDS["subjects run"], "--judge", "--model", "claude-cli/sonnet", "--judge-model", "gpt-4o"])
+    with pytest.raises(InputError, match="the judge follows --model claude-cli: pass a judge from another family") as exc:
         resolve_judge(args, SimpleNamespace(matrix_cells_explicit=False))
+    assert "--judge-provider PROVIDER --judge-model MODEL" in str(exc.value)
 
 
 def test_a_judge_model_refusal_does_not_name_a_judge_provider_that_was_not_passed(capsys):
-    argv = [*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge",
+    argv = [*COMMANDS["arms run"], "--model", "claude-cli/sonnet", "--judge",
             "--judge-model", "gpt-6.1-sol"]
     with pytest.raises(SystemExit):
         parse_args(argv)
     err = capsys.readouterr().err
-    assert "the judge follows --provider claude-cli: pass --judge-provider" in err
+    assert "the judge follows --model claude-cli: pass a judge from another family" in err
     assert "--judge-provider claude-cli takes" not in err
-    with pytest.raises(SystemExit):
-        parse_args([*argv, "--judge-provider", "claude-cli"])
-    assert "--judge-provider claude-cli takes a Claude model" in capsys.readouterr().err
+    assert "--judge-provider PROVIDER --judge-model MODEL" in err
+
+
+@pytest.mark.parametrize("command", sorted(KEPT_SPELLING))
+def test_a_named_cli_judge_refusal_uses_the_separate_flags(command, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*COMMANDS[command], "--judge", "--judge-provider", "claude-cli", "--judge-model", "gpt-4o"])
+    assert exc.value.code == 2
+    assert "pass --judge-model <Claude model>" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", [
+    ["skill", "novelty", "analyze", "--artifact", "skill:x"],
+    ["catalog", "novelty", "x", "--out-dir", "out"],
+])
+def test_novelty_cli_judge_refusal_uses_the_separate_flags(command, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*command, "--judge-provider", "claude-cli", "--judge-model", "gpt-4o"])
+    assert exc.value.code == 2
+    assert "pass --judge-model <Claude model>" in capsys.readouterr().err
 
 
 def test_subjects_run_refuses_a_default_judge_that_is_the_implicit_cell_answerer():
@@ -386,11 +431,17 @@ def test_subjects_run_refuses_a_default_judge_that_is_the_implicit_cell_answerer
     assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
 
 
-@pytest.mark.parametrize("command", ["arms run", "benchmark run", "benchmark preflight", "benchmark batch", "evaluate"])
+@pytest.mark.parametrize("command", ["arms run"])
 def test_a_named_judge_provider_is_kept_for_a_claude_cli_answerer_when_the_judge_model_is_left_out(command):
     judge = ["--judge"] if command.startswith("arms") else []
-    args = parse_args([*COMMANDS[command], "--provider", "claude-cli", "--model", "haiku", *judge,
+    args = parse_args([*COMMANDS[command], "--model", "claude-cli/haiku", *judge,
                        "--judge-provider", "anthropic"])
+    assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
+
+
+@pytest.mark.parametrize("command", sorted(ANSWERED_COMMANDS - KEPT_SPELLING))
+def test_a_qualified_judge_provider_is_kept_for_a_claude_cli_answerer(command):
+    args = parse_args([*COMMANDS[command], "--model", "claude-cli/haiku", "--judge", "anthropic/claude-sonnet-5-5"])
     assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
 
 
@@ -412,3 +463,14 @@ def test_apply_default_judge_on_a_copilot_answerer_keeps_the_judge_provider():
     apply_default_judge(args, matrix=False, named=False)
     assert args.judge_provider == "openai"
 
+
+
+@pytest.mark.parametrize("named, answerer", [(True, None), (False, "codex-cli")])
+def test_judge_model_refusal_names_only_the_canonical_judge_flag(named, answerer):
+    # The hint must not point at a retired spelling (--judge-model, --judge-provider): on every command it is stale.
+    from dokimi.judge_rule import refuse_judge_model
+
+    message = refuse_judge_model("codex-cli", "gpt-x", named=named, answerer_provider=answerer)
+    assert "--judge PROVIDER/MODEL" in message or "--judge codex-cli/<Claude model>" in message
+    for retired in ("--judge-model", "--judge-provider", "arms run"):
+        assert retired not in message, message

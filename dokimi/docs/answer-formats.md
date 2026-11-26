@@ -22,7 +22,7 @@ against those checks.
 ```bash
 python cli.py eval import evals/born_first.jsonl --grader registry/evals/born-first.yaml -o q.json
 python cli.py answers generate --product born-first --questions q.json --doc-source none \
-    --model claude-haiku-5-5 --provider amazon-bedrock --output answers.json
+    --model amazon-bedrock/claude-haiku-5-5 --output answers.json
 python cli.py eval score reference --answers answers.json --questions q.json -o eval.json
 ```
 

@@ -18,13 +18,17 @@ from dokimi.cli import build_parser
 from dokimi.eval.judge import JUDGE_PROVIDERS, Judge
 
 
+def _offered(action):
+    return tuple(getattr(action, "providers", None) or action.choices or ())
+
+
 def _judge_provider_actions(parser, path=()):
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             for name, sub in action.choices.items():
                 yield from _judge_provider_actions(sub, path + (name,))
-        elif action.dest in ("judge_provider", "escalate_provider") and action.choices:
-            yield " ".join(path) + " " + action.option_strings[0], action.choices
+        elif getattr(action, "provider_dest", action.dest) in ("judge_provider", "escalate_provider") and _offered(action):
+            yield " ".join(path) + " " + action.option_strings[0], _offered(action)
 
 
 #: Judge-role flags whose value never reaches ``Judge``: the novelty commands call
@@ -38,9 +42,9 @@ def test_every_judge_provider_flag_offers_exactly_judge_providers():
     # Equality, not subset: a hardcoded list that merely omits a rejected
     # provider (as ``eval score`` had) still drifts from what Judge accepts.
     actions = dict(_judge_provider_actions(build_parser()))
-    for flag in ("benchmark run --judge-provider", "arms run --judge-provider",
+    for flag in ("benchmark run --judge", "arms run --judge-provider",
                  "arms matrix-run --judge-provider", "subjects run --judge-provider",
-                 "evaluate --judge-provider", "eval score pointwise --judge-provider",
+                 "evaluate --judge", "eval score pointwise --judge",
                  "eval judge validate --escalate-provider"):
         assert flag in actions
     assert NOT_THE_JUDGE_CLASS <= actions.keys()
@@ -57,10 +61,10 @@ def test_every_judge_provider_flag_offers_exactly_judge_providers():
 def test_benchmark_run_rejects_openai_codex_judge_at_parse_time(capsys):
     with pytest.raises(SystemExit) as exc:
         build_parser().parse_args(
-            ["benchmark", "run", "--library", "x", "--judge-provider", "openai-codex"]
+            ["benchmark", "run", "--library", "x", "--judge", "openai-codex/m"]
         )
     assert exc.value.code == 2
-    assert "invalid choice: 'openai-codex'" in capsys.readouterr().err
+    assert "is not a provider for this command" in capsys.readouterr().err
 
 
 # Together with the equality test above this covers `eval score` and every other flag.

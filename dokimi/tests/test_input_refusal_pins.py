@@ -86,7 +86,7 @@ def test_cross_judge_refuses_an_unreadable_questions_file(tmp_path, no_judge):
 
 
 def test_cross_judge_refuses_a_judge_spec_without_a_model(tmp_path, no_judge):
-    out = _run(["eval", "judge", "agreement", "--answers", str(_arms(tmp_path)), "--judges", "amazon-bedrock"])
+    out = _run(["eval", "judge", "agreement", "--answers", str(_arms(tmp_path)), "--judge", "amazon-bedrock"])
     assert "must be provider/model" in out.err
 
 

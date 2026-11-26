@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi.llm import ANSWER_PROVIDERS, CALLER_CHOICES
 from dokimi.commands._output import exit_on_rejected, exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
@@ -392,8 +393,11 @@ def register(eval_sub, positive_int) -> None:
                          help="Embedding backend for deduplication: openai, local "
                               "(sentence-transformers, no API key), or auto "
                               "(openai when a key is set, else local)")
-    gen_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for generation")
-    gen_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=CALLER_CHOICES)
+    add_model_flag(
+        gen_q_p, "--model", dest="model", provider_dest="provider",
+        providers=CALLER_CHOICES, default_model=DEFAULT_GENERATOR_MODEL, default_provider=DEFAULT_GENERATOR_PROVIDER,
+        help="LLM model for generation",
+    )
     gen_q_p.add_argument("--doc-source", default="context7",
                          help="Documentation source for topic extraction: 'context7', 'local:<path>', 'url:<url>'")
     gen_q_p.add_argument("--context7-id", default=None, dest="context7_id",
@@ -405,8 +409,11 @@ def register(eval_sub, positive_int) -> None:
     analyze_q_p.add_argument("--questions", required=True, help="Path to questions JSON file")
     analyze_q_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     analyze_q_p.add_argument("--output", default=None, help="Output report JSON (default: reports/{product}_question_quality.json)")
-    analyze_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for classification")
-    analyze_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=ANSWER_PROVIDERS)
+    add_model_flag(
+        analyze_q_p, "--model", dest="model", provider_dest="provider",
+        providers=ANSWER_PROVIDERS, default_model=DEFAULT_GENERATOR_MODEL, default_provider=DEFAULT_GENERATOR_PROVIDER,
+        help="LLM model for classification",
+    )
     analyze_q_p.add_argument("--concurrency", type=int, default=5, help="Parallel classification requests")
     analyze_q_p.set_defaults(func=cmd_questions_analyze)
 
@@ -436,8 +443,10 @@ def register(eval_sub, positive_int) -> None:
     panel_q_p.add_argument("--product", required=True, help="Product name (e.g., oneDAL)")
     panel_q_p.add_argument("--output", default=None,
                             help="Output report JSON (default: reports/{product}_question_panel.json)")
-    panel_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL)
-    panel_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=ANSWER_PROVIDERS)
+    add_model_flag(
+        panel_q_p, "--model", dest="model", provider_dest="provider",
+        providers=ANSWER_PROVIDERS, default_model=DEFAULT_GENERATOR_MODEL, default_provider=DEFAULT_GENERATOR_PROVIDER,
+    )
     panel_q_p.add_argument("--reviewers", default=None,
                             help="Comma-separated reviewers (default: domain_expert,user_advocate,qa_engineer)")
     panel_q_p.add_argument("--concurrency", type=positive_int, default=6)

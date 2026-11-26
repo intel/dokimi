@@ -96,7 +96,7 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
 - [answer-formats.md](answer-formats.md) — run Inspect AI, OpenAI evals,
   skill-creator and promptfoo answer-only sets on the answers track
 - [subscription-backends.md](subscription-backends.md) — run the Q&A track through a
-  logged-in coding-agent CLI (`--provider claude-cli`) instead of an API key
+  logged-in coding-agent CLI (`--model claude-cli/<model>`) instead of an API key
 - [context-window.md](context-window.md) — read a run's context window from
   its Claude Code trace with `cli.py trace inspect`: start-up load, growth,
   compactions, tool-result weight. No LLM call.

@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
     DEFAULT_JUDGE_PROVIDER,
@@ -388,16 +389,16 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                   for p in args.pairwise or []]
     from_files += [_result_measure(p, "questions", list, coverage_measure) for p in args.checklist or []]
     validity = [_load_json_object(v, "summary")["summary"] for v in args.validity or []]
-    specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
+    specs = [j.strip() for raw in (args.judges or []) for j in raw.split(",") if j.strip()]
     if specs:
-        _require_arms(args.answers, records, "eval judge agreement --judges")
+        _require_arms(args.answers, records, "eval judge agreement --judge")
         scored_answers(records)  # refuse a blank question before the probe call
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
     for spec in dict.fromkeys(specs):
         provider, _, model = spec.partition("/")
         if not model or provider not in JUDGE_PROVIDERS:
-            raise InputError(f"--judges entry '{spec}' must be provider/model, provider in {JUDGE_PROVIDERS}")
+            raise InputError(f"--judge entry '{spec}' must be provider/model, provider in {JUDGE_PROVIDERS}")
         warn_recorded_self_judge(data, [(model, provider)], "eval judge agreement")
         print(f"Scoring with {spec} ...", flush=True)
         judge = Judge(model=model, provider=provider, temperature=args.judge_temperature)
@@ -474,8 +475,12 @@ def register(score_sub, judge_sub, positive_int) -> None:
     ck.add_argument("--baseline-arm", default=None, dest="baseline_arm",
                     help="Arm the others are compared to (default: the run's baseline_arm)")
     ck.add_argument("--arms", default=None, help="Comma-separated arms to check (default: all)")
-    ck.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
-    ck.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
+    add_model_flag(
+        ck, "--judge", dest="judge_model", provider_dest="judge_provider",
+        providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help=JUDGE_MODEL_HELP,
+        named_dest="judge_provider_named",
+    )
     ck.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
     ck.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY)
@@ -499,8 +504,12 @@ def register(score_sub, judge_sub, positive_int) -> None:
     jw.add_argument("--min-accuracy", type=float, default=DEFAULT_MIN_ACCURACY, dest="min_accuracy")
     jw.add_argument("--strict", action="store_true",
                     help="Exit 1 when any variant is FRAGILE or a condition has no scored pair")
-    jw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
-    jw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
+    add_model_flag(
+        jw, "--judge", dest="judge_model", provider_dest="judge_provider",
+        providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help=JUDGE_MODEL_HELP,
+        named_dest="judge_provider_named",
+    )
     jw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
     jw.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY)
@@ -512,9 +521,10 @@ def register(score_sub, judge_sub, positive_int) -> None:
         help="Each arm's delta under several judges and axes, labelled CONSISTENT / JUDGE-DEPENDENT / ...",
     )
     cj.add_argument("--answers", required=True, help="Arms output JSON (arms run --out)")
-    cj.add_argument("--judges", default=None,
-                    help="Comma-separated provider/model judges to re-score with, e.g. "
-                         "amazon-bedrock/us.anthropic.claude-haiku-5-5,amazon-bedrock/openai.gpt-oss-120b-1:0")
+    cj.add_argument("--judge", dest="judges", action="append", default=None, metavar="PROVIDER/MODEL",
+                    help="A judge to re-score with, provider/model (repeatable), e.g. "
+                         "--judge amazon-bedrock/us.anthropic.claude-haiku-5-5 "
+                         "--judge amazon-bedrock/openai.gpt-oss-120b-1:0")
     cj.add_argument("--checklist", action="append", default=None,
                     help="An `eval score checklist` JSON to include as a coverage measure (repeatable)")
     cj.add_argument("--pairwise", action="append", default=None,
@@ -550,8 +560,12 @@ def register(score_sub, judge_sub, positive_int) -> None:
     pw.add_argument("--product", default=None, help="Library name (default: read from answers file)")
     pw.add_argument("--baseline-arm", default=None, dest="baseline_arm")
     pw.add_argument("--arms", default=None, help="Comma-separated arms to compare (default: all)")
-    pw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
-    pw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
+    add_model_flag(
+        pw, "--judge", dest="judge_model", provider_dest="judge_provider",
+        providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help=JUDGE_MODEL_HELP,
+        named_dest="judge_provider_named",
+    )
     pw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
     pw.add_argument("--escalate-model", default=None, dest="escalate_model",

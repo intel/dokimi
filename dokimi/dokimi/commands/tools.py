@@ -13,6 +13,7 @@ import sys
 import time
 from pathlib import Path
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi import cli_flags
 from dokimi.llm import PROVIDERS as API_PROVIDERS
 from dokimi.cli_types import positive_usd
@@ -209,8 +210,11 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     )
     pref_p.add_argument("--groups", required=True,
                         help="tool_preference_groups.v1 JSON: requests with twin tools and distractors")
-    pref_p.add_argument("--model", help="Model under test")
-    pref_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
+    add_model_flag(
+        pref_p, "--model", dest="model", provider_dest="provider",
+        providers=PROVIDERS, default_model=None, default_provider=DEFAULT_ANSWER_PROVIDER,
+        help="Model under test",
+    )
     pref_p.add_argument("--factors", default=None,
                         help="Comma list of factors (default: vendor_name,assertive,social_proof,long_desc,exclusion)")
     pref_p.add_argument("--reps", type=positive_int, default=3,

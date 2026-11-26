@@ -556,7 +556,7 @@ def test_preflight_unknown_doc_source_format_exits_2(tmp_path, monkeypatch, caps
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
     _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb",
           "--doc-source", "bogus:docs", "--out-dir", str(tmp_path / "out"),
-          "--provider", "openai", "--judge-provider", "openai", "--judge-model", "judge-x")
+          "--model", "openai/gpt-6.1-sol", "--judge", "openai/judge-x")
     with refusal() as exc:
         cli.main()
     assert exc.code == 2
@@ -574,7 +574,7 @@ def test_preflight_refuses_a_local_doc_source_path_that_does_not_exist(tmp_path,
     monkeypatch.setenv("OPENAI_API_KEY", "test")
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
     _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--doc-source", f"{prefix}{docs}",
-          "--out-dir", str(tmp_path / "out"), "--provider", "openai", "--judge-provider", "openai", "--judge-model", "judge-x")
+          "--out-dir", str(tmp_path / "out"), "--model", "openai/gpt-6.1-sol", "--judge", "openai/judge-x")
     if exists:
         cli.main()
         assert "Preflight OK" in capsys.readouterr().out
@@ -593,7 +593,7 @@ def test_external_content_walkthrough_states_the_exit_of_a_preflight_without_key
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
     _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--out-dir", str(tmp_path / "out"),
-          "--provider", "openai", "--judge-provider", "openai", "--judge-model", "judge-x")
+          "--model", "openai/gpt-6.1-sol", "--judge", "openai/judge-x")
     with refusal() as exc:
         cli.main()
     assert exc.code == stated
@@ -653,18 +653,45 @@ def test_trigger_set_no_text_refused_before_any_rewrite_call(tmp_path, monkeypat
     # The set is refused on its second question; the first must not have been sent to the rewrite model.
     rewrite_calls = []
     monkeypatch.setattr("dokimi.llm.llm_call", lambda *args, **kwargs: rewrite_calls.append(1) or "rewritten")
+    monkeypatch.setattr("dokimi.commands.catalog.is_litellm_route", lambda _: pytest.fail("looked up a provider"))
     spec = _trigger_questions(tmp_path, [
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
         {"id": "2", "metadata": {"skill_under_test": "linux-perf"}},
     ])
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
-          "--questions", spec, "--rewrite", "--model", "m", "--out", str(tmp_path / "o.json"))
+          "--questions", spec, "--rewrite", "--model", "groq/llama", "--out", str(tmp_path / "o.json"))
     with refusal() as exc:
         cli.main()
     assert exc.code == 2
     assert "has no text" in capsys.readouterr().err
     assert rewrite_calls == []
     assert not (tmp_path / "o.json").exists()
+
+
+@pytest.mark.parametrize(("model_ref", "model", "provider", "routes"), [
+    ("groq/llama-3.3-70b-versatile", "llama-3.3-70b-versatile", "groq", ["groq"]),
+    ("huggingface/org/model", "huggingface/org/model", "huggingface", ["huggingface"]),
+    ("meta-llama/llama", "meta-llama/llama", "openai", ["meta-llama"]),
+    ("openai/org/model", "openai/org/model", "openai", []),
+])
+def test_trigger_rewrite_resolves_the_model_once_after_validation(model_ref, model, provider, routes, tmp_path, monkeypatch):
+    calls = []
+    lookups = []
+    monkeypatch.setattr("dokimi.llm.llm_call", lambda *a, **kwargs: calls.append(kwargs) or "I see low IPC")
+
+    def is_route(prefix):
+        lookups.append(prefix)
+        return prefix in {"groq", "huggingface"}
+
+    monkeypatch.setattr("dokimi.commands.catalog.is_litellm_route", is_route)
+    spec = _trigger_questions(tmp_path, [
+        {"id": str(i), "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}} for i in range(2)
+    ])
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
+          "--questions", spec, "--rewrite", "--model", model_ref, "--out", str(tmp_path / "o.json"))
+    cli.main()
+    assert lookups == routes
+    assert calls == [{"model": model, "provider": provider}] * 2
 
 
 def test_trigger_set_file_without_labels_is_valid_and_its_questions_stay_unlabelled(tmp_path, monkeypatch, capsys):

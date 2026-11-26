@@ -29,8 +29,8 @@ API_PROVIDERS = sorted({*ANSWER_PROVIDERS, *JUDGE_PROVIDERS} - set(BACKENDS))
 def _preflight(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         "sys.argv",
-        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "anthropic",
-         "--judge-provider", "anthropic", "--out-dir", str(tmp_path / "out")],
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--model", "anthropic/gpt-6.1-sol",
+         "--judge", "anthropic/claude-sonnet-5-5", "--out-dir", str(tmp_path / "out")],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -291,8 +291,7 @@ def test_a_key_file_that_is_not_utf8_is_named_in_the_refusal(tmp_path, monkeypat
 def _preflight_on(tmp_path, monkeypatch, capsys, provider, model):
     monkeypatch.setattr(
         "sys.argv",
-        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", provider, "--model", model,
-         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")],
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--model", f"{provider}/{model}", "--judge", "openai/gpt-4o", "--out-dir", str(tmp_path / "out")],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -323,8 +322,7 @@ def test_run_and_batch_refuse_an_unreadable_key_file_on_a_vertex_route(command, 
     monkeypatch.setenv("GEMINI_API_KEY", f"file:{tmp_path / 'no-such-key'}")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-judge")
     args = cli.build_parser().parse_args(
-        ["benchmark", command, "--libraries" if command == "batch" else "--library", "onetbb", "--provider", "google-vertex", "--model", "gemini-2.5-pro",
-         "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")])
+        ["benchmark", command, "--libraries" if command == "batch" else "--library", "onetbb", "--model", "google-vertex/gemini-2.5-pro", "--judge", "openai/gpt-4o", "--out-dir", str(tmp_path / "out")])
     with pytest.raises(InputError, match="no-such-key"):
         _refuse_missing_credentials(args)
 

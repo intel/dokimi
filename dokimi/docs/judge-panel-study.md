@@ -278,7 +278,7 @@ What exists:
 - **Mixed models, one per role.** `eval score panel --judge-configs role:model:provider,...`
   is the only place where one panel mixes models, and each model is tied to a role.
 - **Post-hoc judge robustness.** `eval judge agreement` (`commands/judge_reliability.py`,
-  `eval/cross_judge.py`) re-scores an answers file with `--judges provider/model,...`. It
+  `eval/cross_judge.py`) re-scores an answers file with `--judge provider/model --judge ...`. It
   computes each judge's per-arm delta as a separate measure with a sign test and Holm
   correction, and labels the arm `CONSISTENT`, `LEANING`, `JUDGE-DEPENDENT`, `NO DETECTABLE
   EFFECT` or `NOT MEASURED`. Judges that fail `--validity` do not vote. `--strict` makes
@@ -307,7 +307,7 @@ What is missing (each item was needed to produce this note):
 
 ## 5. Proposal
 
-The proposal for `--judges` and `--aggregate` on `arms run` was removed from this page: AGENTS.md
+The proposal for a judge list and `--aggregate` on `arms run` was removed from this page: AGENTS.md
 keeps design plans out of the tree, so the text is not kept here.
 
 ## 6. Old and new judge generations

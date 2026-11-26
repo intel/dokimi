@@ -188,7 +188,7 @@ def score_candidates(args: argparse.Namespace, spans: list, atoms: list, scored:
     from dokimi.novelty.shorten import build_candidates
 
     cache_dir = usable_cache_dir(args.cache_dir)
-    client = cost.client(args.extract_model or args.model, args.provider, "oracle", args) \
+    client = cost.client(args.extract_model or args.model, args.extract_provider or args.provider, "oracle", args) \
         if not args.lexical_only else None
     oracle = RetentionOracle(client=client, cache_dir=cache_dir)
     try:

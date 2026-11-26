@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi import cli_flags
 from dokimi.commands.novelty_budget import fresh_partial_destination
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
@@ -310,9 +311,11 @@ def register(sub, positive_int) -> None:
     arms_run_p.add_argument("--questions", required=True, help="Path to questions JSON file")
     cli_flags.add(arms_run_p, "arm", "--arm", required=True, dest="arms", action=cli_flags.JoinedValues,
                   metavar="SPEC", help=_ARM_HELP)
-    arms_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
-    arms_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                            choices=ANSWER_PROVIDERS)
+    add_model_flag(
+        arms_run_p, "--model", dest="model", provider_dest="provider",
+        providers=ANSWER_PROVIDERS, default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER,
+        help="LLM for answering",
+    )
     arms_run_p.add_argument("--harness", default="arms-runner",
                             help="Execution harness label stamped into output (default: arms-runner)")
     arms_run_p.add_argument("--plugins", default="",
@@ -418,9 +421,11 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
     parser.add_argument("--questions", required=True, help="Path to questions JSON file")
     cli_flags.add(parser, "arm", "--arm", required=True, dest="arms", action=cli_flags.JoinedValues,
                   metavar="SPEC", help=_ARM_HELP)
-    parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
-    parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                        choices=ANSWER_PROVIDERS)
+    add_model_flag(
+        parser, "--model", dest="model", provider_dest="provider",
+        providers=ANSWER_PROVIDERS, default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER,
+        help="LLM for answering",
+    )
     parser.add_argument("--harness", default="arms-runner",
                         help="Execution harness label stamped into output (default: arms-runner)")
     parser.add_argument("--plugins", default="",

@@ -226,7 +226,7 @@ For fair multi-model comparisons, generate one question set and reuse it:
 ```bash
 python cli.py benchmark run --target onedal --out-dir results/onedal_seed
 python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model gpt-6-astra
-python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model claude-opus-5-5 --provider anthropic
+python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model anthropic/claude-opus-5-5
 ```
 
 Generated artifacts — answer runs, judge scores and benchmark snapshots — go under `results/`, `reports/`, `answers/`, `eval/` or `baselines/`; those paths are git-ignored and no captured run is committed. Curated, version-controlled *inputs* live under `data/` (`data/skills/fastcontext/`, `data/agent_profiles/`, `data/explore_tasks/`) — see [`data/README.md`](https://github.com/intel/dokimi/blob/main/dokimi/data/README.md). Product skills, question sets and personas are evaluation content: they come from a separate content repository and are passed in by path (`skill:<path>`, `--questions <path>`, `--questions-root <dir>`).

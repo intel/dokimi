@@ -321,10 +321,10 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
 
 # analyze writes its own answer key in the run, so re-running it with another extractor helps.
 _REMEDY_ANALYZE = ("Use a judge from another family, or write the answer key again with another extractor "
-                   "(analyze --extract-model, with --extract-provider when it is not the judge's)")
+                   "(analyze --extract-model PROVIDER/MODEL)")
 # probe reads a saved atoms file: only atoms can write that key again; probe's flags do not change it.
 _REMEDY_PROBE = ("Use a judge from another family, or write the atoms file again with another extractor "
-                 "(atoms --extract-model with --provider; probe's --extract-model does not change a saved key)")
+                 "(atoms --extract-model PROVIDER/MODEL; probe's --extract-model does not change a saved key)")
 
 
 def warn_extractor_judge(extractor_model: str, judge: LLMClient,

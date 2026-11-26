@@ -88,7 +88,7 @@ _JUDGE_COMMANDS = {
     "pairwise": ["eval", "score", "pairwise"],
     "checklist": ["eval", "score", "checklist", "--questions", "q.json"],
     "judge-wording": ["eval", "judge", "wording"],
-    "cross-judge": ["eval", "judge", "agreement", "--judges", "openai/m", "--no-stored"],
+    "cross-judge": ["eval", "judge", "agreement", "--judge", "openai/m", "--no-stored"],
 }
 _WRITES_MD = ["pairwise", "checklist", "cross-judge"]
 

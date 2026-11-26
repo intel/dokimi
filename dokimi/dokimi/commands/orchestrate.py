@@ -9,6 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi import cli_flags
 from dokimi.eval.judge_sampling import check_judge_sampling
 from dokimi.llm import CALLER_CHOICES
@@ -129,10 +130,17 @@ def register(sub, positive_int) -> None:
                         help="Directory where the golden question set <product>_golden.json "
                              "is looked up, for example a checkout of the evaluation-content "
                              "repository: --questions-root /path/to/content-repo/questions")
-    eval_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for generation/answering")
-    eval_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
-    eval_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
-    eval_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
+    add_model_flag(
+        eval_p, "--model", dest="model", provider_dest="provider",
+        providers=CALLER_CHOICES, default_model=DEFAULT_ANSWER_MODEL, default_provider=DEFAULT_ANSWER_PROVIDER,
+        help="LLM model for generation/answering",
+    )
+    add_model_flag(
+        eval_p, "--judge", dest="judge_model", provider_dest="judge_provider",
+        providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help=JUDGE_MODEL_HELP,
+        named_dest="judge_provider_named",
+    )
     eval_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                         help="Judge sampling temperature, recorded as judge_temperature in the eval output")
     eval_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",

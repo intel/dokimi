@@ -52,6 +52,21 @@ def test_a_name_litellm_takes_for_openais_goes_out_bare_and_still_routes(litellm
     assert litellm_routes == [model]
 
 
+@pytest.mark.parametrize(("ref", "route"), [
+    ("openai/deepseek/deepseek-chat", "openai/deepseek/deepseek-chat"),
+    ("deepseek/deepseek-chat", "deepseek/deepseek-chat"),
+    ("openai/anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"),
+    ("openai/meta-llama/Llama-3.1-8B", "openai/meta-llama/Llama-3.1-8B"),
+    ("openai/gpt-4o", "gpt-4o"),
+])
+def test_explicit_openai_model_keeps_nested_routes_on_the_endpoint(litellm_routes, ref, route):
+    from dokimi.cli import parse_args
+
+    args = parse_args(["answers", "generate", "--product", "p", "--questions", "q.json", "--model", ref])
+    assert LLM(args.model, args.provider).ask("Reply with OK.") == JUDGE_REPLY
+    assert litellm_routes == [route]
+
+
 def test_a_reply_cached_under_one_litellm_price_map_replays_under_the_other(litellm_routes, monkeypatch, tmp_path):
     """A new model is on litellm's remote price map but not on its installed backup
     (``LITELLM_LOCAL_MODEL_COST_MAP``): the route is bare under one and ``openai/`` under the
@@ -82,7 +97,7 @@ def test_cross_judge_scores_with_an_openai_compatible_judge(litellm_routes, tmp_
         encoding="utf-8")
     out = tmp_path / "cj.json"
     args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers), "--no-stored",
-                                      "--judges", "openai/glm-5.3", "--output", str(out)])
+                                      "--judge", "openai/glm-5.3", "--output", str(out)])
     args.func(args)
     assert litellm_routes == ["openai/glm-5.3"] * 6  # three questions, two arms
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["arms"]["skill"]["label"] != "NOT MEASURED"

@@ -524,16 +524,16 @@ class TestRunValidity:
 def test_judge_validity_accepts_every_judge_provider(provider):
     from dokimi.cli import build_parser
 
-    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", "a.json", "--judge-provider", provider])
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", "a.json", "--judge", provider + "/judge-m"])
     assert args.judge_provider == provider
 
 
-@pytest.mark.parametrize("provider", ["azure", "bedrock"])
+@pytest.mark.parametrize("provider", ["openai-codex"])
 def test_judge_validity_rejects_providers_judge_rejects(provider):
     from dokimi.cli import build_parser
 
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["eval", "judge", "validate", "--answers", "a.json", "--judge-provider", provider])
+        build_parser().parse_args(["eval", "judge", "validate", "--answers", "a.json", "--judge", provider + "/judge-m"])
 
 
 def test_noop_degradation_is_dropped_and_counted():
@@ -1678,8 +1678,7 @@ def _stored_cli(tmp_path, monkeypatch, *argv, data=None, score=lambda a: float(l
     answers.write_text(json.dumps(data if data is not None else _with_materials()))
     out = tmp_path / "v.json"
     args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
-                                      "--judge-provider", "amazon-bedrock", "--judge-model", "m",
-                                      "--variants", "truncate_20", "--output", str(out), *argv])
+                                      "--judge", "amazon-bedrock/m", "--variants", "truncate_20", "--output", str(out), *argv])
     code = None
     try:
         args.func(args)
@@ -1707,7 +1706,7 @@ def test_cli_judge_validity_exits_2_when_no_answer_is_long_enough(tmp_path, monk
     answers.write_text(json.dumps({"answers": [{"question_id": "Q1", "question_text": "q",
                                                 "arms": {"baseline": {"answer": "short"}}}]}))
     args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
-                                      "--judge-provider", "amazon-bedrock"])
+                                      "--judge", "amazon-bedrock/claude-sonnet-5-5"])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2 and "Error:" in exc.err
@@ -1769,7 +1768,7 @@ def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_pa
         run_path.write_text(json.dumps(run))
         out = tmp_path / "cj.json"
         args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(run_path), "--no-stored",
-                                          "--judges", "amazon-bedrock/m", "--validity", str(report_path),
+                                          "--judge", "amazon-bedrock/m", "--validity", str(report_path),
                                           "--output", str(out)])
         args.func(args)
         rows = json.loads(out.read_text())["summary"]["arms"]["skill"]["rows"]

@@ -50,8 +50,7 @@ Use `benchmark run` for registered libraries:
 python cli.py benchmark run \
   --library onetbb \
   --model gpt-6.1-sol \
-  --judge-model claude-sonnet-5-5 \
-  --judge-provider anthropic \
+  --judge anthropic/claude-sonnet-5-5 \
   --reps 3
 ```
 

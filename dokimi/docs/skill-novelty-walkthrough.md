@@ -118,7 +118,7 @@ What a stopped run leaves behind depends on the step:
 
 ```bash
 python cli.py skill novelty analyze --artifact skill:skills/my-skill \
-    --tier triage --model <model under measurement> --judge-model <a different model>
+    --tier triage --model openai/gpt-6.1-sol --judge anthropic/claude-sonnet-5-5
 ```
 
 Read in this order: `harmful_conflicting` (the only category that can make an artifact
@@ -143,15 +143,15 @@ python cli.py skill novelty atoms --artifact skill:skills/my-skill \
     --extract-model <not the model under measurement> --include-resources --out atoms.json
 
 python cli.py skill novelty probe --artifact skill:skills/my-skill --atoms atoms.json \
-    --model model-a --judge-model <different> --out model-a.json
+    --model model-a --judge anthropic/claude-sonnet-5-5 --out model-a.json
 python cli.py skill novelty probe --artifact skill:skills/my-skill --atoms atoms.json \
-    --model model-b --judge-model <different> --out model-b.json
+    --model model-b --judge anthropic/claude-sonnet-5-5 --out model-b.json
 ```
 
 The extractor must not be the model under measurement, or the model writes its own answer
 key — `probe` warns when it detects that. Without `--extract-model`/`--model`, `atoms` (and
 the `shorten` adjudicator) use the default judge, `anthropic/claude-sonnet-5-5`, the same
-model `analyze` extracts with; an extractor from another provider needs `--provider`. `probe`
+model `analyze` extracts with; an extractor from another provider needs `--extract-model PROVIDER/MODEL`. `probe`
 and `analyze` measure `openai/gpt-6.1-sol` unless given `--model`. On `atoms` and `shorten`, `--model`
 is the extractor or the adjudicator, not the answerer; see [Choosing the extractor and the judge](skill-novelty.md#choosing-the-extractor-and-the-judge).
 `atoms.json` records which

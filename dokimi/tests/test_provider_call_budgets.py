@@ -289,10 +289,7 @@ def test_eval_score_of_2_records_makes_4_provider_calls(provider_calls, tmp_path
             _answers_file(tmp_path, 2),
             "--output",
             str(out),
-            "--judge-provider",
-            "openai",
-            "--judge-model",
-            "gpt-x",
+            "--judge", "openai/gpt-x",
         ]
     )
     assert provider_calls.by_purpose() == Counter(judge=4)
@@ -312,10 +309,7 @@ def test_eval_panel_score_of_1_record_with_3_judges_makes_6_provider_calls(
             _answers_file(tmp_path, 1),
             "--output",
             str(out),
-            "--provider",
-            "openai",
-            "--model",
-            "gpt-x",
+            "--model", "openai/gpt-x",
         ]
     )
     assert provider_calls.by_purpose() == Counter({f"panel:{r}": 2 for r in DEFAULT_PANEL})
@@ -357,10 +351,7 @@ def _answers_generate(tmp_path, monkeypatch, out):
             "org/lib",
             "--output",
             str(out),
-            "--provider",
-            "openai",
-            "--model",
-            "gpt-x",
+            "--model", "openai/gpt-x",
             "--rerank-threshold",
             "0",
             "--concurrency",

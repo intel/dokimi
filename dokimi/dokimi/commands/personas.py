@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from dokimi import cli_flags
+from dokimi.cli_model_ref import add_model_flag
 from dokimi.cli_types import positive_usd
 from dokimi.llm import CALLER_CHOICES
 from dokimi.commands._output import exit_on_rejected, exit_on_unwritable
@@ -187,8 +188,11 @@ def register(eval_sub, positive_int) -> None:
     discover_p.add_argument("--description", default=None, help="Plain-text product description (used when --repo is not available).")
     discover_p.add_argument("--output", default=None, help="Output file (default: personas/{product}.json)")
     discover_p.add_argument("--count", type=int, default=5, help="Target number of personas (5-8)")
-    discover_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for generation")
-    discover_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=CALLER_CHOICES)
+    add_model_flag(
+        discover_p, "--model", dest="model", provider_dest="provider",
+        providers=CALLER_CHOICES, default_model=DEFAULT_GENERATOR_MODEL, default_provider=DEFAULT_GENERATOR_PROVIDER,
+        help="LLM model for generation",
+    )
     discover_p.add_argument("--github-token", default=None, help="GitHub token (or set GITHUB_TOKEN env)")
     discover_p.add_argument("--save-analysis", action="store_true", help="Save intermediate analysis JSON")
     cli_flags.add(discover_p, "dry_run", "--dry-run", action="store_true", dest="dry_run",

@@ -159,7 +159,7 @@ def test_arms_run_refuses_it_before_any_answer(sonnet_box):
 ])
 def test_the_pipeline_commands_refuse_it_before_any_answer(argv, sonnet_box, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    args = parse_args([*argv, "--judge-provider", "amazon-bedrock", "--judge-model", BARE])
+    args = parse_args([*argv, "--judge", f"amazon-bedrock/{BARE}"])
     with pytest.raises(InputError, match=f"Bedrock has no model '{BARE}'"):
         args.func(args)
     assert list(tmp_path.iterdir()) == []

@@ -63,7 +63,7 @@ given `--judge`. For docs arms, the material is the retrieved chunks, rarely
 identical across questions, so each question adds its own copy (up to the
 15,000-char cut); on a synthetic 20-question docs run the artifact grew from
 93,209 to 392,852 bytes (4.2x). Sharing an arms artifact shares the skill or doc
-text it contains. With `eval judge agreement --judges`, the judge is given the same text
+text it contains. With `eval judge agreement` and a repeated `--judge`, the judge is given the same text
 through `JudgeContextStore.from_artifact`, which skips any text that does not
 match its digest. Question ids must be unique for this (a question with no id is
 given a positional one; duplicated ids are refused).
@@ -726,8 +726,8 @@ python scripts/check_treatment_batch.py results/arms/persona-batch \
   --judge-provider amazon-bedrock --judge-model global.anthropic.claude-sonnet-4-6
 ```
 
-It checks schema, exactly two arms, the baseline arm, the treatment-arm pattern, a pinned
-`--judge-model`/`--judge-provider`, that the judge is not the answering model
+It checks schema, exactly two arms, the baseline arm, the treatment-arm pattern, a pinned judge
+(`--judge-model` and `--judge-provider`), that the judge is not the answering model
 (self-judging), question and per-arm answer counts, and — for `profile:` arms — that the
 system prompt reached every treatment answer and no baseline answer. With `--profile` it
 compares each cell's stamped digest against the file's current text and reports

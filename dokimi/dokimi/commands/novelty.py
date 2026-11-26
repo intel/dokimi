@@ -130,7 +130,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
     artifact_bundle = _bundle_from_args(args)
     settings = _settings(args)
-    extractor = cost.client(args.extract_model or args.model, args.provider, "extractor", args)
+    extractor = cost.client(args.extract_model or args.model, args.extract_provider or args.provider, "extractor", args)
     spans = segment(artifact_bundle.text)
     cap = settings.values["max_atoms"]
     extraction = ExtractionReport()

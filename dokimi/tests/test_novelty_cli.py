@@ -59,8 +59,7 @@ def test_the_judge_defaults_to_a_different_model_than_the_answerer():
 
 @pytest.mark.parametrize("model", [DEFAULT_JUDGE_MODEL, f"us.anthropic.{DEFAULT_JUDGE_MODEL}"])
 def test_measuring_the_default_judge_moves_the_judge_to_the_other_family(model):
-    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", model,
-                  "--provider", "amazon-bedrock")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", f"amazon-bedrock/{model}")
     _extractor, answerer, judge = novelty_cost.clients(args)
     assert answerer.model == model
     assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
@@ -74,8 +73,7 @@ def test_a_judge_provider_alone_picks_the_default_judge_that_runs_there():
 
 
 def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured():
-    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", DEFAULT_JUDGE_MODEL,
-                  "--provider", "anthropic", "--judge-provider", DEFAULT_GENERATOR_PROVIDER)
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", f"anthropic/{DEFAULT_JUDGE_MODEL}", "--judge-provider", DEFAULT_GENERATOR_PROVIDER)
     _extractor, _answerer, judge = novelty_cost.clients(args)
     assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
 
@@ -83,12 +81,12 @@ def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured()
 @pytest.mark.parametrize("argv", [
     # Measuring the default judge leaves only the generator, which Bedrock and anthropic
     # do not serve: the swap must not build bedrock/gpt-6.1-sol or anthropic/gpt-6.1-sol.
-    ("--model", f"us.anthropic.{DEFAULT_JUDGE_MODEL}", "--provider", "amazon-bedrock",
+    ("--model", f"amazon-bedrock/us.anthropic.{DEFAULT_JUDGE_MODEL}",
      "--judge-provider", "amazon-bedrock"),
-    ("--model", DEFAULT_JUDGE_MODEL, "--provider", "anthropic", "--judge-provider", "anthropic"),
+    ("--model", f"anthropic/{DEFAULT_JUDGE_MODEL}", "--judge-provider", "anthropic"),
     # A CLI alias is its family's full id: refused here, not after the paid extraction.
-    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "anthropic"),
-    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "amazon-bedrock"),
+    ("--model", "claude-cli/sonnet", "--judge-provider", "anthropic"),
+    ("--model", "claude-cli/sonnet", "--judge-provider", "amazon-bedrock"),
     # The default answerer is the generator, so openai has no default judge left either.
     ("--judge-provider", "openai"),
 ])
@@ -102,15 +100,14 @@ def test_a_judge_provider_with_no_default_judge_there_exits(argv):
 def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_family(model):
     from dokimi.utils import same_model
 
-    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", model,
-                  "--provider", "claude-cli")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", f"claude-cli/{model}")
     _extractor, _answerer, judge = novelty_cost.clients(args)
     assert judge.provider == "claude-cli"
     assert not same_model(judge.model, model)
 
 
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
-    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--provider", "openrouter",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", "openrouter/answerer",
                   "--judge-model", "j")
     _extractor, _answerer, judge = novelty_cost.clients(args)
     assert (judge.model, judge.provider) == ("j", "openrouter")
@@ -353,7 +350,7 @@ def test_atoms_subcommand_writes_atoms_and_span_stats(tmp_path, monkeypatch, cap
     assert "own answer key" not in capsys.readouterr().err
 
     # Measuring the model that extracted the atoms means it wrote its own answer key.
-    args = _parse(*probe, "--model", DEFAULT_JUDGE_MODEL, "--provider", DEFAULT_JUDGE_PROVIDER)
+    args = _parse(*probe, "--model", f"{DEFAULT_JUDGE_PROVIDER}/{DEFAULT_JUDGE_MODEL}")
     args.func(args)
     assert "own answer key" in capsys.readouterr().err
 

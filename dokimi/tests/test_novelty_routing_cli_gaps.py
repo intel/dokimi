@@ -162,7 +162,7 @@ def test_estimate_only_gives_a_null_dollar_figure_for_a_routing_model_with_no_pr
     args = _parse("skill", "routing",
                   _skill(tmp_path, "perf", "profile a binary with perf record"), "--competitors",
                   _skill(tmp_path, "tbb", "parallelize loops"), "--queries",
-                  str(queries), "--model", "foo-bar-9", "--provider", "openai", "--dry-run")
+                  str(queries), "--model", "openai/foo-bar-9", "--dry-run")
     args.func(args)
     captured = capsys.readouterr()
     estimate = json.loads(captured.out)

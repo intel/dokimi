@@ -754,7 +754,6 @@ def test_eval_score_carries_the_answers_run_intent_into_the_judge_metadata(tmp_p
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps({"run_intent": "paired", "answers": [
         {"id": "q1", "question": "What?", "answer": "x", "with_docs": None}]}), encoding="utf-8")
-    args = build_parser().parse_args(["eval", "score", "pointwise", "--product", "oneTBB", "--answers", str(answers), "--judge-provider",
-                                      "openai", "--judge-model", "gpt-5.1", "--output", str(tmp_path / "eval.json")])
+    args = build_parser().parse_args(["eval", "score", "pointwise", "--product", "oneTBB", "--answers", str(answers), "--judge", "openai/gpt-5.1", "--output", str(tmp_path / "eval.json")])
     args.func(args)
     assert seen["run_intent"] == "paired"

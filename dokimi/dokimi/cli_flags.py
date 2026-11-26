@@ -87,7 +87,8 @@ CONCEPTS: tuple[Concept, ...] = (
         help="the model a role runs on: judge, extractor, escalation, fill, RAGAS",
         canonical=(
             Flag("--judge", "PROVIDER/MODEL", _MODEL_REF, repeatable=True,
-                 meaning="the judge; repeated, it is a panel"),
+                 meaning="the judge; repeated, it is a panel on the commands that take several (novelty, catalog, "
+                         "eval judge agreement); elsewhere a repeat replaces the earlier one"),
             Flag("--judge-aggregate", "{median,majority,unanimous}", "choice",
                  meaning="how a judge panel's verdicts become one"),
             Flag("--extract-model", "PROVIDER/MODEL", _MODEL_REF),
@@ -428,6 +429,42 @@ class FlagMove:
     old: str
     new: str
     leaves: tuple[tuple[str, ...], ...] = ()
+    split: str = ""  # a value that held several items (``--judges a,b``) becomes one ``new`` per item
+
+
+@dataclass(frozen=True)
+class FlagJoin:
+    """Two old flags that became one value: ``provider`` and ``model`` are now ``new PROVIDER/MODEL``.
+
+    A provider with no model gets the placeholder ``<MODEL>`` in the printed argv. ``leaves`` limits
+    the join as in ``FlagMove``; the empty tuple means every leaf.
+    """
+
+    provider: str
+    model: str
+    new: str
+    leaves: tuple[tuple[str, ...], ...] = ()
+
+
+# Leaves whose judge was ``--judge-model``/``--judge-provider``; now ``--judge PROVIDER/MODEL`` (issue #94 F1b).
+# arms run, arms matrix-run, subjects run and novelty keep both spellings: there ``--judge`` is a switch or a panel.
+JUDGE_MOVED_LEAVES: tuple[tuple[str, ...], ...] = (
+    ("benchmark", "run"), ("benchmark", "preflight"), ("benchmark", "batch"),
+    ("eval", "judge", "validate"), ("eval", "judge", "wording"),
+    ("eval", "score", "checklist"), ("eval", "score", "pairwise"),
+    ("eval", "score", "pointwise"), ("eval", "score", "reference"),
+    ("evaluate",),
+)
+
+
+FLAG_JOINS: tuple[FlagJoin, ...] = (
+    # Model concept (F1b): the provider moved into the model value, `--model PROVIDER/MODEL`.
+    FlagJoin("--provider", "--model", "--model"),
+    FlagJoin("--judge-provider", "--judge-model", "--judge", leaves=JUDGE_MOVED_LEAVES),
+    FlagJoin("--extract-provider", "--extract-model", "--extract-model", leaves=(
+        ("catalog", "novelty"), ("skill", "novelty", "analyze"), ("skill", "novelty", "probe"),
+    )),
+)
 
 
 FLAG_MOVES: tuple[FlagMove, ...] = (
@@ -483,6 +520,9 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--budget", "--max-usd-per-cell", leaves=(
         ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
     )),
+    # Model concept (F1b): a bare judge model moves to `--judge` (the provider is in the value).
+    FlagMove("--judge-model", "--judge", leaves=JUDGE_MOVED_LEAVES),
+    FlagMove("--judges", "--judge", leaves=(("eval", "judge", "agreement"),), split=","),
     # Dry-run concept (F1b): estimate, make no paid call. `subjects run --work-dry-run` is not moved:
     # it gates only executable-task agents, so it has no matching canonical meaning (see the allowlist).
     FlagMove("--estimate-only", "--dry-run", leaves=(

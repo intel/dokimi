@@ -84,7 +84,7 @@ def persona_reply(monkeypatch):
 
 def _discover(monkeypatch, out: Path, *extra: str) -> int:
     return _cli(monkeypatch, "eval", "personas", "discover", "--product", "lib", "--output", str(out),
-                "--provider", "openai", *extra)
+                "--model", "openai/gpt-6.1-sol", *extra)
 
 
 def test_discovered_personas_are_a_personas_artifact_that_readers_still_read(

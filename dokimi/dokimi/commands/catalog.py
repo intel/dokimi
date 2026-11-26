@@ -17,13 +17,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
+from functools import cache
 from pathlib import Path
 
+from dokimi.cli_model_ref import add_model_flag
 from dokimi.commands.catalog_scan import (
     ROW_STATES, fail_on_reason, fails_on_finding, is_plain_markdown, listing_failed, listing_total, not_checked, row_ignore,
     ok_text, plain_note, print_skill_row, skill_row, skipped_note, unrestricted_and_risky,
 )
 from dokimi.external.catalog_rates import RateTally, text_lines
+from dokimi.llm import ANSWER_PROVIDERS, PROVIDER_ALIASES, is_litellm_route
 from dokimi.utils import InputError
 
 
@@ -398,6 +402,35 @@ def _discover_catalog_skills(catalog_root: Path) -> list:
         raise InputError(f"--catalog {catalog_root}: {exc}") from exc
 
 
+def _trigger_rewrite_model(model: str, provider: str, *, named: bool) -> tuple[str, str]:
+    """Resolve external providers after input validation, without importing LiteLLM at parse time."""
+    prefix, slash, name = model.partition("/")
+    if not named and slash and is_litellm_route(prefix):
+        if not name.strip():
+            raise InputError(f"--model {prefix}/ has no model: pass --model {prefix}/<MODEL>")
+        # LiteLLM needs its provider prefix on model names that already contain a slash.
+        return (model if "/" in name else name), prefix
+    return model, provider
+
+
+def _trigger_rewriter(args: argparse.Namespace, prompt: str) -> Callable[[str], str] | None:
+    if not args.rewrite:
+        return None
+    if not args.model:
+        raise InputError("--rewrite needs --model")
+    from dokimi.llm import llm_call
+
+    @cache
+    def rewrite_model() -> tuple[str, str]:
+        return _trigger_rewrite_model(args.model, args.provider, named=args.rewrite_provider_named)
+
+    def rewrite(text: str) -> str:
+        model, provider = rewrite_model()
+        return llm_call(prompt + text, model=model, provider=provider)
+
+    return rewrite
+
+
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     import json
 
@@ -423,18 +456,11 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     specs = list(args.questions or []) + [
         None if args.format == "questions" else spec for spec in (args.trigger_set or [])]
 
-    rewrite = None
-    if args.rewrite:
-        if not args.model:
-            raise InputError("--rewrite needs --model")
-        from dokimi.llm import llm_call
-
-        def rewrite(text: str) -> str:
-            return llm_call(ts.REWRITE_PROMPT + text, model=args.model, provider=args.provider)
+    rewrite = _trigger_rewriter(args, ts.REWRITE_PROMPT)
 
     try:
         queries = ts.build_trigger_set(sources, catalog, rewrite=rewrite, specs=specs)
-    except ts.TriggerSetInputError as exc:
+    except (ts.TriggerSetInputError, InputError) as exc:
         raise InputError(str(exc)) from exc
     except ValueError as exc:
         # A --rewrite that returned nothing: a runtime failure, not a bad invocation.
@@ -742,8 +768,12 @@ def register(sub, positive_int, eval_sub) -> None:
     ts_p.add_argument("--target", help="Target skill for --format skill-creator")
     ts_p.add_argument("--rewrite", action="store_true",
                       help="Rewrite each question into first-person user voice (model sees only the question)")
-    ts_p.add_argument("--model", help="Model for --rewrite")
-    ts_p.add_argument("--provider", default="openai", help="Provider for --rewrite (default: openai)")
+    add_model_flag(
+        ts_p, "--model", dest="model", provider_dest="provider",
+        providers=(*ANSWER_PROVIDERS, *PROVIDER_ALIASES), named_dest="rewrite_provider_named",
+        default_model=None, default_provider="openai",
+        help="Model for --rewrite (PROVIDER/MODEL or MODEL; default provider openai)",
+    )
     cli_flags.add(ts_p, "fail_on", "--fail-on", choices=("warn",), default=None,
                   help="warn: exit 1 if any query names a skill, keeps exam framing, or has an unresolved @field label")
     ts_p.add_argument("--out", required=True, help="Output JSON path")

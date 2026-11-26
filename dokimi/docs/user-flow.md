@@ -86,7 +86,7 @@ results/<target>_final/
 ```bash
 python cli.py benchmark run --target onetbb --questions-root <content-checkout>/questions --out-dir results/onetbb_seed
 python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model claude-opus-5-5 --provider anthropic
+python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model anthropic/claude-opus-5-5
 ```
 
 Never compare models on different generated questions. `--questions-from` reuses

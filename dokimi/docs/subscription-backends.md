@@ -14,8 +14,8 @@ The Q&A track (answers, judging, question generation, personas, novelty) can cal
 a model through a coding-agent CLI the machine is already signed in to, instead
 of an API key. Three backends exist: `claude-cli` (Claude Code's `claude -p`), `codex-cli` (`codex exec`) and
 `copilot-cli` (`copilot -p`). The Codex and Copilot ones are answering routes only: they take no judge
-default, so `arms run` or `eval` on them needs `--judge-model` and `--judge-provider` named.
-Pass it wherever a command takes `--provider` or `--judge-provider`, except `tools` (it needs tool calling) and the arms that `arms run` and `arms matrix-run` refuse for a CLI provider (see the table).
+default, so `arms run` or `eval` on them needs a judge named: `--judge-model` and `--judge-provider` on `arms run`, `--judge PROVIDER/MODEL` on `eval`.
+Pass it wherever a command takes a `PROVIDER/MODEL` value (`--model`, `--judge`) or `--judge-provider`, except `tools` (it needs tool calling) and the arms that `arms run` and `arms matrix-run` refuse for a CLI provider (see the table).
 
 ## Check what this machine can use
 
@@ -36,16 +36,16 @@ exits 2 for a backend that is not installed or not signed in, as for a missing k
 
 ```bash
 python cli.py answers generate --product oneTBB --questions questions/oneTBB.json \
-  --output answers/oneTBB.json --provider claude-cli --model haiku
+  --output answers/oneTBB.json --model claude-cli/haiku
 python cli.py eval score pointwise --product oneTBB --answers answers/oneTBB.json \
-  --output eval/oneTBB.json --judge-provider claude-cli --judge-model sonnet
+  --output eval/oneTBB.json --judge claude-cli/sonnet
 ```
 
 `--model` takes what `claude --model` takes: an alias (`haiku`, `sonnet`,
-`opus`) or a full id (`claude-sonnet-5-5`). With no `--judge-model`, the judge on
+`opus`) or a full id (`claude-sonnet-5-5`). With no judge model named, the judge on
 `claude-cli` is the first of `opus`, `sonnet`, `haiku` not of the answerer's family.
 When the answerer would be the judge, a judging run exits before any answer and
-asks for `--judge-model`. With `--provider claude-cli`, a
+asks for a judge model. With `--model claude-cli/<model>`, a
 model that is not a Claude alias or id is refused at parse time.
 
 ## How it differs from an API provider

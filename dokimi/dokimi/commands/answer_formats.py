@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from dokimi.cli_model_ref import add_model_flag
 from dokimi.utils import InputError, read_json_input
 
 
@@ -115,8 +116,12 @@ def register_eval(score_sub, eval_sub, positive_int) -> None:
     r.add_argument("--answers", required=True, help="answers.v1 or arms output JSON")
     r.add_argument("--questions", required=True, help="Questions JSON from `eval import`")
     r.add_argument("-o", "--output", required=True, help="eval.v1 (answers) or arms (arms run) JSON to write")
-    r.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
-    r.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
+    add_model_flag(
+        r, "--judge", dest="judge_model", provider_dest="judge_provider",
+        providers=JUDGE_PROVIDERS, default_model=JUDGE_MODEL_FOR_PROVIDER, default_provider=DEFAULT_JUDGE_PROVIDER,
+        help=JUDGE_MODEL_HELP,
+        named_dest="judge_provider_named",
+    )
     r.add_argument("--no-judge", action="store_true", help="Leave judge checks unscored (no model calls)")
     r.add_argument("--concurrency", type=positive_int, default=4)
     r.set_defaults(func=cmd_eval_reference)

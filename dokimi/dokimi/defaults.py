@@ -67,7 +67,7 @@ class _JudgeModelForProvider(str):
 #: (``novelty`` picks its own). Code that builds its arguments without
 #: ``dokimi.cli.parse_args`` reads it as ``DEFAULT_JUDGE_MODEL``.
 JUDGE_MODEL_FOR_PROVIDER = _JudgeModelForProvider(DEFAULT_JUDGE_MODEL)
-JUDGE_MODEL_HELP = (f"Judge model (default: the default judge for --judge-provider that is not the "
+JUDGE_MODEL_HELP = (f"Judge model (default: the default judge for the judge provider that is not the "
                     f"answerer's family: {DEFAULT_JUDGE_MODEL} on {DEFAULT_JUDGE_PROVIDER} and amazon-bedrock, "
                     f"opus on claude-cli (sonnet when the answerer is opus), "
                     f"{DEFAULT_GENERATOR_MODEL} on {DEFAULT_GENERATOR_PROVIDER}; "

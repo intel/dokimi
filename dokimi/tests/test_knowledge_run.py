@@ -178,13 +178,12 @@ def test_the_default_harness_is_accepted():
 def test_the_harness_refusal_reaches_the_cli_with_exit_2(tmp_path, fake_llm):
     args = build_parser().parse_args(["arms", "run", "--product", "oneTBB", "--questions",
                                       str(_write_questions(tmp_path)), "--arm", "baseline",
-                                      "--provider", "amazon-bedrock", "--model", "claude-haiku-5-5",
-                                      "--harness", "codex"])
+                                      "--model", "amazon-bedrock/claude-haiku-5-5", "--harness", "codex"])
     with refusal() as outcome:
         args.func(args)
     assert outcome.code == 2
     assert "task harness" in outcome.err
-    assert "--provider claude-cli --model sonnet" in outcome.err
+    assert "--model claude-cli/sonnet" in outcome.err
     assert fake_llm.requests == []
 
 
@@ -213,8 +212,7 @@ def test_codex_cli_answers_an_arms_run_with_a_docs_arm(cli_runner):
 def test_codex_cli_refuses_an_answers_knowledge_run_with_exit_2(tmp_path, cli_runner):
     args = build_parser().parse_args(["answers", "generate", "--product", "oneTBB", "--questions",
                                       str(_write_questions(tmp_path)), "--doc-source", "none",
-                                      "--provider", "codex-cli", "--model", "gpt-5.5",
-                                      "--output", str(tmp_path / "answers.json")])
+                                      "--model", "codex-cli/gpt-5.5", "--output", str(tmp_path / "answers.json")])
     with refusal() as outcome:
         args.func(args)
     assert outcome.code == 2
