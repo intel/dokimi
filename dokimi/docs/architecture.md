@@ -149,7 +149,7 @@ injection (`docs`/`mcp:`), agent persona prompts (`profile:`, loaded from
 `agent_profiles/`), skills (`skill:`, loaded from `skills/`), and agentic use
 where the model decides to call a doc-search or skill tool (`agent:`,
 `skill-agent:`, `skill-catalog:`) via the tool-calling loop in `eval/agent_runner.py`.
-The spec grammar — what an `--arms` entry means, where `+` splits a combined
+The spec grammar — what an `--arm` entry means, where `+` splits a combined
 spec, and what each arm is *named* — is `treatments/specs.py`.
 `eval/arm_runner.py` generates and judges answers for every arm and reports
 per-arm deltas vs a baseline. `eval/arms_run.py` runs it from an `ArmsRunConfig`,
@@ -524,10 +524,10 @@ label (it exits 1 for a narrowing, which the label overrides only when the run p
 whatever the label). `conda-forge.yml` runs only when a PR or a push to `main` changes
 `pyproject.toml`, one of the two scripts it runs or the workflow file (also weekly, and by
 hand, `workflow_dispatch`): it solves the runtime dependencies from conda-forge
-alone (`scripts/conda_forge_specs.py` turns them into match specs) on Python
-3.11 and 3.14, installs the wheel into that environment with `--no-deps`, and
-runs `pip check` and the installed-package smoke test,
-`scripts/smoke_installed.py`.
+alone (`scripts/conda_forge_specs.py` turns them into match specs), installs the
+wheel into that environment with `--no-deps`, and runs `pip check` and
+`scripts/smoke_installed.py`. PRs use the newest supported Python. Pushes to
+`main`, the weekly run and manual dispatch also exercise the supported floor.
 
 **`ci.yml`** — fast code checks:
 
@@ -537,14 +537,15 @@ runs `pip check` and the installed-package smoke test,
    `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
    `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs
    `repo scan` as a gate (`--fail-on fail`).
-2. **mypy** — type check of the whole package (modules listed in the
-   `pyproject.toml` override are exempt until fixed).
+2. **mypy** — type check of the whole package.
 3. **test** — pytest from `requirements.lock.txt`, offline, in parallel
-   (pytest-xdist), on Python 3.11–3.14; coverage is measured on the 3.14 leg,
-   and on a PR 80% of the changed lines must be covered.
+   (pytest-xdist). PRs run the 3.14 coverage leg, which checks outcomes,
+   journey evidence and changed-line coverage (80% when at least 20 changed
+   lines are measurable). Pushes to `main`, scheduled and manually dispatched
+   runs cover the full supported Python matrix.
 4. **package-smoke** — builds/installs the package with a fresh resolve of its
-   dependency ranges (Python 3.11 and 3.13) and exercises the console and
-   module entry points.
+   dependency ranges and exercises the console and module entry points. PRs
+   exercise the supported floor. Other runs also exercise Python 3.13.
 
    **windows-smoke** (a PR check on `windows-latest`) builds the wheel, installs
    it, runs the installed-package smoke test and a few fast tests.

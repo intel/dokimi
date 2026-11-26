@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/report_summary.v1.json",
   "title": "Report summary v1",
-  "description": "What `dokimi report summary --format json` prints (dokimi.report.summary): one row per input `cli_output.v1` document, in input order, and one row per subject id across them. `overall` is the worst row state; it is never a verdict the summary computed. A missing, unreadable or malformed input is a `not_run` or `invalid` row, never dropped. A subject's `verdicts` is keyed by the check kind, or `<kind> (<source>)` for a second document of the same kind.",
+  "description": "What `dokimi report summary --format json` prints (dokimi.report.summary): one row per input `cli_output.v1` document, in input order, and one row per subject id across them. `overall` is the worst row state; it is never a verdict the summary computed. The CLI refuses a named path that does not exist (exit 2); an unreadable or malformed input is an `invalid` row, never dropped, and the library keeps a missing path as a `not_run` row. A subject's `verdicts` is keyed by the check kind, or `<kind> (<source>)` for a second document of the same kind.",
   "type": "object",
   "required": ["schema_version", "overall", "checks", "subjects", "spent_usd"],
   "additionalProperties": false,

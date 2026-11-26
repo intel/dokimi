@@ -72,6 +72,21 @@ def test_a_mean_under_a_hundredth_keeps_two_significant_digits():
     assert res["ci_lo"] <= res["delta_mean"] <= res["ci_hi"]
 
 
+def test_a_tiny_scale_row_prints_its_ends_at_two_significant_digits():
+    # the ends were 0.0001 (a point), the mean 0.0001 too, for deltas of 2e-12 to 9e-12
+    res = stats.paired_test([2e-12, 4e-12, 3e-12, 5e-12, 6e-12, 9e-12, 7e-12, 8e-12], [1e-12] * 8)
+    assert (res["ci_lo"], res["delta_mean"], res["ci_hi"]) == (2.3e-12, 4.5e-12, 6.7e-12)
+    assert res["p"] == 0.0078 and 0 < res["ci_lo"] and res["ci_hi"] > res["ci_lo"]  # excludes 0, as p < 0.05 says
+    assert res["exact"]["delta_mean"] == pytest.approx(4.5e-12)
+
+
+def test_a_tiny_negative_end_keeps_its_sign_in_an_arms_row():
+    res = stats.paired_test([-4e-5] * 8, [0.0] * 8)
+    assert (res["ci_lo"], res["delta_mean"], res["ci_hi"]) == (-4e-5,) * 3
+    mixed = stats.paired_test([-4e-5] * 5 + [1e-5, -4e-5, -3e-5], [0.0] * 8)
+    assert mixed["ci_hi"] < 0 < -mixed["ci_lo"] and mixed["ci_lo"] <= mixed["delta_mean"] <= mixed["ci_hi"]
+
+
 def test_the_displayed_mean_stays_inside_a_narrow_interval():
     # 20.004 at 2 places is 20.0, outside the interval [20.004, 20.004] of a constant shift
     res = stats.paired_test([20.004] * 8, [0.0] * 8)

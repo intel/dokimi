@@ -43,15 +43,15 @@ def test_run_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     assert not (tmp_path / "o.json").exists() and not (tmp_path / "o.md").exists()
 
 
-@pytest.mark.parametrize("which", ["--base", "--candidate"])
+@pytest.mark.parametrize("which", ["--baseline", "--candidate"])
 @pytest.mark.parametrize("content", [None, "{not json", b"\xff\xfe", "[1]", "{}", "[" * 100000],
                          ids=["missing", "malformed", "not-utf8", "not-an-object", "no-summary", "too-deep"])
 def test_compare_exits_2_on_a_bad_snapshot(tmp_path, monkeypatch, capsys, which, content):
     bad = tmp_path / "bad.json"
     _write(bad, content)
     good = _snapshot(tmp_path / "good.json")
-    pair = {"--base": good, "--candidate": good, which: str(bad)}
-    code = _main(monkeypatch, "docs", "compare", "--base", pair["--base"], "--candidate", pair["--candidate"],
+    pair = {"--baseline": good, "--candidate": good, which: str(bad)}
+    code = _main(monkeypatch, "docs", "compare", "--baseline", pair["--baseline"], "--candidate", pair["--candidate"],
                  "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
     assert code == 2
     err = capsys.readouterr().err
@@ -77,7 +77,7 @@ def test_compare_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     spec = tmp_path / "spec.yaml"
     _write(spec, content)
     good = _snapshot(tmp_path / "good.json")
-    code = _main(monkeypatch, "docs", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
+    code = _main(monkeypatch, "docs", "compare", "--baseline", good, "--candidate", good, "--spec", str(spec),
                  "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
     assert code == 2
     err = capsys.readouterr().err
@@ -89,7 +89,7 @@ def test_compare_accepts_a_non_negative_regression_threshold(tmp_path, monkeypat
     spec = tmp_path / "spec.yaml"
     spec.write_text(f"thresholds: {{regressions: {{score_drop_warn: {value}}}}}\n", encoding="utf-8")
     good = _snapshot(tmp_path / "good.json")
-    argv = ["dokimi", "docs", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
+    argv = ["dokimi", "docs", "compare", "--baseline", good, "--candidate", good, "--spec", str(spec),
             "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")]
     monkeypatch.setattr("sys.argv", argv)
     cli.main()
@@ -148,7 +148,7 @@ def test_run_does_not_report_a_metric_error_as_bad_input(tmp_path, monkeypatch, 
     assert "a defect, not an input" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("which", ["--base", "--candidate"])
+@pytest.mark.parametrize("which", ["--baseline", "--candidate"])
 @pytest.mark.parametrize("field,value", [
     ("docs", "1"), ("score", None), ("coverage", True), ("score", float("nan")), ("score", float("inf")),
     ("readability", 1e999), ("docs", 1.5), ("score", 10**400), ("example_pass_rate", 10**400), ("example_pass_rate", float("nan")), ("example_pass_rate", "x"),
@@ -157,12 +157,12 @@ def test_compare_exits_2_on_a_non_numeric_summary_value(tmp_path, monkeypatch, c
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"summary": {**SNAPSHOT["summary"], field: value}}), encoding="utf-8")
     good = _snapshot(tmp_path / "good.json")
-    pair = {"--base": good, "--candidate": good, which: str(bad)}
-    code = _main(monkeypatch, "docs", "compare", "--base", pair["--base"], "--candidate", pair["--candidate"],
+    pair = {"--baseline": good, "--candidate": good, which: str(bad)}
+    code = _main(monkeypatch, "docs", "compare", "--baseline", pair["--baseline"], "--candidate", pair["--candidate"],
                  "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
     assert code == 2
     err = capsys.readouterr().err
-    role = which[2:]
+    role = "base" if which == "--baseline" else which[2:]  # the snapshot is still named base in the message
     assert err.startswith("Error: ") and f"Invalid {role} snapshot {bad}" in err and f"`{field}`" in err
 
 
@@ -176,7 +176,7 @@ def test_compare_does_not_report_a_regression_check_error_as_bad_input(tmp_path,
     good = _snapshot(tmp_path / "good.json")
     spec = tmp_path / "spec.yaml"
     spec.write_text("thresholds: {}\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["dokimi", "docs", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
+    monkeypatch.setattr("sys.argv", ["dokimi", "docs", "compare", "--baseline", good, "--candidate", good, "--spec", str(spec),
                                      "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")])
     with pytest.raises(SystemExit) as exc:  # a crash: exit 5, not the input refusal (exit 2)
         cli.main()
@@ -196,7 +196,7 @@ def test_compare_exits_2_when_an_output_cannot_be_written(tmp_path, monkeypatch,
     blocked = _blocked(tmp_path) / "out"
     outs = {"json": str(tmp_path / "c.json"), "md": str(tmp_path / "c.md")}
     outs[which] = str(blocked)
-    code = _main(monkeypatch, "docs", "compare", "--base", good, "--candidate", good,
+    code = _main(monkeypatch, "docs", "compare", "--baseline", good, "--candidate", good,
                  "--out", outs["json"], "--out-md", outs["md"])
     assert code == 2
     err = capsys.readouterr().err

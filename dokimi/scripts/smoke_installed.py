@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from importlib import metadata
 from pathlib import Path
 
@@ -31,6 +32,26 @@ def _check(ok: bool, what: str) -> None:
     print(f"{'ok  ' if ok else 'FAIL'} {what}")
     if not ok:
         raise SystemExit(1)
+
+
+def _check_legacy_questions() -> None:
+    question = "How do I install the library?"
+    with tempfile.TemporaryDirectory(prefix="dokimi-smoke-") as directory:
+        root = Path(directory)
+        source = root / "old-questions.json"
+        source.write_text(json.dumps({
+            "schema_version": "questions.v1",
+            "questions": [{"id": "legacy-1", "text": question}],
+        }), encoding="utf-8")
+        output = root / "exported"
+        subprocess.run([
+            sys.executable, "-m", "dokimi", "data", "export", "--kind", "questions",
+            "--input", str(source), "--out-dir", str(output),
+        ], check=True, timeout=30)
+        row, = (output / "questions.jsonl").read_text(encoding="utf-8").splitlines()
+        item = json.loads(row)
+        _check(item["id"] == "legacy-1" and item["question"] == question,
+               "installed CLI exports questions.v1 with the original ID and text")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -82,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in builtin_profiles():
         load_profile(name)
     _check(bool(builtin_profiles()), f"harness profiles: {', '.join(builtin_profiles())}")
+    _check_legacy_questions()
     return 0
 
 

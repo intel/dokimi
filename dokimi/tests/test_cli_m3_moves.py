@@ -347,7 +347,7 @@ def test_the_docs_group_answers_its_old_names_with_exit_2(capsys):
 def test_docs_check_and_compare_keep_the_old_flags():
     check = build_parser().parse_args(["docs", "check", "--spec", "s.yaml", "--strict"])
     assert (check.spec, check.strict, check.out_json) == ("s.yaml", True, "baselines/current.json")
-    compare = build_parser().parse_args(["docs", "compare", "--base", "a", "--candidate", "b"])
+    compare = build_parser().parse_args(["docs", "compare", "--baseline", "a", "--candidate", "b"])
     assert (compare.base, compare.candidate, compare.spec) == ("a", "b", None)
 
 

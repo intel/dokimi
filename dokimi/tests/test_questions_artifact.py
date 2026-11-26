@@ -510,11 +510,11 @@ def test_a_set_invalid_after_reading_fails_before_any_model_call(mode, tmp_path,
     kwargs: dict = {"cached": {}, "questions_from": {"questions_from": src},
                     "custom": {"custom_questions_path": src}}[mode]
     pipeline = _pipeline(tmp_path, monkeypatch, **kwargs)
-    # the run's own cache is an input error, exit 2, naming --force-regen (#687)
+    # the run's own cache is an input error, exit 2, naming --force (#687)
     with pytest.raises(InputError if mode == "cached" else ArtifactValidationError) as exc:
         pipeline.run(concurrency=1)
     msg = str(exc.value)
-    assert ("benchmark run: --force-regen)" in msg) == (mode == "cached")
+    assert ("benchmark run: --force)" in msg) == (mode == "cached")
     assert f"{src} is not a usable question set" in msg
     assert "record 1 (id 'g2'), `question`: '' should be non-empty" in msg
     assert f"Fix in {src}: give each record above a non-empty question" in msg

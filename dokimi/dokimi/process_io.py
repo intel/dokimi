@@ -37,9 +37,15 @@ def json_utf8_bytes(text: str) -> bytes:
     Raises ValueError when an object of the text, read as a reader reads it, holds two equal keys: a pair key beside its
     character (also as ``\\ud83d\\ude00`` escapes), or an integer, boolean, float or ``None`` key beside the string
     ``json.dumps`` writes it as (``{1: "a", "1": "b"}``). A reader keeps one of them. Equal keys in different objects are fine."""
-    joined = joined_pairs(text)
-    json.loads(joined, object_pairs_hook=_distinct_keys)
+    joined = joined_pairs(checked_json_text(text))
     return _LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", joined).encode("utf-8")
+
+
+def checked_json_text(text: str) -> str:
+    """*text* unchanged, for a writer that encodes it itself: raises the ValueError :func:`json_utf8_bytes` raises when an
+    object of the text holds two equal keys once read back (#1054, #1066, #1163), before the writer touches a file."""
+    json.loads(joined_pairs(text), object_pairs_hook=_distinct_keys)
+    return text
 
 
 def _distinct_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:

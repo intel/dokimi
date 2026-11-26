@@ -22,7 +22,9 @@ import dokimi.eval.arm_runner as arm_runner_mod
 import dokimi.eval.arms_run as arms_run
 from dokimi import records
 from dokimi.artifacts import load_artifact, stamp, validate_artifact
+from dokimi.caching import RESPONSE_CACHE_ENV
 from dokimi.cli import build_parser
+from dokimi.commands.arms import _Partial
 from dokimi.treatments import BaselineTreatment
 from dokimi.treatments.base import AgentConfig, Treatment
 from dokimi.utils import InputError
@@ -57,7 +59,7 @@ def _questions(tmp_path: Path) -> Path:
 
 def _arms_argv(tmp_path: Path, *extra: str) -> list[str]:
     return ["arms", "run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
-            "--arms", ARMS, "--concurrency", "1",
+            "--arm", ARMS, "--concurrency", "1",
             "--out", str(tmp_path / "arms.json"), "--out-md", str(tmp_path / "arms.md"), *extra]
 
 
@@ -108,6 +110,36 @@ def test_a_killed_run_leaves_its_answered_questions_in_a_valid_partial_file(tmp_
     assert "evaluations" not in data and "summary" not in data
 
 
+def test_rerunning_with_the_response_cache_reuses_paid_answers(tmp_path, monkeypatch, fake_llm):
+    monkeypatch.setenv(RESPONSE_CACHE_ENV, str(tmp_path / "cache"))
+    argv = _arms_argv(tmp_path)
+    fake_llm.push(*(f"answer {i}" for i in range(1, 9)))
+    save = _Partial.save
+
+    def save_then_stop(checkpoint, output):
+        save(checkpoint, output)
+        raise RuntimeError("interrupted after saving")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(_Partial, "save", save_then_stop)
+        with pytest.raises(RuntimeError, match="interrupted after saving"):
+            _run(argv)
+    partial = tmp_path / "arms.partial.json"
+    kept = json.loads(partial.read_text(encoding="utf-8"))
+    assert kept["partial"]["questions_recorded"] == 1
+    assert len(fake_llm.requests) == 2
+
+    _run(argv)
+
+    saved = json.loads((tmp_path / "arms.json").read_text(encoding="utf-8"))
+    assert len(fake_llm.requests) == 8
+    assert len(saved["answers"]) == len(QUESTIONS)
+    assert ["answer 1", "answer 2"] == [arm["answer"] for arm in saved["answers"][0]["arms"].values()]
+    assert all(arm["replayed"] for arm in saved["answers"][0]["arms"].values())
+    assert all(not arm["replayed"] for row in saved["answers"][1:] for arm in row["arms"].values())
+    assert json.loads(partial.read_text(encoding="utf-8")) == kept
+
+
 def _partial_file(tmp_path: Path) -> Path:
     path = tmp_path / "arms.partial.json"
     path.write_text(json.dumps({
@@ -137,7 +169,7 @@ def test_headroom_and_plugin_delta_exit_2_on_a_partial_file(tmp_path, capsys):
         _run(["eval", "headroom", partial, partial])
     assert exc.code == 2
     with refusal() as exc:
-        _run(["arms", "plugin-delta", "--baseline-json", partial, "--plugin-json", partial])
+        _run(["arms", "plugin-delta", "--baseline", partial, "--plugin-json", partial])
     assert exc.code == 2
     assert capsys.readouterr().err.count(REFUSAL) == 2
 
@@ -253,7 +285,7 @@ def test_a_matrix_cell_keeps_its_partial_file_until_its_save(tmp_path, monkeypat
     out_dir = tmp_path / "out"
     with pytest.raises(RuntimeError, match="boom"):
         _run(["arms", "matrix-run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
-              "--arms", ARMS, "--matrix-cells", str(cells), "--concurrency", "1",
+              "--arm", ARMS, "--matrix-cells", str(cells), "--concurrency", "1",
               "--out-dir", str(out_dir)])
 
     names = sorted(p.name for p in (out_dir / "cells").iterdir())
@@ -284,7 +316,7 @@ def test_a_partial_file_that_cannot_be_written_stops_the_run_with_one_message(tm
     monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", fake)
     monkeypatch.setattr(artifacts, "save_artifact", save)
     argv = _arms_argv(tmp_path)
-    argv[argv.index("--arms") + 1] = "baseline"
+    argv[argv.index("--arm") + 1] = "baseline"
     argv[argv.index("--concurrency") + 1] = "3"
     with refusal() as exc:
         _run(argv)
@@ -355,7 +387,7 @@ def test_a_stopped_matrix_cell_is_saved_whole_and_its_message_names_no_partial_f
     out_dir = tmp_path / "out"
     with refusal() as exc:
         _run(["arms", "matrix-run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
-              "--arms", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
+              "--arm", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
     assert exc.code == 1
     err = capsys.readouterr().err
     assert "Error running matrix cell 'c1': usage limit exceeded" in err and "kept in" not in err
@@ -387,7 +419,7 @@ def test_a_cell_named_like_another_cells_partial_file_keeps_its_finished_output(
     ]}), encoding="utf-8")
     out_dir = tmp_path / "out"
     _run(["arms", "matrix-run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
-          "--arms", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
+          "--arm", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
 
     cells_dir = out_dir / "cells"
     assert sorted(p.name for p in cells_dir.iterdir()) == ["x.json", "x.md", "x.partial.json", "x.partial.md"]

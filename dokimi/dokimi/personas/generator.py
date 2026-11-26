@@ -88,6 +88,36 @@ def _typed(persona: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+#: Reply tokens assumed for the one generation call: 5-8 personas as JSON, a few hundred tokens each.
+REPLY_TOKENS = 1500
+
+
+def estimate_generation(library_name: str, analysis: Dict[str, Any], model: str, provider: str) -> Dict[str, Any]:
+    """The one generation call's token count and list-price cost, priced before any call is made.
+
+    ``usd`` is ``None`` when the model has no list price (a cap cannot be enforced on it). The
+    prompt is counted at four characters a token, as the repo judge's estimate counts it.
+    """
+    from dokimi.llm_pricing import list_cost_usd
+
+    prompt_tokens = len(PersonaGenerator.build_prompt(library_name, analysis)) // 4 + 1
+    usd = list_cost_usd(model, provider, prompt_tokens, REPLY_TOKENS)
+    return {"prompt_tokens": prompt_tokens, "reply_tokens": REPLY_TOKENS, "usd": usd}
+
+
+def check_can_generate(provider: str) -> None:
+    """Raise when the one generation call cannot be made with this provider; builds no client.
+
+    The same checks ``PersonaGenerator`` makes first, so a dry run or a cap fails where the real run would.
+    """
+    if not LANGCHAIN_AVAILABLE:
+        raise ImportError(
+            "LLM dependencies not available. "
+            "Install: pip install litellm"
+        )
+    check_caller_provider(provider)
+
+
 class PersonaGenerator:
     """
     Generate persona proposals using LLM analysis.
@@ -107,17 +137,12 @@ class PersonaGenerator:
             provider: LLM provider ("openai" or "anthropic")
             api_key: API key (optional, will use env var if not provided)
         """
-        if not LANGCHAIN_AVAILABLE:
-            raise ImportError(
-                "LLM dependencies not available. "
-                "Install: pip install litellm"
-            )
+        check_can_generate(provider)
 
         self.model = model
         self.provider = provider
         self.api_key = api_key
 
-        check_caller_provider(provider)
         self.llm: ChatModel = Invoker(LLM(model, provider, api_key))
 
         logger.info(f"Initialized PersonaGenerator with {provider}/{model}")
@@ -146,28 +171,8 @@ class PersonaGenerator:
             }
         """
         target_count = max(5, min(8, target_count))  # Clamp to 5-8
-        
-        # Prepare prompt data
-        readme_summary = self._summarize_readme(analysis.get("readme_content", ""))
-        use_cases_str = "\n".join(f"- {uc}" for uc in analysis.get("use_cases", [])[:10])
-        questions_str = "\n".join(
-            f"- {q}" for q in analysis.get("issues_analysis", {}).get("common_questions", [])[:10]
-        )
-        api_patterns_str = "\n".join(
-            f"- {ap}" for ap in analysis.get("api_patterns", [])[:10]
-        )
-        topics_str = ", ".join(analysis.get("topics", []))
-        
-        prompt = PERSONA_GENERATION_PROMPT.format(
-            library_name=library_name,
-            description=analysis.get("description", ""),
-            topics=topics_str or "N/A",
-            readme_summary=readme_summary or "N/A",
-            use_cases=use_cases_str or "N/A",
-            common_questions=questions_str or "N/A",
-            api_patterns=api_patterns_str or "N/A"
-        )
-        
+        prompt = self.build_prompt(library_name, analysis)
+
         logger.info(f"Generating {target_count} personas for {library_name}...")
         
         try:
@@ -213,7 +218,31 @@ class PersonaGenerator:
             logger.error(f"Persona generation failed: {e}")
             raise
     
-    def _summarize_readme(self, readme: str, max_length: int = 1000) -> str:
+    @staticmethod
+    def build_prompt(library_name: str, analysis: Dict[str, Any]) -> str:
+        """The generation prompt for ``analysis`` (no model call; ``--dry-run`` prices it)."""
+        readme_summary = PersonaGenerator._summarize_readme(analysis.get("readme_content", ""))
+        use_cases_str = "\n".join(f"- {uc}" for uc in analysis.get("use_cases", [])[:10])
+        questions_str = "\n".join(
+            f"- {q}" for q in analysis.get("issues_analysis", {}).get("common_questions", [])[:10]
+        )
+        api_patterns_str = "\n".join(
+            f"- {ap}" for ap in analysis.get("api_patterns", [])[:10]
+        )
+        topics_str = ", ".join(analysis.get("topics", []))
+
+        return PERSONA_GENERATION_PROMPT.format(
+            library_name=library_name,
+            description=analysis.get("description", ""),
+            topics=topics_str or "N/A",
+            readme_summary=readme_summary or "N/A",
+            use_cases=use_cases_str or "N/A",
+            common_questions=questions_str or "N/A",
+            api_patterns=api_patterns_str or "N/A"
+        )
+
+    @staticmethod
+    def _summarize_readme(readme: str, max_length: int = 1000) -> str:
         """Extract first N chars of README for context."""
         if not readme:
             return ""

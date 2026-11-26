@@ -172,7 +172,7 @@ def test_a_mcp_json_the_patch_did_not_write_names_no_server(tmp_path):
 
 def _run(s, batch, *arms, model="m-1"):
     argv = ["repo", "run", f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
-            str(s["profile"]), "--bin", str(s["exe"]), "--model", model, "--batch", batch, "--out", str(s["out"]),
+            str(s["profile"]), "--bin", str(s["exe"]), "--model", model, "--name", batch, "--out", str(s["out"]),
             "--cache-root", str(s["out"] / "caches"), "--agent-network", "host", "--task", "fix_add",
             "--reps", "2", *[x for a in arms for x in ("--arm", a)]]
     args = build_parser().parse_args(argv)

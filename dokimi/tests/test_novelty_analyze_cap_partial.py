@@ -210,6 +210,8 @@ def test_a_cap_in_the_faithfulness_check_keeps_the_extracted_atoms(tmp_path):
     record = result.artifact
     assert record["partial"]["stage"] == "verify"
     assert len(record["extracted_atoms"]) == 2 and "runs" not in record and "probes" not in record
+    # The answerer and the judge made no call, which leaves the paid extraction's total known (#229).
+    assert record["cost"]["usd"] == 100.0
     validate_artifact("novelty", record)
 
 

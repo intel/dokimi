@@ -35,7 +35,7 @@ references:
 
 ```bash
 python cli.py eval tasks list --format localization
-python cli.py explore run --all --arms oracle,empty --baseline-arm empty \
+python cli.py explore run --all --arm oracle,empty --baseline-arm empty \
   --out results/explore-runs/explore_runs.json \
   --out-md   reports/exploration.md
 ```
@@ -45,7 +45,7 @@ floor); `command:<template>` runs a real CLI explorer — for example:
 
 ```bash
 python cli.py explore run --all \
-  --arms 'empty,command:claude -p {query_quoted}' --baseline-arm empty
+  --arm 'empty,command:claude -p {query_quoted}' --baseline-arm empty
 ```
 
 ## About this seed set
@@ -62,7 +62,7 @@ content, so they live in the content repository and are run from there:
 
 ```bash
 python cli.py explore run --all --tasks-root <checkout>/explore_tasks \
-  --repo-root <product-checkout> --arms oracle,empty --baseline-arm empty
+  --repo-root <product-checkout> --arm oracle,empty --baseline-arm empty
 ```
 
 Derive their `references` from the oracle solution's edited files/ranges, or

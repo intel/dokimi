@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import random
+import statistics
 
 import pytest
 
@@ -16,6 +17,7 @@ from dokimi.eval.sign_flip import ShiftTest, sign_flip_interval, sign_flip_p
 from dokimi.eval.stats import mean_ci
 from dokimi.repos.compare import sign_flip_summary
 from dokimi.repos.compare_interval import format_interval
+from dokimi.repos.compare_reach import min_detectable
 
 from test_repo_compare import _cell
 
@@ -145,21 +147,41 @@ def test_monte_carlo_ends_are_the_same_on_every_call_and_follow_the_seed():
 
 def test_rounding_keeps_an_end_on_its_side_of_zero():
     # which side of 0 an end is on is the row's verdict: 4 places must not move it onto 0
-    assert sign_flip._rounded(-3e-5) == -1e-4 and sign_flip._rounded(3e-5) == 1e-4
+    assert sign_flip._rounded(-3e-5) == -3e-5 and sign_flip._rounded(3e-5) == 3e-5
     assert str(sign_flip._rounded(-0.0)) == "0.0" and sign_flip._rounded(0.123449) == 0.1234
 
 
 def test_a_mean_rounded_to_zero_is_zero_not_negative_zero():
-    mean = sign_flip_summary(_pairs([-1e-5, 0.0, 0.0]), "turns")["delta"]["mean"]  # -3.3e-6 at 4 places
+    mean = sign_flip_summary(_pairs([1e-5, -1e-5, 0.0]), "turns")["delta"]["mean"]  # 0.0 exactly
     assert json.dumps(mean) == "0.0" and f"{mean:+.3f}" == "+0.000"
+    assert sign_flip_summary(_pairs([-1e-5, 0.0, 0.0]), "turns")["delta"]["mean"] == -3.3e-6  # not 0.0
 
 
 @pytest.mark.parametrize("sign", [1, -1])
 def test_a_tiny_mean_stays_inside_its_interval_kept_off_zero(sign):
-    # both ends of six deltas of 4e-5 round to 0 and are kept at 0.0001; the mean at 4 places was 0.0, outside them
+    # both ends of six deltas of 4e-5 round to 0 at 4 places and stay at 2 significant digits, as the mean does
     delta = sign_flip_summary(_pairs([sign * 4e-5] * 6))["delta"]
-    assert (delta["lo"], delta["mean"], delta["hi"]) == (sign * 1e-4,) * 3
-    assert sign_flip_summary(_pairs([4e-5] * 5 + [-1e-5]))["delta"]["mean"] == 0.0  # interval [-0.0001, +0.0001]
+    assert (delta["lo"], delta["mean"], delta["hi"]) == (sign * 4e-5,) * 3
+    mixed = sign_flip_summary(_pairs([4e-5] * 5 + [-1e-5]))["delta"]  # the mean 3.2e-5 is inside its ends
+    assert (mixed["lo"], mixed["mean"], mixed["hi"]) == (-1e-5, 3.2e-5, 4e-5)
+
+
+def test_ends_at_or_above_5e_5_keep_their_four_places():
+    assert sign_flip._rounded(5.1e-5) == 1e-4 and sign_flip._rounded(-5.1e-5) == -1e-4
+    assert sign_flip._rounded(1.26e-4) == 1e-4 and sign_flip._rounded(-0.00012349) == -1e-4
+    assert sign_flip._rounded(None) is None and sign_flip._rounded(4.96e-5) == 5e-5  # under 5e-5: 2 digits
+
+
+def test_a_tiny_scale_row_prints_its_ends_mean_and_mde_at_two_significant_digits():
+    deltas = [1e-12, 2e-12, 3e-12, 4e-12, 5e-12, 6e-12, 2.5e-12, 3.5e-12]
+    row = sign_flip_summary([{"task": f"t{i}", "baseline": 1e-12, "treatment": 1e-12 + d, "delta": d}
+                             for i, d in enumerate(deltas)])
+    assert (row["delta"]["lo"], row["delta"]["mean"], row["delta"]["hi"]) == (2e-12, 3.4e-12, 4.8e-12)
+    assert row["mde"] == 1.9e-12 and row["p"] == 0.007812 and not row["interval_p_disagree"]
+    unit = sign_flip_summary(_pairs([0.1, 0.2, 0.35, 0.4, 0.5, 0.65, 0.7, 0.9]))  # a non-zero 6-place mde is as before
+    assert unit["mde"] == round(min_detectable(statistics.stdev([0.1, 0.2, 0.35, 0.4, 0.5, 0.65, 0.7, 0.9]), 8), 6)
+    exact = sign_flip_summary(_pairs(deltas), exact=True)["delta"]
+    assert exact["mean"] == pytest.approx(3.375e-12)  # exact output is not rounded
 
 
 def test_an_open_end_prints_as_inf():
