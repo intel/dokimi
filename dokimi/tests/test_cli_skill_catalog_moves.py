@@ -96,16 +96,21 @@ def test_new_path_shows_help(old, new, capsys):
     assert "usage: dokimi " + " ".join(new) in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("old_options", [[], ["--root=skills", "--kind", "tasks"], ["skills", "--json"]])
-def test_legacy_catalog_scan_prints_a_parseable_command(old_options, capsys):
+@pytest.mark.parametrize(("old_options", "root", "kind", "is_json", "fmt"), [
+    ([], ".", "skills", False, "json"),
+    (["--root=skills", "--kind", "tasks"], "skills", "tasks", False, "json"),
+    (["skills", "--json"], "skills", "skills", True, "text"),
+    (["--json", "skills"], "skills", "skills", True, "text"),
+    (["--roo", "other", "--ki", "tasks", "--fo", "text"], "other", "tasks", False, "text"),
+    (["--", "--skills"], "--skills", "skills", False, "json"),
+])
+def test_legacy_catalog_scan_prints_a_parseable_command(old_options, root, kind, is_json, fmt, capsys):
     with pytest.raises(SystemExit) as exc:
         parse_args(["catalog", "scan", *old_options])
     assert exc.value.code == 2
     moved = shlex.split(capsys.readouterr().err.removeprefix("moved: "))
     args = parse_args(moved[1:])
-    assert args.root == ("skills" if old_options else ".")
-    assert args.kind == ("tasks" if "--kind" in old_options else "skills")
-    assert args.json if "--json" in old_options else args.format == "json"
+    assert (args.root, args.kind, args.json, args.format) == (root, kind, is_json, fmt)
 
 
 STAYING = [

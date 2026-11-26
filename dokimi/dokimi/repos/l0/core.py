@@ -40,7 +40,7 @@ CONVENTION_WORDS = frozenset({"CamelCase", "camelCase", "PascalCase", "snake_cas
 _EXT = (r"h|hh|hpp|hxx|c|cc|cpp|cxx|cu|i|py|pyx|pxd|pyi|bzl|bazel|md|rst|txt|yml|yaml|json|toml|cfg|ini|"
         r"mk|cmake|in|sh|bat|ps1|ver|js|ts|go|rs|java")
 _PATHLIKE = re.compile(rf"^(?:\.{{0,2}}/)?[\w.@\-*<>{{}}]+(?:/[\w.@\-*<>{{}},]*)+$|^[\w\-*.]+\.(?:{_EXT})$")
-_LITERAL_CONFIG = re.compile(r"(?:[\w.-]+/)+[\w.-]+\.(?:ya?ml|toml|cfg|ini)$", re.IGNORECASE)
+_LITERAL_CONFIG = re.compile(r"/?(?:[\w.-]+/)+[\w.-]+\.(?:ya?ml|toml|cfg|ini)$", re.IGNORECASE)
 _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")

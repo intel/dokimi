@@ -244,21 +244,25 @@ def test_a_fail_on_spelling_tombstones_with_the_new_argv(old, new, capsys):
     assert " ".join(new) in _tombstone(old, capsys)
 
 
-@pytest.mark.parametrize("target, expected", [("README.md", 0), ("docs/missing.md", 1)])
-def test_repo_scan_temporary_gate_spelling_keeps_the_exit_code(tmp_path, capsys, monkeypatch, target, expected):
-    (tmp_path / "AGENTS.md").write_text(f"[README]({target})\n", encoding="utf-8")
+@pytest.mark.parametrize(("guidance", "missing"), [
+    ("[README](README.md)", None),
+    ("[Guide](docs/missing.md)", "docs/missing.md"),
+    ("Use `/absent/gone.yaml`.", "/absent/gone.yaml"),
+])
+def test_repo_scan_temporary_gate_spelling_keeps_the_exit_code(tmp_path, capsys, monkeypatch, guidance, missing):
+    (tmp_path / "AGENTS.md").write_text(guidance + "\n", encoding="utf-8")
     (tmp_path / "README.md").write_text("# Demo\n", encoding="utf-8")
     argv = ["repo", "scan", str(tmp_path), "--json"]
     for flag in ("--fail-on-fail", "--fail-on=fail"):
         monkeypatch.setattr(sys, "argv", ["dokimi", *argv, flag])
         with refusal() as outcome:
             cli.main()
-        assert outcome.code == expected
+        assert outcome.code == int(missing is not None)
         captured = capsys.readouterr()
         assert "repo_readiness.v1" in captured.out
         assert ("deprecated" in captured.err) == (flag == "--fail-on-fail")
-        if expected:
-            assert "docs/missing.md does not exist" in captured.out
+        if missing is not None:
+            assert f"{missing} does not exist" in captured.out
 
 
 def test_retired_task_check_names_a_docker_free_schema_check(capsys):
@@ -266,6 +270,14 @@ def test_retired_task_check_names_a_docker_free_schema_check(capsys):
     assert text.splitlines()[0] == "moved: dokimi eval check 'my repo' --out-dir runs"
     args = cli.parse_args(shlex.split(text.splitlines()[1].split(": ", 1)[1])[1:])
     assert args.schema_only and args.source == "my repo"
+
+
+def test_retired_task_check_preserves_the_source_and_manifest_after_options(capsys):
+    text = _tombstone(["repo", "tasks", "check", "--manifest-file", "custom.yaml", "--out", "runs",
+                       "--", "-my-repo"], capsys)
+    args = cli.parse_args(shlex.split(text.splitlines()[1].split(": ", 1)[1])[1:])
+    assert args.schema_only and args.source == "-my-repo" and args.manifest_file == "custom.yaml"
+    assert args.out == "repo-check"
 
 
 def test_a_fail_on_spelling_with_a_stray_value_suggests_no_malformed_replacement(capsys):

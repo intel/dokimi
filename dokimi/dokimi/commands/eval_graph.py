@@ -18,12 +18,13 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.exit_codes import EXIT_FAILURE
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
+    from dokimi.novelty.client import LLMClient
     from dokimi.novelty.needs import NeedGraph
 
 
@@ -31,7 +32,7 @@ def _frozen(out: Path) -> InputError:
     return InputError(f"{out} exists; a need graph is frozen once written (delete it to rebuild)")
 
 
-def _publish(graph: dict, out: Path) -> None:
+def _publish(graph: dict, out: Path) -> dict:
     """Validate and write ``graph`` to a staged sibling, then publish it without replacing ``out``.
 
     ``os.link`` fails when ``out`` exists, so a file that appeared during the model call
@@ -51,7 +52,7 @@ def _publish(graph: dict, out: Path) -> None:
     try:
         stage_dir = Path(tempfile.mkdtemp(prefix=".eval-graph-", dir=out.parent))
         staged = stage_dir / out.name
-        save_artifact("need_graph", graph, staged)
+        published = save_artifact("need_graph", graph, staged)
         try:
             os.link(staged, out)
         except FileExistsError:
@@ -63,6 +64,7 @@ def _publish(graph: dict, out: Path) -> None:
                     f"published there ({exc.strerror or exc}); write it to a filesystem with hard links"
                 ) from exc
             raise  # a full disk or an I/O error: the outer handler names it
+        return published
     except ArtifactValidationError:
         keep_stage = True
         raise
@@ -108,51 +110,66 @@ def _provider_and_model(args: argparse.Namespace) -> tuple[str, str]:
     return PROVIDER_ALIASES.get(provider, provider), model
 
 
-def _author(name: str, description: str, args: argparse.Namespace,
-            provider: str, model: str) -> tuple[NeedGraph, bool]:
+def _graph_cost(client: LLMClient, cap: float | None) -> dict:
+    spend = client.spend()
+    spent = round(spend.spent_usd, 6)
+    return {"spent_usd": spent, "cap_usd": cap, "calls": spend.calls,
+            "priced": not spend.unpriced_calls if spend.calls else None,
+            "remaining_usd": round(cap - spent, 6) if cap is not None and not spend.unpriced_calls else None}
+
+
+def _graph_failed(args: argparse.Namespace, client: LLMClient, message: str,
+                  *, status: str = "failed", reason: str | None = None) -> NoReturn:
+    if args.json:
+        from dokimi.cli_output import emit_leaf
+
+        emit_leaf("eval graph", None, status=status, reason=reason or message, cost=_graph_cost(client, args.max_usd))
+    print(message, file=sys.stderr)
+    sys.exit(EXIT_FAILURE)
+
+
+def _author(name: str, description: str, args: argparse.Namespace, client: LLMClient) -> tuple[NeedGraph, bool]:
     """Ask the graph author for the graph. Returns (graph, unmetered); exits 1 on a failed call."""
-    from dokimi.novelty.client import LLMClient, SpendCapReached
-    from dokimi.novelty.cost import spend_cap
+    from dokimi.novelty.client import SpendCapReached
     from dokimi.novelty.needs import build_need_graph
 
-    client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args),
-                       output_limit_configurable=False)
     try:
         return build_need_graph(name, description, client=client, strict=True), False
     except SpendCapReached as exc:
         reply = exc.reply or ""
         # A reply cut at the output ceiling is no graph, priced or not (as LLMClient.text refuses it).
         if exc.reason != "no_price" or not reply.strip() or exc.truncated:
-            raise
+            _graph_failed(args, client, f"{exc}; nothing was written", status="budget_stopped")
         # The call is paid for and its reply is the graph, as measure.py keeps such a reply.
         return _graph_from_unmetered(name, description, reply), True
     except Exception as exc:  # noqa: BLE001 - an unreachable model exits non-zero, not "an empty graph"
-        print(f"Error: the graph-author call failed: {exc}; nothing was written", file=sys.stderr)
-        sys.exit(EXIT_FAILURE)
+        _graph_failed(args, client, f"Error: the graph-author call failed: {exc}; nothing was written",
+                      reason="The graph-author call failed. See stderr.")
 
 
 def cmd_eval_graph(args: argparse.Namespace) -> None:
     """Write a need_graph.v1 file; exit 2 on a bad input or an existing --out, 1 on a failed or empty build."""
+    from dokimi.novelty.client import LLMClient
+    from dokimi.novelty.cost import spend_cap
     from dokimi.novelty.needs import PROMPT_VERSION
 
     out = Path(args.out)
     name, description = _preflight(out, args.skill)
     provider, model = _provider_and_model(args)
-    graph, unmetered = _author(name, description, args, provider, model)
+    client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args),
+                       output_limit_configurable=False)
+    graph, unmetered = _author(name, description, args, client)
     if not graph.nodes:
-        print(f"Error: the model returned no usable need node for {name}; nothing was written",
-              file=sys.stderr)
-        sys.exit(EXIT_FAILURE)
+        _graph_failed(args, client, f"Error: the model returned no usable need node for {name}; nothing was written")
     if unmetered:  # said only once the reply is a graph: a refusal names no graph
         print(f"Warning: no price is known for {provider}/{model}, so this call could not be metered; "
               "its reply is the graph", file=sys.stderr)
     graph.provenance = {"model": f"{provider}/{model}", "prompt_version": PROMPT_VERSION, "draws": 1}
-    data = graph.as_dict()
-    _publish(data, out)
+    published = _publish(graph.as_dict(), out)
     if args.json:
         from dokimi.cli_output import emit_leaf
 
-        emit_leaf("eval graph", {"artifact": str(out), **data})
+        emit_leaf("eval graph", published, artifacts={"out": str(out)}, cost=_graph_cost(client, args.max_usd))
         return
     counts = graph.summary()["by_path_class"]
     print(f"{out}: {len(graph.nodes)} nodes ("
@@ -201,7 +218,7 @@ def _as_skill(ref: str) -> str:
 
 def register(eval_sub) -> None:
     """Add ``eval graph`` to the ``eval`` group."""
-    from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
+    from dokimi.commands.novelty_run import add_spend_cap
     from dokimi.commands.repo_hits import _judge_ref as model_ref
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 
@@ -217,4 +234,4 @@ def register(eval_sub) -> None:
     p.add_argument("--extract-model", type=model_ref, default=model_ref(default), dest="extract_model",
                    metavar="PROVIDER/MODEL", help=f"Graph author (default: {default})")
     add_spend_cap(p)
-    p.set_defaults(func=stops_at_cap(cmd_eval_graph), emits_cli_output=True, cli_kind="eval graph")
+    p.set_defaults(func=cmd_eval_graph, emits_cli_output=True, cli_kind="eval graph")

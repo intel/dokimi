@@ -8,13 +8,14 @@ from __future__ import annotations
 import errno
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from dokimi.artifacts import load_artifact
-from dokimi.cli import build_parser
+from dokimi.cli import build_parser, main
 from dokimi.eval_coverage import coverage_report, load_graph, read_labels
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.needs import PROMPT_VERSION
@@ -111,19 +112,25 @@ def test_an_empty_graph_exits_1_and_writes_nothing(tmp_path, monkeypatch, capsys
     assert not out.exists()
 
 
-@pytest.mark.parametrize("budget", [(), ("--max-usd", "5")])
-def test_graph_repairs_a_literal_control_character_and_emits_json(tmp_path, monkeypatch, capsys, budget):
+@pytest.mark.parametrize("price", [None, 0.125])
+def test_graph_repairs_a_literal_control_character_and_emits_json(tmp_path, monkeypatch, capsys, price):
+    from dokimi.metrics.usage import UsageRecord
+
     def transport(self, prompt, system, *, accept=None, draw=0):
         reply = json.dumps(REPLY).replace("save the workbook", "save\tthe workbook")
         assert accept(reply)
-        return reply, None
+        return reply, UsageRecord(cost_usd=price)
 
     monkeypatch.setattr(LLMClient, "_default_transport", transport)
     out = tmp_path / "g.json"
-    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--json", *budget)
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--json", "--max-usd", "5")
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["data"]["nodes"] == load_artifact("need_graph", out)["nodes"]
-    assert load_artifact("need_graph", out)["nodes"][0]["text"] == "save\tthe workbook"
+    doc = json.loads(result.stdout)
+    assert doc["data"] == load_artifact("need_graph", out)
+    assert doc["data"]["nodes"][0]["text"] == "save\tthe workbook"
+    assert doc["artifacts"] == {"out": str(out)}
+    assert doc["cost"] == {"calls": 1, "spent_usd": price or 0.0, "priced": price is not None,
+                           "cap_usd": 5.0, "remaining_usd": None if price is None else 4.875, "estimate_kind": None}
 
 
 def test_prompt_version_is_a_full_sha256():
@@ -460,7 +467,8 @@ def test_priced_cut_off_reply_reports_a_ceiling_without_an_unavailable_flag(tmp_
     assert "--max-output-tokens" not in result.stderr
 
 
-def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("machine", [False, True])
+def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeypatch, capsys, machine):
     from dokimi.metrics.usage import UsageRecord
 
     truncated = UsageRecord(prompt_tokens=11, completion_tokens=3, total_tokens=14, truncated=True)
@@ -469,9 +477,18 @@ def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeyp
                         (json.dumps(REPLY), truncated))
     out = tmp_path / "g.json"
 
-    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
-
-    assert result.returncode == 1 and "nothing was written" in result.stderr and not out.exists()
+    options = ["--json"] if machine else []
+    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "graph", str(_skill(tmp_path)),
+                                    "--out", str(out), "--max-usd", "5", *options])
+    with refusal() as result:
+        main()
+    assert result.code == 1 and "nothing was written" in result.err and not out.exists()
+    if machine:
+        doc = json.loads(capsys.readouterr().out)
+        assert doc["status"] == "budget_stopped" and doc["data"] is None
+        assert doc["cost"]["calls"] == 1 and doc["cost"]["priced"] is False
+    else:
+        assert result.out == ""
 
 
 def test_an_unusable_unmetered_reply_writes_nothing_and_no_warning_for_a_graph(tmp_path, monkeypatch, capsys):
