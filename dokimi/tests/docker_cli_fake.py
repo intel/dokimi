@@ -52,6 +52,7 @@ class DockerCLI(FakeRunner):
         self.reward_json = reward_json
         self.real = real
         self.args: list[list[str]] = []
+        self.env_files: dict[int, str] = {}  # id(call) -> the --env-file text, read while the call ran
 
     @staticmethod
     def is_solver(argv: tuple[str, ...]) -> bool:
@@ -64,9 +65,20 @@ class DockerCLI(FakeRunner):
         """The in-container isolation probe (``docker exec ... sh -c <probe>``)."""
         return argv[:2] == ("docker", "exec") and "--env-file" in argv and argv[-2] == "-c"
 
+    def env_file(self, call: Call) -> dict[str, str]:
+        """The variables of the ``--env-file`` a recorded call was given (the file is gone after the call)."""
+        text = self.env_files.get(id(call), "")
+        return dict(line.split("=", 1) for line in text.splitlines() if line)
+
+    def _record_env_file(self, call: Call) -> None:
+        if "--env-file" in call.argv:
+            path = call.argv[call.argv.index("--env-file") + 1]
+            self.env_files[id(call)] = Path(path).read_text(encoding="utf-8")
+
     def _handle(self, call: Call) -> Optional[Completed]:
         if call.argv[0] == "docker":
             self.args.append(list(call.argv[1:]))
+        self._record_env_file(call)
         if self.answer is not None:
             got = self.answer(call)
             if got is not None:

@@ -672,6 +672,12 @@ be checked for the same network before their verdicts are compared:
 | `solve` | `none` (an in-container agent still reaches its LLM through the sidecar) | the oracle, or the agent |
 | `verify` | `none` | `tests/test.sh` |
 
+A task Dockerfile that declares `ARG` for a proxy variable records the host's
+value in the image history (`docker history`). When that value carries
+`user:password@`, the build still runs and dokimi says so with a
+`[build] WARNING` in `run.log` and on stderr; remove the `ARG` to keep the
+credentials out of the image.
+
 The modes are Harbor's: `none` (Harbor's `no-network`), `public` (the
 default bridge plus the host's proxy variables), and `allowlist` (the listed
 `host[:port]` entries only, through an egress sidecar; the verifier's

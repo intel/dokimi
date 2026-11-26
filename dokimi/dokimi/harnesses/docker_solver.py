@@ -55,7 +55,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from dokimi import docker_cmd, process, process_io
 from dokimi.container_policy import task_container_policy
@@ -80,8 +80,9 @@ from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, ent
 from .null_check import NULL_FAIL, null_status, pytest_counts
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
-from .task_image import ignore_top_level_skills, ready_image, upload_environment, workdir_args
-from .task_env import _exec_env, unresolved_env  # re-exported
+from .task_image import (ignore_top_level_skills, ready_image, upload_environment, warn_credential_build_args,
+                         workdir_args)
+from .task_env import _exec_env, exec_env_file, unresolved_env  # noqa: F401 (_exec_env re-exported)
 from .tbench_v1 import reward as _pytest_reward
 from .verifier_reward import clear_reward_files, exit_code_verdict, pull_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
@@ -328,6 +329,7 @@ class DockerSolverHarness:
                 # ...` (radar-vital-signs copies it into seven agent paths), and
                 # a missing source fails the build in every arm.
                 (context / "skills").mkdir()
+            warn_credential_build_args(context, task.dockerfile, net or DEFAULTS["build"], log)
             self._docker(
                 ["build", "-q", *flags, "-t", image,
                  "-f", str(context / task.dockerfile), str(context)],
@@ -380,10 +382,9 @@ class DockerSolverHarness:
         """
         step = task.oracle_step
         _copy_into(step, container, log, self._docker)
-        self._docker(
-            ["exec", *_user(step), *_exec_env(task, "oracle", net), container, "bash", "-lc", step.command],
-            log, check=False, timeout=timeout,
-        )
+        with exec_env_file(task, "oracle", net) as (flags, values):
+            self._docker(["exec", *_user(step), *flags, container, "bash", "-lc", step.command],
+                         log, check=False, timeout=timeout, env=values)
 
     def _solve_claude(
         self, task: TaskSpec, container: str, output_dir: Path,
@@ -633,13 +634,11 @@ class DockerSolverHarness:
         step = task.verifier_step
         _copy_into(step, container, log, self._docker)
         # After an in-container agent the verifier runs its /app code as root: no
-        # proxy credentials then (the sidecar kept them from the agent; see :func:`_exec_env`).
+        # proxy credentials then (the sidecar kept them from the agent; see :func:`exec_env_file`).
         agent_code = self.mode == "claude" and self.agent_location == "container"
-        proc = self._docker(
-            ["exec", *_user(step), *_exec_env(task, "verifier", net, credentials=not agent_code),
-             container, "bash", "-lc", step.command],
-            log, check=False, timeout=_task_verify_timeout(task),
-        )
+        with exec_env_file(task, "verifier", net, credentials=not agent_code) as (flags, values):
+            proc = self._docker(["exec", *_user(step), *flags, container, "bash", "-lc", step.command],
+                                log, check=False, timeout=_task_verify_timeout(task), env=values)
         if verifier is not None:
             verifier["pytest"] = pytest_counts((proc.stdout or "") + (proc.stderr or ""))
         if step.parser != "reward-file":  # terminal-bench: the pytest summary is the verdict
@@ -744,7 +743,7 @@ def _describe_timeout(exc: subprocess.TimeoutExpired) -> str:
 
 
 def _docker(args: list[str], log, *, check: bool = True, timeout: Optional[float] = None,
-            runner: process.Runner = process.run) -> process.Completed:
+            runner: process.Runner = process.run, env: Optional[Mapping[str, str]] = None) -> process.Completed:
     """Run a ``docker`` subcommand, tee-ing output (also a killed step's) to the run log.
 
     ``timeout`` is a step's own budget (build, solve, verify): running out raises
@@ -753,11 +752,11 @@ def _docker(args: list[str], log, *, check: bool = True, timeout: Optional[float
     which ``check`` raises like any failure (an errored cell). The CLI keeps the
     caller's environment: its context, ``DOCKER_HOST`` and ``~/.docker``. Its output
     is kept whole, in memory: callers parse it (the sidecar's decision log), and it is
-    redacted before run.log gets all of it.
+    redacted before run.log gets all of it. ``env`` joins the CLI's environment (see ``exec_env_file``).
     """
     argv = docker_cmd.argv(*args)
     budget = timeout if timeout is not None else DOCKER_STEP_TIMEOUT
-    proc = runner(argv, timeout=budget, env=process.Env.inherit(), capture_limit=None)
+    proc = runner(argv, timeout=budget, env=process.Env.inherit(env), capture_limit=None)
     log.write(f"$ docker {' '.join(shlex.quote(_redact(a)) for a in args)}\n")
     # The output too: a verifier or a build step can echo a proxy URL it was given.
     if proc.stdout:
