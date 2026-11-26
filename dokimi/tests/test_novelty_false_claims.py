@@ -281,3 +281,24 @@ def test_closing_quotes_keep_two_claims_separate(opening, closing):
     report = find_false_claims(answer, [atom])
     assert report.n_sentences == 2
     assert [claim.quote for claim in report.claims] == [first]
+
+
+@pytest.mark.parametrize(("documented", "listed"), [
+    ("api2.float32", "api2.float32/api2.float64"),
+    ("_123", "_124/_123"),
+])
+def test_slash_separated_identifiers_reach_the_judge(documented, listed):
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": f"Use {documented}."})
+    answer = f"{listed} are unsupported."
+    prompts = []
+
+    def judge(prompt):
+        prompts.append(prompt)
+        return {"verdict": "contradicts", "quote": "unsupported"}
+
+    report = find_false_claims(answer, [atom], judge=judge)
+    assert len(prompts) == report.n_pairs == 1 and report.n_unchecked == 0
+    assert atom.statement in prompts[0] and answer in prompts[0]
+    assert [(claim.atom_id, claim.how, claim.quote) for claim in report.claims] == [
+        (atom.id, "judge", "unsupported"),
+    ]

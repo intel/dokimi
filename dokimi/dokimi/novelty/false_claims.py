@@ -196,7 +196,7 @@ def _distinctive(text: str) -> set[str]:
     """Flags and identifiers that can anchor pairing, even when their case changes."""
     text = _ABBREVIATION.sub(" ", text)
     flags = {flag.lower() for flag in _FLAG.findall(text)}
-    words = (token.rstrip(".") for token in _WORD.findall(text))
+    words = (part.rstrip(".") for token in _WORD.findall(text) for part in token.split("/"))
     return flags | {w.lower() for w in words if _DOTTED_IDENTIFIER.fullmatch(w) or ("_" in w and w.isidentifier())}
 
 def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) -> list[Atom]:
