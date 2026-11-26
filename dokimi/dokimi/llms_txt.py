@@ -205,9 +205,21 @@ class _InlineText:
         return "".join(parts)
 
 
+def _mask_indented_code(text: str) -> str:
+    """Keep block indentation and lines while hiding indented examples from the inline scanner."""
+    tokens: list[Token] = []
+    _LINK_PARSER.block.parse(text, _LINK_PARSER, {"llms_txt_code_lines": set()}, tokens)
+    lines = text.split("\n")
+    for token in tokens:
+        if token.type == "code_block" and token.map is not None:
+            start, end = token.map
+            for index in range(start, end):
+                lines[index] = lines[index].replace("<", "x").replace("`", "x")
+    return "\n".join(lines)
+
+
 def _structure_lines(text: str, *, keep_code: bool = False) -> tuple[list[str], set[int]]:
     """Skip fenced examples and retain physical line numbers for diagnostics."""
-    text = text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     inline = _InlineText(text)
     fence = ""
     start = 0
@@ -234,8 +246,10 @@ def _structure_lines(text: str, *, keep_code: bool = False) -> tuple[list[str], 
 
 def check(text: str, *, token_budget: int = TOKEN_BUDGET) -> list[Finding]:
     """Every finding for one llms.txt text, in check order; empty when it passes."""
-    lines, _ = _structure_lines(text)
-    links, code_lines = _structure_lines(text, keep_code=True)
+    normalized = text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    visible = _mask_indented_code(normalized)
+    lines, _ = _structure_lines(visible)
+    links, code_lines = _structure_lines(visible, keep_code=True)
     found = _title_findings(lines) + _section_findings(lines) + _link_findings("\n".join(links), code_lines)
     tokens = estimate_tokens(text)
     if tokens > token_budget:

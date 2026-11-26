@@ -1,6 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import pytest
+
 from dokimi import llms_txt
 
 GOOD = """# Acme API
@@ -86,6 +88,13 @@ def test_inline_backticks_do_not_open_a_fence():
 
 def test_html_comments_do_not_satisfy_structure_checks():
     assert {"title", "links"} <= _checks(f"<!--\n{GOOD}\n-->")
+
+
+@pytest.mark.parametrize("indent", ["    ", "\t"])
+def test_indented_code_comment_delimiter_keeps_following_sections_and_links(indent):
+    example = '\n\n' + indent + 'const opener = "<!--";'
+    text = GOOD.replace("- Subscription billing", "Subscription billing." + example)
+    assert llms_txt.check(text) == []
 
 
 def test_inline_code_comment_delimiter_keeps_following_links():
