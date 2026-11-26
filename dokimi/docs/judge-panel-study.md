@@ -284,8 +284,8 @@ What exists:
   EFFECT` or `NOT MEASURED`. Judges that fail `--validity` do not vote. `--strict` makes
   `JUDGE-DEPENDENT` an error. This is the right shape, per-judge numbers rather than an
   average that hides the spread, and it already guards against "(one judge)" results.
-- **Self-judging** is a warning on an exact model match (`utils.warn_judge_independence`).
-  It never refuses, and a judge from the same family passes silently.
+- **Self-judging** emits a warning for an exact model match or for a judge from the same vendor
+  family (`utils.warn_judge_independence`). The check never refuses.
 
 What is missing (each item was needed to produce this note):
 
