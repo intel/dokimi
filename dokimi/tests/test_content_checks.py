@@ -118,6 +118,39 @@ def test_alias_of_a_retired_dated_id_is_a_warning(tmp_path, alias, state, replac
     assert replacement in message
 
 
+def test_old_side_of_a_migration_is_reported_with_conditional_advice(tmp_path):
+    # #945: no skip rule for "# Before" lines (docs/external-content.md); the advice is conditional.
+    body = '```python\n# Before\nmodel="claude-2.1",\n# After\nmodel="claude-opus-5-5",\n```\n'
+    _skill(tmp_path / "skills", "migrate", body=body)
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert "'claude-2.1'" in message
+    assert message.split("; ", 1)[1].startswith("if this text calls the model, use claude-opus-4-8")
+
+
+def test_retired_table_row_is_reported_with_conditional_advice(tmp_path):
+    # #945: a row that lists the model as retired is reported, and the advice does not order its replacement.
+    body = (
+        "## Retired Models (no longer available)\n\n| Model | Retired |\n|---|---|\n"
+        "| claude-3-7-sonnet-20250219 | 2026-02-19 |\n"
+    )
+    _skill(tmp_path / "skills", "models", body=body)
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert message.split("; ", 1)[1].startswith("if this text calls the model, use claude-sonnet-5-5")
+
+
+def test_docs_quote_the_conditional_advice_and_name_ignore(tmp_path):
+    # #945: docs/external-content.md quotes the advice the finding gives and names the way to leave the check out.
+    _skill(tmp_path / "skills", "migrate", body='# Before\nmodel="claude-2.1",\n')
+    [message] = _messages(tmp_path, "legacy-model-id")
+    advice = message.split("; ", 1)[1].split(" (", 1)[0]  # "if this text calls the model, use X"
+    text = (Path(__file__).resolve().parent.parent / "docs" / "external-content.md").read_text(encoding="utf-8")
+    assert advice.startswith("if this text calls the model, use ")
+    assert advice.replace("claude-opus-4-8", "X") in " ".join(text.split())
+    assert "`--ignore legacy-model-id`" in text
+
+
 def test_alias_does_not_match_inside_a_dated_id_or_a_longer_name(tmp_path):
     # #945, and docs/external-content.md: IDs match whole tokens, so adding an alias adds no second match.
     # The alias claude-opus-4-1 is a prefix of the dated ID: one finding; "claude-opus-4-0-beta" is another name.

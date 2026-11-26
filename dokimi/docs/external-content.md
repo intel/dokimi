@@ -119,6 +119,13 @@ Two checks, both `warn`:
   `replacement` are the vendor's, verbatim, or empty when it gives none. An entry also lists
   the vendor's alias of a listed ID (`claude-opus-4-0` for `claude-opus-4-20250514`), with
   the same status and date.
+  The check reads every mention of a listed ID as a use of it. A line that documents a
+  retirement (a row of a retired-models table) or shows the old side of a migration
+  (`# Before`, `# Old`) is reported too, since a heading or comment label is a guess and
+  would hide a real call placed under it. The advice is conditional (`if this text calls the
+  model, use X`), so it does not tell you to replace an ID that the text means to name. A
+  catalog that documents model history can leave the check out with
+  `--ignore legacy-model-id`.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a bidi mark (U+200E, U+200F,
   U+061C) with no Hebrew or Arabic letter as the nearest letter on either side in its line, a Unicode tag character (U+E0000 to U+E007F), a stray
   zero-width character (U+200B, U+2060, or a U+FEFF after the start of the file), a soft hyphen (U+00AD), an
