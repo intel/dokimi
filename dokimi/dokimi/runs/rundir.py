@@ -67,10 +67,11 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
                         "status": "running", "stop": None})
     try:
         run._save(run._record)
-    except BaseException as exc:  # nothing published: give the claim back, so the same name can be tried again
+    except OSError as exc:  # give the claim back, so the same name can be tried again
         _release(path, made=made)
-        if isinstance(exc, OSError):
-            raise InputError(f"cannot write {path / RUN_FILE}: {exc.strerror or exc}") from exc
+        raise InputError(f"cannot write {path / RUN_FILE}: {exc.strerror or exc}") from exc
+    except BaseException:
+        _release(path, made=made)
         raise
     return run
 
