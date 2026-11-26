@@ -258,6 +258,31 @@ def _tool_findings(allowed: object) -> list[Finding]:
     return findings
 
 
+def _unknown_key_findings(meta: dict) -> list[Finding]:
+    findings: list[Finding] = []
+    unknown_keys = {str(key) for key in meta} - FRONTMATTER_KEYS
+    if "allowed_tools" in unknown_keys:
+        unknown_keys.remove("allowed_tools")
+        findings.append(
+            Finding(
+                "warn",
+                "frontmatter-unknown-key",
+                "Frontmatter key 'allowed_tools' is not the Claude Code grant key. To grant tools in Claude Code, "
+                "use 'allowed-tools'.",
+            )
+        )
+    if unknown_keys:
+        findings.append(
+            Finding(
+                "note",
+                "frontmatter-unknown-key",
+                f"frontmatter keys {', '.join(map(repr, sorted(unknown_keys)))} are outside the Agent Skills "
+                "spec and Claude Code conventions. These keys may be read by another harness or may be typos.",
+            )
+        )
+    return findings
+
+
 def _frontmatter_findings(
     skill: Skill, *, at_root: bool = False, fmt: str = FORMAT_AGENT_SKILL
 ) -> tuple[list[Finding], bool]:
@@ -314,26 +339,7 @@ def _frontmatter_findings(
                 f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}",
             )
         )
-    unknown_keys = {str(key) for key in meta} - FRONTMATTER_KEYS
-    if "allowed_tools" in unknown_keys:
-        unknown_keys.remove("allowed_tools")
-        findings.append(
-            Finding(
-                "warn",
-                "frontmatter-unknown-key",
-                "Frontmatter key 'allowed_tools' is not the Claude Code grant key. To grant tools in Claude Code, "
-                "use 'allowed-tools'.",
-            )
-        )
-    if unknown_keys:
-        findings.append(
-            Finding(
-                "note",
-                "frontmatter-unknown-key",
-                f"frontmatter keys {', '.join(map(repr, sorted(unknown_keys)))} are outside the Agent Skills "
-                "spec and Claude Code conventions. These keys may be read by another harness or may be typos.",
-            )
-        )
+    findings += _unknown_key_findings(meta)
     findings += _tool_findings(meta.get("allowed-tools"))
     # Read as the skill arm reads it (dokimi.harnesses.skill_treatment.check_skill).
     hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in (
