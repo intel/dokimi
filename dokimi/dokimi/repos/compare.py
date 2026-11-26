@@ -686,13 +686,20 @@ def _reading_notes(rows: list[dict[str, Any]], family: int) -> list[str]:
     return out
 
 
+def _mde_text(mde: float) -> str:
+    """``mde`` at 3 decimals; at 2 significant digits in scientific notation below 0.0005 (``2.6e-12``, not 0.000) and from 1e6."""
+    if 0 < mde < 0.0005:
+        return f"{mde:.1e}"
+    return f"{mde:.3f}" if mde < 1e6 else f"{mde:.3e}"  # a figure near the float range is no 300-digit string
+
+
 def _inconclusive_note(r: dict[str, Any], family: int) -> str | None:
     """The note of a gate or score row of 2+ tasks whose interval includes 0: its ``mde``, or why it has none."""
     if r["n_tasks"] < 2 or not includes_zero(r["delta"]["lo"], r["delta"]["hi"]):
         return None
     head = f"  {r['measure']} inconclusive: the interval includes 0; "
     if r["mde"] is not None:
-        mde = f"{r['mde']:.3f}" if r["mde"] < 1e6 else f"{r['mde']:.3e}"  # a figure near the float range is no 300-digit string
+        mde = _mde_text(r["mde"])
         return head + (f"an uncorrected t-test estimate puts the effect 80% power detects at this spread at about "
                        f"±{mde} ({r['n_tasks']} tasks), before Holm and not for the sign-flip test")
     changed, holm = r["up"] + r["down"], r["p_holm_floor"]
