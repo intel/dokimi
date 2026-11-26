@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """A judge or extractor of the answering model's vendor family is warned about, never refused.
 
 Same-model pairs keep their own wording and their stored flag; a different model of one family
