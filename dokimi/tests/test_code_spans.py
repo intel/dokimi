@@ -269,12 +269,11 @@ def _production(name: str) -> Callable[[str], Any]:
 
 
 SHAPES = [_runs, _runs_then_pairs, _runs_on_two_lines, _runs_between_pairs]
-# online_checks does a few whole-text passes (splitlines, join, replace) besides the span scan; the text of these
-# shapes grows with k squared, so its time ratio sits near the limit and flakes: it is checked by reads below.
-TIMED = [name for name in NAMES if name != "online_checks"]
+COUNTED = ["online_checks", "skill_markdown"]
+TIMED = [name for name in NAMES if name not in COUNTED]
 
 
-# Test-narrowed: the online_checks cases of the timing test are counted in test_online_checks_reads_runs_in_linear_work
+# Test-narrowed: count scanner reads on these shapes. Skill Markdown also times a paragraph whose byte count grows linearly.
 @pytest.mark.parametrize("shape", SHAPES)
 @pytest.mark.parametrize("name", TIMED)
 def test_runs_with_no_closer_are_read_in_linear_time(name: str, shape: Callable[[int], str]) -> None:
@@ -283,11 +282,10 @@ def test_runs_with_no_closer_are_read_in_linear_time(name: str, shape: Callable[
     assert ratio < GROWTH_LIMIT
 
 
-@pytest.mark.parametrize("shape", SHAPES)
-def test_online_checks_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch, shape: Callable[[int], str]) -> None:
-    """The URL scan reads each run a bounded number of times: 16x the runs is at most 32x the reads, 256x if a
-    span rescanned them. Counted, not timed: the passes over the characters are not what this guards."""
-    _same("online_checks", shape(9))
+def _scan_read_counts(
+    name: str, shape: Callable[[int], str], monkeypatch: pytest.MonkeyPatch,
+) -> list[int]:
+    _same(name, shape(9))
     reads = 0
     read = _Runs.read
 
@@ -300,9 +298,31 @@ def test_online_checks_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch
     counts = []
     for k in (25, 25 * FACTOR):
         reads = 0
-        _distinct_urls(shape(k))
+        _production(name)(shape(k))
         counts.append(reads)
+    return counts
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_online_checks_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch, shape: Callable[[int], str]) -> None:
+    counts = _scan_read_counts("online_checks", shape, monkeypatch)
     assert 0 < counts[0] and counts[1] <= 2 * FACTOR * counts[0], counts
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_skill_markdown_reads_runs_in_linear_work(monkeypatch: pytest.MonkeyPatch, shape: Callable[[int], str]) -> None:
+    counts = _scan_read_counts("skill_markdown", shape, monkeypatch)
+    assert 0 < counts[0] and counts[1] <= 2 * FACTOR * counts[0], counts
+
+
+def test_skill_markdown_reads_a_paragraph_without_rescanning_per_span() -> None:
+    def timed(k: int) -> Callable[[], tuple[list[str], list[str]]]:
+        paragraph = "See `guide.md` and [the docs](guide.md). " * k
+        return lambda: link_pieces([paragraph])
+
+    ratio, result = growth(timed, 25)
+    assert result == (["guide.md"], ["guide.md"])
+    assert ratio < GROWTH_LIMIT
 
 
 @pytest.mark.parametrize("shape", SHAPES)
