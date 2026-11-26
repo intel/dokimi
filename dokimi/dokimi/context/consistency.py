@@ -400,7 +400,8 @@ def apply_outcomes(runs: list[Run], outcomes: dict[str, bool]) -> list[str]:
     A key is a run's path as given, the same file by another spelling (an absolute path for a
     relative one), or its file name or stem. A name or stem several runs share
     (``base/1.jsonl``, ``skill/1.jsonl``) is ambiguous and refused: give the full path. Two keys
-    that spell one file with different verdicts are refused too (#936).
+    that spell one file with different verdicts are refused too, and so is a key that reaches two
+    runs (a file name of one, a symlink to another) (#936).
     """
     by_path: dict[str, dict[str, bool]] = {}
     for key, verdict in outcomes.items():
@@ -408,8 +409,13 @@ def apply_outcomes(runs: list[Run], outcomes: dict[str, bool]) -> list[str]:
     names = [Path(r.name).name for r in runs]
     stems = [Path(r.name).stem for r in runs]
     missing = []
+    claimed: dict[str, str] = {}
     for run, name, stem in zip(runs, names, stems, strict=True):
         spelled = _spelled_verdicts(run.name, name, stem, names, stems, outcomes, by_path)
+        for key in spelled:
+            if claimed.setdefault(key, run.name) != run.name:
+                raise ValueError(f"outcome key {key!r} names two traces, {claimed[key]!r} and "
+                                 f"{run.name!r}; use the full path of the trace")
         if spelled:
             if len(set(spelled.values())) > 1:
                 raise ValueError(f"outcome keys {sorted(spelled)} name the same trace {run.name!r} "

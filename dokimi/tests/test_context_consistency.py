@@ -598,6 +598,17 @@ def test_two_spellings_of_one_trace_with_different_verdicts_are_refused(tmp_path
     assert apply_outcomes([r], both) == [] and r.passed is True
 
 
+def test_a_key_that_reaches_two_traces_is_refused(tmp_path, monkeypatch):
+    """#936: `a.jsonl` is the file name of one run and a symlink to another; it judges neither by guess."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "runs/b.jsonl").write_text(_trace(READ))
+    (tmp_path / "a.jsonl").symlink_to("runs/b.jsonl")
+    runs = [_run("runs/a.jsonl", READ), _run("runs/b.jsonl", READ)]
+    with pytest.raises(ValueError, match="names two traces"):
+        apply_outcomes(runs, {"a.jsonl": True})
+
+
 def test_an_absolute_key_of_another_file_leaves_the_trace_unjudged(tmp_path, monkeypatch):
     """#936: an absolute key of another file does not judge the trace (docs/run-consistency.md)."""
     monkeypatch.chdir(tmp_path)

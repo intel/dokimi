@@ -68,7 +68,8 @@ it used. A run that made tool calls but wrote no `result` event (it crashed,
 timed out or was cut off) counts as failed without `--outcomes`, so it cannot drop
 out of the pass rate; the table shows `runs` and `judged`. A key may spell the trace's path another way (an absolute path for a relative one;
 symlinks are resolved). Two keys that spell one trace, by path, file name or stem,
-with different verdicts are refused. A file name or
+with different verdicts are refused, and so is a key that reaches two traces
+(a file name of one, a symlink to another). A file name or
 stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`) is refused: key those
 by full path.
 
@@ -81,8 +82,9 @@ judged runs:
 
 | Group verdict | Reading |
 |---|---|
-| `stable success` | every judged run passed |
-| `stable failure` | every judged run failed: a reproducible mistake |
+| `single run, passed` / `single run, failed` | one judged run: it says nothing about stability |
+| `stable success` | two or more judged runs, all passed |
+| `stable failure` | two or more judged runs, all failed: a reproducible mistake |
 | `unstable` | some passed and some failed: the route is right, execution breaks |
 | `unjudged` | no run has an outcome |
 
@@ -92,9 +94,9 @@ stable success (valid diversity)` when every group is stable success, and otherw
 `N strategies: <group verdict> ×<runs>, ...` (`2 strategies: stable success ×2,
 stable failure ×2`).
 
-A strategy of one run has no inner distance (`null`) and its verdict is `single
-run, passed` or `single run, failed`: one run says nothing about stability, so
-several one-run strategies are never read as valid diversity.
+A strategy of one run has no inner distance (`null`). A group with one judged run
+gets a single-run verdict (also when its other runs have no outcome), so several
+one-run strategies are never read as valid diversity.
 
 A group is a shape, not a proof the shape is right; the result and the
 contract judge that.
