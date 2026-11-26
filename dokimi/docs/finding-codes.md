@@ -50,7 +50,7 @@ The CLI never emits `not-loaded` (only `review_skill_dir` does), so `--ignore no
 | `description-when-not-checked` | note | the description is in a script no when-cue covers, so it is not checked | yes |
 | `duplicate` | warn | the SKILL.md is identical to another copy; the copy is counted twice | yes |
 | `frontmatter-parse` | error | the frontmatter is not valid YAML | no |
-| `frontmatter-unknown-key` | warn | the frontmatter has a key the spec does not define | yes |
+| `frontmatter-unknown-key` | note or warn | a key outside the Agent Skills spec and Claude Code conventions gets a note. `allowed_tools` gets a warning that points to the `allowed-tools` grant key | yes |
 | `hidden-unicode` | warn | a bidi control or mark, Unicode tag, soft hyphen, invisible format character, variation selector, blank filler or stray zero-width character in SKILL.md or a bundled text file | yes |
 | `install-unpinned` | warn | a bundled script installs a package without a pinned version | yes |
 | `legacy-model-id` | warn | a model ID its vendor has retired or deprecated | yes |
