@@ -320,7 +320,8 @@ class Scan:
                 return "ok_basename", f"bare name; {len(hits)} match(es), e.g. {hits[0]}"
             return "unresolved", "tried " + ", ".join(cands)
         if target.startswith(".."):
-            return "unresolved", "tried " + ", ".join(cands)
+            inside = [c for c in cands if c != ".." and not c.startswith("../")]
+            return self._missing(inside, rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
         for c in cands:
             parent = posixpath.dirname(c)
             if parent and (real := self._dir_of(parent)):  # a `.gitignore` may name it below the link's target
