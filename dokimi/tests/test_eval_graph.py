@@ -112,7 +112,7 @@ def test_an_empty_graph_exits_1_and_writes_nothing(tmp_path, monkeypatch, capsys
     assert not out.exists()
 
 
-@pytest.mark.parametrize("price", [None, 0.125])
+@pytest.mark.parametrize("price", [None, 0.12500149])
 def test_graph_repairs_a_literal_control_character_and_emits_json(tmp_path, monkeypatch, capsys, price):
     from dokimi.metrics.usage import UsageRecord
 
@@ -129,8 +129,8 @@ def test_graph_repairs_a_literal_control_character_and_emits_json(tmp_path, monk
     assert doc["data"] == load_artifact("need_graph", out)
     assert doc["data"]["nodes"][0]["text"] == "save\tthe workbook"
     assert doc["artifacts"] == {"out": str(out)}
-    assert doc["cost"] == {"calls": 1, "spent_usd": price or 0.0, "priced": price is not None,
-                           "cap_usd": 5.0, "remaining_usd": None if price is None else 4.875, "estimate_kind": None}
+    assert doc["cost"] == {"calls": 1, "spent_usd": 0.0 if price is None else 0.125001, "priced": price is not None,
+                           "cap_usd": 5.0, "remaining_usd": None if price is None else 4.874999, "estimate_kind": None}
 
 
 def test_prompt_version_is_a_full_sha256():
@@ -498,6 +498,7 @@ def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeyp
     if machine:
         doc = json.loads(capsys.readouterr().out)
         assert doc["status"] == "budget_stopped" and doc["data"] is None
+        assert doc["reason"] == result.err.strip()
         assert doc["cost"]["calls"] == 1 and doc["cost"]["priced"] is False
     else:
         assert result.out == ""
