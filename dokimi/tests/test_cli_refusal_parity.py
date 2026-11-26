@@ -118,7 +118,7 @@ def _subject_run(d):
     (_subject_run, "no-such-harness"),
     (lambda d: ["catalog", "trigger-probe", "--catalog", str(_skill_catalog(d)), "--trigger-set",
                 str(d / "missing.json"), "--claude", "python3", "--out", str(d / "probe.json")],
-     "--trigger-set: "),
+     "--trigger-set "),
 ], ids=["catalog-formats-root", "explore-run-command-arm-without-template", "explore-run-unknown-arm",
         "explore-run-no-arms", "explore-run-empty-arm", "tasks-run-no-tasks", "tasks-run-swebench-no-tasks", "tasks-run-no-harnesses", "subjects-run-unknown-work-harness",
         "trigger-probe-unreadable-trigger-set"])

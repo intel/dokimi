@@ -113,6 +113,13 @@ def test_evaluate_refuses_a_device_as_custom_questions(monkeypatch, tmp_path, ca
     assert "Error: --custom-questions /dev/null: not a file" in capsys.readouterr().err
 
 
+def test_arms_questions_loader_refuses_a_device_with_its_flag_name():
+    from dokimi.commands.arms import _load_questions
+
+    with pytest.raises(InputError, match=r"^--questions /dev/null: not a file$"):
+        _load_questions(DEVICE)
+
+
 def test_the_pipeline_refuses_a_device_as_questions_from(tmp_path):
     with pytest.raises(InputError, match=r"^--questions-from /dev/null: not a file$"):
         EvaluationPipeline(product="Demo", output_dir=tmp_path / "out", description="d", questions_from=DEVICE)
@@ -160,6 +167,28 @@ def test_questions_generate_refuses_a_device_as_topics(monkeypatch, tmp_path, ca
     assert _main(monkeypatch, "eval", "questions", "generate", "--product", "p",
                  "--personas", _personas(tmp_path), "--topics", DEVICE) == 2
     assert capsys.readouterr().err.strip() == "Error: --topics /dev/null: not a file"
+
+
+# The file flags that read JSON through read_json_input: each refuses a device with its own flag name, before a read.
+_JSON_FLAG_DEVICES = [
+    (["report", "generate", "--product", "p", "--questions", "q.json", "--eval", DEVICE,
+      "--format", "markdown", "--out", "r.md"], "--eval"),
+    (["tools", "preference", "--groups", DEVICE, "--out", "x.json"], "--groups"),
+    (["eval", "questions", "analyze", "--product", "p", "--questions", DEVICE], "--questions"),
+    (["eval", "questions", "review", "--product", "p", "--questions", DEVICE], "--questions"),
+    (["repo", "scan", ".", "--baseline", DEVICE], "--baseline"),
+    (["catalog", "trigger-probe", "--catalog", ".", "--trigger-set", DEVICE, "--claude", "python3",
+      "--out", "p.json"], "--trigger-set"),
+    (["eval", "personas", "validate", "--file", DEVICE], "--file"),
+]
+
+
+@pytest.mark.parametrize("argv, flag", _JSON_FLAG_DEVICES, ids=["-".join(argv[:3]) for argv, _flag in _JSON_FLAG_DEVICES])
+def test_json_file_flags_refuse_a_device_with_their_flag_name(monkeypatch, tmp_path, capsys, argv, flag):
+    monkeypatch.chdir(tmp_path)
+    assert _main(monkeypatch, *argv) == 2
+    err = capsys.readouterr().err
+    assert f"Error: {flag} {DEVICE}: not a file" in err and "Traceback" not in err
 
 
 def test_novelty_analyze_refuses_a_device_as_placebo_text(monkeypatch, capsys):
@@ -281,3 +310,19 @@ def test_trace_consistency_refuses_a_device_as_outcomes_or_contract(monkeypatch,
     good = _trace(tmp_path)
     assert _main(monkeypatch, "trace", "consistency", flag, DEVICE, good) == 2
     assert f"Error: {flag} /dev/null: not a file" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("argv, flag", [
+    (["eval", "personas", "validate", "--file"], "--file"),
+    (["report", "generate", "--product", "p", "--questions", "q.json", "--format", "markdown", "--out", "r.md",
+      "--eval"], "--eval"),
+], ids=["personas-validate", "report-generate"])
+def test_json_nested_past_the_decoder_limit_is_bad_json_not_a_crash(monkeypatch, tmp_path, capsys, argv, flag):
+    """Nesting past the JSON decoder's recursion limit exits 2 naming the file (the shared reader's contract);
+    it used to escape as a RecursionError, exit 5, at these sites."""
+    deep = tmp_path / "deep.json"
+    deep.write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert _main(monkeypatch, *argv, str(deep)) == 2
+    err = capsys.readouterr().err
+    assert f"Error: {flag} {deep}: maximum recursion depth exceeded" in err and "Traceback" not in err

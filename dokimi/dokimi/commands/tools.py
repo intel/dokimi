@@ -18,7 +18,7 @@ from dokimi.llm import PROVIDERS as API_PROVIDERS
 from dokimi.cli_types import positive_usd
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_USAGE
-from dokimi.files import InputError
+from dokimi.files import InputError, read_json_input
 
 PROVIDERS = list(API_PROVIDERS)  # tool calling: no CLI backend
 
@@ -144,9 +144,10 @@ def _check_out_json_writable(path: str) -> None:
 def cmd_tools_preference(args: argparse.Namespace) -> None:
     from dokimi import tool_preference as tp
 
+    data = read_json_input(args.groups, flag="--groups")  # InputError names the file
     try:
-        doc = tp.load_groups(json.loads(Path(args.groups).read_text(encoding="utf-8")))
-    except (OSError, RecursionError, ValueError, tp.GroupsError) as exc:
+        doc = tp.load_groups(data)
+    except (ValueError, tp.GroupsError) as exc:
         raise InputError(f"--groups {args.groups}: {exc}") from exc
     factors = list(dict.fromkeys(f for f in args.factors.split(",") if f)) if args.factors else list(tp.FACTORS)
     unknown = sorted(set(factors) - set(tp.FACTORS))

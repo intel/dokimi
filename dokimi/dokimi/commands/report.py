@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import argparse
 import sys
-import json
 from pathlib import Path
 from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.files import InputError
+from dokimi.files import InputError, read_json_input
 
 
 def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -> None:
@@ -118,12 +117,7 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
     from dokimi.report import ReportGenerator
 
     # Load eval and questions
-    try:
-        eval_data = json.loads(Path(args.eval).read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise InputError(f"cannot read {args.eval}: {exc}") from exc
-    except ValueError as exc:  # not UTF-8 or not JSON
-        raise InputError(f"{args.eval} is not valid JSON: {exc}") from exc
+    eval_data = read_json_input(args.eval, flag="--eval")
     # Every --format: a report of no evaluations has nothing to show, and an empty
     # eval means the run that wrote it judged nothing: a failed run, exit 1.
     evaluations = eval_data.get("evaluations", []) if isinstance(eval_data, dict) else eval_data

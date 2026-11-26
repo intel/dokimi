@@ -16,7 +16,7 @@ from dokimi import cli_flags
 from dokimi.commands.novelty_budget import fresh_partial_destination
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
-from dokimi.files import InputError
+from dokimi.files import InputError, read_json_input
 from dokimi.records import question_id
 from dokimi.write_probe import can_write
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -503,7 +503,7 @@ def _load_questions(path: str) -> list[dict]:
     from dokimi.questions.artifact import load_questions
 
     _refuse_external_trigger_set(path)
-    questions = load_questions(path).questions
+    questions = load_questions(path, flag="--questions").questions  # a device is refused here, not read whole
     ids = [question_id(q) for q in questions]
     for i, qid in enumerate(ids):
         # The records reader refuses any other id, so a run with one would be paid for and lost.
@@ -520,13 +520,11 @@ def _refuse_external_trigger_set(path: str) -> None:
     lints them against the catalog the arm will offer; a questions loader that
     guessed at them would drop that lint and, for skill-creator, the target skill.
     """
-    import json
-
     from dokimi.external.trigger_set import FORMAT_QUESTIONS, detect_trigger_format
 
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
+        data = read_json_input(path)
+    except InputError:
         return  # the questions loader reports it
     fmt = detect_trigger_format(data)
     if fmt and fmt != FORMAT_QUESTIONS:

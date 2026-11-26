@@ -7,16 +7,14 @@ report, and the reason and gate of a failed --json or --fail-on fail run."""
 from __future__ import annotations
 
 import argparse
-import json
 import os
-from pathlib import Path
 import posixpath
 import re
 import sys
 import shutil
 
 from dokimi.repos.l0.config import new_failures
-from dokimi.files import InputError
+from dokimi.files import InputError, read_json_input
 
 
 def _typecheck_or_exit(args: argparse.Namespace):
@@ -279,10 +277,7 @@ def baseline_from(args: argparse.Namespace, payload: dict) -> None:
 
     if not getattr(args, "baseline", None):
         return
-    try:
-        doc = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:  # RecursionError: nesting past the decoder's limit
-        raise InputError(f"--baseline {args.baseline}: {exc}") from None
+    doc = read_json_input(args.baseline, flag="--baseline")
     doc = doc.get("data", doc) if isinstance(doc, dict) and doc.get("schema_version") == "cli_output.v1" else doc
     if not isinstance(doc, dict) or not isinstance(doc.get("claims"), list):
         raise InputError(f"--baseline {args.baseline}: not a repo_readiness.v1 report (no claims list)")

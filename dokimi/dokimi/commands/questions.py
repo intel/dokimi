@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -15,17 +14,14 @@ from typing import Any, Dict
 from dokimi.llm import ANSWER_PROVIDERS, CALLER_CHOICES
 from dokimi.commands._output import exit_on_rejected, exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
-from dokimi.files import InputError, refuse_device
+from dokimi.files import InputError, read_json_input
 from dokimi.digest import key_bytes
 from dokimi.model_names import warn_recorded_self_judge
 
 
 def _load_questions_json(path: str):
-    """Parse the questions file, or exit 2 naming it when it is missing, unreadable or not JSON."""
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:
-        raise InputError(f"cannot read questions from {path}: {exc}") from exc
+    """Parse the questions file, or exit 2 naming it when it is missing, unreadable, a device or not JSON."""
+    return read_json_input(path, flag="--questions")
 
 
 def _extract_questions(questions_data, source: str) -> list:
@@ -41,18 +37,9 @@ def _extract_questions(questions_data, source: str) -> list:
     return raw
 
 
-def _read_json_input(path: str, flag: str):
-    """The parsed JSON at ``path``, or exit 2 with a message naming the file (and ``flag``, for a device)."""
-    refuse_device(path, flag)  # InputError: cli.main prints it and exits 2
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
-        raise InputError(f"cannot read {path}: {exc}") from exc
-
-
 def _load_personas(path: str) -> list:
     """The ``personas`` list of a personas file, or exit 2 with a message naming the file."""
-    data = _read_json_input(path, "--personas")
+    data = read_json_input(path, flag="--personas")
     personas = data.get("personas") if isinstance(data, dict) else None
     if not isinstance(personas, list):
         raise InputError(f"{path} must be a JSON object with a 'personas' list")
@@ -301,7 +288,7 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
 
     # Get or extract topics
     if args.topics:
-        topics = _read_json_input(args.topics, "--topics")
+        topics = read_json_input(args.topics, flag="--topics")
         if not isinstance(topics, list):
             raise InputError(f"{args.topics} must be a JSON list of topics")
     else:

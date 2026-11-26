@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from dokimi import cli_flags
 from dokimi.atomic_write import write_text_atomic
-from dokimi.files import InputError
+from dokimi.files import InputError, read_json_input
 from dokimi.write_probe import can_write
 
 
@@ -156,8 +156,8 @@ def _labelled_queries(args: argparse.Namespace, names: set) -> list:
     """The labelled queries to run; a label naming no *names* skill is an input error."""
     from dokimi.external import trigger_set as ts
 
+    data = read_json_input(args.trigger_set, flag="--trigger-set")  # InputError names the file
     try:
-        data = json.loads(Path(args.trigger_set).read_text(encoding="utf-8"))
         _fmt, queries = ts.read_trigger_set(data, target=args.target)
     except (OSError, ValueError) as exc:
         raise InputError(f"--trigger-set: {exc}") from exc

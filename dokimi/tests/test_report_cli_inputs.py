@@ -36,24 +36,24 @@ def _err(tmp_path, eval_path, capsys, fmt="markdown", code=2):
 
 def test_a_missing_eval_file_is_reported_as_unreadable(tmp_path, capsys):
     missing = tmp_path / "missing.json"
-    assert f"Error: cannot read {missing}" in _err(tmp_path, missing, capsys)
+    assert f"Error: --eval {missing}: No such file or directory" in _err(tmp_path, missing, capsys)
 
 
 def test_a_directory_as_eval_is_reported_as_unreadable(tmp_path, capsys):
-    assert f"Error: cannot read {tmp_path}" in _err(tmp_path, tmp_path, capsys)
+    assert f"Error: --eval {tmp_path}: Is a directory" in _err(tmp_path, tmp_path, capsys)
 
 
-@pytest.mark.parametrize("text", ["", "{not json"])
-def test_an_eval_file_that_is_not_json_is_reported_as_invalid_json(tmp_path, capsys, text):
+@pytest.mark.parametrize("text, reason", [("", "Expecting value"), ("{not json", "Expecting property name")])
+def test_an_eval_file_that_is_not_json_is_reported_as_invalid_json(tmp_path, capsys, text, reason):
     bad = tmp_path / "bad.json"
     bad.write_text(text, encoding="utf-8")
-    assert f"Error: {bad} is not valid JSON" in _err(tmp_path, bad, capsys)
+    assert f"Error: --eval {bad}: {reason}" in _err(tmp_path, bad, capsys)
 
 
 def test_a_non_utf8_eval_file_is_reported_as_invalid_utf8_json(tmp_path, capsys):
     binary = tmp_path / "bin.json"
     binary.write_bytes(bytes([0xFF, 0xFE]))
-    assert f"Error: {binary} is not valid JSON" in _err(tmp_path, binary, capsys)
+    assert f"Error: --eval {binary}: 'utf-8' codec can't decode" in _err(tmp_path, binary, capsys)
 
 
 @pytest.mark.parametrize("text", ["[1, 2]", "null", "5", '"x"'])

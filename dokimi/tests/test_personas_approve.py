@@ -46,11 +46,11 @@ def test_approve_exits_2_with_a_message_on_an_invalid_file(tmp_path, monkeypatch
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and "Traceback" not in err
     if content.startswith(b"\xff"):
-        assert f"Cannot parse {f}" in err
+        assert f"Error: --file {f}: 'utf-8' codec can't decode" in err
     if content.endswith(b'["not-an-object"]}'):
         assert "'not-an-object'" in err
 
 
 def test_approve_exits_2_when_the_path_is_a_directory(tmp_path, monkeypatch, capsys):
     assert _approve(tmp_path, monkeypatch) == 2
-    assert f"Cannot read {tmp_path}" in capsys.readouterr().err
+    assert f"Error: --file {tmp_path}: Is a directory" in capsys.readouterr().err

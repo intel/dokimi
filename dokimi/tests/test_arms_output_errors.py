@@ -187,7 +187,7 @@ def test_matrix_run_exits_2_on_an_unreadable_questions_file(tmp_path, capsys, ki
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2
-    assert capsys.readouterr().err.startswith("Error: cannot load matrix run inputs:")
+    assert capsys.readouterr().err.startswith(f"Error: --questions {args.questions}: ")
 
 
 @pytest.mark.parametrize("error", [PermissionError("denied"), RecursionError("deep")], ids=lambda e: type(e).__name__)
