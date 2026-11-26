@@ -228,3 +228,10 @@ def test_existing_identifier_anchors_survive_token_boundaries(statement, answer)
 def test_a_lone_number_against_a_documented_version_is_a_conflict():
     assert lexical_conflict("The accelerator requires driver 2.1.",
                             "The accelerator needs driver 2.") == ("lexical:value", "2")
+
+
+def test_hyphenated_range_compares_the_second_quantity():
+    assert lexical_conflict("Latency is 10-20 ms.", "Latency is 10-30 ms.") == ("lexical:value", "30 ms")
+    assert lexical_conflict("Latency is -10--20 ms.", "Latency is -10--30 ms.") == ("lexical:value", "-30 ms")
+    assert lexical_conflict("Use build-10 ms.", "Use build-20 ms.") is None
+    assert lexical_conflict("Use build10-20 ms.", "Use build10-30 ms.") is None

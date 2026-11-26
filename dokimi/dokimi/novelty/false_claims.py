@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -66,7 +66,7 @@ _BYTE_UNITS.update(B=1, KB=1000)
 _FREQUENCY_UNITS = {"Hz": 0, "kHz": 3, "MHz": 6, "GHz": 9}
 _UNITS = "|".join((*_TIME_UNITS, *_BYTE_UNITS, *_FREQUENCY_UNITS, "%"))
 _VALUE = re.compile(
-    r"(?<![\w.-])(?:(?P<flag>--?[A-Za-z][\w-]*)|"
+    r"(?<![\w.])(?:(?P<flag>(?<!-)--?[A-Za-z][\w-]*)|"
     r"(?P<number>[+-]?[vV]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)*)"
     rf"(?:[ \t]*(?P<unit>(?:{_UNITS})(?:/s)?)(?![\w/]))?)(?!\w)"
 )
@@ -173,6 +173,18 @@ def _value_key(match: re.Match[str]) -> tuple[str, str | Decimal]:
     return unit, quantity
 
 
+def _values(text: str) -> Iterator[re.Match[str]]:
+    previous = None
+    for match in _VALUE.finditer(text):
+        before = match.start() - 1
+        if before >= 0 and text[before] == "-":
+            # An attached hyphen separates range endpoints only after a recognized number.
+            if previous is None or not previous["number"] or previous.end() != before:
+                continue
+        yield match
+        previous = match
+
+
 def _scale_decimal(quantity: Decimal, shift: int) -> Decimal:
     sign, digits, exponent = quantity.as_tuple()
     assert isinstance(exponent, int)
@@ -213,8 +225,8 @@ def lexical_conflict(statement: str, sentence: str) -> tuple[str, str] | None:
     * polarity: exactly one side carries a negation.
     These are candidates for a judge, not findings; precision is low by construction.
     """
-    documented = Counter(_value_key(match) for match in _VALUE.finditer(statement))
-    proposed = [(_value_key(match), match.group(0)) for match in _VALUE.finditer(sentence)]
+    documented = Counter(_value_key(match) for match in _values(statement))
+    proposed = [(_value_key(match), match.group(0)) for match in _values(sentence)]
     common = documented & Counter(key for key, _ in proposed)
     remaining_shapes = {shape for shape, _ in documented - common}
     for key, quote in proposed:
