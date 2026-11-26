@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from dokimi import cli_output
 from dokimi.report.summary import render, summarize
 
@@ -91,11 +93,13 @@ def test_cli_refuses_a_missing_path_next_to_a_good_document(tmp_path):
     assert done.returncode == 2 and str(tmp_path / "gone.json") in done.stderr and done.stdout == ""
 
 
-def test_cli_refuses_inputs_that_hold_no_document(tmp_path):
-    empty = tmp_path / "empty"
-    empty.mkdir()
+@pytest.mark.parametrize("directories", [("empty",), ("empty-a", "empty-b")])
+def test_cli_refuses_inputs_that_hold_no_document(tmp_path, directories):
+    inputs = [tmp_path / name for name in directories]
+    for directory in inputs:
+        directory.mkdir()
     out = tmp_path / "summary.md"
-    done = _summary_cli(str(empty), "--out", str(out))
+    done = _summary_cli(*(str(directory) for directory in inputs), "--out", str(out))
     assert done.returncode == 2 and "no *.json file to summarize" in done.stderr and done.stdout == ""
     assert not out.exists()
 
