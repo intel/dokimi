@@ -175,7 +175,7 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
         out.compactions.append({
             "trigger": meta.get("trigger"),
             "pre_tokens": meta.get("pre_tokens", meta.get("preTokens")),
-            "post_tokens": meta.get("post_tokens"),  # newer CLIs only
+            "post_tokens": meta.get("post_tokens", meta.get("postTokens")),  # newer CLIs only
             "after_call": len(out.calls) - 1,  # settled from "line" once every call is placed
             "at": rec.get("timestamp"),
             "line": line,
