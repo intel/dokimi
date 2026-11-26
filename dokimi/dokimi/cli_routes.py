@@ -135,6 +135,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("catalog", "routing"), PAID),
     Leaf(("catalog", "novelty"), PAID),
     Leaf(("catalog", "routing-compare"), FREE),
+    Leaf(("catalog", "repair-receipt"), FREE),
     Leaf(("repo", "scan"), FREE),
     Leaf(("repo", "inspect"), FREE),
     Leaf(("repo", "fetch"), FREE),
