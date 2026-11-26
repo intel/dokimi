@@ -57,7 +57,7 @@ def _questions(tmp_path: Path) -> Path:
 
 def _arms_argv(tmp_path: Path, *extra: str) -> list[str]:
     return ["arms", "run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
-            "--arms", ARMS, "--concurrency", "1",
+            "--arm", ARMS, "--concurrency", "1",
             "--out", str(tmp_path / "arms.json"), "--out-md", str(tmp_path / "arms.md"), *extra]
 
 
@@ -137,7 +137,7 @@ def test_headroom_and_plugin_delta_exit_2_on_a_partial_file(tmp_path, capsys):
         _run(["eval", "headroom", partial, partial])
     assert exc.code == 2
     with refusal() as exc:
-        _run(["arms", "plugin-delta", "--baseline-json", partial, "--plugin-json", partial])
+        _run(["arms", "plugin-delta", "--baseline", partial, "--plugin-json", partial])
     assert exc.code == 2
     assert capsys.readouterr().err.count(REFUSAL) == 2
 
@@ -253,7 +253,7 @@ def test_a_matrix_cell_keeps_its_partial_file_until_its_save(tmp_path, monkeypat
     out_dir = tmp_path / "out"
     with pytest.raises(RuntimeError, match="boom"):
         _run(["arms", "matrix-run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
-              "--arms", ARMS, "--matrix-cells", str(cells), "--concurrency", "1",
+              "--arm", ARMS, "--matrix-cells", str(cells), "--concurrency", "1",
               "--out-dir", str(out_dir)])
 
     names = sorted(p.name for p in (out_dir / "cells").iterdir())
@@ -284,7 +284,7 @@ def test_a_partial_file_that_cannot_be_written_stops_the_run_with_one_message(tm
     monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", fake)
     monkeypatch.setattr(artifacts, "save_artifact", save)
     argv = _arms_argv(tmp_path)
-    argv[argv.index("--arms") + 1] = "baseline"
+    argv[argv.index("--arm") + 1] = "baseline"
     argv[argv.index("--concurrency") + 1] = "3"
     with refusal() as exc:
         _run(argv)
@@ -355,7 +355,7 @@ def test_a_stopped_matrix_cell_is_saved_whole_and_its_message_names_no_partial_f
     out_dir = tmp_path / "out"
     with refusal() as exc:
         _run(["arms", "matrix-run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
-              "--arms", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
+              "--arm", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
     assert exc.code == 1
     err = capsys.readouterr().err
     assert "Error running matrix cell 'c1': usage limit exceeded" in err and "kept in" not in err
@@ -387,7 +387,7 @@ def test_a_cell_named_like_another_cells_partial_file_keeps_its_finished_output(
     ]}), encoding="utf-8")
     out_dir = tmp_path / "out"
     _run(["arms", "matrix-run", "--product", "onedal", "--questions", str(_questions(tmp_path)),
-          "--arms", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
+          "--arm", ARMS, "--matrix-cells", str(cells), "--concurrency", "1", "--out-dir", str(out_dir)])
 
     cells_dir = out_dir / "cells"
     assert sorted(p.name for p in cells_dir.iterdir()) == ["x.json", "x.md", "x.partial.json", "x.partial.md"]

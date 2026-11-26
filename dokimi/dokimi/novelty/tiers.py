@@ -346,6 +346,31 @@ def call_tokens(role: str, n_tokens: int, tier: str | None = None,
     return max(0, round(base + per_token * n_tokens)), out
 
 
+def usd_by_role(
+    by_role: dict[str, int],
+    n_tokens: int,
+    models: dict[str, tuple[str, str]],
+    tier: str | None = None,
+    context_share: float = MEASURED_CONTEXT_SHARE,
+) -> dict[str, float] | None:
+    """The list-price dollars of each role's calls, unrounded; ``None`` when a role has no price.
+
+    The one pricing loop: :func:`estimate_usd` sums it and the estimate payload's
+    ``usd_by_role`` reports it. Arguments as in :func:`estimate_usd`.
+    """
+    from dokimi.llm_pricing import list_cost_usd
+
+    out: dict[str, float] = {}
+    for role, calls in by_role.items():
+        model, provider = models[role]
+        tokens_in, tokens_out = call_tokens(role, n_tokens, tier, context_share)
+        cost = list_cost_usd(model, provider, tokens_in, tokens_out)
+        if cost is None:
+            return None
+        out[role] = calls * cost
+    return out
+
+
 def estimate_usd(
     by_role: dict[str, int],
     n_tokens: int,
@@ -366,17 +391,8 @@ def estimate_usd(
         tier: The run's tier; it sets the extractor's output (see :func:`call_tokens`).
         context_share: Arms that carry the artifact over arms run (see :func:`call_tokens`).
     """
-    from dokimi.llm_pricing import list_cost_usd
-
-    total = 0.0
-    for role, calls in by_role.items():
-        model, provider = models[role]
-        tokens_in, tokens_out = call_tokens(role, n_tokens, tier, context_share)
-        cost = list_cost_usd(model, provider, tokens_in, tokens_out)
-        if cost is None:
-            return None
-        total += calls * cost
-    return round(total, 6)
+    split = usd_by_role(by_role, n_tokens, models, tier, context_share)
+    return None if split is None else round(sum(split.values()), 6)
 
 
 def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2,
