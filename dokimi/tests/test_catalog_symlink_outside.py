@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.external import read_skill_manifest
+from dokimi.external.catalog import read_skill_manifest
 
 _SKILL = "---\nname: {name}\ndescription: Use for {name} things.\n---\n# {name}\n"
 
