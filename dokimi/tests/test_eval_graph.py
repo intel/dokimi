@@ -133,6 +133,30 @@ def test_graph_repairs_a_literal_control_character_and_emits_json(tmp_path, monk
                            "cap_usd": 5.0, "remaining_usd": None if price is None else 4.874999, "estimate_kind": None}
 
 
+def test_graph_json_reports_why_the_artifact_was_rejected(tmp_path, monkeypatch, capsys):
+    from dokimi.novelty.needs import NeedGraph
+
+    _stub(monkeypatch, REPLY)
+    as_dict = NeedGraph.as_dict
+
+    def invalid_graph(self):
+        data = as_dict(self)
+        data["nodes"][0]["text"] = ""
+        return data
+
+    monkeypatch.setattr(NeedGraph, "as_dict", invalid_graph)
+    out = tmp_path / "g.json"
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--json")
+
+    assert result.returncode == 5
+    doc = json.loads(result.stdout)
+    assert doc["error"]["code"] == "infra" and doc["cost"]["calls"] == 1
+    assert "nodes/0/text" in doc["reason"] and doc["reason"] == doc["error"]["message"]
+    assert doc["reason"] in result.stderr
+    (rejection,) = tmp_path.glob(".eval-graph-*/g.json.rejected")
+    assert str(rejection) in doc["reason"] and not out.exists()
+
+
 def test_prompt_version_is_a_full_sha256():
     assert PROMPT_VERSION.startswith("sha256:") and len(PROMPT_VERSION) == 7 + 64
 

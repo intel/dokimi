@@ -86,9 +86,8 @@ def _publish_json(graph: dict, out: Path, cost: dict) -> None:
         published = _publish(graph, out)
     except InputError as exc:
         code, message = "input", str(exc)
-    except ArtifactValidationError:
-        code = "infra"
-        message = f"The graph for {out} failed artifact validation. Its rejection is in the staging directory."
+    except ArtifactValidationError as exc:
+        code, message = "infra", str(exc)
     else:
         cli_output.emit_leaf("eval graph", published, artifacts={"out": str(out)}, cost=cost)
         return
