@@ -37,6 +37,10 @@ _VENDOR_ROUTES = {"gemini": "google", "google-vertex": "google", "openai-codex":
 _BEDROCK_ARN = re.compile(r"(?:^|/)arn:aws[a-z-]*:bedrock:[a-z0-9-]*:\d*:(?:inference-profile|foundation-model)/")
 
 
+def _without_region_profile(name: str) -> str:
+    return next((name[len(prefix):] for prefix in _REGION_PROFILES if name.startswith(prefix)), name)
+
+
 def _routed_parts(name: str) -> tuple[list[str], bool, list[str]]:
     """Return the model parts, whether they include a Hub organization, and the removed routes."""
     arn = _BEDROCK_ARN.search(name)
@@ -71,10 +75,7 @@ def _model_core(model: str) -> tuple[str, str | None]:
         parts.pop(0)  # OpenRouter's ``qwen/X`` is Bedrock's ``qwen.X``: the vendor, not an organization
     name = "/".join(parts)
     name = re.sub(r"(?<!claude)-v?\d+:\d+$", "", name)  # not Claude 2's own version: claude-v2:1
-    for prefix in _REGION_PROFILES:
-        if name.startswith(prefix):
-            name = name[len(prefix):]
-            break
+    name = _without_region_profile(name)
     name = re.sub(r"@(?=\d{8}$)", "-", name)
     snapshot = re.search(r"-(\d{8}|\d{4}-\d{2}-\d{2})$", name)
     return (name[:snapshot.start()], snapshot.group(1).replace("-", "")) if snapshot else (name, None)
@@ -175,6 +176,10 @@ def vendor_of(model: str | None) -> str:
     """The vendor family named by a model, or by the direct route for a bare id such as ``openai/o3``."""
     parts, hub, routes = _routed_parts((model or "").strip().lower())
     lowered = "/".join(parts)
+    if not hub and len(parts) == 1:
+        vendor, dot, model_id = _without_region_profile(lowered).partition(".")
+        if dot and model_id and vendor in _VENDORS:
+            return vendor
     family = next((vendor for marker, vendor in _VENDOR_MARKERS if marker in lowered), UNKNOWN_VENDOR)
     if family != UNKNOWN_VENDOR or hub:
         return family

@@ -68,6 +68,18 @@ def test_a_vendor_route_supplies_the_family_when_the_bare_id_does_not(capsys):
     assert relation["same_vendor"]
 
 
+def test_bedrock_vendor_prefixes_match_other_routes(capsys):
+    model = "bedrock/qwen.qwen3-235b-a22b-2507-v1:0"
+    assert vendor_of(model) == "qwen"
+    assert vendor_of("us.deepseek.r1-v1:0") == "deepseek"
+    assert vendor_of("bedrock/eu.moonshotai.kimi-k2-thinking-v1:0") == "moonshotai"
+    assert vendor_of("bedrock/arn:aws:bedrock:us-east-1:123:inference-profile/us.zai.glm-4.7") == "zai"
+    assert vendor_of("huggingface/qwen.example/qwen3-8b") == UNKNOWN_VENDOR
+    assert not warn_judge_independence("bedrock", model, "openrouter", "openrouter/qwen/qwen3-8b")
+    assert "one qwen family" in capsys.readouterr().err
+    assert provenance.vendor_record(model, "openrouter/qwen/qwen3-8b")["same_vendor"]
+
+
 def test_an_extractor_of_the_answering_vendor_is_warned_and_another_vendor_is_not():
     warning = provenance.extractor_vendor_warning("claude-haiku-5-5", "claude-sonnet-5-5")
     assert warning and "both anthropic models" in warning and "--extract-model" in warning
