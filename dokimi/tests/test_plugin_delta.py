@@ -171,6 +171,17 @@ def test_compare_plugin_runs_requires_judge_identity_for_scored_artifacts():
         compare_plugin_runs(baseline, plugin)
 
 
+@pytest.mark.parametrize("missing", ["baseline", "plugin"])
+def test_compare_plugin_runs_names_the_artifact_without_evaluations(missing):
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    artifacts = {"baseline": baseline, "plugin": plugin}
+    del artifacts[missing]["evaluations"]
+    with_scores = "plugin" if missing == "baseline" else "baseline"
+
+    with pytest.raises(PluginDeltaError, match=f"{missing} artifact has no evaluations to pair with {with_scores}"):
+        compare_plugin_runs(baseline, plugin)
+
+
 _V1 = "treatment_material.v1"
 
 
@@ -277,6 +288,27 @@ def test_compare_plugin_runs_refuses_changed_question_text(section):
 
     with pytest.raises(PluginDeltaError, match=rf"different {section} question text for 'q2'"):
         compare_plugin_runs(baseline, plugin)
+
+
+def test_compare_plugin_runs_warns_when_only_some_questions_lack_text():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    for artifact in (baseline, plugin):
+        artifact["answers"][0]["question_text"] = "How do I finish q1?"
+
+    payload = compare_plugin_runs(baseline, plugin)
+
+    assert "answers question text was not recorded for every pair" in payload["warnings"]
+
+
+def test_compare_plugin_runs_warns_about_null_judge_prompt_digests():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    for artifact in (baseline, plugin):
+        artifact.update(judge_prompt_sha256=None, judge_temperature=0.0,
+                        judge_resolved_models=["judge-2026-11-01"])
+
+    payload = compare_plugin_runs(baseline, plugin)
+
+    assert "judge settings were not fully recorded (judge_prompt_sha256)" in payload["warnings"]
 
 
 def test_compare_plugin_runs_refuses_changed_judge_reference_for_the_same_question():
