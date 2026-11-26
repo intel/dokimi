@@ -32,7 +32,7 @@ def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8", n
     at its name is never followed. A file that existed keeps its mode and, where the user may give it, its group (root also keeps the owner, and raises ``PermissionError`` with the old file kept when it may not chown the owner or the group, or set the mode afterwards). Concurrent writers to one
     path each publish a whole file; the last one wins. A failed write removes its tmp file and
     leaves the file at ``path`` as it was. Missing parent directories are created.
-    A file that did not exist is created with ``new_mode`` cut by the umask (``0o666`` by default; ``0o600`` for a private one).
+    A file that did not exist, or a symlink at ``path`` (replaced, its target untouched), is created with ``new_mode`` cut by the umask (``0o666`` by default; ``0o600`` for a private one).
     """
     _publish(Path(path), lambda fd: os.fdopen(fd, "w", encoding=encoding), text, new_mode=new_mode)
 
@@ -258,7 +258,8 @@ def _keep_owner_and_group(fd: int, old: os.stat_result, *, keep_group: bool = Fa
 
 def _existing_stat(path: Path) -> os.stat_result | None:
     try:
-        return path.stat()
+        # A link is replaced by the rename, so it is the file replaced: its target's mode and group are not kept.
+        return None if path.is_symlink() else path.stat()
     except FileNotFoundError:
         return None
     except OSError as exc:

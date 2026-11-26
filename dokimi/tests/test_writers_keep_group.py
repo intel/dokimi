@@ -81,6 +81,7 @@ def test_a_ledger_file_that_did_not_exist_is_private_and_a_cache_entry_is_not(tm
 def test_a_ledger_write_replaces_a_link_at_its_path_and_leaves_the_target(tmp_path):
     target = tmp_path / "elsewhere.json"
     target.write_text("untouched", encoding="utf-8")
+    os.chmod(target, 0o644)
     ledger = tmp_path / "spend.json"
     ledger.symlink_to(target)
 
@@ -88,6 +89,7 @@ def test_a_ledger_write_replaces_a_link_at_its_path_and_leaves_the_target(tmp_pa
 
     assert not ledger.is_symlink() and json.loads(ledger.read_text(encoding="utf-8")) == {"spent_usd": 1}
     assert target.read_text(encoding="utf-8") == "untouched"
+    assert ledger.stat().st_mode & 0o7777 == 0o600  # a new private record, not the target's mode
 
 
 def test_a_ledger_write_replaces_a_dangling_link_and_a_directory(tmp_path):
