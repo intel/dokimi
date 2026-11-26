@@ -77,7 +77,7 @@ def _starts_word(text: str, at: int) -> bool:
 
 def _inert(quote: str) -> bool:
     """Whether a quote, a comment or a ``${...}`` is open at the end of the ``quote`` stack: ``<<`` and ``$((`` there open nothing."""
-    return quote[-1:] in ("'", '"', "#", "{", "[")
+    return quote[-1:] in ("'", '"', "#", "{", "[", "A")
 
 
 def _backtick(quote: str) -> str:
@@ -87,8 +87,13 @@ def _backtick(quote: str) -> str:
 
 
 def _scope_after_dollar(text: str, at: int, quote: str) -> tuple[str, int]:
-    """The quote stack after a ``$`` that ends at ``at``: a ``$(`` or ``${`` opens a scope, ``[`` for a ``${`` in double quotes; none in single quotes."""
+    """The quote stack after a ``$`` that ends at ``at``: a ``$(`` or ``${`` opens a scope, ``[`` for a ``${`` in double quotes; none in single quotes; a ``$'...'`` is read whole."""
     top = quote[-1:]
+    if text.startswith("'", at) and top in ("", "(", "`"):  # in ``$'...'`` a backslash escapes the next character, an apostrophe too
+        end = at + 1
+        while end < len(text) and text[end] != "'":
+            end += 2 if text[end] == "\\" else 1
+        return quote, min(end + 1, len(text))
     scope = _SCOPES.get(text[at:at + 1], "") if top != "'" else ""
     return quote + ("[" if scope == "{" and top in ('"', "[") else scope), at + len(scope)
 
@@ -130,21 +135,14 @@ def _quote_step(text: str, m: re.Match[str], quote: str) -> tuple[str, int]:
     return (quote[:-1] if top == mark else quote), at
 
 
-def _quote_after(text: str, at: int, end: int, quote: str) -> tuple[str, int]:
-    """The quote stack (see :func:`_quote_step`) open at ``end``, scanning ``text`` from ``at`` where ``quote`` was open."""
+def _quote_after(text: str, at: int, end: int, quote: str, step: Callable[[re.Match[str], str], tuple[str, int]] | None = None) -> tuple[str, int]:
+    """The quote stack (see :func:`_quote_step`, or ``step``) open at ``end``, scanning ``text`` from ``at`` where ``quote`` was open."""
     while (m := _QUOTE_MARKS.search(text, at, end)) is not None:
-        quote, at = _quote_step(text, m, quote)
+        quote, at = step(m, quote) if step else _quote_step(text, m, quote)
     return quote, max(at, end)
 
 
 _ARITHMETIC_MARKS = re.compile(r"[\\'\"\n#()$`}<]")
-
-
-def _arithmetic_opener(text: str, mark: str, at: int, quote: str) -> int:
-    """How many characters from ``at`` (after ``mark``) complete a ``$((`` or a bare ``((``, such as ``((x=1<<3))`` or a ``for ((...))`` header; 0 when ``mark`` opens none."""
-    if mark == "$":
-        return 2 if quote[-1:] not in ("'", "#") and text.startswith("((", at) else 0
-    return 1 if mark == "(" and quote[-1:] in ("", "(", "`") and text.startswith("(", at) else 0
 
 
 class _ArithmeticReader:
@@ -161,6 +159,30 @@ class _ArithmeticReader:
         self.line, self.line_quote = 0, ""  # where the line being read begins and the quotes open there
         self.substitutions: list[tuple[int, int]] = []  # inside a span: where a ``$(`` or backtick, not the arithmetic, is what a ``<<`` is in
         self.entered = -1  # where the substitution open now began, -1 when none
+        self.eol_from, self.eol = 0, -1  # the end of the line read last for a ``))``
+        self.unclosed_from, self.unclosed_to = 0, 0  # a ``((`` starting in this range has no ``))`` on its line
+
+    def _opener(self, mark: str) -> int:
+        """How many characters from ``self.pos`` (after ``mark``) complete a ``$((`` or a bare ``((``, such as ``((x=1<<3))`` or a ``for ((...))`` header; 0 when ``mark`` opens none.
+
+        A bare ``((`` is a subshell, ``((cat <<EOF``, unless a ``))`` closes it on its line.
+        """
+        text, at = self.text, self.pos
+        if mark == "$":
+            return 2 if self.quote[-1:] not in ("'", "#") and text.startswith("((", at) else 0
+        return 1 if mark == "(" and self.quote[-1:] in ("", "(", "`") and text.startswith("(", at) and self._closes(at) else 0
+
+    def _closes(self, at: int) -> bool:
+        """Whether a ``))`` follows ``at`` on its line; the line's end and a line with none are kept, so many ``((`` on one line read it once."""
+        if self.unclosed_from <= at < self.unclosed_to:
+            return False
+        if not self.eol_from <= at <= self.eol:
+            end = self.text.find("\n", at)
+            self.eol_from, self.eol = at, len(self.text) if end < 0 else end
+        if self.text.find("))", at, self.eol) >= 0:
+            return True
+        self.unclosed_from, self.unclosed_to = at, self.eol
+        return False
 
     def read(self, upto: int) -> None:
         """Read the marks that start at or before ``upto``, and on to the end of a span open there.
@@ -190,7 +212,7 @@ class _ArithmeticReader:
                             return
                 else:  # a `$(`, backtick or `${` inside has quotes of its own: `$(( $(echo "$(echo "))")") << 3 ))`
                     self._inner(m)
-            elif taken := _arithmetic_opener(text, mark, self.pos, self.quote):
+            elif taken := self._opener(mark):
                 self.start, self.depth, self.outer, self.quote = m.start(), 2, self.quote, ""  # inside, quotes start afresh
                 self.pos += taken
                 self.line, self.line_quote = self.pos, ""
@@ -203,9 +225,9 @@ class _ArithmeticReader:
         """Read the mark ``m`` inside the open span, and keep where a substitution begins and ends there; a heredoc opened on a line of a substitution has its body skipped, as its quotes are not read."""
         before = self.quote
         was = before[-1:] in ("(", "`")
-        self.quote, self.pos = self._inner_step(m)
+        self.quote, self.pos = self._inner_step(m, self.quote)
         if m.group() == "\n":
-            if before.removesuffix("#")[-1:] in ("(", "`") and (words := self.heredoc.line_words(self.text, self.line, m.start(), self.line_quote)):  # a comment after the opener ends here
+            if before.removesuffix("#")[-1:] in ("(", "`") and (words := self.heredoc.line_words(self.text, self.line, m.start(), self.line_quote, self._inner_step)):  # a comment after the opener ends here
                 self.pos = max(self.pos, self.heredoc.bodies_end(self.text, m.start(), words))
             self.line, self.line_quote = self.pos, self.quote
         now = self.quote[-1:] in ("(", "`")
@@ -222,16 +244,16 @@ class _ArithmeticReader:
         i = bisect_left(self.substitutions, (at + 1,))
         return (i > 0 and self.substitutions[i - 1][1] > at) or 0 <= self.entered <= at
 
-    def _inner_step(self, m: re.Match[str]) -> tuple[str, int]:
-        """The quote stack after a mark inside the open span: a ``$((`` or a bare ``((`` in a ``$(`` nested there pushes two ``A``, the grouping parentheses of arithmetic, so a ``<<`` in it is told from one in a ``$(``."""
-        top, mark = self.quote[-1:], m.group()
+    def _inner_step(self, m: re.Match[str], quote: str) -> tuple[str, int]:
+        """The quote stack after a mark inside the open span where ``quote`` was open: a ``$((`` or a bare ``((`` in a ``$(`` nested there pushes two ``A``, the grouping parentheses of arithmetic, so a ``<<`` in it is told from one in a ``$(``."""
+        top, mark = quote[-1:], m.group()
         if top == "A" and mark in "()":
-            return (self.quote + "A" if mark == "(" else self.quote[:-1]), m.end()
+            return (quote + "A" if mark == "(" else quote[:-1]), m.end()
         if mark == "$" and top not in ("'", "#") and self.text.startswith("((", m.end()):
-            return self.quote + "AA", m.end() + 2
-        if mark == "(" and top in ("(", "`") and self.text.startswith("(", m.end()):
-            return self.quote + "AA", m.end() + 1
-        return _quote_step(self.text, m, self.quote)
+            return quote + "AA", m.end() + 2
+        if mark == "(" and top in ("(", "`") and self.text.startswith("(", m.end()) and self._closes(m.end()):
+            return quote + "AA", m.end() + 1
+        return _quote_step(self.text, m, quote)
 
     def skip(self, to: int) -> None:
         """Go on from ``to``, past a heredoc body, with the quotes and substitutions open at its opener's line still open; a span left open has been read to the end of the text, so ``to`` is no further."""
@@ -374,12 +396,12 @@ class HeredocPattern:
                 pos = len(text) + 1
         return pos
 
-    def line_words(self, text: str, start: int, end: int, quote: str) -> list[str]:
-        """The delimiters of the openers on ``text[start:end]``, a line that begins with ``quote`` open; an opener in a quote or after a backslash opens nothing."""
+    def line_words(self, text: str, start: int, end: int, quote: str, step: Callable[[re.Match[str], str], tuple[str, int]] | None = None) -> list[str]:
+        """The delimiters of the openers on ``text[start:end]``, a line that begins with ``quote`` open, its marks read by ``step``; an opener in a quote, in arithmetic or after a backslash opens nothing."""
         words, pos, scanned = [], start, start
         while (o := self.opener.search(text, pos, end)) is not None:
             pos = o.start() + 1
-            quote, scanned = _quote_after(text, scanned, o.start(), quote)
+            quote, scanned = _quote_after(text, scanned, o.start(), quote, step)
             if not _inert(quote) and scanned <= o.start():
                 words.append(o.group(self.word))
                 scanned = max(scanned, o.end())

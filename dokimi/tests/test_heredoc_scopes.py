@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 import pytest
 
 from dokimi.context import shell
 from dokimi.repos import cli_traces
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 
 def _cli_heredocs(text: str) -> str:
@@ -177,4 +180,30 @@ def test_a_delimiter_that_looks_like_expansion_syntax_leaves_arithmetic_after_it
 def test_a_long_chain_of_line_continuations_before_a_comment_is_read_without_recursion() -> None:
     text = "echo hi " + "\\\n" * 1500 + "# <<EOF\ncat AGENTS.md\n"
     assert [c for c, _ in shell.split_commands(text)][-1] == "cat AGENTS.md"
+    assert _cli_heredocs(text) == text
+
+
+@pytest.mark.parametrize("text", ["((cat <<EOF\nsed -i s/x/y/ f\nEOF\n) | cat)\nrm g\n", "echo $(( $( ((cat <<EOF\nsed -i s/x/y/ f\nEOF\n) | cat) ) + 1 ))\nrm g\n"])
+def test_a_double_parenthesis_that_no_double_parenthesis_closes_on_its_line_is_a_subshell_and_its_heredoc_is_cut(text: str) -> None:
+    assert not [c for c, _ in shell.split_commands(text) if c.startswith("sed")]
+    assert "sed" not in _cli_heredocs(text)
+    assert [c for c, _ in shell.split_commands(text)][-1] == "rm g"
+
+
+def test_many_double_parentheses_on_a_line_with_no_closer_are_scanned_in_linear_time() -> None:
+    ratio, _ = growth(lambda k: partial(shell.split_commands, "(" * k + "\ncat <<EOF\nbody\nEOF\n"), 2_000)
+    assert ratio < GROWTH_LIMIT
+
+
+def test_an_escaped_apostrophe_in_an_ansi_c_string_does_not_hide_the_heredoc_after_it() -> None:
+    text = "printf '%s\\n' $'don\\'t'\ncat <<EOF\nsed -i s/x/y/ f\nEOF\nrm g\n"
+    assert _cli_heredocs(text) == "printf '%s\\n' $'don\\'t'\ncat \nrm g\n"
+    assert not [c for c, _ in shell.split_commands(text) if "sed" in c]
+    assert _cli_heredocs("echo $'a\\\\' <<EOF\nbody\nEOF\nrm g\n") == "echo $'a\\\\' \nrm g\n"
+
+
+@pytest.mark.parametrize("shift", ["$((1 << EOF))", "$((1 << 3))"])
+def test_a_shift_in_arithmetic_nested_on_a_substitution_line_inside_arithmetic_opens_no_heredoc_and_the_commands_after_it_stay(shift: str) -> None:
+    text = f"echo $(( $(echo {shift}\nfoo\n) + 1 ))\nsed -i s/x/y/ f\nrm g\n"
+    assert [c for c, _ in shell.split_commands(text)][-2:] == ["sed -i s/x/y/ f", "rm g"]
     assert _cli_heredocs(text) == text
