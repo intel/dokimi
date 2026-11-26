@@ -72,10 +72,12 @@ _NL = r"[^\S\n]"  # whitespace but the newline
 # The argument of `-C` never holds a `git` word that ends it (`git`, `a/git`, `a.git`, `core.foo=git`): that `git` starts the same opener from there, so a chain of
 # `git -C a.git -C core.foo=git ...` is read from its first `git` once, not from every one (#1116).
 _ARG = r"(?!\S*\bgit\s)[^\s-]\S*"
-_GIT_OPT = r"(?:-[Cc]\s+" + _ARG + r"\s+|-\S+\s+)"
-_GIT_OPT_NO_NL = r"(?:-[Cc]" + _NL + r"+" + _ARG + _NL + r"+|-\S+" + _NL + r"+)"
+# The start of any other option, which never ends in a `git` word either (`-a/git`, `-x.git`): the chain `git -a/git -a/git ...` is read from its first `git` once (#1213).
+_OPT = r"-(?!\S*\bgit\s)"
+_GIT_OPT = r"(?:-[Cc]\s+" + _ARG + r"\s+|" + _OPT + r"\S+\s+)"
+_GIT_OPT_NO_NL = r"(?:-[Cc]" + _NL + r"+" + _ARG + _NL + r"+|" + _OPT + r"\S+" + _NL + r"+)"
 # an option with a newline in one of its gaps
-_GIT_OPT_NL = (r"(?:-[Cc]" + _NL + r"*\n\s*" + _ARG + r"\s+|-[Cc]" + _NL + r"+" + _ARG + _NL + r"*\n\s*|-\S+" + _NL + r"*\n\s*)")
+_GIT_OPT_NL = (r"(?:-[Cc]" + _NL + r"*\n\s*" + _ARG + r"\s+|-[Cc]" + _NL + r"+" + _ARG + _NL + r"*\n\s*|" + _OPT + r"\S+" + _NL + r"*\n\s*)")
 _GIT_PUSH = r"\bgit\s+" + _GIT_OPT + r"*push\b"
 _GIT_PUSH_ACROSS_LINES = (r"\bgit(?:" + _NL + r"*\n\s*" + _GIT_OPT + r"*|" + _NL + r"+" + _GIT_OPT_NO_NL + r"*" + _GIT_OPT_NL + _GIT_OPT + r"*)push\b")
 _DOCKER_RUN = r"\bdocker\s+(?:container\s+)?(?:run|create)\b"
@@ -96,8 +98,8 @@ _PUSH_NO_VERIFY = _after_first_opener(_GIT_PUSH, _GIT_PUSH_ACROSS_LINES, r"--no-
 
 _COMMIT_ARG = _ARG
 _COMMIT_ARG_LOCAL = r"(?!\S*\bgit\s)[^\s;&|-][^\s;&|]*"
-_COMMIT_OPT = r"(?:-[Cc]\s+" + _COMMIT_ARG + r"\s+|-\S+\s+)"
-_COMMIT_OPT_LOCAL = r"(?:-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+|-[^\s;&|]+" + _NL + r"+)"
+_COMMIT_OPT = r"(?:-[Cc]\s+" + _COMMIT_ARG + r"\s+|" + _OPT + r"\S+\s+)"
+_COMMIT_OPT_LOCAL = r"(?:-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"+|" + _OPT + r"[^\s;&|]+" + _NL + r"+)"
 _COMMIT_CLOSERS = r"[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)|--no-verify\b)"
 
 
@@ -110,7 +112,7 @@ def _first_in_segment(sub: str, closers: str) -> str:
     across = (
         r"\bgit(?:" + _NL + r"*\n\s*" + _COMMIT_OPT + r"*|" + _NL + r"+" + _COMMIT_OPT_LOCAL + r"*(?:"
         r"-[Cc]" + _NL + r"*\n\s*" + _COMMIT_ARG + r"\s+|-[Cc]" + _NL + r"+(?=\S*[;&|])" + _COMMIT_ARG + r"\s+|"
-        r"-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"*\n\s*|-(?=\S*[;&|])\S+\s+|-[^\s;&|]+" + _NL + r"*\n\s*"
+        r"-[Cc]" + _NL + r"+" + _COMMIT_ARG_LOCAL + _NL + r"*\n\s*|" + _OPT + r"(?=\S*[;&|])\S+\s+|" + _OPT + r"[^\s;&|]+" + _NL + r"*\n\s*"
         r")" + _COMMIT_OPT + r"*)" + sub + r"\b")
     return r"(?:(?m:^)|[;&|])(?:(?!" + local + r")[^;&|\n])*" + local + closers + r"|" + across + closers
 

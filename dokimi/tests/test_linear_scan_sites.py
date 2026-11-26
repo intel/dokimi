@@ -521,6 +521,11 @@ _OVERLAPPING_GIT_SHAPES = [
     lambda n: "git -C a." * n + "git\npush",
     lambda n: "git -c core.foo=" * n + "git\npush",
     lambda n: "git\n-c core.foo=" * n + "git\npush",
+    lambda n: "git " + "-a/git " * n + "x",
+    lambda n: "git " + "-x.git " * n + "x",
+    lambda n: "git " + "-a/git\n" * n + "x",
+    lambda n: "git push " + "-a/git " * n,
+    lambda n: "git -x;y " + "-a/git " * n + "x",
 ]
 
 
@@ -674,3 +679,88 @@ def test_history_rewrite_matches_the_old_pattern_on_random_lines_of_pushes_and_r
         assert new_match == (_OLD_HISTORY_REWRITE.search(text) is not None), text
         hits += new_match
     assert hits > 200, hits
+
+
+# --- an option word that ends in `git` (#1213) ---------------------------------------------------------
+
+# `_PUSH_NO_VERIFY` as it was before an option word could not end in `git`
+_OLD_PUSH_NO_VERIFY = re.compile(
+    r"(?:(?m:^)(?:(?!\bgit\s+(?:-[Cc]\s+(?!\S*\bgit\s)[^\s-]\S*\s+|-\S+\s+)*push\b)[^\n])*\bgit\s+(?:-[Cc]\s+(?!\S*\bgit\s)[^\s-]\S*\s+|-\S+\s+)*push\b"
+    r"|\bgit(?:[^\S\n]*\n\s*(?:-[Cc]\s+(?!\S*\bgit\s)[^\s-]\S*\s+|-\S+\s+)*|[^\S\n]+(?:-[Cc][^\S\n]+(?!\S*\bgit\s)[^\s-]\S*[^\S\n]+|-\S+[^\S\n]+)*"
+    r"(?:-[Cc][^\S\n]*\n\s*(?!\S*\bgit\s)[^\s-]\S*\s+|-[Cc][^\S\n]+(?!\S*\bgit\s)[^\s-]\S*[^\S\n]*\n\s*|-\S+[^\S\n]*\n\s*)"
+    r"(?:-[Cc]\s+(?!\S*\bgit\s)[^\s-]\S*\s+|-\S+\s+)*)push\b)[^\n]*(?:--no-verify\b)",
+    re.IGNORECASE,
+)
+# (line, hook-bypass, history-rewrite, the push branch alone) matches, the same for the old patterns
+_GIT_WORD_OPTION_TABLE = [
+    ("git -x/git push --no-verify", 1, 0, 1),
+    ("git -a/git commit -n", 1, 0, 0),
+    ("git -a/git push --no-verify", 1, 0, 1),
+    ("git -a/git push -f", 0, 1, 0),
+    ("git -a/git reset --hard", 0, 1, 0),
+    ("git --git-dir=x/git push --no-verify", 1, 0, 1),
+    ("git --git-dir=x push --no-verify", 1, 0, 1),
+    ("git -C a/git push -f", 0, 1, 0),
+    ("git -a/git\npush --no-verify", 1, 0, 1),
+    ("git -a/git\ncommit -n", 1, 0, 0),
+    ("git -a/git\nreset --hard", 0, 1, 0),
+    ("git -a/git; push --no-verify", 1, 0, 1),
+    ("git -a/git; commit -n", 1, 0, 0),
+    ("git -x.git commit --no-verify", 1, 0, 0),
+    ("git -a/git -b/git commit -n", 1, 0, 0),
+    ("git -a/git git commit -n", 1, 0, 0),
+    ("git -a/git -b commit -n", 1, 0, 0),
+    ("git -a/git commit", 0, 0, 0),
+    ("git x -a/git commit -n", 1, 0, 0),
+    ("git -x\n-a/git commit -n", 1, 0, 0),
+    ("git -x\n-a/git\ncommit -n", 1, 0, 0),
+    ("git -a/git -C d push --no-verify", 1, 0, 1),
+    ("-a/git push --no-verify", 1, 0, 1),
+    ("git -a/git", 0, 0, 0),
+    ("git commit -a/git -n", 1, 0, 0),
+    ("git push -a/git --no-verify", 1, 0, 1),
+    ("git push -a/git +x", 0, 1, 0),
+    ("git -x;y -a/git commit -n", 1, 0, 0),
+    ("git -x;a/git commit -n", 1, 0, 0),
+    ("git -x;a/git\ncommit -n", 1, 0, 0),
+    ("git -a/git -x;y commit -n", 1, 0, 0),
+    ("git -git commit -n", 1, 0, 0),
+    ("git -git push -f", 0, 1, 0),
+    ("git -a/gitx commit -n", 1, 0, 0),
+    ("git -a/GIT commit -n", 1, 0, 0),
+    ("git -a/git\tcommit -n", 1, 0, 0),
+    ("git -a/git x commit -n", 0, 0, 0),
+    ("git -C x -a/git commit -n", 1, 0, 0),
+    ("git -a/git -c core.foo=git push -f", 0, 1, 0),
+    ("git -a/git\n-b/git\npush --no-verify", 1, 0, 1),
+    ("git -a/git\n-b/git\nreset --hard", 0, 1, 0),
+    ("x;git -a/git commit -n", 1, 0, 0),
+    ("git -a/git commit; git -b/git commit -n", 1, 0, 0),
+]
+
+
+def _git_word_option_pairs() -> list[tuple[str, re.Pattern[str], re.Pattern[str]]]:
+    hook, history = security.RULES["hook-bypass"].pattern, security.RULES["history-rewrite"].pattern
+    assert hook is not None and history is not None
+    return [("hook-bypass", hook, _OLD_HOOK_BYPASS), ("history-rewrite", history, _OLD_HISTORY_REWRITE), ("push", security._PUSH_NO_VERIFY, _OLD_PUSH_NO_VERIFY)]
+
+
+@pytest.mark.parametrize(("text", "hook", "history", "push"), _GIT_WORD_OPTION_TABLE)
+def test_an_option_word_that_ends_in_git_is_read_as_the_old_patterns_did(text: str, hook: int, history: int, push: int) -> None:
+    for (name, new, old), expected in zip(_git_word_option_pairs(), (hook, history, push), strict=True):
+        assert (old.search(text) is not None) is bool(expected), (name, text)
+        assert (new.search(text) is not None) is bool(expected), (name, text)
+
+
+def test_option_words_that_end_in_git_match_the_old_patterns_on_random_lines() -> None:
+    pieces = ["a/git", "-x.git", "-a/git", "git", "commit", "push", "reset", "-n", "-f", "--no-verify", "--hard", ";", "\n", "-C", "-c", "d",
+              "-a", "x", "git -a/git", "git commit", "git push", "git reset", "--git-dir=x/git", "-git"]
+    rng = random.Random(1213)
+    hits = [0, 0, 0]
+    for _ in range(4 * CASES):
+        text = " ".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+        for k, (name, new, old) in enumerate(_git_word_option_pairs()):
+            new_match = new.search(text) is not None
+            assert new_match == (old.search(text) is not None), (name, text)
+            hits[k] += new_match
+    assert all(count > 50 for count in hits), hits
