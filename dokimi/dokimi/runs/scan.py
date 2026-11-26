@@ -291,7 +291,7 @@ def _scan_file(result: ScanResult, path: Path, real_root: str) -> None:
 _JUNCTION_TAG = 0xA0000003
 
 
-def _is_link(path: Path) -> bool:
+def is_link(path: Path) -> bool:
     """A symlink, or a Windows junction (os.walk descends into junctions on Python 3.11-3.13)."""
     try:
         if path.is_symlink():
@@ -324,7 +324,7 @@ def scan(root: Path) -> ScanResult:
 
     for directory, dirnames, filenames in os.walk(root, onerror=unlisted):
         base = Path(directory)
-        linked = {d for d in dirnames if _is_link(base / d)}
+        linked = {d for d in dirnames if is_link(base / d)}
         result.skipped["linked_directory"] += len(linked)
         dirnames[:] = sorted(d for d in dirnames if d not in linked
                              and not (d == BASELINE_POINTERS and base == root))

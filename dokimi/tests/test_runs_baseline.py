@@ -12,6 +12,7 @@ import os
 import re
 import subprocess  # nosec B404 - two real processes race for one pointer
 import sys
+import types
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -493,6 +494,27 @@ def test_list_gives_the_run_and_the_time_of_one_save(root, monkeypatch, capsys):
     [row] = baseline.read_all(root).pointers
 
     assert (row.run_id, row.saved_at_iso) in ((A, "2001-09-09T01:46:40Z"), (B, "2033-05-18T03:33:20Z"))
+
+
+def test_a_store_that_is_a_windows_junction_is_refused_on_any_python(root, monkeypatch, capsys):
+    # docs/runs.md, On disk: a junction is a link; os.path.isjunction misses it before Python 3.12
+    directory = root / ".baselines"
+    directory.mkdir()
+    real_lstat = os.lstat
+
+    def junction(path, *args, **kwargs):
+        found = real_lstat(path, *args, **kwargs)
+        if os.path.abspath(path) != str(directory):
+            return found
+        return types.SimpleNamespace(st_mode=found.st_mode, st_reparse_tag=0xA0000003)
+
+    monkeypatch.setattr(os, "lstat", junction)
+    monkeypatch.delattr(os.path, "isjunction", raising=False)
+
+    assert _run(monkeypatch, capsys, "baseline", "save", "main", A)[::2] == (
+        2, "Error: results/.baselines is a link, so the baselines are not read or changed through it: "
+           "the baselines' store is a directory of its own\n")
+    assert os.listdir(directory) == []
 
 
 def test_runs_list_does_not_walk_the_pointers(root, monkeypatch, capsys):

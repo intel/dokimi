@@ -26,7 +26,7 @@ from pathlib import Path
 
 from dokimi.artifacts import is_run_id
 from dokimi.atomic_write import write_text_atomic
-from dokimi.runs.scan import BASELINE_POINTERS, Unreadable, plain, read_error_reason, scan
+from dokimi.runs.scan import BASELINE_POINTERS, Unreadable, is_link, plain, read_error_reason, scan
 from dokimi.utils import InputError
 
 LOCK = ".lock"
@@ -67,7 +67,7 @@ def store(root: Path) -> Path:
     ``InputError`` when it is a link: one out of the root, to the root or to a run's directory would
     let save and rm write or remove files there."""
     directory = root / BASELINE_POINTERS
-    if os.path.islink(directory) or getattr(os.path, "isjunction", lambda _: False)(directory):
+    if is_link(directory):  # a junction too, which os.path.isjunction misses before Python 3.12
         raise InputError(f"{plain(directory.as_posix())} is a link, so the baselines are not read "
                          "or changed through it: the baselines' store is a directory of its own")
     return directory
