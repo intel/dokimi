@@ -16,7 +16,7 @@ from __future__ import annotations
 import statistics
 import re
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from .event_format import TOOL_KINDS
@@ -40,8 +40,10 @@ _NO_VERDICT = ("unobserved", "timeout")
 _NON_POSIX_ROOT = re.compile(r"^(?:[A-Za-z]:|\\)")
 
 
-def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
-    """Whether ``event`` satisfies ``useful``: a passing command matching the regex, or an edit matching a glob."""
+def hits(useful: Useful, event: Mapping[str, Any], resolve: Callable[[str], str | None] | None = None) -> bool:
+    """Whether ``event`` satisfies ``useful``: a passing command matching the regex, or an edit matching a glob.
+
+    ``resolve`` follows the workspace's links for an edit path with a ``..`` in it (see ``_workspace_path``)."""
     if event.get("denied"):  # a refused call never ran, or never changed the file
         return False
     # only a call whose result says it succeeded counts: a call with no result, or a failed one, changed nothing
@@ -55,16 +57,19 @@ def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
     # no path, outside the workspace, or the workspace root itself: no target; a deleted file is no useful edit
     if event.get("kind") != "edit" or event.get("deleted") or not raw or _NON_POSIX_ROOT.match(raw):
         return False
-    path = _workspace_path(raw)
+    path = _workspace_path(raw, resolve)
     if path is None or path == ".":
         return False
     return any(match_glob(g, path) for g in useful.globs)
 
 
 def first_useful(
-    useful: Useful | None, events: Sequence[Mapping[str, Any]] | None
+    useful: Useful | None, events: Sequence[Mapping[str, Any]] | None,
+    resolve: Callable[[str], str | None] | None = None,
 ) -> dict[str, Any]:
-    """``result.json`` ``first_useful`` of one run; ``events`` is None when its trace could not be read."""
+    """``result.json`` ``first_useful`` of one run; ``events`` is None when its trace could not be read.
+
+    ``resolve`` follows the workspace's links for an edit path with a ``..`` in it."""
     if useful is None:
         return _record(None, "not_declared")
     if events is None:
@@ -75,7 +80,7 @@ def first_useful(
             continue
         steps += 1
         try:
-            found = hits(useful, event)
+            found = hits(useful, event, resolve)
         except TimeoutError:  # the pattern ran past its budget on this event: no verdict
             return _record(useful.kind, "timeout")
         if found:

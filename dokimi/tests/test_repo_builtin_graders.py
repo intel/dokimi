@@ -428,7 +428,7 @@ def test_an_image_without_python3_is_a_grader_failure_with_the_reason(tmp_path, 
         monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, r=runner, **k: r)
         args = build_parser().parse_args([
             "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
-            "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root",
+            "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out", str(out), "--cache-root",
             str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw", "--task", "clean_mul"])
         args.func(args)
         cell = next((out / "b1").glob("clean_mul__*/result.json")).parent
@@ -635,7 +635,7 @@ def test_a_cell_graded_by_a_builtin_grader_needs_no_grade_entry_point(tmp_path, 
     out = tmp_path / "runs"
     args = build_parser().parse_args(
         ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
-         "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
+         "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
          "--agent-network", "host", "--arm", "guidance:raw", "--task", "seeds_mul"])
     args.func(args)
     rec = json.loads((out / "b1/seeds_mul__guidance-raw__m-1__r1/result.json").read_text())
@@ -655,7 +655,7 @@ def test_a_repository_grader_without_a_grade_entry_point_is_refused_before_any_a
     out = tmp_path / "runs"
     args = build_parser().parse_args(
         ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
-         "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
+         "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
          "--agent-network", "host", "--arm", "guidance:raw", "--task", "fix_add"])
     with pytest.raises(SystemExit):
         args.func(args)

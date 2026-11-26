@@ -21,6 +21,8 @@ flags, which each call site keeps as its argv has always had it.
 from __future__ import annotations
 
 import os
+import re
+import tempfile
 from collections.abc import Callable, Iterable, Mapping
 
 from dokimi import process
@@ -84,16 +86,37 @@ def env_args(set: Mapping[str, str] | None = None, pass_names: Iterable[str] = (
     return out
 
 
+_ENV_VALUE_SURROGATE = re.compile(r"[\ud800-\udfff]")
+
+
+def write_env_file(directory: str | os.PathLike[str], env: Mapping[str, str]) -> tuple[str, dict[str, str]]:
+    """*env* as a 0600 ``--env-file`` in *directory*: ``(path, values)``. The caller owns the file's removal
+    (the directory's). Docker reads a UTF-8 env file one line at a time. Values with a line break
+    are returned in *values*, to pass as ``-e NAME`` with the CLI's environment. Reject invalid
+    UTF-8 before writing because Docker also changes it when passing values by name."""
+    for key, value in env.items():
+        if _ENV_VALUE_SURROGATE.search(value):
+            raise ValueError(f"Docker environment variable {key!r} must be valid UTF-8")
+    by_name = {key: value for key, value in env.items() if "\r" in value or "\n" in value}
+    fd, name = tempfile.mkstemp(dir=directory, prefix="env-")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        for key in sorted(env):
+            if key not in by_name:
+                fh.write(f"{key}={env[key]}\n")
+    return name, by_name
+
+
 def build_args(context: str | os.PathLike[str], dockerfile: str | os.PathLike[str], tag: str, *,
                network: str | None = None, environ: Mapping[str, str] | None = None) -> list[str]:
     """``build -f dockerfile -t tag [--network n] [--build-arg NAME ...] context``. The proxy
-    variables of ``environ`` (the process's own by default) pass through by name."""
+    variables of ``environ`` (the process's own by default) that are set and non-empty pass
+    through by name."""
     env = os.environ if environ is None else environ
     out = ["build", "-f", os.fspath(dockerfile), "-t", tag]
     if network:
         out += ["--network", network]
     for name in PROXY_BUILD_ARGS:
-        if name in env:
+        if env.get(name):
             out += ["--build-arg", name]
     return [*out, os.fspath(context)]
 

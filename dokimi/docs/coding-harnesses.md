@@ -81,7 +81,7 @@ and times become ISO strings, and YAML sets sorted lists.
 ### SWE-bench rows: `tasks run --swe-bench`
 
 `python cli.py tasks run --swe-bench <rows.jsonl> --tasks <instance_id>[,...]
---harnesses docker-oracle,docker-claude` runs SWE-bench rows (Lite, Verified,
+--harness docker-oracle,docker-claude` runs SWE-bench rows (Lite, Verified,
 or any file with the same fields) with the `docker-*` harnesses; `--all`
 runs every row. Each row is staged under `<output-dir>/swe-bench-tasks/<id>/`
 as a task the harness already runs, by `dokimi/harnesses/swebench.py`:
@@ -619,7 +619,7 @@ a verdict. The rules mirror intel/skills' `tools/check_harbor_job.py`:
 
 | Trial `result.json` | Cell |
 |---|---|
-| `verifier_result.rewards.reward` is a finite number in [0, 1], no `exception_info` | scored: that reward, a pass at 1.0 |
+| `verifier_result.rewards.reward` (or the only key of `rewards`, as Harbor takes it) is a finite number in [0, 1], no `exception_info` | scored: that reward, a pass at 1.0 |
 | the only `exception_info` (top or `step_results[]`) is `VerifierTimeoutError` | scored 0, `metrics.verifier_timeout` true: a verifier timeout is a failure, not an error |
 | `exception_info` set, at the top or on a `step_results[]` entry (a multi-step task) | errored: `metrics.error` is `harbor: <exception_type>: <first line>`, `metrics.harbor_exception` the type; a reward the verifier still wrote is kept as `metrics.reward_after_exception`, not scored |
 | no `exception_info`, no numeric reward or one outside [0, 1] | errored |
@@ -653,7 +653,8 @@ refuses the task instead of running it with the internet the task forbade.
 Both now land as errored cells.
 
 A `command:` harness (including a `--command-template` that wraps `harbor`)
-keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else (no
+keeps its own rule: a `reward.txt` / `reward.json` under the run dir (`reward.txt`
+first; a `reward.json`'s reward as for a `docker-*` verifier, below), else (no
 reward file) a `reward: x` on its output, else exit code 0 is a pass. Exit 126 or 127, a
 signal exit, a Windows crash status (an NTSTATUS error code such as `0xC0000409`), or a reward file with no reward in it is no verdict: the cell is
 errored (`metrics.solver_error`). Only a reward file with a reward in it outranks such an
@@ -670,6 +671,12 @@ be checked for the same network before their verdicts are compared:
 | `build` | `public` (host network, host proxy as build args) | `docker build` (a [prebuilt image](#prebuilt-images-environment-docker_image)'s pull ignores it) |
 | `solve` | `none` (an in-container agent still reaches its LLM through the sidecar) | the oracle, or the agent |
 | `verify` | `none` | `tests/test.sh` |
+
+A task Dockerfile that declares `ARG` for a proxy variable records the host's
+value in the image history (`docker history`). When that value carries
+`user:password@`, the build still runs and dokimi says so with a
+`[build] WARNING` in `run.log` and on stderr; remove the `ARG` to keep the
+credentials out of the image.
 
 The modes are Harbor's: `none` (Harbor's `no-network`), `public` (the
 default bridge plus the host's proxy variables), and `allowlist` (the listed
@@ -872,13 +879,13 @@ Run one task through Codex and compare it to Claude Code:
 python cli.py tasks run \
   --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --tasks onetbb-parallel-reduce \
-  --harnesses claude-code,codex \
+  --harness claude-code,codex \
   --baseline-harness claude-code \
   --model anthropic/claude-opus-4-6 \
   --out results/task-runs/onetbb-reduce.json
 ```
 
-If `--baseline-harness` is not listed in `--harnesses`, the CLI adds it to the
+If `--baseline-harness` is not listed in `--harness`, the CLI adds it to the
 run matrix and prints that it will also run the baseline harness.
 
 Run all tasks through a custom wrapper:
@@ -887,7 +894,7 @@ Run all tasks through a custom wrapper:
 python cli.py tasks run \
   --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --all \
-  --harnesses command \
+  --harness command \
   --command-template "my-agent --task {task_path} --model {model} --out {output_dir}" \
   --model my-model
 ```
@@ -958,7 +965,7 @@ per-task breakdown — lands in one schema-validated artifact:
 python cli.py tasks run \
   --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --tasks intel-perf-serial-accumulator,intel-perf-false-sharing,intel-perf-missing-restrict \
-  --harnesses docker-claude,docker-claude-skill:<content-checkout>/skills/intel-performance-patterns/SKILL.md \
+  --harness docker-claude,docker-claude-skill:<content-checkout>/skills/intel-performance-patterns/SKILL.md \
   --baseline-harness docker-claude \
   --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
   --reps 3 \
@@ -1061,7 +1068,7 @@ Run all three together:
 ```bash
 python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks \
   --tasks onetbb-transpose \
-  --harnesses docker-claude,docker-claude-skill:<skill>,docker-claude-skill-discover:<skill> \
+  --harness docker-claude,docker-claude-skill:<skill>,docker-claude-skill-discover:<skill> \
   --baseline-harness docker-claude --model <model> --reps 3 \
   --out results/onetbb-discover.json
 ```
@@ -1132,7 +1139,7 @@ still writes the artifact:
 ```bash
 python cli.py tasks run --tasks <task-name> \
   --tasks-root <checkout>/evaluation/harbor/tasks \
-  --harnesses docker-oracle --out results/oracle-check.json
+  --harness docker-oracle --out results/oracle-check.json
 ```
 
 ## Output Artifact
@@ -1144,15 +1151,21 @@ python cli.py tasks run --tasks <task-name> \
   `run<N>/` subdirectory.
 - `results[].passed`: verifier pass/fail. If a reward file is present, its
   number is `results[].reward`: `1.0` passes, and anything lower, including
-  partial credit such as `0.75`, is kept as the reward and counts as a fail. If
-  no reward is found, the adapter's exit code is used as the fallback, except
-  for a Harbor-backed cell, which is then errored (see the Harbor grading
-  table above), and a `docker-*` cell with a reward-file verifier (`task.toml`
-  or `task.md`), where exit 0 without `/logs/verifier/reward.txt` is errored
-  and a non-zero exit scores 0.0. A terminal-bench v1 verifier keeps its pytest
-  summary as the verdict. A `docker-*` reward file with no number between 0
-  and 1 in it (`PASS`, empty, `75`), or a `docker cp` of it that fails or
-  times out, errors the cell.
+  partial credit such as `0.75`, is kept as the reward and counts as a fail.
+  If no reward is found, the adapter's exit code is used as the fallback,
+  except for a Harbor-backed cell, which is then errored (see the Harbor
+  grading table above), and a `docker-*` cell with a reward-file verifier
+  (`task.toml` or `task.md`), where exit 0 without `/logs/verifier/reward.txt`
+  or `reward.json` is errored and a non-zero exit scores 0.0. A terminal-bench
+  v1 verifier keeps its pytest summary as the verdict. As in Harbor 0.24.0, a
+  `reward.json` is read when there is one, else `reward.txt`; it is a JSON
+  object of numbers, and the reward is its `reward` key, or its only key (the
+  other keys stay in the cell's copy of the file). A `docker-*` `reward.txt`
+  with no number between 0 and 1 in it (`PASS`, empty, `75`), a `reward.json`
+  that is not such an object or whose reward is not between 0 and 1, or a
+  `docker cp` of either that fails or times out, errors the cell. Either file
+  may be a link: it is followed in the container (`docker cp -L`), and a
+  dangling one counts as no file; a directory there errors the cell.
 - `results[].metrics`: for LLM harnesses (`docker-claude*`), the per-run
   `UsageRecord` fields — `cost_usd`, `prompt_tokens`, `completion_tokens`,
   `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `latency_sec`,
@@ -1182,7 +1195,7 @@ agent's result event (`solver.json`) and full stream (`solver.jsonl`; the
 values of the agent's credential variables are redacted, also line by line and
 in their JSON-escaped form, but anything else the agent printed, such as a credential file's contents, is not, so do not share
 it),
-`prompt.txt`, `run.log`, `reward.txt`, the agent's final tree (`work/`),
+`prompt.txt`, `run.log`, `reward.txt` or `reward.json`, the agent's final tree (`work/`),
 `egress.jsonl` for a container launch whose sidecar log was read and `isolation_probe.json` for a probe.
 
 ## Statistics on the execution-verified track
@@ -1352,7 +1365,7 @@ use the entries it reports the same way as local ones:
 # with-skill treatment arm using an external skill
 python cli.py tasks run --tasks onetbb-histogram-local-aggregation \
   --tasks-root /tmp/uxl-skills/evaluation/harbor/tasks \
-  --harnesses docker-oracle,docker-claude-skill:/tmp/uxl-skills/skills/uxl-onetbb \
+  --harness docker-oracle,docker-claude-skill:/tmp/uxl-skills/skills/uxl-onetbb \
   --baseline-harness docker-oracle
 
 # or hand an external task straight to Harbor
@@ -1380,7 +1393,7 @@ SkillsBench tasks (`task.md`) run through the `benchflow:*` harnesses:
 git clone https://github.com/benchflow-ai/skillsbench /tmp/skillsbench
 python cli.py tasks run --tasks parallel-tfidf-search \
   --tasks-root /tmp/skillsbench/tasks \
-  --harnesses benchflow:claude-agent-acp,benchflow-skill:claude-agent-acp \
+  --harness benchflow:claude-agent-acp,benchflow-skill:claude-agent-acp \
   --baseline-harness benchflow:claude-agent-acp \
   --model aws-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```

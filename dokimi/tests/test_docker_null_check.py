@@ -277,13 +277,13 @@ def test_tasks_run_null_without_oracle_is_refused(tmp_path):
     _harbor(tmp_path)
     with pytest.raises(InputError, match="docker-null gives a verdict only with its oracle"):
         _run(["tasks", "run", "--tasks", "null-task", "--tasks-root", str(tmp_path),
-              "--harnesses", "docker-null", "--out-dir", str(tmp_path / "out")])
+              "--harness", "docker-null", "--out-dir", str(tmp_path / "out")])
 
 
 def test_tasks_run_null_with_baseline_oracle_is_not_refused(tmp_path, capsys):
     _harbor(tmp_path)
     _run(["tasks", "run", "--tasks", "null-task", "--tasks-root", str(tmp_path),
-          "--harnesses", "docker-null", "--baseline-harness", "docker-oracle", "--dry-run",
+          "--harness", "docker-null", "--baseline-harness", "docker-oracle", "--dry-run",
           "--out-dir", str(tmp_path / "out")])
     assert "Also running baseline harness: docker-oracle" in capsys.readouterr().out
 
@@ -316,7 +316,7 @@ def test_tasks_run_exits_1_when_the_untouched_start_passes(tmp_path, monkeypatch
     monkeypatch.setattr(harnesses, "TaskSuiteRunner", lambda **kw: real(runner=cli, **kw))
     with pytest.raises(SystemExit) as exc:
         _run(["tasks", "run", "--tasks", "null-task", "--tasks-root", str(tmp_path),
-              "--harnesses", "docker-oracle,docker-null", "--out-dir", str(tmp_path / "out")])
+              "--harness", "docker-oracle,docker-null", "--out-dir", str(tmp_path / "out")])
     assert exc.value.code == 1
     assert "null=null_pass" in capsys.readouterr().out
 
@@ -328,7 +328,7 @@ def test_incomplete_run_still_prints_completed_null_verdicts(tmp_path, monkeypat
     _harbor(tmp_path, "broken")
 
     def answer(call):
-        if call.argv[1] == "cp" and call.argv[2].startswith("dokimi-run-broken-"):
+        if call.argv[1] == "cp" and call.argv[-2].startswith("dokimi-run-broken-"):
             return reply("could not find the file", returncode=1)
         return _verifier(ALL_PASS, returncode=0)(call)
 
@@ -337,7 +337,7 @@ def test_incomplete_run_still_prints_completed_null_verdicts(tmp_path, monkeypat
     monkeypatch.setattr(harnesses, "TaskSuiteRunner", lambda **kw: real(runner=cli, **kw))
     with pytest.raises(SystemExit) as exc:
         _run(["tasks", "run", "--all", "--tasks-root", str(tmp_path),
-              "--harnesses", "docker-oracle,docker-null", "--out-dir", str(tmp_path / "out")])
+              "--harness", "docker-oracle,docker-null", "--out-dir", str(tmp_path / "out")])
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "incomplete" in captured.err

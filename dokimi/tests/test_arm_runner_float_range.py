@@ -196,7 +196,7 @@ def test_console_summary_prints_an_arms_delta_refusal(monkeypatch, tmp_path, cap
     monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: {"summary": summary})
     monkeypatch.setattr(arms_cmd, "_save_arms_output", lambda *a, **k: None)
     args = build_parser().parse_args([
-        "arms", "run", "--product", "p", "--questions", "q.json", "--arms", "baseline,a,b",
+        "arms", "run", "--product", "p", "--questions", "q.json", "--arm", "baseline,a,b",
     ])
     args.func(args)
 

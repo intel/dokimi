@@ -169,6 +169,10 @@ MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
         "Only warnings can trigger this gate."),
     ("dokimi repo budget", "--fail-on", "choices"): (frozenset({"warn"}),
         "Only warnings can trigger this gate."),
+    ("dokimi arms plugin-delta", "--baseline", "metavar"): ("FILE",
+        "The plugin delta reads a baseline arms.v1 file; it does not accept a run or named baseline."),
+    ("dokimi docs compare", "--baseline", "metavar"): ("FILE",
+        "The compare reads a baseline snapshot file; it does not accept a run or named baseline."),
     ("dokimi repo scan", "--baseline", "metavar"): ("FILE",
         "The readiness gate reads a baseline file; it does not accept a run or named baseline."),
     ("dokimi repo scan", "--fail-on", "choices"): (frozenset({"fail"}),
@@ -197,6 +201,15 @@ MEANING_EXCEPTIONS: dict[tuple[str, str, str], tuple[ExceptionValue, str]] = {
     ("dokimi trace consistency", "--arm", "metavar"): ("LABEL=GLOB",
         "LABEL=GLOB selects traces by glob, not the `[NAME=]REF` of the arm concept. Not one of "
         "the #94 audit rows; rename at F1b"),
+    ("dokimi arms run", "--arm", "metavar"): ("SPEC",
+        "an arms run arm is an arm spec (baseline, docs:SOURCE, skill:PATH, ...) with no NAME= part; "
+        "the old --arms took the same list"),
+    ("dokimi arms matrix-run", "--arm", "metavar"): ("SPEC",
+        "an arms run arm is an arm spec (baseline, docs:SOURCE, skill:PATH, ...) with no NAME= part; "
+        "the old --arms took the same list"),
+    ("dokimi explore run", "--arm", "metavar"): ("ARM",
+        "an explore arm is oracle, empty or command:<template>, not the [NAME=]REF of arms run; "
+        "the old --arms took the same list"),
     ("dokimi eval check", "--cache", "metavar"): ("NAME=PATH",
         "metavar NAME=PATH where the registry says NAME=DIR: wording only; F1b aligns it"),
     ("dokimi repo run", "--cache", "metavar"): ("NAME=PATH",
@@ -489,12 +502,13 @@ def test_a_new_banned_synonym_fails_and_names_the_registry_spelling(monkeypatch)
 
 def test_an_allowlisted_banned_spelling_still_passes_on_a_new_leaf(monkeypatch):
     # Only the new leaf is under test: the tree's violations must not change.
+    assert any("--root" in c.banned for c in cli_flags.CONCEPTS)  # the spelling below must be banned and allowlisted
     real = cli.build_parser
     before = violations(uses(real()), load_allowlist())
 
     def on_another_leaf() -> argparse.ArgumentParser:
         parser = real()
-        _subparser(parser, "repo", "scan").add_argument("--batch", type=int, default=1)
+        _subparser(parser, "repo", "scan").add_argument("--root", default=None)
         return parser
 
     monkeypatch.setattr(cli, "build_parser", on_another_leaf)

@@ -165,7 +165,7 @@ def run(tmp_path, monkeypatch):
 
     def invoke(*extra: str) -> None:
         argv = ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
-                str(profile), "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(state["out"]),
+                str(profile), "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out", str(state["out"]),
                 "--cache-root", str(state["out"] / "caches"), "--agent-network", "host", *extra]
         args = build_parser().parse_args(argv)
         args.func(args)
@@ -292,7 +292,7 @@ def test_a_resume_with_another_suite_file_or_none_is_refused(run, capsys):
         with pytest.raises(SystemExit) as exc:
             run["invoke"](*extra, *argv)
         assert exc.value.code == 1
-        assert "use another --batch" in capsys.readouterr().err
+        assert "use another --name" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("flags", [[], ["--allow-floating-suite-revs"]])

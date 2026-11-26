@@ -35,7 +35,7 @@ def _argv(s, command, *extra):
     if command == "check":
         return ["eval", "check", str(s["root"]), *base, "--out", out, *extra]
     return ["repo", "run", f"{s['root']}@HEAD", *base, "--harness", str(s["profile"]), "--bin", str(s["exe"]),
-            "--model", "m-1", "--batch", "b1", "--out", out, "--agent-network", "host", "--arm", "guidance:raw", *extra]
+            "--model", "m-1", "--name", "b1", "--out", out, "--agent-network", "host", "--arm", "guidance:raw", *extra]
 
 
 def _invoke(s, command, *extra):
