@@ -131,6 +131,12 @@ _LEADING_NEGATIVE = re.compile(
     r"^\s*(?:isn't|aren't|doesn't|don't|didn't|can't|won't|wasn't|weren't|shouldn't)\b",
     re.I,
 )
+# A source that opens with a spelled-out negation ("Do not ...", "Never ...") keeps the
+# candidate's leading negative auxiliary too (#1232), as one that opens with "Don't" does.
+_LEADING_SPELLED_NEGATION = re.compile(
+    r"^\s*(?:(?:do|does|did|can|will|must|should|may)\s+not|cannot|never)\b",
+    re.I,
+)
 # A trailing tag ("..., doesn't it?") is question phrasing too, not a negation of the claim.
 _TRAILING_TAG = re.compile(
     r",\s*(?:(?:isn't|aren't|doesn't|don't|didn't|can't|won't|wasn't|weren't|shouldn't)\s+"
@@ -417,8 +423,9 @@ def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     """How many negations ``text``'s claim carries, and which of ``source``'s words they hit.
 
     In a question, a trailing tag ("..., doesn't it?") is question phrasing and is never counted,
-    and neither is a leading negative auxiliary, unless ``source`` itself opens with one
-    (then both sides keep it); a statement keeps its leading "Don't". A negation's
+    and neither is a leading negative auxiliary, unless ``source`` itself opens with a negation,
+    contracted ("Don't") or spelled out ("Do not", "Does not", "Never", "Cannot"; then both
+    sides keep it); a statement keeps its leading "Don't". A negation's
     target is the first content word after it; only targets that are words of ``source``
     are kept, so a negation that moved onto another of the source's words ("computed with
     BLAKE3, not over contents" to "over contents, NOT with BLAKE3") can be told apart from
@@ -426,7 +433,7 @@ def _claim_negations(text: str, source: str) -> tuple[int, frozenset[str]]:
     """
     claim = text
     if _is_question(text):
-        keep_leading = bool(_LEADING_NEGATIVE.search(source))
+        keep_leading = bool(_LEADING_NEGATIVE.search(source) or _LEADING_SPELLED_NEGATION.search(source))
         claim = _TRAILING_TAG.sub("?", text, count=1)
         if not keep_leading:
             claim = _LEADING_NEGATIVE.sub(" ", claim, count=1)
