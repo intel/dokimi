@@ -79,7 +79,7 @@ memory echo of a rule would otherwise trigger that rule on every session.
 | `in_use` | Triggered in at least `--in-use-rate` of the sessions, or acted on in at least that share (`sessions_acted`: a tool call ran its command or touched its path anywhere in the session, triggered or not). | no |
 | `rare_not_ranked` | Triggered in 1 through `--rare-max` sessions. Few sessions are too little evidence to call a rule unused. | no |
 | `not_measurable` | The rule names no words and no key a session can be matched on (only globs or `~` paths), so it cannot trigger; its zero count says nothing. | no |
-| `kept_protected` | The rule carries a protection tag: a negation, a version gate, an ordering constraint or a threshold (the same tags the novelty layer uses). Its failure case is rare by design. | no |
+| `kept_protected` | The rule carries a protection tag: a negation, a version gate, an ordering constraint or a threshold (the same tags the novelty layer uses; the prefilter also reads a limit in words with a number, such as `under 50 lines`, `at most 3 retries` or `limit ... to 400`, as a threshold). Its failure case is rare by design. | no |
 | `insufficient_corpus` | Fewer than `--min-sessions` sessions were read. | no |
 
 Precedence: `kept_protected`, then `insufficient_corpus`, then `not_measurable`, then `in_use` by acted share, then a rule with no trigger
@@ -90,7 +90,7 @@ overlapping glob, a symlink to it) is read once.
 The table prints the same counts; the `--json` document (`cli_output.v1`, the report under `data`) has every claim with its status,
 keys (commands, paths, keywords), counts, rates and flags. Defaults: window 10
 events, at least 5 sessions, rare at most 3 sessions, in use at 20% of sessions.
-`status` is `partial` when a session could not be read (exit 1) or a session had skipped records
+`status` is `partial` when a session could not be read but another could (exit 1; when none could, `failed`, exit 2) or a session had skipped records
 (named on stderr, at most 20 per session, then a count of the rest; exit 0).
 
 The JSON is printed, not stored: dokimi writes no file in this format, so it
@@ -108,7 +108,7 @@ gives one session per log; a subagent transcript named without its session log i
 warning. A resumed or forked session log repeats the records it continues, with the same
 `uuid`: logs that share a record are read as one session, each record once. A file that cannot be read, is a
 device (`/dev/zero`: "not a file") or holds no prompt and no tool call, is reported and the rest are still read; the exit
-code is 1 when any file failed. A guidance file that is a device exits 2, `guidance <path>: not a file`; one that is missing, a directory or unreadable exits 2 too, `guidance <path>: <reason>`. A line that is valid JSON but not an object, or a
+code is 1 when any of the files named on the command line failed. A failed subagent transcript is not such a file: it is a skipped part of its session, named on stderr as a warning, and the exit code stays 0 (`status` `partial`). When no session can be read at all, the command refuses the input: exit 2, and with `--json` a `failed` document with an `input` error `no session could be read`. A guidance file that is a device exits 2, `guidance <path>: not a file`; one that is missing, a directory or unreadable exits 2 too, `guidance <path>: <reason>`. A line that is valid JSON but not an object, or a
 record whose message or content has the wrong shape, is reported by line number and
 skipped; summaries and tool results are recognized and not reported.
 

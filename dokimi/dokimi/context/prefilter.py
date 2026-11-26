@@ -46,6 +46,15 @@ _RULE_KINDS = frozenset({"sentence", "list_item", "table_row"})
 # the GFM delimiter row (``| --- | :-: |``) under a table's header row: column titles are no rule
 _TABLE_DELIMITER = re.compile(r"\s*(?:\|\s*)?:?-+:?(?:\s*\|\s*:?-+:?)*\s*(?:\|\s*)?")  # each whitespace run is written once (#1074)
 _BACKTICK = re.compile(r"`([^`\n]+)`")
+# a limit in words: a limit word then a number (``under 50 lines``), or a number then a counted noun (``3 retries``);
+# the novelty layer's ``threshold`` pattern reads only ``%`` and a fixed unit list, so a prefilter rule adds this (#937)
+_LIMIT = re.compile(
+    r"\b(?:under|over|above|below|at\s+most|at\s+least|up\s+to|no\s+more\s+than|no\s+fewer\s+than|fewer\s+than|"
+    r"less\s+than|more\s+than|max(?:imum)?|min(?:imum)?|limit(?:ed)?)\s+(?:[a-z]+\s+){0,8}?"
+    r"(?<![\w/.-])\d+(?:\.\d+)?(?![\w/-])"  # words only up to the number: ``under reports/2026/`` is a place
+    r"|(?<![\w/.-])\d+\s+(?:[a-z-]+\s+)?(?:lines?|retry|retries|attempts?|files?|characters?|chars?|words?|steps?|"
+    r"items?|commits?|rows?|columns?|minutes?|hours?|days?)\b", re.I)
+_BACKTICK_NUMBER = re.compile(r"`(\d[^`\n]*)`")  # ``50`` or ``50 lines`` is a quantity written as code, not a command
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
 _PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$|^\.[A-Za-z][\w-]*$")  # a bare dotfile (``.gitignore``) is a path too
 # a quoted argument is text, not a command; a backslash escapes the next character, also inside double quotes
@@ -151,10 +160,13 @@ def claims_from_guidance(text: str) -> list[Claim]:
         keys = [k for k in named if _matchable(k)]  # an unmatchable key stays a claim, not measurable
         if not (keywords or named or span.protection):  # a rule with nothing to match on is no claim
             continue
+        protection = tuple(span.protection)
+        if "threshold" not in protection and _LIMIT.search(_BACKTICK.sub(" ", _BACKTICK_NUMBER.sub(r"\1", span.text))):
+            protection += ("threshold",)
         claims.append(Claim(
             id=span.id, text=span.text.strip(), heading=" > ".join(span.heading_path), keywords=keywords,
             commands=tuple(k for k in keys if not _is_path(k)),
-            paths=tuple(k for k in keys if _is_path(k)), protection=tuple(span.protection),
+            paths=tuple(k for k in keys if _is_path(k)), protection=protection,
         ))
     return claims
 
