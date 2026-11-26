@@ -77,6 +77,27 @@ def _publish(graph: dict, out: Path) -> dict:
             shutil.rmtree(stage_dir, ignore_errors=True)
 
 
+def _publish_json(graph: dict, out: Path, cost: dict) -> None:
+    """Report the model spend even if publication fails after the call."""
+    from dokimi import cli_output
+    from dokimi.artifacts import ArtifactValidationError
+
+    try:
+        published = _publish(graph, out)
+    except InputError as exc:
+        code, message = "input", str(exc)
+    except ArtifactValidationError:
+        code = "infra"
+        message = f"The graph for {out} failed artifact validation. Its rejection is in the staging directory."
+    else:
+        cli_output.emit_leaf("eval graph", published, artifacts={"out": str(out)}, cost=cost)
+        return
+    cli_output.emit(cli_output.error_document("eval graph", code, message, run_id=cli_output.current_run_id(),
+                                              reason=message, cost=cost))
+    print(f"Error: {message}", file=sys.stderr)
+    sys.exit(cli_output.EXIT_OF_ERROR[code])
+
+
 def _preflight(out: Path, skill: str) -> tuple[str, str]:
     """Refuse a frozen or unwritable --out, or an unloadable skill, before the paid call; return the skill's name and description."""
     from dokimi.novelty.artifact import load_artifact_ref
@@ -165,12 +186,11 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         print(f"Warning: no price is known for {provider}/{model}, so this call could not be metered; "
               "its reply is the graph", file=sys.stderr)
     graph.provenance = {"model": f"{provider}/{model}", "prompt_version": PROMPT_VERSION, "draws": 1}
-    published = _publish(graph.as_dict(), out)
+    data = graph.as_dict()
     if args.json:
-        from dokimi.cli_output import emit_leaf
-
-        emit_leaf("eval graph", published, artifacts={"out": str(out)}, cost=_graph_cost(client, args.max_usd))
+        _publish_json(data, out, _graph_cost(client, args.max_usd))
         return
+    _publish(data, out)
     counts = graph.summary()["by_path_class"]
     print(f"{out}: {len(graph.nodes)} nodes ("
           + ", ".join(f"{c} {n}" for c, n in counts.items() if n) + ")")

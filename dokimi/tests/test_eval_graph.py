@@ -148,20 +148,32 @@ def test_no_hard_links_is_refused_before_the_paid_call(tmp_path, monkeypatch, ca
     assert prompts == [] and not out.exists()  # a paid graph is never built and then dropped
 
 
-def test_a_file_written_during_the_call_is_not_replaced(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("machine", [False, True])
+def test_a_file_written_during_the_call_is_not_replaced(tmp_path, monkeypatch, capsys, machine):
+    from dokimi.metrics.usage import UsageRecord
+
     out = tmp_path / "g.json"
 
     def racer(self, prompt, system, *, accept=None, draw=0):
         out.write_text("other run", encoding="utf-8")
-        return json.dumps(REPLY), None
+        return json.dumps(REPLY), UsageRecord(cost_usd=0.125)
 
     monkeypatch.setattr(LLMClient, "_default_transport", racer)
 
-    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+    options = ["--json"] if machine else []
+    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "graph", str(_skill(tmp_path)),
+                                    "--out", str(out), "--max-usd", "5", *options])
+    with refusal() as result:
+        main()
 
-    assert result.returncode == 2 and "frozen" in result.stderr
+    assert result.code == 2 and "frozen" in result.err
     assert out.read_text(encoding="utf-8") == "other run"
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".eval-graph-")] == []
+    if machine:
+        doc = json.loads(capsys.readouterr().out)
+        assert doc["error"]["code"] == "input"
+        assert doc["cost"]["calls"] == 1 and doc["cost"]["spent_usd"] == 0.125
+        assert doc["cost"]["cap_usd"] == 5.0
 
 
 def test_a_bad_model_ref_is_a_usage_error(capsys):
