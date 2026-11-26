@@ -1467,7 +1467,12 @@ call `analyze` prints the run's expected cost at list prices to stderr.
 The estimate payload has `expected_calls`, the point figure between
 the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and
 `expected_usd`: those calls priced at list prices by role, `null` when a model has no
-price. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
+price. `usd_by_role` splits `expected_usd` into `extractor`, `answerer` and `judge` (panel judges
+after the first count under `judge`), and `least_sure_role` names the role the figure is least
+sure of with a reason; both are `null` with `expected_usd`, and `--estimate-only` prints the role and its
+share on stderr. The rule, chosen without per-role error data: a run whose tier has no extractor
+profile of its own (`study`, or no tier) names `extractor`, which borrows the standard profile;
+`triage` and `standard` name the role with the largest dollars. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
 On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
 within 33%. The dollar projections ran high on 5 runs (up to +29%) and low on 7 (down to
 -33%), so `expected_usd` is not a ceiling; the triage projection ran lower the larger the
