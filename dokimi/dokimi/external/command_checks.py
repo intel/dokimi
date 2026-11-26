@@ -244,8 +244,8 @@ def _unpinned_npx(
 ) -> list[str]:
     """npx runs the packages it is given: each ``--package``/``-p`` selection before the program, or else the program
     itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
-    it. Words after the program are its own arguments: its ``-p`` is not npx's selection. A bare name the skill's
-    own package declares (``own``) runs from the skill, so it is no registry install."""
+    it. Words after the program are its own arguments: its ``-p`` is not npx's selection. Only an inferred
+    executable can use the skill's local package or bin names (``own``)."""
     words = _words(rest, value_options)
     selected: list[str] = []
     executable = None
@@ -269,7 +269,7 @@ def _unpinned_npx(
         match = NPM_NAME.fullmatch(spec.rstrip("\"')"))
         if match is None or spec.lower().endswith(NON_PACKAGE_SUFFIXES) or _npm_pinned(match.group(2)):
             continue
-        if match.group(2) is None and match.group(1).lower() in own:
+        if not selected and match.group(2) is None and match.group(1).lower() in own:
             continue  # the package itself, or a bin it declares
         names.append(match.group(1))
     return names

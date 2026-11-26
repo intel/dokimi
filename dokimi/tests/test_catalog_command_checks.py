@@ -767,6 +767,13 @@ def test_npx_runs_a_bin_of_the_skills_own_package_without_an_install(tmp_path):
                   "install-unpinned") == []
 
 
+@pytest.mark.parametrize("option", ["--package otherbin", "-p otherbin", "--package=otherbin"])
+def test_npx_reports_an_explicit_package_named_like_a_local_bin(tmp_path, option):
+    files = {"package.json": '{"name": "mytool", "bin": {"otherbin": "./cli.js"}}'}
+    [finding] = _found(_review(tmp_path, _fenced(f"npx {option} otherbin"), files), "install-unpinned")
+    assert "npx otherbin" in finding.message
+
+
 def test_npx_of_a_name_the_skills_package_does_not_declare_is_still_an_install(tmp_path):
     own = '{"name": "mytool", "bin": {"mytool": "./cli.js"}}'
     [finding] = _found(_review(tmp_path / "other", _fenced("npx otherbin init"), {"package.json": own}),
