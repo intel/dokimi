@@ -72,7 +72,8 @@ bill is `probes × arms × (answer + grade)` plus the retention oracle, which es
 ambiguous band. The output carries `expected_calls`, the point figure, with `by_role` splitting
 it into extractor, answerer and judge calls; `total_calls` and
 `total_calls_if_every_pair_escalates` are the two ends. `expected_usd` prices `by_role` at list
-prices, and is `null` when a model has no price. The probe term was validated to within 1–3% of
+prices, and is `null` when a model has no price; `usd_by_role` gives each role's share of it and
+`least_sure_role` names the role the figure is least sure of. The probe term was validated to within 1–3% of
 counted calls at nine (skill, tier) points, on content that did not escalate.
 
 `expected_usd` is a projection, not a ceiling (held-out runs ran up to 33% low): a call's price

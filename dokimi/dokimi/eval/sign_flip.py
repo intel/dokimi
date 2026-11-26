@@ -262,8 +262,9 @@ class ShiftTest:
 def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0, *,
                        rounded: bool = True, magnitudes: Sequence[float] | None = None
                        ) -> tuple[float | None, float | None]:
-    """``(lo, hi)`` of one row (module docstring), ``None`` for an open end; rounded to 4 places unless not
-    ``rounded``, even for an exact p: an end is only known within :data:`TOL`, so its further digits are noise.
+    """``(lo, hi)`` of one row (module docstring), ``None`` for an open end; rounded to 4 places (2 significant
+    digits where that would be 0) unless not ``rounded``, even for an exact p: an end is only known within :data:`TOL`,
+    so its further digits are noise.
 
     ``p_zero`` is the row's p, :func:`sign_flip_p` of ``deltas`` (``None``: every delta tied, no evidence
     against 0): it decides whether 0 is inside.
@@ -364,12 +365,15 @@ def _accepts(p: float | None) -> bool:
     return p is None or p >= ALPHA
 
 
+def round_off_zero(value: float, places: int) -> float:
+    """``value`` at ``places``, or at 2 significant digits where that would be 0.0: never onto or across 0, and no -0.0."""
+    return (round(value, places) or float(f"{value:.2g}")) + 0.0  # + 0.0: no -0.0
+
+
 def _rounded(end: float | None) -> float | None:
-    """``end`` at 4 places, never rounded onto or across 0: the side of 0 an end is on is the row's verdict."""
-    if end is None:
-        return None
-    out = round(end, 4)
-    return math.copysign(1e-4, end) if out == 0 and end != 0 else out + 0.0  # + 0.0: no -0.0
+    """``end`` at 4 places, or at 2 significant digits below 5e-5: never rounded onto or across 0, as the side of 0 an
+    end is on is the row's verdict."""
+    return None if end is None else round_off_zero(end, 4)
 
 
 def sign_flip_row(deltas: list[float], seed: int = 0, *, exact: bool,
@@ -408,6 +412,6 @@ def fmt_delta(value: float) -> str:
 
 
 def within(mean: float, lo: float | None, hi: float | None) -> float:
-    """``mean`` held inside ``[lo, hi]``, an open end unbounded: :func:`_rounded` puts an end below 5e-5 at ±0.0001,
-    past a mean 4 places put at 0, and a mean at fewer places can step out of a narrow interval."""
+    """``mean`` held inside ``[lo, hi]``, an open end unbounded: a mean at fewer places than its ends (:func:`round_mean`'s
+    2, against :func:`_rounded`'s 4 or 2 significant digits) can step out of a narrow interval."""
     return min(max(mean, -math.inf if lo is None else lo), math.inf if hi is None else hi)
