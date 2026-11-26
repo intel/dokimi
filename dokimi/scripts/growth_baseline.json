@@ -86,7 +86,7 @@
     "scripts/research_register.py::check": {"complexity": 19, "rationale": "added on main in #139 (research register) before the ratchet landed; split it in its own PR"},
     "scripts/research_register.py::main": {"complexity": 15, "rationale": "added on main in #139 (research register) before the ratchet landed; split it in its own PR"},
     "scripts/stack_health.py::main": {"complexity": 11},
-    "tests/docker_cli_fake.py::DockerCLI._handle": {"complexity": 13, "rationale": "pre-existing when the gate was introduced"},
+    "tests/docker_cli_fake.py::DockerCLI._handle": {"complexity": 12, "rationale": "pre-existing when the gate was introduced"},
     "tests/outcomes/journeys.py::check": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
     "tests/outcomes/journeys.py::parse_catalog": {"complexity": 15, "rationale": "pre-existing when the gate was introduced"},
     "tests/outcomes/journeys.py::static_problems": {"complexity": 25, "rationale": "pre-existing when the gate was introduced"},
