@@ -25,6 +25,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
+from dokimi import cli_flags
 from dokimi.commands._output import save_artifact_or_exit
 from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
@@ -468,8 +469,8 @@ def register(sub, positive_int):
     score_p = score_sub.add_parser("pointwise", help="Score answers using LLM-as-judge")
     score_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     score_p.add_argument("--answers", required=True, help="Path to answers JSON file")
-    score_p.add_argument("--run-id", default=None, dest="run_id",
-                         help="Run tag (e.g. gpt4o). Sets output to results/{product}_{run_id}/eval/{product}.json")
+    cli_flags.add(score_p, "run_name", "--name", default=None, dest="run_id", metavar="NAME",
+                  help="Run name (e.g. gpt4o). Sets output to results/{product}_{name}/eval/{product}.json")
     score_p.add_argument("--output", default=None, help="Output file (default: eval/{product}.json)")
     add_model_flag(
         score_p, "--judge", dest="judge_model", provider_dest="judge_provider",

@@ -502,12 +502,13 @@ def test_a_new_banned_synonym_fails_and_names_the_registry_spelling(monkeypatch)
 
 def test_an_allowlisted_banned_spelling_still_passes_on_a_new_leaf(monkeypatch):
     # Only the new leaf is under test: the tree's violations must not change.
+    assert any("--root" in c.banned for c in cli_flags.CONCEPTS)  # the spelling below must be banned and allowlisted
     real = cli.build_parser
     before = violations(uses(real()), load_allowlist())
 
     def on_another_leaf() -> argparse.ArgumentParser:
         parser = real()
-        _subparser(parser, "repo", "scan").add_argument("--batch", type=int, default=1)
+        _subparser(parser, "repo", "scan").add_argument("--root", default=None)
         return parser
 
     monkeypatch.setattr(cli, "build_parser", on_another_leaf)

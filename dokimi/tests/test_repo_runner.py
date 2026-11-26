@@ -180,7 +180,7 @@ def test_pass_null_is_score_only_only_for_a_task_with_score(tmp_path):
 def test_run_refuses_a_budget_that_caps_nothing(value, capsys):
     for flag in ("--max-usd-per-cell", "--max-usd"):
         with pytest.raises(SystemExit):
-            build_parser().parse_args(["repo", "run", "x", "--arm", "guidance:raw", "--model", "m", "--batch", "b",
+            build_parser().parse_args(["repo", "run", "x", "--arm", "guidance:raw", "--model", "m", "--name", "b",
                                        flag, value])
         assert "positive number of USD" in capsys.readouterr().err
 

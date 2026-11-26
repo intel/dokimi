@@ -68,11 +68,6 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
                              "--atoms, every atom in the file, not only the cap's sample")
     cli_flags.add(parser, "tokens", "--token-budgets", metavar="F", type=unit_interval, nargs="+", default=[0.75, 0.5],
                   dest="budgets", help="Target token fractions for shortening candidates")
-    parser.add_argument("--cache-dir", default=None, dest="cache_dir",
-                        help="Disk memo of retention adjudications only (not model replies). The "
-                             "response cache is separate and opt-in: set DOKIMI_RESPONSE_CACHE to a "
-                             "writable directory. Research or a rerun should set it; without it a rerun "
-                             "pays for every call again.")
     parser.add_argument("--seed", type=int, default=0,
                         help="Seed for the shuffled control and random selection, so both "
                              "are reproducible across runs")
@@ -83,6 +78,15 @@ def _add_extractor_arg(parser: argparse.ArgumentParser, help: str) -> None:
         parser, "--extract-model", dest="extract_model", provider_dest="extract_provider",
         providers=PROVIDERS, default_model=None, default_provider=None, help=help,
     )
+
+
+def _add_cache_dir(parser: argparse.ArgumentParser, *, reruns_pay_for: str) -> None:
+    """The retention memo: read by the commands that adjudicate retention (analyze, shorten)."""
+    parser.add_argument("--cache-dir", default=None, dest="cache_dir",
+                        help="Disk memo of the retention adjudications only, not the model replies: "
+                             "a rerun with the same directory replays them at $0. The response cache "
+                             "for replies is separate and opt-in (set DOKIMI_RESPONSE_CACHE to a "
+                             f"writable directory); without it a rerun pays again for {reruns_pay_for}.")
 
 
 def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:

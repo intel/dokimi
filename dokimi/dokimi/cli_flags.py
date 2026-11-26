@@ -358,7 +358,8 @@ CONCEPTS: tuple[Concept, ...] = (
             Flag("--method", "NAME", "text"),
             Flag("--unit", "NAME", "text"),
             Flag("--contrast", "NAME", "text"),
-            Flag("--correction", "NAME", "text"),
+            Flag("--correction", "{holm,bh}", "choice",
+                 meaning="the multiple-comparison correction across arms or runs: holm (family-wise) or bh (FDR)"),
         ),
         banned=("--stats-correction",),
     ),
@@ -504,6 +505,15 @@ FLAG_MOVES: tuple[FlagMove, ...] = (
     FlagMove("--fail-on-fail", "--fail-on=fail", leaves=(("repo", "scan"),)),
     FlagMove("--fail-on-error", "--fail-on=fail", leaves=(("repo", "inspect"),)),
     FlagMove("--strict", "--fail-on=warn", leaves=(("eval", "triggers", "generate"),)),
+    # Run-name concept (F1b): the identity of a run directory. `--batch` is the batch directory's name on repo run.
+    FlagMove("--run-id", "--name", leaves=(("answers", "generate"), ("eval", "score", "pointwise"), ("report", "eval"))),
+    FlagMove("--batch", "--name", leaves=(("repo", "run"),)),
+    # Force concept (F1b): re-run over existing output. benchmark run and batch discard the cached personas and questions.
+    FlagMove("--force-regen", "--force", leaves=(("benchmark", "run"), ("benchmark", "batch"))),
+    # Policy concept (F1b): the statistics of a comparison; `--correction` takes holm or bh.
+    FlagMove("--stats-correction", "--correction", leaves=(
+        ("arms", "run"), ("arms", "matrix-run"), ("report", "model-compare"),
+    )),
     # Spend concept (F1b): a whole-command cap is --max-usd, a cap per agent run is --max-usd-per-cell.
     FlagMove("--max-cost-usd", "--max-usd", leaves=(("tools", "preference"),)),
     FlagMove("--max-batch-usd", "--max-usd", leaves=(("repo", "run"),)),

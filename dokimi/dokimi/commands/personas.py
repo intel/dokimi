@@ -10,13 +10,74 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.cli_model_ref import add_model_flag
+from dokimi.cli_types import positive_usd
 from dokimi.llm import CALLER_CHOICES
 from dokimi.commands._output import exit_on_rejected, exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
+from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.personas.analyzer import PersonaAnalyzer
-from dokimi.personas.generator import PersonaGenerator
+from dokimi.personas.generator import PersonaGenerator, check_can_generate, estimate_generation
 from dokimi.utils import InputError, refuse_device
+
+
+def _usd_text(usd: float) -> str:
+    """Dollars to six places, or in exponent form below 0.0001 (four places would show a small cost as zero)."""
+    return f"${usd:.6f}" if usd == 0 or usd >= 0.0001 else f"${usd:.2e}"
+
+
+def _print_estimate(est: dict) -> None:
+    usd = est["usd"]
+    price = f"~{_usd_text(usd)} at list prices" if usd is not None else "no list price for this model"
+    print(f"Estimate: one generation call, ~{est['prompt_tokens']} prompt + {est['reply_tokens']} "
+          f"reply tokens, {price}")
+
+
+def _cap_refusal(max_usd: float | None, est: dict) -> str | None:
+    """Why the one call is not made under ``--max-usd``, or None when it may be made."""
+    if max_usd is None or (est["usd"] is not None and est["usd"] <= max_usd):
+        return None
+    if est["usd"] is None:
+        return f"--max-usd {max_usd:g} cannot be enforced: the model has no list price"
+    return f"--max-usd {max_usd:g} stops it before the call: estimated at {_usd_text(est['usd'])}"
+
+
+def _gated(args: argparse.Namespace) -> bool:
+    """Whether a dry run or a cap asks for the price first; a plain run neither prices nor builds it early."""
+    return bool(args.dry_run or args.max_usd is not None)
+
+
+def _early_generator(args: argparse.Namespace) -> PersonaGenerator | None:
+    """A plain run's generator, built before any I/O so a missing LLM dependency fails first.
+
+    A dry run or a cap runs the same checks without a client (so it fails where the real run would) and
+    returns None: the generator is built later, only if the call may be made.
+    """
+    if not _gated(args):
+        return PersonaGenerator(model=args.model, provider=args.provider)
+    check_can_generate(args.provider)
+    return None
+
+
+def _pre_call_gate(args: argparse.Namespace, analysis: dict) -> bool:
+    """Whether the one generation call may be made; under ``--dry-run`` or a refused cap it stops here."""
+    if not _gated(args):
+        return True
+    est = estimate_generation(args.product, analysis, args.model, args.provider)
+    refusal = _cap_refusal(args.max_usd, est)
+    if args.dry_run:
+        # No client is built and no file is written: the prompt is priced, nothing is sent.
+        _print_estimate(est)
+        if args.max_usd is not None:
+            print(f"Real run: {refusal or 'within --max-usd, the call would be made'}")
+        print("Dry run: no model was called and nothing was written.")
+        return False
+    if refusal:
+        _print_estimate(est)
+        print(f"{refusal}; no call was made", file=sys.stderr)
+        raise SystemExit(EXIT_INCONCLUSIVE)
+    return True
 
 
 def cmd_personas_discover(args: argparse.Namespace) -> None:
@@ -25,8 +86,7 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
 
     if not args.repo and not args.description:
         raise InputError("Either --repo or --description must be provided.")
-
-    generator = PersonaGenerator(model=args.model, provider=args.provider)
+    generator = _early_generator(args)
 
     if args.repo:
         # GitHub-based discovery
@@ -34,13 +94,6 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
         analyzer = PersonaAnalyzer(github_token=github_token)
         print(f"Analyzing repository: {args.repo}")
         analysis = analyzer.analyze_repository(args.repo)
-
-        if args.save_analysis:
-            output_path = Path(args.output) if args.output else Path(f"personas/{args.product}.json")
-            analysis_path = output_path.parent / f"{args.product}_analysis.json"
-            with exit_on_unwritable(analysis_path), exit_on_rejected("persona_analysis"):
-                analyzer.save_analysis(analysis, analysis_path)
-            print(f"✓ Saved analysis to {analysis_path}")
     else:
         # Description-only
         if args.save_analysis:
@@ -50,6 +103,17 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
             library_name=args.product,
             description=args.description,
         )
+
+    if not _pre_call_gate(args, analysis):
+        return
+    if generator is None:  # a capped run that may call: built before anything is written, as on a plain run
+        generator = PersonaGenerator(model=args.model, provider=args.provider)
+    if args.repo and args.save_analysis:
+        output_path = Path(args.output) if args.output else Path(f"personas/{args.product}.json")
+        analysis_path = output_path.parent / f"{args.product}_analysis.json"
+        with exit_on_unwritable(analysis_path), exit_on_rejected("persona_analysis"):
+            analyzer.save_analysis(analysis, analysis_path)
+        print(f"✓ Saved analysis to {analysis_path}")
 
     # Generate personas
     print(f"Generating personas using {args.model}...")
@@ -131,6 +195,13 @@ def register(eval_sub, positive_int) -> None:
     )
     discover_p.add_argument("--github-token", default=None, help="GitHub token (or set GITHUB_TOKEN env)")
     discover_p.add_argument("--save-analysis", action="store_true", help="Save intermediate analysis JSON")
+    cli_flags.add(discover_p, "dry_run", "--dry-run", action="store_true", dest="dry_run",
+                  help="Read the repo and price the one generation call at list prices; call no model, "
+                       "build no client, write nothing. Output paths are checked when writing files")
+    cli_flags.add(discover_p, "spend", "--max-usd", type=positive_usd, default=None, dest="max_usd", metavar="X",
+                  help="Refuse before any call when the estimated list-price cost exceeds this (USD). Not a "
+                       "metered cap yet: metering comes with #1183. Above it, or for a model with no list price, "
+                       "no call is made and the command exits 3. The estimate is not the bill (default: no cap)")
     discover_p.set_defaults(func=cmd_personas_discover)
 
     # eval personas validate

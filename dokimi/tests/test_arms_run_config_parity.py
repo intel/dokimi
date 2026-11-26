@@ -189,7 +189,7 @@ _SHARED_FLAGS = (
 #: The flags only ``arms run`` and ``arms matrix-run`` take, away from their default.
 _ARMS_FLAGS = (
     "--temperature", "0.25", "--seed", "11", "--judge-temperature", "0.75",
-    "--stats-correction", "bh", "--baseline-arm", "docs",
+    "--correction", "bh", "--baseline-arm", "docs",
 )
 
 
