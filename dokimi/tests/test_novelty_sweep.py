@@ -256,8 +256,14 @@ def test_ranking_breaks_new_share_ties_by_size_then_key():
 
 
 def test_ranking_orders_close_shares_before_breaking_size_ties():
-    rows = [_ok("small", 0.5, tokens=500, digest="small"), _ok("large", 0.50000001, tokens=5000, digest="large")]
-    assert [row["key"] for row in summarize(rows, resamples=50)["ranking"]] == ["large", "small"]
+    rows = [
+        _ok("small", new_share(0.4000001), tokens=500, digest="small"),
+        _ok("medium", new_share(0.3999999), tokens=1500, digest="medium"),
+        _ok("large", new_share(0.399999), tokens=5000, digest="large"),
+    ]
+    assert [(row["key"], row["new_lenient"]) for row in summarize(rows, resamples=50)["ranking"]] == [
+        ("large", 0.600001), ("small", 0.6), ("medium", 0.6),
+    ]
 
 
 def test_ranking_leaves_out_rows_that_are_not_measured_or_have_no_size():

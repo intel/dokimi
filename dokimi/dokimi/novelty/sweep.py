@@ -222,7 +222,8 @@ def ranking(rows: Iterable[dict]) -> list[dict]:
 
     A skill measured by more than one sweep into the same JSONL is ranked from its latest ``ok`` row
     (the last in file order). A row needs a measured new share and a positive token count to qualify.
-    Skills with the same unrounded ``new_lenient`` sort by smaller token count, then by key.
+    The sort uses the stored ``new_lenient`` value (rounded to six decimal places when measured).
+    Equal shares sort by smaller token count, then by key.
     """
     latest: dict[str, dict] = {}
     for r in rows:
