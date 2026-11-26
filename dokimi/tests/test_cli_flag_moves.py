@@ -54,6 +54,16 @@ def test_the_retired_answer_provider_joins_a_model_with_a_slash():
     ]
 
 
+@pytest.mark.parametrize("provider", [["--provider", ""], ["--provider="]])
+def test_an_empty_retired_provider_suggests_the_bare_model(provider, capsys):
+    required = ["benchmark", "run", "--library", "onetbb"]
+    text = _tombstone([*required, *provider, "--model", "gpt-4o"], capsys)
+    suggested = shlex.split(text.split("moved: ", 1)[1].strip())
+    assert suggested == ["dokimi", *required, "--model", "gpt-4o"]
+    args = cli.parse_args(suggested[1:])
+    assert (args.provider, args.model) == ("openai", "gpt-4o")
+
+
 @pytest.mark.parametrize(("first", "last"), [
     (["--judges", "openai/a,openai/b"], ["--judges", "anthropic/c,anthropic/d"]),
     (["--judges=openai/a,openai/b"], ["--judges=anthropic/c,anthropic/d"]),

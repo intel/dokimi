@@ -573,7 +573,7 @@ def _joined_flag_spans(tokens: list[str], join: FlagJoin) -> list[tuple[int, int
 
 def _joined_model(provider: str, model: str, *, replacement: bool) -> str:
     prefix, slash, _ = model.partition("/")
-    if replacement and slash and prefix in _MODEL_PROVIDERS:
+    if not provider or (replacement and slash and prefix in _MODEL_PROVIDERS):
         return model
     return f"{provider}/{model}"
 
