@@ -16,7 +16,7 @@ import types
 import pytest
 
 from dokimi import cli
-from dokimi.commands.benchmark import _credential_error
+from dokimi.commands.benchmark import _credential_error, _keyless_route
 from dokimi.defaults import DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.ragas_eval import RagasEvaluator
@@ -327,3 +327,22 @@ def test_run_and_batch_refuse_an_unreadable_key_file_on_a_vertex_route(command, 
          "--judge-provider", "openai", "--judge-model", "gpt-4o", "--out-dir", str(tmp_path / "out")])
     with pytest.raises(InputError, match="no-such-key"):
         _refuse_missing_credentials(args)
+
+
+def test_keyless_vertex_route_names_the_provider_whose_key_file_is_unreadable(tmp_path, monkeypatch):
+    """The route still checks the configured provider's `file:` key; an unset key leaves it keyless."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{tmp_path / 'no-such-key'}")
+    assert _keyless_route("anthropic", "vertex_ai") == ["anthropic"]
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    assert _keyless_route("anthropic", "vertex_ai") == []
+
+
+def test_a_readable_key_on_a_bedrock_route_is_not_refused_for_an_unreadable_aws_token(tmp_path, monkeypatch):
+    """A configured key is sent as the token, so the AWS variable is unused; a missing key falls back to it."""
+    key = tmp_path / "key"
+    key.write_text("k")
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", f"file:{tmp_path / 'no-such-token'}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{key}")
+    assert _keyless_route("anthropic", "bedrock") == []
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    assert _keyless_route("anthropic", "bedrock") == ["amazon-bedrock"]

@@ -148,8 +148,8 @@ def test_verifier_is_mounted_at_both_paths(tmp_path, monkeypatch):
     out = tmp_path / "out"
     out.mkdir()
     DockerSolverHarness(harness_id="docker-oracle", mode="oracle", runner=cli)._verify(task, "c1", out, log=io.StringIO())
-    cps = [c for c in calls if c[0] == "cp" and c[2].startswith("c1:")]
-    assert [c[2] for c in cps] == ["c1:/tests", "c1:/verifier"]
+    cps = [c for c in calls if c[0] == "cp" and c[-1].startswith("c1:")]
+    assert [c[-1] for c in cps] == ["c1:/tests", "c1:/verifier"]
     assert all(c[1] == f"{task.path / 'verifier'}/." for c in cps)
     # into, not nested under, a /tests the image already has
     assert calls[0][-4:] == ["mkdir", "-p", "/tests", "/verifier"]

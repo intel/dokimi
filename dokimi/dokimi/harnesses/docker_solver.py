@@ -72,7 +72,6 @@ from .agent_sandbox import (
     solver_cli_flags,
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
-from .command import _check_reward_copy, _exit_code_verdict, _reward_file_verdict
 from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
 from .refusal import _AGENT_TREE, _refuse_unrunnable, _require_agent_workdir
@@ -85,6 +84,7 @@ from .task_image import (ignore_top_level_skills, ready_image, upload_environmen
                          workdir_args)
 from .task_env import _exec_env, exec_env_file, unresolved_env  # noqa: F401 (_exec_env re-exported)
 from .tbench_v1 import reward as _pytest_reward
+from .verifier_reward import clear_reward_files, exit_code_verdict, pull_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
     _DEFAULT_VERIFY_TIMEOUT,
@@ -398,7 +398,7 @@ class DockerSolverHarness:
         """
         # A rerun must not find its own previous tree or verdict during the solve.
         _rmtree(output_dir / "work")
-        (output_dir / "reward.txt").unlink(missing_ok=True)
+        clear_reward_files(output_dir)
         if sandbox is not None and self.agent_location == "container":  # a host arm stays on the host
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)
@@ -624,7 +624,7 @@ class DockerSolverHarness:
 
     def _verify(self, task: TaskSpec, container: str, output_dir: Path, log,
                 net: Optional[PhasePolicy] = None, verifier: Optional[dict[str, Any]] = None) -> Optional[float]:
-        """Run the verifier in-container; pull /logs/verifier/reward.txt back out.
+        """Run the verifier in-container; pull its reward.json or reward.txt back out of /logs/verifier.
 
         Mounted at both ``/tests`` (Harbor) and ``/verifier`` (BenchFlow): a
         SkillsBench ``test.sh`` runs ``pytest /verifier/test_outputs.py`` even
@@ -646,23 +646,20 @@ class DockerSolverHarness:
             (output_dir / "verifier_tests.json").write_text(json.dumps(
                 {"parser": step.parser, "exit_code": proc.returncode, "tests": tests}, indent=2), encoding="utf-8")
             return verdict
-        reward_file = output_dir / "reward.txt"
-        pulled = self._docker(
-            ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
-            log, check=False,
-        )
-        if pulled.returncode == 0 and reward_file.is_file():
+        reward, copy_error = pull_reward(self._docker, container, output_dir, log)
+        if reward is not None:
             if verifier is not None:
                 verifier["reward_file"] = True
-            return _reward_file_verdict(reward_file.read_text(encoding="utf-8", errors="replace"))
+            return reward
         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
             running = self._docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)
             if running.timed_out:  # no answer is not "stopped": say so, the cell is errored either way
                 raise RuntimeError(f"task container {container} state inspect timed out at verify time; see run.log")
             if (getattr(running, "stdout", "") or "").strip() != "true":
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
-        _check_reward_copy(pulled)  # a failed or hung copy errors the cell: it is not "no reward file"
-        return _exit_code_verdict(proc.returncode)
+        if copy_error:  # a failed or hung copy errors the cell: it is not "no reward file"
+            raise RuntimeError(copy_error)
+        return exit_code_verdict(proc.returncode)
 
     def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:
         return resolve_recorded(task, self.network, agent=self.mode not in ("oracle", "null"), record=record)
