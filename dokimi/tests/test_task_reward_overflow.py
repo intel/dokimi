@@ -86,11 +86,12 @@ def test_tasks_completion_counts_a_reward_beyond_the_float_range_as_unscored(cap
     assert "1 unscored" in capsys.readouterr().err
 
 
-def test_task_runs_report_shows_a_reward_beyond_the_float_range_as_null():
+@pytest.mark.parametrize("reward", [10**400, True, float("nan"), float("inf")])
+def test_task_runs_report_shows_an_invalid_reward_as_null(reward):
     from dokimi.harnesses.runner import summarize_task_results
     from dokimi.report.task_runs_report import render_task_runs_report
 
-    rows = [{"task": "t", "harness": "h", "passed": False, "reward": 10**400, "returncode": 0,
+    rows = [{"task": "t", "harness": "h", "passed": False, "reward": reward, "returncode": 0,
              "output_dir": None, "metrics": {}}]
     md = render_task_runs_report({
         "harnesses": ["h"], "tasks": [{"name": "t", "metadata": {}}], "results": rows,
