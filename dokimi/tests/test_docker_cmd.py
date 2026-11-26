@@ -338,9 +338,9 @@ def test_write_env_file_is_0600_and_keeps_multiline_values_off_the_file(tmp_path
     assert multiline == {"PEM": "a\nb", "CR": "x\r"}
 
 
-
-def test_write_env_file_passes_a_non_utf8_value_by_name(tmp_path):
-    value = "http://proxy:912/\udcff"
-    path, by_name = docker_cmd.write_env_file(tmp_path, {"https_proxy": value, "normal": "value"})
-    assert Path(path).read_text(encoding="utf-8") == "normal=value\n"
-    assert by_name == {"https_proxy": value}
+@pytest.mark.parametrize("codepoint", [0xDCFF, 0xD800], ids=["surrogateescaped-byte", "high-surrogate"])
+def test_write_env_file_refuses_non_utf8_before_creating_a_file(tmp_path, codepoint):
+    value = f"http://synthetic-user:synthetic-password@proxy:912/{chr(codepoint)}"
+    with pytest.raises(ValueError, match=r"^Docker environment variable 'https_proxy' must be valid UTF-8$"):
+        docker_cmd.write_env_file(tmp_path, {"https_proxy": value, "normal": "value"})
+    assert list(tmp_path.iterdir()) == []

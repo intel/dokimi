@@ -86,15 +86,19 @@ def env_args(set: Mapping[str, str] | None = None, pass_names: Iterable[str] = (
     return out
 
 
-_ENV_FILE_UNSUPPORTED = re.compile(r"[\r\n\ud800-\udfff]")
+_ENV_VALUE_SURROGATE = re.compile(r"[\ud800-\udfff]")
 
 
 def write_env_file(directory: str | os.PathLike[str], env: Mapping[str, str]) -> tuple[str, dict[str, str]]:
     """*env* as a 0600 ``--env-file`` in *directory*: ``(path, values)``. The caller owns the file's removal
-    (the directory's). Docker reads a UTF-8 env file one line at a time. Values with a line break or a
-    surrogate are returned in *values*, to pass as ``-e NAME`` with the CLI's environment."""
+    (the directory's). Docker reads a UTF-8 env file one line at a time. Values with a line break
+    are returned in *values*, to pass as ``-e NAME`` with the CLI's environment. Reject invalid
+    UTF-8 before writing because Docker also changes it when passing values by name."""
+    for key, value in env.items():
+        if _ENV_VALUE_SURROGATE.search(value):
+            raise ValueError(f"Docker environment variable {key!r} must be valid UTF-8")
+    by_name = {key: value for key, value in env.items() if "\r" in value or "\n" in value}
     fd, name = tempfile.mkstemp(dir=directory, prefix="env-")
-    by_name = {key: value for key, value in env.items() if _ENV_FILE_UNSUPPORTED.search(value)}
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         for key in sorted(env):
             if key not in by_name:

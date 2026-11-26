@@ -266,8 +266,8 @@ class ContainerSandbox:
 
         The agent's env goes in a 0600 ``--env-file``, never on argv. The client
         keeps the operator's own environment: the agent's ``HOME`` and proxy would
-        change which daemon and route the ``docker`` CLI itself uses. A value with line
-        breaks or non-UTF-8 bytes travels as ``-e NAME`` in the client's env.
+        change which daemon and route the ``docker`` CLI itself uses. Values with line
+        breaks travel as ``-e NAME`` in the client's env. Invalid UTF-8 raises a validation error.
         """
         assert self._scratch is not None
         name, by_name = docker_cmd.write_env_file(self._scratch, env)
