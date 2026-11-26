@@ -121,6 +121,7 @@ class WorkTree:
         self._files: list[str] | None = sorted(files) if files is not None else None
         self.skipped: list[str] = []  # warnings for listed paths left out of ``files()`` because they could not be looked at
         self.skipped_paths: list[str] = []  # those paths, parallel to ``skipped`` (a path may hold ``": "``)
+        self.not_regular: list[str] = []  # the paths the plain-directory listing left out: not a file or a link (#1273)
         self.skipped_dirs: set[str] = set()  # the skipped paths that are directories whose content could not be listed
 
     def _resolve(self, path: str) -> Path:
@@ -176,7 +177,11 @@ class WorkTree:
                 rel = Path(dirpath).relative_to(self.root)
                 # A link to a directory is an entry, as in git, though walk lists it as a directory.
                 links = [d for d in dirnames if (Path(dirpath) / d).is_symlink()]
-                out.extend((rel / name).as_posix() for name in filenames + links)
+                # A FIFO, socket or device is no file to read (a read of a FIFO with no writer blocks), as in git (#1273).
+                paths = [(rel / name).as_posix().removeprefix("./") for name in filenames]
+                self.not_regular += [p for p in paths if not self._is_entry(p)]
+                out.extend(p for p in paths if p not in self.not_regular)
+                out.extend((rel / name).as_posix() for name in links)
             self._files = sorted(p.removeprefix("./") for p in out)
         return self._files
 
@@ -207,6 +212,8 @@ class WorkTree:
             return target.relative_to(self.root).as_posix()
         if target.is_dir():
             raise SourceArgumentError(f"{path} links to a directory: {target.relative_to(self.root).as_posix()}")
+        if target.exists() and not target.is_file():  # a FIFO, socket or device, not a missing link target (#1273)
+            raise SourceArgumentError(f"{path} is not a regular file: {target.relative_to(self.root).as_posix()}")
         if not target.is_file():
             raise SourceArgumentError(f"{path} links to nothing: {target.relative_to(self.root).as_posix()}")
         return target.relative_to(self.root).as_posix()

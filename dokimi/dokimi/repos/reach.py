@@ -222,11 +222,12 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     return sorted(p for p in declared | native | overlays if not manifest.in_eval_dir(p))
 
 
-def check_files(files: list[str], profile: HarnessProfile) -> None:
+def check_files(files: list[str], profile: HarnessProfile, tree: RepoTree | None = None) -> None:
     """Refuse a tree with no guidance file to probe (``files``: probe_files), before any scenario is selected."""
     if not files:
-        raise ReachError("no guidance files to probe: the manifest's globs and the "
-                         f"{profile.name} guidance names match nothing")
+        if odd := [p for p in getattr(tree, "not_regular", []) if PurePosixPath(p).name in profile.guidance_names]:
+            raise ReachError("no guidance file to probe: each is not a regular file: " + "; ".join(sorted(odd)))  # #1273
+        raise ReachError(f"no guidance files to probe: the manifest's globs and the {profile.name} guidance names match nothing")
 
 
 def scenarios(files: list[str], kinds: tuple[str, ...] = DEFAULT_KINDS,
@@ -534,7 +535,7 @@ def run_reach(
     included, so it refuses what the run would refuse."""
     check_kinds(profile, kinds)
     files = probe_files(tree, manifest, profile)
-    check_files(files, profile)
+    check_files(files, profile, tree)
     probed, groups, unresolved = followable(tree, files)
     shadows = shadow_for(profile, tree, kinds)
     plan = scenarios(probed, kinds, only, shadows)
