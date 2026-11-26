@@ -285,7 +285,7 @@ class Scan:
         this repository's ``owner/name``.
         """
         p = raw.strip().rstrip(".,:;")
-        if not p or p.startswith(("http", "~", "-", "%")) or dynamic(p) or "=" in p or " " in p:
+        if not p or own_repo.is_url_start(p, self._own_slug, prose) or p.startswith(("~", "-", "%")) or dynamic(p) or "=" in p or " " in p:
             return None
         bases = ancestors(file)
         head, _, rest = p.partition("/")

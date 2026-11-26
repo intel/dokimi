@@ -19,6 +19,11 @@ def patterns(repo_url: str | None) -> tuple[str | None, re.Pattern[str] | None]:
             re.compile(re.escape(url) + r"/(blob|tree)/(.+)") if url else None)
 
 
+def is_url_start(span: str, slug: str | None, prose: bool) -> bool:
+    """A span starting with ``http`` is no path claim, unless a ``prose`` span is this repository's ``owner/name``."""
+    return span.startswith("http") and not (prose and span.lower() == slug)
+
+
 def verdict(slug: str | None, span: str, cands: list[str], exists: Callable[[str], bool]) -> tuple[str, str] | None:
     """``ok`` for a span equal to this repository's ``owner/name`` that no path candidate holds, else ``None``."""
     if span.lower() == slug and not any(exists(c) for c in cands):

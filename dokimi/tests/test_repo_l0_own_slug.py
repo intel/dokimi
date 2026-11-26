@@ -47,6 +47,16 @@ def test_source_url_spellings_are_accepted(tmp_path, url):
     assert _resolve(tmp_path, "octo-org/demo", url) == ("ok", OWN)
 
 
+def test_an_owner_starting_with_http_is_the_own_slug(tmp_path):
+    assert _resolve(tmp_path, "httpie/cli", "https://github.com/httpie/cli") == ("ok", OWN)
+
+
+def test_a_span_starting_with_http_is_still_no_path_for_another_repository(tmp_path):
+    scan = Scan(WorkTree(tmp_path), frozenset(), repo_url="https://github.com/octo-org/demo")
+    scan.check_span("AGENTS.md", 1, "httpie/cli", "httpie/cli")
+    assert [c for c in scan.claims if c.kind == "path"] == []
+
+
 def test_another_repository_stays_unresolved(tmp_path):
     assert _resolve(tmp_path, "octo-org/other", "https://github.com/octo-org/demo") == (
         "unresolved", "tried octo-org/other")
