@@ -14,7 +14,7 @@ import pytest
 from dokimi import process
 from dokimi.harnesses import delivery
 from dokimi.report.delivery import render
-from dokimi.gate.delivery import evaluate, score
+from dokimi.gate.delivery import compare_pairs, evaluate, score
 from tests.fixtures.delivery.build import build
 
 
@@ -96,6 +96,18 @@ def test_group_weights_and_missing_repeat():
     scores = score({"one": 3, "two": 1}, tasks, 2, rows, "A")
     assert scores["score"] == 4.375 and scores["coverage"] == [6, 6]
     assert score({"one": 3, "two": 1}, tasks, 2, rows[:-1], "A")["score"] is None
+
+
+def test_paired_counts_use_only_the_named_task():
+    rows = [
+        dict(task="x", arm="A", repeat=1, outcome="PASS"),
+        dict(task="x", arm="B", repeat=1, outcome="FAIL"),
+        dict(task="y", arm="A", repeat=1, outcome="FAIL"),
+        dict(task="y", arm="B", repeat=1, outcome="PASS"),
+    ]
+    paired = compare_pairs("x", rows, 1)
+    assert paired["attempts"] == [["PASS", "FAIL"]]
+    assert paired["regressions"] == 1 and paired["improvements"] == 0
 
 
 @pytest.mark.skipif(
