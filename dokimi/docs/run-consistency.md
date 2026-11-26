@@ -66,21 +66,32 @@ run passes when the harness ended cleanly (`result` event, `success`), which
 says the agent stopped, not that the task is done. The report says which source
 it used. A run that made tool calls but wrote no `result` event (it crashed,
 timed out or was cut off) counts as failed without `--outcomes`, so it cannot drop
-out of the pass rate; the table shows `runs` and `judged`. A file name or stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`)
-is refused: key those by full path.
+out of the pass rate; the table shows `runs` and `judged`. A key may spell the path as given on the command line or as an absolute path. A file name or stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`)
+is refused: key those by full path. Two keys that spell one trace's path with different verdicts are refused.
 
 ## Strategies
 
 A task with two valid routes would read as unstable if every pair of runs were
 compared. Runs are grouped by the order distance of their tool paths, repeats
-collapsed (`--threshold`, default 0.34), and each group gets a verdict:
+collapsed (`--threshold`, default 0.34), and each group gets a verdict.
+A group's `verdict` (in `--json` and on its line in the text report) is one of:
 
-| Verdict | Reading |
+| Group verdict | Reading |
 |---|---|
-| one strategy, stable success | reproducible process |
-| several strategies, all stable success | valid diversity |
-| one strategy, unstable | the route is right, execution breaks |
-| one strategy, stable failure | a reproducible mistake |
+| `stable success` | every judged run passed |
+| `stable failure` | every judged run failed: a reproducible mistake |
+| `unstable` | some passed, some failed: the route is right, execution breaks |
+| `single run, passed` / `single run, failed` | one judged run, which says nothing about stability |
+| `unjudged` | no run of the group has a verdict |
+
+The arm's `verdict` combines the groups:
+
+| Arm verdict | Reading |
+|---|---|
+| `one strategy, <group verdict>` | one group, read as its verdict (`one strategy, stable success` is a reproducible process) |
+| `N strategies, all stable success (valid diversity)` | several groups, each a stable success |
+| `N strategies: <group verdict> ×runs, ...` | several groups, any other mix, one entry per group with its run count |
+| `no runs` | no trace was read |
 
 A strategy of one run has no inner distance (`null`) and its verdict is `single
 run, passed` or `single run, failed`: one run says nothing about stability, so
@@ -99,7 +110,7 @@ constrain conforms.
 actions:
   guide: {tool: Read, file_path: 'AGENTS\.md$'}
   edit:  {tool: [Edit, Write, MultiEdit]}
-  test:  {tool: Bash, command: '\b(pytest|make test)\b'}
+  test:  {tool: [Bash:pytest, Bash:make], command: '\b(pytest|make test)\b'}
   push:  {tool: Bash, command: 'git push'}
 rules:
   - before: [guide, edit]      # the guide is read before the first edit
@@ -108,6 +119,10 @@ rules:
   - forbids: push
   - requires: test
 ```
+
+A `command` regex on `tool: Bash` alone matches the word anywhere in the command, so
+`command -v pytest` and `echo pytest` count as a test run. Naming the kind
+(`Bash:pytest`) counts only runs of that program.
 
 An `edit` action with a write tool (`Edit`, `Write`, `MultiEdit`) also matches a shell
 step that writes a file (`sed -i`, `echo`/`printf`/`cat` into `>`, `tee`), so an edit

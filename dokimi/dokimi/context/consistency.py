@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from itertools import combinations
@@ -383,15 +384,22 @@ def load_outcomes(path: Path) -> dict[str, bool]:
 def apply_outcomes(runs: list[Run], outcomes: dict[str, bool]) -> list[str]:
     """Set each run's result from the verifier; returns the runs it had no verdict for.
 
-    A key is a run's full path, or its file name or stem. A name or stem several runs share
-    (``base/1.jsonl``, ``skill/1.jsonl``) is ambiguous and refused: give the full path.
+    A key is a run's path as given, any other spelling of that path (an absolute path for a
+    relatively named trace, a path through a symlink), or its file name or stem. A name or stem several runs share
+    (``base/1.jsonl``, ``skill/1.jsonl``) is ambiguous and refused: give the full path. Two keys
+    that spell one trace's path with different verdicts are refused too.
     """
     names = [Path(r.name).name for r in runs]
     stems = [Path(r.name).stem for r in runs]
     missing = []
     for run, name, stem in zip(runs, names, stems, strict=True):
-        if run.name in outcomes:
-            run.passed = outcomes[run.name]
+        here = os.path.realpath(run.name)  # one file, however the path is spelled (symlinks, `..`)
+        spellings = [k for k in outcomes if os.path.realpath(k) == here]
+        if spellings:
+            if len({outcomes[k] for k in spellings}) > 1:
+                raise ValueError(f"outcome keys {spellings!r} name the same trace {run.name!r} "
+                                 "with different verdicts (docs/run-consistency.md, #936)")
+            run.passed = outcomes[spellings[0]]
             continue
         for key, same in ((name, names), (stem, stems)):
             if key in outcomes:

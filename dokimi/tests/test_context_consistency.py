@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import re
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -568,3 +571,85 @@ def test_cv_of_finite_values_whose_squares_underflow_is_the_value_to_rounding():
 def test_cv_keeps_none_for_one_value_and_zero_for_a_zero_mean():
     assert _cv([5.0]) is None
     assert _cv([1e300, -1e300]) == 0.0
+
+
+def test_an_absolute_path_key_matches_a_relatively_named_trace(tmp_path, monkeypatch):
+    """#936: docs/run-consistency.md keys same-named traces by full path, whatever the command line spells."""
+    monkeypatch.chdir(tmp_path)
+    runs = [_run(f"{arm}/1.jsonl", EDIT) for arm in ("base", "skill")]
+    keys = {os.path.abspath(r.name): i == 0 for i, r in enumerate(runs)}
+    assert apply_outcomes(runs, keys) == []
+    assert [r.passed for r in runs] == [True, False]
+
+
+def test_two_spellings_of_one_trace_with_different_verdicts_are_refused(tmp_path, monkeypatch):
+    """#936: one trace must not take either of two conflicting verdicts."""
+    monkeypatch.chdir(tmp_path)
+    r = _run("base/1.jsonl", EDIT)
+    with pytest.raises(ValueError, match="different verdicts"):
+        apply_outcomes([r], {"base/1.jsonl": True, os.path.abspath("base/1.jsonl"): False})
+    r = _run("base/1.jsonl", EDIT)  # the same verdict twice is no conflict
+    assert apply_outcomes([r], {"base/1.jsonl": False, os.path.abspath("base/1.jsonl"): False}) == []
+    assert r.passed is False
+
+
+def test_a_key_for_another_file_is_not_a_match(tmp_path, monkeypatch):
+    """#936: only a key that resolves to the trace's own file judges it (docs/run-consistency.md)."""
+    monkeypatch.chdir(tmp_path)
+    r = _run("base/1.jsonl", EDIT)
+    assert apply_outcomes([r], {os.path.abspath("skill/1.jsonl"): True}) == [r.name]
+    assert apply_outcomes([r], {}) == [r.name]
+
+
+_DOC = (Path(__file__).resolve().parent.parent / "docs" / "run-consistency.md").read_text()
+
+
+def test_the_doc_example_contract_does_not_count_a_lookup_as_a_test():
+    """#936: docs/run-consistency.md says `command -v pytest` is not a test run."""
+    import yaml
+    contract = parse_contract(yaml.safe_load(re.search(r"```yaml\n(actions:.*?)```", _DOC, re.S).group(1)))
+    lead = (READ, EDIT)
+    lookup = check_contract(_run("lookup.jsonl", *lead, ("Bash", {"command": "command -v pytest"})), contract)
+    ran = check_contract(_run("ran.jsonl", *lead, ("Bash", {"command": "pytest -q"})), contract)
+    assert lookup and not ran
+
+
+def _table_cells(after, before):
+    """The backticked first-column entries of the markdown table between two doc markers."""
+    part = _DOC[_DOC.index(after):_DOC.index(before)]
+    rows = [r for r in part.splitlines() if r.startswith("| `")]
+    return {c.strip("` ") for r in rows for c in r.split("|")[1].split(" / ")}
+
+
+def test_the_doc_verdict_table_lists_the_strings_the_command_prints():
+    """#936: the verdict tables list exactly what `_verdict` and `_summary_verdict` return."""
+    from dokimi.context.consistency import _summary_verdict, _verdict
+    printed = {_verdict(p, j) for j in range(4) for p in range(j + 1)}
+    assert _table_cells("A group's `verdict`", "The arm's `verdict`") == printed
+    arm = _table_cells("The arm's `verdict`", "A strategy of one run")
+    assert arm == {"one strategy, <group verdict>", "N strategies, all stable success (valid diversity)",
+                   "N strategies: <group verdict> ×runs, ...", "no runs"}
+    g = lambda v, n=1: {"verdict": v, "runs": ["r"] * n}  # noqa: E731
+    assert _summary_verdict([]) == "no runs"
+    assert _summary_verdict([g("unstable")]) == "one strategy, unstable"
+    assert _summary_verdict([g("stable success"), g("stable success")]).endswith(
+        "strategies, all stable success (valid diversity)")
+    assert _summary_verdict([g("stable success", 2), g("stable failure", 2)]) == (
+        "2 strategies: stable success ×2, stable failure ×2")
+
+
+def test_a_key_through_a_symlink_to_another_directory_does_not_judge_the_trace(tmp_path):
+    """#936: a key must resolve to the trace's own file, not to a lookalike beside a symlink."""
+    (tmp_path / "example").mkdir()
+    (tmp_path / "other/sub").mkdir(parents=True)
+    (tmp_path / "example/link").symlink_to(tmp_path / "other/sub")
+    (tmp_path / "other/trace.jsonl").write_text("")
+    r = _run(str(tmp_path / "example/trace.jsonl"), EDIT)
+    assert apply_outcomes([r], {str(tmp_path / "example/link/../trace.jsonl"): True}) == [r.name]
+    assert r.passed is None
+    # the same file reached through a symlinked directory is the trace's own file
+    (tmp_path / "real").mkdir()
+    (tmp_path / "alias").symlink_to(tmp_path / "real")
+    t = _run(str(tmp_path / "alias/trace.jsonl"), EDIT)
+    assert apply_outcomes([t], {str(tmp_path / "real/trace.jsonl"): False}) == []
+    assert t.passed is False
