@@ -262,10 +262,15 @@ def content_findings(skill: Skill, *, at_root: bool = False) -> list[Hit]:
 
     ``at_root``: the ``SKILL.md`` sits at the checkout root, so only that file is read (see the module docstring).
     """
-    skill_dir = skill.path.parent
-    paths = [skill.path]
+    return skill_md_content_findings(skill.path, at_root=at_root)
+
+
+def skill_md_content_findings(skill_md: Path, *, at_root: bool = False) -> list[Hit]:
+    """:func:`content_findings` for a ``SKILL.md`` path, so a skill that did not load is checked too (#1089)."""
+    skill_dir = skill_md.parent
+    paths = [skill_md]
     if not at_root:
-        paths += [p for p in _text_files(skill_dir) if p != skill.path]
+        paths += [p for p in _text_files(skill_dir) if p != skill_md]
     hits: list[Hit] = []
     for path in paths:
         try:
