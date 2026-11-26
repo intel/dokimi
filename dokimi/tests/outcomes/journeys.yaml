@@ -64,7 +64,7 @@ criteria:
     delivery: available
     enforce: true
     capability: question-set-pinning
-    surfaces: ["benchmark run --force-regen"]
+    surfaces: ["benchmark run --force"]
     refs: [dokimi/orchestrator/pipeline.py]
     evidence:
       - {id: cjm-question-cache, kind: integration, stubs: [answer and eval model calls]}

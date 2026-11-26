@@ -193,7 +193,7 @@ def test_a_merge_renumbers_a_generated_id_a_kept_record_has():
 ], ids=["shared-ids", "schema", "truncated", "directory"])
 def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(
         tmp_path, monkeypatch, capsys, text, reason, _provider_keys):
-    """A cache main's ``--force-regen`` wrote with two ``q_001``, one cut short, or a directory: exit 2, no traceback."""
+    """A cache main's ``--force`` wrote with two ``q_001``, one cut short, or a directory: exit 2, no traceback."""
     cache = tmp_path / "questions" / "onetbb.json"
     cache.parent.mkdir()
     cache.mkdir() if text is None else cache.write_text(text, encoding="utf-8")
@@ -212,7 +212,7 @@ def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(
         named = "" if "{cache}" in reason else f" {cache}"
         assert f"Error: the cached question set of an earlier run{named} cannot be used: " in err
         assert reason.format(cache=cache) in err
-    assert "(fix or delete it to generate a new set; benchmark run: --force-regen)" in err
+    assert "(fix or delete it to generate a new set; benchmark run: --force)" in err
 
 
 def test_benchmark_run_on_a_golden_set_with_shared_ids_exits_2(tmp_path, monkeypatch, capsys, _provider_keys):

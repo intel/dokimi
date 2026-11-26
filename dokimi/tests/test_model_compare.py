@@ -870,7 +870,7 @@ def test_cli_exposes_stats_correction_for_model_compare():
     for method in stats.CORRECTIONS:
         args = build_parser().parse_args(
             ["report", "model-compare", "--regular-runs", "a.json",
-             "--run-ids", "a", "--out", "out.md", "--stats-correction", method]
+             "--run-ids", "a", "--out", "out.md", "--correction", method]
         )
         assert args.stats_correction == method
 
@@ -882,7 +882,7 @@ def test_cli_exposes_stats_correction_for_model_compare():
     with pytest.raises(SystemExit):
         build_parser().parse_args(
             ["report", "model-compare", "--regular-runs", "a.json",
-             "--run-ids", "a", "--out", "out.md", "--stats-correction", "bonferroni"]
+             "--run-ids", "a", "--out", "out.md", "--correction", "bonferroni"]
         )
 
 
