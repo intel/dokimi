@@ -254,3 +254,15 @@ def test_different_flags_need_more_than_one_shared_word_for_a_multiword_atom():
     long = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use --enable-accel for the accelerator."})
     assert pair_atoms("Use --use-accel.", [short]) == []
     assert pair_atoms("Use --use-accel for the accelerator.", [long]) == [long]
+
+
+@pytest.mark.parametrize("separator", ["\r", "\r\n", "\n"])
+def test_line_breaks_keep_the_windows_and_linux_claims_separate(separator):
+    statement = "The accelerator is not supported on Windows."
+    atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": statement})
+    first = "The accelerator is supported on Windows"
+    answer = first + separator + "The accelerator is not supported on Linux"
+    sentences = split_sentences(answer)
+    assert len(sentences) == 2
+    assert all(answer[s.start:s.end] == s.text for s in sentences)
+    assert [claim.quote for claim in find_false_claims(answer, [atom]).claims] == [first]
