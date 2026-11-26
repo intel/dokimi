@@ -56,9 +56,9 @@ compared. See [external-content.md](external-content.md).
 
 A `questions/<target>.json` already in the output directory is reused instead of
 the root, even after the golden file changed. Use a fresh `--out-dir`, or
-`--force-regen` to answer the golden set. With a golden set under
+`--force` to answer the golden set. With a golden set under
 `--questions-root`, or with `--questions-from`, persona discovery is skipped,
-even with `--force-regen`.
+even with `--force`.
 
 Defaults:
 

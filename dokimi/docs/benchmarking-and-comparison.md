@@ -291,7 +291,7 @@ A relative path is relative to the manifest's `eval_dir`. An arm without a
 guidance part keeps the repository's guidance (`guidance:raw`).
 
 ```bash
-dokimi repo run <repo>@<rev> --model <m1> --model <m2> --batch skills \
+dokimi repo run <repo>@<rev> --model <m1> --model <m2> --name skills \
   --arm guidance:raw,guidance:raw+skill:skills/lint,guidance:none+skill-catalog:skills
 dokimi eval check <repo>@<rev> --arm skill-catalog:skills   # paths exist, catalog has expected_skill
 ```
@@ -349,10 +349,10 @@ so the delta varies by treatment rather than by a re-drawn control.
 
 Because one run tests several arms at once, p-values are corrected for
 multiplicity — with several arms, the chance that at least one clears 0.05 by
-luck is well above 0.05. `--stats-correction` picks the method:
+luck is well above 0.05. `--correction` picks the method:
 
 ```bash
-python cli.py arms run ... --stats-correction bh
+python cli.py arms run ... --correction bh
 ```
 
 - `holm` (default) — Holm-Bonferroni, controls the family-wise error rate. The
@@ -682,7 +682,7 @@ baseline and the treatment arm as the context arm, then computes:
 - statistical significance of context-arm minus baseline (the arms' sign-flip
   test and Cohen's d_z, `eval.stats.paired_test`), corrected across the compared
   runs \u2014 every run tests the same "did the treatment help?" question, so they
-  form one family; `--stats-correction holm|bh` selects the method and the table
+  form one family; `--correction holm|bh` selects the method and the table
   shows the raw p, the adjusted p and the changed pairs. A run with 2 or more
   pairs gets a p; its verdict is N/A when every pair tied or the floor 2/2^k over
   its k changed pairs is not below 0.05 (see *Reading the significance tables*
@@ -829,7 +829,9 @@ the validator stored on Bedrock, Vertex or OpenRouter before they moved to
 calls are paid once more. It
 pays off mainly for the `baseline` arm, which is identical across treatment runs,
 and for re-running a pipeline after changing only the reporting code. The judge
-is covered on every provider.
+is covered on every provider. A judge call the cache replays was not paid for by
+this run: `judge_metrics` counts it in `replayed_calls` and adds no tokens and no
+`cost_usd` for it.
 
 A request can also carry a **draw** index, for when a caller wants a second,
 independent sample of the same prompt: the judge's retry after an unparseable
@@ -996,7 +998,7 @@ An artifact of a registered run kind carries the run's envelope right after its
   fixture) makes its own id unless `DOKIMI_RUN_ID` is set; that script passes it through.
 - A file saved again records the process that saved it, and so does an artifact built from a
   loaded one (`repo reach --from`).
-- The `--run-id` flag of `answers generate`, `eval score pointwise` and `report eval` names the
+- The `--name` flag of `answers generate`, `eval score pointwise` and `report eval` names the
   output directory only; the envelope's `run_id` is the process's. The `run_id` of each
   `effective_instructions` receipt is that receipt's own, not the envelope.
 - The input kinds carry no envelope: `questions`, `dokimi_config`, `repo_ledger` and

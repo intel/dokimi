@@ -395,7 +395,7 @@ def _run_codex_review(tmp_path, monkeypatch, fake, tools="all"):
     out = tmp_path / "runs"
     args = build_parser().parse_args([
         "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
-        "--bin", str(exe), "--model", "gpt-x", "--batch", "b1", "--out", str(out),
+        "--bin", str(exe), "--model", "gpt-x", "--name", "b1", "--out", str(out),
         "--cache-root", str(out / "caches"), "--agent-network", "host", "--task", "review_add",
         "--arm", "guidance:raw", "--tools", tools])
     args.func(args)
@@ -479,7 +479,7 @@ def _run_fake(tmp_path, monkeypatch, *, companion: bool, link: bool = False):
     out = tmp_path / "runs"
     args = build_parser().parse_args([
         "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
-        "--bin", str(exe), "--model", "m", "--batch", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
+        "--bin", str(exe), "--model", "m", "--name", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
         "--agent-network", "host", "--task", "fix_add", "--arm", "guidance:raw"])
     return runner, out, args
 
