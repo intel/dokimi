@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import mean
 from typing import Any
 
 from dokimi import process
@@ -135,8 +136,7 @@ def summarize_task_results(
                 "n": 0,
                 "passed": 0,
                 "errored": 0,
-                "reward_sum": 0.0,
-                "reward_n": 0,
+                "_rewards": [],
                 "elapsed_sec": 0.0,
                 "operation_count": 0,
                 "operations_by_type": {},
@@ -155,12 +155,9 @@ def summarize_task_results(
         stats["n"] += 1
         stats["passed"] += 1 if passed else 0
         stats["errored"] += 1 if errored else 0
-        reward = row.get("reward")
-        # bool is an int subclass: reward=True is not a score of 1.
-        reward = as_float(reward)
+        reward = as_float(row.get("reward"))
         if reward is not None and not errored:
-            stats["reward_sum"] += reward
-            stats["reward_n"] += 1
+            stats["_rewards"].append(reward)
         stats["elapsed_sec"] += as_float(row.get("elapsed_sec")) or 0.0
         metrics = row.get("metrics", {})
         stats["operation_count"] += _count(metrics.get("operation_count")) or 0
@@ -205,12 +202,9 @@ def summarize_task_results(
         invoked = stats.pop("_skill_invoked")
         stats["skill_invocation_rate"] = round(invoked / reported, 4) if reported else None
         stats["skill_invocation_n"] = reported
-        stats["avg_reward"] = (
-            round(stats["reward_sum"] / stats["reward_n"], 4) if stats["reward_n"] else None
-        )
+        rewards = stats.pop("_rewards")
+        stats["avg_reward"] = round(mean(rewards), 4) if rewards else None
         stats["elapsed_sec"] = round(stats["elapsed_sec"], 4)
-        del stats["reward_sum"]
-        del stats["reward_n"]
         # Finalize telemetry: only surface cost when at least one call was priced.
         cost_known = stats.pop("_cost_known")
         cost_sum = stats.pop("_cost_sum")

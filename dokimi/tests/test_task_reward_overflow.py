@@ -52,6 +52,17 @@ def test_summarize_task_results_counts_a_reward_beyond_the_float_range_as_unscor
     assert summary["per_harness"]["h"]["avg_reward"] == 1.0
 
 
+@pytest.mark.parametrize("rewards, expected", [
+    ([1e308, 1e308], 1e308),
+    ([1e308, 1e308, -1e308, -1e308], 0.0),
+])
+def test_summarize_task_results_keeps_a_finite_mean_when_the_sum_overflows(rewards, expected):
+    from dokimi.harnesses.runner import summarize_task_results
+
+    rows = [{"task": "t", "harness": "h", "reward": reward} for reward in rewards]
+    assert summarize_task_results(rows)["per_harness"]["h"]["avg_reward"] == expected
+
+
 def test_tasks_completion_counts_a_reward_beyond_the_float_range_as_unscored(capsys):
     from dokimi.commands.tasks import _check_completion
 
