@@ -754,3 +754,34 @@ def test_fullwidth_backticks_do_not_move_an_install_or_make_prose_code(tmp_path)
 def test_mixed_fullwidth_pipe_and_semicolon_is_a_pipe_to_shell(tmp_path, command):
     """#960: a fullwidth pipe is a pipe while the fullwidth ``;`` in the URL is not a terminator."""
     assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell")
+
+
+def test_npx_runs_a_bin_of_the_skills_own_package_without_an_install(tmp_path):
+    # the package.json beside SKILL.md declares the bin: npx runs it from the skill, it is no registry install
+    own = '{"name": "mytool", "bin": {"mytool": "./cli.js"}}'
+    assert _found(_review(tmp_path / "own", _fenced("npx mytool init"), {"package.json": own}), "install-unpinned") == []
+    scoped = '{"name": "@acme/tool", "bin": "./cli.js"}'
+    assert _found(_review(tmp_path / "scoped", _fenced("npx @acme/tool init"), {"package.json": scoped}),
+                  "install-unpinned") == []
+    assert _found(_review(tmp_path / "unscoped", _fenced("npx tool init"), {"package.json": scoped}),
+                  "install-unpinned") == []
+
+
+def test_npx_of_a_name_the_skills_package_does_not_declare_is_still_an_install(tmp_path):
+    own = '{"name": "mytool", "bin": {"mytool": "./cli.js"}}'
+    [finding] = _found(_review(tmp_path / "other", _fenced("npx otherbin init"), {"package.json": own}),
+                       "install-unpinned")
+    assert "npx otherbin" in finding.message
+    # a tag asks the registry for a version: the bundle's own package does not answer it
+    [latest] = _found(_review(tmp_path / "latest", _fenced("npx mytool@latest"), {"package.json": own}),
+                      "install-unpinned")
+    assert "npx mytool" in latest.message
+
+
+def test_a_package_json_too_deep_to_parse_names_nothing_and_keeps_the_findings(tmp_path):
+    # json.loads raises RecursionError on a deeply nested file: the skill's other findings must still come out
+    skill = tmp_path / "kit"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("Run `npx tsc`.\n", encoding="utf-8")
+    (skill / "package.json").write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    assert [code for code, _ in command_findings(skill / "SKILL.md", at_root=False)] == ["install-unpinned"]
