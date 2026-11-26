@@ -184,7 +184,7 @@ def vendor_of(model: str | None) -> str:
     if family != UNKNOWN_VENDOR or hub:
         return family
     if len(parts) > 1:
-        vendor = _VENDOR_SLUGS.get(parts[0], parts[0]) if routes and routes[-1] == "openrouter" else ""
+        vendor = _VENDOR_SLUGS.get(parts[0], parts[0]) if len(parts) == 2 and parts[1] else ""
         return vendor if vendor in _VENDORS else UNKNOWN_VENDOR
     route = routes[-1] if routes else ""
     return route if route in _VENDORS else _VENDOR_ROUTES.get(route, UNKNOWN_VENDOR)
