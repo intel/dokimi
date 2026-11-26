@@ -50,7 +50,7 @@ python cli.py eval check .. --manifest .agent-eval/repo-eval.yaml -j 4
 
 # agents: one cell per (task, arm, model, rep)
 python cli.py repo run .. --manifest .agent-eval/repo-eval.yaml \
-    --arm guidance:none,guidance:raw --model <model id> --reps 3 --batch <name> \
+    --arm guidance:none,guidance:raw --model <model id> --reps 3 --name <name> \
     --agent-network host --max-usd 50
 python cli.py repo report repo-runs/<name>
 ```

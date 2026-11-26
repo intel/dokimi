@@ -201,6 +201,205 @@ def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
     assert shell_reads(f"{cmd} {option} 5 a") == ["a"]
 
 
+@pytest.mark.parametrize("command,reads", [
+    ("head -n 0 AGENTS.md", []),
+    ("head -c 0 AGENTS.md", []),
+    ("head -0 AGENTS.md", []),
+    ("head --lines=0 AGENTS.md", []),
+    ("head --bytes=0 AGENTS.md", []),
+    ("head -n +0 AGENTS.md", []),
+    ("head -n0 AGENTS.md", []),
+    ("tail -n -0 AGENTS.md", []),
+    ("tail -c 0 AGENTS.md", []),
+    ("tail --bytes=0 AGENTS.md", []),
+    ("head -n 0 a b", []),
+    ("head AGENTS.md -n 0", []),
+    ("head -n 0 -n 5 AGENTS.md", ["AGENTS.md"]),         # the last count counts
+    ("head -n -0 AGENTS.md", ["AGENTS.md"]),              # all but the last 0 lines: every line
+    ("tail -n +0 AGENTS.md", ["AGENTS.md"]),              # from line 0: every line
+    ("head -n 5 AGENTS.md", ["AGENTS.md"]),
+    ("head -5 AGENTS.md", ["AGENTS.md"]),
+    ("tail -n 1 AGENTS.md", ["AGENTS.md"]),
+    ("tail -n +3 AGENTS.md", ["AGENTS.md"]),
+    ("tail -c 10 AGENTS.md", ["AGENTS.md"]),
+    ("head AGENTS.md", ["AGENTS.md"]),
+    ("cat AGENTS.md", ["AGENTS.md"]),
+    ("head -x AGENTS.md", ["AGENTS.md"]),                 # an unknown option: the count is not known
+    ("tail -f -n 0 AGENTS.md", ["AGENTS.md"]),            # follows: prints what is appended
+    ("tail -fn 0 AGENTS.md", ["AGENTS.md"]),
+    ("tail --follow -n 0 AGENTS.md", ["AGENTS.md"]),
+    ("tail --fo=descriptor -c 0 AGENTS.md", ["AGENTS.md"]),
+    ("tail -f -n 0 --pid=123 AGENTS.md", ["AGENTS.md"]),
+    ("tail -n 0 --pid=123 AGENTS.md", []),
+    ("head -n " + "0" * 4301 + " AGENTS.md", []),           # more digits than int() reads
+    ("head -n " + "0" * 4300 + "1 AGENTS.md", ["AGENTS.md"]),
+    ("POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),  # the options end at the first file
+    ("POSIXLY_CORRECT=1 head -n 0 AGENTS.md", []),
+    ("env POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("LC_ALL=C head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 head - -n 0 AGENTS.md", ["AGENTS.md"]),  # ``-`` is the first operand: -n and 0 are files
+    ("env POSIXLY_CORRECT=1 head - -n 0 AGENTS.md", ["AGENTS.md"]),
+    ("head - -n 0 AGENTS.md", []),
+    ("POSIXLY_CORRECT=1 tail -q -n 0 AGENTS.md -f", []),  # -f is a file name, not follow
+    ("env POSIXLY_CORRECT=1 tail -n 0 AGENTS.md -f", []),
+    ("POSIXLY_CORRECT=1 tail -n 0 --pid 5 AGENTS.md -f", []),
+    ("POSIXLY_CORRECT=1 tail -f -n 0 AGENTS.md", ["AGENTS.md"]),
+    ("tail -n 0 AGENTS.md -f", ["AGENTS.md"]),
+    ("tail -n 0 -- AGENTS.md -f", []),  # after ``--`` -f is a file
+    ("POSIXLY_CORRECT=1 env -i /usr/bin/head AGENTS.md -n 0", []),  # env drops the variable
+    ("POSIXLY_CORRECT=1 env --ignore-environment head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env -u POSIXLY_CORRECT head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env -uPOSIXLY_CORRECT head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env --unset POSIXLY_CORRECT head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env --unset=POSIXLY_CORRECT head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1 env -u OTHER head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("POSIXLY_CORRECT=1 env - head AGENTS.md -n 0", []),  # a lone ``-`` is ``-i``
+    ("env -i POSIXLY_CORRECT=1 head AGENTS.md -n 0", ["AGENTS.md"]),  # set again after the reset
+    ("export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # an earlier export reaches the later command
+    ("export POSIXLY_CORRECT=1 && head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1\nhead -n 0 AGENTS.md", []),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; export -n POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; env -i head AGENTS.md -n 0", []),  # env drops what the shell exported
+    ("(export POSIXLY_CORRECT=1); head AGENTS.md -n 0", []),  # a subshell's export ends with it
+    ("export POSIXLY_CORRECT=1 | cat; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 & head AGENTS.md -n 0", []),
+    ("{ export POSIXLY_CORRECT=1; } | cat; head AGENTS.md -n 0", []),  # a group in a pipeline or a job is a subshell
+    ("{ export POSIXLY_CORRECT=1; } & head AGENTS.md -n 0", []),
+    ("{ export POSIXLY_CORRECT=1; }; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # set in the shell, not exported
+    ("POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # nothing to export
+    ("true || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # a command that is skipped changes nothing
+    ("false && export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("true && export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("false || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; false && unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; true && unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("ls || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # may have run: the read is kept
+    ("export POSIXLY_CORRECT=1; ls && unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("ls || export POSIXLY_CORRECT=1; head -n 0 AGENTS.md", []),  # no state prints a line
+    ("export() { :; }; export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # a function of the name runs, not the builtin
+    ("export POSIXLY_CORRECT=1; unset() { :; }; unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export() { :; }; builtin export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; command unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("builtin export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export -n POSIXLY_CORRECT=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # -n assigns, not exports
+    ("export -n POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; false && { :; unset POSIXLY_CORRECT; }; head AGENTS.md -n 0", ["AGENTS.md"]),  # a skipped group
+    ("true || { :; export POSIXLY_CORRECT=1; }; head AGENTS.md -n 0", []),
+    ("true && { :; export POSIXLY_CORRECT=1; }; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; true && { :; unset POSIXLY_CORRECT; }; head AGENTS.md -n 0", []),
+    ("ls && { :; export POSIXLY_CORRECT=1; }; head AGENTS.md -n 0", ["AGENTS.md"]),  # a group that may run: both states
+    ("ls && { :; export POSIXLY_CORRECT=1; }; head -n 0 AGENTS.md", []),
+    ("true() { false; }; true || export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # the function's exit is not known
+    ("false() { true; }; export POSIXLY_CORRECT=1; false && unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("command -- export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # options of the wrapper
+    ("command -p export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("command -p -- export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("builtin -- export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; command -- unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; command -p unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("command -v export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # prints where export is, runs nothing
+    ("export POSIXLY_CORRECT=1; command -v unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1 >/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # a redirect changes no variable
+    ("export POSIXLY_CORRECT=1 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >/dev/null; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 > out.txt && head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1 | cat > out.txt; head AGENTS.md -n 0", []),  # a pipeline is a subshell
+    ("export POSIXLY_CORRECT=1; unset -f POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # a function, not the variable
+    ("export POSIXLY_CORRECT=1; command unset -f POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; builtin unset -f POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset OTHER; export OTHER=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # another name changes nothing
+    ("export POSIXLY_CORRECT=1; unset -v POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; unset -- POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("POSIXLY_CORRECT=1; export -f POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # exports a function, not the variable
+    ("export POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # the export mark waits for the value
+    ("export POSIXLY_CORRECT; head AGENTS.md -n 0; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT; export -n POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=yes>/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # a redirect glued to the operand
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT>/dev/null; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; true && { false; } || unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # a ``}`` has no exit
+    ("export POSIXLY_CORRECT=1; true && { { false; }; } || unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT </definitely-missing; head AGENTS.md -n 0", ["AGENTS.md"]),  # may not run
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>/no/dir/log; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >/no/dir/out; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT </dev/null 2>&1; head AGENTS.md -n 0", []),  # these cannot fail
+    ("X=1 export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # a prefix, and the command runs in this shell
+    ("time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; X=1 unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; time -p unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("env export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # a program, not the builtin
+    ("X=1 time export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 <>/dev/null; head AGENTS.md -n 0", ["AGENTS.md"]),  # a read-write redirect is one redirect
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT <>/dev/null; head AGENTS.md -n 0", []),  # to /dev/null it cannot fail
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT <>/no/dir/f; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>&9; head AGENTS.md -n 0", ["AGENTS.md"]),  # fd 9 may not be open
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT >&2; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } </definitely-missing; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } </dev/null; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } 2>&1; head AGENTS.md -n 0", []),
+    ("X=1 command export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # ``command`` runs the builtin here
+    ("time command export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("X=1 env export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("builtin() { :; }; command builtin export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # past the outer one
+    ("command() { :; }; builtin command export POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("command() { :; }; command export POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # the function runs
+    ("export POSIXLY_CORRECT=1; unset -z POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # an option it refuses
+    ("export POSIXLY_CORRECT=1; unset -vz POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; export -zn POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export -z POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1 <<<ignored; head AGENTS.md -n 0", ["AGENTS.md"]),  # a here-string is one redirect
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT <<<x; head AGENTS.md -n 0", []),  # and it cannot fail to open
+    ("if true; then export POSIXLY_CORRECT=1; fi; head AGENTS.md -n 0", ["AGENTS.md"]),  # a branch may not run: both states
+    ("if true; then export POSIXLY_CORRECT=1; fi; head -n 0 AGENTS.md", []),
+    ("if false; then export POSIXLY_CORRECT=1; fi; head -n 0 AGENTS.md", []),
+    ("export POSIXLY_CORRECT=1; if true; then unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT+=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # NAME+=value assigns an unset variable
+    ("POSIXLY_CORRECT+=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("POSIXLY_CORRECT+=1 head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export -n POSIXLY_CORRECT+=1; export POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export -n POSIXLY_CORRECT+=1; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # unset takes names, not assignments
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT+; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("declare -x POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # declare and typeset export with -x
+    ("typeset -gx POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("declare POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("declare -f POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("declare -x POSIXLY_CORRECT=1; declare -n POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("set -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # allexport exports what is set after it
+    ("set -o allexport; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("set -a; head -n 0 AGENTS.md", []),
+    ("set -e; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("set -a; unset POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # allexport outlives an unset
+    ("set -a; export -n POSIXLY_CORRECT; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("set -a; set +a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),  # and ends with ``+a``
+    ("set -a; set +o allexport; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("set -a; set -o allexport; set +a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("set -a; set -e; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("set -o errexit -a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", ["AGENTS.md"]),  # ``-o`` takes the next word, whichever option
+    ("set -a; set +o errexit +a; POSIXLY_CORRECT=1; head AGENTS.md -n 0", []),
+    ("declare -rx POSIXLY_CORRECT=1; unset POSIXLY_CORRECT; head AGENTS.md -n 0", ["AGENTS.md"]),  # a readonly variable is not unset
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),  # a copy of a closed descriptor fails
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>&1 1>&-; head AGENTS.md -n 0", []),  # the copy came first
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 1>&- 1>/dev/null 2>&1; head AGENTS.md -n 0", []),  # reopened
+    ("export POSIXLY_CORRECT=1; unset POSIXLY_CORRECT 2>&- 1>&2; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; { unset POSIXLY_CORRECT; } 1>&- 2>&1; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; if false; then :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),  # the whole body
+    ("export POSIXLY_CORRECT=1; if false; then :; else :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; for f in a; do :; unset POSIXLY_CORRECT; done; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; while false; do :; unset POSIXLY_CORRECT; done; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; if [ -f \"$X\" ]; then :; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; if false; then :; fi; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),  # after ``fi``
+    ("export POSIXLY_CORRECT=1; while false; do :; done; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+    ("export POSIXLY_CORRECT=1; if true; then if false; then :; fi; unset POSIXLY_CORRECT; fi; head AGENTS.md -n 0", ["AGENTS.md"]),
+    ("export POSIXLY_CORRECT=1; if true; then if false; then :; fi; fi; unset POSIXLY_CORRECT; head AGENTS.md -n 0", []),
+])
+def test_shell_reads_a_head_or_tail_with_a_zero_count_prints_no_line(command, reads):
+    assert shell_reads(command) == reads
+
+
 @pytest.mark.parametrize("command", [
     '{ cd "$D"; } && cat a',
     '{ builtin cd "$D"; cat a; }',

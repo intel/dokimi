@@ -19,7 +19,7 @@ The framework counts what every repository asks of a trace:
   tells them): a multi-file read (``cat a missing``) keeps its reads, as its exit does not say which file failed;
 - ``guidance_searched``: the sorted workspace paths, under the same rules as ``guidance_read``, in the ``searched`` list of
   a ``command`` event not denied (a ``grep``, ``egrep``, ``fgrep``, ``rg`` or ``git grep`` that showed lines of the file) or of
-  a Claude Code ``Grep`` ``tool`` event (``output_mode`` ``content``). The files are not in ``guidance_read``, and the
+  a Claude Code ``Grep`` or Copilot ``grep`` ``tool`` event (``output_mode`` ``content``). The files are not in ``guidance_read``, and the
   search is no ``read`` event, so ``tool_calls`` does not count it;
 - ``unknown_reads``: the relative shell reads the trace made at a directory the converter could not follow
   (after ``source env.sh``, say), which have no ``read`` event: ``guidance_read`` may miss them. It comes from
@@ -33,14 +33,13 @@ its regex finds a match in (``re.search``). A counter matches the command text u
 
 from __future__ import annotations
 
-import posixpath
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from dokimi.repos.event_format import TOOL_KINDS, plain_path
+from dokimi.repos.event_format import TOOL_KINDS, followed_path, plain_path
 
 COUNTER_FIELDS = ("text", "output", "any")
 
@@ -84,16 +83,9 @@ def _workspace_path(path: str, resolve: Callable[[str], str | None] | None = Non
     is collapsed by name, as when the workspace is not known. A path that climbs out of the workspace is None either way."""
     if path.startswith("~"):
         return None
-    p = PurePosixPath(plain_path(path))
-    if p.is_absolute():
+    if PurePosixPath(plain_path(path)).is_absolute():
         return None
-    if ".." in p.parts:
-        if not resolve:
-            p = PurePosixPath(posixpath.normpath(p))
-        elif p.name != "..":
-            p = PurePosixPath(resolve(str(p.parent)) or "..") / p.name
-        else:
-            p = PurePosixPath(resolve(str(p)) or "..")
+    p = PurePosixPath(followed_path(path, resolve))
     return None if ".." in p.parts else str(p)
 
 
