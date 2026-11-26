@@ -289,7 +289,7 @@ def _run(root, out, runner, monkeypatch, *extra):
     exe, profile = fake_harness(out.parent)
     monkeypatch.setenv("FAKE_ACTION", "fix")
     _cli(["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
-          "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root",
+          "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out", str(out), "--cache-root",
           str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw", "--reps", "2", *extra],
          monkeypatch, runner)
 

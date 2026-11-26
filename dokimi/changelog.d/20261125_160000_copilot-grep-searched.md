@@ -1,0 +1,3 @@
+### Fixed
+
+- **A Copilot CLI `grep` tool call over a guidance file counts in `process.guidance_searched`** — the `copilot-json` converter turned a `grep` call into a bare `tool` event, so `grep` with `paths: "AGENTS.md"` and `output_mode: "content"` listed nothing. The event now carries `searched`, the call's `paths` (one string or a list) resolved from the start directory as a `view` path is, in `content` mode only; the default mode, `files_with_matches` and `count` print no line of a file, and a call with no `paths` names no file. A result that failed, is empty or says `No matches found.` drops it. A search adds no `read` event, so `tool_calls` and `guidance_read` do not change.

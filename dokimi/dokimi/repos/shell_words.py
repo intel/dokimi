@@ -15,7 +15,7 @@ from collections.abc import Collection
 from .shell_split import substitution_end
 
 _SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
-_ASSIGN = re.compile(r"[A-Za-z_]\w*=")  # a NAME=value word: a variable set for the command that follows
+_ASSIGN = re.compile(r"[A-Za-z_]\w*\+?=")  # a NAME=value or NAME+=value word: a variable set for the command that follows
 # a redirection word (``>``, ``2>err``, ``</dev/null``, ``&>>log``, ``{fd}>x``): group 1 is its attached target, if any
 _REDIRECT = re.compile(r"(?:\d+|&|\{\w+\})?(?:>[>|&]?|<(?:<<?|[&>])?)(.*)", re.S)
 _KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
