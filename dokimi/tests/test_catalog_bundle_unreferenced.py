@@ -779,3 +779,15 @@ def test_a_file_that_only_looks_like_a_translation_is_still_unnamed(tmp_path, ot
     review = _review(tmp_path, "Run `python scripts/build.py`.\n", ["scripts/build.py", other_file])
     [finding] = [f for f in review.findings if f.code == "bundle-file-unreferenced"]
     assert finding.message.startswith("1 of 2")
+
+
+def test_the_warning_does_not_claim_the_agent_finds_a_file_only_by_browsing(tmp_path):
+    """#969 scenario 7: a launcher a document names may run the file, so the message says only that no document names it."""
+    files = {
+        "visual.md": "Run `bash scripts/start.sh`.\n",
+        "scripts/start.sh": '#!/bin/sh\ncd "$(dirname "$0")"\nnode server.cjs\n',
+        "scripts/server.cjs": "console.log(1)\n",
+    }
+    review = _review(tmp_path, "# Tool\n\nSee [visual](visual.md).\n", files)
+    [message] = [f.message for f in review.findings if f.code == "bundle-file-unreferenced"]
+    assert "scripts/server.cjs" in message and "browsing" not in message and "no document names them" in message

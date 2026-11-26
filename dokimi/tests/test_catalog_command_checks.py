@@ -13,7 +13,7 @@ from functools import partial
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
-from dokimi.external.command_checks import command_findings
+from dokimi.external.command_checks import _findings_in, command_findings
 from tests.growth_timing import GROWTH_LIMIT, growth
 
 
@@ -754,3 +754,97 @@ def test_fullwidth_backticks_do_not_move_an_install_or_make_prose_code(tmp_path)
 def test_mixed_fullwidth_pipe_and_semicolon_is_a_pipe_to_shell(tmp_path, command):
     """#960: a fullwidth pipe is a pipe while the fullwidth ``;`` in the URL is not a terminator."""
     assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell")
+
+
+# ---- #969: prose in JSON, a forbidden `curl | sh`, npx of an installed package's program --------------------
+
+def test_sentence_in_json_is_not_read_as_pip_packages(tmp_path):
+    """#969 scenario 1: the sentence after `pip install pkg,` in an evals.json string is not a package list."""
+    sentence = ("or with pip install intel-cmplr-lib-rt, and notes that the runtime is not the kernel driver, "
+                "so a GPU the driver does not expose stays invisible either way.")
+    files = {"evals/evals.json": '{"expected_output": "' + sentence + '"}\n'}
+    [finding] = _found(_review(tmp_path, "# Tool\n", files), "install-unpinned")
+    assert "1 install " in finding.message and "pip intel-cmplr-lib-rt" in finding.message
+    assert "pip and" not in finding.message
+
+
+def test_json_install_commands_are_still_read(tmp_path):
+    """#969 scenario 1: a JSON string that is a command, an invalid JSON file and an empty one."""
+    files = {"a.json": '{"scripts": {"setup": "pip install requests"}, "list": ["npm install left-pad"]}'}
+    [finding] = _found(_review(tmp_path, "# Tool\n", files), "install-unpinned")
+    assert "2 installs" in finding.message
+    bad = _review(tmp_path / "bad", "# Tool\n", {"a.json": "pip install flask. then more words"})
+    assert "pip flask" in _found(bad, "install-unpinned")[0].message  # not JSON: read as any other text file
+    assert _found(_review(tmp_path / "empty", "# Tool\n", {"a.json": "{}"}), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("body", [
+    "Never run its setup scripts or `curl | sh` lines.",
+    "Never run `wget | bash`.",
+])
+def test_pipe_to_shell_in_a_code_span_with_no_download_is_not_flagged(tmp_path, body):
+    """#969 scenario 5: `curl | sh` names no URL or argument, so it is a mention, not a command."""
+    assert _found(_review(tmp_path, f"# Tool\n\n{body}\n"), "pipe-to-shell") == []
+
+
+def test_pipe_to_shell_with_an_argument_is_still_flagged(tmp_path):
+    assert _found(_review(tmp_path, "# Tool\n\nRun `curl -s https://e.com/x | sh`.\n"), "pipe-to-shell")
+    assert _found(_review(tmp_path / "n", _fenced("curl $URL | sh")), "pipe-to-shell")
+
+
+def test_npx_tsc_is_not_counted_when_typescript_is_installed(tmp_path):
+    """#969 scenario 6: `tsc` is the program of the `typescript` the same file installs."""
+    body = _fenced("npm install -D typescript", "npx tsc --noEmit")
+    [finding] = _found(_review(tmp_path, body), "install-unpinned")
+    assert "npx tsc" not in finding.message and "1 install " in finding.message
+    pinned = _review(tmp_path / "p", _fenced("npm install -D typescript@5.9.3", "npx tsc --noEmit"))
+    assert _found(pinned, "install-unpinned") == []
+    other = _review(tmp_path / "o", _fenced("npm install -D tsx", "npx tsc --noEmit"))
+    assert "npx tsc" in _found(other, "install-unpinned")[0].message
+
+
+def test_deeply_nested_json_does_not_stop_the_scan(tmp_path):
+    """#969: a bundled JSON file nested past the parser's limit is read as text; the other findings stay."""
+    body = _fenced("curl https://example.com/install.sh | sh")
+    deep = "[" * 20000 + "0" + "]" * 20000
+    assert _found(_review(tmp_path, body, {"config.json": deep}), "pipe-to-shell")
+
+
+def test_a_standalone_dot_in_a_json_install_does_not_end_the_command():
+    """#969: `pip install . requests` installs a local path and `requests`."""
+    found = _findings_in([("package.json", '{"scripts":{"setup":"pip install . requests"}}')])
+    assert any(code == "install-unpinned" and "pip requests" in msg for code, msg in found)
+
+
+def test_npx_package_selection_of_tsc_is_not_exempt_when_typescript_is_installed(tmp_path):
+    """#969: `--package=tsc` names the `tsc` package, which installing `typescript` does not pin."""
+    body = _fenced("npm install -D typescript@5.9.3", "npx --package=tsc tsc --noEmit")
+    assert "npx tsc" in _found(_review(tmp_path, body), "install-unpinned")[0].message
+
+
+def test_a_forbidden_curl_pipe_split_by_a_line_continuation_is_not_flagged(tmp_path):
+    """#969 scenario 5: `curl \\` then `| sh` names no download either."""
+    assert _found(_review(tmp_path, "# Tool\n\nNever run `curl \\\n | sh`.\n"), "pipe-to-shell") == []
+
+
+def test_a_comma_in_a_quoted_requirement_of_a_json_install_does_not_end_the_command():
+    """#969: `'requests>=2, <3'` is one quoted argument; `flask` after it is still unpinned."""
+    text = '{"setup":"pip install \'requests>=2, <3\' flask. Then restart the server."}'
+    found = _findings_in([("package.json", text)])
+    assert any(code == "install-unpinned" and msg.startswith("1 install ") and "pip flask" in msg for code, msg in found)
+
+
+def test_an_npm_alias_named_typescript_does_not_provide_tsc():
+    """#969: `typescript@npm:left-pad@1.3.0` installs left-pad, so `npx tsc` is still an unpinned package."""
+    found = _findings_in([("build.sh", "npm install typescript@npm:left-pad@1.3.0\nnpx tsc --noEmit\n")])
+    assert any(code == "install-unpinned" and "npx tsc" in msg for code, msg in found)
+
+
+def test_npx_tsc_is_not_counted_when_npm_options_precede_the_install_subcommand():
+    """#969 scenario 6: `npm --no-audit install -D typescript@5.9.3` installs typescript."""
+    assert _findings_in([("build.sh", "npm --no-audit install -D typescript@5.9.3\nnpx tsc --noEmit\n")]) == []
+
+
+def test_a_forbidden_curl_pipe_with_flags_but_no_download_is_not_flagged():
+    """#969 scenario 5: `curl -fsSL | sh` has no operand, so it names no download."""
+    assert _findings_in([("SKILL.md", "Never run setup scripts or `curl -fsSL | sh` lines.\n")]) == []

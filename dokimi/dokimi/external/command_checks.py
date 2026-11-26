@@ -7,7 +7,8 @@ Nothing is run and nothing is sent: these are regular expressions over the text.
 each a ``warn`` in :mod:`dokimi.external.validate`:
 
 - ``pipe-to-shell``: ``curl`` or ``wget`` piped into a shell or an interpreter (``| sh``,
-  ``| sudo bash``, ``| python3``), which runs a download without a look at it.
+  ``| sudo bash``, ``| python3``), which runs a download without a look at it. ``curl | sh`` or
+  ``curl -fsSL | sh`` with no operand names no download, so it is not a command.
 - ``permission-bypass-flag``: ``--dangerously-skip-permissions``, ``--yolo`` or
   ``bypassPermissions``, which switch off a coding agent's permission prompts.
 - ``install-unpinned``: a ``pip``, ``npm``, ``pnpm`` or ``npx`` install that names a package with no
@@ -18,7 +19,9 @@ each a ``warn`` in :mod:`dokimi.external.validate`:
 Where each check reads: ``pipe-to-shell`` and ``permission-bypass-flag`` read every line of the
 text, since their tokens are distinctive. Installs are read from code only: the fenced blocks and
 code spans of a prose file (Markdown, .mdx, .txt, .rst, .adoc), and the whole of any other text file
-(a script, say). So "pip install to get started" in a sentence is not an install. A skill at the
+(a script, say). So "pip install to get started" in a sentence is not an install. A JSON file is read as its
+strings, each ending where a sentence does, so a sentence after an install is not a list of packages. ``npx tsc``
+is not counted in a file that installs ``typescript``, which provides ``tsc``. A skill at the
 root of a scanned checkout reads its own ``SKILL.md`` only, since its bundled files are the rest of that
 checkout.
 
@@ -29,6 +32,7 @@ look-alike letter does not hide a command.
 from __future__ import annotations
 
 import bisect
+import json
 import os
 import re
 import shlex
@@ -61,8 +65,9 @@ _PIPE_TO = (
     r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
     r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
 )
+# ``curl`` or ``wget`` with nothing but flags before the pipe (``curl -fsSL | sh``) names no download: a sentence that forbids it.
 PIPE_TO_SHELL = re.compile(
-    r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
+    r"\b(?:curl|wget)\b(?!(?:(?:[ \t]|\\\r?\n)+-[\w-]+)*(?:[ \t]|\\\r?\n)*\|(?!\|))(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
     + _PIPE_TO + r"(?:"
     # An inline program (`python -c`, `node -e`, `ruby -e`) or `python -m json.tool` takes the download as data,
     # unless the program execs or evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
@@ -116,10 +121,16 @@ def _pnpm_options(value_options: frozenset[str]) -> str:
     )
 
 
+# ``npm`` with options before the subcommand (``npm --no-audit install``): read for the packages it installs only
+NPM_OPTIONS_INSTALL = re.compile(
+    r"(?<![\w.-])npm" + _pnpm_options(NPM_VALUE_OPTIONS) + r"[ \t]+(?:install|i|add)\b" + WORDS)
 PNPM = re.compile(r"(?<![\w.-])pnpm" + _pnpm_options(PNPM_VALUE_OPTIONS) + r"[ \t]+(?:install|i|add)\b" + WORDS)
 # ``pnpm dlx`` and ``pnpx`` run a package as ``npx`` does; ``--package`` before ``dlx`` is a selection (group 1)
 PNPM_DLX = re.compile(
     r"(?<![\w.-])(?:pnpm(" + _pnpm_options(PNPM_VALUE_OPTIONS | {"--package", "-p"}) + r")[ \t]+dlx|pnpx)\b" + WORDS)
+# A program ``npx`` runs that an install in the same file provides: ``tsc`` is the ``typescript`` package's, so
+# ``pkg@1.2.3`` applied to ``tsc`` would name another package.
+BIN_PROVIDERS = {"tsc": "typescript", "tsserver": "typescript"}
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
 # ``echo`` or ``printf`` at the start of a command, after control keywords, ``command``/``builtin``/``exec`` and
 # ``NAME=value`` assignments (``then echo "..."``, ``LC_ALL=C printf ...``)
@@ -237,7 +248,9 @@ def _unpinned_npm(rest: str, value_options: frozenset[str] = NPM_VALUE_OPTIONS) 
     return names
 
 
-def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) -> list[str]:
+def _unpinned_npx(
+    rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS, installed: frozenset[str] | set[str] = frozenset()
+) -> list[str]:
     """npx runs the packages it is given: each ``--package``/``-p`` selection before the program, or else the program
     itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
     it. Words after the program are its own arguments: its ``-p`` is not npx's selection."""
@@ -260,10 +273,24 @@ def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) 
             break
         i += 1
     names = []
+    # a program an installed package provides is not a package of its own; a selection names the package itself
+    skip = None if selected or executable is None else BIN_PROVIDERS.get(executable)
     for spec in selected or ([executable] if executable else []):
+        if skip is not None and skip in installed:
+            continue
         match = NPM_NAME.fullmatch(spec.rstrip("\"')"))
         if match is not None and not spec.lower().endswith(NON_PACKAGE_SUFFIXES) and not _npm_pinned(match.group(2)):
             names.append(match.group(1))
+    return names
+
+
+def _installed_npm(rest: str, value_options: frozenset[str]) -> set[str]:
+    """The package names an ``npm``/``pnpm`` install names, pinned or not."""
+    names = set()
+    for word in _words(rest, value_options):
+        match = NPM_NAME.fullmatch(word.rstrip("\"')")) if word and not word.startswith("-") else None
+        if match and not (match.group(2) or "").startswith("npm:"):  # an alias installs another package
+            names.add(match.group(1))
     return names
 
 
@@ -446,13 +473,16 @@ def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
     (``ｕｖ pip``) does not move. The quoted text of an ``echo`` or ``printf`` is blanked first, in place, so no
     offset moves."""
     code = _without_printed(code)
+    installed = {n for m in NPM_OPTIONS_INSTALL.finditer(code) for n in _installed_npm(m.group(1), NPM_VALUE_OPTIONS)}
+    installed |= {n for m in PNPM.finditer(code) for n in _installed_npm(m.group(1), PNPM_VALUE_OPTIONS)}
     found = [(m.start(1), "pip", m.end(1), [f"pip {n}" for n in _unpinned_pip(m.group(1))]) for m in PIP.finditer(code)]
     found += [(m.start(1), "npm", m.end(1), [f"npm {n}" for n in _unpinned_npm(m.group(1))]) for m in NPM.finditer(code)]
     found += [(m.start(1), "pnpm", m.end(1), [f"pnpm {n}" for n in _unpinned_npm(m.group(1), PNPM_VALUE_OPTIONS)])
               for m in PNPM.finditer(code)]
     found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
               for m in PNPM_DLX.finditer(code)]
-    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1))]) for m in NPX.finditer(code)]
+    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), installed=installed)])
+              for m in NPX.finditer(code)]
     return found
 
 
@@ -464,14 +494,52 @@ def _ends_inside_url(reading: str, end: int) -> bool:
     return "://" in reading[start:stop]
 
 
-def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
+def _cut_sentences(item: str) -> str:
+    """``item`` with a newline for each ``,``, ``.``, ``!`` or ``?`` that ends a word and is outside quotes: a comma
+    in a quoted requirement (``'a>=2, <3'``) does not end the command. A quote opens after whitespace or ``=``
+    only, so the apostrophe of ``isn't`` opens none."""
+    out: list[str] = []
+    quote = ""
+    for i, c in enumerate(item):
+        if quote:
+            quote = "" if c == quote else quote
+        elif c in "'\"" and (i == 0 or item[i - 1] in " \t\n="):
+            quote = c
+        elif c in ",.!?" and i > 0 and not item[i - 1].isspace() and item[i + 1:i + 2] in ("", " ", "\t", "\n", "\r"):
+            c = "\n"
+        out.append(c)
+    return "".join(out)
+
+
+def _json_text(text: str) -> str:
+    """The strings of a JSON file, one per line, each cut where a sentence ends (``, `` or ``. ``): the commands
+    in them end there, so a sentence after ``pip install pkg,`` is not read as packages (#969). Text that is not
+    JSON is returned as it is."""
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):  # a file nested deeper than the parser's limit is read as text
+        return text
+    lines: list[str] = []
+    stack = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            lines.append(_cut_sentences(item))
+        elif isinstance(item, dict):
+            stack += [*item.values(), *item.keys()]
+        elif isinstance(item, list):
+            stack += item
+    return "\n".join(reversed(lines))
+
+
+def _unpinned_in_readings(text: str, markdown: bool, is_json: bool = False) -> list[str]:
     """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
     once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
     same place is counted once, with the packages of the most folded reading that finds it, even when that reading
     reads fewer arguments: it has ended the command at a fullwidth separator (a fullwidth ``＝＝`` that pins a package
     may be followed by one). The exception is a separator inside a URL word, which the earlier reading keeps. A command at another place is another install."""
     best: dict[tuple[int, str], tuple[int, list[str], str]] = {}
-    for reading in readings(_code_text(text, markdown)):
+    for reading in readings(_code_text(_json_text(text) if is_json else text, markdown)):
         for offset, command, end, labels in _unpinned_at(reading):
             key = (offset, command)
             if key in best and best[key][0] != end and _ends_inside_url(best[key][2], end):
@@ -560,7 +628,7 @@ def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
                 f"{rel} names a flag or mode that turns off the agent's permission prompts (line {where}); "
                 "say what it may run unprompted, or drop it",
             ))
-        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES))
+        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES), rel.lower().endswith(".json"))
 
     unpinned = list(dict.fromkeys(unpinned))  # one per package across SKILL.md and the bundled files
     if unpinned:

@@ -3,8 +3,8 @@
 
 """``bundle-file-unreferenced``: bundled scripts and documents that ``SKILL.md`` never names.
 
-An agent reads ``SKILL.md`` and opens the files it names; a bundled file it is not pointed at is
-found only by browsing the directory. One ``warn`` per skill in :mod:`dokimi.external.validate`,
+An agent reads ``SKILL.md`` and opens the files it names; a bundled file no document points it at is
+not named anywhere (a script may still run it, which this check does not read). One ``warn`` per skill in :mod:`dokimi.external.validate`,
 with the count and the first :data:`EXAMPLES_SHOWN` paths; a ``note`` when the search cannot see every name.
 
 Only code and documents count (:data:`COUNTED_SUFFIXES`): data, images and fonts are read by the
@@ -368,7 +368,7 @@ def unreferenced_check(
     shown = ", ".join(missing[:EXAMPLES_SHOWN]) + (", ..." if len(missing) > EXAMPLES_SHOWN else "")
     message = (
         f"{len(missing)} of {len(files)} bundled scripts and documents are never named in SKILL.md "
-        f"or a document it names ({shown}); the agent finds them only by browsing. Name each one "
+        f"or a document it names ({shown}); no document names them. Name each one "
         "where it is used, or remove it"
     )
     return message, None
