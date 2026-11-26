@@ -127,6 +127,7 @@ def test_unreadable_skills_dir_is_an_error_row_and_the_next_entry_loads(tmp_path
     finally:
         (root / "skills").chmod(0o755)
 
+    # The reason differs by version: 3.14's is_dir() hides the PermissionError, so the loader finds no path.
     assert entries[0].skill is None
-    assert "Permission denied" in entries[0].error
+    assert entries[0].error
     assert entries[1].skill.name == "other"
