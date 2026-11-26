@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """A seed the route does not take is warned about once, dropped, and recorded as unsupported.
 
 The run is not refused: the seed was never sent, so the artifact must not read as seeded.
