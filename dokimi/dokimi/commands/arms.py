@@ -47,6 +47,14 @@ def run_config_from_args(args: argparse.Namespace, **overrides) -> ArmsRunConfig
     return ArmsRunConfig(**{**values, **overrides})
 
 
+def _flags_config(args: argparse.Namespace) -> ArmsRunConfig:
+    """A refused combination of CLI flags is an input error."""
+    try:
+        return run_config_from_args(args)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
+
+
 def judge_panel_roles(value: str) -> str:
     """argparse type for --judge-panel: an unknown role fails before any answer is paid for."""
     from dokimi.eval.panel import JUDGE_ROLES
@@ -70,11 +78,12 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
     """Run an N-arm treatment comparison and optionally judge it."""
     from dokimi.eval.arms_run import LibraryIdError, ProbeError, prepare_arms, run_prepared
 
+    config = _flags_config(args)
     # Setup (inputs, arms, plugins, sampling, judge) exits 2; a failed sampling probe is a run failure (1).
     try:
         specs = _parse_arm_specs(args.arms)
         questions = _load_questions(args.questions)
-        config = _with_named_cell(run_config_from_args(args), args.matrix_cells, args.matrix_cell)
+        config = _with_named_cell(config, args.matrix_cells, args.matrix_cell)
         prepared = prepare_arms(config, specs, questions)
     except EmptyQuestionError:
         raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
@@ -116,10 +125,7 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     """Run every cell in a matrix.cells descriptor and write a rollup."""
     out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
-    try:
-        config = run_config_from_args(args)
-    except ValueError as exc:  # a refused combination of flags: exit 2, as arms run reports it
-        raise InputError(str(exc)) from exc
+    config = _flags_config(args)
     run_matrix(
         config, arms=args.arms, questions=args.questions,
         matrix_cells=args.matrix_cells, out_dir=out_dir,

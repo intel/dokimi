@@ -53,6 +53,7 @@ PROTOCOL = "treatment_material.v1"
 #: material, or fell back to the record's 200-char report snippets.
 SOURCE_STORED = "stored"
 SOURCE_SNIPPET_FALLBACK = "snippet_fallback"
+SOURCE_WITHHELD = "withheld"  # the withheld protocol supplied no material without consulting a stored digest
 
 #: Stamped when some of a run's scores saw the stored material and some fell
 #: back to snippets. It equals neither protocol, so it pools with nothing.
@@ -258,10 +259,10 @@ class JudgeContextStore:
         """Rebuild the store from an arms artifact's digests and materials.
 
         A digest whose text is missing, or whose text does not hash to it, is
-        skipped with a warning: that answer falls back to its snippets, which is
-        visible in its ``judge_context_source``, rather than being judged on text
-        that is not what the arms run's judge saw. When ``judge_materials`` is an
-        object, the answers are read through :mod:`dokimi.records`: a malformed
+        skipped with a warning. A withheld run still supplies no material; other
+        runs fall back to snippets and record that in ``judge_context_source``.
+        When ``judge_materials`` is an object, the answers are read through
+        :mod:`dokimi.records`: a malformed
         list or record is a ``RecordError``. When it is missing or not an object,
         the store is empty and the answers are not read.
         """
@@ -288,9 +289,10 @@ class JudgeContextStore:
         if bad:
             logger.warning(
                 "%d arm records cite judge material that is missing from the artifact "
-                "or does not match its digest; those answers have no verified material "
-                "(callers that fall back use the report snippets; eval judge validate "
-                "--context stored drops them).", bad,
+                "or does not match its digest; %s",
+                bad,
+                "the withheld run still supplies no material." if store.mode == JUDGE_CONTEXT_BASELINE else
+                "callers that fall back use the report snippets; eval judge validate --context stored drops them.",
             )
         return store
 
@@ -300,7 +302,7 @@ class JudgeContextStore:
         with self._lock:
             key = (question_id, arm_name)
             hit = self._ctx.get(key)
-            if hit is None and key not in self._ambiguous and not self._warned:
+            if hit is None and key not in self._ambiguous and not self._warned and self.mode != JUDGE_CONTEXT_BASELINE:
                 self._warned = True
                 logger.warning(
                     "No stored judge context for %s/%s (the run did not keep it, or the text "
@@ -320,8 +322,9 @@ class JudgeContextStore:
     ) -> Tuple[str, str]:
         """The judge's context for one arm's answer, and where it came from.
 
-        Prefers what the arm was actually given (:data:`SOURCE_STORED`). Falls
-        back to the record's report snippets — truncated to 200 chars each, and
+        Prefers what the arm was actually given (:data:`SOURCE_STORED`). A withheld
+        run with missing material still shows none. Other runs fall back to the
+        record's report snippets — truncated to 200 chars each, and
         empty for an agentic arm — which is what every run before this store did
         (:data:`SOURCE_SNIPPET_FALLBACK`). The source is returned so each score
         can record it: one run can mix both, and the warning fires only once.
@@ -329,6 +332,8 @@ class JudgeContextStore:
         stored = self.get(question_id, arm_name)
         if stored is not None:
             return stored or NO_CONTEXT, SOURCE_STORED
+        if self.mode == JUDGE_CONTEXT_BASELINE:
+            return NO_CONTEXT, SOURCE_WITHHELD
         snippets = "\n".join(c.get("snippet", "") for c in arm.get("context_chunks", []))
         return snippets or NO_CONTEXT, SOURCE_SNIPPET_FALLBACK
 

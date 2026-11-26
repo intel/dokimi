@@ -82,9 +82,11 @@ material. The judge is then
 shown no material on any arm, the context a baseline arm's judge sees, so every
 arm is judged on one context. The answering path is unchanged. The output is
 stamped `treatment_material.withheld.v1`, which pools only with other withheld
-runs. Rejudging the saved artifact retains the withheld protocol when the judge uses its stored
-contexts. A missing context still counts as a snippet fallback. The default, `--judge-context arm`,
-is the material protocol above.
+runs. Partial artifacts saved before judging also keep this stamp. Rejudging a
+withheld artifact still supplies no treatment material when a stored context
+is missing. Its stored scores can be included in `eval judge agreement` with
+pairwise or checklist results, whose judges see the answers alone. The default,
+`--judge-context arm`, is the material protocol above.
 
 What this changes is the evidence the judge has, not how well it separates good
 answers from bad ones. On 81 skill-arm answers to the perf golden set (Haiku 4.5

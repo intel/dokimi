@@ -7,17 +7,22 @@ The answering path is unchanged; only what the judge is given differs, so the ju
 are scored on the same context as a baseline arm (the control an uplift study needs).
 """
 
+import json
+import sys
+
 import pytest
 
 import dokimi.eval.arm_runner as arm_runner_mod
-from dokimi.cli import build_parser
+from dokimi.cli import build_parser, main
 from dokimi.commands.arms import run_config_from_args
 from dokimi.eval.arm_runner import ArmRunner
 from dokimi.eval.arms_run import ArmsRunConfig, prepare_arms
-from dokimi.eval.judge_context import NO_CONTEXT, PROTOCOL, PROTOCOL_MIXED, JudgeContextStore
+from dokimi.eval.cross_judge import stored_measure
+from dokimi.eval.judge_context import NO_CONTEXT, PROTOCOL, JudgeContextStore
 from dokimi.skills import load_skill
 from dokimi.treatments import BaselineTreatment, SkillTreatment
 from dokimi.utils import InputError
+from tests.cli_refusal import refusal
 
 QUESTIONS = [{"id": "q1", "question": "How do I parallelize a loop?", "category": "usage"}]
 #: The stamp a run writes when the judge was shown no material on any arm (it pools with no other protocol).
@@ -73,6 +78,36 @@ def test_a_withheld_run_is_stamped_apart_from_a_material_run(fake_answers, demo_
     assert runner.build_output("oneTBB", records, evaluations, judge=judge)["judge_context"] == PROTOCOL
 
 
+def test_a_withheld_run_logs_no_pooling_warning(fake_answers, demo_skill, caplog):
+    runner, records, judge, evaluations = _run_and_judge(demo_skill, judge_context_mode="baseline")
+    caplog.clear()
+
+    result = runner.build_output("oneTBB", records, evaluations, judge=judge)
+
+    assert result["judge_context"] == PROTOCOL_WITHHELD
+    assert "pools with nothing" not in caplog.text
+
+
+def test_rejudging_a_withheld_partial_run_keeps_its_protocol(fake_answers, demo_skill, tmp_path):
+    from dokimi.artifacts import load_artifact, save_artifact
+
+    runner = ArmRunner([BaselineTreatment(), SkillTreatment(load_skill(demo_skill))], judge_context_mode="baseline")
+    records = runner.run("oneTBB", QUESTIONS, concurrency=1)
+    path = tmp_path / "partial.json"
+    save_artifact("arms", runner.build_output("oneTBB", records), path)
+    saved = load_artifact("arms", path)
+    assert "evaluations" not in saved
+    assert saved["judge_context"] == PROTOCOL_WITHHELD
+
+    later = ArmRunner(runner.treatments)
+    later.judge_context = JudgeContextStore.from_artifact(saved)
+    judge = _CapturingJudge()
+    evaluations = later.judge(judge, "oneTBB", saved["answers"])
+
+    assert judge.contexts == [NO_CONTEXT, NO_CONTEXT]
+    assert later.build_output("oneTBB", saved["answers"], evaluations, judge=judge)["judge_context"] == PROTOCOL_WITHHELD
+
+
 @pytest.mark.parametrize(("saved_mode", "new_mode", "stamp"), [
     ("baseline", "arm", PROTOCOL_WITHHELD), ("arm", "baseline", PROTOCOL),
 ])
@@ -95,15 +130,48 @@ def test_a_withheld_stamp_conflicting_with_the_saved_material_is_refused(fake_an
         JudgeContextStore.from_artifact(saved)
 
 
-def test_missing_withheld_material_still_counts_as_a_fallback(fake_answers, demo_skill):
+def test_missing_withheld_material_never_feeds_treatment_snippets_to_the_judge(fake_answers, demo_skill):
     runner, records, judge, evaluations = _run_and_judge(demo_skill, judge_context_mode="baseline")
     saved = runner.build_output("oneTBB", records, evaluations, judge=judge)
-    del saved["answers"][0]["arms"][runner.treatments[1].name]["judge_context_sha256"]
+    arm_name = runner.treatments[1].name
+    arm = saved["answers"][0]["arms"][arm_name]
+    del arm["judge_context_sha256"]
+    arm["context_chunks"] = [{"snippet": "This skill material must stay withheld."}]
     later = ArmRunner(runner.treatments)
     later.judge_context = JudgeContextStore.from_artifact(saved)
-    rescored = later.judge(judge, "oneTBB", saved["answers"])
-    output = later.build_output("oneTBB", saved["answers"], rescored, judge=judge)
-    assert output["judge_context"] == PROTOCOL_MIXED
+    second = _CapturingJudge()
+    rescored = later.judge(second, "oneTBB", saved["answers"])
+    output = later.build_output("oneTBB", saved["answers"], rescored, judge=second)
+    assert second.contexts == [NO_CONTEXT, NO_CONTEXT]
+    assert output["judge_context"] == PROTOCOL_WITHHELD
+    assert output["judge_context_sources"] == {"stored": 1, "withheld": 1}
+
+
+@pytest.mark.parametrize("measure_flag", ["--pairwise", "--checklist"])
+def test_withheld_scores_can_be_compared_with_answers_only_results(
+        fake_answers, demo_skill, tmp_path, measure_flag):
+    runner, records, judge, evaluations = _run_and_judge(demo_skill, judge_context_mode="baseline")
+    saved = runner.build_output("oneTBB", records, evaluations, judge=judge)
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(saved), encoding="utf-8")
+    arm = runner.treatments[1].name
+    result = (
+        {"summary": {"judge": "fake/pairwise"}, "verdicts": {arm: {"q1": {"score": 1.0}}}}
+        if measure_flag == "--pairwise"
+        else {"summary": {"judge": "fake/checklist"}, "questions": [
+            {"question_id": "q1", "arms": {"baseline": {"coverage": 0.2}, arm: {"coverage": 0.8}}}]}
+    )
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps(result), encoding="utf-8")
+    out = tmp_path / "agreement.json"
+    args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers),
+                                      measure_flag, str(other), "--output", str(out)])
+
+    args.func(args)
+
+    paired = json.loads(out.read_text(encoding="utf-8"))
+    assert "fake-provider/ctx-judge (stored)" in paired["summary"]["measures"]
+    assert stored_measure(saved).context == "none"
 
 
 def test_an_unknown_judge_context_mode_is_refused(demo_skill):
@@ -129,7 +197,7 @@ def test_matrix_run_refuses_the_flag_without_judge_as_an_input_error(capsys):
     from dokimi.commands.arms import cmd_arms_matrix_run
     from dokimi.utils import InputError
 
-    args = build_parser().parse_args(["arms", "matrix-run", "--arms", "baseline", "--product", "oneTBB",
+    args = build_parser().parse_args(["arms", "matrix-run", "--arm", "baseline", "--product", "oneTBB",
                                       "--questions", "q.json", "--matrix-cells", "cells.json",
                                       "--judge-context", "baseline"])
     with pytest.raises(InputError, match="needs --judge"):
@@ -137,14 +205,25 @@ def test_matrix_run_refuses_the_flag_without_judge_as_an_input_error(capsys):
 
 
 def test_the_flag_without_judge_exits_before_any_answer():
-    command = ["arms", "run", "--arms", "baseline", "--product", "oneTBB", "--questions", "q.json"]
+    command = ["arms", "run", "--arm", "baseline", "--product", "oneTBB", "--questions", "q.json"]
     with pytest.raises(ValueError, match="needs --judge"):
         run_config_from_args(build_parser().parse_args(command + ["--judge-context", "baseline"]))
 
 
+def test_arms_run_refuses_withholding_without_a_judge_as_an_input_error(monkeypatch):
+    argv = ["dokimi", "arms", "run", "--arm", "baseline", "--product", "oneTBB",
+            "--questions", "missing.json", "--judge-context", "baseline"]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with refusal() as outcome:
+        main()
+
+    assert outcome.code == 2
+    assert outcome.err.strip().startswith("Error: --judge-context baseline needs --judge:")
+
 @pytest.mark.parametrize("command", [
-    ["arms", "run", "--arms", "baseline"],
-    ["arms", "matrix-run", "--arms", "baseline", "--matrix-cells", "cells.json"],
+    ["arms", "run", "--arm", "baseline"],
+    ["arms", "matrix-run", "--arm", "baseline", "--matrix-cells", "cells.json"],
 ])
 def test_the_flag_is_on_arms_run_and_matrix_run(command):
     base = ["--product", "oneTBB", "--questions", "q.json"]
@@ -156,7 +235,7 @@ def test_the_flag_is_on_arms_run_and_matrix_run(command):
 
 
 def test_the_flag_rejects_a_value_outside_its_choices(capsys):
-    argv = ["arms", "run", "--product", "oneTBB", "--questions", "q.json", "--arms", "baseline",
+    argv = ["arms", "run", "--product", "oneTBB", "--questions", "q.json", "--arm", "baseline",
             "--judge-context", "none"]
     with pytest.raises(SystemExit) as exc:
         build_parser().parse_args(argv)

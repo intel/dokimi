@@ -34,8 +34,8 @@ from dokimi.eval.question_text import question_text_of, require_question_texts
 from dokimi.eval.arm_record import question_record
 from dokimi.eval.arm_stop import Halted, RunStopped, halt_if_stopped, mark_not_asked, stop_question
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
-from dokimi.eval.judge_context import JUDGE_CONTEXT_ARM, shown_to_judge
-from dokimi.eval.judge_context import SOURCE_STORED, stamp_judged_run
+from dokimi.eval.judge_context import JUDGE_CONTEXT_ARM, JUDGE_CONTEXT_BASELINE, PROTOCOL_WITHHELD
+from dokimi.eval.judge_context import SOURCE_STORED, shown_to_judge, stamp_judged_run
 from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.eval.judge_context import build as build_judge_context
 from dokimi.eval.judge_context import cite as cite_judge_materials
@@ -742,6 +742,8 @@ class ArmRunner:
                 out["judge_provider"] = getattr(judge, "provider", None)
                 out["judge_temperature"] = getattr(judge, "temperature", None)
                 out["judge_prompt_sha256"] = getattr(judge, "prompt_sha256", None)
+        elif self.judge_context_mode == JUDGE_CONTEXT_BASELINE:
+            out["judge_context"] = PROTOCOL_WITHHELD  # keep the judge mode when a partial artifact is reloaded
         # Judge-side token/cost telemetry, when a judge ran (mirrors the answer
         # cost_summary so a full run's spend is auditable from one artifact).
         if judge is not None and hasattr(judge, "usage_metrics"):
