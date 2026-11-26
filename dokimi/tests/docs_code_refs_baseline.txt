@@ -1,0 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Stale references in docstrings (tests/test_docs_code_refs.py). Only shrinks. A changelog fragment is
+# never listed: the release deletes fragments, and a row naming a deleted file would fail the release.
+dokimi/dokimi/external/granularity.py: unknown command: catalog granularity
