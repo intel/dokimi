@@ -247,3 +247,10 @@ def test_microsecond_units_compare_by_scale():
     assert lexical_conflict("Wait 1000 µs.", "Wait 1 ms.") is None
     assert lexical_conflict("Wait 1000 μs.", "Wait 1 ms.") is None
     assert lexical_conflict("Wait 1000 us.", "Wait 1 ms.") is None
+
+
+def test_different_flags_need_more_than_one_shared_word_for_a_multiword_atom():
+    short = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use --enable-accel."})
+    long = Atom.from_dict({**FIXTURE["atoms"][0], "statement": "Use --enable-accel for the accelerator."})
+    assert pair_atoms("Use --use-accel.", [short]) == []
+    assert pair_atoms("Use --use-accel for the accelerator.", [long]) == [long]

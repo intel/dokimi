@@ -147,9 +147,9 @@ def split_sentences(answer: str) -> list[Sentence]:
 def _content(text: str) -> set[str]:
     """Alphabetic words, with flags and identifiers split into their parts.
 
-    ``--use-accel`` and ``--enable-accel`` share ``accel``: a sentence that names the wrong
-    flag must still pair with the atom that names the right one. Numbers are left out;
-    they are what a contradiction changes, so they cannot be what pairs it.
+    Different flags such as ``--use-accel`` and ``--enable-accel`` share ``accel``.
+    If the atom has several content words, a shared flag component needs another
+    overlapping word to pair. Numbers do not contribute to the overlap.
     """
     parts = {p.lower() for w in _WORD.findall(_ABBREVIATION.sub(" ", text)) for p in re.split(r"[-/._]+", w)}
     return {p for p in parts if p.isalpha()} - _STOP
