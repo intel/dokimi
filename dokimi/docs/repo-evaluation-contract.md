@@ -2085,7 +2085,7 @@ A path in a code span is tried at the file's directory and each of its
 ancestors. If none has it, the path is `fail` when its parent directory exists
 at one of those bases (a rename or a deleted file), `ok_suffix` when it ends a
 longer path in the tree (a root file naming paths inside a subproject), and
-`unresolved` otherwise (a build output, a path inside a submodule). A code span equal to the `owner/name` of a GitHub `source.url` (letter case ignored) is `ok`, as this repository, unless the tree holds a path of that name. A missing
+`unresolved` otherwise (a build output, a path inside a submodule). A code span equal to the `owner/name` of a GitHub `source.url` (letter case ignored) is `ok`, as this repository, unless the tree holds a path of that name; an operand of a command is always a path. A missing
 path that a tracked `.gitignore` ignores is `unresolved` rather than `fail`,
 with the `.gitignore` line in the reason (also for a path that was `unresolved`
 already): guidance that warns about generated files names paths no snapshot

@@ -16,7 +16,20 @@ def _resolve(tmp_path, span: str, url: str | None, files: tuple[str, ...] = ("RE
     for rel in files:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_text("x\n", encoding="utf-8")
-    return Scan(WorkTree(tmp_path), frozenset(), repo_url=url).resolve_path("AGENTS.md", span)
+    return Scan(WorkTree(tmp_path), frozenset(), repo_url=url).resolve_path("AGENTS.md", span, prose=True)
+
+
+@pytest.mark.parametrize(("command", "kind", "operand"), [
+    ("pytest octo-org/demo", "pytest_path", "octo-org/demo"),
+    ("python octo-org/demo.py", "script_path", "octo-org/demo.py"),
+])
+def test_a_command_operand_is_a_path_not_the_slug(tmp_path, command, kind, operand):
+    (tmp_path / "octo-org").mkdir()
+    (tmp_path / "octo-org" / "keep.py").write_text("x\n", encoding="utf-8")
+    scan = Scan(WorkTree(tmp_path), frozenset({"pytest"}), repo_url=f"https://github.com/{operand}")
+    scan.check_span("AGENTS.md", 1, command, command)
+    [claim] = [c for c in scan.claims if c.kind == kind]
+    assert (claim.claim, claim.status) == (operand, "fail")
 
 
 @pytest.mark.parametrize("span", ["octo-org/demo", "Octo-Org/DEMO"])
