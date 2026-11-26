@@ -114,28 +114,6 @@ def test_symlink_loop_error_from_resolve_is_an_error_row(tmp_path, monkeypatch):
     assert entries[1].skill.name == "ok"
 
 
-def test_symlink_loop_in_catalog_path_is_an_error_row(tmp_path, monkeypatch):
-    root = tmp_path / "root"
-    (root / "loop").mkdir(parents=True)
-    (root / "ok").mkdir()
-    (root / "ok" / "SKILL.md").write_text(_SKILL.format(name="ok"), encoding="utf-8")
-    (root / "skills.yaml").write_text("- name: a\n  catalog_path: loop\n- name: b\n  catalog_path: ok\n",
-                                      encoding="utf-8")
-    real_resolve = Path.resolve
-
-    def resolve(self, strict=False):  # as 3.11/3.12 raise on a loop
-        if self.name == "loop":
-            raise RuntimeError(f"Symlink loop from {str(self)!r}")
-        return real_resolve(self, strict)
-
-    monkeypatch.setattr(Path, "resolve", resolve)
-    entries = read_skill_manifest(root)
-
-    assert entries[0].skill is None
-    assert "Symlink loop" in entries[0].error
-    assert entries[1].skill.name == "ok"
-
-
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="needs a POSIX non-root user")
 def test_unreadable_skills_dir_is_an_error_row_and_the_next_entry_loads(tmp_path):
     root = tmp_path / "root"

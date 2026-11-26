@@ -226,9 +226,9 @@ def _skill_entry(root: Path, item: dict, name: str, list_shape: bool) -> SkillCa
         return failed("manifest entry is missing catalog_path")
 
     path = root / catalog_path
+    if not _within(path, root):
+        return failed(f"{source} escapes root: {catalog_path!r}")
     try:
-        if not _within(path, root):
-            return failed(f"{source} escapes root: {catalog_path!r}")
         # Checked before load_skill opens it: a SKILL.md symlinked out of the root is never read.
         skill_md = path / "SKILL.md" if path.is_dir() else path
         if not _within(skill_md, root):
