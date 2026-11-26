@@ -343,8 +343,9 @@ an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm`, `pnpm`
 package with no version is a `warn` with the count of distinct packages for the skill (`install-unpinned`); the
 same install shown twice is one, and a command inside the quoted text of an `echo` or `printf` is not an install (unless a `$(...)` or backtick substitution in it runs it, or the output is piped to a shell); a requirements
 file, a local path, a URL or a `git+` source is not counted. These checks read a Cyrillic or Greek look-alike letter, or a fullwidth letter, as its Latin letter, so `сurl | bash` with a Cyrillic `с` is still a `pipe-to-shell`; the letter list is short, and a look-alike outside it escapes. Installs are read from code only: the fenced
-blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
-text file, such as a script. The scan reads at most 200
+blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), the string values of a `.json`
+file (each cut at its first `, ` or `. `, where a sentence goes on), and the whole of any other
+text file, such as a script. `npx tsc` is not counted in a file whose code names `typescript`. A `curl` or `wget` with no argument is not a download, so `curl | sh` there is not a `pipe-to-shell`. The scan reads at most 200
 bundled files of 256 KiB or less; a binary or non-UTF-8 file counts toward the 200 too and is not checked. A skill at the root of a
 checkout reads its own `SKILL.md` only.
 

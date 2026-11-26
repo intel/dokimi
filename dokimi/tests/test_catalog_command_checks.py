@@ -754,3 +754,95 @@ def test_fullwidth_backticks_do_not_move_an_install_or_make_prose_code(tmp_path)
 def test_mixed_fullwidth_pipe_and_semicolon_is_a_pipe_to_shell(tmp_path, command):
     """#960: a fullwidth pipe is a pipe while the fullwidth ``;`` in the URL is not a terminator."""
     assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell")
+
+
+# ---- #969: a code span that names no download, a JSON sentence, npx of an installed package -----------
+
+def test_pipe_to_shell_needs_an_argument_for_curl(tmp_path):
+    """#969: ``curl | sh`` in a code span of a sentence that forbids it is not a download."""
+    body = "# Tool\n\nNever run its commands, setup scripts or `curl | sh` lines.\n"
+    assert _found(_review(tmp_path, body), "pipe-to-shell") == []
+
+
+@pytest.mark.parametrize("command", ["curl -s | sh", "curl https://example.com/x | sh", "curl \\\n  -s https://x.test | sh"])
+def test_pipe_to_shell_still_fires_with_an_argument(tmp_path, command):
+    """#969: requiring an argument keeps the real commands flagged."""
+    assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell")
+
+
+def test_json_sentence_is_not_read_as_packages(tmp_path):
+    """#969: ``pip install x, and notes ...`` in a JSON string names one package, not the words after it."""
+    evals = '{"expected_output": "or with pip install intel-cmplr-lib-rt, and notes that the runtime is not the driver"}\n'
+    [f] = _found(_review(tmp_path, _fenced("pip install intel-cmplr-lib-rt"), {"evals/evals.json": evals}), "install-unpinned")
+    assert f.message.startswith("1 install name no version (pip intel-cmplr-lib-rt)"), f.message
+
+
+def test_json_string_with_an_unpinned_install_is_still_counted(tmp_path):
+    """#969: an install in a JSON string is a finding; an empty JSON file has none."""
+    [f] = _found(_review(tmp_path, "# Tool\n", {"a.json": '{"cmd": "pip install requests"}'}), "install-unpinned")
+    assert "pip requests" in f.message
+    assert _found(_review(tmp_path / "e", "# Tool\n", {"a.json": ""}), "install-unpinned") == []
+
+
+def test_json_escaped_and_malformed_strings_do_not_stop_the_scan(tmp_path):
+    """#969: an escaped newline and an unterminated string are read without an error."""
+    text = '{"cmd": "line\\npip install requests\\n", "bad": "unterminated'
+    [f] = _found(_review(tmp_path, "# Tool\n", {"a.json": text}), "install-unpinned")
+    assert "pip requests" in f.message
+
+
+def test_npx_tsc_is_not_a_package_when_the_file_installs_typescript(tmp_path):
+    """#969: ``npx tsc`` runs the project's compiler when the same file installs ``typescript``."""
+    body = _fenced("npm install -D typescript@5.9.3 tsx", "npx tsc --noEmit")
+    [f] = _found(_review(tmp_path, body), "install-unpinned")
+    assert "npx tsc" not in f.message and "npm tsx" in f.message, f.message
+
+
+def test_npx_tsc_alone_is_still_counted(tmp_path):
+    """#969: with no ``typescript`` in the file, ``npx tsc`` stays a finding."""
+    [f] = _found(_review(tmp_path, _fenced("npx tsc -p tsconfig.json")), "install-unpinned")
+    assert "npx tsc" in f.message
+
+
+def test_npx_package_selection_of_tsc_is_not_skipped_by_typescript(tmp_path):
+    """#969: ``--package=tsc`` selects the package ``tsc``; installing ``typescript`` does not pin it."""
+    body = _fenced("npm install typescript@5.9.3", "npx --package=tsc tsc")
+    [f] = _found(_review(tmp_path, body), "install-unpinned")
+    assert "npm tsc" in f.message or "npx tsc" in f.message, f.message
+
+
+def test_json_local_path_is_not_a_sentence_break(tmp_path):
+    """#969: the ``. `` of ``pip install . requests`` is a local path, not the end of a sentence."""
+    [f] = _found(_review(tmp_path, "# Tool\n", {"a.json": '{"cmd":"pip install . requests"}'}), "install-unpinned")
+    assert "pip requests" in f.message
+
+
+
+def _msgs(source: str, text: str) -> list[str]:
+    from dokimi.external.command_checks import _findings_in
+    return [m for _code, m in _findings_in([(source, text)])]
+
+
+def test_npx_tsc_stays_counted_when_typescript_is_only_mentioned():
+    """#969: ``echo typescript`` does not install it, so ``npx tsc`` is still an unpinned package."""
+    assert any("npx tsc" in m for m in _msgs("setup.sh", "echo typescript\nnpx tsc\n"))
+
+
+def test_json_comma_inside_a_quoted_constraint_keeps_the_next_package():
+    """#969: the ``, `` in ``'numpy>=1, <2'`` is inside quotes, so ``requests`` after it is read."""
+    assert any("requests" in m for m in _msgs("c.json", '{"cmd":"pip install \'numpy>=1, <2\' requests"}'))
+
+
+def test_json_newline_separates_two_installs():
+    """#969: two pinned installs on two lines of one JSON string are not read as one command."""
+    assert _msgs("c.json", '{"cmd":"pip install numpy==1.26.4\\npip install requests==2.32.3"}') == []
+
+
+def test_pipe_to_shell_is_not_read_in_printed_text():
+    """#969: ``printf`` prints its quoted text; ``curl ... | sh`` in it is not run."""
+    assert _msgs("example.sh", "printf '%s\\n' 'curl https://example.com/install.sh | sh'\n") == []
+
+
+def test_json_object_key_is_not_read_as_a_command():
+    """#969: only the string values of a JSON file are read, not its keys."""
+    assert _msgs("data.json", '{"pip install requests": true}') == []

@@ -17,8 +17,11 @@ each a ``warn`` in :mod:`dokimi.external.validate`:
 
 Where each check reads: ``pipe-to-shell`` and ``permission-bypass-flag`` read every line of the
 text, since their tokens are distinctive. Installs are read from code only: the fenced blocks and
-code spans of a prose file (Markdown, .mdx, .txt, .rst, .adoc), and the whole of any other text file
-(a script, say). So "pip install to get started" in a sentence is not an install. A skill at the
+code spans of a prose file (Markdown, .mdx, .txt, .rst, .adoc), the string values of a .json file
+(each cut where a sentence goes on, at ", " or ". "), and the whole of any other text file
+(a script, say). So "pip install to get started" in a sentence is not an install. ``npx tsc`` is not counted in a
+file whose code names ``typescript``, since it runs that package's compiler. ``curl | sh`` with no argument for
+``curl`` is not a download, so ``pipe-to-shell`` does not read it. A skill at the
 root of a scanned checkout reads its own ``SKILL.md`` only, since its bundled files are the rest of that
 checkout.
 
@@ -29,6 +32,7 @@ look-alike letter does not hide a command.
 from __future__ import annotations
 
 import bisect
+import json
 import os
 import re
 import shlex
@@ -45,6 +49,14 @@ BUNDLED_MAX_FILES = 200
 EXAMPLES_SHOWN = 3
 # Prose files: their installs are read from code (fences and spans), as in Markdown.
 PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
+# JSON files: their installs are read from the string values, each cut at its first ", " or ". ", where prose goes on.
+JSON_SUFFIXES = (".json",)
+JSON_STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
+# a ", " or ". " that follows a word; a lone "." is a path (``pip install . requests``), not a full stop
+JSON_KEY_END = re.compile(r"\s*:")
+PROSE_BREAK = re.compile(r"(?<=[^\s/,.])[,.][ \t]")
+# A program run by npx that a package the same file installs provides: ``npx tsc`` runs the project's compiler.
+PROVIDED_BY = {"tsc": "typescript"}
 
 # A word that runs what it reads (exec, eval, a shell, a child process); a word that ends a string
 # literal ("eval") is data. A command substitution (``$(``, a backtick) hands the program to the shell.
@@ -62,7 +74,7 @@ _PIPE_TO = (
     r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:][\w.:-]*)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
 )
 PIPE_TO_SHELL = re.compile(
-    r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
+    r"\b(?:curl|wget)\b(?:[ \t]|\\\r?\n)+(?![\s|])(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
     + _PIPE_TO + r"(?:"
     # An inline program (`python -c`, `node -e`, `ruby -e`) or `python -m json.tool` takes the download as data,
     # unless the program execs or evals it; a shell's `-e` and Ruby's `-E` (an encoding) are not inline programs.
@@ -168,6 +180,29 @@ def _code_text(text: str, markdown: bool) -> str:
     return "\n".join(code + [part for span in spans for part in (span, BLOCK_END)])
 
 
+def _before_prose(line: str) -> str:
+    """``line`` up to its first ``, `` or ``. `` that is outside quotes, where a sentence goes on."""
+    for cut in PROSE_BREAK.finditer(line):
+        before = line[:cut.start()]
+        if before.count("'") % 2 == 0 and before.count('"') % 2 == 0:
+            return before
+    return line
+
+
+def _json_strings(text: str) -> str:
+    """The string values of a JSON text, one per line, each cut where a sentence goes on (``, `` or ``. ``)."""
+    lines = []
+    for m in JSON_STRING.finditer(text):
+        if JSON_KEY_END.match(text, m.end()):
+            continue  # an object key is a name, not a value
+        try:
+            value = json.loads(m.group(0))
+        except ValueError:
+            value = m.group(0)[1:-1]
+        lines += [_before_prose(line) for line in value.splitlines()]  # a newline ends a command: one line each
+    return "\n".join(lines)
+
+
 def _words(rest: str, value_options: frozenset[str]) -> list[str]:
     """The words of a command's rest: shell-split (quotes kept whole), without an option's value.
 
@@ -237,10 +272,13 @@ def _unpinned_npm(rest: str, value_options: frozenset[str] = NPM_VALUE_OPTIONS) 
     return names
 
 
-def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) -> list[str]:
+def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS,
+                  provided: frozenset[str] = frozenset()) -> list[str]:
     """npx runs the packages it is given: each ``--package``/``-p`` selection before the program, or else the program
     itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
-    it. Words after the program are its own arguments: its ``-p`` is not npx's selection."""
+    it. Words after the program are its own arguments: its ``-p`` is not npx's selection. A program in ``provided``
+    (``tsc``) is run from a package the file installs, so it is not counted when it is the program, though a
+    ``--package`` selection of it is."""
     words = _words(rest, value_options)
     selected: list[str] = []
     executable = None
@@ -260,7 +298,7 @@ def _unpinned_npx(rest: str, value_options: frozenset[str] = NPX_VALUE_OPTIONS) 
             break
         i += 1
     names = []
-    for spec in selected or ([executable] if executable else []):
+    for spec in selected or ([executable] if executable and executable not in provided else []):
         match = NPM_NAME.fullmatch(spec.rstrip("\"')"))
         if match is not None and not spec.lower().endswith(NON_PACKAGE_SUFFIXES) and not _npm_pinned(match.group(2)):
             names.append(match.group(1))
@@ -440,7 +478,7 @@ def _without_printed(code: str) -> str:
     return "".join(mask)
 
 
-def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
+def _unpinned_at(code: str, provided: frozenset[str] = frozenset()) -> list[tuple[int, str, int, list[str]]]:
     """``(offset in code, command, end of its arguments, ["pip name", ...])`` of each install command, with an empty
     list when all its packages are pinned. The offset is where the arguments begin, which folding a prefix
     (``ｕｖ pip``) does not move. The quoted text of an ``echo`` or ``printf`` is blanked first, in place, so no
@@ -452,7 +490,7 @@ def _unpinned_at(code: str) -> list[tuple[int, str, int, list[str]]]:
               for m in PNPM.finditer(code)]
     found += [(m.start(2), "pnpm", m.end(2), [f"pnpm {n}" for n in _unpinned_dlx(*m.groups())])
               for m in PNPM_DLX.finditer(code)]
-    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1))]) for m in NPX.finditer(code)]
+    found += [(m.start(1), "npx", m.end(1), [f"npx {n}" for n in _unpinned_npx(m.group(1), provided=provided)]) for m in NPX.finditer(code)]
     return found
 
 
@@ -464,15 +502,20 @@ def _ends_inside_url(reading: str, end: int) -> bool:
     return "://" in reading[start:stop]
 
 
-def _unpinned_in_readings(text: str, markdown: bool) -> list[str]:
+def _unpinned_in_readings(text: str, markdown: bool, json_text: bool = False) -> list[str]:
     """The unpinned installs of a text, read as written and folded. The code is taken from the text as written,
     once, so folding cannot turn a character into a Markdown delimiter. A command found in several readings at the
     same place is counted once, with the packages of the most folded reading that finds it, even when that reading
     reads fewer arguments: it has ended the command at a fullwidth separator (a fullwidth ``＝＝`` that pins a package
     may be followed by one). The exception is a separator inside a URL word, which the earlier reading keeps. A command at another place is another install."""
     best: dict[tuple[int, str], tuple[int, list[str], str]] = {}
-    for reading in readings(_code_text(text, markdown)):
-        for offset, command, end, labels in _unpinned_at(reading):
+    code = _json_strings(text) if json_text else _code_text(text, markdown)
+    for reading in readings(code):
+        installed = _without_printed(reading)
+        provided = frozenset(
+            run for run, pkg in PROVIDED_BY.items()
+            if re.search(rf"(?<![\w.-])(?:npm|pnpm)[ \t]+(?:install|i|add)\b[^\n;&|]*(?<![\w@/.-]){pkg}(?![\w-])", installed))
+        for offset, command, end, labels in _unpinned_at(reading, provided):
             key = (offset, command)
             if key in best and best[key][0] != end and _ends_inside_url(best[key][2], end):
                 continue  # the earlier reading reads a URL character where this one sees a separator
@@ -544,7 +587,7 @@ def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
     unpinned: list[str] = []
     for rel, raw in sources:
         # Each reading of the text: folding a character that is not a letter can also end a match the raw text has.
-        pipes = _lines_of(raw, (m for r in readings(raw) for m in PIPE_TO_SHELL.finditer(r)))
+        pipes = _lines_of(raw, (m for r in readings(raw) for m in PIPE_TO_SHELL.finditer(_without_printed(r))))
         if pipes:
             where = ", ".join(str(n) for n in pipes)
             findings.append((
@@ -560,7 +603,7 @@ def _findings_in(sources: list[tuple[str, str]]) -> list[tuple[str, str]]:
                 f"{rel} names a flag or mode that turns off the agent's permission prompts (line {where}); "
                 "say what it may run unprompted, or drop it",
             ))
-        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES))
+        unpinned += _unpinned_in_readings(raw, rel.lower().endswith(PROSE_SUFFIXES), rel.lower().endswith(JSON_SUFFIXES))
 
     unpinned = list(dict.fromkeys(unpinned))  # one per package across SKILL.md and the bundled files
     if unpinned:
