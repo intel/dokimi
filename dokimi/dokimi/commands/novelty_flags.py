@@ -97,7 +97,7 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                              f"{DEFAULT_JUDGE_PROVIDER}/{DEFAULT_JUDGE_MODEL}, or "
                              f"{DEFAULT_GENERATOR_PROVIDER}/{DEFAULT_GENERATOR_MODEL} when "
                              "--model is that judge). A --judge-model without "
-                             "--judge-provider runs on --provider")
+                             "--judge-provider runs on the provider from --model")
     parser.add_argument("--judge-provider", default=None, dest="judge_provider", choices=PROVIDERS,
                         help="Provider for the judge. Without --judge-model, the default judge "
                              "that runs on this provider; if none does, the run exits asking "

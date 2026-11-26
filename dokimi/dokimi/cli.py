@@ -326,8 +326,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     # A CLI that takes any model name would be sent the default (an API model name) when --model is left out.
     if provider in llm_cli.BACKENDS and llm_cli.BACKENDS[provider].any_model and model is not None \
             and not getattr(args, "model_named", True) and not getattr(args, "matrix_cells", None):
-        parser.error(f"--provider {provider} needs --model: it takes any model name, and the default {model!r} "
-                     "is an API model")
+        parser.error(f"pass --model {provider}/<MODEL>: the default {model!r} is an API model")
     return args
 
 

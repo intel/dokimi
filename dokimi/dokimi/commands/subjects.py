@@ -99,7 +99,7 @@ def resolve_judge(args, descriptor) -> None:
     """Settle the judge of a ``subjects run`` once its descriptor is loaded (parse_args leaves it to this).
 
     The answerer is the descriptor's cells when it has explicit ones; the top-level --model is only the implicit
-    cell, so a CLI --provider is not an answerer then. A judge model the chosen judge provider cannot take is refused
+    cell, so its model provider does not apply then. A judge model the chosen judge provider cannot take is refused
     here, before any cell runs (parse_args checked it before the follow moved the judge).
     """
     matrix = descriptor.matrix_cells_explicit

@@ -183,7 +183,7 @@ def test_the_harness_refusal_reaches_the_cli_with_exit_2(tmp_path, fake_llm):
         args.func(args)
     assert outcome.code == 2
     assert "task harness" in outcome.err
-    assert "--provider claude-cli --model sonnet" in outcome.err
+    assert "--model claude-cli/sonnet" in outcome.err
     assert fake_llm.requests == []
 
 

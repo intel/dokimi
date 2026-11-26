@@ -44,8 +44,8 @@ NO_TOOL_OFF_PROVIDERS = frozenset({"codex-cli"})
 def refuse_knowledge_provider(provider: str) -> None:
     """Refused before any answer: a knowledge run has no tools, and this provider cannot be told to have none."""
     if provider in NO_TOOL_OFF_PROVIDERS:
-        raise InputError(f"--provider {provider} has no switch that turns its tools off, so it cannot answer "
-                         "a knowledge run (no docs): use --provider claude-cli or copilot-cli")
+        raise InputError(f"--model {provider}/<MODEL> has no switch that turns its tools off, so it cannot answer "
+                         "a knowledge run (no docs): use --model claude-cli/<MODEL> or --model copilot-cli/<MODEL>")
 
 
 def refuse_cli_arms(config: ArmsRunConfig, treatments: list) -> None:
@@ -58,10 +58,10 @@ def refuse_cli_arms(config: ArmsRunConfig, treatments: list) -> None:
         refuse_knowledge_provider(config.provider)
     agentic = [t.name for t in treatments if _is_agentic_arm(t)]
     if agentic:
-        raise InputError(f"--provider {config.provider} runs one prompt with no tools, so it cannot run "
+        raise InputError(f"--model {config.provider}/<MODEL> runs one prompt with no tools, so it cannot run "
                          f"the agentic arm(s) {', '.join(agentic)}: use an API provider for them")
     if config.session_turns is not None:
-        raise InputError(f"--session-turns needs a conversation, which --provider {config.provider} "
+        raise InputError(f"--session-turns needs a conversation, which --model {config.provider}/<MODEL> "
                          "does not have: use an API provider for a session")
 
 
@@ -71,14 +71,14 @@ _TASK_HARNESS_PREFIXES = ("docker-", "benchflow")
 
 
 def refuse_task_harness(config: ArmsRunConfig) -> None:
-    """A task harness label is refused before any answer: arms runs answer through ``--provider``, so the label
+    """A task harness label is refused before any answer: arms runs answer through ``--model``, so the label
     would stamp answers that no such harness produced. Asks for a Claude CLI answerer instead (docs/knowledge-runs.md).
     """
     name = config.harness.split(":", 1)[0]
     if name in _TASK_HARNESS_NAMES or name.startswith(_TASK_HARNESS_PREFIXES):
         raise InputError(f"--harness {config.harness} names a task harness (an agent CLI that runs executable tasks), "
-                         "but arms run answers through --provider. To answer through Claude Code's CLI use "
-                         "--provider claude-cli --model sonnet (or codex-cli, copilot-cli); otherwise drop --harness")
+                         "but arms run answers through --model PROVIDER/MODEL. To answer through Claude Code use "
+                         "--model claude-cli/sonnet; otherwise drop --harness")
 
 
 def refuse_cli_cell_model(matrix_cell) -> None:

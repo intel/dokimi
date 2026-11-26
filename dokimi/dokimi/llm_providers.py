@@ -16,10 +16,10 @@ PROVIDERS: dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
 }
 
-#: ``--provider`` choices: the API providers, then the CLI backends.
+#: Model provider choices: the API providers, then the CLI backends.
 ANSWER_PROVIDERS: tuple[str, ...] = (*PROVIDERS, *llm_cli.BACKENDS)
 
-#: ``--provider`` choices of the commands that build the answerer or generators: not openai-codex.
+#: Model provider choices for answerers and generators, excluding openai-codex.
 CALLER_CHOICES: tuple[str, ...] = tuple(p for p in ANSWER_PROVIDERS if p != "openai-codex")
 
 #: Providers the answerer, judge and generators take: those, and google, gemini and vertex_ai.
