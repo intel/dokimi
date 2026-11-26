@@ -426,6 +426,8 @@ def _is_resolvable(tree: RepoTree, path: str) -> bool:
 def _unreadable_reason(err: Exception) -> str:
     if isinstance(err, UnicodeDecodeError):
         return "non-UTF-8 or binary"
+    if "is not a regular file" in str(err):  # a FIFO, socket or device (#1272)
+        return "not a regular file"
     return "not found, broken link, or outside tree"  # dangling symlink, loop, escape, source error
 
 

@@ -248,3 +248,144 @@ def test_the_link_walk_lives_apart_so_source_stays_under_the_line_cap():
     assert source._walk_links is links._walk_links
     assert source.SourceArgumentError.__module__ == "dokimi.repos.source_errors"
     assert len(Path(source.__file__).read_text(encoding="utf-8").splitlines()) <= 800
+
+
+def _cli(*args: str) -> subprocess.CompletedProcess:
+    import sys
+    return subprocess.run([sys.executable, "cli.py", *args], capture_output=True, text=True,
+                          cwd=Path(__file__).resolve().parents[1], timeout=15)
+
+
+def test_a_link_to_a_file_with_a_trailing_slash_names_no_file_in_both_trees(tmp_path):
+    """#1272: ``nul.md -> real.md/`` is ENOTDIR in a checkout, so neither tree resolves it."""
+    root = _repo(tmp_path, {"nul.md": "real.yaml/", "dirlink": "sub/"})
+    for tree in _trees(root):
+        with pytest.raises(SourceError):
+            tree.resolve("nul.md")
+        assert tree.resolve("dirlink", dirs=True) == "sub"  # a trailing slash on a directory is fine
+
+
+def test_a_link_chain_ending_in_a_slash_names_no_file(tmp_path):
+    """#1272: the slash of the last link counts through a chain of links."""
+    root = _repo(tmp_path, {"a": "b/", "b": "real.yaml"})
+    for tree in _trees(root):
+        with pytest.raises(SourceError):
+            tree.resolve("a")
+
+
+def test_link_text_that_is_not_utf8_is_refused_not_a_decode_error(tmp_path):
+    """#1272: a committed link whose text is ``ff fe 78`` raises ``SourceArgumentError``, not ``UnicodeDecodeError``."""
+    root = _repo(tmp_path, {})
+    git = lambda *a, data=None: subprocess.run(["git", "-c", "user.name=n", "-c", "user.email=a@b", *a], cwd=root,  # noqa: E731
+                                               input=data, check=True, capture_output=True).stdout.decode().strip()
+    oid = git("hash-object", "-w", "--stdin", data=b"\xff\xfex")
+    git("update-index", "--add", "--cacheinfo", f"120000,{oid},AGENTS.md")
+    git("commit", "-qm", "link")
+    tree = GitTree(root / ".git", git("rev-parse", "HEAD"))
+    with pytest.raises(SourceArgumentError):
+        tree.resolve("AGENTS.md")
+    skipped: dict[str, str] = {}
+    assert tree.read_many(["AGENTS.md"], skipped=skipped) == {}
+    assert "AGENTS.md" in skipped
+
+
+def test_scan_of_a_revision_with_a_non_utf8_link_reports_it(tmp_path):
+    """#1272: ``repo scan <dir>@HEAD`` names the link as not scanned and exits 0, with no traceback."""
+    root = _repo(tmp_path, {})
+    git = lambda *a, data=None: subprocess.run(["git", "-c", "user.name=n", "-c", "user.email=a@b", *a], cwd=root,  # noqa: E731
+                                               input=data, check=True, capture_output=True).stdout.decode().strip()
+    oid = git("hash-object", "-w", "--stdin", data=b"\xff\xfex")
+    git("update-index", "--add", "--cacheinfo", f"120000,{oid},AGENTS.md")
+    git("commit", "-qm", "link")
+    run = _cli("repo", "scan", f"{root}@HEAD")
+    assert "Traceback" not in run.stderr + run.stdout, run.stderr
+    assert run.returncode == 0, run.stderr + run.stdout
+    assert "guidance file not scanned: AGENTS.md" in run.stdout + run.stderr
+
+
+def test_a_directory_link_with_non_utf8_text_raises_no_decode_error(tmp_path):
+    """#1272: a path through ``.github/instructions -> r\\xe9al`` gives a refusal, not ``UnicodeDecodeError``."""
+    root = tmp_path / "repo"
+    (root / ".github").mkdir(parents=True)
+    os.symlink(b"r\xe9al", os.fsencode(root / ".github" / "instructions"))
+    (root / "AGENTS.md").write_text("See [x](.github/instructions/a.instructions.md)\n", encoding="utf-8")
+    git = lambda *a: subprocess.run(["git", "-c", "user.name=n", "-c", "user.email=a@b", *a], cwd=root,  # noqa: E731
+                                    check=True, capture_output=True).stdout.decode().strip()
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-qm", "i")
+    tree = GitTree(root / ".git", git("rev-parse", "HEAD"))
+    with pytest.raises(SourceArgumentError):
+        tree.is_file(".github/instructions/a.instructions.md")
+    run = _cli("repo", "scan", f"{root}@HEAD")
+    assert "Traceback" not in run.stderr + run.stdout, run.stderr
+    assert run.returncode in (0, 2)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
+def test_a_fifo_is_not_opened_or_called_a_link(tmp_path):
+    """#1272: a FIFO is refused as not a regular file, by every reader, without waiting for a writer."""
+    os.mkfifo(tmp_path / "AGENTS.md")
+    tree = WorkTree(tmp_path)
+    for read in (tree.read_text, tree.read_bytes, tree.resolve):
+        with pytest.raises(SourceArgumentError, match="not a regular file"):
+            read("AGENTS.md")
+    skipped: dict[str, str] = {}
+    assert tree.read_many(["AGENTS.md"], skipped=skipped) == {}
+    assert "not a regular file" in skipped["AGENTS.md"]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
+@pytest.mark.parametrize("command", ["scan", "budget"])
+@pytest.mark.parametrize("name", ["AGENTS.md", "CLAUDE.md"])
+def test_repo_commands_return_on_a_fifo_guidance_file(tmp_path, command, name):
+    """#1272: ``repo scan`` and ``repo budget`` on a plain directory whose guidance file is a FIFO do not block."""
+    os.mkfifo(tmp_path / name)
+    try:
+        run = _cli("repo", command, str(tmp_path))
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"repo {command} blocked on a FIFO {name}")
+    assert "Traceback" not in run.stderr + run.stdout, run.stderr
+    assert run.returncode in (0, 1, 2)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
+def test_scan_calls_a_fifo_instructions_file_not_regular_rather_than_a_link(tmp_path):
+    """#1272: the message for a FIFO ``a.instructions.md`` names a non-regular file, not a link."""
+    folder = tmp_path / ".github" / "instructions"
+    folder.mkdir(parents=True)
+    os.mkfifo(folder / "a.instructions.md")
+    out = _cli("repo", "scan", str(tmp_path))
+    text = out.stdout + out.stderr
+    assert "links to nothing" not in text, text
+    assert "not a regular file" in text, text
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
+def test_budget_names_a_fifo_guidance_file_as_not_regular(tmp_path):
+    """#1272: ``repo budget`` says a FIFO ``AGENTS.md`` is not a regular file, not that it is missing or a broken link."""
+    os.mkfifo(tmp_path / "AGENTS.md")
+    run = _cli("repo", "budget", str(tmp_path))
+    text = run.stdout + run.stderr
+    assert "not a regular file" in text, text
+    assert "broken link" not in text, text
+
+
+def test_a_slash_link_followed_through_an_outside_link_still_names_no_file(tmp_path):
+    """#1272: ``AGENTS.md -> bad -> <root>/real.md/`` is ENOTDIR, though ``bad`` lies outside the root."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "real.md").write_text("x\n", encoding="utf-8")
+    try:
+        os.symlink(f"{root}/real.md/", tmp_path / "bad")
+        os.symlink(str(tmp_path / "bad"), root / "AGENTS.md")
+        os.symlink(f"{root}/real.md/", root / "direct.md")
+    except OSError:
+        pytest.skip("this file system cannot hold a symlink")
+    tree = WorkTree(root)
+    for name in ("AGENTS.md", "direct.md"):
+        with pytest.raises(SourceError):
+            tree.resolve(name)
+    skipped: dict[str, str] = {}
+    assert tree.read_many(["AGENTS.md", "direct.md"], skipped=skipped) == {}
+    assert set(skipped) == {"AGENTS.md", "direct.md"}

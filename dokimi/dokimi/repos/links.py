@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import stat
 from pathlib import Path
+from typing import Callable
 
 from dokimi.repos.source_errors import SourceArgumentError, _NoSuchPath
 
@@ -58,13 +59,14 @@ def _inside(root: Path, text: str) -> str:
     still walked: by its own words when it lies under ``root``, else walked outside one link at a time (a checkout
     alias) up to the first name under ``root``, with the rest of the text left to :func:`_walk_links`."""
     lexical = Path(text)  # not normalised: a ``..`` after a link goes up from the link's target
+    slash = "/" if text.endswith("/") else ""  # ``Path`` drops it; it still means a directory (#1272)
     if lexical.is_relative_to(root):
-        return lexical.relative_to(root).as_posix()
+        return lexical.relative_to(root).as_posix() + slash
     here, pending = _start(text, root)
     hops = 0
     while True:
         if here.is_relative_to(root):  # also right after a restart at a link target with nothing left (the share root)
-            return "/".join([here.relative_to(root).as_posix(), *pending])
+            return "/".join([here.relative_to(root).as_posix(), *pending]) + slash
         if not pending:
             break
         part = pending.pop(0)
@@ -74,9 +76,23 @@ def _inside(root: Path, text: str) -> str:
         hops += 1
         if hops > 40:
             raise _LinkLoop(f"too many levels of symbolic links: {text}")
-        here, more = _start(_link_target(here), here.parent)
+        link = _link_target(here)
+        slash = ("/" if link.endswith("/") else "") if not pending else slash
+        here, more = _start(link, here.parent)
         pending = more + pending
     raise SourceArgumentError(f"path escapes the repository: {text}")
+
+
+def _names_dir(seen: bool, text: str, rest: list[str]) -> bool:
+    """Whether a path ends in a link whose text ends in ``/``: it names a directory, as in a checkout (#1272)."""
+    return seen or (text.endswith("/") and all(piece in ("", ".") for piece in rest))
+
+
+def _require_dir(need_dir: bool, is_dir: Callable[[], bool], path: str, walked: list[str]) -> None:
+    """:class:`_NoSuchPath` when the path ended in a ``/`` link text and what it reached is not a directory (ENOTDIR)."""
+    if need_dir and walked and not is_dir():
+        # #1272: ``cat nul.md`` fails with "Not a directory" for ``nul.md -> real.md/``
+        raise _NoSuchPath(f"{path} links to a file, not a directory: {'/'.join(walked)}")
 
 
 def _walk_links(root: Path, path: str) -> Path:
@@ -88,6 +104,7 @@ def _walk_links(root: Path, path: str) -> Path:
     pending = _parts(path)
     walked: list[str] = []
     hops = 0
+    need_dir = False  # a link text ending in "/" names a directory: a file there is ENOTDIR in a checkout (#1272)
     while pending:
         part = pending.pop(0)
         if part in ("", "."):
@@ -112,5 +129,7 @@ def _walk_links(root: Path, path: str) -> Path:
             walked = []
         else:
             walked.pop()
+        need_dir = _names_dir(need_dir, text, pending)
         pending = _parts(text) + pending
+    _require_dir(need_dir, lambda: root.joinpath(*walked).is_dir(), path, walked)
     return root.joinpath(*walked)
