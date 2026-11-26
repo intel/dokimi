@@ -499,10 +499,12 @@ pinned, only measured: run the same configuration several times
   rejected when the command line is parsed.
 
 Before generating answers, `arms run` checks each model’s requested sampling options against
-litellm’s capability table and route-specific value rules. A known refusal, such as `seed` on
-Bedrock or `temperature=0` on a model that accepts only 1, stops the run without a model call.
-Settings that pass the static checks are tried in one short probe call per answer and judge model
-when sampling is requested. The probe catches refusals that litellm’s local rules do not describe.
+litellm’s capability table and route-specific value rules. A refused temperature, such as
+`temperature=0` on a model that accepts only 1, stops the run without a model call.
+When an API route such as Bedrock refuses a seed, Dokimi warns once per route, omits the seed
+from requests, and records the requested value as unsupported. CLI providers still reject a seed.
+After the static checks, each answer and judge model with sampling options gets one short probe
+call. The probe catches refusals that litellm’s local rules do not describe.
 
 The judge re-draws a reply it cannot parse, up to three attempts. At a pinned
 judge temperature the same prompt tends to return the same malformed reply, so
