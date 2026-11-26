@@ -545,6 +545,17 @@ def test_a_python_probe_needs_a_call_on_a_name_boundary():
     assert _probes("python -c 'os.cpu_count()'") == ["py:os.cpu_count"]
 
 
+@pytest.mark.parametrize("command, found", [
+    ("python -c 'os.cpu_count('", ["py:os.cpu_count"]),
+    ("python -c 'os.cpu_count ('", ["py:os.cpu_count"]),
+    ("python -c 'xos.cpu_count('", []),
+    ("python -c 'obj.os.cpu_count('", []),
+    ("python -c 'os.cpu_count = 1 +'", []),
+])
+def test_code_python_cannot_parse_is_read_for_a_name_boundary_and_a_call_paren(command, found):
+    assert _probes(command) == found
+
+
 @pytest.mark.parametrize("command, patterns", [
     ("true || false || nproc", []),  # ``||`` after a success skips the rest of the chain
     ("true || false && nproc", ["nproc"]),  # ``&&`` after a skipped part runs its own command
