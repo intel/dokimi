@@ -77,10 +77,11 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
 
 
 def _release(path: Path, *, made: bool) -> None:
-    """Remove the empty ``run.json`` :func:`_claim` created, and the directory if it made it."""
+    """Remove the ``run.json`` :func:`_claim` created, and the directory if it made it. The run.json
+    is this call's own whatever it holds (the claim is exclusive), and no caller got a RunDir to end
+    it: a record published before the failure would say ``running`` for good."""
     with contextlib.suppress(OSError):  # best effort: the error being raised says what went wrong
-        if (path / RUN_FILE).stat().st_size == 0:
-            (path / RUN_FILE).unlink()
+        (path / RUN_FILE).unlink(missing_ok=True)
         if made:
             path.rmdir()
 

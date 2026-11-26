@@ -170,6 +170,7 @@ _FIRST_SAVE_STOPS = {
     "disk-full": (OSError(errno.ENOSPC, os.strerror(errno.ENOSPC)), InputError,
                   r"cannot write .*run\.json: No space left on device"),
     "interrupted": (KeyboardInterrupt(), KeyboardInterrupt, None),
+    "interrupted-after-publishing": (KeyboardInterrupt(), KeyboardInterrupt, None),
 }
 
 
@@ -186,6 +187,8 @@ def test_a_first_record_that_cannot_be_written_leaves_nothing_behind(root, tmp_p
     real = rundir.save_artifact
 
     def failing(kind, data, path, **kw):
+        if stop == "interrupted-after-publishing":
+            real(kind, data, path, **kw)  # run.json says running, and nobody holds the run to end it
         raise raised
 
     monkeypatch.setattr(rundir, "save_artifact", failing)
