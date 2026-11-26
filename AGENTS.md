@@ -162,12 +162,15 @@ finds little:
 - For each test of changed behaviour, break the code it covers (flip a
   condition, drop a branch), confirm the test fails, then revert the break.
   CI's `Mutation of changed lines` job (`dokimi/scripts/mutate_changed.py`)
-  does this for the package lines a PR changes, up to 40 mutants, and lists
-  each surviving mutant in its step summary. A survivor whose module has a
-  candidate test file that did not run is `inconclusive`, not a gap. It warns,
-  it does not fail: kill
-  a survivor with an assertion, or say in the description why it is
-  equivalent. Run it locally with
+  does this for the package lines a PR changes, up to 80 mutants, and lists
+  each surviving mutant in its step summary and in one sticky PR comment,
+  updated on every push. A survivor whose module has a
+  candidate test file that did not run is `inconclusive`, not a gap. Kill a
+  survivor with an assertion; one that cannot change behaviour (equivalent)
+  takes `# mutation-ok: <reason>` at the end of its line or alone on the line
+  above, which lists it as waived (a waiver with no reason waives nothing).
+  It warns; with the repository variable `MUTATION_GATE` set to `true` an
+  unwaived survivor fails the job. Run it locally with
   `python scripts/mutate_changed.py --base origin/main` from `dokimi/`.
 - For a bug fix, find every other site with the same bug class. Fix the ones
   within this PR's scope; list the rest in the description or an issue.

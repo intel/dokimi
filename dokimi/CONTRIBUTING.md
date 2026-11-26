@@ -165,6 +165,17 @@ pre-commit run --all-files                     # the whole tree, as CI's pre-com
 mypy and pytest are not hooks: they need the full environment and pytest takes
 minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 
+**Mutation of changed lines.** On every pull request, `ci.yml`'s `mutation-diff` job runs
+`scripts/mutate_changed.py`: it mutates the package lines the PR changes and runs the tests
+covering each. The surviving mutants go to its step summary and to one sticky PR comment that
+`cli-interface-comment.yml` posts from the job's artifact (the job itself holds a read-only
+token, fork PRs included); it is updated on every push and marked clean once none survives. A
+survivor that cannot change behaviour takes `# mutation-ok: <reason>` at the end of its line or
+alone on the line above; it is then listed as waived with its reason, and a `mutation-ok:` with
+no reason waives nothing. The job is warn-only until the repository variable `MUTATION_GATE` is
+`true`; then an unwaived survivor fails it. It ships off, with no date to turn it on: replayed on
+ten merged PRs, 7 leave a survivor, most of them a clause of a condition no test needs.
+
 **Mutation pilot.** mutmut (pinned in `requirements-mutation.txt`, locked apart from the tools lock) mutates the
 measurement core: the statistics in `dokimi/eval/stats.py` and
 `binary_stats.py`, the score, regression, critical-band and trust gates in

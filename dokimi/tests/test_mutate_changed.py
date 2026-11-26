@@ -40,7 +40,7 @@ def _ops(lines: set[int]) -> list[tuple[int, str, str]]:
 
 def test_mutants_only_on_changed_lines_and_each_parses() -> None:
     got = _ops({3})
-    assert {op for _, op, _ in got} == {"flip-compare", "swap-boolop", "negate-condition", "bump-int"}
+    assert {op for _, op, _ in got} == {"flip-compare", "shift-boundary", "swap-boolop", "drop-clause", "negate-condition", "bump-int"}
     assert all(line == 3 for line, _, _ in got)
     for _, _, text in got:
         ast.parse(text)
@@ -49,6 +49,9 @@ def test_mutants_only_on_changed_lines_and_each_parses() -> None:
     assert texts == {
         ("flip-compare", "    if a != b and a > 0:"),
         ("flip-compare", "    if a == b and a <= 0:"),
+        ("shift-boundary", "    if a == b and a >= 0:"),
+        ("drop-clause", "    if (a > 0):"),
+        ("drop-clause", "    if (a == b):"),
         ("swap-boolop", "    if a == b or a > 0:"),
         ("negate-condition", "    if not (a == b and a > 0):"),
         ("bump-int", "    if a == b and a > 1:"),
@@ -64,6 +67,56 @@ def test_return_addsub_and_not_mutants() -> None:
         (5, "return-none", "return None"),
         (5, "drop-not", "return (b)"),
     }
+
+
+def _after(src: str, op: str) -> set[str]:
+    """The mutated first line of ``src`` for each mutant of ``op``; every mutant must still parse."""
+    out = set()
+    for m in mc.mutants_for("x.py", src, set(range(1, src.count("\n") + 1))):
+        ast.parse(mc.apply(src, m))
+        if m.op == op:
+            out.add(mc.apply(src, m).splitlines()[m.line - 1].strip())
+    return out
+
+
+def test_a_fallback_text_is_not_a_decision() -> None:
+    assert mc.mutants_for("x.py", "label = name or 'N/A'\n", {1}) == []
+    assert {m.op for m in mc.mutants_for("x.py", "ok = name or other\n", {1})} == {"swap-boolop", "drop-clause"}
+
+
+def test_a_conditional_expression_is_cut_to_either_branch() -> None:
+    assert _after("x = a if c else b\n", "take-branch") == {"x = (a)", "x = (b)"}
+
+
+def test_a_comprehension_filter_is_dropped_on_the_line_it_is_written() -> None:
+    src = "x = [\n    c for c in cs\n    if c.ok\n]\n"
+    (m,) = [m for m in mc.mutants_for("x.py", src, {3}) if m.op == "drop-filter"]
+    assert mc.apply(src, m).splitlines()[2] == "    if True"
+    assert not [m for m in mc.mutants_for("x.py", src, {1, 2}) if m.op == "drop-filter"]
+
+
+def test_a_literal_collection_loses_one_element_at_a_time() -> None:
+    assert _after("W = frozenset({b'a', b'b', b'c', b'd', b'e'})\n", "drop-element") == {
+        "W = frozenset({b'b', b'c', b'd', b'e'})", "W = frozenset({b'a', b'b', b'd', b'e'})", "W = frozenset({b'a', b'b', b'c', b'd'})"}
+    assert _after("ok = field in (9, 11)\n", "drop-element") == {"ok = field in (11,)", "ok = field in (9,)"}
+    assert _after("x = [1, name]\n", "drop-element") == set()  # not all constants
+    assert _after("a, b = 1, 2\n", "drop-element") == {"a, b = (2,)", "a, b = (1,)"}  # the target tuple is left alone
+    assert _after("x = (1,)\n", "drop-element") == set()
+
+
+@pytest.mark.parametrize("statement", ["emit(x)", "depth -= 1", "raise ValueError(x)", "self.seen = x", "seen[k] = x"])
+def test_a_statement_with_an_effect_is_replaced_by_pass(statement: str) -> None:
+    assert _after(f"for x in xs:\n    {statement}\n", "delete-statement") == {"pass"}
+
+
+def test_continue_is_replaced_by_pass() -> None:
+    src = "for x in xs:\n    if x:\n        continue  # skipped\n    emit(x)\n"
+    assert "continue" not in mc.apply(src, next(m for m in mc.mutants_for("x.py", src, {3})))
+
+
+@pytest.mark.parametrize("statement", ["seen = x", "log.debug(x)", "logger.warning('w')", "warnings.warn(x)", "print(x)", "break", "return x", "x"])
+def test_a_statement_whose_removal_proves_nothing_is_kept(statement: str) -> None:
+    assert _after(f"for x in xs:\n    {statement}\n", "delete-statement") == set()
 
 
 def test_docstring_lines_are_not_mutated() -> None:
@@ -201,7 +254,7 @@ def test_a_mutant_only_the_last_of_many_covering_tests_catches_is_killed(tmp_pat
     )
     weak = [f"tests/test_zz.py::test_a_weak[{n}]" for n in range(30)]
     _, report = _mutation_run(tmp_path, monkeypatch, src, tests, {2: sorted([*weak, "tests/test_zz.py::test_z_strict"])})
-    assert _statuses(report) == {(2, "x <= 3"): "killed", (2, "4"): "killed", (2, "None"): "killed"}
+    assert _statuses(report) == {(2, "x <= 3"): "killed", (2, "x >= 3"): "killed", (2, "4"): "killed", (2, "None"): "killed"}
     assert {len(m["tests"]) for m in report["mutants"]} == {31}
 
 
@@ -731,3 +784,107 @@ def test_the_script_starts_without_the_package_installed() -> None:
     # Under -S site-packages is off sys.path, so the script must put its project directory on it.
     run = subprocess.run([sys.executable, "-S", str(_SCRIPT), "--help"], capture_output=True, text=True)
     assert run.returncode == 0, run.stderr
+
+
+WAIVED_SRC = (
+    "def a(x):\n    return x == 1\n\n\n"
+    "def b(x):\n    return x == 2  # mutation-ok: b's result is never read\n\n\n"
+    "def c(x):\n    # mutation-ok:\n    return x == 3\n"
+)
+WAIVED_TESTS = (
+    "from dokimi.zz import a, b, c\n\n\n"
+    "def test_a():\n    assert a(1) is True\n    assert a(2) is False\n\n\n"
+    "def test_b_and_c_are_only_called():\n    b(2)\n    c(3)\n"
+)
+WAIVED_COVER = {2: ["tests/test_zz.py::test_a"], 6: ["tests/test_zz.py::test_b_and_c_are_only_called"],
+                11: ["tests/test_zz.py::test_b_and_c_are_only_called"]}
+
+
+def test_a_waiver_applies_at_the_end_of_its_line_or_alone_on_the_line_above() -> None:
+    src = ("x = 1  # mutation-ok: same value either way\n"
+           "    # mutation-ok:   the line below\n"
+           "y = 2\n"
+           "z = 3  # mutation-ok: only z\n"
+           "w = 4\n"
+           "# mutation-ok:   \n"
+           "v = 5\n"
+           "s = '# mutation-ok: in a string'\n")
+    assert mc.waivers(src) == {1: "same value either way", 3: "the line below", 4: "only z", 7: ""}
+
+
+def test_a_waiver_inside_a_multi_line_call_applies_to_the_next_line() -> None:
+    src = "f(\n    a,\n    # mutation-ok: b is ignored by f\n    b,\n)\n"
+    assert mc.waivers(src) == {4: "b is ignored by f"}
+
+
+def test_waive_marks_reasoned_survivors_and_lists_a_waiver_with_no_reason() -> None:
+    ms = [mc.Mutant("p.py", 1, "bump-int", (1, 4), (1, 5), "2", "1", status="survived"),
+          mc.Mutant("p.py", 1, "flip-bool", (1, 4), (1, 5), "2", "1", status="killed"),
+          mc.Mutant("p.py", 3, "bump-int", (3, 4), (3, 5), "6", "5", status="survived"),
+          mc.Mutant("p.py", 3, "return-none", (3, 4), (3, 5), "None", "5", status="survived"),
+          mc.Mutant("p.py", 5, "bump-int", (5, 4), (5, 5), "8", "7", status="survived")]
+    report: dict = {}
+    mc.waive(ms, {"p.py": "x = 1  # mutation-ok: equivalent\n# mutation-ok:\ny = 5\n\nz = 7\n"}, report)
+    assert [(m.status, m.waiver) for m in ms] == [("waived", "equivalent"), ("killed", None), ("survived", None),
+                                                  ("survived", None), ("survived", None)]
+    assert report["waivers_without_reason"] == ["p.py:3"]
+
+
+def test_a_waived_survivor_is_reported_with_its_reason_and_does_not_fail_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    comment = tmp_path / "comment.json"
+    rc, report = _mutation_run(tmp_path, monkeypatch, WAIVED_SRC, WAIVED_TESTS, WAIVED_COVER,
+                               "--fail-on-survivor", "--comment-json", str(comment))
+    assert _statuses(report) == {
+        (2, "x != 1"): "killed", (2, "2"): "killed", (2, "None"): "killed",
+        (6, "x != 2"): "waived", (6, "3"): "waived", (6, "None"): "waived",
+        (11, "x != 3"): "survived", (11, "4"): "survived", (11, "None"): "survived",
+    }
+    assert rc == 1  # line 11's waiver has no reason
+    assert report["waivers_without_reason"] == ["dokimi/dokimi/zz.py:11"]
+    assert report["waived"][0] == {"path": "dokimi/dokimi/zz.py", "line": 6, "op": "flip-compare", "original": "x == 2",
+                                   "replacement": "x != 2", "tests": WAIVED_COVER[6],
+                                   "reason": "b's result is never read"}
+    assert [(s["line"], s["replacement"], s["tests"]) for s in report["survivors"]] == [
+        (11, "x != 3", WAIVED_COVER[11]), (11, "None", WAIVED_COVER[11]), (11, "4", WAIVED_COVER[11])]
+    result = json.loads(comment.read_text(encoding="utf-8"))
+    assert result["counts"] == {"killed": 3, "timeout": 0, "error": 0, "survived": 3, "waived": 3,
+                                "inconclusive": 0, "not run": 0}
+    assert result["survivors"][0] == {"path": "dokimi/dokimi/zz.py", "line": 11, "op": "flip-compare",
+                                      "original": "x == 3", "replacement": "x != 3", "tests_run": 1}
+    assert result["waived"][0]["reason"] == "b's result is never read" and "tests" not in result["waived"][0]
+    assert result["waivers_without_reason"] == ["dokimi/dokimi/zz.py:11"]
+
+
+def test_with_every_survivor_waived_the_gate_passes_and_unwaived_it_fails_only_when_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    src = "def b(x):\n    return x == 2  # mutation-ok: equivalent here\n"
+    tests = "from dokimi.zz import b\n\n\ndef test_b_is_only_called():\n    b(2)\n"
+    cover = {2: ["tests/test_zz.py::test_b_is_only_called"]}
+    rc, report = _mutation_run(tmp_path, monkeypatch, src, tests, cover, "--fail-on-survivor")
+    assert rc == 0 and {m["status"] for m in report["mutants"]} == {"waived"} and report["survivors"] == []
+    unwaived = "def b(x):\n    return x == 2\n"
+    assert _mutation_run(tmp_path / "plain", monkeypatch, unwaived, tests, cover)[0] == 0
+    assert _mutation_run(tmp_path / "plain", monkeypatch, unwaived, tests, cover, "--fail-on-survivor")[0] == 1
+
+
+def test_markdown_lists_waived_mutants_with_their_reason_and_bare_waivers() -> None:
+    s = mc.Mutant("dokimi/dokimi/x.py", 3, "flip-compare", (3, 4), (3, 10), "a != b", "a == b", status="survived", tests=["t"])
+    w = mc.Mutant("dokimi/dokimi/x.py", 4, "bump-int", (4, 8), (4, 9), "2", "1", status="waived", tests=["t"],
+                  waiver="a | b is the same")
+    text = mc.markdown({"mutants": [vars(s), vars(w)], "mutants_covered": 2, "max_mutants": 40, "uncovered_lines": {},
+                        "seconds": 1.0, "waivers_without_reason": ["dokimi/dokimi/x.py:3"]})
+    assert "**1 survived**, 1 waived" in text and "`# mutation-ok: <reason>`" in text
+    assert "| `dokimi/dokimi/x.py:4` | bump-int | `1` | `2` | a \\| b is the same |" in text
+    assert "A `mutation-ok:` with no reason waives nothing: `dokimi/dokimi/x.py:3`" in text
+
+
+def test_the_comment_result_cuts_long_source_text_and_counts_the_tests() -> None:
+    long = "x" * 500
+    m = mc.Mutant("p.py", 2, "return-none", (2, 4), (2, 504), "None", long, status="survived", tests=["a", "b"])
+    result = mc.comment_result({"mutants": [vars(m)]})
+    assert result["survivors"] == [{"path": "p.py", "line": 2, "op": "return-none", "original": "x" * mc.CELL,
+                                    "replacement": "None", "tests_run": 2}]
+    assert result["counts"]["survived"] == 1 and result["waived"] == [] and result["waivers_without_reason"] == []

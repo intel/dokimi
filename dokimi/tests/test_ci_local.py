@@ -123,6 +123,13 @@ def test_ci_yml_label_guards_evaluate_as_a_push_to_the_pr(capsys: Any) -> None:
     assert "NOTICE" not in capsys.readouterr().out
 
 
+def test_the_mutation_step_runs_locally_with_its_gate_unset() -> None:
+    """ci.yml's mutation step reads `vars.MUTATION_GATE`; locally it is unset, as it ships, so the step runs warn-only."""
+    step = next(s for s in dict(cl.load_workflows())["ci.yml"]["jobs"]["mutation-diff"]["steps"]
+                if s.get("name") == "Mutate changed lines")
+    assert cl.Context("main", PYV, Path(".")).expand(step["env"]["MUTATION_GATE"]) == ""
+
+
 def test_failure_condition_is_false_locally() -> None:
     """A local run has no failed job: pip-audit.yml's `report` job (which opens an issue) is skipped."""
     ctx = cl.Context("main", PYV, Path("."))
