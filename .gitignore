@@ -22,6 +22,8 @@ coverage.json
 # Local environments and credentials
 .venv/
 .env
+# Written by `uv run` without --no-project in dokimi/; the locks are requirements*.lock.txt
+/dokimi/uv.lock
 
 # Generated benchmark outputs and temporary reports.
 # Curated, version-controlled inputs live under dokimi/data/;
