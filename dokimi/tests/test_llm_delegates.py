@@ -10,8 +10,9 @@ from types import SimpleNamespace
 import pytest
 from litellm import ModelResponse
 
-from dokimi import caching, llm as llm_mod
+from dokimi import caching
 from dokimi.llm import LLM, chat_completion, llm_call_with_usage, resolve_api_key
+from dokimi.llm_turn import _tool_calls
 
 
 @pytest.fixture
@@ -56,7 +57,7 @@ def test_chat_completion_forwards_its_retry_budget(fake_llm, sleeps):
 
 def test_a_dict_tool_call_without_arguments_reads_as_an_empty_object():
     msg = SimpleNamespace(tool_calls=[{"id": "t", "function": {"name": "f"}}])
-    assert llm_mod._tool_calls(msg)[0].arguments == "{}"
+    assert _tool_calls(msg)[0].arguments == "{}"
 
 
 def test_a_content_less_reply_stays_none_and_is_stored_as_null(monkeypatch, tmp_path):

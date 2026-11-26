@@ -144,9 +144,13 @@ def _():
 @guard("run_parser_ok")
 def _():
     from dokimi.cli import build_parser
-    a = build_parser().parse_args(["repo", "run", ".", "--arm", "guidance:raw", "--model", "m",
-                                   "--batch", "b", "--harness", "codex"])
-    return a.harness == "codex"
+    argv = ["repo", "run", ".", "--arm", "guidance:raw", "--model", "m", "--harness", "codex"]
+    for flag in ("--name", "--batch"):  # --batch before #1195
+        try:
+            return build_parser().parse_args([*argv, flag, "b"]).harness == "codex"
+        except SystemExit:
+            pass
+    return False
 
 
 def added_lines(path_re):

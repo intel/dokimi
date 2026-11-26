@@ -19,8 +19,10 @@ import statistics
 import time
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from dokimi.metrics.usage import to_record
 from dokimi.records import Answer, RecordLike
 from dokimi.records import records as as_records
+from dokimi.spend import Spend
 
 logger = logging.getLogger(__name__)
 
@@ -262,10 +264,11 @@ def summarize_skill_selection(records: Iterable[RecordLike]) -> Dict[str, Any]:
 def cost_summary(records: Iterable[RecordLike]) -> Dict[str, Any]:
     """Per-arm rollup of cost, tokens, latency, TTFT, and cache-hit ratio.
 
-    Aggregates the per-row ``metrics{}`` blocks. ``cost_usd`` is summed only
-    over priced rows (``None`` rows are skipped); the cache-hit ratio guards
-    against a zero prompt-token denominator. The exact ratio is provider-
-    dependent — here it is read cache tokens / prompt tokens.
+    Sums the per-row ``metrics{}`` blocks into a :class:`dokimi.spend.Spend`.
+    ``total_cost_usd`` is the priced calls' sum, with ``cost_known_n`` of
+    ``total_llm_calls`` priced; the cache-hit ratio guards against a zero
+    prompt-token denominator. The exact ratio is provider-dependent: here it
+    is read cache tokens / prompt tokens.
     """
     per_arm: Dict[str, Dict[str, Any]] = {}
     for rec in as_records(records, source="answers", kind="answers"):
@@ -274,21 +277,10 @@ def cost_summary(records: Iterable[RecordLike]) -> Dict[str, Any]:
             if not isinstance(m, dict):
                 continue
             acc = per_arm.setdefault(arm_name, {
-                "n": 0, "total_llm_calls": 0,
-                "cost_usd": 0.0, "cost_known_n": 0,
-                "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
-                "cache_read_tokens": 0, "latency_sec": 0.0,
-                "ttft_sec_sum": 0.0, "ttft_n": 0,
+                "n": 0, "spend": Spend(), "latency_sec": 0.0, "ttft_sec_sum": 0.0, "ttft_n": 0,
             })
             acc["n"] += 1
-            n_calls = m.get("n_calls", 1)
-            acc["total_llm_calls"] += n_calls
-            if m.get("cost_usd") is not None:
-                acc["cost_usd"] += m["cost_usd"]
-                acc["cost_known_n"] += m.get("cost_known_calls", n_calls) or 0
-            for k in ("prompt_tokens", "completion_tokens", "total_tokens",
-                      "cache_read_tokens"):
-                acc[k] += m.get(k, 0) or 0
+            acc["spend"].add(to_record(m))
             acc["latency_sec"] += m.get("latency_sec", 0.0) or 0.0
             if m.get("ttft_sec") is not None:
                 acc["ttft_sec_sum"] += m["ttft_sec"]
@@ -297,23 +289,22 @@ def cost_summary(records: Iterable[RecordLike]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for arm_name, acc in per_arm.items():
         n = acc["n"] or 1
-        prompt = acc["prompt_tokens"]
+        spend = acc["spend"]
         out[arm_name] = {
             "n": acc["n"],
-            "total_cost_usd": (round(acc["cost_usd"], 6)
-                               if acc["cost_known_n"] else None),
-            # How many rows the cost total covers — when < n, the dollar
+            "total_cost_usd": spend.known_usd,
+            # How many calls the cost total covers — when < total_llm_calls, the dollar
             # figure is a partial sum (some LLM calls had no litellm pricing).
-            "cost_known_n": acc["cost_known_n"],
-            "total_llm_calls": acc["total_llm_calls"],
-            "prompt_tokens": acc["prompt_tokens"],
-            "completion_tokens": acc["completion_tokens"],
-            "total_tokens": acc["total_tokens"],
+            "cost_known_n": spend.priced_calls,
+            "total_llm_calls": spend.calls,
+            "prompt_tokens": spend.prompt_tokens,
+            "completion_tokens": spend.completion_tokens,
+            "total_tokens": spend.total_tokens,
             "mean_latency_sec": round(acc["latency_sec"] / n, 4),
             "mean_ttft_sec": (round(acc["ttft_sec_sum"] / acc["ttft_n"], 4)
                               if acc["ttft_n"] else None),
-            "cache_hit_ratio": (round(acc["cache_read_tokens"] / prompt, 4)
-                                if prompt else None),
+            "cache_hit_ratio": (round(spend.cache_read_tokens / spend.prompt_tokens, 4)
+                                if spend.prompt_tokens else None),
         }
     return out
 

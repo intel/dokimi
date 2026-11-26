@@ -335,7 +335,7 @@ def test_relative_questions_from_path_not_confused_with_output(tmp_path, monkeyp
 
 
 def test_same_path_force_regen_merge_persists_merged_set(tmp_path, monkeypatch):
-    """When --force-regen merges into the run's own questions file, the merged set is saved."""
+    """When --force merges into the run's own questions file, the merged set is saved."""
     # Create custom file at the output location
     custom_file = tmp_path / "questions" / "oneTBB.json"
     custom_questions = [{"id": "c1", "question": "Custom question?"}]
@@ -656,7 +656,7 @@ def test_same_path_force_regen_with_deduped_generation_leaves_input_unchanged(tm
 
 
 def _stub_regen_steps(monkeypatch: pytest.MonkeyPatch, generated: list[dict]) -> None:
-    """A --force-regen run whose generation returns ``generated``; answers and judging stubbed."""
+    """A --force run whose generation returns ``generated``; answers and judging stubbed."""
     _stub_expensive_steps(monkeypatch)
     monkeypatch.setattr(EvaluationPipeline, "_discover_personas", lambda self: {"personas": []})
     monkeypatch.setattr(EvaluationPipeline, "_generate_questions",

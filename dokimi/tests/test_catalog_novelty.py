@@ -20,6 +20,7 @@ from dokimi.novelty.client import SpendCapReached
 from dokimi.novelty import cost as novelty_cost
 from dokimi.utils import InputError
 from tests.test_novelty_analyze import SKILL, _scripted
+from tests.waiting import wait_for_event, wait_until
 
 COST = 0.01  # every fake call is priced at this, so a budget is a number of calls
 
@@ -422,7 +423,6 @@ def test_an_interrupt_cancels_the_queued_skills_keeps_the_rows_done_and_exits_no
 def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, monkeypatch):
     """The first Ctrl-C lets the call in flight finish; a second one kills the calls in flight
     (process.kill_children) and stops the sweep at once, with the same exit code as the first."""
-    import time
     from types import SimpleNamespace
 
     import dokimi.artifacts as artifacts
@@ -437,14 +437,17 @@ def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, m
     started = []
     next_call: list[str] = []
     next_done = threading.Event()
+    command_exited = threading.Event()
+    stop = catalog_novelty._Stop()
+    monkeypatch.setattr(catalog_novelty, "_Stop", lambda: stop)
 
     def analyze(args, *a, **k):
         started.append(args.artifact.rsplit("/", 1)[-1])
         if len(started) == 1:  # two Ctrl-Cs while the first skill is in flight
             os.kill(os.getpid(), signal.SIGINT)
-            time.sleep(0.1)  # timing-ok: the second signal lands after the first handler ran; the handler sets no event to wait on
+            wait_until(lambda: stop.requested, 5, what="first stop request")
             os.kill(os.getpid(), signal.SIGINT)
-            time.sleep(0.5)  # timing-ok: the sweep stops inside this window; no event marks the stop
+            wait_for_event(command_exited, 5, what="sweep exit with a call still in flight")
             try:
                 args._spend_cap.before_call("m")  # the skill's next call, after the sweep stopped
                 next_call.append("started")
@@ -459,12 +462,16 @@ def test_a_second_signal_kills_the_calls_in_flight_and_stops_at_once(tmp_path, m
     monkeypatch.setattr(report, "render_novelty_markdown", lambda artifact: "")
     root = _root(tmp_path, names=("accel-tuning", "beta", "gamma", "other-skill"))
     out = tmp_path / "out"
-    with pytest.raises(SystemExit) as exc:
-        _sweep(root, out, "--max-usd", "5", "--jobs", "1")
+    try:
+        with pytest.raises(SystemExit) as exc:
+            _sweep(root, out, "--max-usd", "5", "--jobs", "1")
+    finally:
+        command_exited.set()
     assert exc.value.code == 130
     assert kills == [True]
     assert started == ["accel-tuning"]
-    assert next_done.wait(5) and next_call == ["refused"]
+    wait_for_event(next_done, 5, what="blocked follow-up call")
+    assert next_call == ["refused"]
 
 
 def test_a_row_is_written_once_even_when_its_write_is_interrupted():

@@ -216,7 +216,7 @@ new file mode 100755
 
 def _run(root, exe, profile, out, *arms: str, task: str) -> Path:
     argv = ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
-            "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root",
+            "--bin", str(exe), "--model", "m-1", "--name", "b1", "--out", str(out), "--cache-root",
             str(out / "caches"), "--agent-network", "host", "--task", task, "--reps", "1",
             *[x for a in arms for x in ("--arm", a)]]
     args = build_parser().parse_args(argv)
