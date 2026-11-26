@@ -359,3 +359,63 @@ def test_resume_refuses_a_finding_without_a_string_code(tmp_path, capsys, findin
     _, code = _run([*base, "--resume"], capsys)
 
     assert code == 2
+
+
+def _over_line(out: str) -> str:
+    return next(line for line in out.splitlines() if "listing-over-budget" in line)
+
+
+@pytest.mark.parametrize("scan", [[], ["--per-skill"]])
+def test_the_warning_names_the_largest_entries_with_their_size(tmp_path, capsys, scan):
+    """#970: the `listing-over-budget` warning names the biggest entries as `name (N chars)`, biggest first (docs/external-content.md)."""
+    _alpha(tmp_path)
+    _skill(tmp_path, "bravo", "Use when bravo runs.")
+    _skill(tmp_path, "heavy", "Use when " + "x" * 300 + ".")
+
+    out, _ = _run(["--root", str(tmp_path), "--listing-budget", "100", *scan], capsys)
+
+    line = _over_line(out)
+    assert line.endswith("; largest: heavy (317 chars), alpha (27 chars), bravo (27 chars)")
+    assert "over the --listing-budget of 100;" in line
+
+
+def test_the_warning_names_at_most_five_entries(tmp_path, capsys):
+    """#970: seven listed skills give five names in the warning and in `listing.largest`."""
+    for index in range(7):
+        _skill(tmp_path, f"s{index}", "Use when it runs." + "y" * index)
+
+    out, _ = _run(["--root", str(tmp_path), "--listing-budget", "10"], capsys)
+    listing = _listing(tmp_path, capsys, "--listing-budget", "10")
+
+    assert _over_line(out).count(" chars)") == 5
+    assert [e["name"] for e in listing["largest"]] == ["s6", "s5", "s4", "s3", "s2"]
+
+
+def test_a_copy_is_named_once_and_a_skill_not_offered_not_at_all(tmp_path, capsys):
+    """#970: the names come from the same entries the total counts: a mirror once, a hidden skill never."""
+    _alpha(tmp_path)
+    mirror = tmp_path / "plugins" / "x" / "skills" / "alpha"
+    mirror.mkdir(parents=True)
+    (mirror / "SKILL.md").write_bytes((tmp_path / "skills" / "alpha" / "SKILL.md").read_bytes())
+    _skill(tmp_path, "hidden", "Use when hidden runs.", "disable-model-invocation: true\n")
+
+    out, _ = _run(["--root", str(tmp_path), "--listing-budget", "10"], capsys)
+
+    assert _over_line(out).endswith("; largest: alpha (27 chars)")
+
+
+def test_the_json_finding_carries_the_same_names(tmp_path, capsys):
+    """#970: the `catalog:listing` finding message ends with the same `largest:` list as the text warning."""
+    _alpha(tmp_path)
+
+    out, _ = _run(["--root", str(tmp_path), "--listing-budget", "26", "--json"], capsys)
+
+    subject = next(s for s in json.loads(out)["subjects"] if s["subject"] == "catalog:listing")
+    assert subject["findings"][0]["message"].endswith("; largest: alpha (27 chars)")
+
+
+def test_a_total_within_the_cap_names_nothing(tmp_path, capsys):
+    """#970: no warning and no `largest` key when the total is at the cap."""
+    _alpha(tmp_path)
+
+    assert _listing(tmp_path, capsys, "--listing-budget", "27") == {"chars": 27, "budget": 27, "over_budget": False}

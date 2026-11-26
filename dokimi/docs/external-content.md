@@ -473,7 +473,7 @@ A large catalog is easier to scan one skill at a time:
   entries; the description and `when_to_use` count at most 1,536 characters per entry, as Claude Code cuts them; a byte-identical `SKILL.md` under another path is one entry, as the routing field keeps one card
   for it, while a name whose copies differ is left out, as there) and compares it with CHARS. The total is `listing.chars` in the JSON report, with
   `budget` and `over_budget`. Over the cap is a `listing-over-budget` warning after the counts,
-  and exit 1 with `--strict`; a total equal to CHARS passes. The whole-catalog scan, `--per-skill`,
+  and exit 1 with `--strict`; the warning ends with `; largest:` and the five biggest entries as `name (N chars)`, biggest first, counted as in the total (also `listing.largest` in the JSON report, only over the cap). A total equal to CHARS passes. The whole-catalog scan, `--per-skill`,
   `--concurrency` and `--resume` count the same way: a resumed row keeps its `listing_chars`, and the cap is
   checked against this run's value, so lowering it can fail a resumed `--strict` scan whose receipt is
   still valid. `--ignore listing-over-budget` drops the warning, the exit and the line that carries the total
