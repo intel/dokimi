@@ -122,6 +122,15 @@ _COST_KEYS = (
 )
 
 
+def _elapsed_seconds(value: Any) -> float:
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            return 0.0
+    return as_float(value) or 0.0
+
+
 def summarize_task_results(
     rows: list[dict[str, Any]],
     *,
@@ -158,7 +167,7 @@ def summarize_task_results(
         reward = as_float(row.get("reward"))
         if reward is not None and not errored:
             stats["_rewards"].append(reward)
-        stats["elapsed_sec"] += as_float(row.get("elapsed_sec")) or 0.0
+        stats["elapsed_sec"] += _elapsed_seconds(row.get("elapsed_sec"))
         metrics = row.get("metrics", {})
         stats["operation_count"] += _count(metrics.get("operation_count")) or 0
         for op_type, count in metrics.get("operations_by_type", {}).items():

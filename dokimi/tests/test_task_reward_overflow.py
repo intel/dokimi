@@ -63,6 +63,19 @@ def test_summarize_task_results_keeps_a_finite_mean_when_the_sum_overflows(rewar
     assert summarize_task_results(rows)["per_harness"]["h"]["avg_reward"] == expected
 
 
+@pytest.mark.parametrize("elapsed, expected", [
+    ("12.5", 12.5),
+    ("nan", 0.0),
+    ("inf", 0.0),
+    ("unavailable", 0.0),
+])
+def test_summarize_task_results_reads_finite_elapsed_strings(elapsed, expected):
+    from dokimi.harnesses.runner import summarize_task_results
+
+    rows = [{"task": "t", "harness": "h", "elapsed_sec": elapsed}]
+    assert summarize_task_results(rows)["per_harness"]["h"]["elapsed_sec"] == expected
+
+
 def test_tasks_completion_counts_a_reward_beyond_the_float_range_as_unscored(capsys):
     from dokimi.commands.tasks import _check_completion
 
