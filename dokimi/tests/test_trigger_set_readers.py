@@ -94,17 +94,21 @@ def test_a_questions_version_and_provenance_survive_the_round_trip(catalog, tmp_
     payload = ts.to_questions(built)
     rows = {r["id"]: r for r in payload["questions"]}
     assert rows["p"]["version"] == 2 and rows["p"]["provenance"] == stamped["provenance"]
+    assert type(rows["f"]["version"]) is float
     assert rows["f"]["version"] == 1.0 and rows["f"]["provenance"] == "validated"
     assert "version" not in rows["n"] and "provenance" not in rows["n"]
     back = ts.from_questions(payload)
-    assert ts.to_questions(back)["questions"] == payload["questions"]
+    round_trip = ts.to_questions(back)["questions"]
+    assert type(next(row["version"] for row in round_trip if row["id"] == "f")) is float
+    assert round_trip == payload["questions"]
     from dokimi.questions.artifact import save_questions_artifact
 
     path = tmp_path / "q.json"
     save_questions_artifact(payload, str(path))
     stored = json.loads(path.read_text(encoding="utf-8"))["questions"]
-    assert {r["id"]: (r["version"], r["provenance"]) for r in stored if "version" in r} == {
-        "p": (2, stamped["provenance"]), "f": (1.0, "validated")}
+    saved_fields = {r["id"]: (r["version"], r["provenance"]) for r in stored if "version" in r}
+    assert type(saved_fields["f"][0]) is float
+    assert saved_fields == {"p": (2, stamped["provenance"]), "f": (1.0, "validated")}
 
 
 def test_reach_reader_matches_skill_reach_defaults_and_refuses_bad_rows():
