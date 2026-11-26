@@ -167,7 +167,7 @@ def _posix_separators(text: str, sep: str = os.sep) -> str:
 
 
 @dataclass(frozen=True)
-class GitTree:
+class GitDigestTree:
     """A work tree a digest reads through git: its top (a real path), the walk's base (top-relative, "" for the top), the
     untracked, ignored paths git leaves out (top-relative, a directory by its name as ``ls-files --directory`` gives it),
     and the blob ids of the tracked files git finds unchanged (their index entries). A tree is a snapshot: build one per
@@ -251,7 +251,7 @@ def _git_env() -> "Env":
     return Env.only(allow=[k for k in os.environ if not k.startswith("GIT_")])
 
 
-def git_tree(base: Path) -> GitTree | None:
+def git_tree(base: Path) -> GitDigestTree | None:
     """The work tree holding ``base``, with what git leaves out of it. None when ``base`` is in no work tree (or git
     cannot say): the digest then hashes the bytes on disk and leaves nothing out."""
     from dokimi.process import run
@@ -271,7 +271,7 @@ def git_tree(base: Path) -> GitTree | None:
         base_rel = Path(os.path.realpath(base)).relative_to(top_real).as_posix()
     except ValueError:
         return None
-    return GitTree(top_real, "" if base_rel == "." else base_rel, ignored, *_index_blobs(top_dir))
+    return GitDigestTree(top_real, "" if base_rel == "." else base_rel, ignored, *_index_blobs(top_dir))
 
 
 def _ignored_paths(top: str) -> frozenset[str] | None:
@@ -290,7 +290,7 @@ def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
     """The index's blob id for each tracked file that git finds unchanged in the work tree. ``hash-object`` does not read
     the index, so it would fold a committed CRLF file under core.autocrlf. Flagged entries (skip-worktree, assume-unchanged)
     are left out: git does not look at those files, so their disk content is hashed. Second, every path the index holds
-    and each directory above one (``GitTree.tracked``). No blob id if any git call fails; no path if ``ls-files`` does."""
+    and each directory above one (``GitDigestTree.tracked``). No blob id if any git call fails; no path if ``ls-files`` does."""
     from dokimi.process import run
 
     env = _git_env()
@@ -359,7 +359,7 @@ def _hash_objects(top: Path, rels: list[str], *, as_args: bool) -> list[str] | N
     return ids if len(ids) == len(rels) else None
 
 
-def file_contents(paths: Iterable[Path], tree: GitTree | None) -> dict[Path, bytes]:
+def file_contents(paths: Iterable[Path], tree: GitDigestTree | None) -> dict[Path, bytes]:
     """What a digest holds for each file: git's blob id for a file in ``tree`` (the index's when git finds it unchanged,
     else ``hash-object``'s with the work tree's filters). Otherwise the sha256 of its bytes: no tree or a file outside
     it. A ``hash-object`` that fails raises ``OSError``, as a repository git cannot read does."""
@@ -371,7 +371,7 @@ def file_contents(paths: Iterable[Path], tree: GitTree | None) -> dict[Path, byt
     return out
 
 
-def _blob_contents(paths: list[Path], tree: GitTree) -> dict[Path, bytes]:
+def _blob_contents(paths: list[Path], tree: GitDigestTree) -> dict[Path, bytes]:
     out: dict[Path, bytes] = {}
     plain: list[tuple[Path, str]] = []
     odd: list[tuple[Path, str]] = []  # names --stdin-paths misreads: hashed as arguments, so edited reads as committed
@@ -487,7 +487,7 @@ def _entries(root: Path, skip: tuple[str, ...], *, strict: bool, drop: Callable[
 
 
 def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False,
-                tracked: Mapping[str, bool] | None = None, git: GitTree | bool | None = False) -> str:
+                tracked: Mapping[str, bool] | None = None, git: GitDigestTree | bool | None = False) -> str:
     """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
 
     A file ``root`` digests as itself (its path is ``.``), and so does a symlink ``root``
@@ -505,7 +505,7 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
     as :func:`_tracked_modes` returns them; None reads them from git. A caller digesting many files reads them once.
     ``git``: hash what git stores, not the bytes on disk. A file digests as its blob id (:func:`file_contents`), so a
     CRLF checkout with core.autocrlf matches the LF one; what git leaves out (ignored paths, by a nested repository's
-    own rules too, and a nested ``.git``) is skipped, and so are directories, which git does not store. A ``GitTree``
+    own rules too, and a nested ``.git``) is skipped, and so are directories, which git does not store. A ``GitDigestTree``
     is a work tree already read; True reads it from ``root``; None (or no work tree) hashes the bytes on disk and
     leaves nothing out.
     """
@@ -513,8 +513,8 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
     # a symlink is never looked through here: its target may be unreadable (or gone), and it digests by its text
     is_link = root.is_symlink()
     as_file = not is_link and root.is_file()
-    if isinstance(git, GitTree):
-        tree: GitTree | None = git
+    if isinstance(git, GitDigestTree):
+        tree: GitDigestTree | None = git
     else:
         tree = git_tree(root.parent if is_link or as_file else root) if git else None
     # sorted by the parts of the relative path, compared as code points: the same order on every OS (Path

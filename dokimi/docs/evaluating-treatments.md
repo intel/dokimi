@@ -168,6 +168,10 @@ replaces a file (a name that holds one, finished, left by a crashed run or taken
 same time, is passed over for `<out stem>.partial2.json`),
 and the commands that read arms files refuse it. There is no resume: rerun the command.
 `arms matrix-run` keeps one per cell, `cells/<cell>.partial.json`.
+For single-turn model calls without tools, set `DOKIMI_RESPONSE_CACHE` before
+the first attempt and keep that directory for the rerun. The rerun can reuse
+cached answers for identical requests and marks them as replays. The original
+checkpoint stays available for inspection.
 
 Example Caveman plugin cell:
 
