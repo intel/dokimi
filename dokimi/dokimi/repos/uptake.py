@@ -31,11 +31,12 @@ from (it never started, or its trace did not parse).
 from __future__ import annotations
 
 import json
-import posixpath
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .event_format import followed_path
 from .transcript import shown_read
 
 MCP_CONFIG = ".mcp.json"
@@ -67,8 +68,10 @@ def mcp_servers(ws: Path, arm_files: list[str], base: set[str] | frozenset[str] 
 
 
 def arm_uptake(events: list[dict[str, Any]] | None, files: list[str], servers: list[str],
-               workdir: str) -> dict[str, Any]:
-    """The ``uptake`` of ``result.json`` from the cell's normalized events (``None``: no trace)."""
+               workdir: str, resolve: Callable[[str], str | None] | None = None) -> dict[str, Any]:
+    """The ``uptake`` of ``result.json`` from the cell's normalized events (``None``: no trace).
+
+    ``resolve`` follows the workspace's links for a read path with a ``..`` in it (:func:`~dokimi.repos.event_format.followed_path`)."""
     out: dict[str, Any] = {"files": sorted(files), "mcp_servers": sorted(servers), "measured": events is not None,
                            "commands": 0, "reads": 0, "mcp_calls": 0, "used": False}
     if events is None:
@@ -82,7 +85,7 @@ def arm_uptake(events: list[dict[str, Any]] | None, files: list[str], servers: l
         kind = ev.get("kind")
         if kind == "command" and named is not None and named.search(str(ev.get("text", ""))):
             out["commands"] += 1
-        elif shown_read(ev) and posixpath.normpath(str(ev.get("path") or "")) in wanted:  # a failed read showed nothing
+        elif shown_read(ev) and followed_path(str(ev.get("path") or ""), resolve) in wanted:  # a failed read showed nothing
             out["reads"] += 1
         elif kind == "tool" and prefixes and str(ev.get("name", "")).startswith(prefixes):
             out["mcp_calls"] += 1

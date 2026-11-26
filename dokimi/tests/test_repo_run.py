@@ -33,7 +33,7 @@ def setup(tmp_path, monkeypatch):
 
 def _run(s, *extra, network=True, source=None):
     argv = ["repo", "run", source or f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
-            str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--batch", "b1", "--out", str(s["out"]),
+            str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--name", "b1", "--out", str(s["out"]),
             "--cache-root", str(s["out"] / "caches"), *(["--agent-network", "host"] if network else []), *extra]
     args = build_parser().parse_args(argv)
     args.func(args)
@@ -458,7 +458,7 @@ def test_a_batch_keeps_its_eval_tree(setup, capsys):
     git(setup["root"], "commit", "-qm", "later")
     with pytest.raises(SystemExit):
         _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
-    assert "use another --batch" in capsys.readouterr().err
+    assert "use another --name" in capsys.readouterr().err
 
 
 def test_wilson_interval():
@@ -587,7 +587,7 @@ def test_the_image_build_gets_the_build_timeout(setup):
     check()
     check("--build-timeout", "36000")
     assert runner.build_timeouts == [BUILD_TIMEOUT_S, 36000]
-    for parser_argv in (["repo", "run", str(root), "--arm", "guidance:none", "--model", "m", "--batch", "b"],
+    for parser_argv in (["repo", "run", str(root), "--arm", "guidance:none", "--model", "m", "--name", "b"],
                         ["eval", "check", str(root)]):
         assert build_parser().parse_args(parser_argv).build_timeout == BUILD_TIMEOUT_S
 
@@ -603,7 +603,7 @@ def test_a_working_tree_batch_keeps_its_eval_dir(setup, capsys):
     grader.write_text(original + "# edited\n")
     with pytest.raises(SystemExit):
         _run(setup, "--arm", "guidance:raw", "--task", "review_add", source=str(root))
-    assert "use another --batch" in capsys.readouterr().err
+    assert "use another --name" in capsys.readouterr().err
     batch = setup["out"] / "b1"
     assert (batch / "_eval/content/grade.py").read_text() == original  # the refused run changed nothing
     assert not list(batch.glob("review_add__*"))
@@ -892,13 +892,13 @@ def test_a_batch_refuses_resume_after_a_built_in_grader_changes_only_if_a_task_n
     (task.parent / "manifest.json").write_text(json.dumps({"seeds": [], "decoys": []}))
     git(root, "add", "-A")
     git(root, "commit", "-qm", "a built-in task")
-    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--batch", "b2")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--name", "b2")
     assert json.loads((setup["out"] / "b2/_eval/batch.json").read_text())["graders"] == "edited"
     monkeypatch.setattr("dokimi.repos.graders.graders_digest", lambda: "edited again")
     with pytest.raises(SystemExit):
-        _run(setup, "--arm", "guidance:none", "--task", "fix_add", "--batch", "b2")
+        _run(setup, "--arm", "guidance:none", "--task", "fix_add", "--name", "b2")
     err = capsys.readouterr().err
-    assert "graders" in err and "use another --batch" in err
+    assert "graders" in err and "use another --name" in err
     assert not list((setup["out"] / "b2").glob("fix_add__guidance-none__*"))
 
 
@@ -922,7 +922,7 @@ def test_a_batch_whose_pin_is_unreadable_exits_1_naming_the_file(setup, capsys, 
         _run(setup, "--arm", "guidance:none", "--task", "fix_add")
     assert exc.value.code == 1
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and str(Path("_eval") / "batch.json") in err and "use another --batch" in err
+    assert err.startswith("✗ ") and str(Path("_eval") / "batch.json") in err and "use another --name" in err
 
 
 def test_a_batch_whose_pin_is_a_directory_exits_1_naming_the_file(setup, capsys):
@@ -935,7 +935,7 @@ def test_a_batch_whose_pin_is_a_directory_exits_1_naming_the_file(setup, capsys)
         _run(setup, "--arm", "guidance:none", "--task", "fix_add")
     assert exc.value.code == 1
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and str(Path("_eval") / "batch.json") in err and "use another --batch" in err
+    assert err.startswith("✗ ") and str(Path("_eval") / "batch.json") in err and "use another --name" in err
 
 
 def test_graders_digest_follows_the_grader_sources(tmp_path, monkeypatch):

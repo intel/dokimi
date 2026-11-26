@@ -18,7 +18,7 @@ so a skill is judged by what it adds, not by what the task provokes anyway. No m
 called. Design and later phases: [#360](https://github.com/intel/dokimi/issues/360).
 
 ```bash
-dokimi repo run SOURCE --model <model-id> --agent-network host --arm guidance:none --arm patch:skill.patch --reps 10 --batch b1
+dokimi repo run SOURCE --model <model-id> --agent-network host --arm guidance:none --arm patch:skill.patch --reps 10 --name b1
 dokimi repo security repo-runs/b1 --baseline guidance:none --canaries-file canaries.txt --out security.json --fail-on fail
 ```
 
@@ -43,6 +43,7 @@ Per finished cell directory (`{task}__{arm}__{model}__r{rep}` with a `result.jso
 | `exec.log` | `strace -f -s 4096 -e trace=execve` of the agent, when the image records one: commands a script the agent wrote ran, which the trace does not show |
 | `egress.jsonl` | an egress sidecar's allow/deny decisions. `repo run` starts none yet (per-host egress is not implemented there), so `egress-denied` and an egress canary leak are unmeasured in its cells |
 | `answer.txt` | the final answer (a canary there is a leak) |
+| `workspace/` | the links of the agent's final tree, when the cell kept it: an edit path with a `..` after a link (`sub/link/../x`) is followed as the system does, and is `edit-outside-workspace` when that, or the path read by name, leaves the workspace. Without a `workspace/` directory the path is read by name alone |
 
 strace cuts a string longer than its `-s` limit (32 by default, so pass `-s`): the rules do
 not judge a cut argument, only canaries are matched in its kept text, and `coverage.exec_cut`

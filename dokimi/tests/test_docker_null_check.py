@@ -328,7 +328,7 @@ def test_incomplete_run_still_prints_completed_null_verdicts(tmp_path, monkeypat
     _harbor(tmp_path, "broken")
 
     def answer(call):
-        if call.argv[1] == "cp" and call.argv[2].startswith("dokimi-run-broken-"):
+        if call.argv[1] == "cp" and call.argv[-2].startswith("dokimi-run-broken-"):
             return reply("could not find the file", returncode=1)
         return _verifier(ALL_PASS, returncode=0)(call)
 

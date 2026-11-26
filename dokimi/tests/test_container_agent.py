@@ -37,6 +37,7 @@ from dokimi.harnesses.egress_proxy import (
 from dokimi.harnesses.registry import create_harness
 from dokimi.process import reply
 from docker_cli_fake import DockerCLI
+from tests.waiting import poll_until
 
 
 @pytest.fixture(autouse=True)
@@ -1021,7 +1022,7 @@ def test_a_verifier_on_a_dead_container_is_errored_not_zero(tmp_path, monkeypatc
         args = call.argv[1:]
         if args[0] == "exec" and "test.sh" in args[-1]:  # it died during the verifier
             return reply(stderr="container dokimi-run-x is not running", returncode=1)
-        if args[0] == "cp" and ":/logs/" in args[1]:
+        if args[0] == "cp" and ":/logs/" in args[-2]:
             return reply(returncode=1)
         if args[0] == "inspect":
             return reply("false\n")
@@ -1100,10 +1101,7 @@ def test_proxy_logs_plain_http_failures_with_host_and_normalised_names():
             sock.sendall(req)
             sock.recv(1024)
             sock.close()
-        for _ in range(50):
-            if len(proxy.log) >= 4:
-                break
-            __import__("time").sleep(0.05)
+        poll_until(lambda: len(proxy.log) >= 4, 2.5, interval=0.05)
     finally:
         proxy.stop()
     rows = [(r["host"], r["port"], r["decision"]) for r in proxy.log]

@@ -42,7 +42,7 @@ def _judge(temperature=None, seed=None):
     judge = Judge.__new__(Judge)
     judge._accumulate_usage = lambda usage: None
     judge.temperature, judge.seed = temperature, seed
-    judge._usage_lock, judge._usage_totals = threading.Lock(), {"redrawn_judgements": 0}
+    judge._usage_lock, judge._redrawn_judgements = threading.Lock(), 0
     judge.llm = Invoker(LLM("gpt-x", "openai", "k", temperature=temperature, seed=seed))
     return judge
 
@@ -65,7 +65,7 @@ def test_judge_unpinned_redraws_the_plain_prompt(cache_dir, fake_llm):
     assert judge.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80.0
     base = fake_llm.prompts[0]
     assert fake_llm.prompts == [base, base]
-    assert judge._usage_totals["redrawn_judgements"] == 1
+    assert judge._redrawn_judgements == 1
     # The rerun replays the stored draw-1 reply: no request, and the same cache key.
     assert judge.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80.0
     assert len(fake_llm.requests) == 2
@@ -78,7 +78,7 @@ def test_judge_pinned_redraws_with_the_reminder(cache_dir, fake_llm):
     assert judge.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80.0
     base = fake_llm.prompts[0]
     assert fake_llm.prompts == [base, base + REMINDER_1]
-    assert judge._usage_totals["redrawn_judgements"] == 1
+    assert judge._redrawn_judgements == 1
     assert judge.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80.0
     assert len(fake_llm.requests) == 2
     assert _cache_files(cache_dir) == ["f0cd923dc4fd72e7e4746e77505f11ad80878e92ee2190c52df6c64fe78b531f.json"]
@@ -104,10 +104,10 @@ def test_judge_pinned_rerun_replays_the_stored_third_attempt_only(cache_dir, fak
     judge = _judge(temperature=0.0, seed=7)
     judge.score_answer(library_name="L", question="q", answer="a")
     assert len(fake_llm.requests) == 3
-    assert judge._usage_totals["redrawn_judgements"] == 1
+    assert judge._redrawn_judgements == 1
     assert judge.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80.0
     assert len(fake_llm.requests) == 3  # attempts 0 and 1 were never stored, attempt 2 replays
-    assert judge._usage_totals["redrawn_judgements"] == 2
+    assert judge._redrawn_judgements == 2
     assert _cache_files(cache_dir) == ["44466ea735b63f70d52f8968b4a0544ab38ec0445bbb566f49f5e7728d8e8662.json"]
 
 

@@ -32,7 +32,7 @@ from dokimi.repo_claims import _ancestor_of, _claims, _suite_only_dirs, _suite_p
 from dokimi.repo_glob import glob_links as _glob_links, glob_paths as _glob_paths
 from dokimi.repo_links import _declared_links, _hops, _inside, _real, _under, _walk, _within
 from dokimi.digest_entries import target_digest
-from dokimi.utils import GitTree, _tracked_modes, file_contents, git_tree, link_text, tree_digest
+from dokimi.utils import GitDigestTree, _tracked_modes, file_contents, git_tree, link_text, tree_digest
 
 KIND = "dokimi_config"
 CONFIG_CANDIDATES = (".github/dokimi/config.yaml", ".dokimi/config.yaml")
@@ -574,7 +574,7 @@ def _suite_files(root: Path, globs: tuple[str, ...]) -> dict[str, Path]:
 
 
 def _digest_files(files: dict[str, Path], root: Path, modes: Mapping[str, bool] | None = None,
-                  tree: GitTree | None = None) -> str:
+                  tree: GitDigestTree | None = None) -> str:
     """One digest over the suite's files. A directory is walked file by file; a symlink counts by its target text
     (as tree_digest does) and by what it points to, so retargeting a link moves the hash even between identical trees.
     Every link met on the way to a match or a file counts too (a link above it, or one on the way to its target), so
@@ -762,7 +762,7 @@ def _check_claims(subject: Subject, matches: dict[str, Path], real_skill: Path) 
 
 
 def _hashed(subject: Subject, root: Path, all_subjects: list[Subject], modes: Mapping[str, bool] | None,
-            tree: GitTree | None) -> Subject:
+            tree: GitDigestTree | None) -> Subject:
     files = _suite_files(root, subject.suite_globs)
     if subject.kind == "repo":
         assert subject.manifest is not None  # set by _subject for kind repo
