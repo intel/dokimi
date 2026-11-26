@@ -207,8 +207,9 @@ def pair_atoms(sentence: str, atoms: list[Atom], *, min_overlap: float = 0.3) ->
 def lexical_conflict(statement: str, sentence: str) -> tuple[str, str] | None:
     """``(how, quote)`` when the pair shows a cheap conflict signal, else ``None``.
 
-    * value: both name values, share none, and the sentence's value is of the same shape
-      (both versions/numbers, or both flags) — "requires 2.1" vs "requires 3.0".
+    * value: after matching shared values, the sentence and statement each have a remaining
+      value of the same kind (number, version, flag, duration, frequency, bytes, byte rate
+      or percentage). A lone number also compares with a lone version.
     * polarity: exactly one side carries a negation.
     These are candidates for a judge, not findings; precision is low by construction.
     """
