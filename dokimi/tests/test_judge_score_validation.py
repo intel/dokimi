@@ -49,7 +49,7 @@ def _judge():
     judge = Judge.__new__(Judge)
     judge._accumulate_usage = lambda usage: None
     judge.temperature = judge.seed = None
-    judge._usage_lock, judge._usage_totals = threading.Lock(), {"redrawn_judgements": 0}
+    judge._usage_lock, judge._redrawn_judgements = threading.Lock(), 0
     judge.llm = Invoker(LLM("m.x", "amazon-bedrock"))
     return judge
 

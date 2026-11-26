@@ -829,7 +829,9 @@ the validator stored on Bedrock, Vertex or OpenRouter before they moved to
 calls are paid once more. It
 pays off mainly for the `baseline` arm, which is identical across treatment runs,
 and for re-running a pipeline after changing only the reporting code. The judge
-is covered on every provider.
+is covered on every provider. A judge call the cache replays was not paid for by
+this run: `judge_metrics` counts it in `replayed_calls` and adds no tokens and no
+`cost_usd` for it.
 
 A request can also carry a **draw** index, for when a caller wants a second,
 independent sample of the same prompt: the judge's retry after an unparseable
