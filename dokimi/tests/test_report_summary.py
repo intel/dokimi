@@ -87,6 +87,14 @@ def test_cli_refuses_a_named_input_that_is_missing_and_writes_nothing(tmp_path):
     assert not out.exists()
 
 
+def test_cli_refuses_an_empty_path_even_when_the_cwd_has_a_document(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _doc(tmp_path, "scan.json", "repo scan", verdict="pass")
+    done = _summary_cli("", "--out", "summary.md")
+    assert done.returncode == 2 and "input path is empty" in done.stderr and done.stdout == ""
+    assert not (tmp_path / "summary.md").exists()
+
+
 def test_cli_refuses_a_missing_path_next_to_a_good_document(tmp_path):
     good = _doc(tmp_path, "ok.json", "repo scan", verdict="pass")
     done = _summary_cli(str(good), str(tmp_path / "gone.json"))

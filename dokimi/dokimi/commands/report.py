@@ -179,6 +179,8 @@ def _refuse_absent_inputs(paths: list[str]) -> None:
     document at all. An existing directory with no ``*.json`` beside other inputs stays a ``not_run`` row."""
     from dokimi.report.summary import expand_inputs
 
+    if "" in paths:
+        raise InputError("input path is empty")
     missing = [p for p in paths if not Path(p).exists()]
     if missing:
         raise InputError(f"no such file or directory: {', '.join(missing)}")
