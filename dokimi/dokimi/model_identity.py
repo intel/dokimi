@@ -33,22 +33,25 @@ _VENDORS = frozenset({
     "moonshotai", "nvidia", "openai", "qwen", "stability", "twelvelabs", "writer", "xai", "zai",
 })
 _VENDOR_SLUGS = {"z-ai": "zai", "x-ai": "xai", "mistralai": "mistral"}  # OpenRouter's spelling of a vendor
+_VENDOR_ROUTES = {"gemini": "google", "google-vertex": "google", "openai-codex": "openai"}
 _BEDROCK_ARN = re.compile(r"(?:^|/)arn:aws[a-z-]*:bedrock:[a-z0-9-]*:\d*:(?:inference-profile|foundation-model)/")
 
 
-def _routed_parts(name: str) -> tuple[list[str], bool]:
-    """Drop transport prefixes, keeping a Hugging Face organization and any model vendor."""
+def _routed_parts(name: str) -> tuple[list[str], bool, list[str]]:
+    """Return the model parts, whether they include a Hub organization, and the removed routes."""
     arn = _BEDROCK_ARN.search(name)
     if arn:
         name = name[arn.end():]
     parts = name.split("/")
+    routes = []
     while len(parts) > 1 and parts[0] in _ROUTES:
         route = parts.pop(0)
+        routes.append(route)
         if route == "huggingface":
-            return parts, True
+            return parts, True, routes
         if route == "openrouter" and len(parts) == 2 and _VENDOR_SLUGS.get(parts[0], parts[0]) in _VENDORS:
-            return parts, False
-    return parts, False
+            return parts, False, routes
+    return parts, False, routes
 
 
 def _model_core(model: str) -> tuple[str, str | None]:
@@ -63,7 +66,7 @@ def _model_core(model: str) -> tuple[str, str | None]:
     # sonnet[1m] is the same model with a larger window: the 1M context form goes, and no other bracket
     # (qwen3[8b] and qwen3[32b] are two models)
     name = re.sub(r"\[1m\]$", "", (model or "").strip().lower())
-    parts, hub = _routed_parts(name)
+    parts, hub, _ = _routed_parts(name)
     if not hub and len(parts) > 1 and _VENDOR_SLUGS.get(parts[0], parts[0]) in _VENDORS:
         parts.pop(0)  # OpenRouter's ``qwen/X`` is Bedrock's ``qwen.X``: the vendor, not an organization
     name = "/".join(parts)
@@ -169,7 +172,14 @@ UNKNOWN_VENDOR = "unknown"
 
 
 def vendor_of(model: str | None) -> str:
-    """The vendor family a model id names (``us.anthropic.claude-...`` is ``anthropic``), else ``unknown``."""
-    parts, _ = _routed_parts((model or "").strip().lower())
+    """The vendor family named by a model, or by the direct route for a bare id such as ``openai/o3``."""
+    parts, hub, routes = _routed_parts((model or "").strip().lower())
     lowered = "/".join(parts)
-    return next((vendor for marker, vendor in _VENDOR_MARKERS if marker in lowered), UNKNOWN_VENDOR)
+    family = next((vendor for marker, vendor in _VENDOR_MARKERS if marker in lowered), UNKNOWN_VENDOR)
+    if family != UNKNOWN_VENDOR or hub:
+        return family
+    if len(parts) > 1:
+        vendor = _VENDOR_SLUGS.get(parts[0], parts[0]) if routes and routes[-1] == "openrouter" else ""
+        return vendor if vendor in _VENDORS else UNKNOWN_VENDOR
+    route = routes[-1] if routes else ""
+    return route if route in _VENDORS else _VENDOR_ROUTES.get(route, UNKNOWN_VENDOR)

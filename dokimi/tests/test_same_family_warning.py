@@ -43,13 +43,29 @@ def test_routing_prefixes_do_not_determine_the_model_vendor(capsys):
     model = "openai/meta-llama/Llama-3.1-8B"
     assert vendor_of(model) == "meta"
     assert vendor_of("openrouter/openai/my-model") == "openai"
-    assert vendor_of("openai/my-local-model") == UNKNOWN_VENDOR
+    assert vendor_of("openrouter/my-local-model") == UNKNOWN_VENDOR
+    assert vendor_of("openai/community/my-local-model") == UNKNOWN_VENDOR
     assert not warn_judge_independence("openai", model, "openai", "llama-4-maverick")
     assert "one meta family" in capsys.readouterr().err
     assert not warn_judge_independence("openai", model, "openai", "gpt-6.1-sol")
     assert capsys.readouterr().err == ""
     assert extractor_judge_relation(model, LLMClient(model="llama-4-maverick", role="judge"))["same_vendor"]
     assert not extractor_judge_relation(model, LLMClient(model="gpt-6.1-sol", role="judge"))["same_vendor"]
+
+
+def test_a_vendor_route_supplies_the_family_when_the_bare_id_does_not(capsys):
+    assert vendor_of("openai/o3") == "openai"
+    assert vendor_of("openai/o4-mini") == "openai"
+    assert vendor_of("openai-codex/o3") == "openai"
+    assert vendor_of("google/gemma-3-27b-it") == "google"
+    assert vendor_of("gemini/gemma-3-27b-it") == "google"
+    assert vendor_of("google-vertex/gemma-3-27b-it") == "google"
+    assert vendor_of("mistral/codestral-latest") == "mistral"
+    assert vendor_of("openrouter/deepseek/deepseek-r1") == "deepseek"
+    assert not warn_judge_independence("openai", "openai/gpt-6.1-sol", "openai", "openai/o3")
+    assert "one openai family" in capsys.readouterr().err
+    relation = extractor_judge_relation("mistral/mistral-large", LLMClient(model="mistral/codestral-latest", role="judge"))
+    assert relation["same_vendor"]
 
 
 def test_an_extractor_of_the_answering_vendor_is_warned_and_another_vendor_is_not():
