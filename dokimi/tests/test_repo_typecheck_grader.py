@@ -110,6 +110,7 @@ def test_the_entry_point_writes_the_metrics_that_the_gate_reads(tmp_path):
     {"mypy_version": None},
     {"mypy_version": "", "version": PINNED},
     {"mypy_version": 2},
+    {"mypy_version": " \t"},
     {"paths": []},
     {"paths": ["/etc/passwd"]},
     {"paths": ["../outside.py"]},

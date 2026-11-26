@@ -69,7 +69,7 @@ def task_problems(raw: dict[str, Any]) -> list[str]:
         problems.append(f"tool must be {TOOL!r}: basedpyright starts a process, which the grader does not "
                         f"(the L0 check runs it), not {raw.get('tool')!r}")
     pin = pinned_mypy(raw)
-    if not isinstance(pin, str) or not pin:
+    if not isinstance(pin, str) or not pin.strip():
         problems.append(f'{PIN_KEY} must be the pinned mypy version, e.g. "2.4.0"; `version` is the revision')
     paths = raw.get("paths")
     if not isinstance(paths, list) or not paths or not all(_safe_path(p) for p in paths):
