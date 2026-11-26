@@ -355,6 +355,7 @@ def test_a_cd_after_the_first_command_of_a_body_may_not_run(command):
 
 
 @pytest.mark.parametrize("command, reads", [("if cd sub; then cat f; fi", []), ("while cd sub; do :; done; cat f", []),
+                                            ("if x; cd sub; then :; fi; cat f", ["sub/f"]),
                                             ("if false; then :; fi; cd sub; cat f", ["sub/f"]),
                                             ("for i in 1; do :; done; cd sub; cat f", ["sub/f"])])
 def test_a_cd_outside_a_body_is_as_before(command, reads):
