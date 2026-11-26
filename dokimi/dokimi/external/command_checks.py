@@ -275,7 +275,8 @@ def _unpinned_npx(
     i = 0
     while i < len(words):
         word = words[i]
-        if word.partition("=")[0] in project_options:
+        option, _, setting = word.partition("=")
+        if option in project_options or (option in ("--workspaces", "-ws") and setting.lower() != "false"):
             own = frozenset()
             i += 1
             continue

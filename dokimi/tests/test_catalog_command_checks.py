@@ -844,6 +844,19 @@ def test_npx_checks_an_executable_selected_from_another_project(tmp_path, option
     assert "npx mytool" in finding.message
 
 
+@pytest.mark.parametrize("option", ["--workspaces", "--workspaces=true", "-ws"])
+def test_npx_checks_an_executable_selected_across_workspaces(tmp_path, option):
+    files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}
+    [finding] = _found(_review(tmp_path, _fenced(f"npx {option} mytool init"), files), "install-unpinned")
+    assert "npx mytool" in finding.message
+
+
+@pytest.mark.parametrize("option", ["--workspaces=false", "--no-workspaces", ""])
+def test_npx_keeps_the_local_exemption_without_workspace_selection(tmp_path, option):
+    files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}
+    assert not _found(_review(tmp_path, _fenced(f"npx {option} mytool init"), files), "install-unpinned")
+
+
 @pytest.mark.parametrize("body", [
     _fenced('echo "example; cd $PROJECT_DIR" && npx mytool init'),
     _fenced('cd "$PROJECT_DIR"') + "\n" + _fenced("npx mytool init"),
