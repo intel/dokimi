@@ -277,6 +277,17 @@ def test_summary_lines_list_the_ranking_after_the_stratum_table():
     assert lines[head + 1].lstrip() == "1. b: 60.00% new (3000 tokens)"
 
 
+def test_summary_lines_show_only_the_top_ten_measured_skills():
+    rows = [_ok(f"skill-{i:02}", i / 20, digest=f"digest-{i}") for i in range(1, 13)]
+    summary = summarize(rows, resamples=50)
+    lines = summary_lines(summary)
+    head = lines.index("ranking by new share (top 10 of 12):")
+    assert [line.strip().split(":")[0] for line in lines[head + 1:]] == [
+        f"{pos}. skill-{i:02}" for pos, i in enumerate(range(12, 2, -1), 1)
+    ]
+    assert len(summary["ranking"]) == 12
+
+
 def test_ranking_lists_a_skill_once_from_its_latest_ok_row():
     """Two sweeps into one JSONL measure `a` twice: the ranking has one entry for it, the later one,
     and a skill edited between the sweeps (two digests, one key) is counted twice in the overall figures."""
