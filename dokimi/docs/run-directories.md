@@ -40,6 +40,8 @@ results/20261123T101500Z-1a2b3c4d/
   directory only one gets it. A name together with an output directory is
   refused: a name is unique only under the root. So is a directory that cannot
   be made: a runs root or a parent of the output directory that is a file.
+  When `run.json` itself cannot be written (a full disk), nothing is left
+  behind, so the same name or output directory can be tried again.
 - **Names** have the characters of a run id: 1-128 letters, digits, `.`, `_`
   or `-`, starting with a letter or a digit, so a name is one path segment.
 - **Artifacts** are `<schema_version>.json` in the directory, one per kind

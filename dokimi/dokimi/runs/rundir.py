@@ -12,6 +12,7 @@ other exception makes it ``failed``. Layout and rules: ``docs/run-directories.md
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import signal
@@ -50,7 +51,9 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
         InputError: ``name`` is not one path segment of a run id's characters; ``name`` and
             ``out_dir`` are both given (a name is unique only under the root); the directory
             exists (for ``out_dir``: and is not an empty directory) or another run claimed it;
-            the directory cannot be made (a parent is a file, no permission).
+            the directory cannot be made (a parent is a file, no permission); ``run.json`` cannot be
+            written (a full disk). A failed first write leaves nothing behind: the empty ``run.json``
+            and a directory made here are removed, so the same name or output directory can be retried.
     """
     if name is not None and not is_run_id(name):
         raise InputError(f"run name {name!r}: 1-128 letters, digits, '.', '_' or '-', starting with a "
@@ -59,16 +62,33 @@ def open_run(root: Path | str, name: str | None = None, out_dir: Path | str | No
         raise InputError("a run name names its directory under the runs root; with an output directory "
                          "the directory is that one: give one of them (docs/run-directories.md)")
     path = Path(out_dir) if out_dir is not None else Path(root) / (name or run_id())
-    _claim(path, empty_ok=out_dir is not None)
+    made = _claim(path, empty_ok=out_dir is not None)
     run = RunDir(path, {"name": name, "argv": sys.argv[1:], "started_at": _now(), "finished_at": None,
                         "status": "running", "stop": None})
-    run._save(run._record)
+    try:
+        run._save(run._record)
+    except BaseException as exc:  # nothing published: give the claim back, so the same name can be tried again
+        _release(path, made=made)
+        if isinstance(exc, OSError):
+            raise InputError(f"cannot write {path / RUN_FILE}: {exc.strerror or exc}") from exc
+        raise
     return run
 
 
-def _claim(path: Path, *, empty_ok: bool) -> None:
+def _release(path: Path, *, made: bool) -> None:
+    """Remove the empty ``run.json`` :func:`_claim` created, and the directory if it made it."""
+    with contextlib.suppress(OSError):  # best effort: the error being raised says what went wrong
+        if (path / RUN_FILE).stat().st_size == 0:
+            (path / RUN_FILE).unlink()
+        if made:
+            path.rmdir()
+
+
+def _claim(path: Path, *, empty_ok: bool) -> bool:
     """Create ``path`` (or take an empty directory there when ``empty_ok``), then create its
-    ``run.json`` exclusively: the file, not the directory, decides which run owns it."""
+    ``run.json`` exclusively: the file, not the directory, decides which run owns it. Whether
+    the directory was made here."""
+    made = True
     taken = f"run directory {path} already exists: a run never writes into another run's directory"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)  # a parent that is a file raises FileExistsError here
@@ -80,12 +100,14 @@ def _claim(path: Path, *, empty_ok: bool) -> None:
         except FileExistsError:
             if not (empty_ok and path.is_dir() and not any(path.iterdir())):
                 raise InputError(taken) from None
+            made = False
         with open(path / RUN_FILE, "x", encoding="utf-8"):
             pass
     except FileExistsError:
         raise InputError(taken) from None
     except OSError as exc:  # no permission to make, list or write the directory
         raise InputError(f"cannot make run directory {path}: {exc.strerror or exc}") from exc
+    return made
 
 
 class RunDir:

@@ -6,6 +6,7 @@ no clobbering, artifacts by relative path, and the result a stopped run still le
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import signal
@@ -163,6 +164,31 @@ def test_an_empty_output_directory_we_may_not_write_or_list_is_refused(root, tmp
     finally:
         out.chmod(0o700)
     assert os.listdir(out) == []
+
+
+@pytest.mark.parametrize("given", [False, True], ids=["named", "empty-out-dir"])
+def test_a_first_record_that_cannot_be_written_leaves_nothing_behind(root, tmp_path, monkeypatch, given):
+    """docs/run-directories.md: "When run.json itself cannot be written (a full disk), nothing is left behind,
+    so the same name or output directory can be tried again"."""
+    out = tmp_path / "out"
+    if given:
+        out.mkdir()
+    real = rundir.save_artifact
+
+    def disk_full(kind, data, path, **kw):
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    monkeypatch.setattr(rundir, "save_artifact", disk_full)
+    args = {"out_dir": out} if given else {"name": "n"}
+    with pytest.raises(InputError, match=r"cannot write .*run\.json: No space left on device"):
+        open_run(root, **args)
+    if given:
+        assert os.listdir(out) == []  # the directory was there before: it stays, empty
+    else:
+        assert not (root / "n").exists()
+
+    monkeypatch.setattr(rundir, "save_artifact", real)
+    assert _record(open_run(root, **args).path)["status"] == "running"
 
 
 def test_a_name_with_an_output_directory_is_refused(root, tmp_path):
