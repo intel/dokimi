@@ -100,6 +100,15 @@ def test_cli_refuses_inputs_that_hold_no_document(tmp_path):
     assert not out.exists()
 
 
+def test_cli_reads_a_document_from_a_directory(tmp_path):
+    source = _doc(tmp_path, "scan.json", "repo scan", verdict="pass")
+    done = _summary_cli(str(tmp_path), "--format", "json")
+    assert done.returncode == 0, done.stderr
+    assert [(c["source"], c["kind"], c["state"]) for c in json.loads(done.stdout)["checks"]] == [
+        (str(source), "repo scan", "pass"),
+    ]
+
+
 def test_cli_reads_a_named_file_whatever_its_name(tmp_path):
     f = tmp_path / "result.txt"
     f.write_text("{", encoding="utf-8")
