@@ -30,6 +30,8 @@ from dokimi.utils import InputError, is_symlink_loop
 
 ENV_VAR = "DOKIMI_RUNS_DIR"
 DEFAULT_ROOT = Path("results")
+#: The baseline pointers (:mod:`dokimi.runs.baseline`): not artifacts, so the scan does not walk it.
+BASELINE_POINTERS = ".baselines"
 #: ``save_artifact`` writes ``{"schema_version": "<kind>.vN", ...`` with ``indent=2``.
 HEAD_BYTES = 256
 _HEAD = re.compile(rb'\A\s*\{\s*"schema_version"\s*:\s*"([^"\\\x00-\x1f]{1,100})"')
@@ -84,6 +86,15 @@ def runs_root(environ: Mapping[str, str] | None = None) -> RunsRoot:
     """``DOKIMI_RUNS_DIR`` when set and not empty, else ``results/``."""
     value = (os.environ if environ is None else environ).get(ENV_VAR, "")
     return RunsRoot(Path(value), True) if value else RunsRoot(DEFAULT_ROOT, False)
+
+
+def existing_root() -> RunsRoot:
+    """The runs root, which must exist. Raises :class:`~dokimi.utils.InputError` otherwise."""
+    root = runs_root()
+    if not root.exists():
+        raise InputError(f"no runs root: {plain(root.path.as_posix())}/ does not exist "
+                         f"(DOKIMI_RUNS_DIR names another root)")
+    return root
 
 
 def identity(found: os.stat_result) -> tuple[int, int, int, int]:
@@ -280,7 +291,7 @@ def _scan_file(result: ScanResult, path: Path, real_root: str) -> None:
 _JUNCTION_TAG = 0xA0000003
 
 
-def _is_link(path: Path) -> bool:
+def is_link(path: Path) -> bool:
     """A symlink, or a Windows junction (os.walk descends into junctions on Python 3.11-3.13)."""
     try:
         if path.is_symlink():
@@ -313,9 +324,10 @@ def scan(root: Path) -> ScanResult:
 
     for directory, dirnames, filenames in os.walk(root, onerror=unlisted):
         base = Path(directory)
-        linked = {d for d in dirnames if _is_link(base / d)}
+        linked = {d for d in dirnames if is_link(base / d)}
         result.skipped["linked_directory"] += len(linked)
-        dirnames[:] = sorted(d for d in dirnames if d not in linked)
+        dirnames[:] = sorted(d for d in dirnames if d not in linked
+                             and not (d == BASELINE_POINTERS and base == root))
         for name in sorted(filenames):
             _scan_file(result, base / name, real_root)
     result.artifacts = newest_first(result.artifacts)

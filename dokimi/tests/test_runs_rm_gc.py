@@ -68,7 +68,9 @@ def _run(monkeypatch, capsys, *argv: str):
 
 
 def _left(results: Path) -> list[str]:
-    return sorted(p.relative_to(results).as_posix() for p in results.rglob("*") if p.is_file())
+    """The files under the root bar the baselines' store, whose lock gc --keep-baselines takes."""
+    return sorted(p.relative_to(results).as_posix() for p in results.rglob("*")
+                  if p.is_file() and p.relative_to(results).parts[0] != ".baselines")
 
 
 # rm
@@ -389,6 +391,30 @@ def test_gc_keep_baselines_refuses_a_manifest_link_to_nothing(root, monkeypatch,
 
     assert code == 2
     assert "baselines/eval/manifest.json: a link to nothing" in err
+    assert _left(root) == before
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="a FIFO is a POSIX file")
+@pytest.mark.parametrize("fifo, message", [
+    ("manifest.json", "baselines/eval/manifest.json: not a regular file, so the runs the baselines "
+                      "hold are not known"),
+    ("gone.json", "baseline gone: baselines/eval/gone.json: cannot read: not a regular file, so the "
+                  "run it holds is not known"),
+])
+def test_gc_keep_baselines_refuses_a_fifo_manifest_or_copy_without_opening_it(
+        root, monkeypatch, capsys, fifo, message):
+    # docs/runs.md, --keep-baselines: what cannot be read exits 2; a FIFO would block gc under the lock
+    eval_dir = Path("baselines/eval")
+    eval_dir.mkdir(parents=True)
+    (eval_dir / "manifest.json").write_text(json.dumps(
+        {"baselines": [{"name": "gone", "path": "baselines/eval/gone.json"}]}), encoding="utf-8")
+    (eval_dir / fifo).unlink(missing_ok=True)
+    os.mkfifo(eval_dir / fifo)
+    before = _left(root)
+
+    code, _, err = _run(monkeypatch, capsys, "gc", "--older-than", "30d", "--keep-baselines")
+
+    assert (code, err) == (2, f"Error: {message}\n")
     assert _left(root) == before
 
 

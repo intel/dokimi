@@ -1639,6 +1639,50 @@
       "path": "dokimi runs",
       "subcommand_required": true,
       "subcommands": {
+        "baseline": {
+          "allow_abbrev": true,
+          "params": [
+            {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null}
+          ],
+          "path": "dokimi runs baseline",
+          "subcommand_required": true,
+          "subcommands": {
+            "list": {
+              "allow_abbrev": true,
+              "params": [
+                {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null},
+                {"key": "--json", "action": "_StoreTrueAction", "choices": null, "const": true, "default": false, "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null}
+              ],
+              "path": "dokimi runs baseline list",
+              "subcommand_required": null,
+              "subcommands": {}
+            },
+            "rm": {
+              "allow_abbrev": true,
+              "params": [
+                {"key": "name", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "argument", "nargs": null, "position": 0, "required": true, "type": null},
+                {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null},
+                {"key": "--json", "action": "_StoreTrueAction", "choices": null, "const": true, "default": false, "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null}
+              ],
+              "path": "dokimi runs baseline rm",
+              "subcommand_required": null,
+              "subcommands": {}
+            },
+            "save": {
+              "allow_abbrev": true,
+              "params": [
+                {"key": "name", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "argument", "nargs": null, "position": 0, "required": true, "type": null},
+                {"key": "run", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "argument", "nargs": null, "position": 1, "required": true, "type": null},
+                {"key": "--expect-previous", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
+                {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null},
+                {"key": "--json", "action": "_StoreTrueAction", "choices": null, "const": true, "default": false, "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null}
+              ],
+              "path": "dokimi runs baseline save",
+              "subcommand_required": null,
+              "subcommands": {}
+            }
+          }
+        },
         "gc": {
           "allow_abbrev": true,
           "params": [

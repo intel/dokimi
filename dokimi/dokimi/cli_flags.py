@@ -134,6 +134,8 @@ CONCEPTS: tuple[Concept, ...] = (
         canonical=(
             Flag("--baseline", "RUN|baseline:NAME|FILE", "text"),
             Flag("--baseline-arm", "NAME", "text"),
+            Flag("--expect-previous", "RUN_ID", "text",
+                 meaning="save a baseline only while it points to this run (compare-and-swap)"),
         ),
         banned=("--baseline-json", "--plugin-json", "--base"),
     ),

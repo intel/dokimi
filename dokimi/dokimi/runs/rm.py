@@ -11,6 +11,7 @@ what a run removes. Nothing here prints or exits.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -22,6 +23,7 @@ from typing import Mapping
 
 from dokimi.artifacts import is_run_id
 from dokimi.runs.scan import (
+    BASELINE_POINTERS,
     Artifact,
     Unreadable,
     by_run,
@@ -76,8 +78,20 @@ def _one_file(root: Path, address: str) -> Removal:
     _, entry, found = contained(root, address, follow_last=False)
     if stat.S_ISDIR(found.st_mode):
         raise InputError(f"{plain(address)} is a directory; runs rm takes a run_id or one file")
-    return Removal(root=root, file=Path(os.path.relpath(entry, os.path.realpath(root))),
-                   file_bytes=found.st_size, file_identity=identity(found))
+    file = Path(os.path.relpath(entry, os.path.realpath(root)))
+    if file.parts[0] == BASELINE_POINTERS or _in_store(root, entry):  # it would bypass the lock
+        raise InputError(f"{plain(address)} is in the baselines' store {BASELINE_POINTERS}/; "
+                         "runs baseline rm NAME removes a baseline")
+    return Removal(root=root, file=file, file_bytes=found.st_size, file_identity=identity(found))
+
+
+def _in_store(root: Path, entry: str) -> bool:
+    """Whether ``entry`` lies in the baselines' store by identity: a symlinked ``.baselines``, or one
+    spelled in another case on a case-insensitive file system, resolves under another name."""
+    try:
+        return os.path.samestat(os.stat(os.path.dirname(entry)), os.stat(root / BASELINE_POINTERS))
+    except OSError:  # no store, or no directory to compare: nothing to bypass
+        return False
 
 
 def plan_rm(root: Path, address: str) -> Removal:
@@ -99,6 +113,9 @@ def baseline_runs(entries: list[dict]) -> dict[str, str]:
     held: dict[str, str] = {}
     for entry in entries:
         try:
+            found = lookup(entry["path"])
+            if found is not None and not stat.S_ISREG(found.st_mode):  # a FIFO would block gc
+                raise OSError(errno.EINVAL, "not a regular file")
             data = json.loads(Path(entry["path"]).read_text(encoding="utf-8"))
         except (OSError, ValueError, RecursionError) as exc:
             raise InputError(f"baseline {plain(entry['name'])}: {plain(entry['path'])}: "

@@ -7,22 +7,27 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import stat
 import sys
 import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from dokimi import cli_flags
+from dokimi.commands import runs_baseline
 from dokimi.artifacts import INPUT_KINDS, SCHEMA_VERSIONS
 from dokimi.exit_codes import EXIT_INFRA
+from dokimi.runs import baseline
 from dokimi.runs.rm import Removal, apply, baseline_runs, parse_age, plan_gc, plan_rm
 from dokimi.runs.scan import (
     SKIP_REASONS,
     Artifact,
-    RunsRoot,
     ScanResult,
     Unreadable,
     by_run,
+    existing_root,
     lookup,
     plain,
     read_error_reason,
@@ -216,19 +221,11 @@ def _show_run(root: str, run: ShownRun, as_json: bool) -> None:
         print("\n".join(_run_text(run)))
 
 
-def _existing_root() -> RunsRoot:
-    root = runs_root()
-    if not root.exists():
-        raise InputError(f"no runs root: {plain(root.path.as_posix())}/ does not exist "
-                         f"(DOKIMI_RUNS_DIR names another root)")
-    return root
-
-
 def cmd_runs_show(args: argparse.Namespace) -> None:
     """One artifact: its kind, schema check, fields, contents and neighbours; or, for a run id,
     the artifacts of that run. A failed schema check is printed, and the exit code stays 0."""
     from dokimi import cli_output
-    root = _existing_root()
+    root = existing_root()
     shown = show_target(root.path, args.path)
     if isinstance(shown, ShownRun):
         _show_run(root.path.as_posix(), shown, args.json)
@@ -338,23 +335,36 @@ def _finish(kind: str, removal: Removal, args: argparse.Namespace, extra: dict, 
 
 def cmd_runs_rm(args: argparse.Namespace) -> None:
     """The artifacts of one run, or one file under the runs root; never a path outside it."""
-    root = _existing_root()
+    root = existing_root()
     removal = plan_rm(root.path, args.path)
     run_id = removal.runs[0][0].run_id if removal.runs else None
     _finish("runs rm", removal, args, {"run_id": run_id},
             lambda verb: _rm_text(removal, verb, run_id))
 
 
-def _baselines_held() -> dict[str, str]:
+def _baselines_held(root: Path) -> dict[str, str]:
+    """The runs the pointers under ``root`` hold and, after them, those of the copies ``baseline
+    save`` listed in its manifest."""
+    held = baseline.held_runs(root)
+    for run_id, name in _manifest_held().items():
+        held.setdefault(run_id, name)
+    return held
+
+
+def _manifest_held() -> dict[str, str]:
     from dokimi.commands.baseline import BASELINES_DIR, _baseline_manifest
     manifest = BASELINES_DIR / "manifest.json"
     try:  # _baseline_manifest's Path.exists() reads "no permission" as absent on Python 3.14
-        unreachable = lookup(manifest) is None and lookup(manifest, follow_symlinks=False)
+        found = lookup(manifest)
+        unreachable = found is None and lookup(manifest, follow_symlinks=False)
     except OSError as exc:
         raise InputError(f"{manifest.as_posix()}: {read_error_reason(exc)}, so the runs the "
                          "baselines hold are not known") from exc
     if unreachable:  # a dangling link or a link loop: there, but not readable
         raise InputError(f"{manifest.as_posix()}: a link to nothing, so the runs the baselines "
+                         "hold are not known")
+    if found is not None and not stat.S_ISREG(found.st_mode):  # a FIFO would block gc, under the lock
+        raise InputError(f"{manifest.as_posix()}: not a regular file, so the runs the baselines "
                          "hold are not known")
     return baseline_runs(_baseline_manifest()["baselines"])
 
@@ -370,11 +380,19 @@ def cmd_runs_gc(args: argparse.Namespace) -> None:
     """The runs whose newest artifact is older than ``--older-than``, bar (with ``--keep-baselines``)
     the runs a saved baseline holds."""
     root = runs_root()
-    held = _baselines_held() if args.keep_baselines else {}
+    exists = root.exists()
+    # a save waits for the lock, so it cannot point at a run gc is removing (docs/runs.md)
+    hold = exists and args.keep_baselines and not args.dry_run
+    with baseline.locked(root.path) if hold else contextlib.nullcontext():
+        _gc(args, root.path, exists)
+
+
+def _gc(args: argparse.Namespace, root: Path, exists: bool) -> None:
+    held = _baselines_held(root) if args.keep_baselines else {}
     cutoff = time.time() - args.older_than.total_seconds()
-    removal = plan_gc(root.path, cutoff, held) if root.exists() else Removal(root=root.path)
+    removal = plan_gc(root, cutoff, held) if exists else Removal(root=root)
     age = f"{args.older_than.days}d"
-    shown_root = plain(root.path.as_posix().rstrip("/") + "/")
+    shown_root = plain(root.as_posix().rstrip("/") + "/")
     selected = len(removal.runs)  # apply drops a run none of whose files could be removed
     _finish("runs gc", removal, args, {"older_than": age, "keep_baselines": args.keep_baselines,
                                       "kept": [{"run_id": r, "baseline": b} for r, b in removal.kept.items()]},
@@ -441,10 +459,13 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                   help="An age in days, such as 30d: a run whose newest artifact records a time "
                        "(or, recording none, has an mtime) before then is removed")
     cli_flags.add(gc_p, "retention", "--keep-baselines", action="store_true",
-                  help="Keep the runs whose run_id a baseline saved by baseline save carries "
+                  help="Keep the runs a baseline points to (runs baseline save), and those "
+                       "whose run_id a copy saved by baseline save carries "
                        "(baselines/eval/manifest.json)")
     cli_flags.add(gc_p, "dry_run", "--dry-run", action="store_true",
                   help="List what would be removed; remove nothing")
     cli_flags.add(gc_p, "output", "--json", action="store_true",
                   help="Print cli_output.v1 on stdout (the runs removed and kept under data)")
     gc_p.set_defaults(func=cmd_runs_gc, emits_cli_output=True, cli_kind="runs gc")
+
+    runs_baseline.register(runs_sub)
