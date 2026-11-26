@@ -478,6 +478,16 @@ A large catalog is easier to scan one skill at a time:
   checked against this run's value, so lowering it can fail a resumed `--strict` scan whose receipt is
   still valid. `--ignore listing-over-budget` drops the warning, the exit and the line that carries the total
   (the report keeps it); it is not in a row's `ignored`, so adding or dropping it does not redo a resumed row.
+  Over the cap, the warning also names the largest entries, as many of the biggest as it takes to cover the
+  excess and at most five (equal sizes by name): `largest entries: name (chars), ...`; the same entries are
+  `listing.largest` (`name`, `chars`) in the JSON report, followed by how many of the excess characters they account
+  for (`covered` of `excess`). When five entries do not cover the excess, the rest is still over the cap: `covered` says
+  by how much. `top3_covered` and `top5_covered` are what the three and the five largest entries cover (at most `excess`), and `top3_share` and `top5_share` the same as a share of `excess`; the warning prints both.
+  For example, a catalog of one skill `accents` with the description `Use when checking café prices.` lists
+  `accents: Use when checking café prices.`, 39 characters: `--listing-budget 40` and `39` are silent, and
+  `--listing-budget 38` prints `warn listing-over-budget: the skill listing is 39 characters, over the
+  --listing-budget of 38; largest entries: accents (39 chars) (together 1 of the 1 characters over the cap; the three largest cover 1 (100.0%), the five 1 (100.0%))` and still exits 0
+  (1 with `--strict`), with or without `--per-skill`.
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
