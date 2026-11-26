@@ -6,14 +6,16 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 from dokimi.artifacts import validate_artifact
-from dokimi.cli import build_parser
+from dokimi.cli import build_parser, main
 from dokimi.eval.plugin_delta import PluginDeltaError, compare_plugin_runs
 from dokimi.report.plugin_delta_report import render_plugin_delta_report
+from tests.cli_refusal import refusal
 
 
 def _arms_artifact(plugin_set: str = "none") -> dict:
@@ -201,6 +203,13 @@ def test_compare_plugin_runs_refuses_a_mixed_run_even_against_another_mixed_one(
 def test_compare_plugin_runs_allows_judge_context_that_matches(stamp):
     baseline = _arms_artifact()
     plugin = _arms_artifact("caveman:full")
+    for artifact in (baseline, plugin):
+        artifact.update(judge_prompt_sha256="a" * 64, judge_temperature=None,
+                        judge_resolved_models=["judge-2026-11-01"])
+        artifact["answers"][0]["arms"]["skill"]["metadata"] = {"profile_prompt_sha256": "sha256:matching"}
+        for section in ("answers", "evaluations"):
+            for row in artifact[section]:
+                row["question_text"] = f"How do I finish {row['question_id']}?"
     if stamp is not None:
         baseline["judge_context"] = plugin["judge_context"] = stamp
     for ev, bump in zip(plugin["evaluations"], (5, 15), strict=True):  # the arms must average differently
@@ -227,7 +236,10 @@ def test_arms_plugin_delta_cli_writes_json_and_markdown(tmp_path: Path):
     plugin = tmp_path / "plugin.json"
     out_json = tmp_path / "delta.json"
     baseline.write_text(json.dumps(_arms_artifact()), encoding="utf-8")
-    plugin.write_text(json.dumps(_arms_artifact("caveman:full")), encoding="utf-8")
+    candidate = _arms_artifact("caveman:full")
+    candidate["evaluations"][0]["scores"] = {"skill": {"aggregate": 87}}
+    candidate["evaluations"][1]["scores"] = {}
+    plugin.write_text(json.dumps(candidate), encoding="utf-8")
 
     parser = build_parser()
     args = parser.parse_args([
@@ -245,4 +257,82 @@ def test_arms_plugin_delta_cli_writes_json_and_markdown(tmp_path: Path):
     payload = json.loads(out_json.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "plugin_delta.v1"
     assert payload["plugin_set"] == "caveman:full"
-    assert out_json.with_suffix(".md").is_file()
+    assert payload["score_deltas"]["skill"] == {
+        "n": 1, "baseline_avg_aggregate": 80.0, "plugin_avg_aggregate": 87.0, "aggregate_delta": 7.0,
+    }
+    assert payload["score_deltas"]["baseline"]["n"] == 0
+    assert payload["score_deltas"]["baseline"]["aggregate_delta"] is None
+    md = out_json.with_suffix(".md").read_text(encoding="utf-8")
+    assert "| `skill` | 80.0 | 87.0 | +7.0 | 1 |" in md
+    assert "| `baseline` | - | - | - | 0 |" in md
+    assert "question text was not recorded" in md
+    assert any("judge_prompt_sha256" in warning for warning in payload["warnings"])
+
+
+@pytest.mark.parametrize("section", ["answers", "evaluations"])
+def test_compare_plugin_runs_refuses_changed_question_text(section):
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    baseline[section][1]["question_text"] = "How do I start a task?"
+    plugin[section][1]["question_text"] = "How do I cancel a task?"
+
+    with pytest.raises(PluginDeltaError, match=rf"different {section} question text for 'q2'"):
+        compare_plugin_runs(baseline, plugin)
+
+
+def test_compare_plugin_runs_refuses_changed_judge_reference_for_the_same_question():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    baseline["answers"][0]["ground_truth_chunk"] = "Multiply the count by eight."
+    plugin["answers"][0]["ground_truth_chunk"] = "Multiply the count by nine."
+
+    with pytest.raises(PluginDeltaError, match="different judge references for 'q1'"):
+        compare_plugin_runs(baseline, plugin)
+
+
+@pytest.mark.parametrize("combined", [False, True])
+def test_compare_plugin_runs_refuses_an_edited_profile_under_the_same_arm_name(combined):
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    for artifact, digest in ((baseline, "sha256:before"), (plugin, "sha256:after")):
+        profile = {"profile_prompt_sha256": digest}
+        artifact["answers"][0]["arms"]["skill"]["metadata"] = (
+            {"treatments": [{"kind": "docs"}, profile]} if combined else profile
+        )
+
+    with pytest.raises(PluginDeltaError, match="different profile prompt digests for arm 'skill'"):
+        compare_plugin_runs(baseline, plugin)
+
+
+def test_compare_plugin_runs_refuses_profile_digests_swapped_between_questions():
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    for artifact, digests in ((baseline, ("a", "b")), (plugin, ("b", "a"))):
+        for answer, digest in zip(artifact["answers"], digests, strict=True):
+            answer["arms"]["skill"]["metadata"] = {"profile_prompt_sha256": digest}
+
+    with pytest.raises(PluginDeltaError, match="different profile prompt digests for arm 'skill'"):
+        compare_plugin_runs(baseline, plugin)
+
+
+@pytest.mark.parametrize(("field", "before", "after"), [
+    ("judge_prompt_sha256", "a" * 64, "b" * 64),
+    ("judge_prompt_sha256", "a" * 64, None),
+    ("judge_temperature", 0.0, 0.5),
+    ("judge_resolved_models", ["judge-2026-09-01"], ["judge-2026-11-01"]),
+])
+def test_arms_plugin_delta_cli_refuses_changed_judge_settings(tmp_path, monkeypatch, field, before, after):
+    baseline, plugin = _arms_artifact(), _arms_artifact("caveman:full")
+    baseline[field], plugin[field] = before, after
+    baseline_path, plugin_path = tmp_path / "before.json", tmp_path / "after.json"
+    baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+    plugin_path.write_text(json.dumps(plugin), encoding="utf-8")
+    out = tmp_path / "delta.json"
+    monkeypatch.setattr(sys, "argv", [
+        "dokimi", "arms", "plugin-delta", "--baseline", str(baseline_path),
+        "--plugin-json", str(plugin_path), "--out", str(out),
+    ])
+
+    with refusal() as result:
+        main()
+
+    assert result.code == 2
+    assert f"different {field}" in result.err
+    assert not out.exists()
+    assert not out.with_suffix(".md").exists()

@@ -116,8 +116,12 @@ python cli.py arms plugin-delta \
 The command writes a `plugin_delta.v1` artifact plus a Markdown report with
 judge-score deltas, token/cost deltas, and answer-length deltas. It refuses
 confounded comparisons where model, provider, harness, arms, baseline arm, or
-question IDs/order differ. For judged artifacts it also requires both runs to
-carry the same stamped judge model, provider and `judge_context`.
+question IDs, order or text differ. Recorded profile prompt digests must also
+match when both runs carry them for an arm or a paired answer. Judged artifacts
+must carry the same judge model, provider, context protocol, reference answers,
+and any recorded judge prompt digest, temperature and resolved model snapshots.
+When both runs lack the same question text or judge settings, the plugin-delta
+and matrix rollup reports warn which parts of the comparison could not be verified.
 
 > **Naming:** an *agent profile* (`profile:`) is the answering agent's system
 > prompt. It is **not** a `persona` — in this repo a persona is a synthetic

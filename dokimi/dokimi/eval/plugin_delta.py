@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from dokimi.records import Record, RecordError, records
+from dokimi.records import Record, RecordError, profile_prompt_digests, records
 
 
 class PluginDeltaError(ValueError):
@@ -30,7 +30,7 @@ def compare_plugin_runs(control: Dict[str, Any], plugin: Dict[str, Any]) -> Dict
     """
 
     try:
-        _validate_pair(control, plugin)
+        warnings = _validate_pair(control, plugin)
         arms = list(control.get("arms") or [])
         score_rows = _score_deltas(control, plugin, arms)
         cost_rows = _cost_deltas(control, plugin, arms)
@@ -54,7 +54,7 @@ def compare_plugin_runs(control: Dict[str, Any], plugin: Dict[str, Any]) -> Dict
         "score_deltas": score_rows,
         "cost_deltas": cost_rows,
         "answer_text_deltas": text_rows,
-        "warnings": _warnings(control, plugin),
+        "warnings": warnings + _warnings(control, plugin),
     }
 
 
@@ -70,7 +70,7 @@ def _validate_session_config(control: Dict[str, Any], plugin: Dict[str, Any]) ->
             )
 
 
-def _validate_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> None:
+def _validate_run_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> None:
     for label, artifact in (("baseline", control), ("plugin", plugin)):
         if artifact.get("schema_version") != "arms.v1":
             raise PluginDeltaError(f"{label} artifact is not arms.v1")
@@ -85,45 +85,55 @@ def _validate_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> None:
                 f"cannot compute plugin delta across different {field}: "
                 f"{control.get(field)!r} vs {plugin.get(field)!r}"
             )
-    _validate_session_config(control, plugin)
     if control.get("plugin_set") == plugin.get("plugin_set"):
         raise PluginDeltaError(
             "cannot compute plugin delta for identical plugin_set values "
             f"({control.get('plugin_set')!r})"
         )
-    if "evaluations" in control and "evaluations" not in plugin:
-        raise PluginDeltaError("plugin artifact has no evaluations to pair with baseline")
-    if "evaluations" in plugin and "evaluations" not in control:
-        raise PluginDeltaError("baseline artifact has no evaluations to pair with plugin")
-    _validate_question_pair(control, plugin, "answers")
-    if "evaluations" in control:
-        _validate_question_pair(control, plugin, "evaluations")
-        for field in ("judge_model", "judge_provider"):
-            if not control.get(field) or not plugin.get(field):
-                raise PluginDeltaError(
-                    f"cannot compute judged plugin delta without stamped {field} "
-                    "in both artifacts"
-                )
-            if control.get(field) != plugin.get(field):
-                raise PluginDeltaError(
-                    f"cannot compute judged plugin delta across different {field}: "
-                    f"{control.get(field)!r} vs {plugin.get(field)!r}"
-                )
-        # What the judge was shown. Unstamped runs predate the stamp and were all
-        # judged on report snippets, so two of them pair; a stamped and an
-        # unstamped one used different judge protocols and do not.
-        from dokimi.eval.judge_context import PROTOCOL_MIXED
 
-        if PROTOCOL_MIXED in (control.get("judge_context"), plugin.get("judge_context")):
+
+def _validate_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> list[str]:
+    _validate_run_pair(control, plugin)
+    _validate_session_config(control, plugin)
+    judged = "evaluations" in control
+    if judged != ("evaluations" in plugin):
+        with_scores, without_scores = ("baseline", "plugin") if judged else ("plugin", "baseline")
+        raise PluginDeltaError(f"{without_scores} artifact has no evaluations to pair with {with_scores}")
+    sections = ("answers", "evaluations") if judged else ("answers",)
+    warnings = [
+        f"{section} question text was not recorded for every pair"
+        for section in sections if _validate_question_pair(control, plugin, section)
+    ]
+    if judged:
+        warnings.extend(_validate_judge_pair(control, plugin))
+    return warnings
+
+
+def _validate_judge_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> list[str]:
+    from dokimi.eval.judge_context import PROTOCOL_MIXED
+
+    identity = ("judge_model", "judge_provider")
+    settings = ("judge_prompt_sha256", "judge_temperature", "judge_resolved_models")
+    for field in identity:
+        if not control.get(field) or not plugin.get(field):
             raise PluginDeltaError(
-                "cannot compute judged plugin delta from a run whose scores mix stored "
-                f"treatment material and report snippets (judge_context {PROTOCOL_MIXED!r})"
+                f"cannot compute judged plugin delta without stamped {field} in both artifacts"
             )
-        if control.get("judge_context") != plugin.get("judge_context"):
+    if PROTOCOL_MIXED in (control.get("judge_context"), plugin.get("judge_context")):
+        raise PluginDeltaError(
+            "cannot compute judged plugin delta from a run whose scores mix stored "
+            f"treatment material and report snippets (judge_context {PROTOCOL_MIXED!r})"
+        )
+    for field in (*identity, "judge_context", *settings):
+        if control.get(field) != plugin.get(field):
             raise PluginDeltaError(
-                "cannot compute judged plugin delta across different judge_context: "
-                f"{control.get('judge_context')!r} vs {plugin.get('judge_context')!r}"
+                f"cannot compute judged plugin delta across different {field}: "
+                f"{control.get(field)!r} vs {plugin.get(field)!r}"
             )
+    missing = set(settings) - (control.keys() & plugin.keys())
+    if control.get("judge_prompt_sha256") is None:
+        missing.add("judge_prompt_sha256")
+    return [f"judge settings were not fully recorded ({', '.join(sorted(missing))})"] if missing else []
 
 
 def _warnings(control: Dict[str, Any], plugin: Dict[str, Any]) -> list[str]:
@@ -140,23 +150,54 @@ def _warnings(control: Dict[str, Any], plugin: Dict[str, Any]) -> list[str]:
     return warnings
 
 
-def _validate_question_pair(control: Dict[str, Any], plugin: Dict[str, Any], section: str) -> None:
-    control_ids = _ordered_question_ids(control, section)
-    plugin_ids = _ordered_question_ids(plugin, section)
+def _validate_question_pair(control: Dict[str, Any], plugin: Dict[str, Any], section: str) -> bool:
+    """Check alignment and report whether any pair lacks question text."""
+    control_rows = _section(control, section)
+    plugin_rows = _section(plugin, section)
+    control_ids = [row.key for row in control_rows]
+    plugin_ids = [row.key for row in plugin_rows]
     if control_ids != plugin_ids:
         raise PluginDeltaError(
             f"cannot compute plugin delta across different {section} question IDs/order: "
             f"{control_ids!r} vs {plugin_ids!r}"
         )
+    check_judge_references = section == "answers" and "evaluations" in control
+    for before, after in zip(control_rows, plugin_rows, strict=True):
+        if before.question_text != after.question_text:
+            raise PluginDeltaError(
+                f"cannot compute plugin delta across different {section} question text for {before.key!r}"
+            )
+        if check_judge_references and before.ground_truth != after.ground_truth:
+            raise PluginDeltaError(
+                f"cannot compute plugin delta across different judge references for {before.key!r}"
+            )
+    if section == "answers":
+        _validate_profiles(control_rows, plugin_rows, control.get("arms") or [])
+    return any(not row.question_text for row in control_rows)
+
+
+def _validate_profiles(control: list[Record], plugin: list[Record], arms: list[str]) -> None:
+    for arm in arms:
+        before = profile_prompt_digests(control, arm)
+        after = profile_prompt_digests(plugin, arm)
+        if before and after and before != after:
+            raise PluginDeltaError(
+                f"cannot compute plugin delta across different profile prompt digests for arm {arm!r}"
+            )
+    for before_row, after_row in zip(control, plugin, strict=True):
+        for arm in arms:
+            before = profile_prompt_digests((before_row,), arm)
+            after = profile_prompt_digests((after_row,), arm)
+            if before and after and before != after:
+                raise PluginDeltaError(
+                    f"cannot compute plugin delta across different profile prompt digests for arm {arm!r}"
+                    f" on question {before_row.key!r}"
+                )
 
 
 def _section(artifact: Dict[str, Any], section: str) -> list[Record]:
     """The ``answers`` or ``evaluations`` records of one artifact."""
     return records(artifact.get(section, []), source=section, kind=section)
-
-
-def _ordered_question_ids(artifact: Dict[str, Any], section: str) -> list[str]:
-    return [r.key for r in _section(artifact, section)]
 
 
 def _score_deltas(control: Dict[str, Any], plugin: Dict[str, Any], arms: list[str]) -> dict[str, Any]:
