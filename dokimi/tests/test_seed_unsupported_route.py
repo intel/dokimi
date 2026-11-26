@@ -117,7 +117,7 @@ def test_a_judge_keeps_a_seed_the_route_takes(monkeypatch):
 
 _JUDGE_REPLY = json.dumps({
     "correctness": 80, "completeness": 80, "specificity": 80,
-    "actionability": 80, "code_quality": 80, "reasoning": "sound",
+    "actionability": 80, "code_quality": 80, "reasoning": "sound", "aggregate": 80,
 })
 _QUESTION = {"id": "q", "question": "How do I run it?"}
 _ANSWER = dict(_QUESTION, without_docs={"answer": "Run the command."})
@@ -147,6 +147,52 @@ def test_panel_sends_only_supported_seeds_and_records_omissions(fake_llm, monkey
         assert votes["technical_expert"]["seed_status"] == "unsupported"
         assert "seed_status" not in votes["doc_reviewer"]
     assert refused.seed == 7 and supported.seed == 9
+
+
+@pytest.mark.parametrize("provider, sent", [("amazon-bedrock", None), ("openai", 7)])
+def test_arms_execution_reaches_provider_and_records_the_effective_seed(fake_llm, monkeypatch, provider, sent):
+    from dokimi import llm
+    from dokimi.eval.arms_run import ArmsRunConfig, probe_sampling, run_arms
+
+    monkeypatch.setattr(llm, "sampling_refusals", _sampling_by_route)
+    probe_sampling.cache_clear()
+    fake_llm.respond = lambda _: "Run the command."
+    config = ArmsRunConfig(product="demo", model="seed-test-arm", provider=provider, seed=7)
+    try:
+        output = run_arms(config, ["baseline"], [_QUESTION])
+    finally:
+        probe_sampling.cache_clear()
+
+    requests = [req for req in fake_llm.requests if req.max_tokens != 16]
+    assert [req.seed for req in requests] == [sent]
+    assert output["answers"][0]["arms"]["baseline"]["answer"] == "Run the command."
+    record = output["run_config"]
+    assert record["seed"] == sent
+    if sent is None:
+        assert (record["seed_requested"], record["seed_status"]) == (7, "unsupported")
+    else:
+        assert "seed_requested" not in record and "seed_status" not in record
+
+
+@pytest.mark.parametrize("provider, sent", [("amazon-bedrock", None), ("openai", 7)])
+def test_judge_execution_reaches_provider_and_saves_seed_provenance(fake_llm, monkeypatch, tmp_path, provider, sent):
+    from dokimi.eval import Judge, judge_sampling
+
+    monkeypatch.setattr(judge_sampling, "sampling_refusals", _sampling_by_route)
+    judge = Judge(model="seed-test-judge", provider=provider, seed=7)
+    fake_llm.respond = lambda _: _JUDGE_REPLY
+    score = judge.score_answer(library_name="demo", question="How?", answer="Like this.")
+    output = tmp_path / "eval.json"
+    judge.evaluate_answers("demo", [_ANSWER], output_path=output)
+
+    assert [req.seed for req in fake_llm.requests] == [sent, sent]
+    assert score["aggregate"] == 80.0
+    artifact = json.loads(output.read_text())
+    assert artifact["evaluations"][0]["without_docs"]["aggregate"] == 80.0
+    if sent is None:
+        assert (artifact["judge_seed_requested"], artifact["judge_seed_status"]) == (7, "unsupported")
+    else:
+        assert "judge_seed_requested" not in artifact and "judge_seed_status" not in artifact
 
 
 def _sampling_by_route(model, provider, *, temperature, seed):
