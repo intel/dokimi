@@ -25,6 +25,7 @@ from dokimi.repos import (
     open_source,
     parse_manifest,
 )
+from dokimi.repos import source as source_module
 from dokimi.repos.source import cache_path
 from dokimi.subjects import load_subject
 from dokimi.subjects.loader import awareness_arm_specs
@@ -220,6 +221,75 @@ def test_task_json_that_is_an_unreadable_link_is_reported_not_raised(tmp_path, t
     assert any("tasks/bad/task.json: cannot read task.json:" in e for e in report.errors), report.errors
     assert not any(str(tmp_path) in e or "Errno" in e for e in report.errors), report.errors  # repo-relative in both trees
     assert "bad" not in [t.id for t in report.tasks]
+
+
+@pytest.mark.parametrize("rev", [False, True], ids=["tree", "at-head"])
+@pytest.mark.parametrize("key", ["setup_patch", "review_patch"])
+@pytest.mark.parametrize("target", ["../../shared/p.patch", "../../../../../toy/dev/evals/shared/p.patch", "../fix_one/bug.patch"],
+                         ids=["outside-task-dir", "leaves-and-reenters-repo", "other-task-dir"])
+def test_patch_link_outside_the_task_directory_is_reported_not_raised(tmp_path, target, key, rev):
+    # #1275: `repo run` opens a patch only from its task directory; a link elsewhere passed, or one that left the repository raised
+    root = _repo(tmp_path)
+    _write(root, "dev/evals/shared/p.patch", "--- a\n+++ b\n")
+    _task(root, "bad", **{key: "p.patch"})
+    (root / "dev/evals/tasks/bad/p.patch").symlink_to(target)
+    if rev:
+        _git_commit(root)
+    tree = GitTree(root, "HEAD") if rev else WorkTree(root)
+    report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+    assert not report.ok
+    assert report.refused
+    assert any("tasks/bad/task.json" in e and "patch 'p.patch'" in e for e in report.errors), report.errors
+    assert "bad" not in [t.id for t in report.tasks]
+
+
+def test_patch_link_outside_the_task_directory_exits_2_and_a_missing_patch_exits_1(tmp_path, capsys):
+    # #1275: a link `repo run` refuses is a refused input (2); a patch that is not there is a task error (1)
+    root = _repo(tmp_path)
+    _write(root, "dev/evals/shared/p.patch", "--- a\n+++ b\n")
+    _task(root, "bad", setup_patch="p.patch")
+    (root / "dev/evals/tasks/bad/p.patch").symlink_to("../../shared/p.patch")
+    argv = ["eval", "check", "--schema-only", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
+    with refusal() as link:
+        _run_cli(argv)
+    assert link.code == 2
+    assert "patch 'p.patch'" in capsys.readouterr().err
+    (root / "dev/evals/tasks/bad/p.patch").unlink()
+    with refusal() as missing:
+        _run_cli(argv)
+    assert missing.code == 1
+    assert "patch file does not exist: p.patch" in capsys.readouterr().err
+
+
+def test_patch_link_whose_git_read_fails_is_raised_not_refused(tmp_path, monkeypatch):
+    # #1275: a failed or timed-out git show while resolving a patch link is not a refused link: it is raised, as for task.json
+    root = _repo(tmp_path)
+    _write(root, "dev/evals/tasks/bad/real.patch", "--- a\n+++ b\n")
+    _task(root, "bad", setup_patch="p.patch")
+    (root / "dev/evals/tasks/bad/p.patch").symlink_to("real.patch")
+    _git_commit(root)
+    tree = GitTree(root, "HEAD")
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    real = source_module._git
+
+    def failing_git(git_dir, *args, **kwargs):  # the blob of the link itself, read to follow it
+        if args[0] == "show" and args[1].endswith("bad/p.patch"):
+            raise SourceError("git show failed: timed out")
+        return real(git_dir, *args, **kwargs)
+
+    monkeypatch.setattr(source_module, "_git", failing_git)
+    with pytest.raises(SourceError, match="timed out"):
+        check_repo(tree, manifest)
+
+
+def test_patch_link_inside_the_task_directory_is_accepted(tmp_path):
+    root = _repo(tmp_path)
+    _write(root, "dev/evals/tasks/bad/real.patch", "--- a\n+++ b\n")
+    _task(root, "bad", setup_patch="p.patch")
+    (root / "dev/evals/tasks/bad/p.patch").symlink_to("real.patch")
+    tree = WorkTree(root)
+    report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
+    assert report.ok, report.errors
 
 
 def test_task_json_failed_git_show_is_raised_not_reported(tmp_path, monkeypatch):

@@ -269,7 +269,7 @@ for the second. Not every command follows this yet: `repo run` and
 `eval check` exit 2 for a source that does not parse, a pinned local path inside a repository, a `--cache-dir` (or `$DOKIMI_REPO_CACHE`) that is not a usable directory or a `--cache-root` or `--cache NAME=PATH` that is not one,
 but still exit 1 for other input refusals (a missing or malformed manifest, a bad arm; the `✗` lines;
 a `.mcp.json` the CLI rejects under `--tools all` is exit 2 before any cell;
-a `--manifest` path that leaves the source tree as typed is exit 2, pinned or not, as a source refusal; a link in the tree that leads out of it is exit 1), and
+a `--manifest` path that leaves the source tree as typed is exit 2, pinned or not, as a source refusal; a link in the tree that leads out of it is exit 1, except a task's patch link that `repo run` refuses, which `eval check --schema-only` reports as an error and exits 2 for), and
 `tools preference` exits 1 when every call failed and 3 when `--max-usd`
 or an unpriced model stopped it short, and `eval personas discover` exits 3 when its `--max-usd` refuses the one call. `repo run --max-usd`,
 `repo hits judge --max-usd` and the novelty commands' `--max-usd` still exit 1

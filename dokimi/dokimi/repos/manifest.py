@@ -205,6 +205,8 @@ class RepoCheckReport:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # a patch link `repo run` refuses (#1275): `eval check` exits 2 for it, as for a source it refuses
+    refused: bool = False
     # guidance file count per task base, filled when the bases were readable
     guidance_by_base: dict[str, int] | None = None
 
@@ -524,6 +526,23 @@ def _read_task_json(tree: RepoTree, where: str) -> tuple[Any, str]:
         return None, f"cannot read task.json: {exc}"
 
 
+def _patch_problem(tree: RepoTree, task_dir: str, patch: str) -> tuple[str, bool]:
+    """What is wrong with the patch path ``patch`` of a task, or "", and whether it is a link `repo run` refuses. ``repo run`` opens a patch only from the task directory."""
+    problem = _path_problem(patch)
+    if problem:
+        return f"patch {patch!r}: {problem}", False
+    try:
+        exists = tree.is_file(f"{task_dir}/{patch}")
+        target = tree.resolve(f"{task_dir}/{patch}") if exists else ""
+    except (SourceArgumentError, _NoSuchPath) as exc:  # a link that leaves the repository, even if it comes back (#1275); a failed git show is raised, as for task.json
+        return f"patch {patch!r}: {exc}", True
+    if not exists:
+        return f"patch file does not exist: {patch}", False
+    if not target.startswith(f"{task_dir}/"):
+        return f"patch {patch!r}: is not a file in the task directory (it links to {target})", True
+    return "", False
+
+
 def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     name = PurePosixPath(task_dir).name
     where = f"{task_dir}/task.json"
@@ -558,11 +577,10 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         else:
             problems.append("review_patch must be a path")
     for patch in patches:
-        problem = _path_problem(patch)
+        problem, refused = _patch_problem(tree, task_dir, patch)
+        report.refused |= refused
         if problem:
-            problems.append(f"patch {patch!r}: {problem}")
-        elif not tree.is_file(f"{task_dir}/{patch}"):
-            problems.append(f"patch file does not exist: {patch}")
+            problems.append(problem)
     grader = raw.get("grader")
     if isinstance(grader, str) and grader.startswith(BUILTIN_PREFIX):
         problems += _builtin_problems(tree, task_dir, raw, grader[len(BUILTIN_PREFIX):])
