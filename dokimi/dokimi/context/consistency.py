@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from itertools import combinations
@@ -380,18 +381,40 @@ def load_outcomes(path: Path) -> dict[str, bool]:
     return data
 
 
+def _spelled_verdicts(path, name, stem, names, stems, outcomes, by_path):
+    """Verdicts of the keys that spell one trace: its path as given or resolved, and, when no
+    other run shares it, its file name or stem. Empty when no key names the trace."""
+    spelled = dict(by_path.get(os.path.realpath(path), {}))
+    if path in outcomes:
+        spelled[path] = outcomes[path]
+    # a name or stem that other runs share is no spelling of this trace; a path key decides
+    for key, same in ((name, names), (stem, stems)):
+        if key in outcomes and same.count(key) == 1:
+            spelled[key] = outcomes[key]
+    return spelled
+
+
 def apply_outcomes(runs: list[Run], outcomes: dict[str, bool]) -> list[str]:
     """Set each run's result from the verifier; returns the runs it had no verdict for.
 
-    A key is a run's full path, or its file name or stem. A name or stem several runs share
-    (``base/1.jsonl``, ``skill/1.jsonl``) is ambiguous and refused: give the full path.
+    A key is a run's path as given, the same file by another spelling (an absolute path for a
+    relative one), or its file name or stem. A name or stem several runs share
+    (``base/1.jsonl``, ``skill/1.jsonl``) is ambiguous and refused: give the full path. Two keys
+    that spell one file with different verdicts are refused too (#936).
     """
+    by_path: dict[str, dict[str, bool]] = {}
+    for key, verdict in outcomes.items():
+        by_path.setdefault(os.path.realpath(key), {})[key] = verdict
     names = [Path(r.name).name for r in runs]
     stems = [Path(r.name).stem for r in runs]
     missing = []
     for run, name, stem in zip(runs, names, stems, strict=True):
-        if run.name in outcomes:
-            run.passed = outcomes[run.name]
+        spelled = _spelled_verdicts(run.name, name, stem, names, stems, outcomes, by_path)
+        if spelled:
+            if len(set(spelled.values())) > 1:
+                raise ValueError(f"outcome keys {sorted(spelled)} name the same trace {run.name!r} "
+                                 "with different verdicts (#936, docs/run-consistency.md)")
+            run.passed = next(iter(spelled.values()))
             continue
         for key, same in ((name, names), (stem, stems)):
             if key in outcomes:

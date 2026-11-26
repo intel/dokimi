@@ -66,21 +66,31 @@ run passes when the harness ended cleanly (`result` event, `success`), which
 says the agent stopped, not that the task is done. The report says which source
 it used. A run that made tool calls but wrote no `result` event (it crashed,
 timed out or was cut off) counts as failed without `--outcomes`, so it cannot drop
-out of the pass rate; the table shows `runs` and `judged`. A file name or stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`)
-is refused: key those by full path.
+out of the pass rate; the table shows `runs` and `judged`. A key may spell the trace's path another way (an absolute path for a relative one;
+symlinks are resolved). Two keys that spell one trace, by path, file name or stem,
+with different verdicts are refused. A file name or
+stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`) is refused: key those
+by full path.
 
 ## Strategies
 
 A task with two valid routes would read as unstable if every pair of runs were
 compared. Runs are grouped by the order distance of their tool paths, repeats
-collapsed (`--threshold`, default 0.34), and each group gets a verdict:
+collapsed (`--threshold`, default 0.34), and each group gets a verdict, from its
+judged runs:
 
-| Verdict | Reading |
+| Group verdict | Reading |
 |---|---|
-| one strategy, stable success | reproducible process |
-| several strategies, all stable success | valid diversity |
-| one strategy, unstable | the route is right, execution breaks |
-| one strategy, stable failure | a reproducible mistake |
+| `stable success` | every judged run passed |
+| `stable failure` | every judged run failed: a reproducible mistake |
+| `unstable` | some passed and some failed: the route is right, execution breaks |
+| `unjudged` | no run has an outcome |
+
+The arm verdict summarises the groups: `one strategy, <group verdict>` for one
+group (`one strategy, stable success` is a reproducible process), `N strategies, all
+stable success (valid diversity)` when every group is stable success, and otherwise
+`N strategies: <group verdict> ×<runs>, ...` (`2 strategies: stable success ×2,
+stable failure ×2`).
 
 A strategy of one run has no inner distance (`null`) and its verdict is `single
 run, passed` or `single run, failed`: one run says nothing about stability, so
@@ -99,7 +109,7 @@ constrain conforms.
 actions:
   guide: {tool: Read, file_path: 'AGENTS\.md$'}
   edit:  {tool: [Edit, Write, MultiEdit]}
-  test:  {tool: Bash, command: '\b(pytest|make test)\b'}
+  test:  {tool: [Bash:pytest, Bash:make], command: '\b(pytest|make test)\b'}
   push:  {tool: Bash, command: 'git push'}
 rules:
   - before: [guide, edit]      # the guide is read before the first edit
@@ -126,6 +136,10 @@ or a newline (not under `set -e`), a trailing `&` (the list or `{ }` / `if ... f
 group it ends, whose status is always 0), or a loop body (not under `set -e`),
 whose status is the last iteration's. `command -v pytest` looks `pytest` up and is a `Bash:command`
 step, not a test run.
+
+A `command` regex on `tool: Bash` alone also matches `command -v pytest` or
+`echo pytest`, since the word is in the text; naming the kind (`Bash:pytest`) counts
+only runs of that program, as the example's `test` does.
 
 Name every equivalent way to do a step: `make check`, `sh tools/check.sh` and
 the skill's `finish.sh` are one check. A contract that knows only `make check`

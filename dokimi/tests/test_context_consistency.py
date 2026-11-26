@@ -568,3 +568,78 @@ def test_cv_of_finite_values_whose_squares_underflow_is_the_value_to_rounding():
 def test_cv_keeps_none_for_one_value_and_zero_for_a_zero_mean():
     assert _cv([5.0]) is None
     assert _cv([1e300, -1e300]) == 0.0
+
+
+def test_an_absolute_path_key_sets_the_outcome_of_a_relatively_named_trace(tmp_path, monkeypatch, capsys):
+    """#936: docs/run-consistency.md says a trace is keyed by path; two arms sharing `1.jsonl` need the full one."""
+    for arm in ("base", "skill"):
+        (tmp_path / "runs" / arm).mkdir(parents=True)
+        for n in ("1", "2"):
+            (tmp_path / "runs" / arm / f"{n}.jsonl").write_text(_trace(READ, EDIT))
+    verdicts = {str(tmp_path / "runs" / a / f"{n}.jsonl"): a == "skill" for a in ("base", "skill") for n in ("1", "2")}
+    (tmp_path / "verdicts.json").write_text(json.dumps(verdicts))
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(["trace", "consistency", "--arm", "no-skill=runs/base/*.jsonl",
+                                      "--arm", "skill=runs/skill/*.jsonl", "--outcomes", "verdicts.json", "--json"])
+    args.func(args)
+    data = json.loads(capsys.readouterr().out)["data"]
+    assert [data[k]["result"]["judged"] for k in ("no-skill", "skill")] == [2, 2]
+    assert [data[k]["result"]["success_rate"] for k in ("no-skill", "skill")] == [0.0, 1.0]
+
+
+def test_two_spellings_of_one_trace_with_different_verdicts_are_refused(tmp_path, monkeypatch):
+    """#936: docs/run-consistency.md refuses two keys that spell one trace with different verdicts."""
+    monkeypatch.chdir(tmp_path)
+    r = _run("runs/a.jsonl", READ)
+    both = {"runs/a.jsonl": True, str(tmp_path / "runs/a.jsonl"): False}
+    with pytest.raises(ValueError, match="different verdicts"):
+        apply_outcomes([r], both)
+    both[str(tmp_path / "runs/a.jsonl")] = True  # the same verdict twice is no conflict
+    assert apply_outcomes([r], both) == [] and r.passed is True
+
+
+def test_an_absolute_key_of_another_file_leaves_the_trace_unjudged(tmp_path, monkeypatch):
+    """#936: an absolute key of another file does not judge the trace (docs/run-consistency.md)."""
+    monkeypatch.chdir(tmp_path)
+    r = _run("runs/a.jsonl", READ)
+    assert apply_outcomes([r], {str(tmp_path / "runs/b.jsonl"): True}) == ["runs/a.jsonl"]
+    assert r.passed is None
+
+
+def test_a_lookup_of_pytest_is_not_the_test_the_docs_example_requires():
+    """#936: docs/run-consistency.md names the test action by kind, so `command -v pytest` is no test run."""
+    c = parse_contract({"actions": {"test": {"tool": ["Bash:pytest", "Bash:make"],
+                                             "command": r"\b(pytest|make test)\b"}},
+                        "rules": [{"requires": "test"}]})
+    assert check_contract(_run("r", ("Bash", {"command": "command -v pytest"})), c) == ["requires: test"]
+    assert check_contract(_run("r", ("Bash", {"command": "echo pytest"})), c) == ["requires: test"]
+    assert check_contract(_run("r", ("Bash", {"command": "pytest -q"})), c) == []
+
+
+def test_a_dotdot_through_a_symlink_names_the_file_it_reaches(tmp_path):
+    """#936: a key matches the trace only when it names the same file, not the same text after `..` is folded."""
+    (tmp_path / "other" / "sub").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(tmp_path / "other" / "sub")
+    r = _run(str(tmp_path / "link" / ".." / "a.jsonl"), READ)
+    outcomes = {str(tmp_path / "a.jsonl"): True, str(tmp_path / "other" / "a.jsonl"): False}
+    assert apply_outcomes([r], outcomes) == [] and r.passed is False
+
+
+@pytest.mark.parametrize("alias", ["a.jsonl", "a"])
+def test_a_full_path_key_and_a_name_or_stem_key_with_different_verdicts_are_refused(alias):
+    """#936: docs/run-consistency.md refuses two keys that spell one trace with different verdicts."""
+    with pytest.raises(ValueError, match="different verdicts"):
+        apply_outcomes([_run("runs/a.jsonl", READ)], {"runs/a.jsonl": True, alias: False})
+
+
+def test_a_full_path_key_overrides_a_name_key_that_other_traces_share():
+    """#936: a shared name is ambiguous and is no spelling of this trace, so the full path still decides."""
+    runs = [_run("x/1.jsonl", READ), _run("y/1.jsonl", READ)]
+    assert apply_outcomes(runs, {"x/1.jsonl": True, "y/1.jsonl": False, "1.jsonl": False}) == []
+    assert [r.passed for r in runs] == [True, False]
+
+
+def test_a_file_name_key_and_a_stem_key_with_different_verdicts_are_refused():
+    """#936: docs/run-consistency.md refuses two keys that spell one trace with different verdicts."""
+    with pytest.raises(ValueError, match="different verdicts"):
+        apply_outcomes([_run("runs/a.jsonl", READ)], {"a.jsonl": True, "a": False})
