@@ -314,7 +314,7 @@ finds it only by browsing. Only a link to the skill root in `SKILL.md` (`./`, or
 `_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
 not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no `warn`; it gives a
 `note` (`bundle-file-unchecked`) that says why, when the search cannot see every name: a bundle over 2000 files, more than 50 named
-documents to read, a named document over 1 MiB (truncated: the note names the file, and its names are not read), not UTF-8, a symlink or a FIFO, a hidden or vendored folder that cannot be listed. A skill with any other folder that cannot be listed does not load: its row is an error that names the folder, and the scan goes on. Skills with
+documents to read, a named document over 1 MiB (truncated: the note names the file, and its names are not read), not UTF-8, a symlink or a FIFO, a hidden folder that cannot be listed. A skill with any other folder that cannot be listed does not load: its row is an error that names the folder, and the scan goes on. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
 The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that

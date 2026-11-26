@@ -24,6 +24,7 @@ from dokimi.repos.arms import _uncopyable
 from dokimi.repos.conformance import scenarios_of
 from dokimi.skills.formats import detect_skill_packages
 from dokimi.skills.loader import load_skill
+from dokimi.treatments.factory import create_treatment
 from dokimi.utils import InputError
 
 FRONTMATTER = "---\nname: demo\ndescription: A demo skill.\n---\nBody.\n"
@@ -112,6 +113,19 @@ def test_check_skill_says_a_skill_it_cannot_list_does_not_load(tmp_path: Path):
     assert check_skill(skill) == "demo"
     with unlistable(skill / "references"), pytest.raises(ValueError, match="cannot load skill.*references"):
         check_skill(skill)
+
+
+@pytest.mark.parametrize("kind", ["skill", "skill-agent"])
+def test_a_skill_arm_with_a_folder_that_cannot_be_listed_is_refused_as_a_value_error(tmp_path: Path, kind: str):
+    skill = _skill(tmp_path)
+    with unlistable(skill / "references"), pytest.raises(ValueError, match=f"'{kind}:' folder cannot be listed.*references"):
+        create_treatment(f"{kind}:{skill}")
+
+
+def test_a_skill_catalog_arm_with_a_folder_that_cannot_be_listed_is_refused_as_a_value_error(tmp_path: Path):
+    skill = _skill(tmp_path / "catalog")
+    with unlistable(skill / "references"), pytest.raises(ValueError, match="'skill-catalog:' folder cannot be listed.*references"):
+        create_treatment(f"skill-catalog:{skill.parent}")
 
 
 def test_detect_skill_packages_raises_for_a_directory_that_cannot_be_listed(tmp_path: Path):

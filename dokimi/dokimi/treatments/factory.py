@@ -55,7 +55,10 @@ def _build(part: ArmPart, *, top_k: int, rerank_threshold: float,
         return BaselineTreatment(name=part.arm_name())
     if kind in ("skill", "skill-agent"):
         from dokimi.skills import load_skill
-        skill = load_skill(part.arg)
+        try:
+            skill = load_skill(part.arg)
+        except PermissionError as exc:
+            raise ValueError(f"'{kind}:' folder cannot be listed: {exc}") from exc
         cls = SkillTreatment if kind == "skill" else SkillAgentTreatment
         return cls(skill, name=part.arm_name(skill.name))
     if kind == "skill-catalog":
@@ -63,7 +66,10 @@ def _build(part: ArmPart, *, top_k: int, rerank_threshold: float,
         if not Path(part.arg).is_dir():
             raise ValueError(f"'skill-catalog:' path is not a directory: {part.arg}")
         notes: List[str] = []
-        skills = discover_skills(part.arg, notes=notes)
+        try:
+            skills = discover_skills(part.arg, notes=notes)
+        except PermissionError as exc:
+            raise ValueError(f"'skill-catalog:' folder cannot be listed: {exc}") from exc
         # A template or mirror left out of the arm must not vanish silently.
         for note in notes:
             print(note, file=sys.stderr)
