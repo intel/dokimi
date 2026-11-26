@@ -575,6 +575,26 @@ def test_reply_errors_visible_in_offline_report(pack, monkeypatch):
     assert "answer has no string script field" in report
 
 
+def test_claim_without_a_script_is_counted_when_rejected(pack, monkeypatch):
+    pack.mode = "scan"
+    catalog = json.loads(pack.tasks.read_text())
+    catalog["tasks"]["double"]["fixture"] = {"default": {"claimed_success": True}}
+    pack.tasks.write_text(json.dumps(catalog))
+
+    def run(image, script, mounts, *args, **kwargs):
+        if mounts:
+            assert script.endswith("exit 64")
+            return process.reply(returncode=64)
+        assert script.startswith("consumer_exit=64\n")
+        return process.reply(returncode=10)
+
+    monkeypatch.setattr(delivery, "container", run)
+    data = delivery.run(pack)
+    for arm in ("A", "B"):
+        assert data["summary"][arm]["false_success"] == [2, 2]
+    assert all(row["agent_error"] == "answer has no string script field" for row in data["observations"])
+
+
 def test_failed_workspace_setup_is_inconclusive(pack, monkeypatch):
     def prepare(image, script, mounts, *args, **kwargs):
         assert mounts, "verifier must not run after failed setup"

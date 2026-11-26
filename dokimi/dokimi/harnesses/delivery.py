@@ -149,12 +149,12 @@ def attempt(
             answer = task["fixture"].get(
                 digest("\n".join(supplied).encode()), task["fixture"]["default"]
             )
-        if not isinstance(answer, dict) or not isinstance(answer.get("script"), str):
+        fields = answer if isinstance(answer, dict) else {}
+        row["claimed_success"] = fields.get("claimed_success")
+        script = fields.get("script")
+        if not isinstance(script, str):
             row.setdefault("agent_error", "answer has no string script field")
             script = "exit 64"
-        else:
-            script = answer["script"]
-            row["claimed_success"] = answer.get("claimed_success")
     return _grade(manifest, product, initial, script, hidden, verifier, task["timeout"], row)
 
 
