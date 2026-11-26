@@ -15,7 +15,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+from dokimi import process
 from dokimi.cli import build_parser
+from dokimi.repos import container as container_mod
 from dokimi.repos.container import CONTENT_DIR, GRADERS_DIR, SOURCE_DIR, ContainerError, ContainerResult
 from dokimi.repos.graders import HOST_DIR, builtin_name, main, review
 from dokimi.repos.grading import EvalContext, check_grade, run_entry
@@ -595,6 +597,47 @@ def test_a_builtin_grader_exiting_127_for_another_reason_is_a_plain_exit(tmp_pat
     task = Task(id="t", raw={"grader": "dokimi:review_seeds"}, dir=tmp_path / "content" / "t")
     result = run_entry(ctx, "grade", task, rd, "none")  # no ContainerError: not the python3 failure
     assert result.returncode == 127 and ctx.runner.specs[0].argv[0] == "python3"
+
+
+
+@pytest.mark.parametrize("kind", ["grade", "oracle"])
+def test_entry_point_handles_halt_without_invalidating_an_active_grader_mount(tmp_path, kind):
+    rd = tmp_path / "rd"
+    rd.mkdir()
+    content = tmp_path / "content"
+    content.mkdir()
+    (rd / "grade.json").write_text("{}", encoding="utf-8")
+    mounts, kills = [], []
+
+    def answer(call):
+        if call.argv[1] == "kill":
+            kills.append(call.argv)
+            return process.reply()
+        arg = next(arg for arg in call.argv if arg.endswith(f",dst={GRADERS_DIR},readonly"))
+        staged = Path(arg.removeprefix("type=bind,src=").removesuffix(f",dst={GRADERS_DIR},readonly"))
+        assert (rd / "grade.json").exists() == (kind == "oracle")
+        mounts.append(staged)
+        container_mod.halt_and_kill_started()
+        assert (staged / "main.py").read_bytes() == (HOST_DIR / "main.py").read_bytes()
+        return process.reply()
+
+    runner = container_mod.DockerRunner(docker="docker", runner=process.FakeRunner(answer))
+    ctx = EvalContext(manifest=parse_manifest(MANIFEST), git_dir=tmp_path, content_dir=content,
+                      image="img", runner=runner, caches={"build-cache": tmp_path})
+    task = Task(id="t", raw={"grader": "dokimi:review_seeds"}, dir=content / "t")
+    try:
+        if kind == "grade":
+            assert run_entry(ctx, kind, task, rd, "none", name="dokimi-grader").returncode == 0
+            assert not (rd / "grade.json").exists()
+            assert not kills
+        else:
+            with pytest.raises(container_mod.BatchInterrupted):
+                run_entry(ctx, kind, task, rd, "none", name="dokimi-grader")
+            assert len(kills) == 1
+    finally:
+        container_mod.clear_halt()
+    [staged] = mounts
+    assert not staged.parent.exists()
 
 
 def test_a_replay_window_that_is_not_a_positive_number_is_an_authoring_error(tmp_path, capsys):
