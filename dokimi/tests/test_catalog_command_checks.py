@@ -799,6 +799,14 @@ def test_npx_reports_a_local_bin_name_after_a_directory_change(tmp_path, command
     assert "npx mytool" in finding.message
 
 
+@pytest.mark.parametrize("assignment", ["CDPATH=/tmp", 'CDPATH="/tmp path"', "CDPATH='/tmp path'"])
+def test_npx_reports_a_local_bin_after_an_assignment_prefixed_cd(tmp_path, assignment):
+    files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}
+    command = f'{assignment} cd "$PROJECT_DIR" && npx mytool init'
+    [finding] = _found(_review(tmp_path, _fenced(command), files), "install-unpinned")
+    assert "npx mytool" in finding.message
+
+
 @pytest.mark.parametrize("option", ['--prefix "$PROJECT_DIR"', "--prefix=other", "-w tools"])
 def test_npx_checks_an_executable_selected_from_another_project(tmp_path, option):
     files = {"package.json": '{"name": "mytool", "bin": "./cli.js"}'}

@@ -127,9 +127,10 @@ PNPM_DLX = re.compile(
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
 # ``echo`` or ``printf`` at the start of a command, after control keywords, ``command``/``builtin``/``exec`` and
 # ``NAME=value`` assignments (``then echo "..."``, ``LC_ALL=C printf ...``)
+_ASSIGNMENT = r"""[A-Za-z_]\w*=(?:'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*"|[^\s;&|()'"`])*"""
 ECHO_COMMAND = re.compile(
-    r"[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{|command|builtin|exec)[ \t]+"
-    r"|[A-Za-z_]\w*=(?:'[^'\n]*'|\"[^\"\n]*\"|[^\s;&|()'\"`]*)[ \t]+)*(?:echo|printf)(?![\w.-])")
+    rf"[ \t]*(?:(?:if|then|else|elif|do|while|until|time|!|\{{|command|builtin|exec|{_ASSIGNMENT})"
+    r"[ \t]+)*(?:echo|printf)(?![\w.-])")
 # ``|`` at the end of a command that feeds a shell: what the command printed is run
 PIPED_SHELL = re.compile(_PIPE_TO + r"(?:(?:ba|z|da|k)?sh|fish)(?![\w.-])")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
@@ -146,9 +147,10 @@ BLOCK_END = "\0"  # ends a fenced block or code span: a quote an ``echo`` opens 
 _DIR_CHANGE = re.compile(
     r"""\\[\s\S]|'[^'\n\0]*'|"(?:\\[^\n\0]|[^"\\\n\0])*"|(?:^|(?<=[\s;&|(\0]))\#[^\n\0]*|"""
     r"(?P<block>\0)|(?:^|(?<=[\n;&|(\0]))[ \t]*"
-    r"(?:(?:command|builtin|if|elif|then|else|while|until|do|time|!|\{)[ \t]+)*"
+    rf"(?:(?:command|builtin|if|elif|then|else|while|until|do|time|!|\{{|{_ASSIGNMENT})[ \t]+)*"
     r"(?P<change>cd|pushd|popd)(?=$|[\s;&|)\0])"
 )
+
 
 
 def _code_text(text: str, markdown: bool) -> str:
