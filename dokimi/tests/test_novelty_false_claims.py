@@ -223,3 +223,8 @@ def test_partial_or_numeric_tokens_do_not_pair_without_a_word_anchor(statement, 
 def test_existing_identifier_anchors_survive_token_boundaries(statement, answer):
     atom = Atom.from_dict({**FIXTURE["atoms"][0], "statement": statement})
     assert pair_atoms(answer, [atom]) == [atom]
+
+
+def test_a_lone_number_against_a_documented_version_is_a_conflict():
+    assert lexical_conflict("The accelerator requires driver 2.1.",
+                            "The accelerator needs driver 2.") == ("lexical:value", "2")
