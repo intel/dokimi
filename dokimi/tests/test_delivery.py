@@ -300,6 +300,31 @@ def test_installer_cannot_drain_the_hidden_input(pack):
     assert all(row["evidence"]["stdout"] == "cpu:34\ncpu:-8\n" for row in rows)
 
 
+@pytest.mark.skipif(not shutil.which("sh"), reason="requires a POSIX shell")
+@pytest.mark.parametrize("verifier_exit, outcome", [(0, "PASS"), (10, "FAIL"), (2, "INCONCLUSIVE")])
+def test_installer_failure_is_evidence_for_the_verifier(pack, monkeypatch, verifier_exit, outcome):
+    manifest = json.loads(pack.manifest.read_text())
+    manifest["install"] = "printf 'install failed\\n'\nfalse"
+
+    def run(image, script, mounts, data, *args, **kwargs):
+        if mounts:
+            for name, path in mounts.items():
+                script = script.replace(f"/{name}", str(path))
+        return process.run(["sh", "-c", script], input=data, env=process.Env.inherit(), timeout=10)
+
+    monkeypatch.setattr(delivery, "container", run)
+    row = {}
+    verify = f'[ "$consumer_exit" -eq 120 ] || exit 99\n[ -z "$(cat)" ] || exit 98\nexit {verifier_exit}'
+    if outcome == "INCONCLUSIVE":
+        with pytest.raises(ValueError, match=f"verifier failed with exit {verifier_exit}"):
+            delivery._grade(manifest, b"", b"", "printf 'consumer ran'", b"hidden", verify, 10, row)
+    else:
+        assert delivery._grade(manifest, b"", b"", "printf 'consumer ran'", b"hidden", verify, 10, row) == outcome
+    assert row["evidence"]["exit"] == 120
+    assert row["evidence"]["stderr"] == "install failed\n"
+    assert row["evidence"]["verifier_exit"] == verifier_exit
+
+
 def test_offline_release_report_rechecks_evidence(pack, monkeypatch, capsys):
     from dokimi.cli import parse_args
 
